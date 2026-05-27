@@ -15,14 +15,16 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // Non-admin-gated routes are wired and return CodeUnimplemented when
 // called without override fields. AdminTerminateEvent's Unimplemented body
-// is covered by TestHandler_AdminTerminateEventRoleGate (admin/super-admin
+// is covered by TestHandler_AdminTerminateEventPermissionGate (admin/super-admin
 // subcases), since its admin-role gate fires before the body.
 func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 	t.Parallel()
@@ -242,36 +244,40 @@ func TestHandler_RequestValidation(t *testing.T) {
 	})
 }
 
-// AdminTerminateEvent rejects non-Admin roles before the Unimplemented body.
-// Direct handler call so session.Info can be injected via authn.SetInfo.
-func TestHandler_AdminTerminateEventRoleGate(t *testing.T) {
+// AdminTerminateEvent gates on PermCurtailmentManage; callers without
+// the permission see PermissionDenied; callers with it fall through to
+// the Unimplemented stub body.
+func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
-		Reason:      "operator role-gate test",
+		Reason:      "operator permission-gate test",
 	})
 
 	cases := []struct {
-		name     string
-		role     string
-		wantCode connect.Code
+		name        string
+		permissions []string
+		wantCode    connect.Code
 	}{
-		{"viewer role is rejected", "VIEWER", connect.CodePermissionDenied},
-		{"empty role is rejected", "", connect.CodePermissionDenied},
-		{"admin role reaches Unimplemented body", domainAuth.AdminRoleName, connect.CodeUnimplemented},
-		{"super admin role reaches Unimplemented body", domainAuth.SuperAdminRoleName, connect.CodeUnimplemented},
+		{"caller without curtailment:manage is rejected", []string{authz.PermFleetRead}, connect.CodePermissionDenied},
+		{"empty permissions set is rejected", nil, connect.CodePermissionDenied},
+		{"caller with curtailment:manage reaches Unimplemented body", []string{authz.PermCurtailmentManage}, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := authn.SetInfo(t.Context(), &session.Info{
-				Role: tc.role,
-			})
+			eff := authz.NewEffectivePermissions([]authz.Assignment{{
+				AssignmentID: 1,
+				ScopeType:    authz.ScopeOrg,
+				Permissions:  tc.permissions,
+			}})
+			ctx := authn.SetInfo(t.Context(), &session.Info{})
+			ctx = middleware.WithEffectivePermissions(ctx, eff)
 
 			_, err := h.AdminTerminateEvent(ctx, req)
 
@@ -286,9 +292,9 @@ func TestHandler_AdminTerminateEventRoleGate(t *testing.T) {
 // buf.validate constraints on AdminTerminateEventRequest: event_uuid
 // min_len, target_state restricted to CANCELLED/FAILED, reason min_len.
 // Validator-passed requests reach the handler and surface CodeUnauthenticated
-// from requireAdminFromContext (no session in context); we accept that as
-// "validator passed". Role-gate behavior is covered by
-// TestHandler_AdminTerminateEventRoleGate.
+// from middleware.RequirePermission (no session in context); we accept that
+// as "validator passed". Permission-gate behavior is covered by
+// TestHandler_AdminTerminateEventPermissionGate.
 func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 	t.Parallel()
 

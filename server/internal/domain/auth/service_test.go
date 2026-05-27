@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/authn"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -864,4 +865,113 @@ func TestActivityLogging_UpdateUsernameLogsOldAndNew(t *testing.T) {
 
 	err := service.UpdateUsername(ctx, "newname")
 	require.NoError(t, err)
+}
+
+func TestRequireCallerCanManageTarget(t *testing.T) {
+	t.Parallel()
+
+	orgScope := func(perms ...string) authz.Assignment {
+		return authz.Assignment{ScopeType: authz.ScopeOrg, Permissions: perms}
+	}
+	siteScope := func(siteID int64, perms ...string) authz.Assignment {
+		sid := siteID
+		return authz.Assignment{ScopeType: authz.ScopeSite, SiteID: &sid, Permissions: perms}
+	}
+
+	superAdminOrg := []authz.Assignment{
+		orgScope("user:read", "user:manage", "role:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"),
+	}
+	adminOrg := []authz.Assignment{
+		orgScope("user:read", "user:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"),
+	}
+	customOrgWithRoleManage := []authz.Assignment{orgScope("user:read", "role:manage")}
+	fieldTechOrg := []authz.Assignment{orgScope("miner:read", "miner:blink_led")}
+
+	// Reviewer-flagged case: ADMIN at org-scope plus a site-scoped
+	// custom role granting role:manage *at one site*. The flattened-key
+	// approach would let this caller subsume a SUPER_ADMIN target whose
+	// role:manage is org-scoped, even though the caller cannot wield
+	// role:manage org-wide. Scope-aware comparison must reject.
+	adminOrgPlusSiteRoleManage := []authz.Assignment{
+		orgScope("user:read", "user:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"),
+		siteScope(7, "role:manage"),
+	}
+
+	cases := []struct {
+		name       string
+		caller     []authz.Assignment
+		target     []authz.Assignment
+		wantDenied bool
+	}{
+		{"super admin manages super admin (peer via role:manage bypass)", superAdminOrg, superAdminOrg, false},
+		{"super admin manages admin", superAdminOrg, adminOrg, false},
+		{"super admin manages field tech", superAdminOrg, fieldTechOrg, false},
+		{"super admin manages custom-with-role-manage", superAdminOrg, customOrgWithRoleManage, false},
+		{"admin manages field tech", adminOrg, fieldTechOrg, false},
+		{"admin BLOCKED from peer admin (equality without role:manage)", adminOrg, adminOrg, true},
+		{"admin BLOCKED from custom-with-org-role-manage (escalation)", adminOrg, customOrgWithRoleManage, true},
+		{"admin cannot manage super admin", adminOrg, superAdminOrg, true},
+		{"field tech cannot manage admin", fieldTechOrg, adminOrg, true},
+		{"field tech BLOCKED from peer field tech (equality without role:manage)", fieldTechOrg, fieldTechOrg, true},
+		{"empty caller cannot manage anyone with perms", nil, fieldTechOrg, true},
+		{"anyone manages empty target", adminOrg, nil, false},
+		{
+			"admin-with-site-scoped-role-manage cannot launder it into org authority over SUPER_ADMIN",
+			adminOrgPlusSiteRoleManage, superAdminOrg, true,
+		},
+		{
+			// Caller has org-scope SUPER_ADMIN but narrows to FIELD_TECH at site 7.
+			// Target is org-scope ADMIN with no narrowing. Even though the caller's
+			// flat org-scope set covers ADMIN's keys, the caller cannot perform
+			// ADMIN actions at site 7 (the narrowed FIELD_TECH set excludes them),
+			// while the ADMIN target still can. Resetting target's password would
+			// hand the caller an account with broader site-7 authority than they
+			// themselves possess.
+			"caller-side narrowing must block subsumption of an unnarrowed target",
+			[]authz.Assignment{
+				orgScope("user:read", "user:manage", "role:manage", "miner:reboot", "miner:read", "site:manage"),
+				siteScope(7, "miner:read"),
+			},
+			adminOrg,
+			true,
+		},
+		{
+			"site-scoped target requires site-scoped caller authority",
+			[]authz.Assignment{orgScope("user:manage")},
+			[]authz.Assignment{siteScope(7, "miner:reboot")},
+			true,
+		},
+		{
+			"custom role with org-scope role:manage manages peer with same set",
+			[]authz.Assignment{orgScope("user:read", "user:manage", "role:manage")},
+			[]authz.Assignment{orgScope("user:read", "user:manage", "role:manage")},
+			false,
+		},
+		{
+			"admin with operator-added extra perm manages vanilla admin (strict superset)",
+			[]authz.Assignment{orgScope("user:read", "user:manage", "miner:reboot", "miner:read", "miner:blink_led", "site:manage", "synthetic:extra")},
+			adminOrg,
+			false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			caller := authz.NewEffectivePermissions(tc.caller)
+			target := authz.NewEffectivePermissions(tc.target)
+
+			err := requireCallerCanManageTarget(caller, target)
+			if tc.wantDenied {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, fleeterror.NewForbiddenError("").GRPCCode, fleetErr.GRPCCode,
+					"privilege-parity denial should return PermissionDenied")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

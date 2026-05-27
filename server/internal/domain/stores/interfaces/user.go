@@ -33,6 +33,7 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 	UpdateLastLogin(ctx context.Context, userID int64) error
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	GetUserRoleName(ctx context.Context, userID int64, organizationID int64) (string, error)
+	ListPermissionKeysByRoleID(ctx context.Context, roleID int64) ([]string, error)
 }
 
 type User struct {

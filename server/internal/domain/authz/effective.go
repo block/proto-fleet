@@ -112,6 +112,74 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// StrictlyDominates reports whether this EffectivePermissions
+// subsumes other AND holds at least one (key, scope) pair other does
+// not — i.e., a proper superset. Used as the no-role:manage branch of
+// the user-management parity check, where equal permission sets must
+// be rejected so peer-tier accounts can't manage each other.
+func (e *EffectivePermissions) StrictlyDominates(other *EffectivePermissions) bool {
+	return other.IsSubsumedBy(e) && !e.IsSubsumedBy(other)
+}
+
+// IsSubsumedBy reports whether every (permission key, resource scope)
+// the receiver can act under is also actionable by other. Scope-aware:
+// a permission held only at site 7 is *not* subsumed by the same key
+// held only at org scope (and vice versa), and — crucially —
+// other-side narrowing is treated as reducing coverage for the
+// receiver's org-scope keys at every site where other narrows. Without
+// that, a caller with org-scope SUPER_ADMIN plus a restrictive
+// FIELD_TECH assignment at site 7 would falsely subsume an org ADMIN
+// target whose ADMIN authority still applies at site 7 (the target
+// has no narrowing there, so its org-scope grants are live).
+//
+// The check covers two domains:
+//
+//  1. The org-scope action space. Every org-scope key the receiver
+//     holds must be held by other at org scope.
+//
+//  2. The site-scope action space at every site where either party
+//     narrows. For each such site s, the receiver's effective key set
+//     at s is its site-scope set if it has one (narrowing applies),
+//     otherwise its org-scope set; every such key must be actionable
+//     by other at s via the same narrowing-aware Has().
+//
+// Sites where neither party narrows are covered by the org-scope pass.
+func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
+	if e == nil {
+		return true
+	}
+	for key := range e.orgScope {
+		if !other.Has(key, ResourceContext{}) {
+			return false
+		}
+	}
+
+	relevantSites := make(map[int64]struct{}, len(e.bySite)+len(other.bySite))
+	for s := range e.bySite {
+		relevantSites[s] = struct{}{}
+	}
+	for s := range other.bySite {
+		relevantSites[s] = struct{}{}
+	}
+	for s := range relevantSites {
+		sid := s
+		rc := ResourceContext{SiteID: &sid}
+		keys := e.bySite[s]
+		if keys == nil {
+			// e has no narrowing at this site, so its org-scope grants
+			// apply here and become the action set that other must
+			// cover at this site.
+			keys = e.orgScope
+		}
+		for key := range keys {
+			if !other.Has(key, rc) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // FlatKeys returns every distinct permission key the user holds across
 // every assignment, sorted lexicographically. UserInfo.permissions is
 // projected from this for the client's coarse "has the permission

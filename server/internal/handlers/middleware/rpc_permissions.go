@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 )
 
 // ProcedurePermissions maps gated Connect procedures to the catalog
@@ -48,6 +49,53 @@ var ProcedurePermissions = map[string]string{
 	// RequirePermission. Empty entries are expected while the
 	// migration is in flight; the contract test catches missing
 	// classifications either way.
+
+	// API key management — gated by RequirePermission(PermAPIKeyManage).
+	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: authz.PermAPIKeyManage,
+	apikeyv1connect.ApiKeyServiceListApiKeysProcedure:  authz.PermAPIKeyManage,
+	apikeyv1connect.ApiKeyServiceRevokeApiKeyProcedure: authz.PermAPIKeyManage,
+
+	// Auth user management — gated at the handler layer via
+	// RequirePermission. ListUsers previously had no role check at all;
+	// it is now gated by PermUserRead (ADMIN + SUPER_ADMIN). Mutations
+	// require PermUserManage; the auth domain layer additionally enforces
+	// a role-hierarchy check so an ADMIN cannot create, reset, or
+	// deactivate an elevated (ADMIN/SUPER_ADMIN) target.
+	authv1connect.AuthServiceCreateUserProcedure:        authz.PermUserManage,
+	authv1connect.AuthServiceDeactivateUserProcedure:    authz.PermUserManage,
+	authv1connect.AuthServiceResetUserPasswordProcedure: authz.PermUserManage,
+	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
+
+	// Buildings CRUD — site:read for reads, site:manage for writes.
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:  authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:    authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure: authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceUpdateBuildingProcedure: authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceDeleteBuildingProcedure: authz.PermSiteManage,
+
+	// CurtailmentService — only AdminTerminateEvent moves in this swap.
+	// Start/Stop/Preview retain their conditional inline gates pending
+	// the broader curtailment authz redesign.
+	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure: authz.PermCurtailmentManage,
+
+	// FleetNodeAdminService — read for List, manage for the rest.
+	// Pair/Unpair/ListFleetNodeDevices/DiscoverOnFleetNode remain
+	// Unimplemented stubs and stay in ProceduresPendingMigration.
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure: authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:       authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:     authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:      authz.PermFleetnodeManage,
+
+	// ServerLogService — gated by PermServerlogRead.
+	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
+
+	// Sites CRUD — site:read for List, site:manage for everything else.
+	sitesv1connect.SiteServiceListSitesProcedure:             authz.PermSiteRead,
+	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
+	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
+	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
+	sitesv1connect.SiteServiceReassignDevicesToSiteProcedure: authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure:  authz.PermSiteManage,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that
@@ -68,28 +116,13 @@ var ProceduresPendingMigration = map[string]string{
 	activityv1connect.ActivityServiceExportActivitiesProcedure:          "ungated; activity log CSV export",
 	activityv1connect.ActivityServiceListActivityFilterOptionsProcedure: "ungated; filter option lookup",
 
-	// API key management — local requireAdmin helper in apikey/handler.go.
-	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: "inline requireAdmin in apikey/handler.go",
-	apikeyv1connect.ApiKeyServiceListApiKeysProcedure:  "inline requireAdmin in apikey/handler.go",
-	apikeyv1connect.ApiKeyServiceRevokeApiKeyProcedure: "inline requireAdmin in apikey/handler.go",
-
-	// Auth user management — checkCanManageUser in auth/service.go.
-	authv1connect.AuthServiceCreateUserProcedure:        "domain-layer checkCanManageUser",
-	authv1connect.AuthServiceDeactivateUserProcedure:    "domain-layer checkCanManageUser",
-	authv1connect.AuthServiceResetUserPasswordProcedure: "domain-layer checkCanManageUser",
-	authv1connect.AuthServiceListUsersProcedure:         "UNGATED: auth/service.go ListUsers has no role check; any authenticated org member can enumerate users — migration must add a real gate",
+	// Auth self-service and session procedures — caller acts on own
+	// session/identity, no separate role check needed.
 	authv1connect.AuthServiceGetUserAuditInfoProcedure:  "authenticated self-read, no role check",
 	authv1connect.AuthServiceUpdatePasswordProcedure:    "authenticated self-write, no role check",
 	authv1connect.AuthServiceUpdateUsernameProcedure:    "authenticated self-write, no role check",
 	authv1connect.AuthServiceVerifyCredentialsProcedure: "authenticated self-read, no role check",
 	authv1connect.AuthServiceLogoutProcedure:            "session-only; FailedPrecondition guard in handler",
-
-	// Buildings — middleware.RequireAdmin in buildings/handler.go.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:  "middleware.RequireAdmin",
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:    "middleware.RequireAdmin",
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure: "middleware.RequireAdmin",
-	buildingsv1connect.BuildingServiceUpdateBuildingProcedure: "middleware.RequireAdmin",
-	buildingsv1connect.BuildingServiceDeleteBuildingProcedure: "middleware.RequireAdmin",
 
 	// DeviceCollectionService — ungated reads + writes on shared collections.
 	collectionv1connect.DeviceCollectionServiceCreateCollectionProcedure:            "ungated",
@@ -110,10 +143,10 @@ var ProceduresPendingMigration = map[string]string{
 	collectionv1connect.DeviceCollectionServiceClearRackSlotPositionProcedure:       "ungated",
 
 	// CurtailmentService — gates are conditional or absent; migration must close the gaps.
+	// AdminTerminateEvent already swapped to RequirePermission(PermCurtailmentManage).
 	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set or AllowUnbounded; otherwise any authenticated user can start",
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure: "UNIMPLEMENTED STUB: returns Unimplemented with no gate; needs a real gate when implemented",
-	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:    "session-only + inline requireAdminFromContext",
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:  "ungated read",
 	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:   "ungated read",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
@@ -154,12 +187,8 @@ var ProceduresPendingMigration = map[string]string{
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            "ungated",
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      "ungated",
 
-	// FleetNodeAdminService — only the first four overrides exist; the rest fall through
-	// the embedded UnimplementedFleetNodeAdminServiceHandler and never reach a role check.
-	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  "inline requireAdminSession (info.Role check)",
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        "inline requireAdminSession (info.Role check)",
-	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      "inline requireAdminSession (info.Role check)",
-	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:       "inline requireAdminSession (info.Role check)",
+	// FleetNodeAdminService — only the unimplemented stubs remain;
+	// CreateEnrollmentCode/List/Confirm/Revoke moved to ProcedurePermissions.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
 	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
@@ -212,17 +241,6 @@ var ProceduresPendingMigration = map[string]string{
 	schedulev1connect.ScheduleServicePauseScheduleProcedure:    "ungated",
 	schedulev1connect.ScheduleServiceResumeScheduleProcedure:   "ungated",
 	schedulev1connect.ScheduleServiceReorderSchedulesProcedure: "ungated",
-
-	// ServerLogService — inline role check.
-	serverlogv1connect.ServerLogServiceListServerLogsProcedure: "inline info.Role check",
-
-	// SiteService — middleware.RequireAdmin.
-	sitesv1connect.SiteServiceListSitesProcedure:             "middleware.RequireAdmin",
-	sitesv1connect.SiteServiceCreateSiteProcedure:            "middleware.RequireAdmin",
-	sitesv1connect.SiteServiceUpdateSiteProcedure:            "middleware.RequireAdmin",
-	sitesv1connect.SiteServiceDeleteSiteProcedure:            "middleware.RequireAdmin",
-	sitesv1connect.SiteServiceReassignDevicesToSiteProcedure: "middleware.RequireAdmin",
-	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure:  "middleware.RequireAdmin",
 
 	// TelemetryService — ungated.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          "ungated",

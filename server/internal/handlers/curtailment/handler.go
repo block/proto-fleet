@@ -16,11 +16,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// Action verbs for requireAdminFromContext error messages.
-const (
-	actionSupplyOverrideFields = "supply curtailment override fields"
-	actionTerminateEvents      = "terminate curtailment events"
-)
+// Action verb for requireAdminFromContext error messages on the conditional
+// override gates in Start/Stop/Preview. AdminTerminateEvent uses
+// RequirePermission instead.
+const actionSupplyOverrideFields = "supply curtailment override fields"
 
 // Handler implements the curtailment RPC surface; service=nil keeps
 // every RPC at Unimplemented (test stubs).
@@ -204,20 +203,15 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 }
 
 // AdminTerminateEvent forces a non-terminal event to terminal. Paired
-// with SessionOnlyProcedures (see interceptors/config.go). Defense in
-// depth: the session-only admin-role gate fires first for legacy
-// configurations; the curtailment:manage permission gate is the
-// authoritative RBAC check.
+// with SessionOnlyProcedures (see interceptors/config.go); the
+// curtailment:manage permission gate is the authoritative RBAC check.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
-	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
-	}
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
 	}
 	terminateReq, err := toAdminTerminateRequest(req.Msg, info)
 	if err != nil {

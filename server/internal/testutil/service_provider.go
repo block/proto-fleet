@@ -103,7 +103,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(db)
 	apiKeySvc := apikey.NewService(apiKeyStore, activitySvc)
 
-	authService := auth.NewService(userStore, userStore, transactor, tokenService, sessionService, encryptService, activitySvc)
+	permissionResolver := authz.NewPermissionResolver(db)
+	authService := auth.NewService(userStore, userStore, transactor, tokenService, sessionService, encryptService, activitySvc, permissionResolver)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -181,6 +182,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		FilesService:           filesService,
 		MinerService:           minerService,
 		PluginService:          pluginService,
-		PermissionResolver:     authz.NewPermissionResolver(db),
+		PermissionResolver:     permissionResolver,
 	}
 }

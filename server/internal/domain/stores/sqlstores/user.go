@@ -297,3 +297,7 @@ func (s *SQLUserStore) GetUserRoleName(ctx context.Context, userID int64, organi
 		OrganizationID: organizationID,
 	})
 }
+
+func (s *SQLUserStore) ListPermissionKeysByRoleID(ctx context.Context, roleID int64) ([]string, error) {
+	return s.getQueries(ctx).ListRolePermissionKeys(ctx, roleID)
+}

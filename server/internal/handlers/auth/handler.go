@@ -9,6 +9,8 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // Handler handles authentication requests
@@ -107,8 +109,11 @@ func (s *Handler) GetUserAuditInfo(ctx context.Context, _ *connect.Request[pb.Ge
 	return connect.NewResponse(resp), nil
 }
 
-// CreateUser creates a new user with a temporary password (Super Admin only)
+// CreateUser creates a new user with a temporary password.
 func (s *Handler) CreateUser(ctx context.Context, req *connect.Request[pb.CreateUserRequest]) (*connect.Response[pb.CreateUserResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermUserManage, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	resp, err := s.authSvc.CreateUser(ctx, req.Msg)
 	if err != nil {
 		return nil, err
@@ -117,8 +122,11 @@ func (s *Handler) CreateUser(ctx context.Context, req *connect.Request[pb.Create
 	return connect.NewResponse(resp), nil
 }
 
-// ListUsers returns all users in the organization (Super Admin only)
+// ListUsers returns all users in the organization.
 func (s *Handler) ListUsers(ctx context.Context, _ *connect.Request[pb.ListUsersRequest]) (*connect.Response[pb.ListUsersResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermUserRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	resp, err := s.authSvc.ListUsers(ctx)
 	if err != nil {
 		return nil, err
@@ -127,8 +135,11 @@ func (s *Handler) ListUsers(ctx context.Context, _ *connect.Request[pb.ListUsers
 	return connect.NewResponse(resp), nil
 }
 
-// ResetUserPassword generates a new temporary password for a user (Super Admin only)
+// ResetUserPassword generates a new temporary password for a user.
 func (s *Handler) ResetUserPassword(ctx context.Context, req *connect.Request[pb.ResetUserPasswordRequest]) (*connect.Response[pb.ResetUserPasswordResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermUserManage, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	resp, err := s.authSvc.ResetUserPassword(ctx, req.Msg)
 	if err != nil {
 		return nil, err
@@ -137,8 +148,11 @@ func (s *Handler) ResetUserPassword(ctx context.Context, req *connect.Request[pb
 	return connect.NewResponse(resp), nil
 }
 
-// DeactivateUser soft-deletes a user (Super Admin only)
+// DeactivateUser soft-deletes a user.
 func (s *Handler) DeactivateUser(ctx context.Context, req *connect.Request[pb.DeactivateUserRequest]) (*connect.Response[pb.DeactivateUserResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermUserManage, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	resp, err := s.authSvc.DeactivateUser(ctx, req.Msg)
 	if err != nil {
 		return nil, err

@@ -16,11 +16,12 @@ import (
 	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	domainApiKey "github.com/block/proto-fleet/server/internal/domain/apikey"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 type apiKeyStoreStub struct {
@@ -88,9 +89,14 @@ func (adminAuthInjector) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 			OrganizationID: 1,
 			ExternalUserID: "user-1",
 			Username:       "admin",
-			Role:           domainAuth.AdminRoleName,
 		}
-		return next(authn.SetInfo(ctx, info), req)
+		eff := authz.NewEffectivePermissions([]authz.Assignment{{
+			AssignmentID: 1,
+			ScopeType:    authz.ScopeOrg,
+			Permissions:  []string{authz.PermAPIKeyManage},
+		}})
+		ctx = middleware.WithEffectivePermissions(authn.SetInfo(ctx, info), eff)
+		return next(ctx, req)
 	}
 }
 

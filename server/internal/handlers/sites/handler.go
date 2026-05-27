@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -28,7 +29,7 @@ func NewHandler(service *sites.Service) *Handler {
 }
 
 func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "list sites")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +41,7 @@ func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSites
 }
 
 func (h *Handler) CreateSite(ctx context.Context, req *connect.Request[pb.CreateSiteRequest]) (*connect.Response[pb.CreateSiteResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "create sites")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +56,7 @@ func (h *Handler) CreateSite(ctx context.Context, req *connect.Request[pb.Create
 }
 
 func (h *Handler) UpdateSite(ctx context.Context, req *connect.Request[pb.UpdateSiteRequest]) (*connect.Response[pb.UpdateSiteResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "update sites")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +71,7 @@ func (h *Handler) UpdateSite(ctx context.Context, req *connect.Request[pb.Update
 }
 
 func (h *Handler) DeleteSite(ctx context.Context, req *connect.Request[pb.DeleteSiteRequest]) (*connect.Response[pb.DeleteSiteResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "delete sites")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func (h *Handler) DeleteSite(ctx context.Context, req *connect.Request[pb.Delete
 }
 
 func (h *Handler) ReassignDevicesToSite(ctx context.Context, req *connect.Request[pb.ReassignDevicesToSiteRequest]) (*connect.Response[pb.ReassignDevicesToSiteResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "reassign devices")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func (h *Handler) ReassignDevicesToSite(ctx context.Context, req *connect.Reques
 }
 
 func (h *Handler) AssignBuildingToSite(ctx context.Context, req *connect.Request[pb.AssignBuildingToSiteRequest]) (*connect.Response[pb.AssignBuildingToSiteResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "assign buildings to sites")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}

@@ -19,6 +19,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -51,6 +52,7 @@ type Service struct {
 	sessionSvc          *session.Service
 	encryptSvc          *encrypt.Service
 	activitySvc         *activity.Service
+	permResolver        *authz.PermissionResolver
 }
 
 func NewService(
@@ -61,6 +63,7 @@ func NewService(
 	sessionSvc *session.Service,
 	encryptSvc *encrypt.Service,
 	activitySvc *activity.Service,
+	permResolver *authz.PermissionResolver,
 ) *Service {
 	return &Service{
 		userStore:           userStore,
@@ -70,6 +73,7 @@ func NewService(
 		sessionSvc:          sessionSvc,
 		encryptSvc:          encryptSvc,
 		activitySvc:         activitySvc,
+		permResolver:        permResolver,
 	}
 }
 
@@ -544,32 +548,93 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// checkCanManageUser checks if the current user can manage (deactivate/reset password) other users
-// Only SUPER_ADMIN users can manage other users
-func (s *Service) checkCanManageUser(ctx context.Context, organizationID int64) error {
-	info, err := session.GetInfo(ctx)
+// authorizeCallerForUser is the shared lookup + parity check for
+// ResetUserPassword and DeactivateUser. It resolves the target by
+// external ID, masks cross-tenant lookups as InvalidArgument so
+// existence does not leak across orgs, and runs the privilege-parity
+// gate. Returns the resolved target so callers can use its IDs / name
+// downstream.
+func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgID int64, targetExternalID string) (stores.User, error) {
+	target, err := s.userStore.GetUserByExternalID(ctx, targetExternalID)
 	if err != nil {
-		return err
+		return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
 	}
 
-	currentUserRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, organizationID)
+	// Cross-org guard: GetUserByExternalID is a global lookup. ErrNoRows
+	// here means the target isn't in the caller's org; mask as
+	// InvalidArgument to avoid leaking existence across tenants. Other
+	// errors are transient and must propagate as Internal.
+	if _, err := s.userManagementStore.GetUserRoleName(ctx, target.ID, orgID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
+		}
+		return stores.User{}, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
+	}
+
+	targetEff, err := s.permResolver.LoadEffective(ctx, target.ID, orgID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting current user role: %v", err)
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+	}
+	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
+	if err != nil {
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+	}
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+		return stores.User{}, err
+	}
+	return target, nil
+}
+
+// authorizeCallerForNewUserWithRole is the CreateUser counterpart of
+// authorizeCallerForUser: the target does not yet exist, so the parity
+// check uses a synthetic effective-permissions snapshot built from the
+// role being assigned. Returns the resolved role so the caller can
+// bind the new user to it.
+func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerUserID, orgID int64, roleName string) (stores.Role, error) {
+	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, roleName)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error getting %s role for org: %v", roleName, err)
 	}
 
-	// Only SUPER_ADMIN users can manage other users
-	if currentUserRoleName != SuperAdminRoleName {
-		return fleeterror.NewErrorWithEndpointCode(
-			"only super admin users can manage other user accounts",
-			connect.CodePermissionDenied,
-			int32(authv1.UserManagementErrorCode_USER_MANAGEMENT_ERROR_CODE_UNAUTHORIZED),
-		)
+	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
 	}
+	targetEff := authz.NewEffectivePermissions([]authz.Assignment{{
+		ScopeType:   authz.ScopeOrg,
+		Permissions: targetKeys,
+	}})
+	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+	}
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+		return stores.Role{}, err
+	}
+	return role, nil
+}
 
+// requireCallerCanManageTarget enforces the user-management hierarchy:
+// callers with org-scope role:manage need only subsume the target;
+// everyone else must strictly dominate it. Without the strict-dominate
+// requirement, ADMIN (equal perms to a fresh ADMIN account) could mint
+// new ADMINs via CreateUser and walk off with the temp password.
+func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
+	if callerEff.Has(authz.PermRoleManage, authz.ResourceContext{}) {
+		if !targetEff.IsSubsumedBy(callerEff) {
+			return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
+		}
+		return nil
+	}
+	if !callerEff.StrictlyDominates(targetEff) {
+		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
+	}
 	return nil
 }
 
-// CreateUser creates a new user with a temporary password (Super Admin only)
+// CreateUser creates a new user with a temporary password. Authorization is
+// enforced by the Connect handler via RequirePermission(PermUserManage);
+// callers outside the handler layer must add their own permission gate.
 func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
 	// Validate username
 	trimmedUsername := strings.TrimSpace(req.Username)
@@ -594,15 +659,11 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
-	// Authorization gate: only a SUPER_ADMIN in this org can create new
-	// users. Without this, any authenticated session can mint a fresh
-	// ADMIN account, receive the returned temporary password, and log
-	// in as it — a direct privilege escalation. Companion methods
-	// (ResetUserPassword, DeactivateUser) already enforce this via
-	// checkCanManageUser; CreateUser must too. Runs before the
-	// temp-password generation and role lookup so an unauthorized
-	// caller does not even consume entropy or touch the role table.
-	if err := s.checkCanManageUser(ctx, orgID); err != nil {
+	// Look up the ADMIN role for this org and gate the caller against
+	// the permission set the new user will inherit. Org-scoped row
+	// lookup avoids binding to a different tenant's ADMIN.
+	role, err := s.authorizeCallerForNewUserWithRole(ctx, info.UserID, orgID, AdminRoleName)
+	if err != nil {
 		return nil, err
 	}
 
@@ -616,15 +677,6 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error generating password hash: %v", err)
-	}
-
-	// Look up the ADMIN role belonging to this user's organization. Each
-	// org owns its own ADMIN row, so a name-only lookup would return an
-	// arbitrary org's row (or the soft-deleted legacy global one) and
-	// could bind the new user to a role record from a different tenant.
-	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, AdminRoleName)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
 	}
 
 	var createdUserID string
@@ -715,7 +767,10 @@ func (s *Service) ListUsers(ctx context.Context) (*authv1.ListUsersResponse, err
 	}, nil
 }
 
-// ResetUserPassword generates a new temporary password for a user (Super Admin only)
+// ResetUserPassword generates a new temporary password for a user.
+// Authorization is enforced by the Connect handler via RequirePermission
+// (PermUserManage); callers outside the handler layer must add their own
+// permission gate.
 func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPasswordRequest) (*authv1.ResetUserPasswordResponse, error) {
 	if req.UserId == "" {
 		return nil, fleeterror.NewInvalidArgumentError("user_id is required")
@@ -738,15 +793,9 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	orgID := orgs[0].ID
 
-	// Check if current user can manage other users (only SUPER_ADMIN can)
-	if err := s.checkCanManageUser(ctx, orgID); err != nil {
-		return nil, err
-	}
-
-	// Get target user
-	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
+	user, err := s.authorizeCallerForUser(ctx, info.UserID, orgID, req.UserId)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+		return nil, err
 	}
 
 	// Generate new temporary password
@@ -789,7 +838,9 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}, nil
 }
 
-// DeactivateUser soft-deletes a user (Super Admin only)
+// DeactivateUser soft-deletes a user. Authorization is enforced by the
+// Connect handler via RequirePermission(PermUserManage); callers outside
+// the handler layer must add their own permission gate.
 func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUserRequest) (*authv1.DeactivateUserResponse, error) {
 	if req.UserId == "" {
 		return nil, fleeterror.NewInvalidArgumentError("user_id is required")
@@ -817,11 +868,6 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		return nil, fleeterror.NewInternalErrorf("error getting current user: %v", err)
 	}
 
-	// Check if current user can manage other users (only SUPER_ADMIN can)
-	if err := s.checkCanManageUser(ctx, orgID); err != nil {
-		return nil, err
-	}
-
 	// Prevent self-deactivation
 	if currentUser.UserID == req.UserId {
 		return nil, fleeterror.NewErrorWithEndpointCode(
@@ -831,10 +877,9 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		)
 	}
 
-	// Get target user
-	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
+	user, err := s.authorizeCallerForUser(ctx, info.UserID, orgID, req.UserId)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+		return nil, err
 	}
 
 	// Soft delete user

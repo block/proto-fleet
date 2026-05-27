@@ -11,10 +11,9 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	domainApiKey "github.com/block/proto-fleet/server/internal/domain/apikey"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // Handler handles API key management requests.
@@ -30,12 +29,8 @@ func NewHandler(apiKeySvc *domainApiKey.Service) *Handler {
 }
 
 func (h *Handler) CreateApiKey(ctx context.Context, req *connect.Request[pb.CreateApiKeyRequest]) (*connect.Response[pb.CreateApiKeyResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermAPIKeyManage, authz.ResourceContext{})
 	if err != nil {
-		return nil, err
-	}
-
-	if err := requireAdmin(info); err != nil {
 		return nil, err
 	}
 
@@ -57,12 +52,8 @@ func (h *Handler) CreateApiKey(ctx context.Context, req *connect.Request[pb.Crea
 }
 
 func (h *Handler) ListApiKeys(ctx context.Context, _ *connect.Request[pb.ListApiKeysRequest]) (*connect.Response[pb.ListApiKeysResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermAPIKeyManage, authz.ResourceContext{})
 	if err != nil {
-		return nil, err
-	}
-
-	if err := requireAdmin(info); err != nil {
 		return nil, err
 	}
 
@@ -82,12 +73,8 @@ func (h *Handler) ListApiKeys(ctx context.Context, _ *connect.Request[pb.ListApi
 }
 
 func (h *Handler) RevokeApiKey(ctx context.Context, req *connect.Request[pb.RevokeApiKeyRequest]) (*connect.Response[pb.RevokeApiKeyResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermAPIKeyManage, authz.ResourceContext{})
 	if err != nil {
-		return nil, err
-	}
-
-	if err := requireAdmin(info); err != nil {
 		return nil, err
 	}
 
@@ -96,13 +83,6 @@ func (h *Handler) RevokeApiKey(ctx context.Context, req *connect.Request[pb.Revo
 	}
 
 	return connect.NewResponse(&pb.RevokeApiKeyResponse{}), nil
-}
-
-func requireAdmin(info *session.Info) error {
-	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
-		return fleeterror.NewForbiddenError("only admins can manage API keys")
-	}
-	return nil
 }
 
 func apiKeyToProto(key *interfaces.ApiKey) *pb.ApiKeyInfo {

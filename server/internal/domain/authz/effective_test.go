@@ -182,3 +182,69 @@ func TestEffective_FieldTechCanBlinkButNotReboot(t *testing.T) {
 	require.False(t, eff.Has(authz.PermMinerReboot, site(7)))
 	require.False(t, eff.Has(authz.PermUserManage, orgResource()))
 }
+
+func TestEffective_StrictlyDominates(t *testing.T) {
+	t.Parallel()
+
+	larger := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage),
+	})
+	smaller := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage),
+	})
+	equalToSmaller := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage),
+	})
+
+	require.True(t, larger.StrictlyDominates(smaller),
+		"a proper superset strictly dominates")
+	require.False(t, smaller.StrictlyDominates(larger),
+		"a proper subset does not dominate its superset")
+	require.False(t, smaller.StrictlyDominates(equalToSmaller),
+		"equality is not strict domination (this is what blocks peer-tier user management)")
+}
+
+func TestEffective_IsSubsumedBy(t *testing.T) {
+	t.Parallel()
+
+	superAdminOrg := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage, authz.PermMinerReboot),
+	})
+	adminOrg := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermMinerReboot),
+	})
+	adminOrgPlusSiteRoleManage := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermMinerReboot),
+		siteScope(7, authz.PermRoleManage),
+	})
+	siteOnlyMinerReboot := authz.NewEffectivePermissions([]authz.Assignment{
+		siteScope(7, authz.PermMinerReboot),
+	})
+
+	require.True(t, adminOrg.IsSubsumedBy(superAdminOrg),
+		"super_admin's catalog covers admin's org-scope keys")
+	require.False(t, superAdminOrg.IsSubsumedBy(adminOrg),
+		"admin lacks role:manage that super_admin holds at org scope")
+	require.False(t, superAdminOrg.IsSubsumedBy(adminOrgPlusSiteRoleManage),
+		"a caller's site-scoped role:manage must NOT subsume a target's org-scoped role:manage")
+	require.True(t, siteOnlyMinerReboot.IsSubsumedBy(superAdminOrg),
+		"org-scope grants narrow into the site scope when no site-scope assignment exists, so the org-only super_admin covers site-only miner:reboot")
+	require.False(t, siteOnlyMinerReboot.IsSubsumedBy(authz.NewEffectivePermissions([]authz.Assignment{
+		siteScope(7, authz.PermMinerRead), // narrowing at site 7 excludes miner:reboot
+	})),
+		"a site-scope assignment that narrows away the target's key must NOT subsume the target")
+	require.True(t, authz.NewEffectivePermissions(nil).IsSubsumedBy(adminOrg),
+		"empty target is trivially subsumed by any caller")
+
+	// Caller-side narrowing must reduce coverage of the caller's
+	// org-scope grants at the narrowed site. Otherwise a caller with
+	// broad org-scope authority + a restrictive site assignment would
+	// falsely subsume a target whose org-scope authority is still live
+	// at that site.
+	callerOrgFullPlusNarrowSite7 := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage, authz.PermMinerReboot),
+		siteScope(7, authz.PermUserRead), // narrows site 7 to read-only
+	})
+	require.False(t, adminOrg.IsSubsumedBy(callerOrgFullPlusNarrowSite7),
+		"caller's site-7 narrowing strips miner:reboot, but the org-scope ADMIN target's miner:reboot authority remains live at site 7 — caller must not subsume target")
+}
