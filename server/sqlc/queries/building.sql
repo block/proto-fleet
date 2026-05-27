@@ -133,6 +133,8 @@ WHERE dsr.org_id = sqlc.arg('org_id')
 -- position. Used by ManageBuildingModal to seed the layout grid.
 -- Excludes soft-deleted rack collections; org guard is checked
 -- against the denormalized org_id on device_set_rack.
+-- LIMIT is supplied by the caller (clamped at the service layer to
+-- the page-size cap shared with the proto contract).
 SELECT
     dsr.device_set_id AS rack_id,
     ds.label          AS rack_label,
@@ -143,7 +145,8 @@ JOIN device_set ds ON ds.id = dsr.device_set_id
 WHERE dsr.org_id = sqlc.arg('org_id')
   AND dsr.building_id = sqlc.arg('building_id')
   AND ds.deleted_at IS NULL
-ORDER BY ds.label;
+ORDER BY ds.label
+LIMIT sqlc.arg('limit_n')::int;
 
 -- name: SetRackBuildingPosition :exec
 -- Writes the rack's grid placement (aisle_index, position_in_aisle).

@@ -289,7 +289,7 @@ func TestHandler_UpdateBuilding_rejectsOrphaningShrink(t *testing.T) {
 	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).
 		Return(&models.Building{ID: 1, Aisles: 5, RacksPerAisle: 6}, nil)
 	// Rack at aisle 3 falls outside the new 2-aisle bound.
-	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(1)).
+	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(1), gomock.Any()).
 		Return([]models.BuildingRack{
 			{RackID: 99, RackLabel: "Rack-Z", AisleIndex: ptrInt32t(3), PositionInAisle: ptrInt32t(0)},
 		}, nil)
@@ -340,7 +340,7 @@ func TestHandler_ListBuildingRacks_happy(t *testing.T) {
 
 	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(11)).
 		Return(&models.Building{ID: 11}, nil)
-	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(11)).
+	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(11), gomock.Any()).
 		Return([]models.BuildingRack{
 			{RackID: 1, RackLabel: "Rack-A", AisleIndex: nil, PositionInAisle: nil},
 			{RackID: 2, RackLabel: "Rack-B", AisleIndex: ptrInt32t(0), PositionInAisle: ptrInt32t(1)},

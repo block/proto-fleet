@@ -430,10 +430,10 @@ func TestListBuildingRacks_returnsStoreResult(t *testing.T) {
 	buildingID := int64(11)
 	h.store.EXPECT().GetBuilding(gomock.Any(), testOrgID, buildingID).
 		Return(&models.Building{ID: buildingID}, nil)
-	h.store.EXPECT().ListBuildingRacks(gomock.Any(), testOrgID, buildingID).
+	h.store.EXPECT().ListBuildingRacks(gomock.Any(), testOrgID, buildingID, gomock.Any()).
 		Return([]models.BuildingRack{{RackID: 1, RackLabel: "A"}}, nil)
 
-	racks, err := h.svc.ListBuildingRacks(context.Background(), testOrgID, buildingID)
+	racks, err := h.svc.ListBuildingRacks(context.Background(), testOrgID, buildingID, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestUpdateBuilding_rejectsShrinkThatOrphansPlacement(t *testing.T) {
 	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
 		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
-	store.EXPECT().ListBuildingRacks(inTxCtx, testOrgID, int64(11)).
+	store.EXPECT().ListBuildingRacks(inTxCtx, testOrgID, int64(11), gomock.Any()).
 		Return([]models.BuildingRack{
 			{RackID: 99, RackLabel: "Edge", AisleIndex: ptrInt32(4), PositionInAisle: ptrInt32(0)},
 		}, nil)

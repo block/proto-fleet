@@ -102,18 +102,18 @@ func (mr *MockBuildingStoreMockRecorder) GetBuilding(ctx, orgID, id any) *gomock
 }
 
 // ListBuildingRacks mocks base method.
-func (m *MockBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error) {
+func (m *MockBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, limit int32) ([]models.BuildingRack, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBuildingRacks", ctx, orgID, buildingID)
+	ret := m.ctrl.Call(m, "ListBuildingRacks", ctx, orgID, buildingID, limit)
 	ret0, _ := ret[0].([]models.BuildingRack)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListBuildingRacks indicates an expected call of ListBuildingRacks.
-func (mr *MockBuildingStoreMockRecorder) ListBuildingRacks(ctx, orgID, buildingID any) *gomock.Call {
+func (mr *MockBuildingStoreMockRecorder) ListBuildingRacks(ctx, orgID, buildingID, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildingRacks", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildingRacks), ctx, orgID, buildingID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildingRacks", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildingRacks), ctx, orgID, buildingID, limit)
 }
 
 // ListBuildings mocks base method.

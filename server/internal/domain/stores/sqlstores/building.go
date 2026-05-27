@@ -159,10 +159,11 @@ func (s *SQLBuildingStore) BuildingsByIDs(ctx context.Context, orgID int64, ids 
 	return rows, nil
 }
 
-func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error) {
+func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, limit int32) ([]models.BuildingRack, error) {
 	rows, err := s.GetQueries(ctx).ListBuildingRacks(ctx, sqlc.ListBuildingRacksParams{
 		OrgID:      orgID,
 		BuildingID: zeroToNullInt64(buildingID),
+		LimitN:     limit,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list building racks: %v", err)

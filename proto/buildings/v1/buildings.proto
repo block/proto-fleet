@@ -204,6 +204,16 @@ message DeleteBuildingResponse {
 
 message ListBuildingRacksRequest {
     int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
+
+    // page_size and page_token are additive paging fields. The
+    // server caps page_size at SERVER_PAGE_SIZE_CAP (500) and defaults
+    // an unset value to the same cap. page_token is an opaque cursor
+    // returned by a prior response; today the server returns all rows
+    // up to the cap in one shot and leaves next_page_token empty, so
+    // clients that ignore these fields still see correct results.
+    // Surfaced now so future cursor paging is non-breaking.
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
+    string page_token = 3 [(buf.validate.field).string.max_len = 256];
 }
 
 // BuildingRack is the rack-in-building read shape used by the
@@ -218,6 +228,11 @@ message BuildingRack {
 
 message ListBuildingRacksResponse {
     repeated BuildingRack racks = 1;
+    // Empty when the result fits in one response (current behavior).
+    // Future paging implementations should populate this with an
+    // opaque cursor the client can send back in the next request's
+    // page_token to fetch the next slice.
+    string next_page_token = 2;
 }
 
 // AssignRackToBuilding

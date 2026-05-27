@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { buildRackPickerItem, type RackPickerItem } from "../rackPickerItem";
+import { reduceToSingleSelection } from "./singleSelect";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import Input from "@/shared/components/Input";
@@ -179,16 +180,8 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfir
               selectionType="checkbox"
               customSelectedItems={selectedItems}
               customSetSelectedItems={(ids) => {
-                // Single-select: only retain the last id the user toggled
-                // on. List doesn't ship a singleSelect prop, so we enforce
-                // it here.
-                const next = Array.isArray(ids) ? ids : [];
-                if (next.length <= 1) {
-                  setSelectedItems(next);
-                  return;
-                }
-                const newId = next.find((id) => !selectedItems.includes(id));
-                setSelectedItems(newId ? [newId] : [next[next.length - 1]]);
+                // Single-select enforcement — see ./singleSelect.ts.
+                setSelectedItems(reduceToSingleSelection(selectedItems, ids));
               }}
               isRowDisabled={isRowDisabled}
               itemName={{ singular: "rack", plural: "racks" }}

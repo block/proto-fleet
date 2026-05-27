@@ -236,11 +236,13 @@ WHERE dsr.org_id = $1
   AND dsr.building_id = $2
   AND ds.deleted_at IS NULL
 ORDER BY ds.label
+LIMIT $3::int
 `
 
 type ListBuildingRacksParams struct {
 	OrgID      int64
 	BuildingID sql.NullInt64
+	LimitN     int32
 }
 
 type ListBuildingRacksRow struct {
@@ -254,8 +256,10 @@ type ListBuildingRacksRow struct {
 // position. Used by ManageBuildingModal to seed the layout grid.
 // Excludes soft-deleted rack collections; org guard is checked
 // against the denormalized org_id on device_set_rack.
+// LIMIT is supplied by the caller (clamped at the service layer to
+// the page-size cap shared with the proto contract).
 func (q *Queries) ListBuildingRacks(ctx context.Context, arg ListBuildingRacksParams) ([]ListBuildingRacksRow, error) {
-	rows, err := q.query(ctx, q.listBuildingRacksStmt, listBuildingRacks, arg.OrgID, arg.BuildingID)
+	rows, err := q.query(ctx, q.listBuildingRacksStmt, listBuildingRacks, arg.OrgID, arg.BuildingID, arg.LimitN)
 	if err != nil {
 		return nil, err
 	}

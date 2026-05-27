@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { buildRackPickerItem, type RackPickerItem } from "../rackPickerItem";
+import { computeRackSelectionDelta } from "./rackSelectionDelta";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -145,46 +146,10 @@ const ManageRacksModal = ({
   const hasPreviousPage = page > 0;
   const hasNextPage = page < totalPages - 1;
 
-  // Snapshot the seeded selection so handleConfirm can compute the
-  // delta against it. Stored as a Set<string> for O(1) membership.
-  const initialSelectedSet = useMemo(
-    () => new Set(initialSelectedRackIds.map((id) => id.toString())),
-    [initialSelectedRackIds],
-  );
-
   const handleConfirm = useCallback(() => {
     if (!items) return;
-    const selectedSet = new Set(selectedItems);
-
-    // added = ids the operator just checked (in selectedSet, not in
-    // initial). Resolve label via items.find; skip disabled rows
-    // defensively even though the row gate should have prevented them.
-    const added: { rackId: bigint; label: string }[] = [];
-    for (const id of selectedItems) {
-      if (initialSelectedSet.has(id)) continue;
-      const item = items.find((r) => r.id === id);
-      if (!item || item.disabled) continue;
-      added.push({ rackId: BigInt(id), label: item.label });
-    }
-
-    // removed = seeded ids the operator unchecked. Note we iterate
-    // initialSelectedRackIds directly (NOT the items list) — a seeded
-    // id absent from items has not actually been deselected, so it
-    // must stay in the building. This is the bug-fix anchor for #15.
-    const removed: bigint[] = [];
-    for (const id of initialSelectedRackIds) {
-      if (selectedSet.has(id.toString())) continue;
-      // Only treat as a removal when the id appears as a disabled-
-      // ineligible row (operator can't toggle those) OR appears
-      // eligible-and-now-unchecked. If the id is missing from items
-      // entirely (race / paging gap), preserve membership.
-      const seedItem = items.find((r) => r.id === id.toString());
-      if (!seedItem) continue;
-      removed.push(id);
-    }
-
-    onConfirm({ added, removed });
-  }, [items, selectedItems, initialSelectedRackIds, initialSelectedSet, onConfirm]);
+    onConfirm(computeRackSelectionDelta(items, initialSelectedRackIds, selectedItems));
+  }, [items, selectedItems, initialSelectedRackIds, onConfirm]);
 
   const handleSelectAll = useCallback(() => {
     if (!items) return;

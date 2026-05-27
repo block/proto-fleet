@@ -98,7 +98,10 @@ func (h *Handler) ListBuildingRacks(ctx context.Context, req *connect.Request[pb
 	if err != nil {
 		return nil, err
 	}
-	racks, err := h.service.ListBuildingRacks(ctx, info.OrganizationID, req.Msg.GetBuildingId())
+	// page_token is part of the proto contract but the server currently
+	// returns every row up to the page-size cap in one response. Clients
+	// that ignore next_page_token still see correct results.
+	racks, err := h.service.ListBuildingRacks(ctx, info.OrganizationID, req.Msg.GetBuildingId(), req.Msg.GetPageSize())
 	if err != nil {
 		return nil, err
 	}

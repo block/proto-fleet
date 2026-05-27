@@ -53,8 +53,10 @@ type BuildingStore interface {
 
 	// ListBuildingRacks returns racks currently assigned to the
 	// building with their grid placement. Used by
-	// ManageBuildingModal to seed the layout grid.
-	ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error)
+	// ManageBuildingModal to seed the layout grid. `limit` is the
+	// caller-supplied LIMIT (clamped to the proto page-size cap at
+	// the service layer).
+	ListBuildingRacks(ctx context.Context, orgID, buildingID int64, limit int32) ([]models.BuildingRack, error)
 
 	// SetRackBuildingPosition writes only the grid-position fields on
 	// device_set_rack. Caller is expected to have already set

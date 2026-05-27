@@ -154,7 +154,11 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 		// Bounds-shrink validation only runs when at least one
 		// dimension is being reduced; growth never orphans rows.
 		if params.Aisles < current.Aisles || params.RacksPerAisle < current.RacksPerAisle {
-			racks, err := s.store.ListBuildingRacks(txCtx, params.OrgID, params.ID)
+			// Bounds check enumerates every placed rack — request up to
+			// the cap. Larger-than-cap layouts are blocked by the
+			// aisles/racks_per_aisle ≤ 100 invariant, so this LIMIT
+			// can never silently truncate a real layout.
+			racks, err := s.store.ListBuildingRacks(txCtx, params.OrgID, params.ID, ListBuildingRacksPageSizeCap)
 			if err != nil {
 				return err
 			}
@@ -199,15 +203,26 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 	return b, nil
 }
 
+// ListBuildingRacksPageSizeCap matches the buf.validate cap on
+// ListBuildingRacksRequest.page_size. Mirrors the proto contract for
+// non-proto callers and is also the default when the caller passes
+// page_size == 0.
+const ListBuildingRacksPageSizeCap = int32(500)
+
 // ListBuildingRacks returns racks currently assigned to a building
 // with their grid placement. Verifies the building exists in the org
 // before returning so a stale building_id surfaces as NotFound rather
 // than an empty list (which would look identical to "no racks yet").
-func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error) {
+// `pageSize` is clamped to [1, ListBuildingRacksPageSizeCap]; a value
+// of 0 defaults to the cap, mirroring the proto contract.
+func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32) ([]models.BuildingRack, error) {
+	if pageSize <= 0 || pageSize > ListBuildingRacksPageSizeCap {
+		pageSize = ListBuildingRacksPageSizeCap
+	}
 	if _, err := s.store.GetBuilding(ctx, orgID, buildingID); err != nil {
 		return nil, err
 	}
-	return s.store.ListBuildingRacks(ctx, orgID, buildingID)
+	return s.store.ListBuildingRacks(ctx, orgID, buildingID, pageSize)
 }
 
 // AssignRackToBuilding sets a rack's building_id and, optionally, its
