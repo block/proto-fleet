@@ -125,8 +125,10 @@ func TestValidatePluginFiles_RejectsWorldWritableExecutable(t *testing.T) {
 	assert.Contains(t, strings.ToLower(err.Error()), "writable")
 }
 
-func TestValidatePluginFiles_IgnoresNonExecutableFiles(t *testing.T) {
-	// Arrange
+func TestValidatePluginFiles_AcceptsOwnedNonExecutableFiles(t *testing.T) {
+	// Arrange — a non-executable file owned by the running uid and not
+	// group/world-writable is fine. The check now runs for every regular
+	// file (not just executables) but a benign README still passes.
 	_, plugins := newPluginsDir(t)
 	require.NoError(t, os.WriteFile(filepath.Join(plugins, "README.md"), []byte("docs"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(plugins, "x"), []byte("#!/bin/sh\n"), 0o755))
@@ -136,6 +138,23 @@ func TestValidatePluginFiles_IgnoresNonExecutableFiles(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
+}
+
+func TestValidatePluginFiles_RejectsWritableNonExecutableFile(t *testing.T) {
+	// Arrange — a non-executable file that is group/world-writable can be
+	// chmod +x'd by another local user between validation and plugin load,
+	// becoming a stealth RCE vector. Reject before reaching that window.
+	_, plugins := newPluginsDir(t)
+	path := filepath.Join(plugins, "config.txt")
+	require.NoError(t, os.WriteFile(path, []byte("data"), 0o644))
+	require.NoError(t, os.Chmod(path, 0o646)) //nolint:gosec // test exercises the reject path
+
+	// Act
+	err := validatePluginFiles(plugins)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "writable")
 }
 
 func TestValidatePluginFiles_IgnoresSubdirectories(t *testing.T) {
@@ -212,4 +231,69 @@ func TestCheckPluginsDirPerms_RejectsEachWritableBitIndependently(t *testing.T) 
 			assert.Contains(t, strings.ToLower(err.Error()), "writable")
 		})
 	}
+}
+
+func TestValidatePathChain_RejectsWritableAncestor(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "group writable parent", mode: 0o775},
+		{name: "world writable parent", mode: 0o757},
+		{name: "fully writable parent", mode: 0o777},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange — an attacker-writable ancestor lets another user
+			// swap our validated plugins dir between the check and the
+			// loader's exec. validatePathChain must reject the ancestor
+			// regardless of whether the leaf itself is fine.
+			base := t.TempDir()
+			parent := filepath.Join(base, "writable")
+			require.NoError(t, os.Mkdir(parent, 0o755)) //nolint:gosec // test fixture
+			candidate := filepath.Join(parent, "plugins")
+			require.NoError(t, os.Mkdir(candidate, 0o755)) //nolint:gosec // test fixture
+			require.NoError(t, os.Chmod(parent, tc.mode))
+
+			// Act
+			err := validatePathChain(candidate)
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, strings.ToLower(err.Error()), "writable")
+		})
+	}
+}
+
+func TestValidatePathChain_AllowsStickyWritableAncestor(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — /tmp-style sticky+writable ancestors (mode 0o1777) are
+	// acceptable because the sticky bit prevents other users from
+	// deleting or renaming our dir even though they can create siblings.
+	base := t.TempDir()
+	sticky := filepath.Join(base, "sticky")
+	require.NoError(t, os.Mkdir(sticky, 0o755)) //nolint:gosec // test fixture
+	candidate := filepath.Join(sticky, "plugins")
+	require.NoError(t, os.Mkdir(candidate, 0o755))             //nolint:gosec // test fixture
+	require.NoError(t, os.Chmod(sticky, 0o1777|os.ModeSticky)) //nolint:gosec // test fixture
+
+	// Act
+	err := validatePathChain(candidate)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestValidatePathChain_RequiresAbsolutePath(t *testing.T) {
+	// Act
+	err := validatePathChain("relative/path")
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "absolute")
 }

@@ -35,6 +35,9 @@ func resolvePluginsDir(exeDir string) (string, error) {
 	if err := validatePluginFiles(candidate); err != nil {
 		return "", err
 	}
+	if err := validatePathChain(candidate); err != nil {
+		return "", err
+	}
 	return candidate, nil
 }
 

@@ -20,3 +20,8 @@ func checkPluginsDirPerms(path string) error {
 // kept as a no-op so the shared resolvePluginsDir call sequence type-checks
 // on both platforms.
 func validatePluginFiles(_ string) error { return nil }
+
+// validatePathChain is unreachable on Windows for the same reason as
+// validatePluginFiles. ACL-based ancestor validation would be the right
+// shape here when Windows plugin loading is wired up.
+func validatePathChain(_ string) error { return nil }

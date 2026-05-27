@@ -50,7 +50,11 @@ func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Lo
 	}
 	psCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(psCtx, "ps", "-eo", "pid=,ppid=,command=").Output()
+	// Hard-coded absolute path: /bin/ps is the canonical location on Linux
+	// (real binary or merge-usr symlink) and macOS, and dropping PATH
+	// resolution prevents a hostile $PATH from injecting a shim that runs
+	// as the daemon during startup.
+	out, err := exec.CommandContext(psCtx, "/bin/ps", "-eo", "pid=,ppid=,command=").Output()
 	if err != nil {
 		logger.Debug("orphan reaper: ps failed; skipping", "err", err)
 		return
