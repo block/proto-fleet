@@ -63,6 +63,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
 	}
+	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
+	}
 	if q.clearRackSlotPositionStmt, err = db.PrepareContext(ctx, clearRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackSlotPosition: %w", err)
 	}
@@ -582,6 +585,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRackZonesStmt, err = db.PrepareContext(ctx, listRackZones); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRackZones: %w", err)
 	}
+	if q.listRacksOutsideBuildingBoundsStmt, err = db.PrepareContext(ctx, listRacksOutsideBuildingBounds); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRacksOutsideBuildingBounds: %w", err)
+	}
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByOrg: %w", err)
 	}
@@ -980,6 +986,11 @@ func (q *Queries) Close() error {
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
+		}
+	}
+	if q.clearRackPlacementForSoftDeleteStmt != nil {
+		if cerr := q.clearRackPlacementForSoftDeleteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearRackPlacementForSoftDeleteStmt: %w", cerr)
 		}
 	}
 	if q.clearRackSlotPositionStmt != nil {
@@ -1847,6 +1858,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRackZonesStmt: %w", cerr)
 		}
 	}
+	if q.listRacksOutsideBuildingBoundsStmt != nil {
+		if cerr := q.listRacksOutsideBuildingBoundsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRacksOutsideBuildingBoundsStmt: %w", cerr)
+		}
+	}
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt != nil {
 		if cerr := q.listRecentlyResolvedCurtailedDevicesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByOrgStmt: %w", cerr)
@@ -2449,6 +2465,7 @@ type Queries struct {
 	cascadeAddedDeviceSitesStmt                         *sql.Stmt
 	cascadeRackDeviceSitesStmt                          *sql.Stmt
 	claimMessageForProcessingStmt                       *sql.Stmt
+	clearRackPlacementForSoftDeleteStmt                 *sql.Stmt
 	clearRackSlotPositionStmt                           *sql.Stmt
 	closeStaleErrorsStmt                                *sql.Stmt
 	confirmEnrollmentStmt                               *sql.Stmt
@@ -2622,6 +2639,7 @@ type Queries struct {
 	listRackTypesStmt                                   *sql.Stmt
 	listRackZoneRefsStmt                                *sql.Stmt
 	listRackZonesStmt                                   *sql.Stmt
+	listRacksOutsideBuildingBoundsStmt                  *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt       *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
 	listScheduleIDStatusesStmt                          *sql.Stmt
@@ -2751,6 +2769,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeAddedDeviceSitesStmt:                         q.cascadeAddedDeviceSitesStmt,
 		cascadeRackDeviceSitesStmt:                          q.cascadeRackDeviceSitesStmt,
 		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
+		clearRackPlacementForSoftDeleteStmt:                 q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
 		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
 		confirmEnrollmentStmt:                               q.confirmEnrollmentStmt,
@@ -2924,6 +2943,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRackTypesStmt:                                   q.listRackTypesStmt,
 		listRackZoneRefsStmt:                                q.listRackZoneRefsStmt,
 		listRackZonesStmt:                                   q.listRackZonesStmt,
+		listRacksOutsideBuildingBoundsStmt:                  q.listRacksOutsideBuildingBoundsStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:       q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRolesStmt:                                       q.listRolesStmt,
 		listScheduleIDStatusesStmt:                          q.listScheduleIDStatusesStmt,

@@ -58,6 +58,13 @@ type BuildingStore interface {
 	// the service layer).
 	ListBuildingRacks(ctx context.Context, orgID, buildingID int64, limit int32) ([]models.BuildingRack, error)
 
+	// ListRacksOutsideBuildingBounds returns racks whose grid
+	// position would fall outside the proposed (aisles,
+	// racksPerAisle) layout. Unbounded by design — used by
+	// UpdateBuilding's shrink guard, where missing a tail row
+	// would silently orphan it past the cap.
+	ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error)
+
 	// SetRackBuildingPosition writes only the grid-position fields on
 	// device_set_rack. Caller is expected to have already set
 	// building_id via the collection store's UpdateRackPlacement in

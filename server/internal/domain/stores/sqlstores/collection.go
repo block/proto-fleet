@@ -337,6 +337,16 @@ func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int
 	})
 }
 
+func (s *SQLCollectionStore) ClearRackPlacementForSoftDelete(ctx context.Context, orgID, collectionID int64) error {
+	if err := s.GetQueries(ctx).ClearRackPlacementForSoftDelete(ctx, sqlc.ClearRackPlacementForSoftDeleteParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to clear rack placement on soft-delete: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, filter *interfaces.DeviceSetFilter) ([]*pb.DeviceCollection, string, int32, error) {
 	cursor, err := decodeCollectionCursor(pageToken)
 	if err != nil {

@@ -131,6 +131,14 @@ type CollectionStore interface {
 	// Returns the number of rows affected (0 if not found).
 	SoftDeleteCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error)
 
+	// ClearRackPlacementForSoftDelete nulls the device_set_rack
+	// placement fields for a rack about to be soft-deleted. Callers
+	// invoke this inside the same tx that fires SoftDeleteCollection
+	// so the rack's (building_id, aisle_index, position_in_aisle)
+	// row doesn't continue to occupy a building cell on the partial
+	// unique index. No-op for non-rack collection types.
+	ClearRackPlacementForSoftDelete(ctx context.Context, orgID, collectionID int64) error
+
 	// ListCollections returns paginated collections for an organization.
 	// If collectionType is UNSPECIFIED, returns all types.
 	// Sort controls ordering; nil defaults to name ascending.

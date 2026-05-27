@@ -102,6 +102,31 @@ func (q *Queries) CascadeRackDeviceSites(ctx context.Context, arg CascadeRackDev
 	return result.RowsAffected()
 }
 
+const clearRackPlacementForSoftDelete = `-- name: ClearRackPlacementForSoftDelete :exec
+UPDATE device_set_rack
+SET aisle_index = NULL,
+    position_in_aisle = NULL,
+    building_id = NULL,
+    zone = ''
+WHERE device_set_id = $1 AND org_id = $2
+`
+
+type ClearRackPlacementForSoftDeleteParams struct {
+	DeviceSetID int64
+	OrgID       int64
+}
+
+// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
+// the device_set_rack placement so a soft-deleted rack doesn't leave
+// an orphan (building_id, aisle_index, position_in_aisle) tuple that
+// the partial unique index uk_device_set_rack_building_position still
+// treats as occupied. Callers wrap this and SoftDeleteDeviceSet in the
+// same transaction; non-rack collection types simply match 0 rows.
+func (q *Queries) ClearRackPlacementForSoftDelete(ctx context.Context, arg ClearRackPlacementForSoftDeleteParams) error {
+	_, err := q.exec(ctx, q.clearRackPlacementForSoftDeleteStmt, clearRackPlacementForSoftDelete, arg.DeviceSetID, arg.OrgID)
+	return err
+}
+
 const clearRackSlotPosition = `-- name: ClearRackSlotPosition :exec
 DELETE FROM rack_slot rs
 WHERE rs.device_set_id = $1

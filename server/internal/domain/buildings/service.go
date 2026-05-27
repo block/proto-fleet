@@ -153,25 +153,20 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 		}
 		// Bounds-shrink validation only runs when at least one
 		// dimension is being reduced; growth never orphans rows.
+		// Uses ListRacksOutsideBuildingBounds (unbounded by design)
+		// instead of the paged ListBuildingRacks so a tail row past
+		// the page-size cap can't silently bypass the guard.
 		if params.Aisles < current.Aisles || params.RacksPerAisle < current.RacksPerAisle {
-			// Bounds check enumerates every placed rack — request up to
-			// the cap. Larger-than-cap layouts are blocked by the
-			// aisles/racks_per_aisle ≤ 100 invariant, so this LIMIT
-			// can never silently truncate a real layout.
-			racks, err := s.store.ListBuildingRacks(txCtx, params.OrgID, params.ID, ListBuildingRacksPageSizeCap)
+			orphans, err := s.store.ListRacksOutsideBuildingBounds(txCtx, params.OrgID, params.ID, params.Aisles, params.RacksPerAisle)
 			if err != nil {
 				return err
 			}
-			for _, r := range racks {
-				if r.AisleIndex == nil || r.PositionInAisle == nil {
-					continue
-				}
-				if *r.AisleIndex >= params.Aisles || *r.PositionInAisle >= params.RacksPerAisle {
-					return fleeterror.NewInvalidArgumentErrorf(
-						"cannot shrink layout: rack %q is at aisle %d, position %d which is outside the new %d aisles × %d racks-per-aisle bounds; unplace it first",
-						r.RackLabel, *r.AisleIndex+1, *r.PositionInAisle+1, params.Aisles, params.RacksPerAisle,
-					)
-				}
+			if len(orphans) > 0 {
+				r := orphans[0]
+				return fleeterror.NewInvalidArgumentErrorf(
+					"cannot shrink layout: rack %q is at aisle %d, position %d which is outside the new %d aisles × %d racks-per-aisle bounds; unplace it first",
+					r.RackLabel, *r.AisleIndex+1, *r.PositionInAisle+1, params.Aisles, params.RacksPerAisle,
+				)
 			}
 		}
 		updated, err := s.store.UpdateBuilding(txCtx, params)

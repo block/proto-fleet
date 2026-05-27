@@ -381,8 +381,16 @@ const ManageBuildingModal = ({
           );
         }
 
-        // Phase 2: place at the new position. Skip when the final state is
-        // "unplaced" — the vacate above is the terminal write.
+        // Phase 2: write the new state.
+        //   - placedKey present → place at the new (aisle, position).
+        //   - placedKey absent + prior === "missing" → rack is new to
+        //     the working set with no chosen cell yet. Send a member-
+        //     only assign so the BE links the rack to this building
+        //     even without a position. Without this branch, racks
+        //     added via Manage racks but never dragged to a cell
+        //     silently drop on save.
+        //   - placedKey absent + prior was placed → already handled
+        //     by the phase-1 vacate above, which clears the cell.
         if (placedKey) {
           const { aisle, position } = parseCellKey(placedKey);
           places.push(
@@ -392,6 +400,17 @@ const ManageBuildingModal = ({
                 buildingId: building.id,
                 aisleIndex: aisle,
                 positionInAisle: position,
+                onSuccess: () => resolve(),
+                onError: (msg) => reject(new Error(msg)),
+              });
+            }),
+          );
+        } else if (prior === "missing") {
+          places.push(
+            new Promise<void>((resolve, reject) => {
+              void assignRackToBuilding({
+                rackId: entry.rackId,
+                buildingId: building.id,
                 onSuccess: () => resolve(),
                 onError: (msg) => reject(new Error(msg)),
               });

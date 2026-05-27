@@ -455,7 +455,8 @@ func TestUpdateBuilding_rejectsShrinkThatOrphansPlacement(t *testing.T) {
 	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
 		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
-	store.EXPECT().ListBuildingRacks(inTxCtx, testOrgID, int64(11), gomock.Any()).
+	// Shrink check uses the unbounded bounds-only query.
+	store.EXPECT().ListRacksOutsideBuildingBounds(inTxCtx, testOrgID, int64(11), int32(3), int32(6)).
 		Return([]models.BuildingRack{
 			{RackID: 99, RackLabel: "Edge", AisleIndex: ptrInt32(4), PositionInAisle: ptrInt32(0)},
 		}, nil)

@@ -138,6 +138,20 @@ UPDATE device_set
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
+-- name: ClearRackPlacementForSoftDelete :exec
+-- Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
+-- the device_set_rack placement so a soft-deleted rack doesn't leave
+-- an orphan (building_id, aisle_index, position_in_aisle) tuple that
+-- the partial unique index uk_device_set_rack_building_position still
+-- treats as occupied. Callers wrap this and SoftDeleteDeviceSet in the
+-- same transaction; non-rack collection types simply match 0 rows.
+UPDATE device_set_rack
+SET aisle_index = NULL,
+    position_in_aisle = NULL,
+    building_id = NULL,
+    zone = ''
+WHERE device_set_id = $1 AND org_id = $2;
+
 -- name: DeviceSetBelongsToOrg :one
 SELECT EXISTS(
     SELECT 1 FROM device_set

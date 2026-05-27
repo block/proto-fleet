@@ -148,6 +148,30 @@ WHERE dsr.org_id = sqlc.arg('org_id')
 ORDER BY ds.label
 LIMIT sqlc.arg('limit_n')::int;
 
+-- name: ListRacksOutsideBuildingBounds :many
+-- Returns rack rows whose (aisle_index, position_in_aisle) would fall
+-- outside the proposed (aisles, racks_per_aisle) layout. Used by
+-- UpdateBuilding's shrink guard so an unbounded scan can't miss an
+-- out-of-bounds rack hiding past the paged-list cap. Not LIMIT-bounded
+-- because the layout cap (100×100 = 10k) already caps possible matches.
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND ds.deleted_at IS NULL
+  AND dsr.aisle_index IS NOT NULL
+  AND dsr.position_in_aisle IS NOT NULL
+  AND (
+       dsr.aisle_index >= sqlc.arg('new_aisles')::int
+    OR dsr.position_in_aisle >= sqlc.arg('new_racks_per_aisle')::int
+  )
+ORDER BY ds.label;
+
 -- name: SetRackBuildingPosition :exec
 -- Writes the rack's grid placement (aisle_index, position_in_aisle).
 -- Caller must have already set building_id via UpdateRackPlacement —

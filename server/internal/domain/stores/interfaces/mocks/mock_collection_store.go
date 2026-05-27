@@ -87,6 +87,20 @@ func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceSites(ctx, collectio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceSites", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceSites), ctx, collectionID, orgID, targetSiteID)
 }
 
+// ClearRackPlacementForSoftDelete mocks base method.
+func (m *MockCollectionStore) ClearRackPlacementForSoftDelete(ctx context.Context, orgID, collectionID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearRackPlacementForSoftDelete", ctx, orgID, collectionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearRackPlacementForSoftDelete indicates an expected call of ClearRackPlacementForSoftDelete.
+func (mr *MockCollectionStoreMockRecorder) ClearRackPlacementForSoftDelete(ctx, orgID, collectionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearRackPlacementForSoftDelete", reflect.TypeOf((*MockCollectionStore)(nil).ClearRackPlacementForSoftDelete), ctx, orgID, collectionID)
+}
+
 // ClearRackSlotPosition mocks base method.
 func (m *MockCollectionStore) ClearRackSlotPosition(ctx context.Context, collectionID int64, deviceIdentifier string, orgID int64) error {
 	m.ctrl.T.Helper()

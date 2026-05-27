@@ -251,6 +251,8 @@ func TestService_DeleteCollection_LocksRackBeforeCascade(t *testing.T) {
 			Return(int64(0), nil),
 		mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
 			Return(int64(0), nil),
+		mockStore.EXPECT().ClearRackPlacementForSoftDelete(gomock.Any(), testOrgID, testCollectionID).
+			Return(nil),
 		mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
 			Return(int64(1), nil),
 	)
@@ -272,6 +274,8 @@ func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {
 		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(0), nil)
+	mockStore.EXPECT().ClearRackPlacementForSoftDelete(gomock.Any(), testOrgID, testCollectionID).
+		Return(nil)
 	mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(0), nil)
 
@@ -1483,6 +1487,8 @@ func TestActivityLogging_DeleteCollectionLogsEvent(t *testing.T) {
 		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(3), nil)
+	mockStore.EXPECT().ClearRackPlacementForSoftDelete(gomock.Any(), testOrgID, testCollectionID).
+		Return(nil)
 	mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(1), nil)
 

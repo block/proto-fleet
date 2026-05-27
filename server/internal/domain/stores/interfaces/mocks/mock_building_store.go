@@ -131,6 +131,21 @@ func (mr *MockBuildingStoreMockRecorder) ListBuildings(ctx, filter any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildings", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildings), ctx, filter)
 }
 
+// ListRacksOutsideBuildingBounds mocks base method.
+func (m *MockBuildingStore) ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRacksOutsideBuildingBounds", ctx, orgID, buildingID, newAisles, newRacksPerAisle)
+	ret0, _ := ret[0].([]models.BuildingRack)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRacksOutsideBuildingBounds indicates an expected call of ListRacksOutsideBuildingBounds.
+func (mr *MockBuildingStoreMockRecorder) ListRacksOutsideBuildingBounds(ctx, orgID, buildingID, newAisles, newRacksPerAisle any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRacksOutsideBuildingBounds", reflect.TypeOf((*MockBuildingStore)(nil).ListRacksOutsideBuildingBounds), ctx, orgID, buildingID, newAisles, newRacksPerAisle)
+}
+
 // SetRackBuildingPosition mocks base method.
 func (m *MockBuildingStore) SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error {
 	m.ctrl.T.Helper()

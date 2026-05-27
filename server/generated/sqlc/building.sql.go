@@ -381,6 +381,78 @@ func (q *Queries) ListBuildingsByOrg(ctx context.Context, arg ListBuildingsByOrg
 	return items, nil
 }
 
+const listRacksOutsideBuildingBounds = `-- name: ListRacksOutsideBuildingBounds :many
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = $1
+  AND dsr.building_id = $2
+  AND ds.deleted_at IS NULL
+  AND dsr.aisle_index IS NOT NULL
+  AND dsr.position_in_aisle IS NOT NULL
+  AND (
+       dsr.aisle_index >= $3::int
+    OR dsr.position_in_aisle >= $4::int
+  )
+ORDER BY ds.label
+`
+
+type ListRacksOutsideBuildingBoundsParams struct {
+	OrgID            int64
+	BuildingID       sql.NullInt64
+	NewAisles        int32
+	NewRacksPerAisle int32
+}
+
+type ListRacksOutsideBuildingBoundsRow struct {
+	RackID          int64
+	RackLabel       string
+	AisleIndex      sql.NullInt32
+	PositionInAisle sql.NullInt32
+}
+
+// Returns rack rows whose (aisle_index, position_in_aisle) would fall
+// outside the proposed (aisles, racks_per_aisle) layout. Used by
+// UpdateBuilding's shrink guard so an unbounded scan can't miss an
+// out-of-bounds rack hiding past the paged-list cap. Not LIMIT-bounded
+// because the layout cap (100×100 = 10k) already caps possible matches.
+func (q *Queries) ListRacksOutsideBuildingBounds(ctx context.Context, arg ListRacksOutsideBuildingBoundsParams) ([]ListRacksOutsideBuildingBoundsRow, error) {
+	rows, err := q.query(ctx, q.listRacksOutsideBuildingBoundsStmt, listRacksOutsideBuildingBounds,
+		arg.OrgID,
+		arg.BuildingID,
+		arg.NewAisles,
+		arg.NewRacksPerAisle,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRacksOutsideBuildingBoundsRow
+	for rows.Next() {
+		var i ListRacksOutsideBuildingBoundsRow
+		if err := rows.Scan(
+			&i.RackID,
+			&i.RackLabel,
+			&i.AisleIndex,
+			&i.PositionInAisle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setRackBuildingPosition = `-- name: SetRackBuildingPosition :exec
 UPDATE device_set_rack
 SET aisle_index = $1::int,
