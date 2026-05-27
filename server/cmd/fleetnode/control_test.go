@@ -146,7 +146,7 @@ func TestResolveAndValidatePorts(t *testing.T) {
 }
 
 func TestControlLoop_RejectsNmapPortRangeBypass(t *testing.T) {
-	// Arrange: one entry, but it expands to 65k ports inside nmap.
+	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
 	state := &fleetnodebootstrap.State{FleetNodeID: 7}
 
@@ -176,8 +176,7 @@ func TestControlLoop_RejectsNmapPortRangeBypass(t *testing.T) {
 }
 
 func TestControlLoop_NormalizesIPListEntries(t *testing.T) {
-	// Arrange: scoped IPv6 + link-local IPv6 should be skipped; canonical
-	// IPv6 spelling should be preserved and probed.
+	// Arrange
 	disc := &stubDiscoverer{
 		probes: map[string]*pb.DiscoveredDeviceReport{
 			"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http"},
@@ -218,8 +217,7 @@ func TestControlLoop_NormalizesIPListEntries(t *testing.T) {
 }
 
 func TestControlLoop_RejectsAllUnusableIPs(t *testing.T) {
-	// Arrange: every entry is unusable; agent must ack failure rather than
-	// silently returning zero reports.
+	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
 	state := &fleetnodebootstrap.State{FleetNodeID: 7}
 

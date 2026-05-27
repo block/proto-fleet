@@ -46,15 +46,15 @@ func TestNormalizeIPListEntry(t *testing.T) {
 		wantErr   error
 		errSubstr string
 	}{
-		{name: "empty rejected", input: "", wantErr: ErrEmptyTarget},
-		{name: "scoped ipv6 rejected", input: "fe80::1%eth0", wantErr: ErrScopedIPv6},
-		{name: "link-local ipv6 rejected", input: "fe80::1", wantErr: ErrLinkLocalIPv6},
+		{name: "empty rejected", input: "", wantErr: errEmptyTarget},
+		{name: "scoped ipv6 rejected", input: "fe80::1%eth0", wantErr: errScopedIPv6},
+		{name: "link-local ipv6 rejected", input: "fe80::1", wantErr: errLinkLocalIPv6},
 		{name: "ipv4 passes through", input: "10.0.0.1", want: "10.0.0.1"},
 		{name: "ipv6 canonicalized", input: "2001:0DB8::1", want: "2001:db8::1"},
 		{name: "loopback ipv4", input: "127.0.0.1", want: "127.0.0.1"},
 		{name: "hostname prefers ipv4", input: "dual.example", want: "10.0.0.5"},
 		{name: "hostname falls back to non-link-local v6", input: "v6only.example", want: "2001:db8::1"},
-		{name: "hostname with only link-local v6 unresolved", input: "linklocalonly.example", wantErr: ErrHostnameUnresolved},
+		{name: "hostname with only link-local v6 unresolved", input: "linklocalonly.example", wantErr: errHostnameUnresolved},
 		{name: "unknown hostname surfaces resolver error", input: "missing.example", errSubstr: "resolve missing.example"},
 	}
 	for _, tc := range cases {

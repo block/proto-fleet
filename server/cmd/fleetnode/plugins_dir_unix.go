@@ -44,20 +44,21 @@ func validatePluginFiles(dir string) error {
 	uid := uint32(os.Getuid()) //nolint:gosec // os.Getuid() is non-negative on Unix
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("lstat %s: %w", path, err)
-		}
-		mode := info.Mode()
-		if mode&os.ModeSymlink != 0 {
+		t := entry.Type()
+		if t&os.ModeSymlink != 0 {
 			return fmt.Errorf("plugin %s is a symlink; refuse to follow", path)
 		}
-		if mode.IsDir() {
+		if t.IsDir() {
 			continue
 		}
-		if !mode.IsRegular() {
-			return fmt.Errorf("plugin %s is not a regular file (mode %s)", path, mode)
+		if !t.IsRegular() {
+			return fmt.Errorf("plugin %s is not a regular file (mode %s)", path, t)
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		mode := info.Mode()
 		if mode.Perm()&0o111 == 0 {
 			continue
 		}

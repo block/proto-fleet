@@ -246,9 +246,7 @@ func TestCompleteEnrollment_RejectsEmptyInputs(t *testing.T) {
 }
 
 func TestRegister_TimesOutAgainstBlackholeServer(t *testing.T) {
-	// Arrange: a TCP listener that accepts but never speaks. Register must
-	// bail within the handshake timeout instead of hanging while it holds
-	// the state lock at the call site.
+	// Arrange
 	prev := handshakeStepTimeout
 	handshakeStepTimeout = 250 * time.Millisecond
 	t.Cleanup(func() { handshakeStepTimeout = prev })

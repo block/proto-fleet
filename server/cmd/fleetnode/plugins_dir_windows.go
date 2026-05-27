@@ -20,6 +20,7 @@ func checkPluginsDirPerms(path string) error {
 	return nil
 }
 
-// validatePluginFiles is a no-op on Windows; per-file ACL inspection needs
-// golang.org/x/sys/windows SID/ACE work that is tracked separately.
+// Windows ACL inspection needs golang.org/x/sys/windows SID/ACE work.
+// Production deployments must place plugins under an Administrator-only
+// directory; runtime cannot verify that on Windows.
 func validatePluginFiles(_ string) error { return nil }

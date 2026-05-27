@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -92,18 +93,17 @@ func checkExecutableFile(path string) error {
 	return nil
 }
 
-// detectIPv6Target mirrors pairing.validateNmapTargets: literal IPv6
-// addresses and IPv6-only hostname resolutions need -6; IPv6 CIDR is
-// rejected because nmap subnet scans don't make sense for 2^64 hosts.
+// IPv6 CIDR is rejected because nmap subnet scans don't make sense for
+// 2^64 hosts. Literal IPv6 and IPv6-only hostname resolutions need -6.
 func detectIPv6Target(ctx context.Context, target string) (useIPv6 bool, err error) {
-	if _, ipNet, cerr := net.ParseCIDR(target); cerr == nil {
-		if _, bits := ipNet.Mask.Size(); bits == 128 {
+	if prefix, perr := netip.ParsePrefix(target); perr == nil {
+		if prefix.Addr().Is6() {
 			return false, errors.New("IPv6 CIDR is not supported; use IpList for IPv6 devices")
 		}
 		return false, nil
 	}
-	if ip := net.ParseIP(target); ip != nil {
-		return ip.To4() == nil, nil
+	if addr, perr := netip.ParseAddr(target); perr == nil {
+		return addr.Is6(), nil
 	}
 	addrs, lookupErr := net.DefaultResolver.LookupIPAddr(ctx, target)
 	if lookupErr != nil || len(addrs) == 0 {
@@ -126,9 +126,6 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 	useIPv6, err := detectIPv6Target(ctx, target)
 	if err != nil {
 		return nil, err
-	}
-	if len(ports) == 0 {
-		return nil, errors.New("no ports to scan; pass ports or load discovery plugins")
 	}
 	opts := []nmap.Option{
 		nmap.WithBinaryPath(r.nmapPath),

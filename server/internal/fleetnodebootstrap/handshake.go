@@ -14,7 +14,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
-// var (not const) so tests can shorten the timeout without 30s waits.
 var handshakeStepTimeout = 30 * time.Second
 
 // ErrBeginAuthRejected wraps Unauthenticated from BeginAuthHandshake, which

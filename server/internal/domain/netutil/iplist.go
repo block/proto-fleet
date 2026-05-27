@@ -15,12 +15,13 @@ type IPListResolver interface {
 	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
 }
 
-// Sentinel errors so callers can branch on cause and emit useful logs.
+// Unexported because no caller branches on cause -- both pairing and the
+// agent just skip-and-log. The tests use these for clearer assertions.
 var (
-	ErrEmptyTarget        = errors.New("empty IP/hostname")
-	ErrScopedIPv6         = errors.New("scoped IPv6 (%zone) is not supported")
-	ErrLinkLocalIPv6      = errors.New("link-local IPv6 requires interface scope")
-	ErrHostnameUnresolved = errors.New("hostname did not resolve to a usable address")
+	errEmptyTarget        = errors.New("empty IP/hostname")
+	errScopedIPv6         = errors.New("scoped IPv6 (%zone) is not supported")
+	errLinkLocalIPv6      = errors.New("link-local IPv6 requires interface scope")
+	errHostnameUnresolved = errors.New("hostname did not resolve to a usable address")
 )
 
 // NormalizeIPListEntry returns the canonical IP literal for an entry in
@@ -34,14 +35,14 @@ var (
 // partial scan beats no scan when one entry in a long list is bad.
 func NormalizeIPListEntry(ctx context.Context, raw string, resolver IPListResolver) (string, error) {
 	if raw == "" {
-		return "", ErrEmptyTarget
+		return "", errEmptyTarget
 	}
 	if strings.Contains(raw, "%") {
-		return "", fmt.Errorf("%w: %s", ErrScopedIPv6, raw)
+		return "", fmt.Errorf("%w: %s", errScopedIPv6, raw)
 	}
 	if ip := net.ParseIP(raw); ip != nil {
 		if ip.To4() == nil && ip.IsLinkLocalUnicast() {
-			return "", fmt.Errorf("%w: %s", ErrLinkLocalIPv6, raw)
+			return "", fmt.Errorf("%w: %s", errLinkLocalIPv6, raw)
 		}
 		return ip.String(), nil
 	}
@@ -65,5 +66,5 @@ func NormalizeIPListEntry(ctx context.Context, raw string, resolver IPListResolv
 	if ipv6 != "" {
 		return ipv6, nil
 	}
-	return "", fmt.Errorf("%w: %s", ErrHostnameUnresolved, raw)
+	return "", fmt.Errorf("%w: %s", errHostnameUnresolved, raw)
 }
