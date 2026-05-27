@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
@@ -60,9 +59,7 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 		}
 	}
 	if len(r.signals) == 0 {
-		// SIGHUP catches terminal-close so plugin children get the same
-		// orderly shutdown as Ctrl+C instead of being orphaned.
-		r.signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
+		r.signals = defaultSignals()
 	}
 	if r.parentCtx == nil {
 		r.parentCtx = context.Background()
@@ -98,9 +95,12 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(logOutput, nil))
-	if resolvedPluginsDir != "" {
+	switch {
+	case resolvedPluginsDir != "":
 		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
-	} else {
+	case r.discoverer != nil:
+		logger.Info("using injected discoverer; plugins dir resolution skipped")
+	default:
 		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
 	}
 

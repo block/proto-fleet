@@ -155,3 +155,33 @@ func TestReapOrphans_SkipsSubdirectoryProcesses(t *testing.T) {
 	// Assert
 	require.Equal(t, []int{501}, killed)
 }
+
+func TestReapOrphans_PluginsPathWithSpaces(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — plugin install path contains spaces. ps prints argv
+	// space-separated, so the earlier HasPrefix(e.command, prefix) passes
+	// while truncating argv0 at the first space slices into the prefix.
+	// The re-check after truncation must skip such entries instead of
+	// panicking. A genuine orphan whose argv0 has no embedded space (e.g.
+	// the plugin binary name has none after the dir) is still reaped.
+	psOutput := strings.Join([]string{
+		"500 1 /opt/Proto Fleet/plugins/proto-plugin arg1",
+		"600 1 /opt/Proto Fleet/plugins/legit-plugin",
+		"",
+	}, "\n")
+	var killed []int
+	killFn := func(pid int, _ syscall.Signal) error {
+		killed = append(killed, pid)
+		return nil
+	}
+
+	// Act
+	reapOrphans(psOutput, "/opt/Proto Fleet/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+
+	// Assert — neither entry can be reaped because ps splits the path
+	// at the first space; the guard is correctness-of-no-panic, not a
+	// promise that space-containing install paths reap correctly. The
+	// recommended deployment is a no-space path.
+	require.Empty(t, killed, "reaper must not panic or kill on space-containing install paths")
+}

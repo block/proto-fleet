@@ -20,15 +20,16 @@ import (
 // leftover from a prior crash. Best-effort: a missing/broken ps never blocks
 // startup.
 //
+// pluginsDir must be the same string the loader passes to exec.Command so
+// argv0 in ps matches the prefix used here. resolvePluginsDir rejects a
+// symlinked dir at the leaf, but path components above can still be symlinks
+// -- using the unresolved path keeps loader and reaper aligned in either
+// case.
+//
 // The ppid check matters when two agents share a binary/plugins layout but
 // hold different state locks (e.g. --state-dir variants). Without it, agent
 // B's startup would kill agent A's live plugin children.
 func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Logger) {
-	abs, err := filepath.EvalSymlinks(pluginsDir)
-	if err != nil {
-		logger.Debug("orphan reaper: resolve symlinks failed; skipping", "plugins_dir", pluginsDir, "err", err)
-		return
-	}
 	psCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(psCtx, "ps", "-eo", "pid=,ppid=,command=").Output()
@@ -36,7 +37,7 @@ func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Lo
 		logger.Debug("orphan reaper: ps failed; skipping", "err", err)
 		return
 	}
-	reapOrphans(string(out), abs, os.Getpid(), logger, syscall.Kill)
+	reapOrphans(string(out), pluginsDir, os.Getpid(), logger, syscall.Kill)
 }
 
 type psEntry struct {
@@ -75,10 +76,16 @@ func reapOrphans(psOutput, pluginsAbs string, selfPID int, logger *slog.Logger, 
 			continue
 		}
 		// Only kill direct children of pluginsAbs so an operator process
-		// invoked from a subdirectory under the prefix isn't reaped.
+		// invoked from a subdirectory under the prefix isn't reaped. The
+		// argv0 re-check after space-truncation guards plugin paths that
+		// themselves contain spaces (e.g. "/opt/Proto Fleet/plugins/x"),
+		// where truncating at the first space slices into the prefix.
 		argv0 := e.command
 		if i := strings.IndexByte(argv0, ' '); i >= 0 {
 			argv0 = argv0[:i]
+		}
+		if !strings.HasPrefix(argv0, prefix) {
+			continue
 		}
 		if strings.ContainsRune(argv0[len(prefix):], filepath.Separator) {
 			continue

@@ -2,25 +2,21 @@
 
 package main
 
-import (
-	"fmt"
-	"os"
-)
+import "fmt"
 
-// Windows relies on the MSI installer placing plugins under an
-// Administrator-only path; an ACL check is out of scope here.
+// Windows plugin loading is disabled. The Unix path uses uid + permission-
+// mask checks (plus symlink rejection) to refuse RCE-equivalent
+// configurations before exec'ing adjacent plugin binaries. Equivalent
+// Windows ACL / SID / reparse-point validation needs golang.org/x/sys/windows
+// work that hasn't landed yet; refusing a present plugins dir is safer than
+// running with no validation. When the dir does not exist, resolvePluginsDir
+// returns ("", nil) without reaching here, so Windows fleetnode runs in
+// heartbeat-only mode by default.
 func checkPluginsDirPerms(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat plugins dir %s: %w", path, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("plugins dir %s is not a directory", path)
-	}
-	return nil
+	return fmt.Errorf("plugin loading is not yet supported on Windows; remove %s or run fleetnode on a Unix host until Windows ACL validation is implemented", path)
 }
 
-// Windows ACL inspection needs golang.org/x/sys/windows SID/ACE work.
-// Production deployments must place plugins under an Administrator-only
-// directory; runtime cannot verify that on Windows.
+// validatePluginFiles is unreachable while checkPluginsDirPerms refuses, but
+// kept as a no-op so the shared resolvePluginsDir call sequence type-checks
+// on both platforms.
 func validatePluginFiles(_ string) error { return nil }
