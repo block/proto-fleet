@@ -22,6 +22,7 @@ import {
   type RackType,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateGroupProps {
@@ -450,10 +451,7 @@ const useDeviceSets = () => {
 
         onSuccess?.(allIdentifiers);
       } catch (err) {
-        if (
-          (err instanceof DOMException && err.name === "AbortError") ||
-          (err instanceof ConnectError && err.code === Code.Canceled && signal?.aborted)
-        ) {
+        if (isAbortError(err, signal)) {
           return;
         }
 

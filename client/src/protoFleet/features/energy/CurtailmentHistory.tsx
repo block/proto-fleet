@@ -10,7 +10,18 @@ import {
   formatCurtailmentTargetVsActual as formatTargetVsActual,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import CurtailmentStatusDot from "@/protoFleet/features/energy/CurtailmentStatusDot";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import {
+  formatCurtailmentDateTime as formatDateTime,
+  getCurtailmentDateTime as getDateTime,
+  unavailableCurtailmentTimeLabel,
+} from "@/protoFleet/features/energy/curtailmentTimeUtils";
+import {
+  type CurtailmentHistoryEvent,
+  curtailmentHistoryPageSize,
+  type CurtailmentPriority,
+} from "@/protoFleet/features/energy/curtailmentTypes";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
@@ -18,24 +29,6 @@ import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChip from "@/shared/components/List/Filters/FilterChip";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
-
-export type CurtailmentPriority = "normal" | "high" | "emergency";
-
-export interface CurtailmentHistoryEvent {
-  id: string;
-  reason: string;
-  state: CurtailmentEventState;
-  priority: CurtailmentPriority;
-  scopeLabel: string;
-  selectedMiners: number;
-  estimatedReductionKw: number;
-  targetKw?: number;
-  sourceLabel: string;
-  startedAt?: string;
-  endedAt?: string;
-  scheduledAt?: string;
-  createdAt?: string;
-}
 
 interface CurtailmentHistoryProps {
   events: CurtailmentHistoryEvent[];
@@ -58,10 +51,6 @@ interface CurtailmentHistoryProps {
    * starts; a rejected promise re-enables retry controls.
    */
   onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
-}
-
-interface DotProps {
-  className: string;
 }
 
 interface DetailRowProps {
@@ -95,7 +84,6 @@ interface CurtailmentSummaryModalButton {
   disabled?: boolean;
 }
 
-const defaultPageSize = 50;
 const stoppableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
 const rowInteractiveElementSelector =
@@ -127,17 +115,6 @@ const historyColumnLabels: Record<HistoryColumn, string> = {
 };
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-function Dot({ className }: DotProps): ReactElement {
-  return <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
-}
-
 function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
   return (
     <div className="grid grid-cols-[minmax(120px,0.42fr)_minmax(0,1fr)] gap-4 border-b border-border-5 py-3 last:border-0">
@@ -154,20 +131,6 @@ function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
       </div>
     </div>
   );
-}
-
-function getDateTime(value?: string): Date | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function formatDateTime(value?: string): string | undefined {
-  const date = getDateTime(value);
-  return date ? dateTimeFormatter.format(date) : undefined;
 }
 
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
@@ -191,7 +154,7 @@ function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
     return `Created ${createdAt}`;
   }
 
-  return event.state === "pending" ? "Waiting to start" : "Time unavailable";
+  return event.state === "pending" ? "Waiting to start" : unavailableCurtailmentTimeLabel;
 }
 
 function getHistoryColumnSortValue(event: CurtailmentHistoryEvent, field: HistoryColumn): HistorySortValue {
@@ -266,7 +229,7 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 }
 
 function getNormalizedPageSize(pageSize: number): number {
-  return Number.isFinite(pageSize) && pageSize >= 1 ? Math.floor(pageSize) : defaultPageSize;
+  return Number.isFinite(pageSize) && pageSize >= 1 ? Math.floor(pageSize) : curtailmentHistoryPageSize;
 }
 
 function getNormalizedPageIndex(page: number): number {
@@ -428,7 +391,7 @@ function CurtailmentHistoryRow({
       <td className="py-4 pr-6 align-top text-text-primary">{formatTargetVsActual(event)}</td>
       <td className="py-4 pr-6 align-top">
         <div className="flex items-center gap-2 text-emphasis-300 text-text-primary">
-          <Dot className={eventStateConfig.dotClassName} />
+          <CurtailmentStatusDot className={eventStateConfig.dotClassName} />
           {eventStateConfig.label}
         </div>
         <div className="text-200 text-text-primary-50">{getHistoryStatusDetail(event)}</div>
@@ -454,7 +417,7 @@ function CurtailmentHistoryRow({
 function CurtailmentHistory({
   events,
   activeEventId,
-  pageSize = defaultPageSize,
+  pageSize = curtailmentHistoryPageSize,
   currentPage: controlledCurrentPage = 0,
   hasNextPage: controlledHasNextPage = false,
   hasPreviousPage: controlledHasPreviousPage,

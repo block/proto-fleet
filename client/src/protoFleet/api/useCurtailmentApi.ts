@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { Code, ConnectError } from "@connectrpc/connect";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { emitCurtailmentChanged } from "@/protoFleet/api/curtailmentEvents";
@@ -13,11 +12,7 @@ import {
   CurtailmentTargetState as ProtoCurtailmentTargetState,
   StopCurtailmentRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import type {
-  ActiveCurtailmentEvent,
-  CurtailmentTargetRollup,
-} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import {
   getCurtailmentEventEstimatedReductionKw,
   getCurtailmentEventScopeLabel,
@@ -25,9 +20,15 @@ import {
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
 import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import {
+  type ActiveCurtailmentEvent,
+  type CurtailmentHistoryEvent,
+  curtailmentHistoryPageSize,
+  type CurtailmentPriority,
+  type CurtailmentTargetRollup,
+} from "@/protoFleet/features/energy/curtailmentTypes";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface RefreshCurtailmentOptions {
@@ -78,36 +79,12 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   stopCurtailment: (eventUuid: string) => Promise<ProtoCurtailmentEvent>;
 }
 
-const historyPageSize = 50;
 const wattsPerKilowatt = 1000;
 const initialHistoryPagination: CurtailmentHistoryPaginationState = {
   currentPage: 0,
   nextPageToken: "",
   pageTokens: [undefined],
 };
-
-function toError(error: unknown, fallbackMessage: string): Error {
-  const message = getErrorMessage(error);
-  if (message) {
-    return new Error(message);
-  }
-
-  return error instanceof Error ? error : new Error(fallbackMessage);
-}
-
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw new DOMException("The operation was aborted.", "AbortError");
-  }
-}
-
-function isAbortError(error: unknown, signal?: AbortSignal): boolean {
-  return Boolean(
-    signal?.aborted &&
-    ((error instanceof DOMException && error.name === "AbortError") ||
-      (error instanceof ConnectError && error.code === Code.Canceled)),
-  );
-}
 
 function timestampToIsoString(timestamp?: Timestamp): string | undefined {
   if (!timestamp) {
@@ -379,7 +356,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       const response = await curtailmentClient.listCurtailmentEvents(
         create(ListCurtailmentEventsRequestSchema, {
-          pageSize: historyPageSize,
+          pageSize: curtailmentHistoryPageSize,
           pageToken,
         }),
         signal ? { signal } : undefined,
@@ -555,7 +532,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       historyCurrentPage: historyPagination.currentPage,
       historyHasNextPage: historyPagination.nextPageToken !== "",
       historyHasPreviousPage: historyPagination.currentPage > 0,
-      historyPageSize,
+      historyPageSize: curtailmentHistoryPageSize,
       refreshCurtailment,
       goToHistoryPage,
       startCurtailment,

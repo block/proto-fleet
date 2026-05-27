@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
 
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import { GetActiveCurtailmentRequestSchema } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface UseCurtailmentPillDataResult {
@@ -14,13 +14,6 @@ export interface UseCurtailmentPillDataResult {
 }
 
 const POLL_INTERVAL_MS = 30_000;
-
-function isAbortError(error: unknown, signal: AbortSignal): boolean {
-  return (
-    (error instanceof DOMException && error.name === "AbortError") ||
-    (error instanceof ConnectError && error.code === Code.Canceled && signal.aborted)
-  );
-}
 
 export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();

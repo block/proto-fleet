@@ -1,4 +1,4 @@
-import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/curtailmentTypes";
 
 export const mockCurtailmentHistoryEvents: CurtailmentHistoryEvent[] = [
   {
