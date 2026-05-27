@@ -45,7 +45,14 @@ const SiteSettingsSingleView = ({
   const { setActiveSite } = useActiveSite({ knownSiteIds });
   const siteId = site.site?.id ?? 0n;
   const { listBuildingsBySite } = useBuildings();
-  const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
+  // Pair buildings with the siteId that produced them so a stale
+  // response (or a not-yet-resolved fetch after a site switch) can't
+  // render rows from the prior site under the new site's header.
+  // onEditBuilding would otherwise open a building from the prior
+  // site with the new site name as context.
+  const [buildingsResponse, setBuildingsResponse] = useState<
+    { siteId: bigint; rows: BuildingWithCounts[] } | undefined
+  >(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
 
   // Track buildings + buildingsError separately so transient failures don't
@@ -58,12 +65,12 @@ const SiteSettingsSingleView = ({
       siteId,
       signal: controller.signal,
       onSuccess: (rows) => {
-        setBuildings(rows);
+        setBuildingsResponse({ siteId, rows });
         setBuildingsError(null);
       },
       onError: (msg) => {
         setBuildingsError(msg);
-        setBuildings([]);
+        setBuildingsResponse({ siteId, rows: [] });
       },
     });
     return () => controller.abort();
@@ -71,6 +78,9 @@ const SiteSettingsSingleView = ({
 
   useEffect(() => fetchBuildings(), [fetchBuildings, buildingsRefreshKey]);
 
+  // Only show rows whose paired siteId matches the active site —
+  // otherwise treat as loading.
+  const buildings = buildingsResponse && buildingsResponse.siteId === siteId ? buildingsResponse.rows : undefined;
   const displayBuildings = siteId === 0n ? [] : buildings;
 
   const addressLine = [site.site?.locationCity, site.site?.locationState].filter(Boolean).join(", ");
