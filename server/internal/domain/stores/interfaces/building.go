@@ -10,6 +10,8 @@ import (
 
 // BuildingStore is the persistence boundary for the buildings domain.
 // All methods are org-scoped.
+//
+//nolint:interfacebloat // complete CRUD for buildings + rack-placement queries
 type BuildingStore interface {
 	// CreateBuilding inserts a new building row. Maps a
 	// unique-violation on (site_id, name) to AlreadyExists.
