@@ -341,8 +341,88 @@ export class MinersPage extends BasePage {
     await this.page.getByRole("button", { name: "Update cooling mode" }).click();
   }
 
+  async clickDownloadLogsButton() {
+    await this.page.getByTestId("download-logs-popover-button").click();
+  }
+
   async clickRenameButton() {
     await this.page.getByTestId("rename-popover-button").click();
+  }
+
+  async clickUpdateWorkerNameButton() {
+    await this.page.getByTestId("update-worker-names-popover-button").click();
+  }
+
+  async validateUpdateWorkerNameModalOpened() {
+    await this.validateTitleInModal("Update worker name");
+  }
+
+  async fillUpdateWorkerNameInput(name: string) {
+    await this.page.getByTestId("update-worker-name-input").fill(name);
+  }
+
+  async continueUpdateWorkerNameNoChangesIfVisible() {
+    const dialog = this.page.getByTestId("update-worker-name-no-changes-dialog");
+    try {
+      await dialog.waitFor({ state: "visible", timeout: DEFAULT_INTERVAL });
+      await dialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
+    } catch {
+      // Dialog not present, continue
+    }
+  }
+
+  async clickBulkWorkerNameSave() {
+    await this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible').click();
+  }
+
+  async validateBulkWorkerNameModalOpened() {
+    await this.validateTitle("Update worker names");
+  }
+
+  async validateBulkWorkerNameSaveLabel(expectedLabel: string) {
+    await expect(this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible')).toHaveText(expectedLabel);
+  }
+
+  async closeBulkWorkerNameModal() {
+    await this.page.getByLabel("Close update worker names").click();
+  }
+
+  async continueBulkRenameOverwriteWarningIfVisible() {
+    const overwriteDialog = this.page.getByTestId("bulk-rename-overwrite-dialog");
+    try {
+      await overwriteDialog.waitFor({ state: "visible", timeout: DEFAULT_INTERVAL });
+      await overwriteDialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
+    } catch {
+      // Dialog not present, continue
+    }
+  }
+
+  async clickManageSecurityButton() {
+    await this.page.getByTestId("security-popover-button").click();
+  }
+
+  async validateManageSecurityModalOpened() {
+    await this.validateTitle("Manage security");
+  }
+
+  async clickManageSecurityUpdateButton() {
+    await this.page.getByRole("button", { name: "Update", exact: true }).click();
+  }
+
+  async closeManageSecurityModal() {
+    await this.page.getByLabel("Close manage security").click();
+  }
+
+  async inputCurrentMinerPassword(password: string) {
+    await this.page.locator("#currentPassword").fill(password);
+  }
+
+  async inputNewMinerPassword(password: string) {
+    await this.page.locator("#newPassword").fill(password);
+  }
+
+  async inputConfirmMinerPassword(password: string) {
+    await this.page.locator("#confirmPassword").fill(password);
   }
 
   async clickAddToGroupButton() {
@@ -543,6 +623,18 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("custom-property-string-input").fill(value);
   }
 
+  async saveCustomPropertyOptions() {
+    const desktopSave = this.page.getByTestId("custom-property-options-save-button");
+    const mobileSave = this.page.getByTestId("custom-property-options-save-button-mobile");
+
+    if (await desktopSave.isVisible().catch(() => false)) {
+      await desktopSave.click();
+      return;
+    }
+
+    await mobileSave.click();
+  }
+
   async validateCustomPropertyPreviewText(expectedText: string) {
     await expect(
       this.page.getByTestId("custom-property-preview"),
@@ -672,6 +764,67 @@ export class MinersPage extends BasePage {
   async validateMinerName(ipAddress: string, expectedName: string) {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     await expect(minerRow.getByTestId("name")).toContainText(expectedName);
+  }
+
+  async getMinerWorkerName(ipAddress: string): Promise<string> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    return (await minerRow.getByTestId("workerName").innerText()).trim();
+  }
+
+  async validateMinerWorkerName(ipAddress: string, expectedWorkerName: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await expect(minerRow.getByTestId("workerName")).toContainText(expectedWorkerName);
+  }
+
+  async getMinerWithNonEmptyWorkerName(): Promise<{ ipAddress: string; workerName: string }> {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      const workerName = (await row.getByTestId("workerName").innerText()).trim();
+
+      if (workerName && workerName !== "—") {
+        return {
+          ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+          workerName,
+        };
+      }
+    }
+
+    throw new Error("Expected at least one visible miner with a non-empty worker name");
+  }
+
+  async getAuthenticatedMinersWithNonEmptyWorkerNames(
+    count: number,
+  ): Promise<Array<{ ipAddress: string; workerName: string }>> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const authenticatedRows = allRows.filter({
+      has: this.page.locator('input[type="checkbox"]:not([disabled])'),
+    });
+
+    const authenticatedCount = await authenticatedRows.count();
+    const matchingMiners: Array<{ ipAddress: string; workerName: string }> = [];
+
+    for (let i = 0; i < authenticatedCount; i++) {
+      const row = authenticatedRows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      const workerName = (await row.getByTestId("workerName").innerText()).trim();
+
+      if (workerName && workerName !== "—") {
+        matchingMiners.push({
+          ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+          workerName,
+        });
+      }
+
+      if (matchingMiners.length === count) {
+        return matchingMiners;
+      }
+    }
+
+    throw new Error(`Expected at least ${count} authenticated miners with non-empty worker names`);
   }
 
   async getMinerNameByIndex(index: number): Promise<string> {
@@ -1051,12 +1204,15 @@ export class MinersPage extends BasePage {
     await expect(this.page.getByTestId("view-modal")).toBeHidden();
   }
 
-  private getViewTab(viewName: string) {
+  private getViewTabs(viewName: string) {
     return this.page
       .getByTestId("views-bar")
       .locator('[data-testid^="views-bar-tab-"]')
-      .filter({ has: this.page.getByRole("button", { name: viewName, exact: true }) })
-      .first();
+      .filter({ has: this.page.getByRole("button", { name: viewName, exact: true }) });
+  }
+
+  private getViewTab(viewName: string) {
+    return this.getViewTabs(viewName).first();
   }
 
   async validateViewTabVisible(viewName: string) {
@@ -1083,6 +1239,32 @@ export class MinersPage extends BasePage {
   async clickUpdateViewAction(viewName: string) {
     await this.openViewTabKebab(viewName);
     await this.page.getByText("Update view", { exact: true }).click();
+  }
+
+  async clickRenameViewAction(viewName: string) {
+    await this.openViewTabKebab(viewName);
+    await this.page.getByText("Rename", { exact: true }).click();
+  }
+
+  async clickDeleteViewAction(viewName: string) {
+    await this.openViewTabKebab(viewName);
+    await this.page.getByText("Delete", { exact: true }).click();
+  }
+
+  async validateViewTabNotVisible(viewName: string) {
+    await expect(this.getViewTabs(viewName)).toHaveCount(0);
+  }
+
+  async validateDeleteViewDialogOpened(viewName: string) {
+    const dialog = this.page.getByTestId("views-bar-delete-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Delete the view "${viewName}"? This can't be undone.`);
+  }
+
+  async confirmDeleteView() {
+    const dialog = this.page.getByTestId("views-bar-delete-dialog");
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toBeHidden();
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {

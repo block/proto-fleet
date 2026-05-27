@@ -219,9 +219,16 @@ func TestHandler_RequestValidation(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 	})
 
-	t.Run("Start accepts maintenance inclusion with force and reaches handler", func(t *testing.T) {
+	t.Run("Start accepts maintenance pair through proto validation; admin gate fires next", func(t *testing.T) {
 		t.Parallel()
 
+		// force_include_maintenance is admin-gated; the validator test
+		// client carries no session, so the request passes proto
+		// validation, reaches the handler entry, and the admin gate
+		// remaps the missing session to Unauthenticated. The signal
+		// here is "not InvalidArgument" — proto-level maintenance-pair
+		// validation accepted the request. TestHandler_OverrideFieldsRoleGate
+		// covers the role-gate semantics with session.Info injected.
 		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
 		req.IncludeMaintenance = true
 		req.ForceIncludeMaintenance = true
@@ -231,7 +238,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 		require.Error(t, err)
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
+		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
 	})
 }
 
@@ -440,6 +447,19 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		}))
 		return err
 	}
+	startWithForceIncludeMaintenance := func(ctx context.Context) error {
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
+			Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.StartCurtailmentRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+			Reason:                  "override role-gate test",
+			IncludeMaintenance:      true,
+			ForceIncludeMaintenance: true,
+		}))
+		return err
+	}
 
 	cases := []call{
 		// Non-admin role with override field set is rejected regardless of auth method.
@@ -451,6 +471,11 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Stop force + viewer session", stopWithForce, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Stop force + viewer API key", stopWithForce, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		// force_include_maintenance is safety-critical and admin-gated: a
+		// non-admin must not be able to command curtailment on miners
+		// under active physical maintenance.
+		{"Start force_include_maintenance + viewer session", startWithForceIncludeMaintenance, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Start force_include_maintenance + viewer API key", startWithForceIncludeMaintenance, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 
 		// Admin role reaches Unimplemented regardless of auth method — admin
 		// API-key callers can drive override paths so external integrations
@@ -463,6 +488,8 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Start allow_unbounded + super admin API key", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Stop force + admin session", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
 		{"Stop force + admin API key", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Start force_include_maintenance + admin session", startWithForceIncludeMaintenance, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start force_include_maintenance + admin API key", startWithForceIncludeMaintenance, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {

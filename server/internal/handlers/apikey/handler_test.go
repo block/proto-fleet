@@ -203,19 +203,30 @@ func TestApiKeyHandler(t *testing.T) {
 			}
 			viewerDBID = userID
 
-			roleID, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
-				Name:        "VIEWER",
-				Description: sql.NullString{String: "Read-only role", Valid: true},
+			roleID, err := q.UpsertCustomRoleForOrg(context.Background(), sqlc.UpsertCustomRoleForOrgParams{
+				Name:           "VIEWER",
+				Description:    sql.NullString{String: "Read-only role", Valid: true},
+				OrganizationID: sql.NullInt64{Int64: adminUser.OrganizationID, Valid: true},
 			})
 			if err != nil {
 				return err
 			}
 
-			return q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
+			if err := q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
 				UserID:         userID,
 				RoleID:         roleID,
 				OrganizationID: adminUser.OrganizationID,
+			}); err != nil {
+				return err
+			}
+			_, err = q.AssignRole(context.Background(), sqlc.AssignRoleParams{
+				UserID:         userID,
+				OrganizationID: adminUser.OrganizationID,
+				RoleID:         roleID,
+				ScopeType:      "org",
+				ScopeID:        sql.NullInt64{},
 			})
+			return err
 		})
 		assert.NoError(t, err)
 		_ = viewerDBID

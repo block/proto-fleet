@@ -64,7 +64,7 @@ func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]
 }
 
 const getUserRoleInOrganization = `-- name: GetUserRoleInOrganization :one
-SELECT r.id, r.name, r.description, r.created_at, r.updated_at, r.deleted_at
+SELECT r.id, r.name, r.description, r.created_at, r.updated_at, r.deleted_at, r.is_builtin, r.builtin_key, r.organization_id
 FROM role r
          JOIN user_organization uo ON r.id = uo.role_id
 WHERE uo.user_id = $1
@@ -86,6 +86,9 @@ func (q *Queries) GetUserRoleInOrganization(ctx context.Context, arg GetUserRole
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }

@@ -2,6 +2,14 @@ import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useSta
 import clsx from "clsx";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import {
+  type CurtailmentEventState,
+  curtailmentEventStateConfigs,
+  curtailmentEventStates,
+  formatCurtailmentMinerCount as formatMinerCount,
+  formatCurtailmentTargetVsActual as formatTargetVsActual,
+  getCurtailmentTargetKw as getTargetKw,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -12,18 +20,6 @@ import FilterChip from "@/shared/components/List/Filters/FilterChip";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 
 export type CurtailmentPriority = "normal" | "high" | "emergency";
-
-const curtailmentEventStates = [
-  "pending",
-  "active",
-  "restoring",
-  "completed",
-  "completedWithFailures",
-  "cancelled",
-  "failed",
-] as const;
-
-export type CurtailmentEventState = (typeof curtailmentEventStates)[number];
 
 export interface CurtailmentHistoryEvent {
   id: string;
@@ -101,33 +97,16 @@ const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
 
-const eventStateLabels: Record<CurtailmentEventState, string> = {
-  pending: "Pending",
-  active: "Active",
-  restoring: "Restoring",
-  completed: "Completed",
-  completedWithFailures: "Completed with failures",
-  cancelled: "Cancelled",
-  failed: "Failed",
-};
-
 const priorityLabels: Record<CurtailmentPriority, string> = {
   normal: "Normal",
   high: "High",
   emergency: "Emergency",
 };
 
-const eventStateDotClassNames: Record<CurtailmentEventState, string> = {
-  pending: "bg-core-accent-fill",
-  active: "bg-intent-warning-fill",
-  restoring: "bg-core-accent-fill",
-  completed: "bg-text-primary-30",
-  completedWithFailures: "bg-text-primary-30",
-  cancelled: "bg-intent-critical-fill",
-  failed: "bg-intent-critical-fill",
-};
-
-const statusFilterOptions = curtailmentEventStates.map((state) => ({ id: state, label: eventStateLabels[state] }));
+const statusFilterOptions = curtailmentEventStates.map((state) => ({
+  id: state,
+  label: curtailmentEventStateConfigs[state].label,
+}));
 const statusFilterOptionIds = new Set<string>(curtailmentEventStates);
 
 const historyColumns = ["event", "scope", "target", "state"] as const;
@@ -141,16 +120,6 @@ const historyColumnLabels: Record<HistoryColumn, string> = {
   scope: "Applies to",
   target: "Target vs actual",
   state: "Status",
-};
-
-const eventStateOrder: Record<CurtailmentEventState, number> = {
-  pending: 0,
-  active: 1,
-  restoring: 2,
-  completed: 3,
-  completedWithFailures: 4,
-  cancelled: 5,
-  failed: 6,
 };
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
@@ -183,17 +152,6 @@ function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
   );
 }
 
-function getTargetKw(event: Pick<CurtailmentHistoryEvent, "targetKw" | "estimatedReductionKw">): number {
-  return event.targetKw ?? event.estimatedReductionKw;
-}
-
-function formatKw(value: number, fractionDigits = 1): string {
-  return `${value.toLocaleString(undefined, {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  })} kW`;
-}
-
 function getDateTime(value?: string): Date | undefined {
   if (!value) {
     return undefined;
@@ -206,14 +164,6 @@ function getDateTime(value?: string): Date | undefined {
 function formatDateTime(value?: string): string | undefined {
   const date = getDateTime(value);
   return date ? dateTimeFormatter.format(date) : undefined;
-}
-
-function formatTargetVsActual(event: Pick<CurtailmentHistoryEvent, "targetKw" | "estimatedReductionKw">): string {
-  return `${formatKw(getTargetKw(event))} / ${formatKw(event.estimatedReductionKw)}`;
-}
-
-function formatMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} ${minerCount === 1 ? "miner" : "miners"}`;
 }
 
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
@@ -249,7 +199,7 @@ function getHistoryColumnSortValue(event: CurtailmentHistoryEvent, field: Histor
     case "target":
       return getTargetKw(event);
     case "state":
-      return eventStateOrder[event.state];
+      return curtailmentEventStateConfigs[event.state].order;
   }
 }
 
@@ -265,12 +215,16 @@ function compareSortValues(left: HistorySortValue, right: HistorySortValue): num
   return collator.compare(String(left), String(right));
 }
 
-function compareStartedAtDesc(left: CurtailmentHistoryEvent, right: CurtailmentHistoryEvent): number {
-  const getSortTime = (event: CurtailmentHistoryEvent) =>
+function getSortTime(event: CurtailmentHistoryEvent): number {
+  return (
     getDateTime(event.startedAt)?.getTime() ??
     getDateTime(event.scheduledAt)?.getTime() ??
     getDateTime(event.createdAt)?.getTime() ??
-    0;
+    0
+  );
+}
+
+function compareStartedAtDesc(left: CurtailmentHistoryEvent, right: CurtailmentHistoryEvent): number {
   const dateComparison = getSortTime(right) - getSortTime(left);
   return dateComparison || collator.compare(left.id, right.id);
 }
@@ -350,6 +304,7 @@ function CurtailmentSummaryModal({
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const createdAt = formatDateTime(event.createdAt);
+  const eventStateConfig = curtailmentEventStateConfigs[event.state];
   const buttons: CurtailmentSummaryModalButton[] = [];
 
   if (onStop) {
@@ -387,7 +342,7 @@ function CurtailmentSummaryModal({
           <DetailRow label="ID" value={event.id} />
           <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatMinerCount(event.selectedMiners)} />
           <DetailRow label="Power target vs actual" value={formatTargetVsActual(event)} />
-          <DetailRow label="Status" value={eventStateLabels[event.state]} secondary={getHistoryStatusDetail(event)} />
+          <DetailRow label="Status" value={eventStateConfig.label} secondary={getHistoryStatusDetail(event)} />
           <DetailRow label="Started" value={startedAt ?? "Not started yet"} />
           {scheduledAt ? <DetailRow label="Scheduled" value={scheduledAt} /> : null}
           {createdAt ? <DetailRow label="Created" value={createdAt} /> : null}
@@ -408,6 +363,7 @@ function CurtailmentHistoryRow({
   stopDisabled,
 }: CurtailmentHistoryRowProps): ReactElement {
   const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventId);
+  const eventStateConfig = curtailmentEventStateConfigs[event.state];
 
   const handleRowClick = (clickEvent: MouseEvent<HTMLTableRowElement>) => {
     if (shouldIgnoreRowActivation(clickEvent.target, clickEvent.currentTarget)) {
@@ -464,8 +420,8 @@ function CurtailmentHistoryRow({
       <td className="py-4 pr-6 align-top text-text-primary">{formatTargetVsActual(event)}</td>
       <td className="py-4 pr-6 align-top">
         <div className="flex items-center gap-2 text-emphasis-300 text-text-primary">
-          <Dot className={eventStateDotClassNames[event.state]} />
-          {eventStateLabels[event.state]}
+          <Dot className={eventStateConfig.dotClassName} />
+          {eventStateConfig.label}
         </div>
         <div className="text-200 text-text-primary-50">{getHistoryStatusDetail(event)}</div>
       </td>
@@ -529,7 +485,8 @@ function CurtailmentHistory({
       return events;
     }
 
-    return events.filter((event) => selectedStatusFilters.includes(event.state));
+    const filterSet = new Set(selectedStatusFilters);
+    return events.filter((event) => filterSet.has(event.state));
   }, [events, selectedStatusFilters]);
 
   const sortedEvents = useMemo(() => sortHistoryEvents(filteredEvents, currentSort), [filteredEvents, currentSort]);

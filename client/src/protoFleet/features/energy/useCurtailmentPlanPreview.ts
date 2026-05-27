@@ -115,14 +115,16 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
     case "deviceSet":
       return undefined;
     case "explicitMiners":
-      return values.deviceIdentifiers.length > 0
-        ? {
-            case: "deviceIdentifiers",
-            value: create(ScopeDeviceListSchema, {
-              deviceIdentifiers: values.deviceIdentifiers,
-            }),
-          }
-        : undefined;
+      if (values.deviceIdentifiers.length === 0) {
+        return undefined;
+      }
+
+      return {
+        case: "deviceIdentifiers",
+        value: create(ScopeDeviceListSchema, {
+          deviceIdentifiers: values.deviceIdentifiers,
+        }),
+      };
   }
 }
 

@@ -19,14 +19,16 @@ interface ActionItemProps<ActionType> {
 }
 
 const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionType>) => {
+  const isDisabled = action.disabled === true;
   return (
     <>
-      <div className="px-4">
+      <div className="px-4" title={isDisabled ? action.disabledReason : undefined}>
         <Row
-          className="text-emphasis-300"
+          className={isDisabled ? "cursor-not-allowed text-emphasis-300 opacity-50" : "text-emphasis-300"}
           prefixIcon={action.icon}
           testId={action.action + "-popover-button"}
           onClick={() => onAction(action)}
+          disabled={isDisabled}
           compact
           divider={false}
         >

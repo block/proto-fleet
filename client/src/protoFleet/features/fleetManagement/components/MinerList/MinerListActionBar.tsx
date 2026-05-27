@@ -21,6 +21,7 @@ interface MinerListActionBarProps {
   currentSort?: SortConfig;
   miners?: Record<string, MinerStateSnapshot>;
   minerIds?: string[];
+  selectionIncludesUnauthenticatedMiner?: boolean;
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
 }
@@ -36,6 +37,7 @@ const MinerListActionBar = ({
   currentSort,
   miners,
   minerIds,
+  selectionIncludesUnauthenticatedMiner,
   onRefetchMiners,
   onWorkerNameUpdated,
 }: MinerListActionBarProps) => {
@@ -100,6 +102,7 @@ const MinerListActionBar = ({
           currentSort={currentSort}
           miners={miners}
           minerIds={minerIds}
+          selectionIncludesUnauthenticatedMiner={selectionIncludesUnauthenticatedMiner}
           onRefetchMiners={onRefetchMiners}
           onWorkerNameUpdated={onWorkerNameUpdated}
           onActionStart={() => {

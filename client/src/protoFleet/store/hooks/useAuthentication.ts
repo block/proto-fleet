@@ -46,7 +46,7 @@ export const useCheckAuthentication = (shouldCheckAccess = true) => {
 
     if (!isSessionValid) {
       pushToast({
-        message: "Please login to continue.",
+        message: "Please log in to continue.",
         status: TOAST_STATUSES.error,
       });
       timeoutId = setTimeout(() => {

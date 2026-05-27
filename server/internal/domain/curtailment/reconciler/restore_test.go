@@ -12,6 +12,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // --- enforceMaxDuration ---
@@ -113,12 +114,9 @@ func TestReconciler_EnforceMaxDuration_AllowUnboundedSkipsCap(t *testing.T) {
 		"AllowUnbounded events must never trigger forced restore")
 }
 
-// TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch pins
-// the BeginRestoreTransition failure path: the event state stays Active (no
-// in-memory mutation), the transition call counter records the attempt, and
-// drift detection is skipped this tick — re-curtailing past max_duration
-// would extend curtailment past the contracted ceiling. The next tick
-// retries the transition.
+// On BeginRestoreTransition error: event stays Active, drift dispatch
+// skipped this tick (re-curtailing would extend past max_duration); next
+// tick retries.
 func TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch(t *testing.T) {
 	store := newFakeStore()
 	store.beginRestoreErr = errors.New("db boom")
@@ -283,6 +281,54 @@ func TestReconciler_Restoring_IntervalGateBlocksClaim(t *testing.T) {
 		"interval gate must hold the next batch until restore_batch_interval_sec elapses")
 }
 
+// TestReconciler_Restoring_OrphanDispatchingPriorityOverFreshPending:
+// after a reconciler restart leaves DISPATCHING orphans alongside
+// untouched PENDING targets, the next tick must redispatch ONLY the
+// orphans. Mixing them with fresh PENDING would double the inrush and
+// bypass the one-batch-per-interval throttle.
+func TestReconciler_Restoring_OrphanDispatchingPriorityOverFreshPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(3)
+	eventID := int64(30)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	// orphan-A and orphan-B carry State=DISPATCHING from an interrupted
+	// prior tick; fresh-C and fresh-D are untouched PENDING claims.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "orphan-A", State: models.TargetStateDispatching, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "orphan-B", State: models.TargetStateDispatching, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "fresh-C", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "fresh-D", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.uncurtailCalls,
+		"orphan-recovery wave must fire exactly one Uncurtail call")
+	assert.ElementsMatch(t, []string{"orphan-A", "orphan-B"}, disp.uncurtailLastIDs,
+		"the wave must include only orphans; fresh PENDING is held for the next tick")
+
+	// fresh-C and fresh-D must still be PENDING — orphan-priority means
+	// they don't share the batch and the interval/throttle works as
+	// designed on the next tick.
+	for _, tgt := range store.targetsByEventID[eventID] {
+		switch tgt.DeviceIdentifier {
+		case "fresh-C", "fresh-D":
+			assert.Equalf(t, models.TargetStatePending, tgt.State,
+				"fresh PENDING target %q must not be claimed alongside orphans", tgt.DeviceIdentifier)
+		}
+	}
+}
+
 func TestReconciler_Restoring_AllTerminalCompletesEvent(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -331,11 +377,8 @@ func TestReconciler_Restoring_MixedResolvedAndFailedCompletesWithFailures(t *tes
 		"a single failure must route the terminal transition to COMPLETED_WITH_FAILURES")
 }
 
-// TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins
-// maybeCompleteRestoring's default arm: a target with a TargetState value
-// not covered by the explicit cases must NOT complete the event. A future
-// schema-added state then has to ship its handling alongside its first use,
-// rather than silently being treated as terminal.
+// An unknown TargetState must NOT complete the event — forces future
+// schema additions to ship their handling alongside.
 func TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -422,11 +465,213 @@ func TestReconciler_Restoring_UncurtailErrorKeepsBatchPending(t *testing.T) {
 	}
 }
 
-// TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending pins
-// dispatchRestoreBatch's empty-result path: an Uncurtail returning nil error
-// but an empty BatchIdentifier means the command produced no batch (all
-// devices unpaired/deleted post-Stop). Every batch target should burn retry
-// budget and surface the no-batch reason.
+// A non-race-loss pre-write failure drops one target from the batch
+// (remaining devices proceed) and burns one retry slot so persistent
+// failures escalate to RESTORE_FAILED instead of cycling.
+func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Fail the first DISPATCHING pre-write (m1) with a non-race-loss
+	// error; subsequent calls (m2's pre-write + m1's recordDispatchFailure
+	// recovery write + m2's post-cmd DISPATCHED) succeed.
+	failedOnce := false
+	store.updateTargetStateHook = func(device string, _ interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if device == "m1" && !failedOnce {
+			failedOnce = true
+			return errors.New("transient db blip")
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(84)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	// Uncurtail fired exactly once with just m2 in the batch.
+	assert.Equal(t, 1, disp.uncurtailCalls, "Uncurtail must still fire for the surviving target(s)")
+	assert.Equal(t, []string{"m2"}, disp.uncurtailLastIDs,
+		"failed pre-write target must be excluded from the Uncurtail selector")
+
+	// m1 stays Pending for next-tick reclaim but burns one retry slot.
+	m1 := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State,
+		"failed pre-write target must remain in PENDING for next-tick reclaim")
+	assert.Equal(t, int32(1), m1.RetryCount,
+		"non-race-loss pre-write failure must burn one retry slot so persistent failure escalates to RESTORE_FAILED")
+	require.NotNil(t, m1.LastError, "pre-write failure must stamp last_error for operator visibility")
+	assert.Contains(t, *m1.LastError, "transient db blip")
+	// m2 successfully advanced to Dispatched.
+	m2 := store.targetsByEventID[eventID][1]
+	assert.Equal(t, models.TargetStateDispatched, m2.State,
+		"surviving target must complete the dispatch cycle")
+}
+
+// If every pre-write fails, dispatchSet is empty and Uncurtail does NOT
+// fire — guards against a regression dropping the len==0 check.
+func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Every write fails (DB fully degraded). The dispatch loop's pre-write
+	// fails, the recordDispatchFailure recovery write also fails — neither
+	// the target's state nor retry_count advances. Pin the dispatchSet-empty
+	// → no-Uncurtail contract; retry budget cycles to the next tick (when
+	// the DB is presumably back up). For the intermittent-failure path
+	// where recovery succeeds, see TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget.
+	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
+		return errors.New("transient db blip")
+	}
+	// Fully-degraded DB: the fallback retry-budget bump also fails, so
+	// retry_count stays at 0 in both the DB and the in-memory mirror.
+	store.bumpTargetRetryErr = errors.New("transient db blip")
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(85)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"Uncurtail must not fire when every batch target's pre-write failed")
+	for _, t0 := range store.targetsByEventID[eventID] {
+		assert.Equal(t, models.TargetStatePending, t0.State,
+			"%s stays Pending so next tick can re-claim it", t0.DeviceIdentifier)
+		assert.Equal(t, int32(0), t0.RetryCount,
+			"%s retry budget unchanged when the recovery write also fails (fully degraded DB)", t0.DeviceIdentifier)
+	}
+}
+
+// A target whose DISPATCHING pre-write keeps failing burns one retry
+// slot per tick (when the recovery write succeeds) and lands in
+// RESTORE_FAILED after MaxRetries so the event can complete.
+func TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Fail every DISPATCHING pre-write but let the subsequent
+	// recordDispatchFailure recovery write succeed. The hook differentiates
+	// by inspecting params.State: pre-write is models.TargetStateDispatching;
+	// recordDispatchFailure writes the retry-bumped state which is either
+	// TargetStatePending (budget remaining) or TargetStateRestoreFailed.
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if params.State == models.TargetStateDispatching {
+			return errors.New("transient db blip")
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(1)
+	eventID := int64(86)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	// Tick 1: pre-write fails → retry 1, still PENDING.
+	r.runTick(context.Background())
+	m1 := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State)
+	assert.Equal(t, int32(1), m1.RetryCount)
+
+	// Tick 2: pre-write fails → retry 2, still PENDING.
+	r.runTick(context.Background())
+	m1 = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State)
+	assert.Equal(t, int32(2), m1.RetryCount)
+
+	// Tick 3: pre-write fails → retry 3 (hits MaxRetries) → RESTORE_FAILED.
+	r.runTick(context.Background())
+	m1 = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, m1.State,
+		"persistently-failing pre-write must escalate to RESTORE_FAILED at MaxRetries — without the fix the target cycles forever")
+	assert.Equal(t, int32(3), m1.RetryCount)
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"cmd.Uncurtail never fires because the pre-write never lands")
+}
+
+// When the rich UpdateTargetState write inside recordDispatchFailure fails
+// non-race-loss, the fallback BumpTargetRetry persists a retry_count
+// advance even though state stays at the prior value. This lets a
+// persistently-failing state-change write still escalate to RESTORE_FAILED
+// on the next successful UpdateTargetState rather than looping forever
+// without budget progress.
+func TestReconciler_Restoring_RecoveryWriteFailureFallsBackToBumpRetry(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Every UpdateTargetState write fails non-race-loss, but BumpTargetRetry
+	// succeeds — models the case where the rich UPDATE is blocked (lock
+	// timeout, deadline, etc.) but the simple counter UPDATE still lands.
+	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
+		return errors.New("transient db blip")
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(1)
+	eventID := int64(91)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	m1 := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State,
+		"state stays at the prior value when the rich UPDATE fails")
+	assert.Equal(t, int32(1), m1.RetryCount,
+		"retry budget advances via BumpTargetRetry fallback even though the rich UPDATE didn't land")
+	assert.Equal(t, 1, store.bumpTargetRetryCalls,
+		"fallback fires exactly once per recordDispatchFailure invocation")
+	assert.Equal(t, "m1", store.lastBumpTargetRetry.DeviceIdentifier)
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"cmd.Uncurtail does not fire because the DISPATCHING pre-write failed")
+}
+
+// Uncurtail returning empty BatchIdentifier (no live devices) burns
+// retry budget on every batch target.
 func TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{
@@ -460,11 +705,8 @@ func TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending(t *testing.T
 	}
 }
 
-// TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending pins
-// dispatchRestoreBatch's per-device filter-skip path: an Uncurtail returning
-// one Skipped entry must move the kept device to Dispatched and leave the
-// skipped device Pending with retry consumed (mirrors
-// TestReconciler_DispatchSkippedKeepsTargetPending for the restore phase).
+// A per-device Skipped entry on Uncurtail leaves the kept device
+// Dispatched and the skipped device Pending with retry consumed.
 func TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{
@@ -636,13 +878,8 @@ func TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail(t *testing.T) {
 	assert.Nil(t, final.LastError)
 }
 
-// TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget
-// pins the restore-phase analog of the curtail-phase nil-candidate guard: a
-// Dispatched+Active target whose candidate row has vanished (device unpaired
-// or deleted) burns retry budget via recordDispatchFailure so the event can
-// still reach terminal instead of pinning on a ghost row. The interval gate
-// is held closed so the re-claim arm of observeRestoring does not redispatch
-// the freshly-Pending target within the same tick.
+// Restore-phase: a vanished candidate burns retry budget. Interval gate
+// held closed so the freshly-Pending target isn't re-claimed this tick.
 func TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

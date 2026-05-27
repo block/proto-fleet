@@ -1,8 +1,13 @@
 import { Fragment, type ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import { deviceActions, groupActions, performanceActions, settingsActions } from "./constants";
 import MinerActionsMenu from "./MinerActionsMenu";
+import {
+  MinerStateSnapshotSchema,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // Use vi.hoisted to properly hoist mock variable declarations
 const {
@@ -663,6 +668,138 @@ describe("MinerActionsMenu", () => {
       expect(latestBulkWorkerNameModalProps?.selectionMode).toBe("subset");
       expect(latestBulkWorkerNameModalProps?.originalSelectionMode).toBe("all");
       expect(latestBulkWorkerNameModalProps?.totalCount).toBe(1);
+    });
+  });
+
+  describe("when the selection includes a miner that needs authentication", () => {
+    const popoverActionsFixture = [
+      {
+        action: deviceActions.reboot,
+        title: "Reboot",
+        icon: null,
+        actionHandler: vi.fn(),
+        requiresConfirmation: true,
+      },
+      {
+        action: deviceActions.unpair,
+        title: "Unpair",
+        icon: null,
+        actionHandler: vi.fn(),
+        requiresConfirmation: true,
+      },
+      {
+        action: settingsActions.miningPool,
+        title: "Edit pool",
+        icon: null,
+        actionHandler: vi.fn(),
+        requiresConfirmation: false,
+      },
+    ];
+
+    const readActions = () => {
+      const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<
+        [{ actions: Array<{ action: string; disabled?: boolean; disabledReason?: string }> }]
+      >;
+      const lastCall = widgetCalls[widgetCalls.length - 1];
+      if (lastCall === undefined) {
+        throw new Error("BulkActionsWidget was not called with props");
+      }
+      return lastCall[0].actions;
+    };
+
+    test("falls back to the miners map and disables every non-unpair action", () => {
+      mockUseMinerActions.mockReturnValueOnce({
+        ...createMockMinerActionsReturn(null),
+        popoverActions: popoverActionsFixture,
+      });
+
+      render(
+        <MinerActionsMenu
+          selectedMiners={["miner-1", "miner-2"]}
+          selectionMode="subset"
+          totalCount={2}
+          miners={{
+            "miner-1": create(MinerStateSnapshotSchema, { pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
+            "miner-2": create(MinerStateSnapshotSchema, { pairingStatus: PairingStatus.PAIRED }),
+          }}
+        />,
+      );
+
+      const actions = readActions();
+      const unpair = actions.find((a) => a.action === deviceActions.unpair);
+      const reboot = actions.find((a) => a.action === deviceActions.reboot);
+      const editPool = actions.find((a) => a.action === settingsActions.miningPool);
+
+      expect(unpair?.disabled).not.toBe(true);
+      expect(reboot?.disabled).toBe(true);
+      expect(reboot?.disabledReason).toContain("authentication");
+      expect(editPool?.disabled).toBe(true);
+      expect(editPool?.disabledReason).toContain("authentication");
+    });
+
+    test("uses the parent override even when the miners map is empty (all-mode)", () => {
+      mockUseMinerActions.mockReturnValueOnce({
+        ...createMockMinerActionsReturn(null),
+        popoverActions: popoverActionsFixture,
+      });
+
+      render(
+        <MinerActionsMenu
+          selectedMiners={["miner-1"]}
+          selectionMode="all"
+          totalCount={5}
+          miners={{}}
+          selectionIncludesUnauthenticatedMiner
+        />,
+      );
+
+      const actions = readActions();
+      expect(actions.find((a) => a.action === deviceActions.unpair)?.disabled).not.toBe(true);
+      expect(actions.find((a) => a.action === deviceActions.reboot)?.disabled).toBe(true);
+      expect(actions.find((a) => a.action === settingsActions.miningPool)?.disabled).toBe(true);
+    });
+
+    test("leaves every action enabled when nothing in the selection needs authentication", () => {
+      mockUseMinerActions.mockReturnValueOnce({
+        ...createMockMinerActionsReturn(null),
+        popoverActions: popoverActionsFixture,
+      });
+
+      render(
+        <MinerActionsMenu
+          selectedMiners={["miner-1"]}
+          selectionMode="subset"
+          totalCount={1}
+          miners={{
+            "miner-1": create(MinerStateSnapshotSchema, { pairingStatus: PairingStatus.PAIRED }),
+          }}
+        />,
+      );
+
+      const actions = readActions();
+      expect(actions.every((a) => a.disabled !== true)).toBe(true);
+    });
+
+    test("disables the matching quick-action button on desktop", () => {
+      mockUseWindowDimensions.mockReturnValueOnce({ isPhone: false, isTablet: false });
+      mockUseMinerActions.mockReturnValueOnce({
+        ...createMockMinerActionsReturn(null),
+        popoverActions: popoverActionsFixture,
+      });
+
+      render(
+        <MinerActionsMenu
+          selectedMiners={["miner-1"]}
+          selectionMode="subset"
+          totalCount={1}
+          miners={{
+            "miner-1": create(MinerStateSnapshotSchema, { pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
+          }}
+        />,
+      );
+
+      const rebootButton = screen.getByTestId(`actions-menu-quick-action-${deviceActions.reboot}`);
+      expect(rebootButton).toBeDisabled();
     });
   });
 });

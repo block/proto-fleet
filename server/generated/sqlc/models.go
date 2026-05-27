@@ -767,6 +767,13 @@ type PendingEnrollment struct {
 	CreatedAt   time.Time
 }
 
+type Permission struct {
+	ID          int64
+	Key         string
+	Description string
+	CreatedAt   time.Time
+}
+
 type Pool struct {
 	ID          int64
 	OrgID       int64
@@ -801,12 +808,20 @@ type RackSlot struct {
 }
 
 type Role struct {
-	ID          int64
-	Name        string
-	Description sql.NullString
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   sql.NullTime
+	ID             int64
+	Name           string
+	Description    sql.NullString
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      sql.NullTime
+	IsBuiltin      bool
+	BuiltinKey     sql.NullString
+	OrganizationID sql.NullInt64
+}
+
+type RolePermission struct {
+	RoleID       int64
+	PermissionID int64
 }
 
 type Schedule struct {
@@ -885,6 +900,18 @@ type UserOrganization struct {
 	UserID         int64
 	OrganizationID int64
 	RoleID         int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      sql.NullTime
+}
+
+type UserOrganizationRole struct {
+	ID             int64
+	UserID         int64
+	OrganizationID int64
+	RoleID         int64
+	ScopeType      string
+	ScopeID        sql.NullInt64
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	DeletedAt      sql.NullTime

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,11 +14,17 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
+
+// Compile-time assertion that recordingMetrics satisfies curtailment.Metrics —
+// surfaces a missing method at build time rather than letting the duplicate
+// definition in service_test.go drift independently.
+var _ curtailment.Metrics = (*recordingMetrics)(nil)
 
 // fakeStore is an in-memory CurtailmentStore for reconciler tests. Methods
 // the reconciler does not exercise panic so an unintended call is loud.
@@ -32,10 +39,16 @@ type fakeStore struct {
 	listTargetsHook    func(context.Context, uuid.UUID)
 	listTargetsCtxErr  map[uuid.UUID]error
 
-	updateEventCalls   int
-	updateEventLast    map[int64]models.EventState
-	updateTargetCalls  int
-	updateTargetParams map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateEventCalls      int
+	updateEventLast       map[int64]models.EventState
+	updateTargetCalls     int
+	updateTargetParams    map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateTargetStateErr  error
+	updateTargetStateHook func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
+
+	bumpTargetRetryCalls int
+	lastBumpTargetRetry  bumpRetryCall
+	bumpTargetRetryErr   error
 
 	listTargetsByEventCalls int
 
@@ -47,6 +60,11 @@ type fakeStore struct {
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
+}
+
+type bumpRetryCall struct {
+	EventID          int64
+	DeviceIdentifier string
 }
 
 func newFakeStore() *fakeStore {
@@ -67,8 +85,13 @@ func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string
 func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
 }
-func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
-	panic("GetEventByUUID not exercised")
+func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	for _, ev := range f.events {
+		if ev.OrgID == orgID && ev.EventUUID == eventUUID {
+			return ev, nil
+		}
+	}
+	return nil, nil
 }
 func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised")
@@ -114,6 +137,26 @@ func (f *fakeStore) ListCandidates(_ context.Context, _ int64, deviceIdentifiers
 	return out, nil
 }
 
+func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	panic("ListEvents not exercised by reconciler tests")
+}
+
+func (f *fakeStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	panic("UpdateOperatorFields not exercised by reconciler tests")
+}
+
+func (f *fakeStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
+	panic("AdminTerminateEvent not exercised by reconciler tests")
+}
+
+func (f *fakeStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by reconciler tests")
+}
+
+func (f *fakeStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by reconciler tests")
+}
+
 func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	f.listEventsCalls++
 	if f.listEventsPanicErr != "" {
@@ -129,11 +172,14 @@ func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, err
 	return out, nil
 }
 
-func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, state models.EventState, _ *time.Time, _ *time.Time) error {
+func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, _ *time.Time, _ *time.Time) error {
 	f.updateEventCalls++
 	f.updateEventLast[eventID] = state
 	for _, ev := range f.events {
 		if ev.ID == eventID {
+			if ev.State != expectedState {
+				return interfaces.ErrCurtailmentEventStateRaceLoss
+			}
 			ev.State = state
 		}
 	}
@@ -143,8 +189,43 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, state mod
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	f.updateTargetCalls++
 	f.updateTargetParams[deviceIdentifier] = params
+	// updateTargetStateHook lets a test reject specific writes (e.g.
+	// simulate the EXISTS guard's race-loss sentinel firing on the Nth
+	// call) without globally poisoning the fake.
+	if f.updateTargetStateHook != nil {
+		if err := f.updateTargetStateHook(deviceIdentifier, params, f.updateTargetCalls); err != nil {
+			return err
+		}
+	}
+	// updateTargetStateErr lets tests inject the race-loss sentinel or other
+	// errors without going through the in-memory state machine. When set,
+	// the mirror is not advanced — matches the sqlstore contract.
+	if f.updateTargetStateErr != nil {
+		return f.updateTargetStateErr
+	}
 	for _, t := range f.targetsByEventID[eventID] {
 		if t.DeviceIdentifier == deviceIdentifier {
+			// Honor the ExpectedDesiredState predicate: the real SQL's
+			// `desired_state = $11` clause makes the UPDATE no-op when the
+			// caller's expected direction doesn't match the row, surfacing
+			// as the race-loss sentinel. The fake mirrors that contract.
+			//
+			// Test-double simplification: an empty t.DesiredState means the
+			// test author didn't set it (production targets are NOT NULL).
+			// Treat empty as "any" so existing tests that don't care about
+			// phase don't have to backfill the field. Tests that pin the
+			// Curtail-vs-Stop dispatch-direction race set t.DesiredState
+			// explicitly.
+			if params.ExpectedEventState != nil {
+				for _, ev := range f.events {
+					if ev.ID == eventID && ev.State != *params.ExpectedEventState {
+						return interfaces.ErrCurtailmentEventStateRaceLoss
+					}
+				}
+			}
+			if params.ExpectedDesiredState != nil && t.DesiredState != "" && t.DesiredState != *params.ExpectedDesiredState {
+				return interfaces.ErrCurtailmentEventStateRaceLoss
+			}
 			t.State = params.State
 			if params.LastDispatchedAt != nil {
 				t.LastDispatchedAt = params.LastDispatchedAt
@@ -177,6 +258,21 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 		}
 	}
 	return nil
+}
+
+func (f *fakeStore) BumpTargetRetry(_ context.Context, eventID int64, deviceIdentifier string) error {
+	f.bumpTargetRetryCalls++
+	f.lastBumpTargetRetry = bumpRetryCall{EventID: eventID, DeviceIdentifier: deviceIdentifier}
+	if f.bumpTargetRetryErr != nil {
+		return f.bumpTargetRetryErr
+	}
+	for _, t := range f.targetsByEventID[eventID] {
+		if t.DeviceIdentifier == deviceIdentifier {
+			t.RetryCount++
+			return nil
+		}
+	}
+	return interfaces.ErrCurtailmentEventStateRaceLoss
 }
 
 func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
@@ -217,6 +313,13 @@ type fakeDispatcher struct {
 	curtailLastActor        session.Actor
 	uncurtailCalls          int
 	uncurtailLastIDs        []string
+	// curtailHook fires synchronously inside Curtail before the result is
+	// returned. Tests use it to inspect store state at the moment the
+	// command-service call happens (e.g., to verify the DISPATCHING
+	// pre-write committed before the command issued).
+	curtailHook func(ids []string)
+	// uncurtailHook mirrors curtailHook for the restore path.
+	uncurtailHook func(ids []string)
 }
 
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
@@ -224,6 +327,9 @@ func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelecto
 	f.curtailLastIDs = identifiersFromSelector(selector)
 	if info, err := session.GetInfo(ctx); err == nil {
 		f.curtailLastActor = info.Actor
+	}
+	if f.curtailHook != nil {
+		f.curtailHook(f.curtailLastIDs)
 	}
 	if f.curtailErr != nil {
 		return nil, f.curtailErr
@@ -237,6 +343,9 @@ func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelecto
 func (f *fakeDispatcher) Uncurtail(_ context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error) {
 	f.uncurtailCalls++
 	f.uncurtailLastIDs = identifiersFromSelector(selector)
+	if f.uncurtailHook != nil {
+		f.uncurtailHook(f.uncurtailLastIDs)
+	}
 	if f.uncurtailErr != nil {
 		return nil, f.uncurtailErr
 	}
@@ -304,6 +413,515 @@ func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
 	assert.Equal(t, int32(1), store.lastHeartbeatActive)
 }
 
+func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+	store.listTargetsHook = func(context.Context, uuid.UUID) {
+		store.events[0].State = models.EventStateCancelled
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls)
+	assert.Equal(t, 0, store.updateTargetCalls)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+}
+
+// A concurrent AdminTerminate that lands between target N and N+1 must
+// stop further Curtail commands — the EXISTS guard on the DISPATCHING
+// pre-write catches the race.
+func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-2", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-3", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+	// Target 1's DISPATCHING pre-write (call 1) succeeds; the hook returns
+	// the race-loss sentinel on the post-command DISPATCHED write (call 2)
+	// and every subsequent DISPATCHING pre-write thereafter, simulating an
+	// AdminTerminate that committed mid-loop. Only target 1's Curtail can
+	// fire — its DISPATCHING write landed before the race.
+	store.updateTargetStateHook = func(_ string, _ interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call >= 2 {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"only the first target should dispatch; the rest skip after the event flipped")
+}
+
+// On a typed race-loss return, the reconciler increments
+// IncEventStateRaceLoss and does NOT advance the in-memory mirror — that
+// keeps the mirror consistent with persisted state on a silent SQL no-op.
+func TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance(t *testing.T) {
+	store := newFakeStore()
+	store.updateTargetStateErr = interfaces.ErrCurtailmentEventStateRaceLoss
+	disp := &fakeDispatcher{}
+	metrics := &recordingMetrics{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	// The store's UpdateTargetState returned the sentinel — mirror update
+	// must be skipped, so the in-memory state stays at PENDING.
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State,
+		"in-memory mirror must NOT advance when the store reports race-loss")
+	// Race-loss surfaces as IncEventStateRaceLoss, not IncTickFailure.
+	assert.GreaterOrEqual(t, metrics.EventStateRaceLossCount(), 1,
+		"race-loss sentinel must increment IncEventStateRaceLoss")
+	// Race-loss is benign concurrency — IncTargetWriteFailure stays at 0
+	// so the "degraded write path" alert doesn't trip on routine Stop /
+	// AdminTerminate landings.
+	assert.Equal(t, 0, metrics.TargetWriteFailureCount(),
+		"race-loss must NOT count as a target-write failure; the two counters are operationally distinct signals")
+}
+
+// A non-race-loss target-state write failure increments
+// IncTargetWriteFailure so dashboards can detect "heartbeat fresh but
+// writes failing" outages.
+func TestReconciler_TargetWriteFailure_IncrementsCounter(t *testing.T) {
+	store := newFakeStore()
+	store.updateTargetStateErr = errors.New("connection refused")
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	assert.GreaterOrEqual(t, metrics.TargetWriteFailureCount(), 1,
+		"non-race-loss target-write failure must increment IncTargetWriteFailure")
+	assert.Equal(t, 0, metrics.EventStateRaceLossCount(),
+		"non-race-loss failure must NOT increment IncEventStateRaceLoss (different signal class)")
+}
+
+// dispatchOneCurtail must commit DISPATCHING before calling cmd.Curtail
+// so AdminTerminate's in-flight gate observes it and rejects.
+func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	// Capture the in-store target state at the moment cmd.Curtail is invoked.
+	var stateAtCommandTime models.TargetState
+	disp.curtailHook = func(_ []string) {
+		for _, target := range store.targetsByEventID[eventID] {
+			if target.DeviceIdentifier == "miner-1" {
+				stateAtCommandTime = target.State
+				return
+			}
+		}
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.TargetStateDispatching, stateAtCommandTime,
+		"target must be DISPATCHING at the moment cmd.Curtail is called so a concurrent AdminTerminate's in-flight gate observes it")
+	// After the command returns successfully, the target advances to
+	// DISPATCHED — the DISPATCHING window only exists during the command call.
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// A row-specific persistent write failure on the DISPATCHING pre-write
+// (non-race-loss) must burn a retry slot via recordDispatchFailure so a
+// stuck target eventually escalates to terminal — otherwise the event
+// stalls indefinitely. Mirrors the analogous restore-path coverage.
+func TestReconciler_CurtailPreWriteFailureBurnsRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	// Fail only the DISPATCHING pre-write (call 1); recordDispatchFailure's
+	// follow-up write at call 2 must succeed so retry_count actually lands.
+	store.updateTargetStateHook = func(_ string, _ interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call == 1 {
+			return errors.New("transient row write failure")
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"pre-write failure must short-circuit before cmd.Curtail")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State,
+		"target stays in the prior state after a pre-write failure under MaxRetries")
+	assert.Equal(t, int32(1), final.RetryCount,
+		"pre-write failure must bump retry_count so the event can't stall indefinitely")
+	require.NotNil(t, final.LastError, "pre-write failure must record last_error")
+}
+
+// If Stop moves the parent event out of the active phase after the liveness
+// read but before the DISPATCHING pre-write, the write must race-lose and the
+// reconciler must not issue another Curtail.
+func TestReconciler_CurtailPreWriteRaceLosesWhenStopFlipsEventState(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.updateTargetStateHook = func(_ string, _ interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call == 1 {
+			store.events[0] = &models.Event{
+				ID:        eventID,
+				EventUUID: eventUUID,
+				OrgID:     1,
+				State:     models.EventStateRestoring,
+			}
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"stale active-phase pre-write must fail before cmd.Curtail is issued")
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+}
+
+// If Stop runs between the pre-cmd DISPATCHING write and the post-cmd
+// DISPATCHED write, the post-cmd write's ExpectedDesiredState predicate
+// must race-lose so it doesn't clobber Stop's reset. curtailHook
+// simulates the race by flipping desired_state to 'active' during the
+// command call.
+func TestReconciler_CurtailPostWriteRaceLosesWhenStopFlipsDesiredState(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+
+	// Mid-command, simulate a concurrent Stop: event → RESTORING, target's
+	// DesiredState flipped to 'active', state reset to 'pending'. (Per
+	// ResetCurtailmentTargetsForRestore semantics.)
+	disp.curtailHook = func(_ []string) {
+		store.events[0].State = models.EventStateRestoring
+		store.targetsByEventID[eventID][0].DesiredState = models.DesiredStateActive
+		store.targetsByEventID[eventID][0].State = models.TargetStatePending
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	// cmd.Curtail fired exactly once — the device received the Curtail.
+	assert.Equal(t, 1, disp.curtailCalls,
+		"cmd.Curtail fires before the race-lose detection (device-level effect is unavoidable mid-command)")
+
+	// The post-cmd DISPATCHED write must NOT have landed. The target
+	// must retain Stop's reset state (PENDING + DesiredStateActive) so
+	// observeRestoring picks it up next tick and issues the compensating
+	// Uncurtail via maybeClaimRestoreBatch.
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State,
+		"post-cmd write must race-lose; target stays in Stop's reset state for restore to pick up")
+	assert.Equal(t, models.DesiredStateActive, final.DesiredState,
+		"Stop's desired_state flip must be preserved (not clobbered by the racing post-cmd write)")
+	assert.Nil(t, final.LastBatchUUID,
+		"no Curtail batch identifier should be stamped on a target that Stop has reset for restore")
+}
+
+// A target left in DISPATCHING by an interrupted prior tick must be
+// redispatched on the next tick (Curtail is device-idempotent).
+func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateDispatching, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"orphaned DISPATCHING target must be redispatched on the next tick")
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// observeActive's orphan recovery: a DISPATCHING target on an ACTIVE
+// event (interrupted drift-fix) must be re-issued via Curtail.
+func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"orphaned DISPATCHING target on an ACTIVE event must be redispatched")
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget: a
+// DISPATCHING orphan whose RetryCount has already hit MaxRetries must NOT
+// be redispatched. Matches the symmetric Drifted-arm backstop and prevents
+// budget-exhausted orphans from cycling indefinitely.
+// A DISPATCHING orphan whose retry_count is already at MaxRetries must
+// terminalize on the next tick rather than loop forever in DISPATCHING.
+// The recordDispatchFailure fallback (BumpTargetRetry on writeTargetState
+// failure) can leave a target in DISPATCHING with a bumped retry count,
+// so observeActive must escalate exhausted orphans through the same
+// helper to reach RESTORE_FAILED.
+func TestReconciler_ObserveActive_ExhaustedDispatchingOrphanEscalates(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			RetryCount:         3, // already at MaxRetries default
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"exhausted DISPATCHING orphan must not be redispatched")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
+		"exhausted DISPATCHING orphan must escalate to RESTORE_FAILED via recordDispatchFailure")
+	assert.Equal(t, int32(4), final.RetryCount,
+		"recordDispatchFailure bumps retry_count once more on escalation")
+	require.NotNil(t, final.LastError, "escalation records a last_error")
+}
+
+// A race-loss on the orphan-redispatch pre-write must not fire Curtail
+// — pins the EXISTS-guard race-closure on the observeActive path.
+func TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+
+	eventID := int64(11)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"race-loss on the DISPATCHING pre-write must prevent cmd.Curtail from firing")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatching, final.State,
+		"in-memory mirror must not advance on race-loss")
+}
+
+// Restore-path orphan recovery: a DISPATCHING target with
+// DesiredState=Active is redispatched via Uncurtail. uncurtailHook
+// asserts the DISPATCHING pre-write commits before the command issues —
+// guards against a regression that calls Uncurtail before stamping.
+func TestReconciler_RecoversOrphanedDispatchingRestoreTarget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateRestoring},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			DesiredState:       models.DesiredStateActive,
+			State:              models.TargetStateDispatching,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	var stateAtUncurtail models.TargetState
+	disp.uncurtailHook = func(_ []string) {
+		stateAtUncurtail = store.targetsByEventID[eventID][0].State
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.uncurtailCalls,
+		"orphaned DISPATCHING restore target must be redispatched via Uncurtail")
+	assert.Equal(t, models.TargetStateDispatching, stateAtUncurtail,
+		"target must be re-stamped DISPATCHING before Uncurtail fires so AdminTerminate's in-flight gate sees the row")
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+func TestReconciler_SkipsRestoreDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateRestoring},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			DesiredState:       models.DesiredStateActive,
+			State:              models.TargetStatePending,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.listTargetsHook = func(context.Context, uuid.UUID) {
+		store.events[0].State = models.EventStateFailed
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.uncurtailCalls)
+	assert.Equal(t, 0, store.updateTargetCalls)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+}
+
 func TestReconciler_DispatchedConfirmedViaTelemetry_TransitionsEventActive(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -362,7 +980,12 @@ func TestReconciler_DriftDetectionRetriesDispatch(t *testing.T) {
 	assert.Equal(t, int32(0), final.RetryCount)
 }
 
-func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
+// A Drifted target whose retry_count already sits at MaxRetries must
+// escalate to the terminal state rather than loop in Drifted. Mirrors
+// the DISPATCHING arm: BumpTargetRetry's fallback can bump retry_count
+// past the budget without a state transition, so observeActive routes
+// exhausted Drifted through recordDispatchFailure to reach RESTORE_FAILED.
+func TestReconciler_RetryExhaustedDriftedEscalatesToRestoreFailed(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -371,7 +994,6 @@ func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
 	store.events = []*models.Event{
 		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
 	}
-	// Already drifted at the cap; reconciler should leave it alone.
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateDrifted, BaselinePowerW: ptrFloat64(3000), RetryCount: 3},
 	}
@@ -379,8 +1001,14 @@ func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 0, disp.curtailCalls)
-	assert.Equal(t, models.TargetStateDrifted, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, 0, disp.curtailCalls,
+		"exhausted Drifted target must not be re-dispatched")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
+		"exhausted Drifted target must escalate to RESTORE_FAILED via recordDispatchFailure")
+	assert.Equal(t, int32(4), final.RetryCount,
+		"recordDispatchFailure bumps retry_count once more on escalation")
+	require.NotNil(t, final.LastError, "escalation records a last_error")
 }
 
 func TestReconciler_PerEventErrorIsolation(t *testing.T) {
@@ -432,16 +1060,30 @@ func TestReconciler_HeartbeatAdvancesOnEveryTick(t *testing.T) {
 	assert.Equal(t, 3, store.heartbeatCalls)
 }
 
-func TestReconciler_HeartbeatStillFiresOnListEventsError(t *testing.T) {
+// Heartbeat advances on tick freshness, not query health: a List failure
+// still upserts the heartbeat (with active_count=0) and increments
+// IncTickFailure, so the SQL staleness alert distinguishes "reconciler
+// dead" (no upsert) from "DB read path degraded" (upsert advances,
+// IncTickFailure rises).
+func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *testing.T) {
 	store := newFakeStore()
 	store.listEventsErr = errors.New("db down")
 	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
 
-	r := newReconcilerForTest(store, disp)
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
 	r.runTick(context.Background())
 
-	assert.Equal(t, 1, store.heartbeatCalls)
-	assert.Equal(t, int32(0), store.lastHeartbeatActive)
+	assert.Equal(t, 1, store.heartbeatCalls,
+		"heartbeat must advance on tick freshness so the SQL staleness alert distinguishes reconciler-dead from DB-read-degraded")
+	assert.Equal(t, int32(0), store.lastHeartbeatActive,
+		"List failure carries activeCount=0 — no events observed this tick")
+	assert.Equal(t, 1, metrics.TickFailureCount())
 }
 
 func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
@@ -552,11 +1194,8 @@ func TestSkippedDeviceReason(t *testing.T) {
 	}
 }
 
-// TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget pins the
-// fix for the device-deleted-after-dispatch race: when ListCandidates
-// returns no row for a Dispatched target, confirmOneDispatched routes the
-// target through recordDispatchFailure (target stays Dispatched while the
-// retry budget consumes) instead of stalling the event indefinitely.
+// A vanished candidate during confirm routes through
+// recordDispatchFailure so the event can't stall on a deleted device.
 func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -582,11 +1221,8 @@ func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.
 	assert.Contains(t, *final.LastError, "candidate row missing")
 }
 
-// TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget mirrors
-// the confirm-side fix for the active-event drift path: if a Confirmed
-// target's candidate row vanishes, checkDrift records a dispatch failure
-// (target stays Drifted) so the budget consumes and the target eventually
-// hits RestoreFailed rather than the event stalling forever.
+// Mirror of MissingCandidateDuringConfirm for the drift path: a
+// vanished candidate burns retry budget toward RestoreFailed.
 func TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -955,6 +1591,94 @@ func TestReconciler_ListTargetsByEventOnce(t *testing.T) {
 	assert.Equal(t, 1, store.listTargetsByEventCalls, "pending phases must share one ListTargetsByEvent per tick")
 }
 
+// TestReconciler_ObserveTickDurationFiresOnHappyPath: every successful
+// safeTick records a duration sample.
+func TestReconciler_ObserveTickDurationFiresOnHappyPath(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+
+	r.safeTick(context.Background())
+	r.safeTick(context.Background())
+
+	assert.Equal(t, 2, metrics.TickCount(), "ObserveTickDuration fires once per safeTick invocation")
+	assert.Equal(t, 0, metrics.TickFailureCount(), "no panic, no failure increment")
+}
+
+// TestReconciler_TickFailureFiresOnTickInfraPanic: ListNonTerminalEvents
+// panicking is a tick-infra failure (heartbeat-skipping). IncTickFailure
+// fires; ObserveTickDuration still fires because the deferred recorder runs
+// regardless.
+func TestReconciler_TickFailureFiresOnTickInfraPanic(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	store.listEventsPanicErr = "synthetic db panic"
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+
+	r.safeTick(context.Background())
+
+	assert.Equal(t, 1, metrics.TickFailureCount(), "tick-infra panic increments TickFailures")
+	assert.Equal(t, 1, metrics.TickCount(), "ObserveTickDuration still fires on a panicked tick")
+}
+
+// TestReconciler_TickFailureFiresOnPerEventPanic: a panic inside processEvent
+// is recovered per-event; the tick keeps running but the failure counter
+// advances so operators can spot per-event panics.
+func TestReconciler_TickFailureFiresOnPerEventPanic(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	store.events = []*models.Event{
+		{ID: 10, EventUUID: uuid.New(), OrgID: 1, State: models.EventStatePending},
+		{ID: 20, EventUUID: uuid.New(), OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[10] = []*models.Target{
+		{CurtailmentEventID: 10, DeviceIdentifier: "miner-1", State: models.TargetStatePending},
+	}
+	store.targetsByEventID[20] = []*models.Target{
+		{CurtailmentEventID: 20, DeviceIdentifier: "miner-2", State: models.TargetStatePending},
+	}
+
+	first := true
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	originalCmd := r.cmd
+	r.cmd = &panickyDispatcher{wrapped: originalCmd, panicOn: func() bool {
+		if first {
+			first = false
+			return true
+		}
+		return false
+	}}
+
+	r.safeTick(context.Background())
+
+	assert.Equal(t, 1, metrics.TickFailureCount(), "per-event panic increments TickFailures even though tick continued")
+	assert.Equal(t, 1, store.heartbeatCalls, "per-event panic does not skip the heartbeat")
+}
+
 // TestReconciler_PanicInListEventsRecovers: ListNonTerminalEvents panicking
 // must not tear down the goroutine; the next tick still runs.
 func TestReconciler_PanicInListEventsRecovers(t *testing.T) {
@@ -991,12 +1715,8 @@ func TestReconciler_StartIdempotency(t *testing.T) {
 }
 
 // --- isCurtailed unit tests ---
-//
-// isCurtailed has a single shape with a requirePositiveEvidence bool:
-//   - false (drift detection): missing/non-finite samples preserve "curtailed"
-//     so a transient bad sensor reading does not trigger a redispatch storm.
-//   - true (confirmation): missing/non-finite samples return false so a target
-//     is not promoted to `confirmed` without positive evidence.
+// requirePositiveEvidence=false (drift): missing samples preserve
+// curtailed; =true (confirm): missing samples return false.
 
 func TestIsCurtailed_DriftPath_BaselineRelativeThreshold(t *testing.T) {
 	baseline := 3000.0
@@ -1068,4 +1788,94 @@ func (p *panickyDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSele
 
 func (p *panickyDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error) {
 	return p.wrapped.Uncurtail(ctx, selector)
+}
+
+// recordingMetrics captures Metrics calls for assertion. Counters are
+// goroutine-safe via a single mutex; the reconciler emits from the tick
+// goroutine but tests poke from the test goroutine.
+type recordingMetrics struct {
+	mu                  sync.Mutex
+	tickDurations       []time.Duration
+	tickFailures        int
+	candidateExcluded   map[string]int
+	maintenance         int
+	eventStateRaces     int
+	targetWriteFailures int
+	auditWriteFailures  map[string]int
+}
+
+func newRecordingMetrics() *recordingMetrics {
+	return &recordingMetrics{
+		candidateExcluded:  map[string]int{},
+		auditWriteFailures: map[string]int{},
+	}
+}
+
+func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickDurations = append(m.tickDurations, d)
+}
+
+func (m *recordingMetrics) IncTickFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncCandidateExcluded(reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.candidateExcluded[reason]++
+}
+
+func (m *recordingMetrics) IncMaintenanceOverride() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maintenance++
+}
+
+func (m *recordingMetrics) IncEventStateRaceLoss() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventStateRaces++
+}
+
+func (m *recordingMetrics) IncTargetWriteFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetWriteFailures++
+}
+
+func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.auditWriteFailures == nil {
+		m.auditWriteFailures = map[string]int{}
+	}
+	m.auditWriteFailures[activityType]++
+}
+
+func (m *recordingMetrics) EventStateRaceLossCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.eventStateRaces
+}
+
+func (m *recordingMetrics) TargetWriteFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.targetWriteFailures
+}
+
+func (m *recordingMetrics) TickCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.tickDurations)
+}
+
+func (m *recordingMetrics) TickFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tickFailures
 }

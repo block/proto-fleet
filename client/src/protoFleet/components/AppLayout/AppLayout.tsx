@@ -4,6 +4,7 @@ import clsx from "clsx";
 import NavigationMenu from "../NavigationMenu";
 import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
+import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
@@ -20,9 +21,12 @@ const AppLayoutContent = ({ children }: Props) => {
   const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
+  const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
+  const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
 
-  const showPhoneWidgets = isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules);
+  const showPhoneWidgets =
+    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
 
   return (
     <div className={clsx("absolute top-0 right-0 bottom-0 left-0", bgClass)}>
@@ -33,7 +37,12 @@ const AppLayoutContent = ({ children }: Props) => {
       <div
         className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
       >
-        <PageHeader isMenuOpen={isMenuOpen} openMenu={() => setIsMenuOpen(true)} schedulePillData={schedulePillData} />
+        <PageHeader
+          activeCurtailmentEvent={activeCurtailmentEvent}
+          isMenuOpen={isMenuOpen}
+          openMenu={() => setIsMenuOpen(true)}
+          schedulePillData={schedulePillData}
+        />
       </div>
 
       <div

@@ -185,7 +185,7 @@ const Miners = ({
       {mode === "onboarding" ? (
         <NullState
           icon={<LogoAlt width="w-5" />}
-          title="Let's setup your fleet."
+          title="Let's set up your fleet."
           description="Add miners to your fleet to get started."
           action={
             <Button variant="primary" onClick={() => setShowModal(true)}>

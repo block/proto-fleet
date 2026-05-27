@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
+
+import CurtailmentPill from "./CurtailmentPill";
+import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
@@ -12,29 +15,36 @@ import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+
 interface PageHeaderProps {
+  activeCurtailmentEvent?: CurtailmentPillEvent | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
 }
 
-const headerWidgetEnabled = true;
-
-const HeaderWidgets = ({
-  className,
-  dismissedSetup,
-  onContinueSetup,
-  schedulePillData,
-}: {
+interface HeaderWidgetsProps {
+  activeCurtailmentEvent: CurtailmentPillEvent | null;
   className?: string;
   dismissedSetup: boolean;
   onContinueSetup: () => void;
   schedulePillData: UseSchedulePillDataResult;
-}) => {
+}
+
+const headerWidgetEnabled = true;
+
+function HeaderWidgets({
+  activeCurtailmentEvent,
+  className,
+  dismissedSetup,
+  onContinueSetup,
+  schedulePillData,
+}: HeaderWidgetsProps): ReactElement {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
 
   return (
     <div className={clsx("flex space-x-3", className)}>
+      {activeCurtailmentEvent ? <CurtailmentPill event={activeCurtailmentEvent} /> : null}
       {pillSchedule ? (
         <SchedulePill
           pillSchedule={pillSchedule}
@@ -48,9 +58,14 @@ const HeaderWidgets = ({
       ) : null}
     </div>
   );
-};
+}
 
-const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps) => {
+function PageHeader({
+  activeCurtailmentEvent = null,
+  isMenuOpen,
+  openMenu,
+  schedulePillData,
+}: PageHeaderProps): ReactElement {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
@@ -92,11 +107,14 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
   };
 
   const headerWidgetsProps = {
+    activeCurtailmentEvent,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     schedulePillData,
   };
-  const showPhoneWidgets = isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules);
+  const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
+  const showPhoneWidgets =
+    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
 
   return (
     <>
@@ -128,6 +146,6 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
       ) : null}
     </>
   );
-};
+}
 
 export default PageHeader;

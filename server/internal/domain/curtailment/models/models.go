@@ -56,7 +56,11 @@ const (
 type TargetState string
 
 const (
-	TargetStatePending       TargetState = "pending"
+	TargetStatePending TargetState = "pending"
+	// TargetStateDispatching is the pre-command transient. AdminTerminate's
+	// in-flight gate counts DISPATCHING+desired_state='curtailed' rows so a
+	// terminate cannot race past an outstanding Curtail.
+	TargetStateDispatching   TargetState = "dispatching"
 	TargetStateDispatched    TargetState = "dispatched"
 	TargetStateConfirmed     TargetState = "confirmed"
 	TargetStateDrifted       TargetState = "drifted"
@@ -249,13 +253,10 @@ type Heartbeat struct {
 	ActiveEventCount   int32
 }
 
-// Candidate is per-device state assembled by the curtailment store from a
-// cross-table join (device + latest device_metrics + latest
-// device_metrics_hourly + device_pairing + device_status). The service layer
-// inspects each Candidate to attribute skip reasons (stale telemetry,
-// unpaired, wrong device_status, etc.) before handing the survivors to the
-// selector. nil-pointer fields mean "no row joined" — the service interprets
-// those as their natural skip-reason variant (e.g., absent telemetry → stale).
+// Candidate is per-device state assembled by the curtailment store from
+// a cross-table join (device + telemetry + pairing + status). nil-pointer
+// fields mean "no row joined" and map to the natural skip reason (e.g.,
+// absent telemetry → stale).
 type Candidate struct {
 	DeviceIdentifier string
 	DriverName       *string

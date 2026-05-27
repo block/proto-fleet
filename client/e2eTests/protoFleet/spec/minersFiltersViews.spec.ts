@@ -253,4 +253,161 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       test.expect(new URL(page.url()).searchParams.get("power_max")).toBeNull();
     });
   });
+
+  test("Saved view can be renamed and persists after reload", async ({ minersPage, commonSteps, page }) => {
+    const originalViewName = generateRandomText("miners_view");
+    const renamedViewName = generateRandomText("renamed_view");
+    let firstMinerIp = "";
+    let firstMinerSubnet = "";
+    let activeViewId = "";
+
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Create a saved view from the first miner subnet", async () => {
+      firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      firstMinerSubnet = toSubnet24(firstMinerIp);
+
+      await minersPage.applySubnetFilter([firstMinerSubnet]);
+      await minersPage.waitForMinersListToLoad();
+      firstMinerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.clickNewSavedViewButton();
+      await minersPage.validateViewModalOpened("New view");
+      await minersPage.inputViewName(originalViewName);
+      await minersPage.saveNewView();
+    });
+
+    await test.step("Rename the saved view", async () => {
+      await minersPage.clickRenameViewAction(originalViewName);
+      await minersPage.validateViewModalOpened("Update view");
+      await minersPage.inputViewName(renamedViewName);
+      await minersPage.updateSavedView();
+    });
+
+    await test.step("Validate the renamed view is active and the old name is gone", async () => {
+      await minersPage.validateViewTabVisible(renamedViewName);
+      await minersPage.validateViewTabActive(renamedViewName);
+      await minersPage.validateViewTabNotVisible(originalViewName);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+      await minersPage.validateMinerInList(firstMinerIp);
+
+      const searchParams = new URL(page.url()).searchParams;
+      activeViewId = searchParams.get("view") ?? "";
+      test.expect(activeViewId).not.toBe("");
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+    });
+
+    await test.step("Reload and validate the renamed view persists", async () => {
+      await minersPage.reloadPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+
+      await minersPage.validateViewTabVisible(renamedViewName);
+      await minersPage.validateViewTabActive(renamedViewName);
+      await minersPage.validateViewTabNotVisible(originalViewName);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+      await minersPage.validateMinerInList(firstMinerIp);
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).toBe(activeViewId);
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+    });
+  });
+
+  test("Saved view can be deleted from the views bar", async ({ minersPage, commonSteps, page }) => {
+    const viewName = generateRandomText("miners_view");
+
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Create a saved view from the first miner subnet", async () => {
+      const firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      const firstMinerSubnet = toSubnet24(firstMinerIp);
+
+      await minersPage.applySubnetFilter([firstMinerSubnet]);
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.clickNewSavedViewButton();
+      await minersPage.validateViewModalOpened("New view");
+      await minersPage.inputViewName(viewName);
+      await minersPage.saveNewView();
+    });
+
+    await test.step("Return to All miners so the saved view becomes inactive", async () => {
+      await minersPage.clickViewTab("All miners");
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.validateViewTabActive("All miners");
+    });
+
+    await test.step("Delete the saved view", async () => {
+      await minersPage.clickDeleteViewAction(viewName);
+      await minersPage.validateDeleteViewDialogOpened(viewName);
+      await minersPage.confirmDeleteView();
+    });
+
+    await test.step("Validate the deleted view is gone and the URL stayed clean", async () => {
+      await minersPage.validateViewTabNotVisible(viewName);
+      await minersPage.validateViewTabActive("All miners");
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).toBeNull();
+      test.expect(searchParams.getAll("subnet")).toEqual([]);
+    });
+
+    await test.step("Reload and validate the deleted view stays gone", async () => {
+      await minersPage.reloadPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+
+      await minersPage.validateViewTabNotVisible(viewName);
+      await minersPage.validateViewTabActive("All miners");
+      await minersPage.validateActiveFilterNotVisible("Subnet");
+    });
+  });
+
+  test("Active saved view can be deleted and clears the URL state", async ({ minersPage, commonSteps, page }) => {
+    const viewName = generateRandomText("miners_view");
+    let firstMinerSubnet = "";
+
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Create a saved view from the first miner subnet", async () => {
+      const firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      firstMinerSubnet = toSubnet24(firstMinerIp);
+
+      await minersPage.applySubnetFilter([firstMinerSubnet]);
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.clickNewSavedViewButton();
+      await minersPage.validateViewModalOpened("New view");
+      await minersPage.inputViewName(viewName);
+      await minersPage.saveNewView();
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).not.toBeNull();
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+    });
+
+    await test.step("Delete the active saved view", async () => {
+      await minersPage.clickDeleteViewAction(viewName);
+      await minersPage.validateDeleteViewDialogOpened(viewName);
+      await minersPage.confirmDeleteView();
+    });
+
+    await test.step("Validate the deleted active view clears only the view param and keeps the live filters", async () => {
+      await minersPage.validateViewTabNotVisible(viewName);
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).toBeNull();
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+    });
+
+    await test.step("Reload and validate the deleted active view stays gone", async () => {
+      await minersPage.reloadPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+
+      await minersPage.validateViewTabNotVisible(viewName);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+    });
+  });
 });

@@ -12,11 +12,10 @@ service CurtailmentService {
     rpc PreviewCurtailmentPlan(PreviewCurtailmentPlanRequest)
         returns (PreviewCurtailmentPlanResponse);
 
-    // Start an event, persist targets, and dispatch initial Curtail commands.
-    // AlreadyExists when a concurrent Start races past the selector and hits
-    // the per-org one-non-terminal-event constraint; the error debug message
-    // carries the existing event's identity as the stable substring
-    // `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
+    // Start an event, persist targets, and dispatch initial Curtail
+    // commands. AlreadyExists on the one-non-terminal-event-per-org
+    // constraint carries the existing identity as
+    // `(event_uuid=<uuid>, state="<state>")` for recovery.
     rpc StartCurtailment(StartCurtailmentRequest)
         returns (StartCurtailmentResponse);
 
@@ -24,10 +23,8 @@ service CurtailmentService {
     rpc UpdateCurtailmentEvent(UpdateCurtailmentEventRequest)
         returns (UpdateCurtailmentEventResponse);
 
-    // Stop an active event and begin staggered restore. Idempotent on an
-    // already-restoring event (returns the persisted row). FailedPrecondition
-    // when the event is terminal or a concurrent transition raced past
-    // restoring; treat as non-retryable.
+    // Stop an active event and begin staggered restore. Idempotent on
+    // already-restoring; FailedPrecondition on terminal events (non-retryable).
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
@@ -40,7 +37,20 @@ service CurtailmentService {
         returns (ListCurtailmentEventsResponse);
 
     // Admin recovery RPC: force a non-terminal event to a terminal state.
-    // Session-only, Admin role.
+    // Session-only, Admin role; reason required (min_len=1, max_len=256).
+    //
+    // FailedPrecondition variants ride on FleetErrorDetails.service (see
+    // common/v1/common.proto) so machine callers branch on the int32 code:
+    //   - 1 (AdminTerminateInFlightCommands): a target still has an
+    //     in-flight Curtail (desired_state=CURTAILED). Recoverable via
+    //     StopCurtailment first.
+    //   - 2 (AdminTerminateStateConflict): event already settled in a
+    //     different terminal state. Not retryable.
+    //
+    // RESTORING-event semantics: the in-flight gate matches only
+    // desired_state=CURTAILED, so a terminate during restore proceeds
+    // even when Uncurtails are in flight. Race-window targets persist as
+    // RESTORE_FAILED while the device may actually be restored.
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
@@ -122,6 +132,9 @@ enum CurtailmentTargetState {
 
     // In-flight states; CONFIRMED can drift and be re-dispatched.
     CURTAILMENT_TARGET_STATE_PENDING        = 1;
+    // Pre-command transient. AdminTerminate's in-flight gate observes
+    // DISPATCHING rows and rejects as Stop-first.
+    CURTAILMENT_TARGET_STATE_DISPATCHING    = 8;
     CURTAILMENT_TARGET_STATE_DISPATCHED     = 2;
     CURTAILMENT_TARGET_STATE_CONFIRMED      = 3;
     CURTAILMENT_TARGET_STATE_DRIFTED        = 4;  // re-dispatching
@@ -214,10 +227,9 @@ message CurtailmentEvent {
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
 
-    // Server-resolved batch size for the restorer. Stamped at Start as
-    // max(restore_batch_size, ceil(0.01 × selected_target_count)) clamped
-    // to [10, 100], and persisted on the event row from creation. Read back
-    // by Stop and the reconciler; this is the value clients should display.
+    // Server-resolved batch size stamped at Start as
+    // max(restore_batch_size, ceil(0.01 × selected_target_count))
+    // clamped to [10, 100]. Clients display this; restorer reads it.
     uint32 effective_batch_size = 24;
 
     // Operator-supplied reason.
@@ -466,15 +478,16 @@ message StartCurtailmentResponse {
     CurtailmentEvent event = 1;
 }
 
-// UpdateCurtailmentEvent supports operator-safe field updates.
+// UpdateCurtailmentEvent supports operator-safe field updates. Optional
+// fields allow partial updates; bounds mirror StartCurtailmentRequest so
+// the same value rejected at Start cannot tunnel in via Update.
 message UpdateCurtailmentEventRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Optional fields allow partial updates.
-    optional string reason                     = 10;
-    optional uint32 restore_batch_size         = 11;
-    optional uint32 restore_batch_interval_sec = 12;
-    optional uint32 max_duration_seconds       = 13;
+    optional string reason                     = 10 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    optional uint32 restore_batch_size         = 11 [(buf.validate.field).uint32 = {lte: 10000}];
+    optional uint32 restore_batch_interval_sec = 12 [(buf.validate.field).uint32 = {lte: 3600}];
+    optional uint32 max_duration_seconds       = 13 [(buf.validate.field).uint32 = {lte: 604800}];
 }
 
 message UpdateCurtailmentEventResponse {
@@ -483,18 +496,14 @@ message UpdateCurtailmentEventResponse {
 
 // StopCurtailment starts restore; min duration may block normal priority.
 message StopCurtailmentRequest {
-    // Tag 2 previously carried `optional uint32 restore_batch_size_override`
-    // (pre-release; removed in favor of Start-time stamping). Reserve both
-    // the number and the name so an old client's varint payload cannot
-    // silently alias to `force=true` on the new shape.
+    // Tag 2 / name was an early `restore_batch_size_override`; reserve
+    // both so an old client's payload can't alias to `force=true`.
     reserved 2;
     reserved "restore_batch_size_override";
 
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Admin-only bypass of `min_curtailed_duration_sec` on active events.
-    // Defaults to false; admin-gated handler-side. Zero/unset means the
-    // hysteresis gate applies normally.
+    // Admin-gated bypass of `min_curtailed_duration_sec`.
     bool force = 3;
 }
 
@@ -510,16 +519,21 @@ message GetActiveCurtailmentResponse {
     optional CurtailmentEvent event = 1;
 }
 
-// ListCurtailmentEvents returns historical events.
+// ListCurtailmentEvents returns historical events. Each event omits
+// `target_rollup`/`targets`, scrubs webhook trigger metadata
+// (`external_source`, `external_reference`, `idempotency_key`), and
+// ships a trimmed `decision_snapshot` where the per-device `skipped`
+// array is collapsed into `skipped_aggregate` (reason → count). Use
+// GetActiveCurtailment for the full per-target shape and untrimmed
+// trigger attribution.
 message ListCurtailmentEventsRequest {
-    // Page size; validator caps at 200.
     int32 page_size = 1 [(buf.validate.field).int32 = {
         gte: 0
         lte: 200
     }];
 
-    // Opaque cursor; empty for first page.
-    string page_token = 2;
+    // Opaque cursor; empty for first page. Capped to bound the decode path.
+    string page_token = 2 [(buf.validate.field).string.max_len = 1024];
 
     // Optional state filter; unspecified returns all states.
     CurtailmentEventState state_filter = 3 [(buf.validate.field).enum.defined_only = true];
@@ -533,20 +547,22 @@ message ListCurtailmentEventsResponse {
 }
 
 message AdminTerminateEventRequest {
+    reserved 4;
+    reserved "idempotency_key";
+
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Restricted to CANCELLED (=6) or FAILED (=7); COMPLETED states are not
-    // permitted because this RPC fires when restore did not actually run.
+    // Restricted to CANCELLED (=6) or FAILED (=7); active events must call
+    // StopCurtailment first so compensating Uncurtails fire.
     CurtailmentEventState target_state = 2 [(buf.validate.field).enum = {
         defined_only: true
         in: [6, 7]
     }];
 
-    string reason = 3 [(buf.validate.field).string.min_len = 1];
+    // Reason is recorded on the audit row and on every swept target's
+    // last_error; capped to bound the fanout.
+    string reason = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
 
-    // Idempotency key, unique per (org, key) when non-empty. A re-issued call
-    // with the same key returns the original event without re-applying.
-    string idempotency_key = 4;
 }
 
 message AdminTerminateEventResponse {

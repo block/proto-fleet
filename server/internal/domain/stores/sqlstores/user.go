@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -127,22 +128,46 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 		return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 	}
 
-	roleID, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
-		Name: roleName,
-		Description: sql.NullString{
-			String: roleDescription,
-			Valid:  len(roleDescription) > 0,
-		},
-	})
+	// Seed per-org SUPER_ADMIN / ADMIN / FIELD_TECH built-in role rows
+	// in the same transaction as org creation so the founding user can
+	// be assigned a real per-org SUPER_ADMIN immediately, without
+	// waiting for the next boot's startup reconciliation. The
+	// roleName/roleDescription params are kept on the interface for
+	// backward compatibility but are no longer used — built-in
+	// definitions come from server/internal/domain/authz/builtin.go.
+	_ = roleName
+	_ = roleDescription
+	builtinIDs, err := authz.SeedOrgBuiltins(ctx, q, orgInternalID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error creating role: %v", err)
+		return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
+	}
+	superAdminRoleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
+	if !ok {
+		return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")
 	}
 
-	return q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
+	if err := q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userInternalID,
-		RoleID:         roleID,
+		RoleID:         superAdminRoleID,
 		OrganizationID: orgInternalID,
-	})
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("error creating user_organization row: %v", err)
+	}
+
+	// Dual-write to user_organization_role so the per-request permission
+	// resolver sees this assignment without waiting for the next
+	// migration pass. The legacy user_organization row above stays for
+	// the soak window; both will be retired in a later migration.
+	if _, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         userInternalID,
+		OrganizationID: orgInternalID,
+		RoleID:         superAdminRoleID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("error creating user_organization_role row: %v", err)
+	}
+	return nil
 }
 
 func (s *SQLUserStore) HasUser(ctx context.Context) (bool, error) {
@@ -180,19 +205,38 @@ func (s *SQLUserStore) CreateUser(ctx context.Context, externalUserID string, us
 }
 
 func (s *SQLUserStore) CreateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, roleID int64) error {
-	return s.getQueries(ctx).CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
+	q := s.getQueries(ctx)
+	if err := q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
 		RoleID:         roleID,
-	})
+	}); err != nil {
+		return err
+	}
+	// Dual-write so the per-request permission resolver picks up the
+	// assignment immediately. Without this, users created after PR 1
+	// deploys but before the resolver swap would have no
+	// user_organization_role row and the new gate would deny everything.
+	if _, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         userID,
+		OrganizationID: organizationID,
+		RoleID:         roleID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("error creating user_organization_role row: %v", err)
+	}
+	return nil
 }
 
-func (s *SQLUserStore) GetRoleByName(ctx context.Context, roleName string) (interfaces.Role, error) {
-	role, err := s.getQueries(ctx).GetRoleByName(ctx, roleName)
+func (s *SQLUserStore) GetBuiltinRoleForOrg(ctx context.Context, organizationID int64, builtinKey string) (interfaces.Role, error) {
+	role, err := s.getQueries(ctx).GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
+		OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true},
+		BuiltinKey:     sql.NullString{String: builtinKey, Valid: true},
+	})
 	if err != nil {
 		return interfaces.Role{}, err
 	}
-
 	return interfaces.Role{
 		ID:          role.ID,
 		Name:        role.Name,

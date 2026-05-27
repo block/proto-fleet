@@ -68,6 +68,21 @@ func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([
 	}
 	return s.targets, nil
 }
+func (s *stopStubStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	panic("ListEvents not exercised by Stop handler tests")
+}
+func (s *stopStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	panic("UpdateOperatorFields not exercised by Stop handler tests")
+}
+func (s *stopStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
+	panic("AdminTerminateEvent not exercised by Stop handler tests")
+}
+func (s *stopStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by Stop handler tests")
+}
+func (s *stopStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by Stop handler tests")
+}
 func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.beginRestoreCalls++
 	if s.beginRestoreErr != nil {
@@ -88,11 +103,14 @@ func (s *stopStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error)
 func (s *stopStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	panic("ListNonTerminalEvents not exercised")
 }
-func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised")
 }
 func (s *stopStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised")
+}
+func (s *stopStubStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised")
 }
 func (s *stopStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised")

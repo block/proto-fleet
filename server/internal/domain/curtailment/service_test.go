@@ -3,8 +3,10 @@ package curtailment
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"math"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,6 +60,52 @@ type fakeStore struct {
 	beginRestoreErr         error
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
+
+	// List-history fakes. eventsHistory is the slice the fake's ListEvents
+	// paginates over (callers seed it newest-first to match the SQL impl).
+	eventsHistory        []*models.Event
+	listEventsErr        error
+	listEventsCalls      int
+	lastListEventsParams interfaces.ListEventsParams
+
+	// Update fakes. updateOperatorFieldsResult is what the fake returns on
+	// success; callers preconfigure it to match the post-update event row.
+	// updateOperatorFieldsErr drives error paths (e.g. race-loss).
+	updateOperatorFieldsCalls    int
+	lastUpdateOperatorFieldsID   int64
+	lastUpdateOperatorFieldsArgs interfaces.UpdateOperatorFieldsParams
+	updateOperatorFieldsResult   *models.Event
+	updateOperatorFieldsErr      error
+
+	// AdminTerminate fakes. adminTerminateResult is the post-transition
+	// event the fake echoes; adminTerminateErr drives error paths
+	// (state conflict, transient db error).
+	adminTerminateCalls            int
+	lastAdminTerminateUUID         uuid.UUID
+	lastAdminTerminateState        models.EventState
+	lastAdminTerminateReason       string
+	adminTerminateResult           *models.Event
+	adminTerminateErr              error
+	adminTerminateIdempotentReplay bool
+
+	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
+	// drive Service.Start's pre-insert webhook-replay lookup; nil results
+	// signal "no prior match". get*Calls / last* let tests pin the args.
+	eventsByIdempotencyKey map[string]*models.Event
+	eventsByExternalRef    map[string]*models.Event
+	// *OnRetry: the value returned by the second (post-race-loss) lookup;
+	// the primary map covers the initial pre-insert lookup. Race-loser tests
+	// use these to verify the replay branch sees the winner's row even when
+	// the first lookup missed.
+	eventsByIdempotencyKeyOnRetry map[string]*models.Event
+	eventsByExternalRefOnRetry    map[string]*models.Event
+	getByIdempotencyKeyCalls      int
+	lastGetByIdempotencyKey       string
+	getByExternalRefCalls         int
+	lastGetByExternalRefSource    string
+	lastGetByExternalRefRef       string
+	getByIdempotencyKeyErr        error
+	getByExternalRefErr           error
 }
 
 func newFakeStore() *fakeStore {
@@ -139,6 +187,123 @@ func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uui
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
 }
 
+func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
+	f.adminTerminateCalls++
+	f.lastAdminTerminateUUID = eventUUID
+	f.lastAdminTerminateState = targetState
+	f.lastAdminTerminateReason = reason
+	if f.adminTerminateErr != nil {
+		return nil, false, f.adminTerminateErr
+	}
+	// transitioned defaults to true; tests that exercise the
+	// idempotent-replay path set adminTerminateTransitioned=false.
+	transitioned := !f.adminTerminateIdempotentReplay
+	return f.adminTerminateResult, transitioned, nil
+}
+
+// filterNonTerminalReplayEvent mirrors the production SQL's
+// state IN ('pending','active','restoring') predicate on the replay
+// lookups. Tests that seed terminal events into the lookup maps must
+// see nil here so they exercise the fresh-Start path rather than a
+// stale replay.
+func filterNonTerminalReplayEvent(ev *models.Event) *models.Event {
+	if ev == nil {
+		return nil
+	}
+	if ev.State.IsTerminal() {
+		return nil
+	}
+	return ev
+}
+
+func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, idempotencyKey string) (*models.Event, error) {
+	f.getByIdempotencyKeyCalls++
+	f.lastGetByIdempotencyKey = idempotencyKey
+	if f.getByIdempotencyKeyErr != nil {
+		return nil, f.getByIdempotencyKeyErr
+	}
+	// Race-loser retry: after an InsertEventWithTargets attempt has fired,
+	// the second lookup may see a row the first one missed.
+	if f.insertEventCalls > 0 && f.eventsByIdempotencyKeyOnRetry != nil {
+		return filterNonTerminalReplayEvent(f.eventsByIdempotencyKeyOnRetry[idempotencyKey]), nil
+	}
+	if f.eventsByIdempotencyKey == nil {
+		return nil, nil
+	}
+	return filterNonTerminalReplayEvent(f.eventsByIdempotencyKey[idempotencyKey]), nil
+}
+
+func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, externalSource, externalReference string) (*models.Event, error) {
+	f.getByExternalRefCalls++
+	f.lastGetByExternalRefSource = externalSource
+	f.lastGetByExternalRefRef = externalReference
+	if f.getByExternalRefErr != nil {
+		return nil, f.getByExternalRefErr
+	}
+	if f.insertEventCalls > 0 && f.eventsByExternalRefOnRetry != nil {
+		return filterNonTerminalReplayEvent(f.eventsByExternalRefOnRetry[externalSource+"|"+externalReference]), nil
+	}
+	if f.eventsByExternalRef == nil {
+		return nil, nil
+	}
+	return filterNonTerminalReplayEvent(f.eventsByExternalRef[externalSource+"|"+externalReference]), nil
+}
+
+func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	f.updateOperatorFieldsCalls++
+	f.lastUpdateOperatorFieldsID = eventID
+	f.lastUpdateOperatorFieldsArgs = params
+	if f.updateOperatorFieldsErr != nil {
+		return nil, f.updateOperatorFieldsErr
+	}
+	return f.updateOperatorFieldsResult, nil
+}
+
+func (f *fakeStore) ListEvents(_ context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	f.listEventsCalls++
+	f.lastListEventsParams = params
+	if f.listEventsErr != nil {
+		return nil, "", f.listEventsErr
+	}
+	// Filter on org_id + optional state; cursor + page-size handling is
+	// faithful to the SQL impl: cursor is the last id from the previous
+	// page, page_size <= 0 falls back to the default. The fake's "history"
+	// slice is ordered newest-first by the test author.
+	filtered := make([]*models.Event, 0, len(f.eventsHistory))
+	for _, ev := range f.eventsHistory {
+		if ev.OrgID != params.OrgID {
+			continue
+		}
+		if params.StateFilter != "" && ev.State != params.StateFilter {
+			continue
+		}
+		filtered = append(filtered, ev)
+	}
+	cursorID := int64(0)
+	if params.PageToken != "" {
+		// Tests pass a plain decimal id as the token for clarity.
+		_, _ = fmt.Sscanf(params.PageToken, "%d", &cursorID)
+	}
+	if cursorID > 0 {
+		after := make([]*models.Event, 0, len(filtered))
+		for _, ev := range filtered {
+			if ev.ID < cursorID {
+				after = append(after, ev)
+			}
+		}
+		filtered = after
+	}
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if int64(len(filtered)) <= int64(pageSize) {
+		return filtered, "", nil
+	}
+	page := filtered[:pageSize]
+	return page, fmt.Sprintf("%d", page[len(page)-1].ID), nil
+}
+
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised by Preview/Start/Stop tests")
 }
@@ -147,12 +312,16 @@ func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, err
 	panic("ListNonTerminalEvents not exercised by Preview/Start/Stop tests")
 }
 
-func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by Preview/Start/Stop tests")
+}
+
+func (f *fakeStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
@@ -240,6 +409,95 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 		CandidateMinPowerW:    1500,
 		PostEventCooldownSec:  600,
 	}
+}
+
+// recordingMetrics is a goroutine-safe Metrics fake for asserting recorder
+// calls. The reconciler emits from its tick goroutine and the Service emits
+// from the request goroutine; the mutex is defensive across both.
+//
+// Compile-time assertion surfaces a missing method at build time rather than
+// letting the duplicate definition in reconciler/reconciler_test.go drift.
+var _ Metrics = (*recordingMetrics)(nil)
+
+type recordingMetrics struct {
+	mu                  sync.Mutex
+	tickDurations       []time.Duration
+	tickFailures        int
+	candidateExcluded   map[string]int
+	maintenance         int
+	eventStateRaces     int
+	targetWriteFailures int
+	auditWriteFailures  map[string]int
+}
+
+func newRecordingMetrics() *recordingMetrics {
+	return &recordingMetrics{
+		candidateExcluded:  map[string]int{},
+		auditWriteFailures: map[string]int{},
+	}
+}
+
+func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickDurations = append(m.tickDurations, d)
+}
+
+func (m *recordingMetrics) IncTickFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncCandidateExcluded(reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.candidateExcluded[reason]++
+}
+
+func (m *recordingMetrics) IncMaintenanceOverride() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maintenance++
+}
+
+func (m *recordingMetrics) IncEventStateRaceLoss() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventStateRaces++
+}
+
+func (m *recordingMetrics) IncTargetWriteFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetWriteFailures++
+}
+
+func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.auditWriteFailures == nil {
+		m.auditWriteFailures = map[string]int{}
+	}
+	m.auditWriteFailures[activityType]++
+}
+
+func (m *recordingMetrics) CandidateExcludedCount(reason string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.candidateExcluded[reason]
+}
+
+func (m *recordingMetrics) TargetWriteFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.targetWriteFailures
+}
+
+func (m *recordingMetrics) AuditWriteFailureCount(activityType string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.auditWriteFailures[activityType]
 }
 
 func validRequest(orgID int64) PreviewRequest {

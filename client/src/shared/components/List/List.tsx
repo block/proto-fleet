@@ -172,8 +172,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   stickyBgColor?: string;
   total?: number;
   /**
-   * Total number of disabled items across all pages.
-   * Used with total to calculate selectable count: total - totalDisabled
+   * Total number of *non-selectable* items across all pages (drives
+   * `totalSelectable = total - totalDisabled`, used for action-bar copy and
+   * confirmation counts). When `isRowSelectable` is provided, this must
+   * count rows for which `isRowSelectable` returns false — not rows that
+   * are merely greyed via `isRowDisabled`. Pass 0 when every row is
+   * selectable regardless of disabled styling.
    */
   totalDisabled?: number;
   itemName?: {
@@ -218,12 +222,15 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   isLoadingMore?: boolean;
   /**
-   * Optional callback to determine if a specific row should be disabled.
-   * Disabled rows are greyed out and cannot be selected.
-   * @param item - The list item
-   * @returns true if the row should be disabled
+   * Greys out the row. Also blocks selection unless `isRowSelectable` is
+   * passed to opt into the split.
    */
   isRowDisabled?: (item: ListItem) => boolean;
+  /**
+   * Whether the row may be selected. Defaults to `!isRowDisabled?.(item)`;
+   * provide explicitly to keep a greyed row checkable.
+   */
+  isRowSelectable?: (item: ListItem) => boolean;
   /**
    * Optional set of column keys that should NOT be affected by disabled row styling.
    * These columns will maintain full opacity even when the row is disabled.
@@ -313,6 +320,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   activeCols: ColKey[];
   actions: ListAction<ListItem>[];
   rowDisabled: boolean;
+  rowSelectable: boolean;
   columnsExemptFromDisabledStyling?: Set<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
   tdClassList: string;
@@ -356,6 +364,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   activeCols,
   actions,
   rowDisabled,
+  rowSelectable,
   columnsExemptFromDisabledStyling,
   colConfig,
   tdClassList,
@@ -452,17 +461,17 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                 value={String(rowKey)}
                 selected={currentSelectedItems.includes(rowKey)}
                 onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
-                disabled={rowDisabled}
+                disabled={!rowSelectable}
               />
             ) : (
               <Checkbox
                 checked={
                   pageScopedSelection && currentSelectionMode === "all"
-                    ? !rowDisabled
+                    ? rowSelectable
                     : currentSelectedItems.includes(rowKey)
                 }
                 onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
-                disabled={rowDisabled}
+                disabled={!rowSelectable}
               />
             )}
           </div>
@@ -694,6 +703,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   hasMore = false,
   isLoadingMore = false,
   isRowDisabled,
+  isRowSelectable,
   columnsExemptFromDisabledStyling,
   sortableColumns,
   currentSort,
@@ -737,13 +747,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }),
   );
 
-  // Helper to get selectable items (excludes disabled rows)
+  // Prefers `isRowSelectable`; falls back to `!isRowDisabled(item)` for back-compat.
   const getSelectableItems = useCallback(
     (itemList: ListItem[]) => {
+      if (isRowSelectable) return itemList.filter(isRowSelectable);
       if (!isRowDisabled) return itemList;
       return itemList.filter((item) => !isRowDisabled(item));
     },
-    [isRowDisabled],
+    [isRowDisabled, isRowSelectable],
   );
 
   // Calculate total selectable count (total - disabled)
@@ -1173,6 +1184,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       activeCols,
       actions,
       rowDisabled: isRowDisabled?.(item) ?? false,
+      rowSelectable: isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false),
       columnsExemptFromDisabledStyling,
       colConfig,
       tdClassList,

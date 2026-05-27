@@ -22,12 +22,14 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners,
       selectionMode,
       totalCount,
+      selectionIncludesUnauthenticatedMiner,
       onSelectAll,
       onSelectNone,
     }: {
       selectedMiners: string[];
       selectionMode: string;
       totalCount?: number;
+      selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
     }) => {
@@ -41,6 +43,9 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
           <span data-testid="mock-miner-list-selected-miners">{selectedMiners.join(",")}</span>
           <span data-testid="mock-miner-list-selection-count">
             {selectionMode === "all" ? (totalCount ?? selectedMiners.length) : selectedMiners.length}
+          </span>
+          <span data-testid="mock-miner-list-selection-includes-unauth">
+            {String(Boolean(selectionIncludesUnauthenticatedMiner))}
           </span>
           {onSelectAll ? (
             <button type="button" data-testid="mock-action-bar-select-all" onClick={onSelectAll}>
@@ -1024,20 +1029,18 @@ describe("MinerList", () => {
       },
     );
 
-    it("recomputes selectable miners when a row becomes disabled between renders", async () => {
+    it("keeps authentication-needed miners selectable and flags the selection to the action bar", async () => {
       const user = userEvent.setup();
 
-      const initialMiners = {
-        m1: createMinerSnapshot("m1"),
-        m2: createMinerSnapshot("m2"),
-      };
-
-      const { rerender } = renderMinerList({
+      renderMinerList({
         title: "Miners",
         minerIds: ["m1", "m2"],
-        miners: initialMiners,
+        miners: {
+          m1: createMinerSnapshot("m1", PairingStatus.AUTHENTICATION_NEEDED),
+          m2: createMinerSnapshot("m2"),
+        },
         totalMiners: 2,
-        totalDisabledMiners: 0,
+        totalDisabledMiners: 1,
         currentPage: 0,
         onAddMiners: vi.fn(),
         loading: false,
@@ -1046,34 +1049,63 @@ describe("MinerList", () => {
       const rowCheckboxes = screen.getAllByTestId("checkbox");
       await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
 
-      const updatedMiners = {
-        ...initialMiners,
-        m2: createMinerSnapshot("m2", PairingStatus.AUTHENTICATION_NEEDED),
-      };
-
-      await act(async () => {
-        rerender(
-          <BrowserRouter>
-            <MinerList
-              title="Miners"
-              minerIds={["m1", "m2"]}
-              miners={updatedMiners}
-              errorsByDevice={{}}
-              errorsLoaded={true}
-              getActiveBatches={mockGetActiveBatches}
-              totalMiners={2}
-              totalDisabledMiners={0}
-              currentPage={0}
-              onAddMiners={vi.fn()}
-              loading={false}
-            />
-          </BrowserRouter>,
-        );
-      });
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
 
       await user.click(screen.getByTestId("mock-action-bar-select-all"));
 
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1,m2");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
+    });
+
+    it("does not flag the selection as auth-needed when no selected miner needs authentication", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        miners: {
+          m1: createMinerSnapshot("m1"),
+          m2: createMinerSnapshot("m2", PairingStatus.AUTHENTICATION_NEEDED),
+        },
+        totalMiners: 2,
+        totalDisabledMiners: 1,
+        currentPage: 0,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+
       expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
+    });
+
+    it("flags all-mode selections as auth-needed while the fleet-wide count is unsettled (loading or refetching)", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        miners: {
+          m1: createMinerSnapshot("m1"),
+          m2: createMinerSnapshot("m2"),
+        },
+        totalMiners: 2,
+        totalDisabledMiners: 0,
+        totalDisabledMinersFresh: false,
+        currentPage: 0,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
     });
   });
 

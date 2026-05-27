@@ -23,20 +23,21 @@ import (
 // pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for foreign_key_violation.
 const pgErrCodeForeignKeyViolation = "23503"
 
-// nonTerminalEventPerOrgUniqueIndex is the partial unique index on
-// curtailment_event (org_id) WHERE state IN ('pending','active','restoring')
-// added in migration 000051. We surface its unique-violation as a typed
-// sentinel so Service.Start can return AlreadyExists with the existing
-// event_uuid rather than leaking an Internal error.
+// Partial-unique-index names used to map a unique-violation into a typed
+// sentinel (replay path or AlreadyExists) instead of leaking Internal.
 const nonTerminalEventPerOrgUniqueIndex = "uq_curtailment_event_one_non_terminal_per_org"
+
+const (
+	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
+	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
+)
 
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
 	}
-	// EnsureCurtailmentOrgConfig gates both branches on
-	// organization.deleted_at IS NULL, so soft-deleted/unknown orgs return
-	// ErrNoRows. Map to NotFound so deleted tenants can't be revived.
+	// EnsureCurtailmentOrgConfig requires organization.deleted_at IS NULL;
+	// ErrNoRows means soft-deleted/unknown.
 	if errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewNotFoundErrorf("organization %d not found", orgID)
 	}
@@ -60,12 +61,9 @@ func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
 }
 
 func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error) {
-	// Ensure-then-read: post-migration tenants don't have a seeded row.
-	// EnsureCurtailmentOrgConfig is INSERT ... ON CONFLICT DO NOTHING with
-	// a fallback SELECT in one CTE; both branches require the org to be
-	// active. ErrNoRows means soft-deleted/unknown OR a READ COMMITTED race
-	// (loser's snapshot missed the winner's INSERT) — retry resolves the
-	// race; if it's the deletion case, mapOrgConfigError returns NotFound.
+	// Ensure-then-read seeds post-migration tenants. One retry covers a
+	// READ COMMITTED race where the loser's snapshot missed the winner's
+	// INSERT; the deletion case maps to NotFound via mapOrgConfigError.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if errors.Is(err, sql.ErrNoRows) {
 		row, err = s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
@@ -100,15 +98,13 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.C
 	return devices, nil
 }
 
-// InsertEventWithTargets writes event + targets in one transaction so a
-// partial Start can't leave a pending event without its target set.
+// InsertEventWithTargets writes event + targets in one transaction.
 func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	ctx context.Context,
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
 	if len(targets) == 0 {
-		// Defense-in-depth; service rejects empty plans upstream.
 		return nil, fleeterror.NewInvalidArgumentError(
 			"InsertEventWithTargets requires a non-empty targets slice",
 		)
@@ -146,28 +142,41 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		})
 		if err != nil {
 			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) &&
-				pgErr.Code == pgErrCodeUniqueViolation &&
-				pgErr.ConstraintName == nonTerminalEventPerOrgUniqueIndex {
-				return nil, interfaces.ErrCurtailmentNonTerminalEventExists
+			if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation {
+				switch pgErr.ConstraintName {
+				case nonTerminalEventPerOrgUniqueIndex:
+					return nil, interfaces.ErrCurtailmentNonTerminalEventExists
+				case idempotencyKeyUniqueIndex, externalReferenceUniqueIndex:
+					// Replay path: caller re-issues the matching lookup.
+					return nil, interfaces.ErrCurtailmentReplayRaceLoss
+				}
+				// Unknown constraint: sanitize the response and log the
+				// name server-side so it doesn't leak through %v.
+				slog.Error("curtailment_event insert hit unknown unique constraint",
+					"constraint", pgErr.ConstraintName, "org_id", event.OrgID, "event_uuid", event.EventUUID)
+				return nil, fleeterror.NewAlreadyExistsError("curtailment event already exists")
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
-		for _, t := range targets {
-			err := q.InsertCurtailmentTarget(ctx, sqlc.InsertCurtailmentTargetParams{
-				CurtailmentEventID:     row.ID,
-				DeviceIdentifier:       t.DeviceIdentifier,
-				TargetType:             t.TargetType,
-				State:                  string(t.State),
-				DesiredState:           t.DesiredState,
-				BaselinePowerW:         ptrFloat64ToNullString(t.BaselinePowerW),
-				SelectorRationaleJsonb: rawMessageOrNullable(t.SelectorRationaleJSON),
-			})
-			if err != nil {
-				return nil, fleeterror.NewInternalErrorf(
-					"failed to insert curtailment target %s: %v", t.DeviceIdentifier, err,
-				)
-			}
+		payload, err := buildBulkTargetPayload(targets)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf(
+				"failed to encode curtailment target payload: %v", err,
+			)
+		}
+		inserted, err := q.BulkInsertCurtailmentTargets(ctx, sqlc.BulkInsertCurtailmentTargetsParams{
+			CurtailmentEventID: row.ID,
+			TargetsJsonb:       payload,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
+		}
+		if inserted != int64(len(targets)) {
+			// jsonb_to_recordset silently drops rows that fail column-type
+			// cast; bail so the tx rolls back instead of partial fanout.
+			return nil, fleeterror.NewInternalErrorf(
+				"bulk insert wrote %d targets, expected %d", inserted, len(targets),
+			)
 		}
 		return &models.InsertEventResult{
 			ID:        row.ID,
@@ -201,6 +210,222 @@ func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (
 		return nil, fleeterror.NewInternalErrorf("failed to get active curtailment event for org %d: %v", orgID, err)
 	}
 	return convertEventRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) GetEventByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentEventByIdempotencyKey(ctx, sqlc.GetCurtailmentEventByIdempotencyKeyParams{
+		OrgID:          orgID,
+		IdempotencyKey: sql.NullString{String: idempotencyKey, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to look up curtailment event by idempotency_key: %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) GetEventByExternalReference(ctx context.Context, orgID int64, externalSource, externalReference string) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentEventByExternalReference(ctx, sqlc.GetCurtailmentEventByExternalReferenceParams{
+		OrgID:             orgID,
+		ExternalSource:    sql.NullString{String: externalSource, Valid: true},
+		ExternalReference: sql.NullString{String: externalReference, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to look up curtailment event by (external_source, external_reference): %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
+const (
+	curtailmentEventsDefaultPageSize int32 = 50
+	curtailmentEventsMaxPageSize     int32 = 200
+)
+
+func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	cursor, err := decodeCurtailmentEventCursor(params.PageToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = curtailmentEventsDefaultPageSize
+	}
+	if pageSize > curtailmentEventsMaxPageSize {
+		pageSize = curtailmentEventsMaxPageSize
+	}
+
+	var cursorID int64
+	if cursor != nil {
+		if cursor.OrgID != params.OrgID || cursor.StateFilter != params.StateFilter {
+			return nil, "", fleeterror.NewInvalidArgumentError("page_token does not match org_id or state_filter")
+		}
+		cursorID = cursor.ID
+	}
+
+	rows, err := s.GetQueries(ctx).ListCurtailmentEventsForOrg(ctx, sqlc.ListCurtailmentEventsForOrgParams{
+		OrgID:       params.OrgID,
+		CursorID:    cursorID,
+		StateFilter: string(params.StateFilter),
+		// Over-fetch by one so the caller knows whether another page remains.
+		RowLimit: int64(pageSize) + 1,
+	})
+	if err != nil {
+		return nil, "", fleeterror.NewInternalErrorf("failed to list curtailment events: %v", err)
+	}
+
+	var nextToken string
+	if int64(len(rows)) > int64(pageSize) {
+		// Trim the over-fetched row; cursor points at the last id.
+		rows = rows[:pageSize]
+		nextToken = encodeCurtailmentEventCursor(&curtailmentEventCursor{
+			ID:          rows[len(rows)-1].ID,
+			OrgID:       params.OrgID,
+			StateFilter: params.StateFilter,
+		})
+	}
+
+	out := make([]*models.Event, len(rows))
+	for i, row := range rows {
+		// ListCurtailmentEventsForOrgRow's field layout matches
+		// sqlc.CurtailmentEvent (different name only because the query
+		// projects a derived snapshot expression); sqlc regen fails the
+		// build if these ever drift.
+		out[i] = convertEventRow(sqlc.CurtailmentEvent(row))
+	}
+	return out, nextToken, nil
+}
+
+func (s *SQLCurtailmentStore) UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).UpdateCurtailmentEventOperatorFields(ctx, sqlc.UpdateCurtailmentEventOperatorFieldsParams{
+		ID:                      eventID,
+		OrgID:                   orgID,
+		Reason:                  nullStringFromPtr(params.Reason),
+		RestoreBatchSize:        nullInt32FromPtr(params.RestoreBatchSize),
+		RestoreBatchIntervalSec: nullInt32FromPtr(params.RestoreBatchIntervalSec),
+		MaxDurationSeconds:      nullInt32FromPtr(params.MaxDurationSeconds),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to update curtailment event: %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
+func nullInt32FromPtr(p *int32) sql.NullInt32 {
+	if p == nil {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: *p, Valid: true}
+}
+
+// AdminTerminateEvent transactionally flips the event to targetState and
+// sweeps non-terminal targets to RESTORE_FAILED with reason as last_error.
+// Routes: same target_state → idempotent echo; different terminal state →
+// StateConflict; any in-flight target → ActiveEvent (caller must Stop first).
+//
+// transitioned=false marks the idempotent-echo paths (initial-read or
+// race-loss re-read) so the caller can suppress side effects.
+type adminTerminateResult struct {
+	event        *models.Event
+	transitioned bool
+}
+
+func (s *SQLCurtailmentStore) AdminTerminateEvent(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	targetState models.EventState,
+	reason string,
+) (*models.Event, bool, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (adminTerminateResult, error) {
+		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return adminTerminateResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
+		}
+
+		currentState := models.EventState(current.State)
+		if currentState == targetState {
+			// Idempotent echo: event already in the requested terminal state.
+			return adminTerminateResult{event: convertEventRow(current), transitioned: false}, nil
+		}
+		if currentState.IsTerminal() {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
+		}
+
+		// In-flight gate: reject if any target still has an outstanding
+		// Curtail. Subsumes the ACTIVE check and catches mid-dispatch
+		// PENDING events.
+		hasInFlight, err := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to check in-flight targets: %v", err)
+		}
+		if hasInFlight {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+		}
+
+		updated, err := q.AdminTerminateCurtailmentEvent(ctx, sqlc.AdminTerminateCurtailmentEventParams{
+			ID:          current.ID,
+			OrgID:       orgID,
+			TargetState: string(targetState),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			// Race: UPDATE matched 0 rows under the state guard. Re-read
+			// and route by latest state for idempotent echo.
+			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+				EventUuid: eventUUID,
+				OrgID:     orgID,
+			})
+			if getErr != nil {
+				return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
+			}
+			latestState := models.EventState(latest.State)
+			if latestState == targetState {
+				// Idempotent echo: concurrent terminate landed first.
+				return adminTerminateResult{event: convertEventRow(latest), transitioned: false}, nil
+			}
+			hasInFlight, gateErr := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
+			if gateErr != nil {
+				return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to check in-flight targets after terminate race: %v", gateErr)
+			}
+			if hasInFlight {
+				return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+			}
+			if latestState == models.EventStateActive {
+				return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+			}
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
+		}
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to terminate curtailment event: %v", err)
+		}
+
+		if err := q.SweepCurtailmentTargetsToRestoreFailed(ctx, sqlc.SweepCurtailmentTargetsToRestoreFailedParams{
+			CurtailmentEventID: current.ID,
+			LastError:          reason,
+		}); err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets: %v", err)
+		}
+
+		return adminTerminateResult{event: convertEventRow(updated), transitioned: true}, nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return result.event, result.transitioned, nil
 }
 
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
@@ -255,32 +480,59 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
-	if err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
-		ID:        eventID,
-		State:     string(state),
-		StartedAt: ptrToNullTime(startedAt),
-		EndedAt:   ptrToNullTime(endedAt),
-	}); err != nil {
+func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
+	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
+		ID:            eventID,
+		ExpectedState: string(expectedState),
+		State:         string(state),
+		StartedAt:     ptrToNullTime(startedAt),
+		EndedAt:       ptrToNullTime(endedAt),
+	})
+	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment event %d state: %v", eventID, err)
+	}
+	if rows == 0 {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	return nil
 }
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
-	if err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
+	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
+		CurtailmentEventID:   eventID,
+		DeviceIdentifier:     deviceIdentifier,
+		State:                string(params.State),
+		LastDispatchedAt:     ptrToNullTime(params.LastDispatchedAt),
+		LastBatchUuid:        ptrToNullString(params.LastBatchUUID),
+		ObservedPowerW:       ptrFloat64ToNullString(params.ObservedPowerW),
+		ObservedAt:           ptrToNullTime(params.ObservedAt),
+		ConfirmedAt:          ptrToNullTime(params.ConfirmedAt),
+		RetryCount:           ptrToNullInt32(params.RetryCount),
+		LastError:            ptrToNullString(params.LastError),
+		ExpectedEventState:   ptrEventStateToNullString(params.ExpectedEventState),
+		ExpectedDesiredState: ptrToNullString(params.ExpectedDesiredState),
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
+	}
+	if rows == 0 {
+		// Zero rows: either the parent event advanced to terminal (EXISTS
+		// guard) or expected_desired_state lost the race against a Stop.
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) BumpTargetRetry(ctx context.Context, eventID int64, deviceIdentifier string) error {
+	rows, err := s.GetQueries(ctx).BumpCurtailmentTargetRetry(ctx, sqlc.BumpCurtailmentTargetRetryParams{
 		CurtailmentEventID: eventID,
 		DeviceIdentifier:   deviceIdentifier,
-		State:              string(params.State),
-		LastDispatchedAt:   ptrToNullTime(params.LastDispatchedAt),
-		LastBatchUuid:      ptrToNullString(params.LastBatchUUID),
-		ObservedPowerW:     ptrFloat64ToNullString(params.ObservedPowerW),
-		ObservedAt:         ptrToNullTime(params.ObservedAt),
-		ConfirmedAt:        ptrToNullTime(params.ConfirmedAt),
-		RetryCount:         ptrToNullInt32(params.RetryCount),
-		LastError:          ptrToNullString(params.LastError),
-	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to bump curtailment target retry (%d, %s): %v", eventID, deviceIdentifier, err)
+	}
+	if rows == 0 {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	return nil
 }
@@ -298,11 +550,9 @@ func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interf
 }
 
 // BeginRestoreTransition runs the event-state flip + target reset in one tx.
-// effective_batch_size was stamped at Start; this transition only flips state.
-// The state-guard inside BeginCurtailmentRestoration's WHERE clause makes the
-// UPDATE return zero rows for any state other than pending/active; this store
-// pre-reads the event to map that into a typed error (FailedPrecondition vs
-// idempotent no-op) rather than burying state semantics in a row-count check.
+// Pre-reads the event to distinguish "already restoring" (idempotent
+// return) from "already terminal" (FailedPrecondition); the UPDATE's
+// state guard catches concurrent transitions between pre-read and write.
 func (s *SQLCurtailmentStore) BeginRestoreTransition(
 	ctx context.Context,
 	orgID int64,
@@ -429,8 +679,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 	}
 }
 
-// convertTargetRow maps a sqlc target row (sql.NullString for NUMERIC
-// baseline_power_w / observed_power_w) to the domain Target with *float64.
+// convertTargetRow maps a sqlc target row to the domain Target.
 func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 	return &models.Target{
 		CurtailmentEventID:    row.CurtailmentEventID,
@@ -464,6 +713,13 @@ func nullInt32ToPtr(n sql.NullInt32) *int32 {
 	return &v
 }
 
+func ptrEventStateToNullString(p *models.EventState) sql.NullString {
+	if p == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(*p), Valid: true}
+}
+
 func nullFloat64ToPtr(n sql.NullFloat64) *float64 {
 	if !n.Valid {
 		return nil
@@ -472,10 +728,9 @@ func nullFloat64ToPtr(n sql.NullFloat64) *float64 {
 	return &v
 }
 
-// ptrFloat64ToNullString formats a *float64 for a NUMERIC column. NUMERIC
-// values arrive at the database/sql boundary as strings; sqlc maps them to
-// sql.NullString. NULL maps to !Valid; non-NULL formats with full precision
-// so a 12.3 round-trip preserves three decimal places.
+// ptrFloat64ToNullString formats a *float64 for a NUMERIC column.
+// database/sql sends NUMERIC values as strings; full precision preserves
+// the three-decimal round-trip.
 func ptrFloat64ToNullString(p *float64) sql.NullString {
 	if p == nil {
 		return sql.NullString{}
@@ -492,25 +747,50 @@ func nullStringToFloat64Ptr(n sql.NullString) *float64 {
 	}
 	v, err := strconv.ParseFloat(n.String, 64)
 	if err != nil {
-		// A non-NULL NUMERIC column that doesn't parse signals real data
-		// corruption or a schema/driver mismatch. Surface it via the same
-		// slog.Warn pattern other sqlstores use; keep returning nil so the
-		// read path stays tolerant of one-off corruption (the selector
-		// treats this as "unknown efficiency" and ranks it last).
+		// Corruption or driver mismatch: log, return nil so the selector
+		// treats it as unknown and ranks it last.
 		slog.Warn("failed to parse NUMERIC string", "value", n.String, "err", err)
 		return nil
 	}
 	return &v
 }
 
-// rawMessageOrNullable wraps a raw JSON byte slice into pqtype.NullRawMessage,
-// treating nil/empty as NULL so the JSONB column receives SQL NULL rather than
-// the literal "null" or empty string.
-func rawMessageOrNullable(b []byte) pqtype.NullRawMessage {
-	if len(b) == 0 {
-		return pqtype.NullRawMessage{}
+// bulkInsertTargetRow is the per-target JSON shape consumed by
+// BulkInsertCurtailmentTargets via jsonb_to_recordset. Field names match
+// the recordset column definitions.
+type bulkInsertTargetRow struct {
+	DeviceIdentifier       string          `json:"device_identifier"`
+	TargetType             string          `json:"target_type"`
+	State                  string          `json:"state"`
+	DesiredState           string          `json:"desired_state"`
+	BaselinePowerW         *float64        `json:"baseline_power_w"`
+	SelectorRationaleJsonb json.RawMessage `json:"selector_rationale_jsonb,omitempty"`
+}
+
+// buildBulkTargetPayload serializes targets into the JSONB array for
+// BulkInsertCurtailmentTargets. baseline_power_w rides as JSON number;
+// NUMERIC(12,3) holds float64 precision losslessly at fleet scale.
+func buildBulkTargetPayload(targets []models.InsertTargetParams) ([]byte, error) {
+	rows := make([]bulkInsertTargetRow, len(targets))
+	for i, t := range targets {
+		var rationale json.RawMessage
+		if len(t.SelectorRationaleJSON) > 0 {
+			rationale = json.RawMessage(t.SelectorRationaleJSON)
+		}
+		rows[i] = bulkInsertTargetRow{
+			DeviceIdentifier:       t.DeviceIdentifier,
+			TargetType:             t.TargetType,
+			State:                  string(t.State),
+			DesiredState:           t.DesiredState,
+			BaselinePowerW:         t.BaselinePowerW,
+			SelectorRationaleJsonb: rationale,
+		}
 	}
-	return pqtype.NullRawMessage{RawMessage: json.RawMessage(b), Valid: true}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("encode bulk target payload: %v", err)
+	}
+	return payload, nil
 }
 
 func nullRawMessageToBytes(n pqtype.NullRawMessage) []byte {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -79,6 +80,19 @@ func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
 	req.CanUseAdminControls = true
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
+}
+
+func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.IncludeMaintenance = true
+	req.ForceIncludeMaintenance = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "force_include_maintenance")
 }
 
 func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
@@ -554,6 +568,46 @@ func TestService_Start_ForwardsIdempotencyAndExternalAttribution(t *testing.T) {
 	assert.Equal(t, "PD-INC-12345", *store.lastInsertEvent.ExternalReference)
 	require.NotNil(t, store.lastInsertEvent.SourceActorID)
 	assert.Equal(t, "user-7", *store.lastInsertEvent.SourceActorID)
+}
+
+// TestService_Start_EmitsCandidateExclusionMetrics pins the fleet-health
+// signal: each selector-excluded candidate increments
+// IncCandidateExcluded(reason) so dashboards can graph why miners are
+// dropping out (phantom load, dead AC monitor, below threshold, etc.).
+// Start-only emission keeps Preview spam off the counter.
+func TestService_Start_EmitsCandidateExclusionMetrics(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	// One eligible miner (passes the dual-signal filter) plus one
+	// phantom-load miner (power above threshold, hash rate zero).
+	power := 6000.0
+	zeroHR := 0.0
+	now := time.Now()
+	driver := "antminer"
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("ok", 6000, 100, 40),
+		{
+			DeviceIdentifier: "ghost",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     &power,
+			LatestHashRateHS: &zeroHR,
+		},
+	}
+	metrics := newRecordingMetrics()
+	svc := NewService(store, WithServiceMetrics(metrics))
+
+	_, err := svc.Start(t.Context(), validStartRequest(orgID))
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, metrics.CandidateExcludedCount(string(SkipPhantomLoadNoHash)),
+		"phantom-load miner increments the labeled exclusion counter exactly once")
+	assert.Equal(t, 0, metrics.CandidateExcludedCount(string(SkipBelowThreshold)),
+		"unrelated reasons are not incremented for this fixture")
 }
 
 // --- store error propagation ---

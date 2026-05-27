@@ -108,6 +108,16 @@ type MinerListProps = {
    */
   totalDisabledMiners?: number;
   /**
+   * Whether `totalDisabledMiners` reflects a settled response from the
+   * underlying auth-needed query for the *current* filter and sort — i.e.,
+   * the first request has completed AND there is no refetch in flight. The
+   * all-mode bulk-action gate treats the count as unreliable until this is
+   * true and falls back to blocking non-Unpair actions in the meantime.
+   * Defaults to true so callers that never load the count keep the historical
+   * behavior.
+   */
+  totalDisabledMinersFresh?: boolean;
+  /**
    * Optional callback to attach refs to list row elements.
    * Used for viewport visibility tracking.
    */
@@ -189,6 +199,9 @@ type MinerListProps = {
   onPairingCompleted?: () => void;
 };
 
+// Module-level so the `List`'s memoized helpers keep a stable identity.
+const ALL_ROWS_SELECTABLE = () => true;
+
 type ScopedMinerListBodyProps = {
   /**
    * Selection-scope identifier — when this changes, internal selection state resets.
@@ -206,6 +219,7 @@ type ScopedMinerListBodyProps = {
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   totalMiners?: number;
   totalDisabledMiners: number;
+  totalDisabledMinersFresh: boolean;
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
   hasActiveFilters: boolean;
   onAddMiners: () => void;
@@ -244,6 +258,7 @@ const ScopedMinerListBody = ({
   paddingLeft,
   totalMiners,
   totalDisabledMiners,
+  totalDisabledMinersFresh,
   itemRef,
   hasActiveFilters,
   onAddMiners,
@@ -281,9 +296,7 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const currentPageSelectableMinerIds = deviceItems
-    .filter((item) => !isRowDisabled(item))
-    .map((item) => item.deviceIdentifier);
+  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
@@ -294,6 +307,21 @@ const ScopedMinerListBody = ({
     setSelectedMinerIds([]);
     setSelectionMode("none");
   }, []);
+
+  // All-mode fails safe: when the auth-needed count hasn't settled yet, treat
+  // the selection as if it includes one (off-page auth-needed miners are
+  // otherwise invisible to the gate). Once the count is loaded, OR the
+  // fleet-wide count with a page-local check so the gate trips on visible
+  // rows even if the count refresh hasn't caught up.
+  const selectedIncludesUnauthenticatedMiner = useMemo(
+    () =>
+      selectionMode === "all"
+        ? !totalDisabledMinersFresh || totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
+        : selectedMinerIds.some((id) =>
+            deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
+          ),
+    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
+  );
 
   return (
     <>
@@ -346,6 +374,7 @@ const ScopedMinerListBody = ({
               currentSort={currentSortConfig}
               miners={minersProp}
               minerIds={minerIdsProp}
+              selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
               onRefetchMiners={onRefetchMiners}
               onWorkerNameUpdated={onWorkerNameUpdated}
             />
@@ -358,13 +387,16 @@ const ScopedMinerListBody = ({
         overflowContainer={false}
         applyColumnWidthsToCells
         total={totalMiners}
-        totalDisabled={totalDisabledMiners}
+        // Every row is selectable; `totalSelectable = totalMiners` so action-bar
+        // copy and confirmation counts cover both paired and auth-needed miners.
+        totalDisabled={0}
         hideTotal
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={isRowDisabled}
+        isRowSelectable={ALL_ROWS_SELECTABLE}
         columnsExemptFromDisabledStyling={new Set([minerCols.name, minerCols.status, minerCols.issues])}
         sortableColumns={sortableColumnsSet}
         currentSort={currentSort}
@@ -431,6 +463,7 @@ const MinerList = ({
   totalMiners,
   totalUnfilteredMiners,
   totalDisabledMiners = 0,
+  totalDisabledMinersFresh = true,
   itemRef,
   loading = false,
   pageSize = MINERS_PAGE_SIZE,
@@ -1015,6 +1048,7 @@ const MinerList = ({
           paddingLeft={paddingLeft}
           totalMiners={totalMiners}
           totalDisabledMiners={totalDisabledMiners}
+          totalDisabledMinersFresh={totalDisabledMinersFresh}
           itemRef={itemRef}
           hasActiveFilters={hasActiveFilters}
           onAddMiners={onAddMiners}

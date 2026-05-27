@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package authz.v1;
+
+// Permission is a single resource:action grant in the catalog. The catalog is
+// a server-side code constant defined in
+// server/internal/domain/authz/catalog.go; this message is the wire shape used
+// by the future AuthzService RPCs and by the UserInfo permission field.
+message Permission {
+    // Stable key, e.g. "miner:reboot". Matches the regex ^[a-z]+:[a-z_]+$.
+    string key = 1;
+
+    // Human-readable description used by the admin UI catalog.
+    string description = 2;
+
+    // Resource group ("fleet", "miner", "rack", ...) for UI grouping.
+    string resource = 3;
+}
+
+// PermissionGroup buckets permissions under a single resource so the admin UI
+// can render them grouped without re-parsing the key prefix on the client.
+message PermissionGroup {
+    string resource = 1;
+    repeated Permission permissions = 2;
+}

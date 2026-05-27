@@ -207,10 +207,8 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	}
 }
 
-// toStartResponse maps the service Plan + request into the
-// StartCurtailmentResponse. Describes the request that was just persisted;
-// idempotent-retry lookup is a follow-up. Duplicate keys surface as Internal
-// until then.
+// toStartResponse renders a newly persisted Plan + request as the
+// response. Idempotent replays render from the persisted event row.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
 		State:                   pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING,
@@ -277,8 +275,8 @@ func effectiveRestoreBatchIntervalSec(plan *curtailment.Plan, req *pb.StartCurta
 	return uint32Saturating(plan.EffectiveRestoreBatchIntervalSec)
 }
 
-// lenToInt32Saturating clamps a slice length to int32 max for proto rollup
-// fields. Selector lists are well below MaxInt32; this is for static-analysis.
+// lenToInt32Saturating clamps a length to int32 max for proto rollups
+// (selector lists are well below the cap; this satisfies static analysis).
 func lenToInt32Saturating(n int) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32
@@ -287,9 +285,8 @@ func lenToInt32Saturating(n int) int32 {
 }
 
 // effectiveMaxDurationSeconds prefers the persisted value (Service.Start
-// resolves "use org default") so the response reflects the cap, not the
-// raw request zero. Falls back to the request when Plan has no resolved
-// value (Preview path); nil plan field — allow_unbounded — renders as 0.
+// resolves "use org default") so the response reflects the resolved cap;
+// nil → allow_unbounded → 0.
 func effectiveMaxDurationSeconds(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
 	if plan == nil || plan.EffectiveMaxDurationSeconds == nil {
 		return req.GetMaxDurationSeconds()
@@ -310,9 +307,7 @@ func resolvePriority(p pb.CurtailmentPriority) pb.CurtailmentPriority {
 	return p
 }
 
-// uint32ToInt32Strict converts proto uint32 → int32, rejecting overflow with
-// InvalidArgument. Silent saturation would mangle valid proto inputs above
-// MaxInt32; surface a clear error instead.
+// uint32ToInt32Strict converts proto uint32 → int32, rejecting overflow.
 func uint32ToInt32Strict(field string, v uint32) (int32, error) {
 	if v > math.MaxInt32 {
 		return 0, fleeterror.NewInvalidArgumentErrorf(
@@ -322,8 +317,8 @@ func uint32ToInt32Strict(field string, v uint32) (int32, error) {
 	return int32(v), nil // #nosec G115 -- bounds-checked above
 }
 
-// nonEmptyPtr returns nil for "", &s otherwise. Maps proto3 empty-string
-// to SQL NULL so the migration's `length > 0` CHECK constraints hold.
+// nonEmptyPtr maps proto3 "" → nil so SQL collapses to NULL and the
+// migration's length>0 CHECKs hold.
 func nonEmptyPtr(s string) *string {
 	if s == "" {
 		return nil
@@ -331,10 +326,8 @@ func nonEmptyPtr(s string) *string {
 	return &s
 }
 
-// deriveSourceActorType maps session.Info into the audit-actor vocabulary.
-// Scheduler-synthesized sessions win over auth method; otherwise
-// session/api-key route to user / api_key. Webhook attribution lives in
-// external_source / external_reference until a webhook auth surface lands.
+// deriveSourceActorType maps session.Info to the audit actor vocabulary;
+// scheduler actor wins over auth method.
 func deriveSourceActorType(info *session.Info) models.SourceActorType {
 	if info == nil {
 		return models.SourceActorUser
@@ -348,8 +341,8 @@ func deriveSourceActorType(info *session.Info) models.SourceActorType {
 	return models.SourceActorUser
 }
 
-// deriveSourceActorID pairs with SourceActorType for audit attribution.
-// nil session or scheduler → NULL (scheduler is identified by actor type).
+// deriveSourceActorID returns nil for nil / scheduler sessions (scheduler
+// identity rides on actor_type).
 func deriveSourceActorID(info *session.Info) *string {
 	if info == nil || info.Actor == session.ActorScheduler {
 		return nil
@@ -398,13 +391,12 @@ func strategyName(s pb.CurtailmentStrategy) models.Strategy {
 	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED {
 		return models.StrategyLeastEfficientFirst
 	}
-	// Pass other values through; service validator rejects them by name.
+	// Other values pass through for service-side rejection.
 	return models.Strategy(s.String())
 }
 
-// strategyReasonLabel renders reason_selected. UNSPECIFIED and
-// LEAST_EFFICIENT_FIRST render as the canonical lowercase form; other values
-// pass through as their proto names (rejected upstream by the validator).
+// strategyReasonLabel renders reason_selected; UNSPECIFIED and
+// LEAST_EFFICIENT_FIRST collapse to the canonical lowercase form.
 func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED ||
 		s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST {
@@ -414,8 +406,6 @@ func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 }
 
 func levelName(l pb.CurtailmentLevel) models.Level {
-	// UNSPECIFIED defaults to FULL; other values pass through their proto
-	// names so the service validator can reject them.
 	if l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED ||
 		l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL {
 		return models.LevelFull
@@ -431,17 +421,16 @@ func priorityName(p pb.CurtailmentPriority) models.Priority {
 		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL:
 		return models.PriorityNormal
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
-		// Pass through; service validator rejects it.
+		// Service validator rejects HIGH.
 		return models.PriorityHigh
 	default:
-		// New enum values surface as a validator rejection, not silent NORMAL.
+		// Surface unknown values for validator rejection instead of NORMAL.
 		return models.Priority(p.String())
 	}
 }
 
-// toInsufficientLoadError returns InvalidArgument with kW numbers and
-// non-zero exclusion counters. Counter order is source-fixed for byte-stable
-// output until Connect error-detail propagation lands.
+// toInsufficientLoadError renders InvalidArgument with kW numbers and
+// non-zero exclusion counters; order is source-fixed for byte-stable output.
 func toInsufficientLoadError(detail *modes.InsufficientLoadDetail) error {
 	if detail == nil {
 		return fleeterror.NewInvalidArgumentError("insufficient curtailable load")
@@ -457,9 +446,8 @@ func toInsufficientLoadError(detail *modes.InsufficientLoadDetail) error {
 	return fleeterror.NewInvalidArgumentErrorf("%s; excluded: %s", header, exclusions)
 }
 
-// formatExclusionCounters renders non-zero ExcludedX fields. Source-fixed
-// order keeps output byte-stable; names use the canonical SkipReason
-// vocabulary so success and failure paths share one token set.
+// formatExclusionCounters renders non-zero ExcludedX fields in
+// source-fixed order using the canonical SkipReason vocabulary.
 func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 	type counter struct {
 		name string
@@ -471,8 +459,6 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 		{string(curtailment.SkipPowerTelemetryUnreliable), d.ExcludedDeadMonitor},
 		{string(curtailment.SkipUnreachableResidualLoad), d.ExcludedOffline},
 		{string(curtailment.SkipMaintenance), d.ExcludedMaintenance},
-		// Transient-status / data-quality skips, grouped between maintenance
-		// and pairing in the byte-stable order.
 		{string(curtailment.SkipUpdating), d.ExcludedUpdating},
 		{string(curtailment.SkipRebootRequired), d.ExcludedRebootRequired},
 		{string(curtailment.SkipStaleTelemetry), d.ExcludedStale},
@@ -491,8 +477,8 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 	return strings.Join(parts, ", ")
 }
 
-// toStopRequest converts the proto request to a service StopRequest. OrgID
-// comes from session.Info. Force is admin-gated at the handler entry.
+// toStopRequest converts the proto request to a service StopRequest;
+// Force is admin-gated at the handler.
 func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.StopRequest, error) {
 	eventUUID, err := uuid.Parse(msg.GetEventUuid())
 	if err != nil {
@@ -507,18 +493,127 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	}, nil
 }
 
-// toEventProto maps persisted event metadata to the wire CurtailmentEvent.
-// Call toEventProtoWithTargets for read APIs that also need scope, mode
-// params, decision snapshot, and target progress.
+// toAdminTerminateRequest maps the proto request to the service-layer
+// shape; the service re-checks target_state.
+func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.Info) (curtailment.AdminTerminateRequest, error) {
+	if info == nil || info.OrganizationID <= 0 {
+		return curtailment.AdminTerminateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	eventUUID, err := uuid.Parse(msg.GetEventUuid())
+	if err != nil {
+		return curtailment.AdminTerminateRequest{}, fleeterror.NewInvalidArgumentErrorf(
+			"event_uuid must be a valid UUID: %v", err,
+		)
+	}
+	return curtailment.AdminTerminateRequest{
+		OrgID:       info.OrganizationID,
+		EventUUID:   eventUUID,
+		TargetState: eventStateFromProto(msg.GetTargetState()),
+		Reason:      msg.GetReason(),
+	}, nil
+}
+
+// toUpdateRequest maps the proto request to the service-layer shape.
+// Optional proto fields preserve "set vs absent" semantics; the service
+// handles all bounds validation.
+func toUpdateRequest(msg *pb.UpdateCurtailmentEventRequest, info *session.Info) (curtailment.UpdateRequest, error) {
+	if info == nil || info.OrganizationID <= 0 {
+		return curtailment.UpdateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	eventUUID, err := uuid.Parse(msg.GetEventUuid())
+	if err != nil {
+		return curtailment.UpdateRequest{}, fleeterror.NewInvalidArgumentErrorf(
+			"event_uuid must be a valid UUID: %v", err,
+		)
+	}
+	out := curtailment.UpdateRequest{
+		OrgID:     info.OrganizationID,
+		EventUUID: eventUUID,
+	}
+	if msg.Reason != nil {
+		v := msg.GetReason()
+		out.Reason = &v
+	}
+	if msg.RestoreBatchSize != nil {
+		v, err := uint32ToInt32Strict("restore_batch_size", msg.GetRestoreBatchSize())
+		if err != nil {
+			return curtailment.UpdateRequest{}, err
+		}
+		out.RestoreBatchSize = &v
+	}
+	if msg.RestoreBatchIntervalSec != nil {
+		v, err := uint32ToInt32Strict("restore_batch_interval_sec", msg.GetRestoreBatchIntervalSec())
+		if err != nil {
+			return curtailment.UpdateRequest{}, err
+		}
+		out.RestoreBatchIntervalSec = &v
+	}
+	if msg.MaxDurationSeconds != nil {
+		v, err := uint32ToInt32Strict("max_duration_seconds", msg.GetMaxDurationSeconds())
+		if err != nil {
+			return curtailment.UpdateRequest{}, err
+		}
+		out.MaxDurationSeconds = &v
+	}
+	return out, nil
+}
+
+// toListEventsRequest maps the proto request to the service-layer shape.
+// UNSPECIFIED state pass-through → empty string = "all states" downstream.
+func toListEventsRequest(msg *pb.ListCurtailmentEventsRequest, orgID int64) (curtailment.ListEventsRequest, error) {
+	if orgID <= 0 {
+		return curtailment.ListEventsRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	return curtailment.ListEventsRequest{
+		OrgID:       orgID,
+		PageSize:    msg.GetPageSize(),
+		PageToken:   msg.GetPageToken(),
+		StateFilter: eventStateFromProto(msg.GetStateFilter()),
+	}, nil
+}
+
+// toListEventsResponse builds the wire response; per-target rows are
+// omitted to keep 10K-miner pages bounded.
+func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.ListCurtailmentEventsResponse {
+	out := &pb.ListCurtailmentEventsResponse{
+		Events:        make([]*pb.CurtailmentEvent, len(events)),
+		NextPageToken: nextPageToken,
+	}
+	for i, ev := range events {
+		out.Events[i] = toEventProtoListItem(ev)
+	}
+	return out
+}
+
+// toEventProtoListItem populates the list-view shape (no targets).
+// The decision snapshot arrives pre-trimmed at the SQL boundary; see
+// ListCurtailmentEventsForOrg in queries/curtailment.sql.
+func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
+	out := toEventProto(event)
+	scrubListSensitiveFields(out)
+	populateEventScope(out, event)
+	populateEventModeParams(out, event)
+	populateEventDecisionSnapshot(out, event)
+	return out
+}
+
+// scrubListSensitiveFields drops webhook trigger metadata from list rows.
+func scrubListSensitiveFields(out *pb.CurtailmentEvent) {
+	out.ExternalSource = ""
+	out.ExternalReference = ""
+	out.IdempotencyKey = ""
+}
+
+// toEventProto maps persisted event metadata to the wire CurtailmentEvent;
+// use toEventProtoWithTargets for the full shape including targets.
 func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	out := &pb.CurtailmentEvent{
-		EventUuid: event.EventUUID.String(),
-		State:     eventStateProto(event.State),
-		Mode:      modeProto(event.Mode),
-		Strategy:  strategyProto(event.Strategy),
-		Level:     levelProto(event.Level),
-		Priority:  priorityProto(event.Priority),
-		// Restore + duration controls echo the persisted row.
+		EventUuid:               event.EventUUID.String(),
+		State:                   eventStateProto(event.State),
+		Mode:                    modeProto(event.Mode),
+		Strategy:                strategyProto(event.Strategy),
+		Level:                   levelProto(event.Level),
+		Priority:                priorityProto(event.Priority),
 		RestoreBatchSize:        uint32Saturating(event.RestoreBatchSize),
 		RestoreBatchIntervalSec: uint32Saturating(event.RestoreBatchIntervalSec),
 		MinCurtailedDurationSec: uint32Saturating(event.MinCurtailedDurationSec),
@@ -530,7 +625,6 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 		out.MaxDurationSeconds = uint32Saturating(*event.MaxDurationSeconds)
 	}
 	if event.EffectiveBatchSize != nil {
-		// Server-resolved batch size stamped at Start.
 		out.EffectiveBatchSize = uint32Saturating(*event.EffectiveBatchSize)
 	}
 	if event.ExternalSource != nil {
@@ -634,7 +728,8 @@ func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
 		switch target.State {
 		case models.TargetStatePending:
 			rollup.Pending++
-		case models.TargetStateDispatched:
+		case models.TargetStateDispatching, models.TargetStateDispatched:
+			// Operator rollups conflate the pre-command transient with DISPATCHED.
 			rollup.Dispatched++
 		case models.TargetStateConfirmed:
 			rollup.Confirmed++
@@ -702,6 +797,31 @@ func uint32Saturating(v int32) uint32 {
 	return uint32(v) // #nosec G115 -- bounds-checked above
 }
 
+// eventStateFromProto is the inverse of eventStateProto. UNSPECIFIED maps
+// to the canonical empty-string sentinel, signalling "no state filter" to
+// the persistence layer.
+func eventStateFromProto(s pb.CurtailmentEventState) models.EventState {
+	switch s {
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED:
+		return ""
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING:
+		return models.EventStatePending
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE:
+		return models.EventStateActive
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING:
+		return models.EventStateRestoring
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED:
+		return models.EventStateCompleted
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES:
+		return models.EventStateCompletedWithFailures
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED:
+		return models.EventStateCancelled
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED:
+		return models.EventStateFailed
+	}
+	return ""
+}
+
 func eventStateProto(s models.EventState) pb.CurtailmentEventState {
 	switch s {
 	case models.EventStatePending:
@@ -726,6 +846,8 @@ func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
 	switch s {
 	case models.TargetStatePending:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING
+	case models.TargetStateDispatching:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHING
 	case models.TargetStateDispatched:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED
 	case models.TargetStateConfirmed:

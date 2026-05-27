@@ -24,7 +24,7 @@ test.describe("Proto Fleet - Onboarding", () => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Validate Home screen null state due to no miners added", async () => {
-      await homePage.validateTextIsVisible("Let's setup your fleet.");
+      await homePage.validateTextIsVisible("Let's set up your fleet.");
       await homePage.validateTextIsVisible("Add miners to your fleet to get started.");
       await homePage.validateButtonIsVisible("Get Started");
     });

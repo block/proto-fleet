@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -147,6 +148,7 @@ var reflectEnabledServices = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
+	curtailmentv1connect.CurtailmentServiceName,
 }
 
 func start(config *Config) error {
@@ -178,6 +180,20 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+
+	// Cap the reconcile at 60s. The advisory lock inside Reconcile makes
+	// concurrent boots serialize, so a non-winner during a rolling
+	// deploy waits for the winner to commit; without a deadline a stuck
+	// reconcile would block boot forever. 60s is generous for the work
+	// (catalog upsert + 3 role rows per active org) and short enough
+	// that a stuck instance crashes loud rather than hanging silently.
+	reconcileCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := authz.Reconcile(reconcileCtx, conn); err != nil {
+		return fmt.Errorf("reconcile built-in roles: %w", err)
+	}
+
+	permissionResolver := authz.NewPermissionResolver(conn)
 
 	transactor := sqlstores.NewSQLTransactor(conn)
 
@@ -411,7 +427,14 @@ func start(config *Config) error {
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
-	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore)
+	// Curtailment operational metrics route through this single recorder.
+	// Swap NoOpMetrics for the platform observability implementation once
+	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
+	var curtailmentMetrics curtailmentDomain.Metrics = curtailmentDomain.NoOpMetrics{}
+	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore,
+		curtailmentDomain.WithServiceMetrics(curtailmentMetrics),
+		curtailmentDomain.WithAuditLogger(activitySvc),
+	)
 
 	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, transactor, activitySvc)
@@ -436,7 +459,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc)
+	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
 	if err := curtailmentRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}
@@ -462,7 +485,7 @@ func start(config *Config) error {
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
 		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
 		validateInterceptor,
 	)
 
@@ -500,10 +523,6 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	// Preview, Start, Stop, and GetActive are wired; reconciler drives
-	// non-terminal events to terminal (including max_duration_seconds-based
-	// forced restore). UpdateCurtailmentEvent and ListCurtailmentEvents return
-	// Unimplemented pending the read APIs ticket.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
