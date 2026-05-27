@@ -16,17 +16,19 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 // testHarness wires a real *buildings.Service against mock stores.
 // activitySvc is nil; the service's logActivity guards against that path.
 type testHarness struct {
-	handler       *Handler
-	buildingStore *mocks.MockBuildingStore
-	siteStore     *mocks.MockSiteStore
-	tx            *mocks.MockTransactor
-	ctrl          *gomock.Controller
+	handler         *Handler
+	buildingStore   *mocks.MockBuildingStore
+	siteStore       *mocks.MockSiteStore
+	collectionStore *mocks.MockCollectionStore
+	tx              *mocks.MockTransactor
+	ctrl            *gomock.Controller
 }
 
 func newTestHandler(t *testing.T) *testHarness {
@@ -34,19 +36,21 @@ func newTestHandler(t *testing.T) *testHarness {
 	ctrl := gomock.NewController(t)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) error) error {
 			return fn(ctx)
 		},
 	)
-	svc := buildings.NewService(buildingStore, siteStore, nil, tx, nil)
+	svc := buildings.NewService(buildingStore, siteStore, collectionStore, tx, nil)
 	return &testHarness{
-		handler:       NewHandler(svc),
-		buildingStore: buildingStore,
-		siteStore:     siteStore,
-		tx:            tx,
-		ctrl:          ctrl,
+		handler:         NewHandler(svc),
+		buildingStore:   buildingStore,
+		siteStore:       siteStore,
+		collectionStore: collectionStore,
+		tx:              tx,
+		ctrl:            ctrl,
 	}
 }
 
@@ -281,3 +285,90 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), resp.Msg.GetUnassignedRackCount())
 }
+
+// ListBuildingRacks: viewer role hits the admin gate before the service.
+func TestHandler_ListBuildingRacks_rejectsViewer(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil)
+	ctx := authn.SetInfo(t.Context(), &session.Info{Role: "VIEWER", OrganizationID: 7})
+	_, err := h.ListBuildingRacks(ctx, connect.NewRequest(&pb.ListBuildingRacksRequest{BuildingId: 11}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// ListBuildingRacks: admin threads org_id and building_id through to the
+// service, response mirrors store result.
+func TestHandler_ListBuildingRacks_happy(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(11)).
+		Return(&models.Building{ID: 11}, nil)
+	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(11)).
+		Return([]models.BuildingRack{
+			{RackID: 1, RackLabel: "Rack-A", AisleIndex: nil, PositionInAisle: nil},
+			{RackID: 2, RackLabel: "Rack-B", AisleIndex: ptrInt32t(0), PositionInAisle: ptrInt32t(1)},
+		}, nil)
+
+	resp, err := h.handler.ListBuildingRacks(adminCtx(t, 7),
+		connect.NewRequest(&pb.ListBuildingRacksRequest{BuildingId: 11}))
+	require.NoError(t, err)
+	assert.Len(t, resp.Msg.GetRacks(), 2)
+	assert.Equal(t, "Rack-A", resp.Msg.GetRacks()[0].GetRackLabel())
+	assert.Equal(t, int64(2), resp.Msg.GetRacks()[1].GetRackId())
+}
+
+// AssignRackToBuilding: viewer role hits the admin gate before the service.
+func TestHandler_AssignRackToBuilding_rejectsViewer(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil)
+	ctx := authn.SetInfo(t.Context(), &session.Info{Role: "VIEWER", OrganizationID: 7})
+	buildingID := int64(11)
+	_, err := h.AssignRackToBuilding(ctx, connect.NewRequest(&pb.AssignRackToBuildingRequest{
+		RackId:     99,
+		BuildingId: &buildingID,
+	}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// AssignRackToBuilding: admin → request fields thread through to service
+// params; response carries SiteReassignedDeviceCount.
+func TestHandler_AssignRackToBuilding_happy(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	buildingID := int64(11)
+	siteID := int64(3)
+
+	gomock.InOrder(
+		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), buildingID).Return(nil),
+		h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), buildingID).
+			Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil),
+		h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(99), int64(7)).
+			Return(interfaces.RackPlacement{SiteID: nil}, nil),
+		h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(99), int64(7), &siteID, &buildingID, "").
+			Return(nil),
+		h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(99), int64(7), &siteID).
+			Return(int64(3), nil),
+		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), ptrInt32t(1), ptrInt32t(2)).
+			Return(nil),
+	)
+
+	aisle := int32(1)
+	pos := int32(2)
+	resp, err := h.handler.AssignRackToBuilding(adminCtx(t, 7), connect.NewRequest(&pb.AssignRackToBuildingRequest{
+		RackId:          99,
+		BuildingId:      &buildingID,
+		AisleIndex:      &aisle,
+		PositionInAisle: &pos,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), resp.Msg.GetSiteReassignedDeviceCount())
+}
+
+func ptrInt32t(v int32) *int32 { return &v }

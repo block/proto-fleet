@@ -17,9 +17,9 @@ import (
 
 // Event type constants for buildings activity logs.
 const (
-	eventBuildingCreated     = "building.created"
-	eventBuildingUpdated     = "building.updated"
-	eventBuildingDeleted     = "building.deleted"
+	eventBuildingCreated      = "building.created"
+	eventBuildingUpdated      = "building.updated"
+	eventBuildingDeleted      = "building.deleted"
 	eventRackAssignedBuilding = "building.rack_assigned"
 )
 
@@ -234,6 +234,17 @@ func (s *Service) AssignRackToBuilding(ctx context.Context, params models.Assign
 		current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, params.RackID, params.OrgID)
 		if err != nil {
 			return err
+		}
+
+		// Building-only unassign must NOT cascade-clear the rack's site
+		// (and, transitively, every descendant device.site_id). Removing
+		// a rack from a building is a building-membership change; the
+		// rack and its devices stay in their current site until an
+		// explicit site-level unassign happens elsewhere. Preserve
+		// current.SiteID in that branch so the siteChanged check below
+		// reads false and the cascade stays inert.
+		if params.BuildingID == nil {
+			newSiteID = current.SiteID
 		}
 
 		// Mirror SaveRack's zone-clear cascade: clear zone when the

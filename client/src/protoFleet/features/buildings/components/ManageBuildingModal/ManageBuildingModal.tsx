@@ -397,14 +397,33 @@ const ManageBuildingModal = ({
   }, []);
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
-  // fire one AssignRackToBuilding per changed rack (plus unassigns for racks
-  // removed from this building). Layout writes live in BuildingSettingsModal.
+  // fire AssignRackToBuilding in two phases:
+  //
+  //   Phase 1 (vacate): every rack whose placement is changing AND that was
+  //   previously placed sends a "clear position" write first (same building,
+  //   no aisle/position). Removed-from-building racks also unassign here so
+  //   their cells free up before phase 2 lands. This frees every (building,
+  //   aisle, position) tuple that will be re-used in phase 2 BEFORE any
+  //   placement write runs.
+  //
+  //   Phase 2 (place): every rack with a new placement target writes its
+  //   final (aisle, position). Because phase 1 already cleared every cell
+  //   that's about to be re-used, swaps and "move into occupied cell" cases
+  //   no longer collide on the uk_device_set_rack_building_position partial
+  //   unique index.
+  //
+  // Per-rack writes within a phase still run concurrently via Promise.all —
+  // serialization is *between* phases, not within. Layout writes live in
+  // BuildingSettingsModal.
   const handleSave = useCallback(async () => {
     setErrorMsg("");
     setIsSaving(true);
     try {
       const initial = initialPlacementRef.current;
-      const writes: Promise<void>[] = [];
+      const vacates: Promise<void>[] = [];
+      const places: Promise<void>[] = [];
+      const currentIds = new Set(entries.map((e) => e.rackId.toString()));
+
       for (const entry of entries) {
         const idStr = entry.rackId.toString();
         const placedKey = rackToCell.get(idStr);
@@ -416,27 +435,48 @@ const ManageBuildingModal = ({
           : "unplaced";
         const prior = initial.get(idStr) ?? "missing";
         if (prior === next) continue;
-        const aisle = placedKey ? parseCellKey(placedKey).aisle : undefined;
-        const position = placedKey ? parseCellKey(placedKey).position : undefined;
-        writes.push(
-          new Promise<void>((resolve, reject) => {
-            void assignRackToBuilding({
-              rackId: entry.rackId,
-              buildingId: building.id,
-              aisleIndex: aisle,
-              positionInAisle: position,
-              onSuccess: () => resolve(),
-              onError: (msg) => reject(new Error(msg)),
-            });
-          }),
-        );
+
+        // If the rack was previously placed, vacate its old cell first.
+        // Sending the same building with no aisle/position clears position
+        // without touching membership.
+        if (prior !== "unplaced" && prior !== "missing") {
+          vacates.push(
+            new Promise<void>((resolve, reject) => {
+              void assignRackToBuilding({
+                rackId: entry.rackId,
+                buildingId: building.id,
+                onSuccess: () => resolve(),
+                onError: (msg) => reject(new Error(msg)),
+              });
+            }),
+          );
+        }
+
+        // Phase 2: place at the new position. Skip when the final state is
+        // "unplaced" — the vacate above is the terminal write.
+        if (placedKey) {
+          const { aisle, position } = parseCellKey(placedKey);
+          places.push(
+            new Promise<void>((resolve, reject) => {
+              void assignRackToBuilding({
+                rackId: entry.rackId,
+                buildingId: building.id,
+                aisleIndex: aisle,
+                positionInAisle: position,
+                onSuccess: () => resolve(),
+                onError: (msg) => reject(new Error(msg)),
+              });
+            }),
+          );
+        }
       }
+
       // Racks removed from this building (in snapshot, not in entries) need
-      // an explicit unassign so the BE clears building_id.
-      const currentIds = new Set(entries.map((e) => e.rackId.toString()));
+      // an explicit unassign. Land them in phase 1 so their cells free up
+      // before any phase-2 placement targets them.
       for (const idStr of initial.keys()) {
         if (currentIds.has(idStr)) continue;
-        writes.push(
+        vacates.push(
           new Promise<void>((resolve, reject) => {
             void assignRackToBuilding({
               rackId: BigInt(idStr),
@@ -449,9 +489,25 @@ const ManageBuildingModal = ({
       }
 
       try {
-        await Promise.all(writes);
+        await Promise.all(vacates);
       } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : "Failed to save rack positions.");
+        setErrorMsg(
+          err instanceof Error
+            ? `Failed to clear previous rack positions: ${err.message}. No new positions were written — retry to apply your changes.`
+            : "Failed to clear previous rack positions.",
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      try {
+        await Promise.all(places);
+      } catch (err) {
+        setErrorMsg(
+          err instanceof Error
+            ? `Failed to apply new rack positions: ${err.message}. Some cells may now be empty — retry to finish saving.`
+            : "Failed to apply new rack positions.",
+        );
         setIsSaving(false);
         return;
       }
