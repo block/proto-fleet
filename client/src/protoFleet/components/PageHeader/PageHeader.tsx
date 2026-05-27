@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
+
+import CurtailmentPill from "./CurtailmentPill";
+import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
+import { useCurtailmentPillData } from "./useCurtailmentPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
@@ -12,29 +16,35 @@ import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+
 interface PageHeaderProps {
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
 }
 
-const headerWidgetEnabled = true;
-
-const HeaderWidgets = ({
-  className,
-  dismissedSetup,
-  onContinueSetup,
-  schedulePillData,
-}: {
+interface HeaderWidgetsProps {
+  activeCurtailmentEvent: CurtailmentPillEvent | null;
   className?: string;
   dismissedSetup: boolean;
   onContinueSetup: () => void;
   schedulePillData: UseSchedulePillDataResult;
-}) => {
+}
+
+const headerWidgetEnabled = true;
+
+function HeaderWidgets({
+  activeCurtailmentEvent,
+  className,
+  dismissedSetup,
+  onContinueSetup,
+  schedulePillData,
+}: HeaderWidgetsProps) {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
 
   return (
     <div className={clsx("flex space-x-3", className)}>
+      {activeCurtailmentEvent ? <CurtailmentPill event={activeCurtailmentEvent} /> : null}
       {pillSchedule ? (
         <SchedulePill
           pillSchedule={pillSchedule}
@@ -48,7 +58,7 @@ const HeaderWidgets = ({
       ) : null}
     </div>
   );
-};
+}
 
 const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
@@ -65,6 +75,7 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
+  const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
 
   const fetchSites = useCallback(() => {
     const controller = new AbortController();
@@ -92,11 +103,14 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
   };
 
   const headerWidgetsProps = {
+    activeCurtailmentEvent,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     schedulePillData,
   };
-  const showPhoneWidgets = isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules);
+  const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
+  const showPhoneWidgets =
+    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
 
   return (
     <>

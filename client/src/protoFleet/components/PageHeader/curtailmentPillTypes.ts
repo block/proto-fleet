@@ -1,12 +1,11 @@
-import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import {
+  type ActiveCurtailmentEventState,
+  activeCurtailmentEventStates,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
-export const curtailmentPillStates = [
-  "pending",
-  "active",
-  "restoring",
-] as const satisfies readonly CurtailmentEventState[];
+export const curtailmentPillStates = activeCurtailmentEventStates;
 
-export type CurtailmentPillState = (typeof curtailmentPillStates)[number];
+export type CurtailmentPillState = ActiveCurtailmentEventState;
 
 export interface CurtailmentPillEvent {
   reason: string;
