@@ -14,5 +14,13 @@ export const cellKey = (aisle: number, position: number): GridCellKey => `${aisl
 
 export const parseCellKey = (key: GridCellKey): { aisle: number; position: number } => {
   const [aisle, position] = key.split("-").map(Number);
+  // All callers in this feature produce keys via cellKey() so this
+  // guard is belt-and-suspenders — a NaN coordinate would silently
+  // flow into AssignRackToBuilding's aisle_index / position_in_aisle
+  // params and surface as a server-side InvalidArgument far from the
+  // cause.
+  if (!Number.isFinite(aisle) || !Number.isFinite(position)) {
+    throw new Error(`malformed GridCellKey: ${key}`);
+  }
   return { aisle, position };
 };

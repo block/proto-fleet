@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { buildRackPickerItem, type RackPickerItem } from "../rackPickerItem";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -26,21 +26,13 @@ interface SearchRacksModalProps {
   onConfirm: (rackId: bigint, label: string) => void;
 }
 
-interface SearchRackItem {
-  id: string;
-  label: string;
-  buildingLabel: string;
-  statusLabel: string;
-  disabled: boolean;
-}
-
 const colTitles: ColTitles<SearchRackColumn> = {
   name: "Name",
   building: "Building",
   status: "Status",
 };
 
-const colConfig: ColConfig<SearchRackItem, string, SearchRackColumn> = {
+const colConfig: ColConfig<RackPickerItem, string, SearchRackColumn> = {
   name: {
     component: (item) => <span>{item.label || "(unnamed rack)"}</span>,
     width: "min-w-32",
@@ -57,39 +49,13 @@ const colConfig: ColConfig<SearchRackItem, string, SearchRackColumn> = {
 
 const activeCols: SearchRackColumn[] = ["name", "building", "status"];
 
-const buildItem = (
-  rack: DeviceSet,
-  currentSiteId: bigint,
-  currentBuildingId: bigint,
-  buildingLabels: Record<string, string>,
-): SearchRackItem | null => {
-  if (rack.typeDetails.case !== "rackInfo") return null;
-  const info = rack.typeDetails.value;
-  const buildingId = info.buildingId;
-  const siteId = info.siteId;
-  const inOtherBuilding = buildingId !== undefined && buildingId !== 0n && buildingId !== currentBuildingId;
-  const inThisBuilding = buildingId === currentBuildingId;
-  const inOtherSite = !inThisBuilding && siteId !== undefined && siteId !== 0n && siteId !== currentSiteId;
-  const disabled = inOtherBuilding || inOtherSite;
-  const statusLabel = inOtherBuilding
-    ? "In another building"
-    : inOtherSite
-      ? "In another site"
-      : inThisBuilding
-        ? "In this building"
-        : "Unassigned";
-  const buildingLabel =
-    buildingId === undefined || buildingId === 0n ? "—" : (buildingLabels[buildingId.toString()] ?? "—");
-  return { id: rack.id.toString(), label: rack.label, buildingLabel, statusLabel, disabled };
-};
-
 // Single-rack picker with a name filter — mirrors SearchMinersModal in the
 // rack-management feature. Picked rack is added to the building's working
 // set and assigned to whatever cell was selected when the popover opened.
 const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfirm }: SearchRacksModalProps) => {
   const { listRacks } = useDeviceSets();
   const { listBuildingsBySite } = useBuildings();
-  const [items, setItems] = useState<SearchRackItem[] | undefined>(undefined);
+  const [items, setItems] = useState<RackPickerItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -126,9 +92,9 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfir
     void listRacks({
       onSuccess: (racks) => {
         if (cancelled) return;
-        const out: SearchRackItem[] = [];
+        const out: RackPickerItem[] = [];
         for (const rack of racks) {
-          const item = buildItem(rack, siteId, currentBuildingId, buildingMap);
+          const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMap);
           if (item) out.push(item);
         }
         out.sort((a, b) => a.label.localeCompare(b.label));
@@ -145,7 +111,7 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfir
     };
   }, [open, siteId, currentBuildingId, buildingMap, listRacks]);
 
-  const isRowDisabled = useCallback((item: SearchRackItem) => item.disabled, []);
+  const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled, []);
 
   // Client-side filter on the rack label. Case-insensitive substring match —
   // matches the SearchMinersModal feel without bringing in a fuzzy lib.
@@ -203,7 +169,7 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfir
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <List<SearchRackItem, string, SearchRackColumn>
+            <List<RackPickerItem, string, SearchRackColumn>
               activeCols={activeCols}
               colTitles={colTitles}
               colConfig={colConfig}

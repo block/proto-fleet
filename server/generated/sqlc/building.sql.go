@@ -377,46 +377,6 @@ func (q *Queries) ListBuildingsByOrg(ctx context.Context, arg ListBuildingsByOrg
 	return items, nil
 }
 
-const lockRackForBuildingAssign = `-- name: LockRackForBuildingAssign :one
-SELECT dsr.site_id, dsr.building_id, dsr.zone, dsr.aisle_index, dsr.position_in_aisle
-FROM device_set_rack dsr
-JOIN device_set ds ON ds.id = dsr.device_set_id
-WHERE dsr.device_set_id = $1
-  AND dsr.org_id = $2
-  AND ds.deleted_at IS NULL
-FOR UPDATE
-`
-
-type LockRackForBuildingAssignParams struct {
-	RackID int64
-	OrgID  int64
-}
-
-type LockRackForBuildingAssignRow struct {
-	SiteID          sql.NullInt64
-	BuildingID      sql.NullInt64
-	Zone            sql.NullString
-	AisleIndex      sql.NullInt32
-	PositionInAisle sql.NullInt32
-}
-
-// Locks the rack row FOR UPDATE and returns its current placement +
-// the denormalized site/building keys needed by the cascade. Run
-// after locking the target building so the canonical lock order
-// (building -> rack) is preserved.
-func (q *Queries) LockRackForBuildingAssign(ctx context.Context, arg LockRackForBuildingAssignParams) (LockRackForBuildingAssignRow, error) {
-	row := q.queryRow(ctx, q.lockRackForBuildingAssignStmt, lockRackForBuildingAssign, arg.RackID, arg.OrgID)
-	var i LockRackForBuildingAssignRow
-	err := row.Scan(
-		&i.SiteID,
-		&i.BuildingID,
-		&i.Zone,
-		&i.AisleIndex,
-		&i.PositionInAisle,
-	)
-	return i, err
-}
-
 const setRackBuildingPosition = `-- name: SetRackBuildingPosition :exec
 UPDATE device_set_rack
 SET aisle_index = $1::int,

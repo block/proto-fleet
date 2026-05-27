@@ -191,16 +191,6 @@ const ManageBuildingModal = ({
     return out;
   }, [activeAssignments, entriesById]);
 
-  // Same shape, returning rackIds — surfaced so the grid's hover handler
-  // can resolve a cell back to a rackId without a parseCellKey roundtrip.
-  const cellRackIds: Record<GridCellKey, bigint> = useMemo(() => {
-    const out: Record<GridCellKey, bigint> = {};
-    for (const [key, rackId] of Object.entries(activeAssignments)) {
-      out[key] = rackId;
-    }
-    return out;
-  }, [activeAssignments]);
-
   // Reverse-lookup rackId → cellKey shared by the left-pane position
   // labels and the assigned-count summary. Recomputed when assignments
   // change so byName mode reflects auto-placement.
@@ -482,7 +472,6 @@ const ManageBuildingModal = ({
             ? `Failed to clear previous rack positions: ${err.message}. No new positions were written — retry to apply your changes.`
             : "Failed to clear previous rack positions.",
         );
-        setIsSaving(false);
         return;
       }
 
@@ -494,7 +483,6 @@ const ManageBuildingModal = ({
             ? `Failed to apply new rack positions: ${err.message}. Some cells may now be empty — retry to finish saving.`
             : "Failed to apply new rack positions.",
         );
-        setIsSaving(false);
         return;
       }
 
@@ -598,7 +586,7 @@ const ManageBuildingModal = ({
             aisles={aislesNum}
             racksPerAisle={racksPerAisleNum}
             cellLabels={cellLabels}
-            cellRackIds={cellRackIds}
+            cellRackIds={activeAssignments}
             onCellClick={assignmentMode === "manual" ? handleCellClick : undefined}
             selectedCellKey={selectedCellKey}
             showPopover={showCellPopover}

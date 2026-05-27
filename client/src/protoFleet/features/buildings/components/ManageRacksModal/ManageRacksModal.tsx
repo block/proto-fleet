@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { buildRackPickerItem, type RackPickerItem } from "../rackPickerItem";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -32,14 +32,6 @@ interface ManageRacksModalProps {
   onConfirm: (delta: { added: { rackId: bigint; label: string }[]; removed: bigint[] }) => void;
 }
 
-interface RackPickerItem {
-  id: string;
-  label: string;
-  buildingLabel: string;
-  statusLabel: string;
-  disabled: boolean;
-}
-
 const PAGE_SIZE = 25;
 
 const colTitles: ColTitles<RackPickerColumn> = {
@@ -64,38 +56,6 @@ const colConfig: ColConfig<RackPickerItem, string, RackPickerColumn> = {
 };
 
 const activeCols: RackPickerColumn[] = ["name", "building", "status"];
-
-const buildItem = (
-  rack: DeviceSet,
-  currentSiteId: bigint,
-  currentBuildingId: bigint,
-  buildingLabels: Record<string, string>,
-): RackPickerItem | null => {
-  if (rack.typeDetails.case !== "rackInfo") return null;
-  const info = rack.typeDetails.value;
-  const buildingId = info.buildingId;
-  const siteId = info.siteId;
-  const inOtherBuilding = buildingId !== undefined && buildingId !== 0n && buildingId !== currentBuildingId;
-  const inThisBuilding = buildingId === currentBuildingId;
-  // Racks under a *different* site are ineligible because moving them
-  // across sites is a separate operator decision; manage-racks should
-  // only add racks that already share this building's site or are
-  // unassigned entirely.
-  const inOtherSite = !inThisBuilding && siteId !== undefined && siteId !== 0n && siteId !== currentSiteId;
-  // ineligible-but-visible: racks in another building or another site
-  // render disabled so the operator sees why they can't be added.
-  const disabled = inOtherBuilding || inOtherSite;
-  const statusLabel = inOtherBuilding
-    ? "In another building"
-    : inOtherSite
-      ? "In another site"
-      : inThisBuilding
-        ? "In this building"
-        : "Unassigned";
-  const buildingLabel =
-    buildingId === undefined || buildingId === 0n ? "—" : (buildingLabels[buildingId.toString()] ?? "—");
-  return { id: rack.id.toString(), label: rack.label, buildingLabel, statusLabel, disabled };
-};
 
 const ManageRacksModal = ({
   open,
@@ -154,7 +114,7 @@ const ManageRacksModal = ({
         if (cancelled) return;
         const out: RackPickerItem[] = [];
         for (const rack of racks) {
-          const item = buildItem(rack, siteId, currentBuildingId, buildingMap);
+          const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMap);
           if (item) out.push(item);
         }
         out.sort((a, b) => a.label.localeCompare(b.label));

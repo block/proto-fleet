@@ -46,21 +46,12 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
           saving={modals.saving}
         />
       ) : null}
-      {state.kind === "detailsEdit" ? (
-        <BuildingSettingsModal
-          open
-          mode="edit"
-          initialValues={state.draft}
-          parentSiteLabel={state.siteName}
-          onSave={async (values) => {
-            await modals.detailsSaveEdit(values);
-          }}
-          onDeleteRequested={modals.requestDeleteCurrent}
-          onDismiss={modals.dismiss}
-          saving={modals.saving}
-        />
-      ) : null}
-      {state.kind === "manageEditingDetails" ? (
+      {/* Edit-mode renders the same modal whether it's standalone
+          (detailsEdit) or stacked on top of ManageBuildingModal
+          (manageEditingDetails). The only difference between the two
+          states is whether ManageBuildingModal sits underneath; the
+          settings-modal JSX itself is identical. */}
+      {state.kind === "detailsEdit" || state.kind === "manageEditingDetails" ? (
         <BuildingSettingsModal
           open
           mode="edit"

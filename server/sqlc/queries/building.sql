@@ -145,19 +145,6 @@ WHERE dsr.org_id = sqlc.arg('org_id')
   AND ds.deleted_at IS NULL
 ORDER BY ds.label;
 
--- name: LockRackForBuildingAssign :one
--- Locks the rack row FOR UPDATE and returns its current placement +
--- the denormalized site/building keys needed by the cascade. Run
--- after locking the target building so the canonical lock order
--- (building -> rack) is preserved.
-SELECT dsr.site_id, dsr.building_id, dsr.zone, dsr.aisle_index, dsr.position_in_aisle
-FROM device_set_rack dsr
-JOIN device_set ds ON ds.id = dsr.device_set_id
-WHERE dsr.device_set_id = sqlc.arg('rack_id')
-  AND dsr.org_id = sqlc.arg('org_id')
-  AND ds.deleted_at IS NULL
-FOR UPDATE;
-
 -- name: SetRackBuildingPosition :exec
 -- Writes the rack's grid placement (aisle_index, position_in_aisle).
 -- Caller must have already set building_id via UpdateRackPlacement —

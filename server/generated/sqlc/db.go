@@ -615,9 +615,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
 	}
-	if q.lockRackForBuildingAssignStmt, err = db.PrepareContext(ctx, lockRackForBuildingAssign); err != nil {
-		return nil, fmt.Errorf("error preparing query LockRackForBuildingAssign: %w", err)
-	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
 	}
@@ -1905,11 +1902,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
 		}
 	}
-	if q.lockRackForBuildingAssignStmt != nil {
-		if cerr := q.lockRackForBuildingAssignStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockRackForBuildingAssignStmt: %w", cerr)
-		}
-	}
 	if q.lockRackPlacementForWriteStmt != nil {
 		if cerr := q.lockRackPlacementForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRackPlacementForWriteStmt: %w", cerr)
@@ -2641,7 +2633,6 @@ type Queries struct {
 	lockBuildingsBySiteForWriteStmt                     *sql.Stmt
 	lockDevicesForReassignStmt                          *sql.Stmt
 	lockFleetNodeByIDStmt                               *sql.Stmt
-	lockRackForBuildingAssignStmt                       *sql.Stmt
 	lockRackPlacementForWriteStmt                       *sql.Stmt
 	lockSchedulePriorityStmt                            *sql.Stmt
 	lockSiteForWriteStmt                                *sql.Stmt
@@ -2944,7 +2935,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockBuildingsBySiteForWriteStmt:                     q.lockBuildingsBySiteForWriteStmt,
 		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                               q.lockFleetNodeByIDStmt,
-		lockRackForBuildingAssignStmt:                       q.lockRackForBuildingAssignStmt,
 		lockRackPlacementForWriteStmt:                       q.lockRackPlacementForWriteStmt,
 		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                q.lockSiteForWriteStmt,
