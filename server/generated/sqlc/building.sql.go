@@ -235,14 +235,20 @@ JOIN device_set ds ON ds.id = dsr.device_set_id
 WHERE dsr.org_id = $1
   AND dsr.building_id = $2
   AND ds.deleted_at IS NULL
-ORDER BY ds.label
-LIMIT $3::int
+  AND (
+       $3::text IS NULL
+    OR (ds.label, dsr.device_set_id) > ($3::text, $4::bigint)
+  )
+ORDER BY ds.label, dsr.device_set_id
+LIMIT $5::int
 `
 
 type ListBuildingRacksParams struct {
-	OrgID      int64
-	BuildingID sql.NullInt64
-	LimitN     int32
+	OrgID       int64
+	BuildingID  sql.NullInt64
+	CursorLabel sql.NullString
+	CursorID    sql.NullInt64
+	LimitN      int32
 }
 
 type ListBuildingRacksRow struct {
@@ -256,10 +262,20 @@ type ListBuildingRacksRow struct {
 // position. Used by ManageBuildingModal to seed the layout grid.
 // Excludes soft-deleted rack collections; org guard is checked
 // against the denormalized org_id on device_set_rack.
-// LIMIT is supplied by the caller (clamped at the service layer to
-// the page-size cap shared with the proto contract).
+//
+// Cursor-paginated by (ds.label, dsr.device_set_id). The cursor pair
+// breaks ties deterministically when labels collide. cursor_label /
+// cursor_id are NULL on the first page; when provided, only rows
+// strictly greater than the cursor are returned. Caller asks for
+// `limit_n + 1` rows to detect whether more pages exist.
 func (q *Queries) ListBuildingRacks(ctx context.Context, arg ListBuildingRacksParams) ([]ListBuildingRacksRow, error) {
-	rows, err := q.query(ctx, q.listBuildingRacksStmt, listBuildingRacks, arg.OrgID, arg.BuildingID, arg.LimitN)
+	rows, err := q.query(ctx, q.listBuildingRacksStmt, listBuildingRacks,
+		arg.OrgID,
+		arg.BuildingID,
+		arg.CursorLabel,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}

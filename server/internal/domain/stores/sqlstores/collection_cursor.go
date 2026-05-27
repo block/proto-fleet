@@ -28,6 +28,41 @@ type memberCursor struct {
 	ID        int64     `json:"id"`
 }
 
+// buildingRackCursor holds pagination state for ListBuildingRacks
+// (ordered by (ds.label, dsr.device_set_id) ASC). ID breaks label
+// ties so the cursor is unique across the result set.
+type buildingRackCursor struct {
+	Label string `json:"l"`
+	ID    int64  `json:"id"`
+}
+
+func encodeBuildingRackCursor(c *buildingRackCursor) string {
+	if c == nil {
+		return ""
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		slog.Error("failed to encode building rack cursor", "error", err, "cursor_id", c.ID)
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+func decodeBuildingRackCursor(encoded string) (*buildingRackCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor encoding: %v", err)
+	}
+	var cursor buildingRackCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor format: %v", err)
+	}
+	return &cursor, nil
+}
+
 func encodeCollectionCursor(c *collectionCursor) string {
 	if c == nil {
 		return ""

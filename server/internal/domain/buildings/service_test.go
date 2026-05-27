@@ -430,15 +430,18 @@ func TestListBuildingRacks_returnsStoreResult(t *testing.T) {
 	buildingID := int64(11)
 	h.store.EXPECT().GetBuilding(gomock.Any(), testOrgID, buildingID).
 		Return(&models.Building{ID: buildingID}, nil)
-	h.store.EXPECT().ListBuildingRacks(gomock.Any(), testOrgID, buildingID, gomock.Any()).
-		Return([]models.BuildingRack{{RackID: 1, RackLabel: "A"}}, nil)
+	h.store.EXPECT().ListBuildingRacks(gomock.Any(), testOrgID, buildingID, gomock.Any(), gomock.Any()).
+		Return([]models.BuildingRack{{RackID: 1, RackLabel: "A"}}, "next-page", nil)
 
-	racks, err := h.svc.ListBuildingRacks(context.Background(), testOrgID, buildingID, 0)
+	racks, nextPageToken, err := h.svc.ListBuildingRacks(context.Background(), testOrgID, buildingID, 0, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(racks) != 1 || racks[0].RackLabel != "A" {
 		t.Fatalf("unexpected racks: %+v", racks)
+	}
+	if nextPageToken != "next-page" {
+		t.Fatalf("expected next-page token to propagate, got %q", nextPageToken)
 	}
 }
 

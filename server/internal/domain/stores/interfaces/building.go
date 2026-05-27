@@ -54,11 +54,11 @@ type BuildingStore interface {
 	BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
 
 	// ListBuildingRacks returns racks currently assigned to the
-	// building with their grid placement. Used by
-	// ManageBuildingModal to seed the layout grid. `limit` is the
-	// caller-supplied LIMIT (clamped to the proto page-size cap at
-	// the service layer).
-	ListBuildingRacks(ctx context.Context, orgID, buildingID int64, limit int32) ([]models.BuildingRack, error)
+	// building with their grid placement, paginated by an opaque
+	// cursor. Service layer clamps pageSize to the proto cap; an
+	// empty pageToken starts at the first page. Returns the next
+	// page token (empty when the caller has reached the last page).
+	ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error)
 
 	// ListRacksOutsideBuildingBounds returns racks whose grid
 	// position would fall outside the proposed (aisles,

@@ -198,34 +198,39 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 	return b, nil
 }
 
-// ListBuildingRacksPageSizeCap matches the buf.validate cap on
-// ListBuildingRacksRequest.page_size. Mirrors the proto contract for
-// non-proto callers and is also the default when the caller passes
-// page_size == 0. Set to the maximum possible placed-rack count
-// given the layout cap (aisles ≤ 100) × (racks_per_aisle ≤ 100) so
-// ManageBuildingModal's single-page seed read always returns the
-// complete working set.
-const ListBuildingRacksPageSizeCap = int32(10000)
+// ListBuildingRacksDefaultPageSize / ListBuildingRacksMaxPageSize
+// mirror the collection-service constants. Default matches the
+// device-list ergonomics (50 rows/page); max bounds the buf.validate
+// cap on ListBuildingRacksRequest.page_size. Callers that need the
+// full working set (e.g. ManageBuildingModal seeding) loop through
+// pages client-side.
+const (
+	ListBuildingRacksDefaultPageSize = int32(50)
+	ListBuildingRacksMaxPageSize     = int32(1000)
+)
 
-// ListBuildingRacks returns racks currently assigned to a building
-// with their grid placement. Verifies the building exists in the org
-// before returning so a stale building_id surfaces as NotFound rather
-// than an empty list (which would look identical to "no racks yet").
+// ListBuildingRacks returns one page of racks currently assigned to a
+// building with their grid placement. Verifies the building exists in
+// the org before returning so a stale building_id surfaces as NotFound
+// rather than an empty list (which would look identical to "no racks
+// yet").
 //
-// `pageSize` is part of the proto contract surface but is currently
-// IGNORED — the handler always issues the cap so the response is the
-// complete working set (matches the layout-cap ceiling of 10000
-// placed racks). Honoring smaller values without a cursor would
-// silently truncate for paginating callers because next_page_token
-// stays empty. Real cursor paging is a deferred follow-up; until
-// then we treat the field as advisory and always serve the full
-// list in one shot.
-func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32) ([]models.BuildingRack, error) {
-	_ = pageSize // see func doc — value is intentionally ignored until cursor paging lands
-	if _, err := s.store.GetBuilding(ctx, orgID, buildingID); err != nil {
-		return nil, err
+// `pageSize` clamps to (0, ListBuildingRacksMaxPageSize]; 0 defaults
+// to ListBuildingRacksDefaultPageSize. `pageToken` is an opaque
+// cursor from a prior response — empty string starts at the first
+// page. Returns the next page token (empty when the caller has
+// reached the last page).
+func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error) {
+	if pageSize <= 0 {
+		pageSize = ListBuildingRacksDefaultPageSize
 	}
-	return s.store.ListBuildingRacks(ctx, orgID, buildingID, ListBuildingRacksPageSizeCap)
+	if pageSize > ListBuildingRacksMaxPageSize {
+		pageSize = ListBuildingRacksMaxPageSize
+	}
+	if _, err := s.store.GetBuilding(ctx, orgID, buildingID); err != nil {
+		return nil, "", err
+	}
+	return s.store.ListBuildingRacks(ctx, orgID, buildingID, pageSize, pageToken)
 }
 
 // AssignRackToBuilding sets a rack's building_id and, optionally, its

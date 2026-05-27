@@ -205,17 +205,13 @@ message DeleteBuildingResponse {
 message ListBuildingRacksRequest {
     int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
 
-    // page_size and page_token are reserved for a future cursor-
-    // paging implementation. The server currently IGNORES page_size
-    // and always returns the complete working set in one response
-    // (next_page_token stays empty). The cap (10000) matches the
-    // maximum possible placed-rack count given the (aisles ≤ 100) ×
-    // (racks_per_aisle ≤ 100) layout cap, so a single response
-    // always fits the working set. Surfaced now so future cursor
-    // paging is non-breaking; honoring smaller page_size values
-    // without a real cursor would silently truncate for any
-    // paginating caller.
-    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 10000}];
+    // Cursor pagination — defaults to 50 (matches the device-list
+    // ergonomics) when page_size is 0, capped at 1000. page_token is
+    // an opaque cursor returned by a prior response; empty string
+    // starts at the first page. Callers that need the full working
+    // set (e.g. ManageBuildingModal seeding) loop until
+    // next_page_token is empty.
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
     string page_token = 3 [(buf.validate.field).string.max_len = 256];
 }
 

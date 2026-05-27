@@ -133,8 +133,12 @@ WHERE dsr.org_id = sqlc.arg('org_id')
 -- position. Used by ManageBuildingModal to seed the layout grid.
 -- Excludes soft-deleted rack collections; org guard is checked
 -- against the denormalized org_id on device_set_rack.
--- LIMIT is supplied by the caller (clamped at the service layer to
--- the page-size cap shared with the proto contract).
+--
+-- Cursor-paginated by (ds.label, dsr.device_set_id). The cursor pair
+-- breaks ties deterministically when labels collide. cursor_label /
+-- cursor_id are NULL on the first page; when provided, only rows
+-- strictly greater than the cursor are returned. Caller asks for
+-- `limit_n + 1` rows to detect whether more pages exist.
 SELECT
     dsr.device_set_id AS rack_id,
     ds.label          AS rack_label,
@@ -145,7 +149,11 @@ JOIN device_set ds ON ds.id = dsr.device_set_id
 WHERE dsr.org_id = sqlc.arg('org_id')
   AND dsr.building_id = sqlc.arg('building_id')
   AND ds.deleted_at IS NULL
-ORDER BY ds.label
+  AND (
+       sqlc.narg('cursor_label')::text IS NULL
+    OR (ds.label, dsr.device_set_id) > (sqlc.narg('cursor_label')::text, sqlc.narg('cursor_id')::bigint)
+  )
+ORDER BY ds.label, dsr.device_set_id
 LIMIT sqlc.arg('limit_n')::int;
 
 -- name: ListRacksOutsideBuildingBounds :many

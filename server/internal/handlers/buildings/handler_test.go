@@ -347,11 +347,11 @@ func TestHandler_ListBuildingRacks_happy(t *testing.T) {
 
 	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(11)).
 		Return(&models.Building{ID: 11}, nil)
-	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(11), gomock.Any()).
+	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(11), gomock.Any(), gomock.Any()).
 		Return([]models.BuildingRack{
 			{RackID: 1, RackLabel: "Rack-A", AisleIndex: nil, PositionInAisle: nil},
 			{RackID: 2, RackLabel: "Rack-B", AisleIndex: ptrInt32t(0), PositionInAisle: ptrInt32t(1)},
-		}, nil)
+		}, "next-rack-page", nil)
 
 	resp, err := h.handler.ListBuildingRacks(sitePermsCtx(t, 7),
 		connect.NewRequest(&pb.ListBuildingRacksRequest{BuildingId: 11}))
@@ -359,6 +359,7 @@ func TestHandler_ListBuildingRacks_happy(t *testing.T) {
 	assert.Len(t, resp.Msg.GetRacks(), 2)
 	assert.Equal(t, "Rack-A", resp.Msg.GetRacks()[0].GetRackLabel())
 	assert.Equal(t, int64(2), resp.Msg.GetRacks()[1].GetRackId())
+	assert.Equal(t, "next-rack-page", resp.Msg.GetNextPageToken())
 }
 
 // AssignRackToBuilding requires PermSiteManage — callers without it

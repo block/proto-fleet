@@ -222,9 +222,24 @@ const useBuildings = () => {
   const listBuildingRacks = useCallback(
     async ({ buildingId, signal, onSuccess, onError, onFinally }: ListBuildingRacksProps) => {
       try {
-        const response = await buildingsClient.listBuildingRacks({ buildingId }, { signal });
-        if (signal?.aborted) return;
-        onSuccess?.(response.racks);
+        // Server paginates at 50 by default (matches device-list
+        // ergonomics) and caps at 1000. Every caller in this file
+        // wants the complete working set (ManageBuildingModal seeds
+        // from it; BuildingPage uses it to derive cascade rack count),
+        // so we loop with the max page size until next_page_token is
+        // empty — matching the useDeviceSets.listRacks pattern.
+        const rows: BuildingRack[] = [];
+        let pageToken = "";
+        do {
+          const response = await buildingsClient.listBuildingRacks(
+            { buildingId, pageSize: 1000, pageToken },
+            { signal },
+          );
+          if (signal?.aborted) return;
+          rows.push(...response.racks);
+          pageToken = response.nextPageToken;
+        } while (pageToken !== "");
+        onSuccess?.(rows);
       } catch (err) {
         if (signal?.aborted) return;
         handleAuthErrors({

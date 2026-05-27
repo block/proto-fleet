@@ -100,7 +100,7 @@ func toListBuildingsResponse(rows []models.BuildingWithCounts) *pb.ListBuildings
 	return &pb.ListBuildingsResponse{Buildings: out}
 }
 
-func toListBuildingRacksResponse(rows []models.BuildingRack) *pb.ListBuildingRacksResponse {
+func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken string) *pb.ListBuildingRacksResponse {
 	out := make([]*pb.BuildingRack, 0, len(rows))
 	for i := range rows {
 		row := rows[i]
@@ -118,7 +118,7 @@ func toListBuildingRacksResponse(rows []models.BuildingRack) *pb.ListBuildingRac
 		}
 		out = append(out, entry)
 	}
-	return &pb.ListBuildingRacksResponse{Racks: out}
+	return &pb.ListBuildingRacksResponse{Racks: out, NextPageToken: nextPageToken}
 }
 
 func toAssignRackToBuildingParams(req *pb.AssignRackToBuildingRequest, orgID int64) models.AssignRackToBuildingParams {

@@ -159,14 +159,32 @@ func (s *SQLBuildingStore) BuildingsByIDs(ctx context.Context, orgID int64, ids 
 	return rows, nil
 }
 
-func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, limit int32) ([]models.BuildingRack, error) {
-	rows, err := s.GetQueries(ctx).ListBuildingRacks(ctx, sqlc.ListBuildingRacksParams{
+func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error) {
+	cursor, err := decodeBuildingRackCursor(pageToken)
+	if err != nil {
+		return nil, "", err
+	}
+	params := sqlc.ListBuildingRacksParams{
 		OrgID:      orgID,
 		BuildingID: zeroToNullInt64(buildingID),
-		LimitN:     limit,
-	})
+		// Fetch one extra row so we can detect whether the next page
+		// exists without an additional COUNT query.
+		LimitN: pageSize + 1,
+	}
+	if cursor != nil {
+		params.CursorLabel = sql.NullString{String: cursor.Label, Valid: true}
+		params.CursorID = sql.NullInt64{Int64: cursor.ID, Valid: true}
+	}
+	rows, err := s.GetQueries(ctx).ListBuildingRacks(ctx, params)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list building racks: %v", err)
+		return nil, "", fleeterror.NewInternalErrorf("failed to list building racks: %v", err)
+	}
+	var nextPageToken string
+	if int32(len(rows)) > pageSize {
+		// Trim the probe row and encode a cursor at the last in-page row.
+		rows = rows[:pageSize]
+		last := rows[len(rows)-1]
+		nextPageToken = encodeBuildingRackCursor(&buildingRackCursor{Label: last.RackLabel, ID: last.RackID})
 	}
 	out := make([]models.BuildingRack, 0, len(rows))
 	for _, row := range rows {
@@ -177,7 +195,7 @@ func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildin
 			PositionInAisle: nullInt32ToPtr(row.PositionInAisle),
 		})
 	}
-	return out, nil
+	return out, nextPageToken, nil
 }
 
 func (s *SQLBuildingStore) ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error) {
