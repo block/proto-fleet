@@ -3,7 +3,6 @@ package fleetnodebootstrap
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type captureGateway struct {
@@ -47,15 +47,15 @@ func TestAuthenticatedClient_AttachesBearerHeaderPerCall(t *testing.T) {
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	srv := testutil.NewH2CServer(t, mux)
 
 	var token string
-	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return token })
+	client, err := NewAuthenticatedGatewayClient(srv.URL, func() string { return token })
+	require.NoError(t, err)
 
 	// Act
 	token = "t1"
-	_, err := client.UploadHeartbeat(context.Background(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
+	_, err = client.UploadHeartbeat(context.Background(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
 	require.NoError(t, err)
 	token = "t2"
 	_, err = client.UploadHeartbeat(context.Background(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
@@ -72,14 +72,14 @@ func TestAuthenticatedClient_RejectsEmptyToken(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	srv := httptest.NewServer(http.NewServeMux())
-	t.Cleanup(srv.Close)
-	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
+	srv := testutil.NewH2CServer(t, http.NewServeMux())
+	client, err := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
+	require.NoError(t, err)
 
 	// Act
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
+	_, err = client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
 
 	// Assert
 	require.Error(t, err)

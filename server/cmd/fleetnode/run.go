@@ -27,10 +27,10 @@ const (
 type RunCmd struct {
 	HeartbeatInterval time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
 
-	now           func() time.Time                                                `kong:"-"`
-	clientFactory func(serverURL string, tokenSource func() string) gatewayClient `kong:"-"`
-	signals       []os.Signal                                                     `kong:"-"`
-	parentCtx     context.Context                                                 `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
+	now           func() time.Time                                                         `kong:"-"`
+	clientFactory func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`
+	signals       []os.Signal                                                              `kong:"-"`
+	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 }
 
 type gatewayClient interface {
@@ -49,7 +49,7 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		r.now = func() time.Time { return time.Now().UTC() }
 	}
 	if r.clientFactory == nil {
-		r.clientFactory = func(url string, src func() string) gatewayClient {
+		r.clientFactory = func(url string, src func() string) (gatewayClient, error) {
 			return fleetnodebootstrap.NewAuthenticatedGatewayClient(url, src)
 		}
 	}
@@ -107,7 +107,10 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 		}
 	}
 
-	client := r.clientFactory(st.ServerURL, func() string { return st.SessionToken })
+	client, err := r.clientFactory(st.ServerURL, func() string { return st.SessionToken })
+	if err != nil {
+		return err
+	}
 
 	logger.Info("daemon started",
 		"fleet_node_id", st.FleetNodeID,

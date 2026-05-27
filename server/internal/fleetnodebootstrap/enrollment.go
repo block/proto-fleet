@@ -55,13 +55,18 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 		return nil, err
 	}
 
-	client := NewGatewayClient(p.ServerURL)
-	resp, err := client.Register(ctx, connect.NewRequest(&pb.RegisterRequest{
+	client, err := NewGatewayClient(p.ServerURL)
+	if err != nil {
+		return nil, err
+	}
+	callCtx, cancel := withHandshakeTimeout(ctx)
+	resp, err := client.Register(callCtx, connect.NewRequest(&pb.RegisterRequest{
 		EnrollmentToken:    p.Code,
 		Name:               p.Name,
 		IdentityPubkey:     idPub,
 		MinerSigningPubkey: mPub,
 	}))
+	cancel()
 	if err != nil {
 		code := connect.CodeOf(err)
 		if code == connect.CodeAlreadyExists || code == connect.CodeFailedPrecondition || code == connect.CodeUnauthenticated {
@@ -107,7 +112,11 @@ func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error 
 
 	attempt := *state
 	attempt.APIKey = apiKey
-	if err := RunHandshake(ctx, NewGatewayClient(state.ServerURL), &attempt); err != nil {
+	client, err := NewGatewayClient(state.ServerURL)
+	if err != nil {
+		return err
+	}
+	if err := RunHandshake(ctx, client, &attempt); err != nil {
 		return err
 	}
 	state.APIKey = attempt.APIKey

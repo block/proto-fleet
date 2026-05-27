@@ -21,5 +21,9 @@ func Refresh(ctx context.Context, state *State) error {
 	if err := ValidateServerURL(state.ServerURL, state.AllowInsecureTransport); err != nil {
 		return err
 	}
-	return RunHandshake(ctx, NewGatewayClient(state.ServerURL), state)
+	client, err := NewGatewayClient(state.ServerURL)
+	if err != nil {
+		return err
+	}
+	return RunHandshake(ctx, client, state)
 }

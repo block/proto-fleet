@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -13,13 +14,15 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
-// Wraps Unauthenticated from BeginAuthHandshake. The server returns it for
-// api_key revocation, identity_pubkey mismatch, or any other auth failure
-// on that call; the library cannot distinguish the cause. Distinct from
-// CompleteAuthHandshake failures (expired challenge, bad signature).
+var handshakeStepTimeout = 30 * time.Second
+
+// ErrBeginAuthRejected wraps Unauthenticated from BeginAuthHandshake, which
+// the server returns for revoked api_key, identity_pubkey mismatch, or any
+// auth failure on that call. Kept distinct from CompleteAuthHandshake errors
+// (expired challenge, bad signature) so callers can branch on root cause.
 var ErrBeginAuthRejected = errors.New("BeginAuthHandshake rejected")
 
-// Mutates s.SessionToken and s.SessionExpiresAt only on success.
+// RunHandshake mutates s.SessionToken / s.SessionExpiresAt only on success.
 func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGatewayServiceClient, s *State) error {
 	if s == nil {
 		return errors.New("state is required")
@@ -42,10 +45,12 @@ func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGate
 		return errors.New("client is required")
 	}
 
-	begin, err := c.BeginAuthHandshake(ctx, connect.NewRequest(&pb.BeginAuthHandshakeRequest{
+	beginCtx, cancel := withHandshakeTimeout(ctx)
+	begin, err := c.BeginAuthHandshake(beginCtx, connect.NewRequest(&pb.BeginAuthHandshakeRequest{
 		ApiKey:         s.APIKey,
 		IdentityPubkey: pub,
 	}))
+	cancel()
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnauthenticated {
 			return fmt.Errorf("%w: %w", ErrBeginAuthRejected, err)
@@ -55,10 +60,12 @@ func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGate
 	challenge := begin.Msg.GetChallenge()
 	signature := ed25519.Sign(ed25519.PrivateKey(priv), challenge)
 
-	complete, err := c.CompleteAuthHandshake(ctx, connect.NewRequest(&pb.CompleteAuthHandshakeRequest{
+	completeCtx, cancel := withHandshakeTimeout(ctx)
+	complete, err := c.CompleteAuthHandshake(completeCtx, connect.NewRequest(&pb.CompleteAuthHandshakeRequest{
 		Challenge: challenge,
 		Signature: signature,
 	}))
+	cancel()
 	if err != nil {
 		return fmt.Errorf("complete handshake: %w", err)
 	}
@@ -68,4 +75,8 @@ func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGate
 		s.SessionExpiresAt = exp.AsTime()
 	}
 	return nil
+}
+
+func withHandshakeTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, handshakeStepTimeout)
 }

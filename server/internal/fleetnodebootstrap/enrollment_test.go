@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -242,6 +243,40 @@ func TestCompleteEnrollment_RejectsEmptyInputs(t *testing.T) {
 	require.Error(t, errEmptyKey)
 	assert.Contains(t, errNilState.Error(), "state")
 	assert.Contains(t, errEmptyKey.Error(), "apiKey")
+}
+
+func TestRegister_TimesOutAgainstBlackholeServer(t *testing.T) {
+	// Arrange
+	prev := handshakeStepTimeout
+	handshakeStepTimeout = 250 * time.Millisecond
+	t.Cleanup(func() { handshakeStepTimeout = prev })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+
+	// Act
+	start := time.Now()
+	_, err = Register(t.Context(), RegisterParams{
+		ServerURL:              "http://" + ln.Addr().String(),
+		Name:                   "stuck",
+		Code:                   "anything",
+		AllowInsecureTransport: true,
+	})
+	elapsed := time.Since(start)
+
+	// Assert
+	require.Error(t, err)
+	assert.Less(t, elapsed, 5*time.Second, "Register should not block past the per-call timeout")
 }
 
 func TestValidateServerURL(t *testing.T) {

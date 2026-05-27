@@ -18,6 +18,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type fakeAgentGateway struct {
@@ -81,9 +82,7 @@ func newFakeServer(t *testing.T, fake *fakeAgentGateway) *httptest.Server {
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+	return testutil.NewH2CServer(t, mux)
 }
 
 func TestRunHandshake_RejectsNilState(t *testing.T) {
@@ -137,7 +136,8 @@ func TestRunHandshake_HappyPath(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(priv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := NewGatewayClient(srv.URL)
+	client, err := NewGatewayClient(srv.URL)
+	require.NoError(t, err)
 
 	// Act
 	err = RunHandshake(t.Context(), client, state)
@@ -166,7 +166,8 @@ func TestRunHandshake_WrongAPIKey(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(priv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := NewGatewayClient(srv.URL)
+	client, err := NewGatewayClient(srv.URL)
+	require.NoError(t, err)
 
 	// Act
 	err = RunHandshake(t.Context(), client, state)
@@ -250,7 +251,8 @@ func TestRunHandshake_BadSignature(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(otherPriv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := NewGatewayClient(srv.URL)
+	client, err := NewGatewayClient(srv.URL)
+	require.NoError(t, err)
 
 	// Act
 	err = RunHandshake(t.Context(), client, state)
