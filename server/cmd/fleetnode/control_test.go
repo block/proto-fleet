@@ -48,14 +48,15 @@ func TestSynthesizeIdentifier(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name   string
-		mac    string
-		serial string
-		prefix string
+		name       string
+		mac        string
+		serial     string
+		prefix     string
+		prefixOnly bool
 	}{
 		{name: "mac wins", mac: "aa:bb:cc:dd:ee:ff", serial: "SN1", prefix: "mac:aa:bb:cc:dd:ee:ff"},
 		{name: "serial when no mac", serial: "SN1", prefix: "serial:SN1"},
-		{name: "auto when neither", prefix: "auto:"},
+		{name: "auto when neither", prefix: "auto:", prefixOnly: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,7 +66,7 @@ func TestSynthesizeIdentifier(t *testing.T) {
 			got := synthesizeIdentifier(tc.mac, tc.serial)
 
 			// Assert
-			if tc.name == "auto when neither" {
+			if tc.prefixOnly {
 				assert.True(t, len(got) > len(tc.prefix), "auto:* must include a non-empty id, got %q", got)
 				assert.Equal(t, tc.prefix, got[:len(tc.prefix)])
 				return
@@ -73,6 +74,21 @@ func TestSynthesizeIdentifier(t *testing.T) {
 			assert.Equal(t, tc.prefix, got)
 		})
 	}
+}
+
+func TestReportFromDiscovered_PreservesExplicitDeviceIdentifier(t *testing.T) {
+	// Arrange
+	dev := &discoverymodels.DiscoveredDevice{}
+	dev.DeviceIdentifier = "drv-explicit-123"
+	dev.MacAddress = "aa:bb:cc:dd:ee:ff"
+	dev.IpAddress = "10.0.0.5"
+	dev.Port = "4028"
+
+	// Act
+	got := reportFromDiscovered(dev)
+
+	// Assert
+	assert.Equal(t, "drv-explicit-123", got.GetDeviceIdentifier(), "explicit DeviceIdentifier must pass through unchanged when set by the SDK driver")
 }
 
 func TestReportFromDiscovered_CopiesFieldsAndSynthesizesIdentifier(t *testing.T) {

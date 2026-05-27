@@ -165,3 +165,51 @@ func TestResolvePluginsDir_Default_BadFileBlocksResolution(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "evil")
 }
+
+func TestResolvePluginsDir_RejectsSymlinkedDir(t *testing.T) {
+	// Arrange — <exe-dir>/plugins is a symlink to a real directory. The
+	// orphan reaper resolves symlinks via EvalSymlinks; the plugin loader
+	// would exec the unresolved path. Refuse to follow at resolve time so
+	// the two stay aligned.
+	exeDir := t.TempDir()
+	target := t.TempDir()
+	require.NoError(t, os.Symlink(target, filepath.Join(exeDir, "plugins")))
+
+	// Act
+	_, err := resolvePluginsDir(exeDir)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "symlink")
+}
+
+func TestCheckPluginsDirPerms_RejectsEachWritableBitIndependently(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "group writable only", mode: 0o775},
+		{name: "world writable only", mode: 0o757},
+		{name: "both group and world", mode: 0o777},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange
+			exeDir := t.TempDir()
+			candidate := filepath.Join(exeDir, "plugins")
+			require.NoError(t, os.Mkdir(candidate, 0o755)) //nolint:gosec // test fixture
+			require.NoError(t, os.Chmod(candidate, tc.mode))
+
+			// Act
+			_, err := resolvePluginsDir(exeDir)
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, strings.ToLower(err.Error()), "writable")
+		})
+	}
+}

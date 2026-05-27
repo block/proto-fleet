@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // reapOrphanedPlugins kills plugin-binary processes under pluginsDir whose
@@ -21,12 +23,15 @@ import (
 // The ppid check matters when two agents share a binary/plugins layout but
 // hold different state locks (e.g. --state-dir variants). Without it, agent
 // B's startup would kill agent A's live plugin children.
-func reapOrphanedPlugins(pluginsDir string, logger *slog.Logger) {
+func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Logger) {
 	abs, err := filepath.EvalSymlinks(pluginsDir)
 	if err != nil {
+		logger.Debug("orphan reaper: resolve symlinks failed; skipping", "plugins_dir", pluginsDir, "err", err)
 		return
 	}
-	out, err := exec.Command("ps", "-eo", "pid=,ppid=,command=").Output()
+	psCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(psCtx, "ps", "-eo", "pid=,ppid=,command=").Output()
 	if err != nil {
 		logger.Debug("orphan reaper: ps failed; skipping", "err", err)
 		return
@@ -67,6 +72,15 @@ func reapOrphans(psOutput, pluginsAbs string, selfPID int, logger *slog.Logger, 
 			continue
 		}
 		if !strings.HasPrefix(e.command, prefix) {
+			continue
+		}
+		// Only kill direct children of pluginsAbs so an operator process
+		// invoked from a subdirectory under the prefix isn't reaped.
+		argv0 := e.command
+		if i := strings.IndexByte(argv0, ' '); i >= 0 {
+			argv0 = argv0[:i]
+		}
+		if strings.ContainsRune(argv0[len(prefix):], filepath.Separator) {
 			continue
 		}
 		// Skip if the parent is still alive and not init/launchd. A live

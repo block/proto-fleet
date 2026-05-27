@@ -47,7 +47,7 @@ func (r *RunCmd) Run(c *Context) error {
 	return r.run(c, os.Stdout)
 }
 
-func (r *RunCmd) run(c *Context, stderr io.Writer) error {
+func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	if r.HeartbeatInterval <= 0 {
 		r.HeartbeatInterval = defaultHeartbeatInterval
 	}
@@ -67,6 +67,11 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 	if r.parentCtx == nil {
 		r.parentCtx = context.Background()
 	}
+
+	// Wire signals before plugin work so a SIGTERM during the up-to-60s
+	// plugin load aborts cleanly instead of orphaning subprocesses.
+	ctx, stop := signal.NotifyContext(r.parentCtx, r.signals...)
+	defer stop()
 
 	// Resolve binary-adjacent plugins before touching disk state so
 	// misconfiguration fails fast.
@@ -92,7 +97,7 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		return fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path)
 	}
 
-	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	logger := slog.New(slog.NewTextHandler(logOutput, nil))
 	if resolvedPluginsDir != "" {
 		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
 	} else {
@@ -104,19 +109,19 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 	logger.Info("acquiring state lock", "state_dir", c.StateDir)
 	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
 		if resolvedPluginsDir != "" {
-			reapOrphanedPlugins(resolvedPluginsDir, logger)
-			disc, cleanup, bootstrapErr := newPluginDiscoverer(resolvedPluginsDir)
+			reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
+			disc, cleanup, bootstrapErr := newPluginDiscoverer(ctx, resolvedPluginsDir)
 			if bootstrapErr != nil {
 				return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
 			}
 			defer cleanup()
 			r.discoverer = disc
 		}
-		return r.runLocked(c, logger)
+		return r.runLocked(ctx, c, logger)
 	})
 }
 
-func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
+func (r *RunCmd) runLocked(ctx context.Context, c *Context, logger *slog.Logger) error {
 	path := fleetnodebootstrap.StatePath(c.StateDir)
 	st, exists, err := fleetnodebootstrap.LoadState(path)
 	if err != nil {
@@ -131,9 +136,6 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 	if err := fleetnodebootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(r.parentCtx, r.signals...)
-	defer stop()
 
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
@@ -208,8 +210,11 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.Stat
 	r.stateMu.Lock()
 	st.SessionToken = next.SessionToken
 	st.SessionExpiresAt = next.SessionExpiresAt
+	// Snapshot under the lock so SaveState's yaml.Marshal doesn't race the
+	// tokenSource goroutine that the control loop will add later.
+	snapshot := *st
 	r.stateMu.Unlock()
-	if err := fleetnodebootstrap.SaveState(path, st); err != nil {
+	if err := fleetnodebootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
 	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))

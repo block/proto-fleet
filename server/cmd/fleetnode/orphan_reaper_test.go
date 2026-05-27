@@ -79,3 +79,79 @@ func TestReapOrphans_KillsWhenParentExited(t *testing.T) {
 	// Assert
 	require.Equal(t, []int{500}, killed)
 }
+
+func TestReapOrphans_EmptyPsOutput(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		out  string
+	}{
+		{name: "empty", out: ""},
+		{name: "blank lines", out: "\n\n\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange
+			killFn := func(pid int, _ syscall.Signal) error {
+				t.Fatalf("kill must not be called for empty ps output (pid=%d)", pid)
+				return nil
+			}
+
+			// Act
+			reapOrphans(tc.out, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+		})
+	}
+}
+
+func TestReapOrphans_ContinuesAfterKillFailure(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — two orphans; the first kill returns an error. The second
+	// orphan still has to be reaped so a stuck kill on pid A doesn't block
+	// cleanup of pid B.
+	psOutput := strings.Join([]string{
+		"500 1 /plugins/first",
+		"501 1 /plugins/second",
+		"",
+	}, "\n")
+	var killed []int
+	killFn := func(pid int, _ syscall.Signal) error {
+		killed = append(killed, pid)
+		if pid == 500 {
+			return syscall.EPERM
+		}
+		return nil
+	}
+
+	// Act
+	reapOrphans(psOutput, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+
+	// Assert
+	require.Equal(t, []int{500, 501}, killed, "reaper must attempt to kill every matching entry even when one fails")
+}
+
+func TestReapOrphans_SkipsSubdirectoryProcesses(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — a process invoked from a subdirectory of the plugins dir
+	// must not be killed; only direct children of pluginsAbs are plugins.
+	psOutput := strings.Join([]string{
+		"500 1 /plugins/sub/foo",
+		"501 1 /plugins/direct-plugin",
+		"",
+	}, "\n")
+	var killed []int
+	killFn := func(pid int, _ syscall.Signal) error {
+		killed = append(killed, pid)
+		return nil
+	}
+
+	// Act
+	reapOrphans(psOutput, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+
+	// Assert
+	require.Equal(t, []int{501}, killed)
+}

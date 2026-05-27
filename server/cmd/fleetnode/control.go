@@ -21,7 +21,7 @@ type pluginDiscoverer struct {
 	svc   *plugins.Service
 }
 
-func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
+func newPluginDiscoverer(parent context.Context, pluginsDir string) (*pluginDiscoverer, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -32,7 +32,7 @@ func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
 		ShutdownGracePeriodSeconds: 2,
 		LogLevel:                   "info",
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 	if err := manager.LoadPlugins(ctx); err != nil {
 		// Partial loads can leave plugin subprocesses running even when an
@@ -43,7 +43,13 @@ func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
 		shutdownCancel()
 		return nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
-	cleanup := func() { _ = manager.Shutdown(context.Background()) }
+	// Shutdown runs after the parent ctx has typically been cancelled by a
+	// signal, so use a fresh background ctx bounded by the same 10s budget.
+	cleanup := func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		_ = manager.Shutdown(shutdownCtx)
+	}
 	return &pluginDiscoverer{
 		multi: plugins.NewMultiTypeDiscoverer(manager),
 		svc:   plugins.NewService(manager),

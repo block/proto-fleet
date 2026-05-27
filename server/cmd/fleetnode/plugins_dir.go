@@ -13,12 +13,18 @@ func resolvePluginsDir(exeDir string) (string, error) {
 		return "", nil
 	}
 	candidate := filepath.Join(exeDir, "plugins")
-	info, err := os.Stat(candidate)
+	info, err := os.Lstat(candidate)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
-		return "", fmt.Errorf("stat plugins dir %s: %w", candidate, err)
+		return "", fmt.Errorf("lstat plugins dir %s: %w", candidate, err)
+	}
+	// A symlink as the dir entry defeats checkPluginsDirPerms (which Stats
+	// the target) and creates a path-mismatch with the orphan reaper, which
+	// resolves symlinks. Refuse early.
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("plugins dir %s is a symlink; refuse to follow", candidate)
 	}
 	if !info.IsDir() {
 		return "", nil
