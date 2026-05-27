@@ -27,6 +27,11 @@ func TestReapOrphans_SkipsLivePluginsOfOtherAgents(t *testing.T) {
 		"999 1 /plugins/leftover-plugin",
 		"",
 	}, "\n")
+	allowed := []string{
+		"/plugins/proto-plugin",
+		"/plugins/antminer-plugin",
+		"/plugins/leftover-plugin",
+	}
 
 	var (
 		mu     sync.Mutex
@@ -40,7 +45,7 @@ func TestReapOrphans_SkipsLivePluginsOfOtherAgents(t *testing.T) {
 	}
 
 	// Act
-	reapOrphans(psOutput, "/plugins", 100, slog.New(slog.DiscardHandler), killFn)
+	reapOrphans(psOutput, allowed, 100, slog.New(slog.DiscardHandler), killFn)
 
 	// Assert
 	require.Len(t, killed, 1, "should reap only the ppid==1 orphan")
@@ -52,13 +57,14 @@ func TestReapOrphans_SkipsSelfPID(t *testing.T) {
 
 	// Arrange
 	psOutput := "100 1 /plugins/foo\n"
+	allowed := []string{"/plugins/foo"}
 	killFn := func(pid int, _ syscall.Signal) error {
 		t.Fatalf("kill called for self pid %d", pid)
 		return nil
 	}
 
 	// Act
-	reapOrphans(psOutput, "/plugins", 100, slog.New(slog.DiscardHandler), killFn)
+	reapOrphans(psOutput, allowed, 100, slog.New(slog.DiscardHandler), killFn)
 }
 
 func TestReapOrphans_KillsWhenParentExited(t *testing.T) {
@@ -67,6 +73,7 @@ func TestReapOrphans_KillsWhenParentExited(t *testing.T) {
 	// Arrange — child's ppid 777 is NOT in the alive set; kernel hasn't
 	// reparented yet, so reap it anyway.
 	psOutput := "500 777 /plugins/foo\n"
+	allowed := []string{"/plugins/foo"}
 	var killed []int
 	killFn := func(pid int, _ syscall.Signal) error {
 		killed = append(killed, pid)
@@ -74,7 +81,7 @@ func TestReapOrphans_KillsWhenParentExited(t *testing.T) {
 	}
 
 	// Act
-	reapOrphans(psOutput, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+	reapOrphans(psOutput, allowed, 1, slog.New(slog.DiscardHandler), killFn)
 
 	// Assert
 	require.Equal(t, []int{500}, killed)
@@ -95,13 +102,14 @@ func TestReapOrphans_EmptyPsOutput(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
+			allowed := []string{"/plugins/foo"}
 			killFn := func(pid int, _ syscall.Signal) error {
 				t.Fatalf("kill must not be called for empty ps output (pid=%d)", pid)
 				return nil
 			}
 
 			// Act
-			reapOrphans(tc.out, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+			reapOrphans(tc.out, allowed, 1, slog.New(slog.DiscardHandler), killFn)
 		})
 	}
 }
@@ -117,6 +125,7 @@ func TestReapOrphans_ContinuesAfterKillFailure(t *testing.T) {
 		"501 1 /plugins/second",
 		"",
 	}, "\n")
+	allowed := []string{"/plugins/first", "/plugins/second"}
 	var killed []int
 	killFn := func(pid int, _ syscall.Signal) error {
 		killed = append(killed, pid)
@@ -127,22 +136,26 @@ func TestReapOrphans_ContinuesAfterKillFailure(t *testing.T) {
 	}
 
 	// Act
-	reapOrphans(psOutput, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+	reapOrphans(psOutput, allowed, 1, slog.New(slog.DiscardHandler), killFn)
 
 	// Assert
 	require.Equal(t, []int{500, 501}, killed, "reaper must attempt to kill every matching entry even when one fails")
 }
 
-func TestReapOrphans_SkipsSubdirectoryProcesses(t *testing.T) {
+func TestReapOrphans_SkipsUnknownProcessesUnderPluginsDir(t *testing.T) {
 	t.Parallel()
 
-	// Arrange — a process invoked from a subdirectory of the plugins dir
-	// must not be killed; only direct children of pluginsAbs are plugins.
+	// Arrange — a process whose command is under the plugins dir but does
+	// NOT match any allowed entry (e.g. a subdirectory invocation, or a
+	// plugin file that has since been removed) must not be killed. Only
+	// processes whose argv0 matches an installed plugin file are reaped.
 	psOutput := strings.Join([]string{
 		"500 1 /plugins/sub/foo",
-		"501 1 /plugins/direct-plugin",
+		"501 1 /plugins/removed-plugin",
+		"502 1 /plugins/direct-plugin",
 		"",
 	}, "\n")
+	allowed := []string{"/plugins/direct-plugin"}
 	var killed []int
 	killFn := func(pid int, _ syscall.Signal) error {
 		killed = append(killed, pid)
@@ -150,26 +163,30 @@ func TestReapOrphans_SkipsSubdirectoryProcesses(t *testing.T) {
 	}
 
 	// Act
-	reapOrphans(psOutput, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+	reapOrphans(psOutput, allowed, 1, slog.New(slog.DiscardHandler), killFn)
 
 	// Assert
-	require.Equal(t, []int{501}, killed)
+	require.Equal(t, []int{502}, killed)
 }
 
 func TestReapOrphans_PluginsPathWithSpaces(t *testing.T) {
 	t.Parallel()
 
-	// Arrange — plugin install path contains spaces. ps prints argv
-	// space-separated, so the earlier HasPrefix(e.command, prefix) passes
-	// while truncating argv0 at the first space slices into the prefix.
-	// The re-check after truncation must skip such entries instead of
-	// panicking. A genuine orphan whose argv0 has no embedded space (e.g.
-	// the plugin binary name has none after the dir) is still reaped.
+	// Arrange — plugin install path contains spaces. ps space-joins argv
+	// without quoting, so naive argv0 extraction by splitting on the first
+	// space would slice into the prefix. Matching against the exact
+	// installed-plugin paths sidesteps the parsing problem entirely:
+	// e.command must equal an allowed path, or start with an allowed path
+	// followed by a space (its first argument).
 	psOutput := strings.Join([]string{
-		"500 1 /opt/Proto Fleet/plugins/proto-plugin arg1",
+		"500 1 /opt/Proto Fleet/plugins/proto-plugin arg1 arg2",
 		"600 1 /opt/Proto Fleet/plugins/legit-plugin",
 		"",
 	}, "\n")
+	allowed := []string{
+		"/opt/Proto Fleet/plugins/proto-plugin",
+		"/opt/Proto Fleet/plugins/legit-plugin",
+	}
 	var killed []int
 	killFn := func(pid int, _ syscall.Signal) error {
 		killed = append(killed, pid)
@@ -177,11 +194,9 @@ func TestReapOrphans_PluginsPathWithSpaces(t *testing.T) {
 	}
 
 	// Act
-	reapOrphans(psOutput, "/opt/Proto Fleet/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+	reapOrphans(psOutput, allowed, 1, slog.New(slog.DiscardHandler), killFn)
 
-	// Assert — neither entry can be reaped because ps splits the path
-	// at the first space; the guard is correctness-of-no-panic, not a
-	// promise that space-containing install paths reap correctly. The
-	// recommended deployment is a no-space path.
-	require.Empty(t, killed, "reaper must not panic or kill on space-containing install paths")
+	// Assert — both genuine orphans are reaped even though their install
+	// path contains whitespace.
+	require.Equal(t, []int{500, 600}, killed, "space-containing install paths must still reap orphans by allowed-path matching")
 }

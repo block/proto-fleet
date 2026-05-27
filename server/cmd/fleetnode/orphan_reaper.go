@@ -14,22 +14,40 @@ import (
 	"time"
 )
 
-// reapOrphanedPlugins kills plugin-binary processes under pluginsDir whose
-// parent is no longer alive (true orphans). Runs before newPluginDiscoverer
-// and under the state lock, so any match left after the ppid filter is
-// leftover from a prior crash. Best-effort: a missing/broken ps never blocks
-// startup.
+// reapOrphanedPlugins kills plugin-binary processes whose argv0 matches an
+// installed plugin under pluginsDir and whose parent is no longer alive
+// (true orphans). Runs before newPluginDiscoverer and under the state lock,
+// so any match left after the ppid filter is leftover from a prior crash.
+// Best-effort: a missing/broken ps never blocks startup.
 //
 // pluginsDir must be the same string the loader passes to exec.Command so
-// argv0 in ps matches the prefix used here. resolvePluginsDir rejects a
-// symlinked dir at the leaf, but path components above can still be symlinks
-// -- using the unresolved path keeps loader and reaper aligned in either
-// case.
+// argv0 in ps matches the paths enumerated here. resolvePluginsDir rejects
+// a symlinked leaf, but path components above can still be symlinks --
+// using the unresolved path keeps loader and reaper aligned in either case.
+//
+// We match against os.ReadDir entries (the actual plugin filenames) rather
+// than splitting ps's space-joined argv on spaces; that way install paths
+// containing spaces ("/opt/Proto Fleet/plugins/...") match correctly.
 //
 // The ppid check matters when two agents share a binary/plugins layout but
 // hold different state locks (e.g. --state-dir variants). Without it, agent
 // B's startup would kill agent A's live plugin children.
 func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Logger) {
+	entries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		logger.Debug("orphan reaper: read plugins dir failed; skipping", "plugins_dir", pluginsDir, "err", err)
+		return
+	}
+	allowed := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		allowed = append(allowed, filepath.Join(pluginsDir, e.Name()))
+	}
+	if len(allowed) == 0 {
+		return
+	}
 	psCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(psCtx, "ps", "-eo", "pid=,ppid=,command=").Output()
@@ -37,7 +55,7 @@ func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Lo
 		logger.Debug("orphan reaper: ps failed; skipping", "err", err)
 		return
 	}
-	reapOrphans(string(out), pluginsDir, os.Getpid(), logger, syscall.Kill)
+	reapOrphans(string(out), allowed, os.Getpid(), logger, syscall.Kill)
 }
 
 type psEntry struct {
@@ -47,9 +65,11 @@ type psEntry struct {
 }
 
 // reapOrphans is split out for testability: callers inject the ps output,
-// the running self pid, and the kill function.
-func reapOrphans(psOutput, pluginsAbs string, selfPID int, logger *slog.Logger, killFn func(pid int, sig syscall.Signal) error) {
-	prefix := pluginsAbs + string(filepath.Separator)
+// the set of allowed plugin paths, the running self pid, and the kill
+// function. Matching against allowed paths sidesteps ps's space-joined argv
+// representation -- an entry matches when e.command is exactly an allowed
+// path, or an allowed path followed by a space (its first argument).
+func reapOrphans(psOutput string, allowed []string, selfPID int, logger *slog.Logger, killFn func(pid int, sig syscall.Signal) error) {
 	var entries []psEntry
 	alive := make(map[int]bool)
 	for _, line := range strings.Split(psOutput, "\n") {
@@ -72,22 +92,14 @@ func reapOrphans(psOutput, pluginsAbs string, selfPID int, logger *slog.Logger, 
 		if e.pid == selfPID {
 			continue
 		}
-		if !strings.HasPrefix(e.command, prefix) {
-			continue
+		matchedPath := ""
+		for _, path := range allowed {
+			if e.command == path || strings.HasPrefix(e.command, path+" ") {
+				matchedPath = path
+				break
+			}
 		}
-		// Only kill direct children of pluginsAbs so an operator process
-		// invoked from a subdirectory under the prefix isn't reaped. The
-		// argv0 re-check after space-truncation guards plugin paths that
-		// themselves contain spaces (e.g. "/opt/Proto Fleet/plugins/x"),
-		// where truncating at the first space slices into the prefix.
-		argv0 := e.command
-		if i := strings.IndexByte(argv0, ' '); i >= 0 {
-			argv0 = argv0[:i]
-		}
-		if !strings.HasPrefix(argv0, prefix) {
-			continue
-		}
-		if strings.ContainsRune(argv0[len(prefix):], filepath.Separator) {
+		if matchedPath == "" {
 			continue
 		}
 		// Skip if the parent is still alive and not init/launchd. A live
@@ -101,6 +113,6 @@ func reapOrphans(psOutput, pluginsAbs string, selfPID int, logger *slog.Logger, 
 			logger.Warn("orphan reaper: kill failed", "pid", e.pid, "command", e.command, "err", err)
 			continue
 		}
-		logger.Info("reaped stray plugin process", "pid", e.pid, "command", e.command)
+		logger.Info("reaped stray plugin process", "pid", e.pid, "plugin", matchedPath)
 	}
 }
