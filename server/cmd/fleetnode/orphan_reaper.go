@@ -12,11 +12,15 @@ import (
 	"syscall"
 )
 
-// reapOrphanedPlugins kills any plugin-binary process under pluginsDir.
-// Runs before newPluginDiscoverer and under the state lock, so any match is
-// leftover from a prior crash; concurrent agents are already excluded by
-// state.lock contention. Best-effort: a missing/broken ps never blocks
+// reapOrphanedPlugins kills plugin-binary processes under pluginsDir whose
+// parent is no longer alive (true orphans). Runs before newPluginDiscoverer
+// and under the state lock, so any match left after the ppid filter is
+// leftover from a prior crash. Best-effort: a missing/broken ps never blocks
 // startup.
+//
+// The ppid check matters when two agents share a binary/plugins layout but
+// hold different state locks (e.g. --state-dir variants). Without it, agent
+// B's startup would kill agent A's live plugin children.
 func reapOrphanedPlugins(pluginsDir string, logger *slog.Logger) {
 	abs, err := filepath.EvalSymlinks(pluginsDir)
 	if err != nil {
@@ -27,25 +31,55 @@ func reapOrphanedPlugins(pluginsDir string, logger *slog.Logger) {
 		logger.Debug("orphan reaper: ps failed; skipping", "err", err)
 		return
 	}
-	selfPID := os.Getpid()
-	prefix := abs + string(filepath.Separator)
-	for _, line := range strings.Split(string(out), "\n") {
+	reapOrphans(string(out), abs, os.Getpid(), logger, syscall.Kill)
+}
+
+type psEntry struct {
+	pid     int
+	ppid    int
+	command string
+}
+
+// reapOrphans is split out for testability: callers inject the ps output,
+// the running self pid, and the kill function.
+func reapOrphans(psOutput, pluginsAbs string, selfPID int, logger *slog.Logger, killFn func(pid int, sig syscall.Signal) error) {
+	prefix := pluginsAbs + string(filepath.Separator)
+	var entries []psEntry
+	alive := make(map[int]bool)
+	for _, line := range strings.Split(psOutput, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
-		command := strings.Join(fields[2:], " ")
-		if !strings.HasPrefix(command, prefix) {
-			continue
-		}
 		pid, err := strconv.Atoi(fields[0])
-		if err != nil || pid == selfPID {
+		if err != nil {
 			continue
 		}
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
-			logger.Warn("orphan reaper: kill failed", "pid", pid, "command", command, "err", err)
+		ppid, err := strconv.Atoi(fields[1])
+		if err != nil {
 			continue
 		}
-		logger.Info("reaped stray plugin process", "pid", pid, "command", command)
+		alive[pid] = true
+		entries = append(entries, psEntry{pid: pid, ppid: ppid, command: strings.Join(fields[2:], " ")})
+	}
+	for _, e := range entries {
+		if e.pid == selfPID {
+			continue
+		}
+		if !strings.HasPrefix(e.command, prefix) {
+			continue
+		}
+		// Skip if the parent is still alive and not init/launchd. A live
+		// non-init parent means another agent (or a debugger) still owns
+		// this child.
+		if e.ppid > 1 && alive[e.ppid] {
+			logger.Debug("orphan reaper: parent still alive; skipping", "pid", e.pid, "ppid", e.ppid)
+			continue
+		}
+		if err := killFn(e.pid, syscall.SIGKILL); err != nil {
+			logger.Warn("orphan reaper: kill failed", "pid", e.pid, "command", e.command, "err", err)
+			continue
+		}
+		logger.Info("reaped stray plugin process", "pid", e.pid, "command", e.command)
 	}
 }

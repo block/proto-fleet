@@ -1,0 +1,81 @@
+//go:build !windows
+
+package main
+
+import (
+	"log/slog"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestReapOrphans_SkipsLivePluginsOfOtherAgents(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — two parent agents (pids 100 and 200), each owns a plugin
+	// under the same plugins dir. Pid 999 is a true orphan reparented to
+	// init.
+	psOutput := strings.Join([]string{
+		"100 1 fleetnode run",
+		"200 1 fleetnode run --state-dir /alt",
+		"500 100 /plugins/proto-plugin",
+		"600 200 /plugins/antminer-plugin",
+		"999 1 /plugins/leftover-plugin",
+		"",
+	}, "\n")
+
+	var (
+		mu     sync.Mutex
+		killed []int
+	)
+	killFn := func(pid int, _ syscall.Signal) error {
+		mu.Lock()
+		defer mu.Unlock()
+		killed = append(killed, pid)
+		return nil
+	}
+
+	// Act
+	reapOrphans(psOutput, "/plugins", 100, slog.New(slog.DiscardHandler), killFn)
+
+	// Assert
+	require.Len(t, killed, 1, "should reap only the ppid==1 orphan")
+	assert.Equal(t, 999, killed[0])
+}
+
+func TestReapOrphans_SkipsSelfPID(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	psOutput := "100 1 /plugins/foo\n"
+	killFn := func(pid int, _ syscall.Signal) error {
+		t.Fatalf("kill called for self pid %d", pid)
+		return nil
+	}
+
+	// Act
+	reapOrphans(psOutput, "/plugins", 100, slog.New(slog.DiscardHandler), killFn)
+}
+
+func TestReapOrphans_KillsWhenParentExited(t *testing.T) {
+	t.Parallel()
+
+	// Arrange — child's ppid 777 is NOT in the alive set; kernel hasn't
+	// reparented yet, so reap it anyway.
+	psOutput := "500 777 /plugins/foo\n"
+	var killed []int
+	killFn := func(pid int, _ syscall.Signal) error {
+		killed = append(killed, pid)
+		return nil
+	}
+
+	// Act
+	reapOrphans(psOutput, "/plugins", 1, slog.New(slog.DiscardHandler), killFn)
+
+	// Assert
+	require.Equal(t, []int{500}, killed)
+}

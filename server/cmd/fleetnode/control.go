@@ -35,6 +35,12 @@ func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := manager.LoadPlugins(ctx); err != nil {
+		// Partial loads can leave plugin subprocesses running even when an
+		// aggregate error is returned; reap them before returning so the
+		// agent doesn't exit with orphans behind it.
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = manager.Shutdown(shutdownCtx)
+		shutdownCancel()
 		return nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
 	cleanup := func() { _ = manager.Shutdown(context.Background()) }
