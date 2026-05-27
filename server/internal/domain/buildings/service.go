@@ -201,8 +201,11 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 // ListBuildingRacksPageSizeCap matches the buf.validate cap on
 // ListBuildingRacksRequest.page_size. Mirrors the proto contract for
 // non-proto callers and is also the default when the caller passes
-// page_size == 0.
-const ListBuildingRacksPageSizeCap = int32(500)
+// page_size == 0. Set to the maximum possible placed-rack count
+// given the layout cap (aisles ≤ 100) × (racks_per_aisle ≤ 100) so
+// ManageBuildingModal's single-page seed read always returns the
+// complete working set.
+const ListBuildingRacksPageSizeCap = int32(10000)
 
 // ListBuildingRacks returns racks currently assigned to a building
 // with their grid placement. Verifies the building exists in the org
