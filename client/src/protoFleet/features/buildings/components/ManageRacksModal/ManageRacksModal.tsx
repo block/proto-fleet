@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -16,18 +17,19 @@ interface ManageRacksModalProps {
   // Parent building context drives the eligibility split.
   siteId: bigint;
   currentBuildingId: bigint;
-  // Building id → display label lookup for the "Building" column. The
-  // parent already fetches the site's building list for the manage modal,
-  // so it threads the map down rather than re-fetching.
-  buildingLabels?: Record<string, string>;
   // Rack IDs currently in the building's working set. The modal seeds its
   // selection with these so the operator sees the current state and can
   // add / remove in one flow.
   initialSelectedRackIds: bigint[];
   onDismiss: () => void;
-  // Returns the final selection as (rackId, label) tuples so the parent
-  // can render new entries in the left pane without a label lookup.
-  onConfirm: (selections: { rackId: bigint; label: string }[]) => void;
+  // Returns the delta against initialSelectedRackIds: `added` is the
+  // newly-checked racks (rackId + label so the caller can render
+  // without a separate lookup); `removed` is the seeded ids the
+  // operator unchecked. Racks the operator did not touch are not in
+  // either list — the caller leaves them as-is. Delta-shape avoids
+  // accidentally unassigning a seeded rack that didn't make it into
+  // the listRacks response (race, paging gap, soft-delete window).
+  onConfirm: (delta: { added: { rackId: bigint; label: string }[]; removed: bigint[] }) => void;
 }
 
 interface RackPickerItem {
@@ -99,18 +101,45 @@ const ManageRacksModal = ({
   open,
   siteId,
   currentBuildingId,
-  buildingLabels,
   initialSelectedRackIds,
   onDismiss,
   onConfirm,
 }: ManageRacksModalProps) => {
   const { listRacks } = useDeviceSets();
+  const { listBuildingsBySite } = useBuildings();
   const [items, setItems] = useState<RackPickerItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>(() => initialSelectedRackIds.map((id) => id.toString()));
   const [page, setPage] = useState(0);
+  // Self-fetched building id → display label map for the Building
+  // column. Falls back to "—" via the buildItem helper when an id is
+  // missing (cross-site rack, or fetch in flight).
+  const [buildingMap, setBuildingMap] = useState<Record<string, string>>({});
 
-  const buildingMap = useMemo(() => buildingLabels ?? {}, [buildingLabels]);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void listBuildingsBySite({
+      siteId,
+      onSuccess: (rows) => {
+        if (cancelled) return;
+        const out: Record<string, string> = {};
+        for (const row of rows) {
+          const b = row.building;
+          if (b) out[b.id.toString()] = b.name;
+        }
+        setBuildingMap(out);
+      },
+      // Silent on error — the Building column degrades to "—" but the
+      // picker still functions.
+      onError: () => {
+        if (!cancelled) setBuildingMap({});
+      },
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, siteId, listBuildingsBySite]);
 
   // Fetch the full rack list and build picker items. Cross-site / cross-
   // building eligibility is computed per-row in buildItem so the operator
@@ -156,23 +185,46 @@ const ManageRacksModal = ({
   const hasPreviousPage = page > 0;
   const hasNextPage = page < totalPages - 1;
 
+  // Snapshot the seeded selection so handleConfirm can compute the
+  // delta against it. Stored as a Set<string> for O(1) membership.
+  const initialSelectedSet = useMemo(
+    () => new Set(initialSelectedRackIds.map((id) => id.toString())),
+    [initialSelectedRackIds],
+  );
+
   const handleConfirm = useCallback(() => {
     if (!items) return;
-    // Resolve labels for every selected id by indexing into the full items
-    // list (not just the current page, since selections persist across
-    // pages via List's preserveOffPageSelection behavior).
-    const selections: { rackId: bigint; label: string }[] = [];
+    const selectedSet = new Set(selectedItems);
+
+    // added = ids the operator just checked (in selectedSet, not in
+    // initial). Resolve label via items.find; skip disabled rows
+    // defensively even though the row gate should have prevented them.
+    const added: { rackId: bigint; label: string }[] = [];
     for (const id of selectedItems) {
+      if (initialSelectedSet.has(id)) continue;
       const item = items.find((r) => r.id === id);
-      if (!item) continue;
-      // Defensive: never confirm a disabled item even if it slipped into
-      // the selection via initialSelectedRackIds. The server would reject
-      // anyway, but failing earlier surfaces a clearer state.
-      if (item.disabled) continue;
-      selections.push({ rackId: BigInt(id), label: item.label });
+      if (!item || item.disabled) continue;
+      added.push({ rackId: BigInt(id), label: item.label });
     }
-    onConfirm(selections);
-  }, [items, selectedItems, onConfirm]);
+
+    // removed = seeded ids the operator unchecked. Note we iterate
+    // initialSelectedRackIds directly (NOT the items list) — a seeded
+    // id absent from items has not actually been deselected, so it
+    // must stay in the building. This is the bug-fix anchor for #15.
+    const removed: bigint[] = [];
+    for (const id of initialSelectedRackIds) {
+      if (selectedSet.has(id.toString())) continue;
+      // Only treat as a removal when the id appears as a disabled-
+      // ineligible row (operator can't toggle those) OR appears
+      // eligible-and-now-unchecked. If the id is missing from items
+      // entirely (race / paging gap), preserve membership.
+      const seedItem = items.find((r) => r.id === id.toString());
+      if (!seedItem) continue;
+      removed.push(id);
+    }
+
+    onConfirm({ added, removed });
+  }, [items, selectedItems, initialSelectedRackIds, initialSelectedSet, onConfirm]);
 
   const handleSelectAll = useCallback(() => {
     if (!items) return;

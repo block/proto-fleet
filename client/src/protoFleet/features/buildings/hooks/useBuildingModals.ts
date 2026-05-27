@@ -73,6 +73,10 @@ export interface BuildingModalsApi {
   // lookup needed — the row lives on `state`.
   requestDeleteCurrent: () => void;
   deleteConfirm: () => Promise<void>;
+  // Refetch the host's building cache. Exposed so ManageBuildingModal
+  // can ping it after a successful rack-placement save (rack_count and
+  // grid positions change without touching create/update/delete paths).
+  refreshBuildings: () => void;
 }
 
 const useBuildingModals = ({
@@ -258,10 +262,15 @@ const useBuildingModals = ({
           setDeleteTarget(null);
           deleteFromManageRef.current = false;
           setState({ kind: "none" });
-          // Defer the redirect callback so React commits the state reset
-          // before the host page navigates away (otherwise a route change
-          // mid-render can warn about state updates on unmounted hosts).
-          if (wasFromManage) onDeleteFromManage?.(id);
+          // Defer the redirect callback to a microtask so React commits
+          // the state reset above before the host page navigates away.
+          // Synchronous invocation here would race a route change against
+          // the modal-close render and warn about state updates on an
+          // unmounted host. Microtask is enough — we just need to clear
+          // the current React work loop, not skip a paint.
+          if (wasFromManage) {
+            queueMicrotask(() => onDeleteFromManage?.(id));
+          }
           resolve();
         },
         onError: (msg) => {
@@ -272,6 +281,10 @@ const useBuildingModals = ({
       });
     });
   }, [deleteTarget, deleteBuilding, refetchBuildings, onDeleteFromManage]);
+
+  const refreshBuildings = useCallback(() => {
+    refetchBuildings?.();
+  }, [refetchBuildings]);
 
   return {
     state,
@@ -288,6 +301,7 @@ const useBuildingModals = ({
     manageEditDetails,
     requestDeleteCurrent,
     deleteConfirm,
+    refreshBuildings,
   };
 };
 

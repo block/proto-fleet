@@ -6,11 +6,7 @@ import BuildingGridPane from "./BuildingGridPane";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
 import { type BuildingAssignmentMode, cellKey, type GridCellKey, parseCellKey } from "./types";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import {
-  type Building,
-  type BuildingRack,
-  type BuildingWithCounts,
-} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -22,11 +18,6 @@ interface ManageBuildingModalProps {
   open: boolean;
   building: Building;
   siteName?: string;
-  // Sibling buildings under the same site so the rack picker can resolve
-  // building_id → label and the operator can see where racks currently
-  // sit. Optional — without it, the picker renders an em-dash for the
-  // Building column.
-  siblingBuildings?: BuildingWithCounts[];
   onDismiss: () => void;
   // Opens BuildingSettingsModal stacked on top of this manage modal.
   onEditDetails: () => void;
@@ -34,7 +25,10 @@ interface ManageBuildingModalProps {
   // Mirrors AssignMinersModal's header Delete CTA.
   onDeleteRequested: () => void;
   // Fires after a successful save so the host page can refresh its
-  // building cache (rack counts, layout fields change).
+  // building cache (rack counts, layout fields change). The rack
+  // pickers (ManageRacksModal / SearchRacksModal) fetch their own
+  // sibling-building labels via listBuildingsBySite, so no
+  // siblingBuildings prop is plumbed through.
   onSaved?: (updated: Building) => void;
 }
 
@@ -90,7 +84,6 @@ const ManageBuildingModal = ({
   open,
   building,
   siteName,
-  siblingBuildings,
   onDismiss,
   onEditDetails,
   onDeleteRequested,
@@ -362,39 +355,32 @@ const ManageBuildingModal = ({
     setSelectedRackId((prev) => (prev === rackId ? null : prev));
   }, []);
 
-  // Building id → label map for the rack picker.
-  const buildingLabels = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const row of siblingBuildings ?? []) {
-      const b = row.building;
-      if (b) out[b.id.toString()] = b.name;
-    }
-    out[building.id.toString()] = building.name;
-    return out;
-  }, [siblingBuildings, building.id, building.name]);
-
   const currentRackIds = useMemo(() => entries.map((e) => e.rackId), [entries]);
 
-  // ManageRacksModal confirm — replace the working-set membership with the
-  // operator's selection. Existing entries keep their position (so a
-  // re-open of Manage racks doesn't disturb the layout); newly-added
-  // entries enter unplaced.
-  const handleManageRacksConfirm = useCallback((selections: { rackId: bigint; label: string }[]) => {
-    const keepIds = new Set(selections.map((s) => s.rackId.toString()));
-    setEntries((prev) => {
-      const kept = prev.filter((e) => keepIds.has(e.rackId.toString()));
-      const knownIds = new Set(kept.map((e) => e.rackId.toString()));
-      const added: AssignmentEntry[] = [];
-      for (const sel of selections) {
-        if (knownIds.has(sel.rackId.toString())) continue;
-        added.push({ rackId: sel.rackId, label: sel.label });
-      }
-      return [...kept, ...added];
-    });
-    setSelectedRackId(null);
-    setSelectedCellKey(null);
-    setShowManageRacks(false);
-  }, []);
+  // ManageRacksModal confirm — apply the delta against the working
+  // set. `added` joins entries (unplaced) without disturbing existing
+  // positions; `removed` drops only those entries. Racks not in either
+  // list are untouched, so a seeded rack that didn't appear in the
+  // picker's listRacks response (race / paging gap) is preserved.
+  const handleManageRacksConfirm = useCallback(
+    (delta: { added: { rackId: bigint; label: string }[]; removed: bigint[] }) => {
+      const removedSet = new Set(delta.removed.map((id) => id.toString()));
+      setEntries((prev) => {
+        const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
+        const knownIds = new Set(kept.map((e) => e.rackId.toString()));
+        const newcomers: AssignmentEntry[] = [];
+        for (const a of delta.added) {
+          if (knownIds.has(a.rackId.toString())) continue;
+          newcomers.push({ rackId: a.rackId, label: a.label });
+        }
+        return [...kept, ...newcomers];
+      });
+      setSelectedRackId(null);
+      setSelectedCellKey(null);
+      setShowManageRacks(false);
+    },
+    [],
+  );
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
   // fire AssignRackToBuilding in two phases:
@@ -634,7 +620,6 @@ const ManageBuildingModal = ({
           open={showManageRacks}
           siteId={siteId}
           currentBuildingId={building.id}
-          buildingLabels={buildingLabels}
           initialSelectedRackIds={currentRackIds}
           onDismiss={() => setShowManageRacks(false)}
           onConfirm={handleManageRacksConfirm}
@@ -646,7 +631,6 @@ const ManageBuildingModal = ({
           open={showSearchRacks}
           siteId={siteId}
           currentBuildingId={building.id}
-          buildingLabels={buildingLabels}
           onDismiss={() => {
             setShowSearchRacks(false);
             setSelectedCellKey(null);

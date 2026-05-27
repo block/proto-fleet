@@ -40,6 +40,12 @@ export type BuildingSettingsModalProps = BuildingSettingsModalCommonProps &
 // design intent is visible in the modal without storing a value.
 const BUILDING_TYPE_OPTIONS = [{ value: "", label: "—" }];
 
+// Layout-dimension cap. Matches the buf.validate int32.lte on
+// Create/UpdateBuildingRequest in proto/buildings/v1/buildings.proto.
+// 100 × 100 = 10,000 cells stays responsive in the ManageBuildingModal
+// grid; anything above that risks a browser hang on render.
+const LAYOUT_DIMENSION_MAX = 100;
+
 // Parse positive-number form input. Blank → 0 (treated as "unset" by
 // the server). Negative / non-numeric returns null so the form can
 // surface an inline error.
@@ -97,6 +103,10 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
       setAislesError("Whole number ≥ 0");
       return null;
     }
+    if (aisles > LAYOUT_DIMENSION_MAX) {
+      setAislesError(`Must be ≤ ${LAYOUT_DIMENSION_MAX}`);
+      return null;
+    }
     setAislesError(null);
 
     const racksPerAisle = parseNonNegativeInt(racksPerAisleText);
@@ -104,19 +114,39 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
       setRacksPerAisleError("Whole number ≥ 0");
       return null;
     }
+    if (racksPerAisle > LAYOUT_DIMENSION_MAX) {
+      setRacksPerAisleError(`Must be ≤ ${LAYOUT_DIMENSION_MAX}`);
+      return null;
+    }
     setRacksPerAisleError(null);
 
     return {
       name: name.trim(),
-      // description is deferred; preserve initial value to avoid clobbering
-      // on edit-mode round trips.
+      // description + the rack-default block are deferred fields not
+      // exposed in this form — preserve the server snapshot so an edit
+      // here doesn't clobber values another caller wrote.
       description: initialValues.description,
       powerCapacityMw: power,
       overheadKw: overhead,
       aisles,
       racksPerAisle,
+      physicalRackCount: initialValues.physicalRackCount,
+      defaultRackRows: initialValues.defaultRackRows,
+      defaultRackColumns: initialValues.defaultRackColumns,
+      defaultRackOrderIndex: initialValues.defaultRackOrderIndex,
     };
-  }, [name, powerText, overheadText, aislesText, racksPerAisleText, initialValues.description]);
+  }, [
+    name,
+    powerText,
+    overheadText,
+    aislesText,
+    racksPerAisleText,
+    initialValues.description,
+    initialValues.physicalRackCount,
+    initialValues.defaultRackRows,
+    initialValues.defaultRackColumns,
+    initialValues.defaultRackOrderIndex,
+  ]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();

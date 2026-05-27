@@ -44,6 +44,7 @@ const makeApi = (overrides: Partial<BuildingModalsApi> = {}): BuildingModalsApi 
   manageEditDetails: vi.fn(),
   requestDeleteCurrent: vi.fn(),
   deleteConfirm: vi.fn().mockResolvedValue(undefined),
+  refreshBuildings: vi.fn(),
   ...overrides,
 });
 

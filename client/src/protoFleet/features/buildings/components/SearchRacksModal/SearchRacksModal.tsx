@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import Input from "@/shared/components/Input";
@@ -18,9 +19,6 @@ interface SearchRacksModalProps {
   // but disabled.
   siteId: bigint;
   currentBuildingId: bigint;
-  // Building id → display label lookup so the "Building" column reads
-  // human-friendly names instead of numeric ids.
-  buildingLabels?: Record<string, string>;
   onDismiss: () => void;
   // Returns a single chosen rack so the caller can add it to the working
   // set and assign it to the cell that was selected when the popover
@@ -88,21 +86,39 @@ const buildItem = (
 // Single-rack picker with a name filter — mirrors SearchMinersModal in the
 // rack-management feature. Picked rack is added to the building's working
 // set and assigned to whatever cell was selected when the popover opened.
-const SearchRacksModal = ({
-  open,
-  siteId,
-  currentBuildingId,
-  buildingLabels,
-  onDismiss,
-  onConfirm,
-}: SearchRacksModalProps) => {
+const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfirm }: SearchRacksModalProps) => {
   const { listRacks } = useDeviceSets();
+  const { listBuildingsBySite } = useBuildings();
   const [items, setItems] = useState<SearchRackItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  // Self-fetched building id → display label map for the Building
+  // column. Mirrors ManageRacksModal so the two pickers stay aligned.
+  const [buildingMap, setBuildingMap] = useState<Record<string, string>>({});
 
-  const buildingMap = useMemo(() => buildingLabels ?? {}, [buildingLabels]);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void listBuildingsBySite({
+      siteId,
+      onSuccess: (rows) => {
+        if (cancelled) return;
+        const out: Record<string, string> = {};
+        for (const row of rows) {
+          const b = row.building;
+          if (b) out[b.id.toString()] = b.name;
+        }
+        setBuildingMap(out);
+      },
+      onError: () => {
+        if (!cancelled) setBuildingMap({});
+      },
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, siteId, listBuildingsBySite]);
 
   useEffect(() => {
     if (!open) return;

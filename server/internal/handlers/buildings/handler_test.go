@@ -262,6 +262,11 @@ func TestHandler_UpdateBuilding_happy(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
+	// UpdateBuilding now runs in a tx: lock + get current (for shrink
+	// validation) before the persist call.
+	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(1)).Return(nil)
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).
+		Return(&models.Building{ID: 1, Name: "old", Aisles: 0, RacksPerAisle: 0}, nil)
 	h.buildingStore.EXPECT().UpdateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateParams{})).
 		Return(&models.Building{ID: 1, Name: "renamed"}, nil)
 
@@ -272,6 +277,35 @@ func TestHandler_UpdateBuilding_happy(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "renamed", resp.Msg.GetBuilding().GetName())
+}
+
+// Shrinking aisles below the largest live aisle_index must abort the
+// update with InvalidArgument and never reach UpdateBuilding.
+func TestHandler_UpdateBuilding_rejectsOrphaningShrink(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(1)).Return(nil)
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).
+		Return(&models.Building{ID: 1, Aisles: 5, RacksPerAisle: 6}, nil)
+	// Rack at aisle 3 falls outside the new 2-aisle bound.
+	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), int64(7), int64(1)).
+		Return([]models.BuildingRack{
+			{RackID: 99, RackLabel: "Rack-Z", AisleIndex: ptrInt32t(3), PositionInAisle: ptrInt32t(0)},
+		}, nil)
+	// UpdateBuilding must NOT be called.
+
+	_, err := h.handler.UpdateBuilding(adminCtx(t, 7), connect.NewRequest(&pb.UpdateBuildingRequest{
+		Id:                    1,
+		Name:                  "shrunk",
+		Aisles:                2,
+		RacksPerAisle:         6,
+		DefaultRackOrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+	}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 }
 
 func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {

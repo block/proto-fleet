@@ -134,9 +134,13 @@ message CreateBuildingRequest {
     double power_kw = 4 [(buf.validate.field).double.gte = 0];
     double overhead_kw = 5 [(buf.validate.field).double.gte = 0];
 
-    int32 aisles = 6 [(buf.validate.field).int32.gte = 0];
+    // Layout dimensions are capped at 100 each. Above that the
+    // operator UI's aisles × racks_per_aisle grid renders impractically
+    // large (100×100 = 10k cells, still responsive); the cap keeps a
+    // typo from allocating a million-node grid in the browser.
+    int32 aisles = 6 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
     int32 physical_rack_count = 7 [(buf.validate.field).int32.gte = 0];
-    int32 racks_per_aisle = 8 [(buf.validate.field).int32.gte = 0];
+    int32 racks_per_aisle = 8 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
     int32 default_rack_rows = 9 [(buf.validate.field).int32.gte = 0];
     int32 default_rack_columns = 10 [(buf.validate.field).int32.gte = 0];
     RackOrderIndex default_rack_order_index = 11 [(buf.validate.field).enum.defined_only = true];
@@ -165,9 +169,12 @@ message UpdateBuildingRequest {
     double power_kw = 4 [(buf.validate.field).double.gte = 0];
     double overhead_kw = 5 [(buf.validate.field).double.gte = 0];
 
-    int32 aisles = 6 [(buf.validate.field).int32.gte = 0];
+    // Layout dimensions are capped at 100 each. Matches the
+    // CreateBuildingRequest cap; the operator UI grid is the
+    // motivating constraint.
+    int32 aisles = 6 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
     int32 physical_rack_count = 7 [(buf.validate.field).int32.gte = 0];
-    int32 racks_per_aisle = 8 [(buf.validate.field).int32.gte = 0];
+    int32 racks_per_aisle = 8 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
     int32 default_rack_rows = 9 [(buf.validate.field).int32.gte = 0];
     int32 default_rack_columns = 10 [(buf.validate.field).int32.gte = 0];
     RackOrderIndex default_rack_order_index = 11 [(buf.validate.field).enum.defined_only = true];

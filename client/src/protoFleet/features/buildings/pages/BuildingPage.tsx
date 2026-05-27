@@ -29,7 +29,7 @@ type FetchOutcome =
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBuilding } = useBuildings();
+  const { getBuilding, listBuildingRacks } = useBuildings();
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
 
@@ -37,16 +37,23 @@ const BuildingPage = () => {
   // (back/forward between two building URLs) doesn't render the older
   // response against the newer URL while the new request is in flight.
   const [response, setResponse] = useState<{ id: bigint; outcome: FetchOutcome } | undefined>(undefined);
+  // Parallel-fetched rack count keyed by buildingId so it can't race a
+  // navigation. Used to populate the cascade-delete dialog's count copy;
+  // falls back to 0n when the count fetch hasn't resolved yet (dialog
+  // then uses the generic "Are you sure?" copy — never undercount).
+  const [rackCountResponse, setRackCountResponse] = useState<{ id: bigint; count: bigint } | undefined>(undefined);
 
   // Hold the latest in-flight AbortController in a ref so retries (and rapid
   // re-mounts) abort the previous request before issuing a new one. Without
   // this, two retry clicks would race and the later result could be
   // overwritten by the earlier one resolving last.
   const inflightControllerRef = useRef<AbortController | null>(null);
+  const racksInflightRef = useRef<AbortController | null>(null);
 
   const fetchBuilding = useCallback(
     (targetId: bigint) => {
       inflightControllerRef.current?.abort();
+      racksInflightRef.current?.abort();
       const controller = new AbortController();
       inflightControllerRef.current = controller;
       void getBuilding({
@@ -59,8 +66,24 @@ const BuildingPage = () => {
           }),
         onError: (message) => setResponse({ id: targetId, outcome: { status: "error", message } }),
       });
+
+      // Parallel rack-count fetch so the cascade-delete dialog has the
+      // live count without waiting for the user to open the manage
+      // modal. Errors here are silent — the dialog falls back to the
+      // generic copy when the count is unknown, which is acceptable.
+      const racksController = new AbortController();
+      racksInflightRef.current = racksController;
+      void listBuildingRacks({
+        buildingId: targetId,
+        signal: racksController.signal,
+        onSuccess: (racks) => setRackCountResponse({ id: targetId, count: BigInt(racks.length) }),
+        onError: () => {
+          // Leave rackCountResponse stale on error; cascade dialog
+          // falls back to "Are you sure?" rather than block the page.
+        },
+      });
     },
-    [getBuilding],
+    [getBuilding, listBuildingRacks],
   );
 
   useEffect(() => {
@@ -87,6 +110,8 @@ const BuildingPage = () => {
     return () => {
       inflightControllerRef.current?.abort();
       inflightControllerRef.current = null;
+      racksInflightRef.current?.abort();
+      racksInflightRef.current = null;
     };
   }, []);
 
@@ -143,12 +168,19 @@ const BuildingPage = () => {
       <BuildingPageHeader
         label={label}
         buildingId={idForHeader}
-        // Synthesize a BuildingWithCounts row for the modal hook. Real
-        // rack_count surfaces with Phase 1b enrichment (#264); zero here
-        // drives the cascade dialog into the simpler "Are you sure?" copy.
-        onEditBuilding={() =>
-          buildingModals.openManage(create(BuildingWithCountsSchema, { building: effectiveBuilding, rackCount: 0n }))
-        }
+        // Synthesize a BuildingWithCounts row for the modal hook,
+        // populating rack_count from the parallel listBuildingRacks
+        // fetch when it's resolved against the same building id. Falls
+        // back to 0n when the count fetch is still in flight or
+        // errored — the cascade dialog then shows the generic
+        // "Are you sure?" copy, never an under-count.
+        onEditBuilding={() => {
+          const liveCount =
+            rackCountResponse && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : 0n;
+          buildingModals.openManage(
+            create(BuildingWithCountsSchema, { building: effectiveBuilding, rackCount: liveCount }),
+          );
+        }}
       />
       <PlaceholderBlock label="Metrics row (Hashrate, Power, Efficiency, Miners online) — #264" className="h-20" />
       <PlaceholderBlock label="Diagnostics (rack grid + health) — #264" className="h-64" />

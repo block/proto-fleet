@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import { useBuildingModals } from "./useBuildingModals";
+import { emptyBuildingFormValues } from "@/protoFleet/api/buildings";
 import { buildingsClient } from "@/protoFleet/api/clients";
 import {
   BuildingSchema,
@@ -98,14 +99,7 @@ describe("useBuildingModals", () => {
     act(() => result.current.openDetailsCreate(7n, "North DC"));
 
     await act(async () => {
-      await result.current.detailsCreate({
-        name: "Main",
-        description: "",
-        powerCapacityMw: 0,
-        overheadKw: 0,
-        aisles: 0,
-        racksPerAisle: 0,
-      });
+      await result.current.detailsCreate(emptyBuildingFormValues());
     });
 
     await waitFor(() => {
@@ -123,14 +117,7 @@ describe("useBuildingModals", () => {
     act(() => result.current.manageEditDetails());
 
     await act(async () => {
-      await result.current.detailsSaveEdit({
-        name: "Renamed",
-        description: "",
-        powerCapacityMw: 0,
-        overheadKw: 0,
-        aisles: 0,
-        racksPerAisle: 0,
-      });
+      await result.current.detailsSaveEdit({ ...emptyBuildingFormValues(), name: "Renamed" });
     });
 
     // Closes details, drops back to manage with the refreshed row carrying

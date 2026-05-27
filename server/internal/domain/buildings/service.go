@@ -60,6 +60,9 @@ func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams
 	if !params.DefaultRackOrderIndex.Valid() {
 		return nil, fleeterror.NewInvalidArgumentError("invalid default_rack_order_index")
 	}
+	if err := validateLayoutBounds(params.Aisles, params.RacksPerAisle); err != nil {
+		return nil, err
+	}
 
 	var b *models.Building
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
@@ -122,11 +125,58 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter) (
 
 // UpdateBuilding mutates the building's mutable fields. Site
 // assignment is intentionally not handled here.
+//
+// Layout shrinks (decreasing aisles or racks_per_aisle below current)
+// are validated against existing rack placements inside the same tx:
+// any positioned rack whose (aisle, position) would fall outside the
+// new bounds aborts the update with InvalidArgument. Without this
+// guard, the FE silently drops out-of-bounds entries during render and
+// the stale rows persist indefinitely.
 func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams) (*models.Building, error) {
 	if !params.DefaultRackOrderIndex.Valid() {
 		return nil, fleeterror.NewInvalidArgumentError("invalid default_rack_order_index")
 	}
-	b, err := s.store.UpdateBuilding(ctx, params)
+	if err := validateLayoutBounds(params.Aisles, params.RacksPerAisle); err != nil {
+		return nil, err
+	}
+	var b *models.Building
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Lock the building row first so a concurrent
+		// AssignRackToBuilding can't race us into orphaned-position
+		// state between the bounds check and the update.
+		if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, params.ID); err != nil {
+			return err
+		}
+		current, err := s.store.GetBuilding(txCtx, params.OrgID, params.ID)
+		if err != nil {
+			return err
+		}
+		// Bounds-shrink validation only runs when at least one
+		// dimension is being reduced; growth never orphans rows.
+		if params.Aisles < current.Aisles || params.RacksPerAisle < current.RacksPerAisle {
+			racks, err := s.store.ListBuildingRacks(txCtx, params.OrgID, params.ID)
+			if err != nil {
+				return err
+			}
+			for _, r := range racks {
+				if r.AisleIndex == nil || r.PositionInAisle == nil {
+					continue
+				}
+				if *r.AisleIndex >= params.Aisles || *r.PositionInAisle >= params.RacksPerAisle {
+					return fleeterror.NewInvalidArgumentErrorf(
+						"cannot shrink layout: rack %q is at aisle %d, position %d which is outside the new %d aisles × %d racks-per-aisle bounds; unplace it first",
+						r.RackLabel, *r.AisleIndex+1, *r.PositionInAisle+1, params.Aisles, params.RacksPerAisle,
+					)
+				}
+			}
+		}
+		updated, err := s.store.UpdateBuilding(txCtx, params)
+		if err != nil {
+			return err
+		}
+		b = updated
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -195,10 +245,9 @@ func (s *Service) AssignRackToBuilding(ctx context.Context, params models.Assign
 	}
 
 	var (
-		out         models.AssignRackToBuildingResult
-		newSiteID   *int64
-		cascadeRan  bool
-		cascadeSite *int64
+		out        models.AssignRackToBuildingResult
+		newSiteID  *int64
+		cascadeRan bool
 	)
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		// Lock the target building first (canonical lock order:
@@ -276,15 +325,24 @@ func (s *Service) AssignRackToBuilding(ctx context.Context, params models.Assign
 			}
 			out.SiteReassignedDeviceCount = count
 			cascadeRan = true
-			cascadeSite = newSiteID
 		}
 
-		// Write the grid cell on top of the placement update. We
-		// skip the call entirely when no cell is supplied; the
-		// UpdateRackPlacement clear path already handles
-		// transitions, and a missing cell shouldn't overwrite a
-		// preserved one.
-		if params.AisleIndex != nil {
+		// Grid-cell write. Two cases land here:
+		//
+		//   - Both fields set → write the explicit (aisle, position).
+		//   - Both fields nil + building_id is set → operator is
+		//     unplacing the rack within the same building (or moving
+		//     it across with no chosen cell yet). Write NULL/NULL so
+		//     the cell on the rack row matches the operator's intent.
+		//     UpdateRackPlacement's CASE only clears when building_id
+		//     changes, so without this explicit write a same-building
+		//     unplace would silently no-op and the old position would
+		//     survive.
+		//
+		// When BuildingID is nil (full unassign) we skip this call —
+		// UpdateRackPlacement's CASE already nulls the position via
+		// the building-id-changed branch.
+		if params.BuildingID != nil {
 			if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, params.RackID, params.AisleIndex, params.PositionInAisle); err != nil {
 				return err
 			}
@@ -295,20 +353,34 @@ func (s *Service) AssignRackToBuilding(ctx context.Context, params models.Assign
 		return nil, err
 	}
 
-	// Activity log fires AFTER tx commits.
+	// Activity log fires AFTER tx commits. SiteID is the rack's final
+	// site after the write — same as newSiteID, which now equals
+	// current.SiteID on building-only unassign (so we don't lose the
+	// site filter on building-removal events) and the target
+	// building's site otherwise. Using cascadeSite here would only
+	// populate when CascadeRackDeviceSites ran, hiding same-site
+	// assigns from site-scoped activity queries.
 	orgIDVal := params.OrgID
+	// Dereference the building id stored in metadata so JSON shape
+	// matches DeleteBuilding (int64, not *int64). Downstream consumers
+	// doing `.(int64)` on the metadata field would crash on the
+	// pointer variant.
+	var buildingIDMeta any
+	if params.BuildingID != nil {
+		buildingIDMeta = *params.BuildingID
+	}
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventRackAssignedBuilding,
 		OrganizationID: &orgIDVal,
-		SiteID:         cascadeSite,
+		SiteID:         newSiteID,
 		Description: fmt.Sprintf(
 			"Assigned rack %d to building %v",
 			params.RackID, derefInt64(params.BuildingID),
 		),
 		Metadata: map[string]any{
 			"rack_id":     params.RackID,
-			"building_id": params.BuildingID,
+			"building_id": buildingIDMeta,
 		},
 	}
 	if cascadeRan {
@@ -323,6 +395,23 @@ func (s *Service) AssignRackToBuilding(ctx context.Context, params models.Assign
 	s.activitySvc.Log(ctx, event)
 
 	return &out, nil
+}
+
+// layoutDimensionMax caps aisles and racks_per_aisle on Create /
+// UpdateBuilding. Mirrors the buf.validate int32.lte on
+// CreateBuildingRequest + UpdateBuildingRequest — defense-in-depth for
+// non-proto callers (sdk / agent-native paths) that bypass the wire
+// validator.
+const layoutDimensionMax = int32(100)
+
+func validateLayoutBounds(aisles, racksPerAisle int32) error {
+	if aisles > layoutDimensionMax {
+		return fleeterror.NewInvalidArgumentErrorf("aisles must be ≤ %d (got %d)", layoutDimensionMax, aisles)
+	}
+	if racksPerAisle > layoutDimensionMax {
+		return fleeterror.NewInvalidArgumentErrorf("racks_per_aisle must be ≤ %d (got %d)", layoutDimensionMax, racksPerAisle)
+	}
+	return nil
 }
 
 func int64PtrEqual(a, b *int64) bool {

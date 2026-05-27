@@ -26,6 +26,11 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
           onDismiss={modals.dismiss}
           onEditDetails={modals.manageEditDetails}
           onDeleteRequested={modals.requestDeleteCurrent}
+          // Rack-placement saves don't go through useBuildingModals'
+          // create/update/delete callbacks, so refetchBuildings doesn't
+          // fire on its own. Surface refreshBuildings here so host
+          // caches (rack_count, layout) re-pull from the server.
+          onSaved={modals.refreshBuildings}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (

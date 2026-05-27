@@ -87,6 +87,13 @@ interface AssignRackToBuildingProps {
 // submit (proto stores power_kw). Layout fields (aisles, racks per
 // aisle) are owned by ManageBuildingModal and ride along on
 // UpdateBuilding writes.
+//
+// The trailing four fields (physicalRackCount + default rack rows /
+// columns / order_index) are not currently editable in any FE form —
+// they're carried through so an UpdateBuilding call doesn't clobber
+// values another caller (API or another client) wrote. The edit
+// surface seeds them from the server's Building snapshot via
+// buildingFormValuesFromBuilding and sends them back unchanged.
 export interface BuildingFormValues {
   name: string;
   description: string;
@@ -94,6 +101,10 @@ export interface BuildingFormValues {
   overheadKw: number;
   aisles: number;
   racksPerAisle: number;
+  physicalRackCount: number;
+  defaultRackRows: number;
+  defaultRackColumns: number;
+  defaultRackOrderIndex: RackOrderIndex;
 }
 
 export const emptyBuildingFormValues = (): BuildingFormValues => ({
@@ -103,6 +114,10 @@ export const emptyBuildingFormValues = (): BuildingFormValues => ({
   overheadKw: 0,
   aisles: 0,
   racksPerAisle: 0,
+  physicalRackCount: 0,
+  defaultRackRows: 0,
+  defaultRackColumns: 0,
+  defaultRackOrderIndex: RackOrderIndex.UNSPECIFIED,
 });
 
 export const buildingFormValuesFromBuilding = (building: Building): BuildingFormValues => ({
@@ -114,6 +129,10 @@ export const buildingFormValuesFromBuilding = (building: Building): BuildingForm
   overheadKw: building.overheadKw,
   aisles: building.aisles,
   racksPerAisle: building.racksPerAisle,
+  physicalRackCount: building.physicalRackCount,
+  defaultRackRows: building.defaultRackRows,
+  defaultRackColumns: building.defaultRackColumns,
+  defaultRackOrderIndex: building.defaultRackOrderIndex,
 });
 
 const useBuildings = () => {
@@ -272,10 +291,12 @@ const useBuildings = () => {
             overheadKw: values.overheadKw,
             aisles: values.aisles,
             racksPerAisle: values.racksPerAisle,
-            physicalRackCount: 0,
-            defaultRackRows: 0,
-            defaultRackColumns: 0,
-            defaultRackOrderIndex: RackOrderIndex.UNSPECIFIED,
+            // Pass-through fields — not editable in any current form
+            // but carried so the server-side snapshot is preserved.
+            physicalRackCount: values.physicalRackCount,
+            defaultRackRows: values.defaultRackRows,
+            defaultRackColumns: values.defaultRackColumns,
+            defaultRackOrderIndex: values.defaultRackOrderIndex,
           },
           { signal },
         );

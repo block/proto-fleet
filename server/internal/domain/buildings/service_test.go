@@ -249,8 +249,11 @@ func TestAssignRackToBuilding_placesRackWithGridCell(t *testing.T) {
 	}
 }
 
-// Assign without a grid cell: writes placement only; no SetRackBuildingPosition.
-func TestAssignRackToBuilding_membersWithoutPosition(t *testing.T) {
+// Assign without a grid cell: writes placement + clears position via
+// SetRackBuildingPosition(nil, nil). The explicit clear is what makes
+// same-building unplace work — without it, UpdateRackPlacement's CASE
+// preserves the old position whenever building_id doesn't change.
+func TestAssignRackToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 	h := newAssignHarness(t)
 	buildingID := int64(11)
 	rackID := int64(99)
@@ -262,7 +265,39 @@ func TestAssignRackToBuilding_membersWithoutPosition(t *testing.T) {
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &siteID}, nil)
 	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &siteID, &buildingID, "").Return(nil)
-	// No SetRackBuildingPosition expected.
+	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, (*int32)(nil), (*int32)(nil)).Return(nil)
+
+	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
+		OrgID:      testOrgID,
+		RackID:     rackID,
+		BuildingID: &buildingID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Same-building unplace: rack already in this building at a known cell,
+// caller resends building_id with no position. SetRackBuildingPosition
+// must fire with nil/nil so the prior (aisle, position) is cleared from
+// the rack row. Guards against the "unplace within building silently
+// no-ops" regression.
+func TestAssignRackToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+	rackID := int64(99)
+	siteID := int64(3)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
+		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(buildingID), Zone: "Z1"}, nil)
+	// Same building → zone preserved → finalZone is "Z1".
+	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &siteID, &buildingID, "Z1").Return(nil)
+	// No site change → no cascade.
+	// Critical: explicit position clear fires.
+	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, (*int32)(nil), (*int32)(nil)).Return(nil)
 
 	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
 		OrgID:      testOrgID,
@@ -318,6 +353,9 @@ func TestAssignRackToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing.
 	// crossingBuildings ⇒ zone clears.
 	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &newSite, &targetBuildingID, "").Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &newSite).Return(int64(4), nil)
+	// Cross-building move with no chosen cell — explicit nil/nil
+	// position write confirms the new row carries no stale placement.
+	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, (*int32)(nil), (*int32)(nil)).Return(nil)
 
 	out, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
 		OrgID:      testOrgID,
@@ -401,6 +439,102 @@ func TestListBuildingRacks_returnsStoreResult(t *testing.T) {
 	}
 	if len(racks) != 1 || racks[0].RackLabel != "A" {
 		t.Fatalf("unexpected racks: %+v", racks)
+	}
+}
+
+// Shrinking aisles or racks_per_aisle below an existing rack's
+// placement must abort the update — without this guard the FE silently
+// hides out-of-bounds rows and stale (aisle, position) rows persist.
+func TestUpdateBuilding_rejectsShrinkThatOrphansPlacement(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, tx, nil)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
+		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
+	store.EXPECT().ListBuildingRacks(inTxCtx, testOrgID, int64(11)).
+		Return([]models.BuildingRack{
+			{RackID: 99, RackLabel: "Edge", AisleIndex: ptrInt32(4), PositionInAisle: ptrInt32(0)},
+		}, nil)
+	// UpdateBuilding must NOT be called when the bounds check rejects.
+
+	_, err := svc.UpdateBuilding(context.Background(), models.UpdateParams{
+		OrgID:                 testOrgID,
+		ID:                    11,
+		Name:                  "shrunk",
+		Aisles:                3,
+		RacksPerAisle:         6,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for orphaning shrink, got %v", err)
+	}
+}
+
+// Service-edge bounds cap mirrors the proto buf.validate cap. Defense
+// in depth for non-proto callers (sdk / agent-native paths) that
+// bypass the wire validator.
+func TestCreateBuilding_rejectsLayoutAbove100(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, tx, nil)
+
+	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+		OrgID:                 testOrgID,
+		Name:                  "Huge",
+		Aisles:                101,
+		RacksPerAisle:         50,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for aisles>100, got %v", err)
+	}
+
+	_, err = svc.CreateBuilding(context.Background(), models.CreateParams{
+		OrgID:                 testOrgID,
+		Name:                  "Huge",
+		Aisles:                50,
+		RacksPerAisle:         101,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for racks_per_aisle>100, got %v", err)
+	}
+}
+
+// Layout growth (or no-shrink layout edit) must skip the
+// ListBuildingRacks bounds-scan entirely; that path used to fire
+// no scan at all, so the test pins the new behavior to the shrink
+// branch only.
+func TestUpdateBuilding_growthSkipsBoundsScan(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, tx, nil)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
+		Return(&models.Building{ID: 11, Aisles: 2, RacksPerAisle: 4}, nil)
+	// No ListBuildingRacks expected — growth path.
+	store.EXPECT().UpdateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.UpdateParams{})).
+		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
+
+	_, err := svc.UpdateBuilding(context.Background(), models.UpdateParams{
+		OrgID:                 testOrgID,
+		ID:                    11,
+		Name:                  "grown",
+		Aisles:                5,
+		RacksPerAisle:         6,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
