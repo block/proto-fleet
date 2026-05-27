@@ -9,8 +9,7 @@
 | `fleetnode enroll`  | Register with a fleet server using a one-time enrollment code. Persists keys and `api_key`. See [enroll.go](enroll.go). |
 | `fleetnode status`  | Print local state (server URL, fleet_node_id, fingerprint, session expiry). See [status.go](status.go). |
 | `fleetnode refresh` | Renew the session token using the stored `api_key`. See [refresh.go](refresh.go). |
-
-`fleetnode run` lands in the run-heartbeat PR.
+| `fleetnode run`     | Long-running daemon: maintain session, post heartbeats, and (in the discovery PR) consume the control stream. See [run.go](run.go). |
 
 ## State directory and lock
 

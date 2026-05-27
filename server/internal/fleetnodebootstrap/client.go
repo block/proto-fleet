@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	"golang.org/x/net/http2"
 
@@ -19,7 +20,10 @@ import (
 var errRedirectNotAllowed = errors.New("redirects are not allowed for connect-rpc calls")
 
 // A shared AllowHTTP+DialTLSContext shim would silently downgrade https to
-// plaintext, defeating ValidateServerURL's https-required policy.
+// plaintext, defeating ValidateServerURL's https-required policy. The https
+// branch uses net/http's Transport so ALPN can negotiate H2 when available
+// and fall back to HTTP/1.1 — packaged nginx terminates TLS and proxies
+// upstream over HTTP/1.1, so a bare http2.Transport refuses to talk to it.
 func newGatewayHTTPClient(serverURL string) (*http.Client, error) {
 	u, err := url.Parse(serverURL)
 	if err != nil {
@@ -36,7 +40,12 @@ func newGatewayHTTPClient(serverURL string) (*http.Client, error) {
 			},
 		}
 	case "https":
-		tr = &http2.Transport{}
+		tr = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ForceAttemptHTTP2:     true,
+		}
 	default:
 		return nil, fmt.Errorf("server-url scheme must be http or https; got %q", u.Scheme)
 	}

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -35,8 +34,8 @@ func TestGatewayHTTPClient_HTTPS_ValidatesCertificate(t *testing.T) {
 	srv := newHTTP2TestServer(t)
 	trusted, err := newGatewayHTTPClient(srv.URL)
 	require.NoError(t, err)
-	tlsTransport, ok := trusted.Transport.(*http2.Transport)
-	require.True(t, ok, "https client must use http2.Transport")
+	tlsTransport, ok := trusted.Transport.(*http.Transport)
+	require.True(t, ok, "https client must use http.Transport")
 	pool := x509.NewCertPool()
 	pool.AddCert(srv.Certificate())
 	tlsTransport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}

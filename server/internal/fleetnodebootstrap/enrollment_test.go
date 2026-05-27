@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -253,14 +254,30 @@ func TestRegister_TimesOutAgainstBlackholeServer(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
+
+	// testing.T.Cleanup is not safe to call from a goroutine, so the accept
+	// loop collects conns under a lock and a single Cleanup closes them all.
+	var (
+		mu    sync.Mutex
+		conns []net.Conn
+	)
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			t.Cleanup(func() { _ = conn.Close() })
+			mu.Lock()
+			conns = append(conns, conn)
+			mu.Unlock()
 		}
 	}()
 
