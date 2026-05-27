@@ -920,6 +920,22 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 			adminOrgPlusSiteRoleManage, superAdminOrg, true,
 		},
 		{
+			// Caller has org-scope SUPER_ADMIN but narrows to FIELD_TECH at site 7.
+			// Target is org-scope ADMIN with no narrowing. Even though the caller's
+			// flat org-scope set covers ADMIN's keys, the caller cannot perform
+			// ADMIN actions at site 7 (the narrowed FIELD_TECH set excludes them),
+			// while the ADMIN target still can. Resetting target's password would
+			// hand the caller an account with broader site-7 authority than they
+			// themselves possess.
+			"caller-side narrowing must block subsumption of an unnarrowed target",
+			[]authz.Assignment{
+				orgScope("user:read", "user:manage", "role:manage", "miner:reboot", "miner:read", "site:manage"),
+				siteScope(7, "miner:read"),
+			},
+			adminOrg,
+			true,
+		},
+		{
 			"site-scoped target requires site-scoped caller authority",
 			[]authz.Assignment{orgScope("user:manage")},
 			[]authz.Assignment{siteScope(7, "miner:reboot")},

@@ -121,15 +121,29 @@ func (e *EffectivePermissions) StrictlyDominates(other *EffectivePermissions) bo
 	return other.IsSubsumedBy(e) && !e.IsSubsumedBy(other)
 }
 
-// IsSubsumedBy reports whether every (permission key, scope) pair this
-// EffectivePermissions holds is also held by other. Scope is part of
-// the comparison: a permission held only at site 7 is *not* subsumed by
-// the same key held only at org scope (and vice versa), because
-// narrowing semantics make them functionally different grants. This is
-// the predicate the auth domain layer uses to gate user-management
-// mutations — a caller can mutate a target only when the caller's
-// effective permissions subsume the target's at the same scope, so the
-// caller could not gain capabilities by hijacking the target's session.
+// IsSubsumedBy reports whether every (permission key, resource scope)
+// the receiver can act under is also actionable by other. Scope-aware:
+// a permission held only at site 7 is *not* subsumed by the same key
+// held only at org scope (and vice versa), and — crucially —
+// other-side narrowing is treated as reducing coverage for the
+// receiver's org-scope keys at every site where other narrows. Without
+// that, a caller with org-scope SUPER_ADMIN plus a restrictive
+// FIELD_TECH assignment at site 7 would falsely subsume an org ADMIN
+// target whose ADMIN authority still applies at site 7 (the target
+// has no narrowing there, so its org-scope grants are live).
+//
+// The check covers two domains:
+//
+//  1. The org-scope action space. Every org-scope key the receiver
+//     holds must be held by other at org scope.
+//
+//  2. The site-scope action space at every site where either party
+//     narrows. For each such site s, the receiver's effective key set
+//     at s is its site-scope set if it has one (narrowing applies),
+//     otherwise its org-scope set; every such key must be actionable
+//     by other at s via the same narrowing-aware Has().
+//
+// Sites where neither party narrows are covered by the org-scope pass.
 func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
 	if e == nil {
 		return true
@@ -139,10 +153,25 @@ func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
 			return false
 		}
 	}
-	for siteID, perms := range e.bySite {
-		sid := siteID
+
+	relevantSites := make(map[int64]struct{}, len(e.bySite)+len(other.bySite))
+	for s := range e.bySite {
+		relevantSites[s] = struct{}{}
+	}
+	for s := range other.bySite {
+		relevantSites[s] = struct{}{}
+	}
+	for s := range relevantSites {
+		sid := s
 		rc := ResourceContext{SiteID: &sid}
-		for key := range perms {
+		keys := e.bySite[s]
+		if keys == nil {
+			// e has no narrowing at this site, so its org-scope grants
+			// apply here and become the action set that other must
+			// cover at this site.
+			keys = e.orgScope
+		}
+		for key := range keys {
 			if !other.Has(key, rc) {
 				return false
 			}

@@ -235,4 +235,16 @@ func TestEffective_IsSubsumedBy(t *testing.T) {
 		"a site-scope assignment that narrows away the target's key must NOT subsume the target")
 	require.True(t, authz.NewEffectivePermissions(nil).IsSubsumedBy(adminOrg),
 		"empty target is trivially subsumed by any caller")
+
+	// Caller-side narrowing must reduce coverage of the caller's
+	// org-scope grants at the narrowed site. Otherwise a caller with
+	// broad org-scope authority + a restrictive site assignment would
+	// falsely subsume a target whose org-scope authority is still live
+	// at that site.
+	callerOrgFullPlusNarrowSite7 := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage, authz.PermMinerReboot),
+		siteScope(7, authz.PermUserRead), // narrows site 7 to read-only
+	})
+	require.False(t, adminOrg.IsSubsumedBy(callerOrgFullPlusNarrowSite7),
+		"caller's site-7 narrowing strips miner:reboot, but the org-scope ADMIN target's miner:reboot authority remains live at site 7 — caller must not subsume target")
 }
