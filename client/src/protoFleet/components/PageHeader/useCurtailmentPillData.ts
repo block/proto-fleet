@@ -17,7 +17,7 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
   const [activeEvent, setActiveEvent] = useState<CurtailmentPillEvent | null>(null);
 
-  const refreshActiveCurtailment = useCallback(async () => {
+  const refreshActiveCurtailment = useCallback(async (): Promise<void> => {
     try {
       const response = await curtailmentClient.getActiveCurtailment(create(GetActiveCurtailmentRequestSchema, {}));
       setActiveEvent(mapCurtailmentPillEvent(response.event));
@@ -30,13 +30,12 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   }, [handleAuthErrors]);
 
   useEffect(() => {
-    const initialRefreshId = window.setTimeout(() => {
+    const refresh = (): void => {
       void refreshActiveCurtailment();
-    }, 0);
+    };
 
-    const intervalId = window.setInterval(() => {
-      void refreshActiveCurtailment();
-    }, POLL_INTERVAL_MS);
+    const initialRefreshId = window.setTimeout(refresh, 0);
+    const intervalId = window.setInterval(refresh, POLL_INTERVAL_MS);
 
     return () => {
       window.clearTimeout(initialRefreshId);

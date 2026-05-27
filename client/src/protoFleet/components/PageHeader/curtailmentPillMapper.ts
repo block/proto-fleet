@@ -1,5 +1,5 @@
+import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import type { CurtailmentEvent as ProtoCurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import type { CurtailmentPillEvent } from "@/protoFleet/components/PageHeader/curtailmentPillTypes";
 import {
   getCurtailmentEventEstimatedReductionKw,
   getCurtailmentEventScopeLabel,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import CurtailmentPill from "./CurtailmentPill";
@@ -39,7 +39,7 @@ function HeaderWidgets({
   dismissedSetup,
   onContinueSetup,
   schedulePillData,
-}: HeaderWidgetsProps) {
+}: HeaderWidgetsProps): ReactElement {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
 
   return (
@@ -60,7 +60,7 @@ function HeaderWidgets({
   );
 }
 
-const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps) => {
+function PageHeader({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps): ReactElement {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
@@ -142,6 +142,6 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
       ) : null}
     </>
   );
-};
+}
 
 export default PageHeader;
