@@ -83,6 +83,11 @@ const ManageBuildingModal = ({
   // (Re)load assignments when the modal opens.
   useEffect(() => {
     if (!open) return;
+    // State reset between buildings is handled by the host
+    // (BuildingModals) keying ManageBuildingModal on building.id so
+    // React unmounts/remounts on switch — avoids the setState-in-
+    // effect anti-pattern. Within a single mount, building.id is
+    // stable so this effect runs once.
     let cancelled = false;
     const controller = new AbortController();
     void listBuildingRacks({

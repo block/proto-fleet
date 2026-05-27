@@ -180,7 +180,11 @@ func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildin
 		return nil, "", fleeterror.NewInternalErrorf("failed to list building racks: %v", err)
 	}
 	var nextPageToken string
-	if int32(len(rows)) > pageSize {
+	// Compare in int space — pageSize is service-clamped to
+	// ListBuildingRacksMaxPageSize (1000), so the conversion is
+	// always safe. Cast pageSize → int rather than len(rows) → int32
+	// to keep gosec G115 happy.
+	if len(rows) > int(pageSize) {
 		// Trim the probe row and encode a cursor at the last in-page row.
 		rows = rows[:pageSize]
 		last := rows[len(rows)-1]

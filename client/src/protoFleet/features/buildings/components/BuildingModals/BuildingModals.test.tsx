@@ -8,21 +8,25 @@ import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/gener
 import { type BuildingModalsApi } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 
 // The ManageBuildingModal fetches building racks on mount — mock the API
-// surface so the host test doesn't hit a network path.
+// surface so the host test doesn't hit a network path. Module-level
+// mock fns keep function identity stable across renders so effects
+// that depend on them don't loop when synchronous setState fires
+// inside the effect body.
+const mockApi = {
+  listBuildingsBySite: vi.fn(),
+  listAllBuildings: vi.fn(),
+  getBuilding: vi.fn(),
+  listBuildingRacks: vi.fn(),
+  createBuilding: vi.fn(),
+  updateBuilding: vi.fn(),
+  deleteBuilding: vi.fn(),
+  assignRackToBuilding: vi.fn(),
+};
 vi.mock("@/protoFleet/api/buildings", async () => {
   const actual = await vi.importActual<typeof import("@/protoFleet/api/buildings")>("@/protoFleet/api/buildings");
   return {
     ...actual,
-    useBuildings: () => ({
-      listBuildingsBySite: vi.fn(),
-      listAllBuildings: vi.fn(),
-      getBuilding: vi.fn(),
-      listBuildingRacks: vi.fn(),
-      createBuilding: vi.fn(),
-      updateBuilding: vi.fn(),
-      deleteBuilding: vi.fn(),
-      assignRackToBuilding: vi.fn(),
-    }),
+    useBuildings: () => mockApi,
   };
 });
 

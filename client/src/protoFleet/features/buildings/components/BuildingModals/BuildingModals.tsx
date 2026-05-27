@@ -19,7 +19,14 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
       {/* ManageBuildingModal renders first so BuildingSettingsModal's portal
           lands later in the DOM and naturally stacks on top. */}
       {showManage && state.row.building ? (
+        // key on building.id remounts ManageBuildingModal when the
+        // host swaps to a different building without first closing
+        // (e.g. clicking a second row in the buildings table while
+        // the modal is open). The remount drops the prior building's
+        // entries / initialPlacementRef so Save can't fire against
+        // a stale snapshot in the load-pending window.
         <ManageBuildingModal
+          key={state.row.building.id.toString()}
           open
           building={state.row.building}
           siteName={state.siteName}
