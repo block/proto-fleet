@@ -112,6 +112,15 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// StrictlyDominates reports whether this EffectivePermissions
+// subsumes other AND holds at least one (key, scope) pair other does
+// not — i.e., a proper superset. Used as the no-role:manage branch of
+// the user-management parity check, where equal permission sets must
+// be rejected so peer-tier accounts can't manage each other.
+func (e *EffectivePermissions) StrictlyDominates(other *EffectivePermissions) bool {
+	return other.IsSubsumedBy(e) && !e.IsSubsumedBy(other)
+}
+
 // IsSubsumedBy reports whether every (permission key, scope) pair this
 // EffectivePermissions holds is also held by other. Scope is part of
 // the comparison: a permission held only at site 7 is *not* subsumed by

@@ -614,21 +614,19 @@ func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerU
 	return role, nil
 }
 
-// requireCallerCanManageTarget denies the mutation unless the caller's
-// effective permissions strictly exceed the target's at matching scope,
-// or the caller holds org-scope role:manage (the peer-management
-// bypass that lets SUPER_ADMIN — or any role granted role:manage —
-// manage equals). Equality without the bypass would turn CreateUser
-// into a way for ADMIN to mint new ADMINs and walk off with the temp
-// password.
+// requireCallerCanManageTarget enforces the user-management hierarchy:
+// callers with org-scope role:manage need only subsume the target;
+// everyone else must strictly dominate it. Without the strict-dominate
+// requirement, ADMIN (equal perms to a fresh ADMIN account) could mint
+// new ADMINs via CreateUser and walk off with the temp password.
 func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
-	if !targetEff.IsSubsumedBy(callerEff) {
-		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
-	}
 	if callerEff.Has(authz.PermRoleManage, authz.ResourceContext{}) {
+		if !targetEff.IsSubsumedBy(callerEff) {
+			return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
+		}
 		return nil
 	}
-	if callerEff.IsSubsumedBy(targetEff) {
+	if !callerEff.StrictlyDominates(targetEff) {
 		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
 	}
 	return nil

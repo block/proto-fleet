@@ -183,6 +183,27 @@ func TestEffective_FieldTechCanBlinkButNotReboot(t *testing.T) {
 	require.False(t, eff.Has(authz.PermUserManage, orgResource()))
 }
 
+func TestEffective_StrictlyDominates(t *testing.T) {
+	t.Parallel()
+
+	larger := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage),
+	})
+	smaller := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage),
+	})
+	equalToSmaller := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage),
+	})
+
+	require.True(t, larger.StrictlyDominates(smaller),
+		"a proper superset strictly dominates")
+	require.False(t, smaller.StrictlyDominates(larger),
+		"a proper subset does not dominate its superset")
+	require.False(t, smaller.StrictlyDominates(equalToSmaller),
+		"equality is not strict domination (this is what blocks peer-tier user management)")
+}
+
 func TestEffective_IsSubsumedBy(t *testing.T) {
 	t.Parallel()
 
