@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,14 +32,19 @@ type RunCmd struct {
 	clientFactory func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`
 	signals       []os.Signal                                                              `kong:"-"`
 	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
+	discoverer    discoverer                                                               `kong:"-"`
+
+	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 }
 
 type gatewayClient interface {
 	UploadHeartbeat(ctx context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error)
+	ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error)
+	ControlStream(ctx context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse]
 }
 
 func (r *RunCmd) Run(c *Context) error {
-	return r.run(c, os.Stderr)
+	return r.run(c, os.Stdout)
 }
 
 func (r *RunCmd) run(c *Context, stderr io.Writer) error {
@@ -54,10 +60,24 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		}
 	}
 	if len(r.signals) == 0 {
-		r.signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
+		// SIGHUP catches terminal-close so plugin children get the same
+		// orderly shutdown as Ctrl+C instead of being orphaned.
+		r.signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 	}
 	if r.parentCtx == nil {
 		r.parentCtx = context.Background()
+	}
+
+	// Resolve binary-adjacent plugins before touching disk state so
+	// misconfiguration fails fast.
+	exeDir := executableDir()
+	var resolvedPluginsDir string
+	if r.discoverer == nil {
+		resolved, resolveErr := resolvePluginsDir(exeDir)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		resolvedPluginsDir = resolved
 	}
 
 	path := fleetnodebootstrap.StatePath(c.StateDir)
@@ -73,8 +93,25 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	if resolvedPluginsDir != "" {
+		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
+	} else {
+		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
+	}
 
+	// Reap + spawn plugins inside the lock so a contending agent's reaper
+	// can't kill our children before we finish startup.
+	logger.Info("acquiring state lock", "state_dir", c.StateDir)
 	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
+		if resolvedPluginsDir != "" {
+			reapOrphanedPlugins(resolvedPluginsDir, logger)
+			disc, cleanup, bootstrapErr := newPluginDiscoverer(resolvedPluginsDir)
+			if bootstrapErr != nil {
+				return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
+			}
+			defer cleanup()
+			r.discoverer = disc
+		}
 		return r.runLocked(c, logger)
 	})
 }
@@ -88,9 +125,9 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 	if !exists || st.FleetNodeID == 0 || st.APIKey == "" {
 		return fmt.Errorf("state at %s became invalid between checks; re-run after `fleetnode enroll`", path)
 	}
-	// Validate on every entry, not just on the refresh path, so a tampered
-	// state cannot redirect bearer heartbeats to a plaintext non-loopback
-	// URL when the existing session_token is still fresh.
+	// Re-validate on every entry so a tampered state.yaml can't redirect
+	// bearer heartbeats to a plaintext non-loopback URL while the cached
+	// session_token is still fresh.
 	if err := fleetnodebootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return err
 	}
@@ -107,7 +144,12 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 		}
 	}
 
-	client, err := r.clientFactory(st.ServerURL, func() string { return st.SessionToken })
+	tokenSource := func() string {
+		r.stateMu.Lock()
+		defer r.stateMu.Unlock()
+		return st.SessionToken
+	}
+	client, err := r.clientFactory(st.ServerURL, tokenSource)
 	if err != nil {
 		return err
 	}
@@ -119,16 +161,23 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 		"session_expires_at", st.SessionExpiresAt.Format(time.RFC3339),
 	)
 
-	ticker := time.NewTicker(r.HeartbeatInterval)
-	defer ticker.Stop()
-
 	if err := r.tick(ctx, client, st, path, logger); err != nil {
 		return err
 	}
+
+	if err := r.runHeartbeatLoop(ctx, client, st, path, logger); err != nil {
+		return err
+	}
+	logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)
+	return nil
+}
+
+func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
+	ticker := time.NewTicker(r.HeartbeatInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)
 			return nil
 		case <-ticker.C:
 			if err := r.tick(ctx, client, st, path, logger); err != nil {
@@ -150,9 +199,16 @@ func (r *RunCmd) sessionNeedsRefresh(st *fleetnodebootstrap.State) bool {
 
 func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
 	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
-	if err := fleetnodebootstrap.Refresh(ctx, st); err != nil {
+	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
+	// stall the control loop's token reads.
+	next := *st
+	if err := fleetnodebootstrap.Refresh(ctx, &next); err != nil {
 		return err
 	}
+	r.stateMu.Lock()
+	st.SessionToken = next.SessionToken
+	st.SessionExpiresAt = next.SessionExpiresAt
+	r.stateMu.Unlock()
 	if err := fleetnodebootstrap.SaveState(path, st); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
@@ -160,11 +216,9 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.Stat
 	return nil
 }
 
-// tick runs one heartbeat cycle. A non-nil return signals a permanent
-// condition (server-side credential revoked or fleet_node deleted) that
-// the operator must resolve by re-enrolling; the daemon exits instead of
-// looping forever. Transient errors are logged and tick returns nil so
-// the next tick can retry.
+// tick runs one heartbeat cycle. A non-nil return is a permanent condition
+// (revoked credential / deleted fleet_node) that requires re-enrollment;
+// transient errors return nil so the next tick retries.
 func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
@@ -209,8 +263,12 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebo
 	return nil
 }
 
+const heartbeatTimeout = 30 * time.Second
+
 func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {
-	_, err := client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{
+	callCtx, cancel := context.WithTimeout(ctx, heartbeatTimeout)
+	defer cancel()
+	_, err := client.UploadHeartbeat(callCtx, connect.NewRequest(&pb.UploadHeartbeatRequest{
 		SentAt: timestamppb.New(r.now()),
 	}))
 	return err

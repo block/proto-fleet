@@ -55,6 +55,14 @@ func (s *stubGatewayClient) UploadHeartbeat(_ context.Context, req *connect.Requ
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{}), nil
 }
 
+func (s *stubGatewayClient) ReportDiscoveredDevices(_ context.Context, _ *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
+	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{}), nil
+}
+
+func (s *stubGatewayClient) ControlStream(_ context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse] {
+	return nil
+}
+
 func (s *stubGatewayClient) snapshot() (int, []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
