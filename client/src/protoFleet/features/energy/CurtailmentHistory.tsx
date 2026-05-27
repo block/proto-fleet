@@ -41,8 +41,12 @@ interface CurtailmentHistoryProps {
   events: CurtailmentHistoryEvent[];
   activeEventId?: string;
   pageSize?: number;
+  currentPage?: number;
+  hasNextPage?: boolean;
+  hasPreviousPage?: boolean;
   className?: string;
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
+  onPageChange?: (page: number) => void;
   /**
    * Called from the detail modal for the active non-terminal event. The parent
    * owns opening the edit flow with the selected event's values.
@@ -265,6 +269,10 @@ function getNormalizedPageSize(pageSize: number): number {
   return Number.isFinite(pageSize) && pageSize >= 1 ? Math.floor(pageSize) : defaultPageSize;
 }
 
+function getNormalizedPageIndex(page: number): number {
+  return Number.isFinite(page) && page > 0 ? Math.floor(page) : 0;
+}
+
 function isCurtailmentEventState(filter: string): filter is CurtailmentEventState {
   return statusFilterOptionIds.has(filter);
 }
@@ -447,8 +455,12 @@ function CurtailmentHistory({
   events,
   activeEventId,
   pageSize = defaultPageSize,
+  currentPage: controlledCurrentPage = 0,
+  hasNextPage: controlledHasNextPage = false,
+  hasPreviousPage: controlledHasPreviousPage,
   className,
   onViewEvent,
+  onPageChange,
   onManageActiveEvent,
   onStopActiveEvent,
 }: CurtailmentHistoryProps): ReactElement {
@@ -479,6 +491,7 @@ function CurtailmentHistory({
     pendingStopEvent && isActiveStoppableEvent(pendingStopEvent, activeEventId),
   );
   const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
+  const usesControlledPagination = Boolean(onPageChange);
 
   const filteredEvents = useMemo(() => {
     if (selectedStatusFilters.length === 0) {
@@ -491,30 +504,54 @@ function CurtailmentHistory({
 
   const sortedEvents = useMemo(() => sortHistoryEvents(filteredEvents, currentSort), [filteredEvents, currentSort]);
   const totalEvents = sortedEvents.length;
-  const pageCount = Math.max(Math.ceil(totalEvents / normalizedPageSize), 1);
-  const effectiveCurrentPage = Math.min(currentPage, pageCount - 1);
-  const firstVisibleEventIndex = effectiveCurrentPage * normalizedPageSize;
-  const visibleEvents = sortedEvents.slice(firstVisibleEventIndex, firstVisibleEventIndex + normalizedPageSize);
+  const pageCount = usesControlledPagination ? 1 : Math.max(Math.ceil(totalEvents / normalizedPageSize), 1);
+  const effectiveCurrentPage = usesControlledPagination
+    ? getNormalizedPageIndex(controlledCurrentPage)
+    : Math.min(currentPage, pageCount - 1);
+  const firstVisibleEventIndex = usesControlledPagination ? 0 : effectiveCurrentPage * normalizedPageSize;
+  const visibleEvents = usesControlledPagination
+    ? sortedEvents
+    : sortedEvents.slice(firstVisibleEventIndex, firstVisibleEventIndex + normalizedPageSize);
   const firstItemIndex = firstVisibleEventIndex + 1;
   const lastItemIndex = firstItemIndex + visibleEvents.length - 1;
-  const shouldRenderPagination = totalEvents > 0;
-  const hasPreviousPage = effectiveCurrentPage > 0;
-  const hasNextPage = lastItemIndex < totalEvents;
+  const serverFirstItemIndex = effectiveCurrentPage * normalizedPageSize + 1;
+  const serverLastItemIndex = serverFirstItemIndex + visibleEvents.length - 1;
+  const shouldRenderPagination = usesControlledPagination
+    ? events.length > 0 || effectiveCurrentPage > 0 || controlledHasNextPage
+    : totalEvents > 0;
+  const hasPreviousPage = usesControlledPagination
+    ? (controlledHasPreviousPage ?? effectiveCurrentPage > 0)
+    : effectiveCurrentPage > 0;
+  const hasNextPage = usesControlledPagination ? controlledHasNextPage : lastItemIndex < totalEvents;
 
   const handleStatusFilterChange = (filters: string[]) => {
     setSelectedStatusFilters(normalizeStatusFilters(filters));
-    setCurrentPage(0);
+    if (usesControlledPagination) {
+      onPageChange?.(0);
+    } else {
+      setCurrentPage(0);
+    }
   };
 
   const handleClearStatusFilters = () => handleStatusFilterChange([]);
 
   const handleSort = (field: HistoryColumn) => {
     setCurrentSort((previousSort) => getNextHistorySort(previousSort, field));
-    setCurrentPage(0);
+    if (usesControlledPagination) {
+      onPageChange?.(0);
+    } else {
+      setCurrentPage(0);
+    }
   };
 
-  const handlePageChange = (pageDelta: number) =>
+  const handlePageChange = (pageDelta: number) => {
+    if (usesControlledPagination) {
+      onPageChange?.(Math.max(effectiveCurrentPage + pageDelta, 0));
+      return;
+    }
+
     setCurrentPage((previousPage) => Math.min(Math.max(previousPage + pageDelta, 0), pageCount - 1));
+  };
 
   const handlePreviousPage = () => handlePageChange(-1);
 
@@ -660,7 +697,11 @@ function CurtailmentHistory({
       {shouldRenderPagination ? (
         <div className="flex flex-col items-center gap-4 pt-6 pb-6" data-testid="curtailment-history-pagination">
           <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}-{lastItemIndex} of {totalEvents} curtailment events
+            {visibleEvents.length === 0
+              ? "No curtailment events on this page"
+              : usesControlledPagination
+                ? `Showing ${serverFirstItemIndex}-${serverLastItemIndex} curtailment events`
+                : `Showing ${firstItemIndex}-${lastItemIndex} of ${totalEvents} curtailment events`}
           </span>
           <div className="flex gap-3">
             <Button

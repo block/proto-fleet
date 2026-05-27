@@ -42,6 +42,29 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByText("Showing 3-4 of 4 curtailment events")).toBeInTheDocument();
   });
 
+  it("uses controlled pagination without requiring a total count", async () => {
+    const user = userEvent.setup();
+    const onPageChange = vi.fn();
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents.slice(0, 2)}
+        pageSize={2}
+        currentPage={1}
+        hasPreviousPage
+        hasNextPage
+        onPageChange={onPageChange}
+      />,
+    );
+
+    expect(screen.getByText("Showing 3-4 curtailment events")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(2);
+
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(0);
+  });
+
   it("falls back to the default page size when pageSize is not finite", () => {
     render(<CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={Number.NaN} />);
 

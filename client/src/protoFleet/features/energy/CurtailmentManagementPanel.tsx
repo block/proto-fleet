@@ -1,4 +1,4 @@
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -48,23 +48,40 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     loadError,
     startError,
     stopError,
+    historyCurrentPage,
+    historyHasNextPage,
+    historyHasPreviousPage,
+    historyPageSize,
     refreshCurtailment,
+    goToHistoryPage,
     startCurtailment,
     stopCurtailment,
   } = useCurtailmentApi();
   const [showStartModal, setShowStartModal] = useState(false);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
+  const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const errorMessage = startError ?? stopError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
 
-  useEffect(() => {
+  const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
+    refreshAbortControllerRef.current?.abort();
     const abortController = new AbortController();
-    void refreshCurtailment({ signal: abortController.signal }).catch(() => {});
+    refreshAbortControllerRef.current = abortController;
 
-    return () => abortController.abort();
-  }, [refreshCurtailment]);
+    return operation(abortController.signal).finally(() => {
+      if (refreshAbortControllerRef.current === abortController) {
+        refreshAbortControllerRef.current = null;
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    void runAbortableRefresh((signal) => refreshCurtailment({ signal })).catch(() => {});
+
+    return () => refreshAbortControllerRef.current?.abort();
+  }, [refreshCurtailment, runAbortableRefresh]);
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction) => {
@@ -89,6 +106,13 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const handleHistoryStop = useCallback(
     (event: CurtailmentHistoryEvent) => stopCurtailment(event.id),
     [stopCurtailment],
+  );
+
+  const handleHistoryPageChange = useCallback(
+    (historyPage: number) => {
+      void runAbortableRefresh((signal) => goToHistoryPage(historyPage, { signal })).catch(() => {});
+    },
+    [goToHistoryPage, runAbortableRefresh],
   );
 
   const handleConfirmStop = useCallback(() => {
@@ -134,6 +158,11 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           <CurtailmentHistory
             activeEventId={activeEventId ?? undefined}
             events={historyEvents}
+            pageSize={historyPageSize}
+            currentPage={historyCurrentPage}
+            hasNextPage={historyHasNextPage}
+            hasPreviousPage={historyHasPreviousPage}
+            onPageChange={handleHistoryPageChange}
             onStopActiveEvent={handleHistoryStop}
           />
         </>

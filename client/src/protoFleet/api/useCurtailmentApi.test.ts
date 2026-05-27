@@ -175,15 +175,16 @@ describe("useCurtailmentApi", () => {
     );
   });
 
-  it("caps history refresh pagination", async () => {
-    mockListCurtailmentEvents.mockImplementation(() => {
-      const pageNumber = mockListCurtailmentEvents.mock.calls.length;
-
-      return Promise.resolve({
-        events: [curtailmentEvent({ eventUuid: `curt-page-${pageNumber}` })],
-        nextPageToken: `page-${pageNumber + 1}`,
+  it("loads only the first history page and paginates on demand", async () => {
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-1" })],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-2" })],
+        nextPageToken: "",
       });
-    });
 
     const { result } = renderHook(() => useCurtailmentApi());
 
@@ -191,17 +192,30 @@ describe("useCurtailmentApi", () => {
       await result.current.refreshCurtailment();
     });
 
-    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(5);
-    expect(result.current.historyEvents.map((event) => event.id)).toEqual([
-      "curt-page-1",
-      "curt-page-2",
-      "curt-page-3",
-      "curt-page-4",
-      "curt-page-5",
-    ]);
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(1);
+    expect(mockListCurtailmentEvents.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ pageSize: 50, pageToken: "" }),
+    );
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-1"]);
+    expect(result.current.historyCurrentPage).toBe(0);
+    expect(result.current.historyHasPreviousPage).toBe(false);
+    expect(result.current.historyHasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.goToHistoryPage(1);
+    });
+
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(2);
+    expect(mockListCurtailmentEvents.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ pageSize: 50, pageToken: "page-2" }),
+    );
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-2"]);
+    expect(result.current.historyCurrentPage).toBe(1);
+    expect(result.current.historyHasPreviousPage).toBe(true);
+    expect(result.current.historyHasNextPage).toBe(false);
   });
 
-  it("stops history pagination when page tokens repeat", async () => {
+  it("stops exposing next history pages when page tokens repeat", async () => {
     mockListCurtailmentEvents
       .mockResolvedValueOnce({
         events: [curtailmentEvent({ eventUuid: "curt-page-1" })],
@@ -218,9 +232,16 @@ describe("useCurtailmentApi", () => {
       await result.current.refreshCurtailment();
     });
 
+    expect(result.current.historyHasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.goToHistoryPage(1);
+    });
+
     expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(2);
     expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual(["", "page-2"]);
-    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-1", "curt-page-2"]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-2"]);
+    expect(result.current.historyHasNextPage).toBe(false);
   });
 
   it("passes refresh abort signals to curtailment requests", async () => {
