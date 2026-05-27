@@ -182,3 +182,36 @@ func TestEffective_FieldTechCanBlinkButNotReboot(t *testing.T) {
 	require.False(t, eff.Has(authz.PermMinerReboot, site(7)))
 	require.False(t, eff.Has(authz.PermUserManage, orgResource()))
 }
+
+func TestEffective_IsSubsumedBy(t *testing.T) {
+	t.Parallel()
+
+	superAdminOrg := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage, authz.PermMinerReboot),
+	})
+	adminOrg := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermMinerReboot),
+	})
+	adminOrgPlusSiteRoleManage := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermUserRead, authz.PermUserManage, authz.PermMinerReboot),
+		siteScope(7, authz.PermRoleManage),
+	})
+	siteOnlyMinerReboot := authz.NewEffectivePermissions([]authz.Assignment{
+		siteScope(7, authz.PermMinerReboot),
+	})
+
+	require.True(t, adminOrg.IsSubsumedBy(superAdminOrg),
+		"super_admin's catalog covers admin's org-scope keys")
+	require.False(t, superAdminOrg.IsSubsumedBy(adminOrg),
+		"admin lacks role:manage that super_admin holds at org scope")
+	require.False(t, superAdminOrg.IsSubsumedBy(adminOrgPlusSiteRoleManage),
+		"a caller's site-scoped role:manage must NOT subsume a target's org-scoped role:manage")
+	require.True(t, siteOnlyMinerReboot.IsSubsumedBy(superAdminOrg),
+		"org-scope grants narrow into the site scope when no site-scope assignment exists, so the org-only super_admin covers site-only miner:reboot")
+	require.False(t, siteOnlyMinerReboot.IsSubsumedBy(authz.NewEffectivePermissions([]authz.Assignment{
+		siteScope(7, authz.PermMinerRead), // narrowing at site 7 excludes miner:reboot
+	})),
+		"a site-scope assignment that narrows away the target's key must NOT subsume the target")
+	require.True(t, authz.NewEffectivePermissions(nil).IsSubsumedBy(adminOrg),
+		"empty target is trivially subsumed by any caller")
+}

@@ -112,6 +112,36 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// IsSubsumedBy reports whether every (permission key, scope) pair this
+// EffectivePermissions holds is also held by other. Scope is part of
+// the comparison: a permission held only at site 7 is *not* subsumed by
+// the same key held only at org scope (and vice versa), because
+// narrowing semantics make them functionally different grants. This is
+// the predicate the auth domain layer uses to gate user-management
+// mutations — a caller can mutate a target only when the caller's
+// effective permissions subsume the target's at the same scope, so the
+// caller could not gain capabilities by hijacking the target's session.
+func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
+	if e == nil {
+		return true
+	}
+	for key := range e.orgScope {
+		if !other.Has(key, ResourceContext{}) {
+			return false
+		}
+	}
+	for siteID, perms := range e.bySite {
+		sid := siteID
+		rc := ResourceContext{SiteID: &sid}
+		for key := range perms {
+			if !other.Has(key, rc) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // FlatKeys returns every distinct permission key the user holds across
 // every assignment, sorted lexicographically. UserInfo.permissions is
 // projected from this for the client's coarse "has the permission

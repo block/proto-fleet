@@ -548,38 +548,22 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// callerPermissionKeys resolves the caller's full set of permission
-// keys across every scope they hold in the org. The privilege-parity
-// check in CreateUser / ResetUserPassword / DeactivateUser uses this
-// against the target's keys. The resolver is consulted directly so the
-// service doesn't depend on the middleware's request-context plumbing.
-func (s *Service) callerPermissionKeys(ctx context.Context, userID, orgID int64) ([]string, error) {
-	eff, err := s.permResolver.LoadEffective(ctx, userID, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
-	}
-	return eff.FlatKeys(), nil
-}
-
 // requireCallerCanManageTarget enforces the rule that a caller may
 // only mutate a target user whose effective permissions are a subset
-// of the caller's. This prevents privilege escalation via password
-// reset / deactivation against an account that holds permissions the
-// caller does not (e.g., a custom role with role:manage).
+// of the caller's *at matching scope*. This prevents privilege
+// escalation via password reset / deactivation against an account that
+// holds permissions the caller does not (e.g., a custom role with
+// role:manage), and prevents a site-scoped grant from being laundered
+// into org-scoped authority by flattening keys across scopes.
 //
 // Role names are not consulted — the check operates on the underlying
-// permission keys, so operator-created custom roles get the right
-// treatment automatically. SUPER_ADMIN holds every permission in the
-// catalog and therefore always passes the subset check.
-func requireCallerCanManageTarget(callerKeys, targetKeys []string) error {
-	caller := make(map[string]struct{}, len(callerKeys))
-	for _, k := range callerKeys {
-		caller[k] = struct{}{}
-	}
-	for _, k := range targetKeys {
-		if _, ok := caller[k]; !ok {
-			return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
-		}
+// (key, scope) pairs, so operator-created custom roles and any future
+// builtin keys get the right treatment automatically. SUPER_ADMIN
+// holds every org-scope permission in the catalog and therefore
+// always passes the subset check.
+func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
+	if !targetEff.IsSubsumedBy(callerEff) {
+		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
 	}
 	return nil
 }
@@ -624,18 +608,22 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	}
 
 	// Privilege parity: the new user will hold every permission of the
-	// ADMIN role they're being assigned. The caller must already hold
-	// each of those permissions, otherwise CreateUser becomes an
-	// escalation primitive.
+	// ADMIN role they're being assigned, at org scope. The caller must
+	// already hold each of those permissions at org scope as well —
+	// otherwise CreateUser becomes an escalation primitive.
 	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
 	}
-	callerKeys, err := s.callerPermissionKeys(ctx, info.UserID, orgID)
+	targetEff := authz.NewEffectivePermissions([]authz.Assignment{{
+		ScopeType:   authz.ScopeOrg,
+		Permissions: targetKeys,
+	}})
+	callerEff, err := s.permResolver.LoadEffective(ctx, info.UserID, orgID)
 	if err != nil {
-		return nil, err
+		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
 	}
-	if err := requireCallerCanManageTarget(callerKeys, targetKeys); err != nil {
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return nil, err
 	}
 
@@ -785,18 +773,19 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}
 
 	// Privilege parity: the caller must hold every permission the
-	// target holds. Otherwise password reset becomes an escalation
-	// primitive — the caller could log in as a target whose role grants
-	// permissions the caller doesn't have.
+	// target holds at matching scope. Otherwise password reset becomes
+	// an escalation primitive — the caller could log in as a target
+	// whose role grants permissions the caller doesn't have at the
+	// scope where they'd matter.
 	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
 	}
-	callerKeys, err := s.callerPermissionKeys(ctx, info.UserID, orgID)
+	callerEff, err := s.permResolver.LoadEffective(ctx, info.UserID, orgID)
 	if err != nil {
-		return nil, err
+		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
 	}
-	if err := requireCallerCanManageTarget(callerKeys, targetEff.FlatKeys()); err != nil {
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return nil, err
 	}
 
@@ -899,19 +888,20 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	}
 
 	// Privilege parity: the caller must hold every permission the
-	// target holds. Otherwise deactivation becomes a denial-of-service
-	// primitive against accounts that hold permissions the caller can't
-	// reproduce (and a step toward escalation if the deactivation is
-	// followed by a fresh account claim).
+	// target holds at matching scope. Otherwise deactivation becomes a
+	// denial-of-service primitive against accounts that hold
+	// permissions the caller can't reproduce (and a step toward
+	// escalation if the deactivation is followed by a fresh account
+	// claim).
 	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
 	}
-	callerKeys, err := s.callerPermissionKeys(ctx, info.UserID, orgID)
+	callerEff, err := s.permResolver.LoadEffective(ctx, info.UserID, orgID)
 	if err != nil {
-		return nil, err
+		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
 	}
-	if err := requireCallerCanManageTarget(callerKeys, targetEff.FlatKeys()); err != nil {
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return nil, err
 	}
 

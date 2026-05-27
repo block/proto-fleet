@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/authn"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -869,36 +870,71 @@ func TestActivityLogging_UpdateUsernameLogsOldAndNew(t *testing.T) {
 func TestRequireCallerCanManageTarget(t *testing.T) {
 	t.Parallel()
 
-	superAdmin := []string{"user:read", "user:manage", "role:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"}
-	admin := []string{"user:read", "user:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"}
-	customWithRoleManage := []string{"user:read", "role:manage"} // dangerous escalation primitive
-	fieldTech := []string{"miner:read", "miner:blink_led"}
+	orgScope := func(perms ...string) authz.Assignment {
+		return authz.Assignment{ScopeType: authz.ScopeOrg, Permissions: perms}
+	}
+	siteScope := func(siteID int64, perms ...string) authz.Assignment {
+		sid := siteID
+		return authz.Assignment{ScopeType: authz.ScopeSite, SiteID: &sid, Permissions: perms}
+	}
+
+	superAdminOrg := []authz.Assignment{
+		orgScope("user:read", "user:manage", "role:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"),
+	}
+	adminOrg := []authz.Assignment{
+		orgScope("user:read", "user:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"),
+	}
+	customOrgWithRoleManage := []authz.Assignment{orgScope("user:read", "role:manage")}
+	fieldTechOrg := []authz.Assignment{orgScope("miner:read", "miner:blink_led")}
+
+	// Reviewer-flagged case: ADMIN at org-scope plus a site-scoped
+	// custom role granting role:manage *at one site*. The flattened-key
+	// approach would let this caller subsume a SUPER_ADMIN target whose
+	// role:manage is org-scoped, even though the caller cannot wield
+	// role:manage org-wide. Scope-aware comparison must reject.
+	adminOrgPlusSiteRoleManage := []authz.Assignment{
+		orgScope("user:read", "user:manage", "miner:reboot", "site:manage", "miner:read", "miner:blink_led"),
+		siteScope(7, "role:manage"),
+	}
 
 	cases := []struct {
 		name       string
-		caller     []string
-		target     []string
+		caller     []authz.Assignment
+		target     []authz.Assignment
 		wantDenied bool
 	}{
-		{"super admin manages super admin", superAdmin, superAdmin, false},
-		{"super admin manages admin", superAdmin, admin, false},
-		{"super admin manages field tech", superAdmin, fieldTech, false},
-		{"super admin manages custom-with-role-manage", superAdmin, customWithRoleManage, false},
-		{"admin manages field tech", admin, fieldTech, false},
-		{"admin manages peer admin (subset by equality)", admin, admin, false},
-		{"admin BLOCKED from custom-with-role-manage (escalation)", admin, customWithRoleManage, true},
-		{"admin cannot manage super admin", admin, superAdmin, true},
-		{"field tech cannot manage admin", fieldTech, admin, true},
-		{"field tech manages peer field tech", fieldTech, fieldTech, false},
-		{"empty caller cannot manage anyone with perms", nil, fieldTech, true},
-		{"anyone manages empty target", admin, nil, false},
+		{"super admin manages super admin", superAdminOrg, superAdminOrg, false},
+		{"super admin manages admin", superAdminOrg, adminOrg, false},
+		{"super admin manages field tech", superAdminOrg, fieldTechOrg, false},
+		{"super admin manages custom-with-role-manage", superAdminOrg, customOrgWithRoleManage, false},
+		{"admin manages field tech", adminOrg, fieldTechOrg, false},
+		{"admin manages peer admin", adminOrg, adminOrg, false},
+		{"admin BLOCKED from custom-with-org-role-manage (escalation)", adminOrg, customOrgWithRoleManage, true},
+		{"admin cannot manage super admin", adminOrg, superAdminOrg, true},
+		{"field tech cannot manage admin", fieldTechOrg, adminOrg, true},
+		{"field tech manages peer field tech", fieldTechOrg, fieldTechOrg, false},
+		{"empty caller cannot manage anyone with perms", nil, fieldTechOrg, true},
+		{"anyone manages empty target", adminOrg, nil, false},
+		{
+			"admin-with-site-scoped-role-manage cannot launder it into org authority over SUPER_ADMIN",
+			adminOrgPlusSiteRoleManage, superAdminOrg, true,
+		},
+		{
+			"site-scoped target requires site-scoped caller authority",
+			[]authz.Assignment{orgScope("user:manage")},
+			[]authz.Assignment{siteScope(7, "miner:reboot")},
+			true,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := requireCallerCanManageTarget(tc.caller, tc.target)
+			caller := authz.NewEffectivePermissions(tc.caller)
+			target := authz.NewEffectivePermissions(tc.target)
+
+			err := requireCallerCanManageTarget(caller, target)
 			if tc.wantDenied {
 				require.Error(t, err)
 				var fleetErr fleeterror.FleetError
