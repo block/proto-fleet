@@ -3,6 +3,7 @@ package curtailment
 import (
 	"testing"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,7 @@ import (
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 func TestHandler_GetActiveCurtailment_ReturnsActiveEvent(t *testing.T) {
@@ -18,7 +20,12 @@ func TestHandler_GetActiveCurtailment_ReturnsActiveEvent(t *testing.T) {
 	store := newStopStubStore()
 	store.activeEvent = store.event
 	h := NewHandler(domainCurtailment.NewService(store))
-	ctx := sessionCtx(42)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
 
 	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.NoError(t, err)
@@ -36,7 +43,12 @@ func TestHandler_GetActiveCurtailment_ReturnsEmptyWhenNoActiveEvent(t *testing.T
 	t.Parallel()
 	store := newStopStubStore()
 	h := NewHandler(domainCurtailment.NewService(store))
-	ctx := sessionCtx(42)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
 
 	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.NoError(t, err)
@@ -55,24 +67,17 @@ func TestHandler_GetActiveCurtailment_RejectsMissingSession(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
 }
 
-func TestHandler_GetActiveCurtailment_RejectsWithoutCurtailmentRead(t *testing.T) {
-	t.Parallel()
-	store := newStopStubStore()
-	h := NewHandler(domainCurtailment.NewService(store))
-
-	_, err := h.GetActiveCurtailment(sessionCtxWithPerms(42), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-}
-
 func TestHandler_GetActiveCurtailment_PropagatesStoreError(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
 	store.getActiveErr = fleeterror.NewInternalError("db down")
 	h := NewHandler(domainCurtailment.NewService(store))
-	ctx := sessionCtx(42)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
 
 	_, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.Error(t, err)
@@ -86,7 +91,12 @@ func TestHandler_GetActiveCurtailment_MapsRestoringEvent(t *testing.T) {
 	restoring.State = models.EventStateRestoring
 	store.activeEvent = &restoring
 	h := NewHandler(domainCurtailment.NewService(store))
-	ctx := sessionCtx(42)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
 
 	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.NoError(t, err)

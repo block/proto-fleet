@@ -21,7 +21,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
-	"github.com/block/proto-fleet/server/internal/domain/authz"
 )
 
 // ProcedurePermissions maps gated Connect procedures to the catalog
@@ -49,7 +48,6 @@ var ProcedurePermissions = map[string]string{
 	// RequirePermission. Empty entries are expected while the
 	// migration is in flight; the contract test catches missing
 	// classifications either way.
-	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure: authz.PermCurtailmentRead,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that
@@ -117,6 +115,7 @@ var ProceduresPendingMigration = map[string]string{
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure: "UNIMPLEMENTED STUB: returns Unimplemented with no gate; needs a real gate when implemented",
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:    "session-only + inline requireAdminFromContext",
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:  "ungated read",
+	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:   "ungated read",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
 
 	// DeviceSetService (racks) — ungated.
