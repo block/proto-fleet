@@ -6,7 +6,6 @@ import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
-import { useCurtailmentPillData } from "./useCurtailmentPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
@@ -18,6 +17,7 @@ import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage"
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
+  activeCurtailmentEvent?: CurtailmentPillEvent | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
@@ -60,7 +60,12 @@ function HeaderWidgets({
   );
 }
 
-function PageHeader({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps): ReactElement {
+function PageHeader({
+  activeCurtailmentEvent = null,
+  isMenuOpen,
+  openMenu,
+  schedulePillData,
+}: PageHeaderProps): ReactElement {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
@@ -75,7 +80,6 @@ function PageHeader({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
-  const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
 
   const fetchSites = useCallback(() => {
     const controller = new AbortController();

@@ -4,10 +4,12 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppLayout from "./AppLayout";
+import type { CurtailmentPillEvent } from "@/protoFleet/components/PageHeader/CurtailmentPill";
 import type { UseSchedulePillDataResult } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
+const mockUseCurtailmentPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
@@ -28,6 +30,10 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
   useSchedulePillData: () => mockUseSchedulePillData(),
 }));
 
+vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
+  useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   useWindowDimensions: () => mockUseWindowDimensions(),
 }));
@@ -45,12 +51,21 @@ const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = 
   ...overrides,
 });
 
+const activeCurtailmentEvent: CurtailmentPillEvent = {
+  reason: "Grid peak call",
+  state: "active",
+  scopeLabel: "Whole fleet",
+  selectedMiners: 48,
+  estimatedReductionKw: 126.4,
+};
+
 describe("AppLayout", () => {
   beforeEach(() => {
     mockUseWindowDimensions.mockReturnValue({
       isPhone: true,
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
   });
 
@@ -60,6 +75,20 @@ describe("AppLayout", () => {
         hasVisibleSchedules: true,
       }),
     );
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+57px)]");
+  });
+
+  it("offsets the phone content when an active curtailment makes the header widgets visible", () => {
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
 
     render(
       <MemoryRouter>

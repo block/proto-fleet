@@ -169,9 +169,9 @@ func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[p
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("GetActiveCurtailment")
 	}
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
 	event, targets, err := h.service.GetActiveWithTargets(ctx, info.OrganizationID)
 	if err != nil {
