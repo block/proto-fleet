@@ -1,0 +1,161 @@
+import { type ReactElement, useCallback, useEffect, useState } from "react";
+import clsx from "clsx";
+
+import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
+import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import CurtailmentStartModal, {
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentStopConfirmationDialog, {
+  type CurtailmentStopConfirmationAction,
+} from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import { Alert } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
+import ProgressCircular from "@/shared/components/ProgressCircular";
+
+interface CurtailmentManagementPanelProps {
+  className?: string;
+}
+
+interface PendingStopConfirmation {
+  action: CurtailmentStopConfirmationAction;
+  eventId: string;
+}
+
+interface CurtailmentMessageProps {
+  message: string;
+}
+
+function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
+      <Alert className="shrink-0 text-intent-warning-fill" />
+      <span className="text-emphasis-300">{message}</span>
+    </div>
+  );
+}
+
+function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelProps): ReactElement {
+  const {
+    activeEvent,
+    activeEventId,
+    historyEvents,
+    isLoading,
+    isStarting,
+    stoppingEventId,
+    loadError,
+    startError,
+    stopError,
+    refreshCurtailment,
+    startCurtailment,
+    stopCurtailment,
+  } = useCurtailmentApi();
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
+  const errorMessage = startError ?? stopError ?? loadError;
+  const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
+  const isStopConfirmationSubmitting =
+    pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
+
+  useEffect(() => {
+    void refreshCurtailment().catch(() => {});
+  }, [refreshCurtailment]);
+
+  const openStopConfirmation = useCallback(
+    (action: CurtailmentStopConfirmationAction) => {
+      if (!activeEventId) {
+        return;
+      }
+
+      setPendingStopConfirmation({ action, eventId: activeEventId });
+    },
+    [activeEventId],
+  );
+
+  const handleStartSubmit = useCallback(
+    (values: CurtailmentSubmitValues) => {
+      void startCurtailment(values)
+        .then(() => setShowStartModal(false))
+        .catch(() => {});
+    },
+    [startCurtailment],
+  );
+
+  const handleHistoryStop = useCallback(
+    (event: CurtailmentHistoryEvent) => stopCurtailment(event.id),
+    [stopCurtailment],
+  );
+
+  const handleConfirmStop = useCallback(() => {
+    if (!pendingStopConfirmation) {
+      return;
+    }
+
+    void stopCurtailment(pendingStopConfirmation.eventId)
+      .then(() => setPendingStopConfirmation(null))
+      .catch(() => {});
+  }, [pendingStopConfirmation, stopCurtailment]);
+
+  return (
+    <section className={clsx("grid gap-6", className)}>
+      <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
+        <Header title="Curtailment" titleSize="text-heading-300" />
+        <Button
+          variant={variants.primary}
+          size={sizes.base}
+          text="Plan curtailment"
+          onClick={() => setShowStartModal(true)}
+          disabled={isStarting}
+          className="phone:w-full"
+        />
+      </div>
+
+      {errorMessage ? <CurtailmentMessage message={errorMessage} /> : null}
+
+      {isInitialLoading ? (
+        <div className="flex justify-center py-12">
+          <ProgressCircular indeterminate />
+        </div>
+      ) : (
+        <>
+          {activeEvent ? (
+            <ActiveCurtailmentStatus
+              event={activeEvent}
+              onRequestRestore={() => openStopConfirmation("restore")}
+              onRequestStop={() => openStopConfirmation("stopCurtailment")}
+            />
+          ) : null}
+
+          <CurtailmentHistory
+            activeEventId={activeEventId ?? undefined}
+            events={historyEvents}
+            onStopActiveEvent={handleHistoryStop}
+          />
+        </>
+      )}
+
+      {showStartModal ? (
+        <CurtailmentStartModal
+          open
+          onDismiss={() => setShowStartModal(false)}
+          onSubmit={handleStartSubmit}
+          isSubmitting={isStarting}
+        />
+      ) : null}
+
+      {pendingStopConfirmation ? (
+        <CurtailmentStopConfirmationDialog
+          open
+          action={pendingStopConfirmation.action}
+          isSubmitting={isStopConfirmationSubmitting}
+          onCancel={() => setPendingStopConfirmation(null)}
+          onConfirm={handleConfirmStop}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+export default CurtailmentManagementPanel;

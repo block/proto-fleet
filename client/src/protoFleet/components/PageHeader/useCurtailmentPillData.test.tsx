@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 
 const { mockGetActiveCurtailment, mockHandleAuthErrors, mockMapCurtailmentPillEvent } = vi.hoisted(() => ({
@@ -92,5 +93,25 @@ describe("useCurtailmentPillData", () => {
     unmount();
 
     expect(requestOptions.signal.aborted).toBe(true);
+  });
+
+  it("refreshes immediately when curtailment changes", async () => {
+    mockGetActiveCurtailment.mockResolvedValue({ event: {} });
+
+    renderHook(() => useCurtailmentPillData());
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {});
+
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+    });
+    await act(async () => {});
+
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
   });
 });

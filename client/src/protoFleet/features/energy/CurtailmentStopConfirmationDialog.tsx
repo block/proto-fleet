@@ -9,6 +9,7 @@ export type CurtailmentStopConfirmationAction = "restore" | "stopCurtailment";
 interface CurtailmentStopConfirmationDialogProps {
   open: boolean;
   action: CurtailmentStopConfirmationAction;
+  isSubmitting?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -47,6 +48,7 @@ function getStopDialogCopy(action: CurtailmentStopConfirmationAction): StopDialo
 function CurtailmentStopConfirmationDialog({
   open,
   action,
+  isSubmitting = false,
   onCancel,
   onConfirm,
 }: CurtailmentStopConfirmationDialogProps): ReactElement {
@@ -63,11 +65,13 @@ function CurtailmentStopConfirmationDialog({
           text: "Cancel",
           variant: variants.secondary,
           onClick: onCancel,
+          disabled: isSubmitting,
         },
         {
           text: copy.confirmText,
           variant: copy.confirmVariant,
           onClick: onConfirm,
+          loading: isSubmitting,
         },
       ]}
     >

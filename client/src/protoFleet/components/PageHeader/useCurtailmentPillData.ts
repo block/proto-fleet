@@ -5,6 +5,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import { GetActiveCurtailmentRequestSchema } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -75,10 +76,12 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
 
     const initialRefreshId = window.setTimeout(refresh, 0);
     const intervalId = window.setInterval(refresh, POLL_INTERVAL_MS);
+    window.addEventListener(CURTAILMENT_CHANGED_EVENT, refresh);
 
     return () => {
       window.clearTimeout(initialRefreshId);
       window.clearInterval(intervalId);
+      window.removeEventListener(CURTAILMENT_CHANGED_EVENT, refresh);
       abortController.abort();
     };
   }, [refreshActiveCurtailment]);
