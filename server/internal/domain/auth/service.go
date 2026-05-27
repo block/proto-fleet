@@ -548,27 +548,13 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// requireCallerCanManageTarget enforces two conditions for the caller
-// to mutate the target:
-//
-//  1. Subset: every (key, scope) pair the target holds is also held by
-//     the caller. Reuses the narrowing-aware Has() inside
-//     IsSubsumedBy, so a site-scoped grant cannot be laundered into
-//     apparent org-scope authority.
-//
-//  2. Strict authority: the caller's permission set must be strictly
-//     larger than the target's, OR the caller must hold role:manage at
-//     org scope. Without this, peer-admin management is allowed by
-//     equality (ADMIN has exactly the ADMIN seed, so target.perms ==
-//     caller.perms for an ADMIN creating/resetting another ADMIN —
-//     ADMIN would be a CreateUser primitive that hands back a new
-//     account's temp password). org-scope role:manage is the explicit
-//     "I can manage equal peers" capability; SUPER_ADMIN holds it by
-//     default and operators can grant it to a custom role.
-//
-// Role names are not consulted — the check operates on the underlying
-// (key, scope) pairs, so operator-created custom roles and any future
-// builtin keys get the right treatment automatically.
+// requireCallerCanManageTarget denies the mutation unless the caller's
+// effective permissions strictly exceed the target's at matching scope,
+// or the caller holds org-scope role:manage (the peer-management
+// bypass that lets SUPER_ADMIN — or any role granted role:manage —
+// manage equals). Equality without the bypass would turn CreateUser
+// into a way for ADMIN to mint new ADMINs and walk off with the temp
+// password.
 func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
 	if !targetEff.IsSubsumedBy(callerEff) {
 		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
@@ -576,9 +562,6 @@ func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissio
 	if callerEff.Has(authz.PermRoleManage, authz.ResourceContext{}) {
 		return nil
 	}
-	// Subset is mutual ⇒ permission sets are equal ⇒ peer-tier
-	// management, which requires the org-scope role:manage bypass
-	// above.
 	if callerEff.IsSubsumedBy(targetEff) {
 		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
 	}
@@ -624,10 +607,8 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
 	}
 
-	// Privilege parity: the new user will hold every permission of the
-	// ADMIN role they're being assigned, at org scope. The caller must
-	// already hold each of those permissions at org scope as well —
-	// otherwise CreateUser becomes an escalation primitive.
+	// The new user inherits the ADMIN role's full permission set at
+	// org scope; the parity check below gates against the caller.
 	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
@@ -776,12 +757,10 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
 	}
 
-	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
-	// target to be a member of the caller's org so a SUPER_ADMIN cannot
-	// reset a password for a user in a different tenant. Only ErrNoRows
-	// means "not in caller's org" — other errors are transient store
-	// failures and must surface as Internal so callers retry instead of
-	// treating a backend hiccup as bad input.
+	// Cross-org guard: GetUserByExternalID is a global lookup. ErrNoRows
+	// here means the target isn't in the caller's org; mask as
+	// InvalidArgument to avoid leaking existence across tenants. Other
+	// errors are transient and must propagate as Internal.
 	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
@@ -789,11 +768,6 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
 
-	// Privilege parity: the caller must hold every permission the
-	// target holds at matching scope. Otherwise password reset becomes
-	// an escalation primitive — the caller could log in as a target
-	// whose role grants permissions the caller doesn't have at the
-	// scope where they'd matter.
 	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
@@ -891,12 +865,10 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
 	}
 
-	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
-	// target to belong to the caller's org so a SUPER_ADMIN cannot
-	// deactivate a user in a different tenant. Only ErrNoRows means
-	// "not in caller's org" — other errors are transient store failures
-	// and must surface as Internal so callers retry instead of treating
-	// a backend hiccup as bad input.
+	// Cross-org guard: GetUserByExternalID is a global lookup. ErrNoRows
+	// here means the target isn't in the caller's org; mask as
+	// InvalidArgument to avoid leaking existence across tenants. Other
+	// errors are transient and must propagate as Internal.
 	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
@@ -904,12 +876,6 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
 
-	// Privilege parity: the caller must hold every permission the
-	// target holds at matching scope. Otherwise deactivation becomes a
-	// denial-of-service primitive against accounts that hold
-	// permissions the caller can't reproduce (and a step toward
-	// escalation if the deactivation is followed by a fresh account
-	// claim).
 	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
