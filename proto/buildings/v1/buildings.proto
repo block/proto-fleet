@@ -212,7 +212,11 @@ message ListBuildingRacksRequest {
     // set (e.g. ManageBuildingModal seeding) loop until
     // next_page_token is empty.
     int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
-    string page_token = 3 [(buf.validate.field).string.max_len = 256];
+    // 2048 covers the worst-case server-issued cursor: base64-encoded
+    // JSON containing a rack label (up to 255 chars, potentially
+    // multi-byte) + id + struct overhead. The token is always server-
+    // issued so the cap is defensive, not a contract.
+    string page_token = 3 [(buf.validate.field).string.max_len = 2048];
 }
 
 // BuildingRack is the rack-in-building read shape used by the

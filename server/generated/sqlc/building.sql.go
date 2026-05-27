@@ -415,6 +415,7 @@ WHERE dsr.org_id = $1
     OR dsr.position_in_aisle >= $4::int
   )
 ORDER BY ds.label
+LIMIT 1
 `
 
 type ListRacksOutsideBuildingBoundsParams struct {
@@ -431,11 +432,12 @@ type ListRacksOutsideBuildingBoundsRow struct {
 	PositionInAisle sql.NullInt32
 }
 
-// Returns rack rows whose (aisle_index, position_in_aisle) would fall
-// outside the proposed (aisles, racks_per_aisle) layout. Used by
-// UpdateBuilding's shrink guard so an unbounded scan can't miss an
-// out-of-bounds rack hiding past the paged-list cap. Not LIMIT-bounded
-// because the layout cap (100×100 = 10k) already caps possible matches.
+// Returns the first rack row whose (aisle_index, position_in_aisle)
+// would fall outside the proposed (aisles, racks_per_aisle) layout.
+// Used by UpdateBuilding's shrink guard which only needs proof of
+// one orphan to reject the shrink — caller surfaces the label +
+// coordinates in the error and stops. LIMIT 1 keeps the scan cheap
+// on large buildings.
 func (q *Queries) ListRacksOutsideBuildingBounds(ctx context.Context, arg ListRacksOutsideBuildingBoundsParams) ([]ListRacksOutsideBuildingBoundsRow, error) {
 	rows, err := q.query(ctx, q.listRacksOutsideBuildingBoundsStmt, listRacksOutsideBuildingBounds,
 		arg.OrgID,

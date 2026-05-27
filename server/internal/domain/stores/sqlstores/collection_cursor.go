@@ -36,19 +36,25 @@ type buildingRackCursor struct {
 	ID    int64  `json:"id"`
 }
 
-func encodeBuildingRackCursor(c *buildingRackCursor) string {
+// encodeCursor / decodeCursor are the shared base64-JSON cursor
+// codec all paginated list stores use. The generic param makes
+// each call site self-documenting about the cursor shape it's
+// emitting. errLabel feeds the cursor-encode error log so a failed
+// encode names the offending list (rather than collapsing into a
+// generic "cursor encode failed" message).
+func encodeCursor[T any](c *T, errLabel string) string {
 	if c == nil {
 		return ""
 	}
 	data, err := json.Marshal(c)
 	if err != nil {
-		slog.Error("failed to encode building rack cursor", "error", err, "cursor_id", c.ID)
+		slog.Error("failed to encode cursor", "error", err, "cursor_type", errLabel)
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(data)
 }
 
-func decodeBuildingRackCursor(encoded string) (*buildingRackCursor, error) {
+func decodeCursor[T any](encoded string) (*T, error) {
 	if encoded == "" {
 		return nil, nil
 	}
@@ -56,69 +62,35 @@ func decodeBuildingRackCursor(encoded string) (*buildingRackCursor, error) {
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor encoding: %v", err)
 	}
-	var cursor buildingRackCursor
+	var cursor T
 	if err := json.Unmarshal(data, &cursor); err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor format: %v", err)
 	}
 	return &cursor, nil
 }
 
+// Thin wrappers preserve the named call-site signatures so the
+// existing store paths read clearly at a glance.
 func encodeCollectionCursor(c *collectionCursor) string {
-	if c == nil {
-		return ""
-	}
-	data, err := json.Marshal(c)
-	if err != nil {
-		slog.Error("failed to encode collection cursor", "error", err, "cursor_id", c.ID)
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(data)
+	return encodeCursor(c, "collection")
 }
 
 func decodeCollectionCursor(encoded string) (*collectionCursor, error) {
-	if encoded == "" {
-		return nil, nil
-	}
-
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor encoding: %v", err)
-	}
-
-	var cursor collectionCursor
-	if err := json.Unmarshal(data, &cursor); err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor format: %v", err)
-	}
-
-	return &cursor, nil
+	return decodeCursor[collectionCursor](encoded)
 }
 
 func encodeMemberCursor(c *memberCursor) string {
-	if c == nil {
-		return ""
-	}
-	data, err := json.Marshal(c)
-	if err != nil {
-		slog.Error("failed to encode member cursor", "error", err, "cursor_id", c.ID)
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(data)
+	return encodeCursor(c, "member")
 }
 
 func decodeMemberCursor(encoded string) (*memberCursor, error) {
-	if encoded == "" {
-		return nil, nil
-	}
+	return decodeCursor[memberCursor](encoded)
+}
 
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor encoding: %v", err)
-	}
+func encodeBuildingRackCursor(c *buildingRackCursor) string {
+	return encodeCursor(c, "building-rack")
+}
 
-	var cursor memberCursor
-	if err := json.Unmarshal(data, &cursor); err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid cursor format: %v", err)
-	}
-
-	return &cursor, nil
+func decodeBuildingRackCursor(encoded string) (*buildingRackCursor, error) {
+	return decodeCursor[buildingRackCursor](encoded)
 }
