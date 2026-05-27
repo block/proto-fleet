@@ -291,6 +291,26 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
   });
 
+  it("does not prepend a non-matching active event to filtered history", async () => {
+    const activeEvent = curtailmentEvent({ eventUuid: "curt-active", state: CurtailmentEventState.ACTIVE });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-completed",
+      state: CurtailmentEventState.COMPLETED,
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilter("completed");
+    });
+
+    expect(result.current.activeEventId).toBe("curt-active");
+    expect(result.current.historyStatusFilter).toBe("completed");
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
+  });
+
   it("keeps non-first history pages stable when mutation refresh fails", async () => {
     mockListCurtailmentEvents
       .mockResolvedValueOnce({

@@ -289,6 +289,13 @@ function createSnapshot(
   };
 }
 
+function shouldIncludeActiveEventInHistory(
+  activeEvent: ProtoCurtailmentEvent | undefined,
+  stateFilter: CurtailmentEventState | undefined,
+): boolean {
+  return !stateFilter || Boolean(activeEvent && mapCurtailmentEventState(activeEvent.state) === stateFilter);
+}
+
 function upsertHistoryEvent(
   events: CurtailmentHistoryEvent[],
   event: ProtoCurtailmentEvent,
@@ -437,7 +444,11 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           ]);
           assertNotAborted(signal);
 
-          const nextSnapshot = createSnapshot(activeResponse.event, historyPageResponse.events, historyPage === 0);
+          const nextSnapshot = createSnapshot(
+            activeResponse.event,
+            historyPageResponse.events,
+            historyPage === 0 && shouldIncludeActiveEventInHistory(activeResponse.event, stateFilter),
+          );
           if (requestId !== latestRefreshRequestIdRef.current) {
             return nextSnapshot;
           }
