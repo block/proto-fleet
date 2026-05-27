@@ -244,6 +244,40 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyHasNextPage).toBe(false);
   });
 
+  it("keeps non-first history pages stable when mutation refresh fails", async () => {
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-1" })],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-2" })],
+        nextPageToken: "",
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    mockStartCurtailment.mockResolvedValueOnce({ event: curtailmentEvent({ eventUuid: "curt-new" }) });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    await act(async () => {
+      await result.current.goToHistoryPage(1);
+    });
+
+    await act(async () => {
+      await result.current.startCurtailment(baseSubmitValues);
+    });
+
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(3);
+    expect(result.current.activeEventId).toBe("curt-new");
+    expect(result.current.historyCurrentPage).toBe(1);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-2"]);
+    expect(result.current.loadError).toBe("refresh failed");
+  });
+
   it("passes refresh abort signals to curtailment requests", async () => {
     const abortController = new AbortController();
 

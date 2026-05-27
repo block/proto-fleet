@@ -335,11 +335,14 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (event: ProtoCurtailmentEvent) => {
       const state = mapCurtailmentEventState(event.state);
       const nextActiveEvent = isActiveCurtailmentEventState(state) ? mapActiveCurtailmentEvent(event) : null;
+      const shouldUpdateHistoryPage = historyPaginationRef.current.currentPage === 0;
 
       updateSnapshot((current) => ({
         activeEvent: nextActiveEvent,
         activeEventId: nextActiveEvent ? event.eventUuid : null,
-        historyEvents: upsertHistoryEvent(current.historyEvents, event),
+        historyEvents: shouldUpdateHistoryPage
+          ? upsertHistoryEvent(current.historyEvents, event)
+          : current.historyEvents,
       }));
     },
     [updateSnapshot],
