@@ -175,6 +175,67 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it("caps history refresh pagination", async () => {
+    mockListCurtailmentEvents.mockImplementation(() => {
+      const pageNumber = mockListCurtailmentEvents.mock.calls.length;
+
+      return Promise.resolve({
+        events: [curtailmentEvent({ eventUuid: `curt-page-${pageNumber}` })],
+        nextPageToken: `page-${pageNumber + 1}`,
+      });
+    });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(5);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual([
+      "curt-page-1",
+      "curt-page-2",
+      "curt-page-3",
+      "curt-page-4",
+      "curt-page-5",
+    ]);
+  });
+
+  it("stops history pagination when page tokens repeat", async () => {
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-1" })],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-2" })],
+        nextPageToken: "page-2",
+      });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(2);
+    expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual(["", "page-2"]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-1", "curt-page-2"]);
+  });
+
+  it("passes refresh abort signals to curtailment requests", async () => {
+    const abortController = new AbortController();
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ signal: abortController.signal });
+    });
+
+    expect(mockGetActiveCurtailment.mock.calls[0][1]).toEqual({ signal: abortController.signal });
+    expect(mockListCurtailmentEvents.mock.calls[0][1]).toEqual({ signal: abortController.signal });
+  });
+
   it("starts and stops curtailment with refresh events", async () => {
     const changedListener = vi.fn();
     window.addEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);

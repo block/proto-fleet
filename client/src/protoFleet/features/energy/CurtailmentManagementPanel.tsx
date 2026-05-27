@@ -60,7 +60,10 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
 
   useEffect(() => {
-    void refreshCurtailment().catch(() => {});
+    const abortController = new AbortController();
+    void refreshCurtailment({ signal: abortController.signal }).catch(() => {});
+
+    return () => abortController.abort();
   }, [refreshCurtailment]);
 
   const openStopConfirmation = useCallback(

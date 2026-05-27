@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { emitCurtailmentChanged } from "@/protoFleet/api/curtailmentEvents";
@@ -31,6 +32,7 @@ import { useAuthErrors } from "@/protoFleet/store";
 
 export interface RefreshCurtailmentOptions {
   background?: boolean;
+  signal?: AbortSignal;
 }
 
 interface CurtailmentSnapshot {
@@ -57,6 +59,7 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
 }
 
 const historyPageSize = 200;
+const historyMaxPages = 5;
 const wattsPerKilowatt = 1000;
 
 function toError(error: unknown, fallbackMessage: string): Error {
@@ -66,6 +69,20 @@ function toError(error: unknown, fallbackMessage: string): Error {
   }
 
   return error instanceof Error ? error : new Error(fallbackMessage);
+}
+
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted.", "AbortError");
+  }
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return Boolean(
+    signal?.aborted &&
+    ((error instanceof DOMException && error.name === "AbortError") ||
+      (error instanceof ConnectError && error.code === Code.Canceled)),
+  );
 }
 
 function timestampToIsoString(timestamp?: Timestamp): string | undefined {
@@ -287,72 +304,95 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     }));
   }, []);
 
-  const listCurtailmentEvents = useCallback(async (): Promise<ProtoCurtailmentEvent[]> => {
+  const listCurtailmentEvents = useCallback(async (signal?: AbortSignal): Promise<ProtoCurtailmentEvent[]> => {
     const events: ProtoCurtailmentEvent[] = [];
+    const seenPageTokens = new Set<string>();
     let pageToken = "";
+    let pageCount = 0;
 
-    do {
+    while (pageCount < historyMaxPages && !seenPageTokens.has(pageToken)) {
+      assertNotAborted(signal);
+      seenPageTokens.add(pageToken);
+
       const response = await curtailmentClient.listCurtailmentEvents(
         create(ListCurtailmentEventsRequestSchema, {
           pageSize: historyPageSize,
           pageToken,
         }),
+        signal ? { signal } : undefined,
       );
+      assertNotAborted(signal);
+
       events.push(...response.events);
+      pageCount += 1;
       pageToken = response.nextPageToken;
-    } while (pageToken);
+    }
 
     return events;
   }, []);
 
-  const runRefresh = useCallback(() => {
-    if (inFlightRefreshRef.current) {
-      return inFlightRefreshRef.current;
-    }
-
-    const refreshPromise = (async () => {
-      try {
-        const [activeResponse, historyEvents] = await Promise.all([
-          curtailmentClient.getActiveCurtailment(create(GetActiveCurtailmentRequestSchema, {})),
-          listCurtailmentEvents(),
-        ]);
-        const nextSnapshot = createSnapshot(activeResponse.event, historyEvents);
-        setSnapshot(nextSnapshot);
-        setLoadError(null);
-        return nextSnapshot;
-      } catch (error) {
-        const resolvedError = handleFailure(error, "Failed to load curtailment data.");
-        setLoadError(resolvedError.message);
-        throw resolvedError;
+  const runRefresh = useCallback(
+    (signal?: AbortSignal) => {
+      if (inFlightRefreshRef.current) {
+        return inFlightRefreshRef.current;
       }
-    })();
 
-    inFlightRefreshRef.current = refreshPromise;
-    const clearInFlightRefresh = () => {
-      if (inFlightRefreshRef.current === refreshPromise) {
-        inFlightRefreshRef.current = null;
-      }
-    };
+      const refreshPromise = (async () => {
+        try {
+          const [activeResponse, historyEvents] = await Promise.all([
+            curtailmentClient.getActiveCurtailment(
+              create(GetActiveCurtailmentRequestSchema, {}),
+              signal ? { signal } : undefined,
+            ),
+            listCurtailmentEvents(signal),
+          ]);
+          assertNotAborted(signal);
 
-    void refreshPromise.then(clearInFlightRefresh, clearInFlightRefresh);
+          const nextSnapshot = createSnapshot(activeResponse.event, historyEvents);
+          setSnapshot(nextSnapshot);
+          setLoadError(null);
+          return nextSnapshot;
+        } catch (error) {
+          if (isAbortError(error, signal)) {
+            throw error;
+          }
 
-    return refreshPromise;
-  }, [handleFailure, listCurtailmentEvents]);
+          const resolvedError = handleFailure(error, "Failed to load curtailment data.");
+          setLoadError(resolvedError.message);
+          throw resolvedError;
+        }
+      })();
+
+      inFlightRefreshRef.current = refreshPromise;
+      const clearInFlightRefresh = () => {
+        if (inFlightRefreshRef.current === refreshPromise) {
+          inFlightRefreshRef.current = null;
+        }
+      };
+
+      void refreshPromise.then(clearInFlightRefresh, clearInFlightRefresh);
+
+      return refreshPromise;
+    },
+    [handleFailure, listCurtailmentEvents],
+  );
 
   const refreshCurtailment = useCallback(
-    async ({ background = false }: RefreshCurtailmentOptions = {}) => {
+    async ({ background = false, signal }: RefreshCurtailmentOptions = {}) => {
       if (background) {
-        return runRefresh();
+        return runRefresh(signal);
       }
 
       foregroundRefreshCountRef.current += 1;
       setIsLoading(true);
 
       try {
-        return await runRefresh();
+        return await runRefresh(signal);
       } finally {
         foregroundRefreshCountRef.current = Math.max(0, foregroundRefreshCountRef.current - 1);
-        setIsLoading(foregroundRefreshCountRef.current > 0);
+        if (!signal?.aborted) {
+          setIsLoading(foregroundRefreshCountRef.current > 0);
+        }
       }
     },
     [runRefresh],
