@@ -903,16 +903,16 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 		target     []authz.Assignment
 		wantDenied bool
 	}{
-		{"super admin manages super admin", superAdminOrg, superAdminOrg, false},
+		{"super admin manages super admin (peer via role:manage bypass)", superAdminOrg, superAdminOrg, false},
 		{"super admin manages admin", superAdminOrg, adminOrg, false},
 		{"super admin manages field tech", superAdminOrg, fieldTechOrg, false},
 		{"super admin manages custom-with-role-manage", superAdminOrg, customOrgWithRoleManage, false},
 		{"admin manages field tech", adminOrg, fieldTechOrg, false},
-		{"admin manages peer admin", adminOrg, adminOrg, false},
+		{"admin BLOCKED from peer admin (equality without role:manage)", adminOrg, adminOrg, true},
 		{"admin BLOCKED from custom-with-org-role-manage (escalation)", adminOrg, customOrgWithRoleManage, true},
 		{"admin cannot manage super admin", adminOrg, superAdminOrg, true},
 		{"field tech cannot manage admin", fieldTechOrg, adminOrg, true},
-		{"field tech manages peer field tech", fieldTechOrg, fieldTechOrg, false},
+		{"field tech BLOCKED from peer field tech (equality without role:manage)", fieldTechOrg, fieldTechOrg, true},
 		{"empty caller cannot manage anyone with perms", nil, fieldTechOrg, true},
 		{"anyone manages empty target", adminOrg, nil, false},
 		{
@@ -924,6 +924,18 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 			[]authz.Assignment{orgScope("user:manage")},
 			[]authz.Assignment{siteScope(7, "miner:reboot")},
 			true,
+		},
+		{
+			"custom role with org-scope role:manage manages peer with same set",
+			[]authz.Assignment{orgScope("user:read", "user:manage", "role:manage")},
+			[]authz.Assignment{orgScope("user:read", "user:manage", "role:manage")},
+			false,
+		},
+		{
+			"admin with operator-added extra perm manages vanilla admin (strict superset)",
+			[]authz.Assignment{orgScope("user:read", "user:manage", "miner:reboot", "miner:read", "miner:blink_led", "site:manage", "synthetic:extra")},
+			adminOrg,
+			false,
 		},
 	}
 

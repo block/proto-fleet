@@ -548,21 +548,38 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// requireCallerCanManageTarget enforces the rule that a caller may
-// only mutate a target user whose effective permissions are a subset
-// of the caller's *at matching scope*. This prevents privilege
-// escalation via password reset / deactivation against an account that
-// holds permissions the caller does not (e.g., a custom role with
-// role:manage), and prevents a site-scoped grant from being laundered
-// into org-scoped authority by flattening keys across scopes.
+// requireCallerCanManageTarget enforces two conditions for the caller
+// to mutate the target:
+//
+//  1. Subset: every (key, scope) pair the target holds is also held by
+//     the caller. Reuses the narrowing-aware Has() inside
+//     IsSubsumedBy, so a site-scoped grant cannot be laundered into
+//     apparent org-scope authority.
+//
+//  2. Strict authority: the caller's permission set must be strictly
+//     larger than the target's, OR the caller must hold role:manage at
+//     org scope. Without this, peer-admin management is allowed by
+//     equality (ADMIN has exactly the ADMIN seed, so target.perms ==
+//     caller.perms for an ADMIN creating/resetting another ADMIN —
+//     ADMIN would be a CreateUser primitive that hands back a new
+//     account's temp password). org-scope role:manage is the explicit
+//     "I can manage equal peers" capability; SUPER_ADMIN holds it by
+//     default and operators can grant it to a custom role.
 //
 // Role names are not consulted — the check operates on the underlying
 // (key, scope) pairs, so operator-created custom roles and any future
-// builtin keys get the right treatment automatically. SUPER_ADMIN
-// holds every org-scope permission in the catalog and therefore
-// always passes the subset check.
+// builtin keys get the right treatment automatically.
 func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
 	if !targetEff.IsSubsumedBy(callerEff) {
+		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
+	}
+	if callerEff.Has(authz.PermRoleManage, authz.ResourceContext{}) {
+		return nil
+	}
+	// Subset is mutual ⇒ permission sets are equal ⇒ peer-tier
+	// management, which requires the org-scope role:manage bypass
+	// above.
+	if callerEff.IsSubsumedBy(targetEff) {
 		return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
 	}
 	return nil
