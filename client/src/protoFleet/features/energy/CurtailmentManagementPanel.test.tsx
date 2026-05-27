@@ -11,6 +11,7 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 const mocks = vi.hoisted(() => ({
   goToHistoryPage: vi.fn(),
   refreshCurtailment: vi.fn(),
+  setHistoryStatusFilter: vi.fn(),
   startCurtailment: vi.fn(),
   stopCurtailment: vi.fn(),
   submitValues: { reason: "Grid peak" },
@@ -41,7 +42,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     hasNextPage,
     hasPreviousPage,
     pageSize,
+    selectedStatusFilter,
     onPageChange,
+    onStatusFilterChange,
     onStopActiveEvent,
   }: {
     currentPage?: number;
@@ -49,7 +52,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     hasNextPage?: boolean;
     hasPreviousPage?: boolean;
     pageSize?: number;
+    selectedStatusFilter?: string;
     onPageChange?: (page: number) => void;
+    onStatusFilterChange?: (filter?: string) => void;
     onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
   }) => (
     <div data-testid="curtailment-history">
@@ -57,9 +62,13 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
       <div data-testid="history-page-size">{pageSize}</div>
       <div data-testid="history-has-next">{String(hasNextPage)}</div>
       <div data-testid="history-has-previous">{String(hasPreviousPage)}</div>
+      <div data-testid="history-status-filter">{selectedStatusFilter ?? ""}</div>
       <div data-testid="history-events">{events.map((event) => event.id).join(",")}</div>
       <button type="button" onClick={() => onPageChange?.(2)}>
         Load page 2
+      </button>
+      <button type="button" onClick={() => onStatusFilterChange?.("completed")}>
+        Filter completed
       </button>
       <button type="button" disabled={events.length === 0} onClick={() => onStopActiveEvent?.(events[0])}>
         Stop history event
@@ -114,6 +123,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     historyPageSize: 50,
     refreshCurtailment: mocks.refreshCurtailment as UseCurtailmentApiResult["refreshCurtailment"],
     goToHistoryPage: mocks.goToHistoryPage as UseCurtailmentApiResult["goToHistoryPage"],
+    setHistoryStatusFilter: mocks.setHistoryStatusFilter as UseCurtailmentApiResult["setHistoryStatusFilter"],
     startCurtailment: mocks.startCurtailment as UseCurtailmentApiResult["startCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
     ...overrides,
@@ -125,6 +135,7 @@ describe("CurtailmentManagementPanel", () => {
     vi.clearAllMocks();
     mocks.refreshCurtailment.mockResolvedValue(emptySnapshot);
     mocks.goToHistoryPage.mockResolvedValue(emptySnapshot);
+    mocks.setHistoryStatusFilter.mockResolvedValue(emptySnapshot);
     mocks.startCurtailment.mockResolvedValue({});
     mocks.stopCurtailment.mockResolvedValue({});
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
@@ -215,5 +226,23 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Load page 2" }));
 
     expect(mocks.goToHistoryPage).toHaveBeenCalledWith(2, { signal: expect.any(AbortSignal) });
+  });
+
+  it("passes status filters through to the curtailment API hook", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        historyEvents: [historyEvent],
+        historyStatusFilter: "active",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    expect(screen.getByTestId("history-status-filter")).toHaveTextContent("active");
+
+    await user.click(screen.getByRole("button", { name: "Filter completed" }));
+
+    expect(mocks.setHistoryStatusFilter).toHaveBeenCalledWith("completed", { signal: expect.any(AbortSignal) });
   });
 });

@@ -19,17 +19,31 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
   const [activeEvent, setActiveEvent] = useState<CurtailmentPillEvent | null>(null);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
+  const pendingFreshRefreshRef = useRef(false);
 
   const refreshActiveCurtailment = useCallback(
-    (signal: AbortSignal): Promise<void> => {
+    (signal: AbortSignal, forceFresh = false): Promise<void> => {
       if (signal.aborted) {
         return Promise.resolve();
       }
 
       if (inFlightRefreshRef.current) {
-        return inFlightRefreshRef.current;
+        if (!forceFresh) {
+          return inFlightRefreshRef.current;
+        }
+
+        pendingFreshRefreshRef.current = true;
+        return inFlightRefreshRef.current.then(() => {
+          if (!pendingFreshRefreshRef.current || signal.aborted) {
+            return;
+          }
+
+          pendingFreshRefreshRef.current = false;
+          return refreshActiveCurtailment(signal, true);
+        });
       }
 
+      pendingFreshRefreshRef.current = false;
       const refreshPromise = (async (): Promise<void> => {
         try {
           const response = await curtailmentClient.getActiveCurtailment(create(GetActiveCurtailmentRequestSchema, {}), {
@@ -66,15 +80,18 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
     const refresh = (): void => {
       void refreshActiveCurtailment(abortController.signal);
     };
+    const refreshAfterCurtailmentChange = (): void => {
+      void refreshActiveCurtailment(abortController.signal, true);
+    };
 
     const initialRefreshId = window.setTimeout(refresh, 0);
     const intervalId = window.setInterval(refresh, POLL_INTERVAL_MS);
-    window.addEventListener(CURTAILMENT_CHANGED_EVENT, refresh);
+    window.addEventListener(CURTAILMENT_CHANGED_EVENT, refreshAfterCurtailmentChange);
 
     return () => {
       window.clearTimeout(initialRefreshId);
       window.clearInterval(intervalId);
-      window.removeEventListener(CURTAILMENT_CHANGED_EVENT, refresh);
+      window.removeEventListener(CURTAILMENT_CHANGED_EVENT, refreshAfterCurtailmentChange);
       abortController.abort();
     };
   }, [refreshActiveCurtailment]);

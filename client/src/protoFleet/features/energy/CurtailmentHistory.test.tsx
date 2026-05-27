@@ -57,6 +57,9 @@ describe("CurtailmentHistory", () => {
     );
 
     expect(screen.getByText("Showing 3–4 curtailment events")).toBeInTheDocument();
+    expect(screen.getByTestId("filter-dropdown-Status")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Target vs actual" })).not.toBeInTheDocument();
+    expect(screen.getByText("Target vs actual")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(onPageChange).toHaveBeenLastCalledWith(2);
@@ -72,19 +75,11 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
-  it("sorts history rows by target reduction", async () => {
-    const user = userEvent.setup();
+  it("renders non-sortable column headers", () => {
     render(<CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={4} />);
 
-    const targetHeader = screen.getByRole("button", { name: "Target vs actual" });
-
-    expect(targetHeader).toHaveClass("text-emphasis-300");
-
-    await user.click(targetHeader);
-
-    const rows = getRenderedRows();
-    expect(within(rows[0]).getByText("Grid peak call")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("High price zone")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Target vs actual" })).not.toBeInTheDocument();
+    expect(screen.getByText("Target vs actual")).toBeInTheDocument();
   });
 
   it("filters history rows by status and clears the filter", async () => {
@@ -102,6 +97,24 @@ describe("CurtailmentHistory", () => {
 
     expect(screen.getByText("ERCOT ERS obligation")).toBeInTheDocument();
     expect(getRenderedRows()).toHaveLength(mockCurtailmentHistoryEvents.length);
+  });
+
+  it("delegates controlled status filter changes without filtering the current page locally", async () => {
+    const user = userEvent.setup();
+    const onStatusFilterChange = vi.fn();
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents.slice(0, 2)}
+        onPageChange={vi.fn()}
+        onStatusFilterChange={onStatusFilterChange}
+      />,
+    );
+
+    await user.click(screen.getByTestId("filter-dropdown-Status"));
+    await user.click(screen.getByTestId("filter-option-completed"));
+
+    expect(onStatusFilterChange).toHaveBeenCalledWith("completed");
+    expect(screen.getByText("ERCOT ERS obligation")).toBeInTheDocument();
   });
 
   it("renders high-priority events with singular miner counts", async () => {

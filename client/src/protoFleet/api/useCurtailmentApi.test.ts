@@ -244,6 +244,53 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyHasNextPage).toBe(false);
   });
 
+  it("sends the server history status filter and resets pagination", async () => {
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-1" })],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        events: [curtailmentEvent({ eventUuid: "curt-page-2" })],
+        nextPageToken: "",
+      })
+      .mockResolvedValueOnce({
+        events: [
+          curtailmentEvent({
+            eventUuid: "curt-completed",
+            state: CurtailmentEventState.COMPLETED,
+          }),
+        ],
+        nextPageToken: "",
+      });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    await act(async () => {
+      await result.current.goToHistoryPage(1);
+    });
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilter("completed");
+    });
+
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(3);
+    expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual(["", "page-2", ""]);
+    expect(mockListCurtailmentEvents.mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        pageSize: 50,
+        stateFilter: CurtailmentEventState.COMPLETED,
+      }),
+    );
+    expect(result.current.historyCurrentPage).toBe(0);
+    expect(result.current.historyStatusFilter).toBe("completed");
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
+  });
+
   it("keeps non-first history pages stable when mutation refresh fails", async () => {
     mockListCurtailmentEvents
       .mockResolvedValueOnce({

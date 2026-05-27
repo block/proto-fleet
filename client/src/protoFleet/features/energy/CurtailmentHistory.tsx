@@ -8,11 +8,9 @@ import {
   curtailmentEventStates,
   formatCurtailmentMinerCount as formatMinerCount,
   formatCurtailmentTargetVsActual as formatTargetVsActual,
-  getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { ChevronDown } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
@@ -44,9 +42,11 @@ interface CurtailmentHistoryProps {
   currentPage?: number;
   hasNextPage?: boolean;
   hasPreviousPage?: boolean;
+  selectedStatusFilter?: CurtailmentEventState;
   className?: string;
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
   onPageChange?: (page: number) => void;
+  onStatusFilterChange?: (filter?: CurtailmentEventState) => void;
   /**
    * Called from the detail modal for the active non-terminal event. The parent
    * owns opening the edit flow with the selected event's values.
@@ -116,8 +116,6 @@ const statusFilterOptionIds = new Set<string>(curtailmentEventStates);
 const historyColumns = ["event", "scope", "target", "state"] as const;
 
 type HistoryColumn = (typeof historyColumns)[number];
-type HistorySort = { field: HistoryColumn; direction: "asc" | "desc" };
-type HistorySortValue = string | number;
 
 const historyColumnLabels: Record<HistoryColumn, string> = {
   event: "Event",
@@ -194,31 +192,6 @@ function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
   return event.state === "pending" ? "Waiting to start" : "Time unavailable";
 }
 
-function getHistoryColumnSortValue(event: CurtailmentHistoryEvent, field: HistoryColumn): HistorySortValue {
-  switch (field) {
-    case "event":
-      return `${event.reason} ${event.id}`;
-    case "scope":
-      return `${event.scopeLabel} ${event.selectedMiners}`;
-    case "target":
-      return getTargetKw(event);
-    case "state":
-      return curtailmentEventStateConfigs[event.state].order;
-  }
-}
-
-function getDefaultHistorySortDirection(field: HistoryColumn): HistorySort["direction"] {
-  return field === "target" ? "desc" : "asc";
-}
-
-function compareSortValues(left: HistorySortValue, right: HistorySortValue): number {
-  if (typeof left === "number" && typeof right === "number") {
-    return left - right;
-  }
-
-  return collator.compare(String(left), String(right));
-}
-
 function getSortTime(event: CurtailmentHistoryEvent): number {
   return (
     getDateTime(event.startedAt)?.getTime() ??
@@ -233,20 +206,8 @@ function compareStartedAtDesc(left: CurtailmentHistoryEvent, right: CurtailmentH
   return dateComparison || collator.compare(left.id, right.id);
 }
 
-function sortHistoryEvents(events: CurtailmentHistoryEvent[], currentSort?: HistorySort): CurtailmentHistoryEvent[] {
-  return [...events].sort((left, right) => {
-    if (!currentSort) {
-      return compareStartedAtDesc(left, right);
-    }
-
-    const sortComparison = compareSortValues(
-      getHistoryColumnSortValue(left, currentSort.field),
-      getHistoryColumnSortValue(right, currentSort.field),
-    );
-    const directionalComparison = currentSort.direction === "asc" ? sortComparison : -sortComparison;
-
-    return directionalComparison || compareStartedAtDesc(left, right);
-  });
+function sortHistoryEvents(events: CurtailmentHistoryEvent[]): CurtailmentHistoryEvent[] {
+  return [...events].sort(compareStartedAtDesc);
 }
 
 function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventId?: string): boolean {
@@ -279,14 +240,6 @@ function isCurtailmentEventState(filter: string): filter is CurtailmentEventStat
 
 function normalizeStatusFilters(filters: string[]): CurtailmentEventState[] {
   return filters.filter(isCurtailmentEventState);
-}
-
-function getNextHistorySort(previousSort: HistorySort | undefined, field: HistoryColumn): HistorySort {
-  if (previousSort?.field !== field) {
-    return { field, direction: getDefaultHistorySortDirection(field) };
-  }
-
-  return { field, direction: previousSort.direction === "asc" ? "desc" : "asc" };
 }
 
 function shouldIgnoreRowActivation(eventTarget: EventTarget | null, currentTarget: HTMLTableRowElement): boolean {
@@ -458,20 +411,20 @@ function CurtailmentHistory({
   currentPage: controlledCurrentPage = 0,
   hasNextPage: controlledHasNextPage = false,
   hasPreviousPage: controlledHasPreviousPage,
+  selectedStatusFilter,
   className,
   onViewEvent,
   onPageChange,
+  onStatusFilterChange,
   onManageActiveEvent,
   onStopActiveEvent,
 }: CurtailmentHistoryProps): ReactElement {
-  const [selectedStatusFilters, setSelectedStatusFilters] = useState<CurtailmentEventState[]>([]);
-  const [currentSort, setCurrentSort] = useState<HistorySort | undefined>();
+  const [localSelectedStatusFilters, setLocalSelectedStatusFilters] = useState<CurtailmentEventState[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedDetailEventId, setSelectedDetailEventId] = useState<string>();
   const [selectedStopEventId, setSelectedStopEventId] = useState<string>();
   const [pendingStopEventId, setPendingStopEventId] = useState<string>();
   const normalizedPageSize = getNormalizedPageSize(pageSize);
-  const hasActiveFilters = selectedStatusFilters.length > 0;
   const selectedDetailEvent = useMemo(
     () => events.find((event) => event.id === selectedDetailEventId),
     [events, selectedDetailEventId],
@@ -492,17 +445,23 @@ function CurtailmentHistory({
   );
   const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
   const usesControlledPagination = Boolean(onPageChange);
+  const usesServerStatusFilter = Boolean(onStatusFilterChange);
+  const selectedStatusFilters = useMemo(
+    () => (usesServerStatusFilter ? (selectedStatusFilter ? [selectedStatusFilter] : []) : localSelectedStatusFilters),
+    [localSelectedStatusFilters, selectedStatusFilter, usesServerStatusFilter],
+  );
+  const hasActiveFilters = selectedStatusFilters.length > 0;
 
   const filteredEvents = useMemo(() => {
-    if (selectedStatusFilters.length === 0) {
+    if (usesServerStatusFilter || selectedStatusFilters.length === 0) {
       return events;
     }
 
     const filterSet = new Set(selectedStatusFilters);
     return events.filter((event) => filterSet.has(event.state));
-  }, [events, selectedStatusFilters]);
+  }, [events, selectedStatusFilters, usesServerStatusFilter]);
 
-  const sortedEvents = useMemo(() => sortHistoryEvents(filteredEvents, currentSort), [filteredEvents, currentSort]);
+  const sortedEvents = useMemo(() => sortHistoryEvents(filteredEvents), [filteredEvents]);
   const totalEvents = sortedEvents.length;
   const pageCount = usesControlledPagination ? 1 : Math.max(Math.ceil(totalEvents / normalizedPageSize), 1);
   const effectiveCurrentPage = usesControlledPagination
@@ -525,7 +484,13 @@ function CurtailmentHistory({
   const hasNextPage = usesControlledPagination ? controlledHasNextPage : lastItemIndex < totalEvents;
 
   const handleStatusFilterChange = (filters: string[]) => {
-    setSelectedStatusFilters(normalizeStatusFilters(filters));
+    const nextFilters = normalizeStatusFilters(filters);
+    if (usesServerStatusFilter) {
+      onStatusFilterChange?.(nextFilters[nextFilters.length - 1]);
+      return;
+    }
+
+    setLocalSelectedStatusFilters(nextFilters);
     if (usesControlledPagination) {
       onPageChange?.(0);
     } else {
@@ -534,15 +499,6 @@ function CurtailmentHistory({
   };
 
   const handleClearStatusFilters = () => handleStatusFilterChange([]);
-
-  const handleSort = (field: HistoryColumn) => {
-    setCurrentSort((previousSort) => getNextHistorySort(previousSort, field));
-    if (usesControlledPagination) {
-      onPageChange?.(0);
-    } else {
-      setCurrentPage(0);
-    }
-  };
 
   const handlePageChange = (pageDelta: number) => {
     if (usesControlledPagination) {
@@ -648,22 +604,7 @@ function CurtailmentHistory({
             <tr className="border-b border-border-5 text-text-primary-50">
               {historyColumns.map((column) => (
                 <th key={column} className="py-3 pr-6 font-normal">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 text-left text-emphasis-300 text-text-primary-50 hover:text-text-primary"
-                    onClick={() => handleSort(column)}
-                  >
-                    {historyColumnLabels[column]}
-                    {currentSort?.field === column ? (
-                      <ChevronDown
-                        aria-hidden="true"
-                        className={clsx("transition-transform", {
-                          "rotate-180": currentSort.direction === "asc",
-                        })}
-                        width={iconSizes.xSmall}
-                      />
-                    ) : null}
-                  </button>
+                  <span className="text-emphasis-300 text-text-primary-50">{historyColumnLabels[column]}</span>
                 </th>
               ))}
               <th className="w-24 py-3 font-normal" aria-label="Actions" />

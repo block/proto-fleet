@@ -3,6 +3,7 @@ import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentStartModal, {
   type CurtailmentSubmitValues,
@@ -52,8 +53,10 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     historyHasNextPage,
     historyHasPreviousPage,
     historyPageSize,
+    historyStatusFilter,
     refreshCurtailment,
     goToHistoryPage,
+    setHistoryStatusFilter,
     startCurtailment,
     stopCurtailment,
   } = useCurtailmentApi();
@@ -115,6 +118,13 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     [goToHistoryPage, runAbortableRefresh],
   );
 
+  const handleHistoryStatusFilterChange = useCallback(
+    (stateFilter?: CurtailmentEventState) => {
+      void runAbortableRefresh((signal) => setHistoryStatusFilter(stateFilter, { signal })).catch(() => {});
+    },
+    [runAbortableRefresh, setHistoryStatusFilter],
+  );
+
   const handleConfirmStop = useCallback(() => {
     if (!pendingStopConfirmation) {
       return;
@@ -162,7 +172,9 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
             currentPage={historyCurrentPage}
             hasNextPage={historyHasNextPage}
             hasPreviousPage={historyHasPreviousPage}
+            selectedStatusFilter={historyStatusFilter}
             onPageChange={handleHistoryPageChange}
+            onStatusFilterChange={handleHistoryStatusFilterChange}
             onStopActiveEvent={handleHistoryStop}
           />
         </>

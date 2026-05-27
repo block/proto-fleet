@@ -114,4 +114,45 @@ describe("useCurtailmentPillData", () => {
 
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
   });
+
+  it("queues a fresh refresh when curtailment changes during an in-flight poll", async () => {
+    let resolveFirstRequest: (value: { event: unknown }) => void = () => {};
+    let resolveSecondRequest: (value: { event: unknown }) => void = () => {};
+    mockGetActiveCurtailment
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstRequest = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecondRequest = resolve;
+          }),
+      );
+
+    renderHook(() => useCurtailmentPillData());
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+    });
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirstRequest({ event: {} });
+      await Promise.resolve();
+    });
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveSecondRequest({ event: {} });
+    });
+  });
 });

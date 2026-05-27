@@ -8,6 +8,7 @@ import {
   GetActiveCurtailmentRequestSchema,
   ListCurtailmentEventsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
+  CurtailmentEventState as ProtoCurtailmentEventState,
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentTargetState as ProtoCurtailmentTargetState,
   StopCurtailmentRequestSchema,
@@ -18,6 +19,7 @@ import type {
   CurtailmentTargetRollup,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
+  type CurtailmentEventState,
   getCurtailmentEventEstimatedReductionKw,
   getCurtailmentEventScopeLabel,
   getCurtailmentEventSelectedMinerCount,
@@ -68,9 +70,14 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   historyHasNextPage: boolean;
   historyHasPreviousPage: boolean;
   historyPageSize: number;
+  historyStatusFilter?: CurtailmentEventState;
   refreshCurtailment: (options?: RefreshCurtailmentOptions) => Promise<CurtailmentSnapshot>;
   goToHistoryPage: (
     historyPage: number,
+    options?: Pick<RefreshCurtailmentOptions, "signal">,
+  ) => Promise<CurtailmentSnapshot>;
+  setHistoryStatusFilter: (
+    stateFilter?: CurtailmentEventState,
     options?: Pick<RefreshCurtailmentOptions, "signal">,
   ) => Promise<CurtailmentSnapshot>;
   startCurtailment: (values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
@@ -108,6 +115,27 @@ function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): Curtailment
     case ProtoCurtailmentPriority.UNSPECIFIED:
     default:
       return "normal";
+  }
+}
+
+function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtailmentEventState {
+  switch (stateFilter) {
+    case "pending":
+      return ProtoCurtailmentEventState.PENDING;
+    case "active":
+      return ProtoCurtailmentEventState.ACTIVE;
+    case "restoring":
+      return ProtoCurtailmentEventState.RESTORING;
+    case "completed":
+      return ProtoCurtailmentEventState.COMPLETED;
+    case "completedWithFailures":
+      return ProtoCurtailmentEventState.COMPLETED_WITH_FAILURES;
+    case "cancelled":
+      return ProtoCurtailmentEventState.CANCELLED;
+    case "failed":
+      return ProtoCurtailmentEventState.FAILED;
+    default:
+      return ProtoCurtailmentEventState.UNSPECIFIED;
   }
 }
 
@@ -301,8 +329,10 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const [stopError, setStopError] = useState<string | null>(null);
   const [historyPagination, setHistoryPagination] =
     useState<CurtailmentHistoryPaginationState>(initialHistoryPagination);
+  const [historyStatusFilter, setHistoryStatusFilterState] = useState<CurtailmentEventState | undefined>();
   const snapshotRef = useRef(snapshot);
   const historyPaginationRef = useRef(historyPagination);
+  const historyStatusFilterRef = useRef(historyStatusFilter);
   const latestRefreshRequestIdRef = useRef(0);
   const foregroundRefreshCountRef = useRef(0);
 
@@ -322,6 +352,11 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     setHistoryPagination(nextPagination);
   }, []);
 
+  const updateHistoryStatusFilter = useCallback((nextStatusFilter: CurtailmentEventState | undefined) => {
+    historyStatusFilterRef.current = nextStatusFilter;
+    setHistoryStatusFilterState(nextStatusFilter);
+  }, []);
+
   const handleFailure = useCallback(
     (error: unknown, fallbackMessage: string) => {
       const resolvedError = toError(error, fallbackMessage);
@@ -335,7 +370,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (event: ProtoCurtailmentEvent) => {
       const state = mapCurtailmentEventState(event.state);
       const nextActiveEvent = isActiveCurtailmentEventState(state) ? mapActiveCurtailmentEvent(event) : null;
-      const shouldUpdateHistoryPage = historyPaginationRef.current.currentPage === 0;
+      const activeStatusFilter = historyStatusFilterRef.current;
+      const shouldUpdateHistoryPage =
+        historyPaginationRef.current.currentPage === 0 && (!activeStatusFilter || activeStatusFilter === state);
 
       updateSnapshot((current) => ({
         activeEvent: nextActiveEvent,
@@ -352,6 +389,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     async (
       pageToken: string,
       knownPageTokens: (string | undefined)[],
+      stateFilter: CurtailmentEventState | undefined,
       signal?: AbortSignal,
     ): Promise<CurtailmentHistoryPage> => {
       assertNotAborted(signal);
@@ -360,6 +398,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
         create(ListCurtailmentEventsRequestSchema, {
           pageSize: curtailmentHistoryPageSize,
           pageToken,
+          stateFilter: mapHistoryStateFilter(stateFilter),
         }),
         signal ? { signal } : undefined,
       );
@@ -377,6 +416,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (signal?: AbortSignal, requestedHistoryPage = historyPaginationRef.current.currentPage) => {
       const historyPage = getNormalizedHistoryPage(requestedHistoryPage);
       const currentPagination = historyPaginationRef.current;
+      const stateFilter = historyStatusFilterRef.current;
       const pageToken = historyPage === 0 ? "" : currentPagination.pageTokens[historyPage];
 
       if (historyPage > 0 && pageToken === undefined) {
@@ -393,7 +433,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
               create(GetActiveCurtailmentRequestSchema, {}),
               signal ? { signal } : undefined,
             ),
-            listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, signal),
+            listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, stateFilter, signal),
           ]);
           assertNotAborted(signal);
 
@@ -457,6 +497,15 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (historyPage: number, options: Pick<RefreshCurtailmentOptions, "signal"> = {}) =>
       refreshCurtailment({ historyPage, signal: options.signal }),
     [refreshCurtailment],
+  );
+
+  const setHistoryStatusFilter = useCallback(
+    (stateFilter?: CurtailmentEventState, options: Pick<RefreshCurtailmentOptions, "signal"> = {}) => {
+      updateHistoryStatusFilter(stateFilter);
+      updateHistoryPagination(initialHistoryPagination);
+      return refreshCurtailment({ historyPage: 0, signal: options.signal });
+    },
+    [refreshCurtailment, updateHistoryPagination, updateHistoryStatusFilter],
   );
 
   const refreshAfterMutation = useCallback(async () => {
@@ -535,8 +584,10 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       historyHasNextPage: historyPagination.nextPageToken !== "",
       historyHasPreviousPage: historyPagination.currentPage > 0,
       historyPageSize: curtailmentHistoryPageSize,
+      historyStatusFilter,
       refreshCurtailment,
       goToHistoryPage,
+      setHistoryStatusFilter,
       startCurtailment,
       stopCurtailment,
     }),
@@ -544,10 +595,12 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       goToHistoryPage,
       historyPagination.currentPage,
       historyPagination.nextPageToken,
+      historyStatusFilter,
       isLoading,
       isStarting,
       loadError,
       refreshCurtailment,
+      setHistoryStatusFilter,
       snapshot,
       startCurtailment,
       stopCurtailment,
