@@ -548,6 +548,72 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
+// authorizeCallerForUser is the shared lookup + parity check for
+// ResetUserPassword and DeactivateUser. It resolves the target by
+// external ID, masks cross-tenant lookups as InvalidArgument so
+// existence does not leak across orgs, and runs the privilege-parity
+// gate. Returns the resolved target so callers can use its IDs / name
+// downstream.
+func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgID int64, targetExternalID string) (stores.User, error) {
+	target, err := s.userStore.GetUserByExternalID(ctx, targetExternalID)
+	if err != nil {
+		return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
+
+	// Cross-org guard: GetUserByExternalID is a global lookup. ErrNoRows
+	// here means the target isn't in the caller's org; mask as
+	// InvalidArgument to avoid leaking existence across tenants. Other
+	// errors are transient and must propagate as Internal.
+	if _, err := s.userManagementStore.GetUserRoleName(ctx, target.ID, orgID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
+		}
+		return stores.User{}, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
+	}
+
+	targetEff, err := s.permResolver.LoadEffective(ctx, target.ID, orgID)
+	if err != nil {
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+	}
+	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
+	if err != nil {
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+	}
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+		return stores.User{}, err
+	}
+	return target, nil
+}
+
+// authorizeCallerForNewUserWithRole is the CreateUser counterpart of
+// authorizeCallerForUser: the target does not yet exist, so the parity
+// check uses a synthetic effective-permissions snapshot built from the
+// role being assigned. Returns the resolved role so the caller can
+// bind the new user to it.
+func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerUserID, orgID int64, roleName string) (stores.Role, error) {
+	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, roleName)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error getting %s role for org: %v", roleName, err)
+	}
+
+	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
+	}
+	targetEff := authz.NewEffectivePermissions([]authz.Assignment{{
+		ScopeType:   authz.ScopeOrg,
+		Permissions: targetKeys,
+	}})
+	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+	}
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+		return stores.Role{}, err
+	}
+	return role, nil
+}
+
 // requireCallerCanManageTarget denies the mutation unless the caller's
 // effective permissions strictly exceed the target's at matching scope,
 // or the caller holds org-scope role:manage (the peer-management
@@ -595,33 +661,11 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
-	// Look up the ADMIN role belonging to this user's organization. Each
-	// org owns its own ADMIN row, so a name-only lookup would return an
-	// arbitrary org's row (or the soft-deleted legacy global one) and
-	// could bind the new user to a role record from a different tenant.
-	// The role's actual permission set (which may include operator-added
-	// keys beyond the seed) is the input to the privilege-parity check
-	// below.
-	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, AdminRoleName)
+	// Look up the ADMIN role for this org and gate the caller against
+	// the permission set the new user will inherit. Org-scoped row
+	// lookup avoids binding to a different tenant's ADMIN.
+	role, err := s.authorizeCallerForNewUserWithRole(ctx, info.UserID, orgID, AdminRoleName)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
-	}
-
-	// The new user inherits the ADMIN role's full permission set at
-	// org scope; the parity check below gates against the caller.
-	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
-	}
-	targetEff := authz.NewEffectivePermissions([]authz.Assignment{{
-		ScopeType:   authz.ScopeOrg,
-		Permissions: targetKeys,
-	}})
-	callerEff, err := s.permResolver.LoadEffective(ctx, info.UserID, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
-	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return nil, err
 	}
 
@@ -751,32 +795,8 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	orgID := orgs[0].ID
 
-	// Get target user
-	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
+	user, err := s.authorizeCallerForUser(ctx, info.UserID, orgID, req.UserId)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
-	}
-
-	// Cross-org guard: GetUserByExternalID is a global lookup. ErrNoRows
-	// here means the target isn't in the caller's org; mask as
-	// InvalidArgument to avoid leaking existence across tenants. Other
-	// errors are transient and must propagate as Internal.
-	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
-		}
-		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
-	}
-
-	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
-	}
-	callerEff, err := s.permResolver.LoadEffective(ctx, info.UserID, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
-	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return nil, err
 	}
 
@@ -859,32 +879,8 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		)
 	}
 
-	// Get target user
-	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
+	user, err := s.authorizeCallerForUser(ctx, info.UserID, orgID, req.UserId)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
-	}
-
-	// Cross-org guard: GetUserByExternalID is a global lookup. ErrNoRows
-	// here means the target isn't in the caller's org; mask as
-	// InvalidArgument to avoid leaking existence across tenants. Other
-	// errors are transient and must propagate as Internal.
-	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
-		}
-		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
-	}
-
-	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
-	}
-	callerEff, err := s.permResolver.LoadEffective(ctx, info.UserID, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
-	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return nil, err
 	}
 
