@@ -230,11 +230,9 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	}), nil
 }
 
-// IngestCurtailmentSignal accepts an external dispatch signal and starts a
-// curtailment event. The permission gate runs first so a caller without
-// curtailment:ingest sees PermissionDenied regardless of whether the
-// receiver body has shipped. Body returns Unimplemented until the
-// adapter-dispatching receiver lands in a follow-up.
+// IngestCurtailmentSignal starts a curtailment event from an external
+// dispatch signal. Permission gate runs before the body so denial
+// surfaces regardless of whether the body has shipped.
 func (h *Handler) IngestCurtailmentSignal(ctx context.Context, _ *connect.Request[pb.IngestCurtailmentSignalRequest]) (*connect.Response[pb.IngestCurtailmentSignalResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentIngest, authz.ResourceContext{}); err != nil {
 		return nil, err

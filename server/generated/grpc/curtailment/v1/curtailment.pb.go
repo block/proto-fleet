@@ -2715,21 +2715,15 @@ func (x *AdminTerminateEventResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// IngestCurtailmentSignal — see service-level doc.
 type IngestCurtailmentSignalRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Provider identifier. Must match a registered adapter.
-	// v2: "ercot-qse". Later: "voltus", "openadr3", etc.
+	// Provider identifier; must match a registered adapter.
 	ExternalSource string `protobuf:"bytes,1,opt,name=external_source,json=externalSource,proto3" json:"external_source,omitempty"`
-	// Provider-assigned dispatch identifier; forms the
-	// (external_source, external_reference) idempotency key.
+	// Provider-assigned dispatch ID; forms the idempotency key with external_source.
 	ExternalReference string `protobuf:"bytes,2,opt,name=external_reference,json=externalReference,proto3" json:"external_reference,omitempty"`
-	// Raw provider payload. Adapter decodes (JSON by convention) and
-	// validates shape. Size cap is a sanity ceiling; large multi-interval
-	// OpenADR events still fit.
+	// Raw provider payload; adapter decodes and validates.
 	SignalPayload []byte `protobuf:"bytes,3,opt,name=signal_payload,json=signalPayload,proto3" json:"signal_payload,omitempty"`
-	// Optional scope override. When unset, the adapter selects the
-	// default scope (whole-org for most grid-program signals).
+	// Optional scope override; adapter picks the default when unset.
 	//
 	// Types that are valid to be assigned to ScopeOverride:
 	//
@@ -2737,8 +2731,7 @@ type IngestCurtailmentSignalRequest struct {
 	//	*IngestCurtailmentSignalRequest_DeviceSetIdsOverride
 	//	*IngestCurtailmentSignalRequest_DeviceIdentifiersOverride
 	ScopeOverride isIngestCurtailmentSignalRequest_ScopeOverride `protobuf_oneof:"scope_override"`
-	// Operator-facing free text; adapter or handler may default to
-	// "<external_source>:<external_reference>" when empty.
+	// Operator-facing free text.
 	Reason        string `protobuf:"bytes,20,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2863,15 +2856,10 @@ func (*IngestCurtailmentSignalRequest_DeviceIdentifiersOverride) isIngestCurtail
 
 type IngestCurtailmentSignalResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The curtailment event created (or echoed on idempotent replay).
-	Event *CurtailmentEvent `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
-	// True when this call inserted a new event row. False when an
-	// in-flight event with the same (external_source, external_reference)
-	// was returned via the idempotency replay path.
+	Event *CurtailmentEvent      `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	// True when a new event was inserted; false when an in-flight event was echoed.
 	Created bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
-	// Adapter-surfaced soft warnings (e.g. "unknown_program",
-	// "tolerance_defaulted"). Hard adapter rejections return
-	// InvalidArgument instead of riding here.
+	// Soft adapter warnings; hard rejections return InvalidArgument instead.
 	AdapterWarnings []string `protobuf:"bytes,3,rep,name=adapter_warnings,json=adapterWarnings,proto3" json:"adapter_warnings,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

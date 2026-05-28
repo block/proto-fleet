@@ -1211,39 +1211,32 @@ export const AdminTerminateEventResponseSchema: GenMessage<AdminTerminateEventRe
   messageDesc(file_curtailment_v1_curtailment, 24);
 
 /**
- * IngestCurtailmentSignal — see service-level doc.
- *
  * @generated from message curtailment.v1.IngestCurtailmentSignalRequest
  */
 export type IngestCurtailmentSignalRequest = Message<"curtailment.v1.IngestCurtailmentSignalRequest"> & {
   /**
-   * Provider identifier. Must match a registered adapter.
-   * v2: "ercot-qse". Later: "voltus", "openadr3", etc.
+   * Provider identifier; must match a registered adapter.
    *
    * @generated from field: string external_source = 1;
    */
   externalSource: string;
 
   /**
-   * Provider-assigned dispatch identifier; forms the
-   * (external_source, external_reference) idempotency key.
+   * Provider-assigned dispatch ID; forms the idempotency key with external_source.
    *
    * @generated from field: string external_reference = 2;
    */
   externalReference: string;
 
   /**
-   * Raw provider payload. Adapter decodes (JSON by convention) and
-   * validates shape. Size cap is a sanity ceiling; large multi-interval
-   * OpenADR events still fit.
+   * Raw provider payload; adapter decodes and validates.
    *
    * @generated from field: bytes signal_payload = 3;
    */
   signalPayload: Uint8Array;
 
   /**
-   * Optional scope override. When unset, the adapter selects the
-   * default scope (whole-org for most grid-program signals).
+   * Optional scope override; adapter picks the default when unset.
    *
    * @generated from oneof curtailment.v1.IngestCurtailmentSignalRequest.scope_override
    */
@@ -1272,8 +1265,7 @@ export type IngestCurtailmentSignalRequest = Message<"curtailment.v1.IngestCurta
     | { case: undefined; value?: undefined };
 
   /**
-   * Operator-facing free text; adapter or handler may default to
-   * "<external_source>:<external_reference>" when empty.
+   * Operator-facing free text.
    *
    * @generated from field: string reason = 20;
    */
@@ -1293,25 +1285,19 @@ export const IngestCurtailmentSignalRequestSchema: GenMessage<IngestCurtailmentS
  */
 export type IngestCurtailmentSignalResponse = Message<"curtailment.v1.IngestCurtailmentSignalResponse"> & {
   /**
-   * The curtailment event created (or echoed on idempotent replay).
-   *
    * @generated from field: curtailment.v1.CurtailmentEvent event = 1;
    */
   event?: CurtailmentEvent | undefined;
 
   /**
-   * True when this call inserted a new event row. False when an
-   * in-flight event with the same (external_source, external_reference)
-   * was returned via the idempotency replay path.
+   * True when a new event was inserted; false when an in-flight event was echoed.
    *
    * @generated from field: bool created = 2;
    */
   created: boolean;
 
   /**
-   * Adapter-surfaced soft warnings (e.g. "unknown_program",
-   * "tolerance_defaulted"). Hard adapter rejections return
-   * InvalidArgument instead of riding here.
+   * Soft adapter warnings; hard rejections return InvalidArgument instead.
    *
    * @generated from field: repeated string adapter_warnings = 3;
    */
@@ -1795,18 +1781,11 @@ export const CurtailmentService: GenService<{
     output: typeof AdminTerminateEventResponseSchema;
   };
   /**
-   * IngestCurtailmentSignal accepts an external dispatch signal (QSE
-   * bridge, aggregator, OpenADR VTN, internal policy actor) and starts
-   * a curtailment event. Provider-opaque envelope: the per-provider
-   * adapter decodes `signal_payload` (raw bytes; JSON by convention)
-   * into a curtailment Start. Idempotent on
-   * (org_id, external_source, external_reference) via the v1
-   * non-terminal partial unique index — replay during an in-flight
-   * event echoes the persisted event; replay after completion fires
-   * fresh.
-   *
-   * Permission: curtailment:ingest. Body returns Unimplemented until
-   * the receiver + first adapter land.
+   * IngestCurtailmentSignal starts a curtailment event from an
+   * external dispatch signal. signal_payload is provider-opaque;
+   * per-provider adapters decode it. Idempotent on
+   * (org_id, external_source, external_reference): replay during
+   * an in-flight event echoes, post-terminal fires fresh.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.IngestCurtailmentSignal
    */

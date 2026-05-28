@@ -570,10 +570,6 @@ func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
 }
 
-// TestHandler_IngestCurtailmentSignalPermissionGate exercises the
-// permission boundary BE-V2-1 ships: callers without curtailment:ingest
-// see PermissionDenied; callers with it reach the still-unimplemented
-// body and see Unimplemented.
 func TestHandler_IngestCurtailmentSignalPermissionGate(t *testing.T) {
 	t.Parallel()
 
@@ -616,13 +612,10 @@ func TestHandler_IngestCurtailmentSignalPermissionGate(t *testing.T) {
 	}
 }
 
-// buf.validate constraints on IngestCurtailmentSignalRequest:
-// external_source min_len=1/max_len=64, external_reference min_len=1/
-// max_len=256, signal_payload min_len=1/max_len=65536, reason max_len=256.
 // Validator-passed requests reach the handler and surface
 // CodeUnauthenticated from middleware.RequirePermission (no session in
-// context); we accept that as "validator passed". Permission-gate
-// behavior is covered by TestHandler_IngestCurtailmentSignalPermissionGate.
+// context); permission-gate behavior is covered separately by
+// TestHandler_IngestCurtailmentSignalPermissionGate.
 func TestHandler_IngestCurtailmentSignalValidation(t *testing.T) {
 	t.Parallel()
 

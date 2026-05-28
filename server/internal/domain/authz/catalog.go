@@ -46,15 +46,10 @@ const (
 	// serverlog — admin server-side log viewer.
 	PermServerlogRead = "serverlog:read"
 
-	// curtailment — top-nav operational page.
+	// curtailment — top-nav operational page; :ingest is the machine-caller
+	// gate for IngestCurtailmentSignal.
 	PermCurtailmentRead   = "curtailment:read"
 	PermCurtailmentManage = "curtailment:manage"
-	// PermCurtailmentIngest gates the machine-callable
-	// IngestCurtailmentSignal RPC. Issued to provider service accounts
-	// (QSE bridge, aggregator, OpenADR VTN) under a custom role; auto-
-	// granted to SUPER_ADMIN/ADMIN via the boot reconciler, but the
-	// intended primary caller is a webhook integrator, not an
-	// interactive admin.
 	PermCurtailmentIngest = "curtailment:ingest"
 
 	// fleetnode — top-nav admin operations.

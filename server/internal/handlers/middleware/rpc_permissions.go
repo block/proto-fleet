@@ -77,11 +77,9 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRackToBuildingProcedure: authz.PermSiteManage,
 
-	// CurtailmentService — only AdminTerminateEvent moves in this swap.
-	// Start/Stop/Preview retain their conditional inline gates pending
-	// the broader curtailment authz redesign. IngestCurtailmentSignal
-	// is gated on PermCurtailmentIngest, the machine-caller permission
-	// for external dispatch signals.
+	// CurtailmentService — AdminTerminateEvent + IngestCurtailmentSignal are
+	// the migrated gates. Start/Stop/Preview retain their conditional inline
+	// gates pending the broader curtailment authz redesign.
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure: authz.PermCurtailmentIngest,
 

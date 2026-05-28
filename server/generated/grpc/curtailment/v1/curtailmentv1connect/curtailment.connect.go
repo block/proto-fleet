@@ -94,18 +94,11 @@ type CurtailmentServiceClient interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
-	// IngestCurtailmentSignal accepts an external dispatch signal (QSE
-	// bridge, aggregator, OpenADR VTN, internal policy actor) and starts
-	// a curtailment event. Provider-opaque envelope: the per-provider
-	// adapter decodes `signal_payload` (raw bytes; JSON by convention)
-	// into a curtailment Start. Idempotent on
-	// (org_id, external_source, external_reference) via the v1
-	// non-terminal partial unique index — replay during an in-flight
-	// event echoes the persisted event; replay after completion fires
-	// fresh.
-	//
-	// Permission: curtailment:ingest. Body returns Unimplemented until
-	// the receiver + first adapter land.
+	// IngestCurtailmentSignal starts a curtailment event from an
+	// external dispatch signal. signal_payload is provider-opaque;
+	// per-provider adapters decode it. Idempotent on
+	// (org_id, external_source, external_reference): replay during
+	// an in-flight event echoes, post-terminal fires fresh.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 }
 
@@ -248,18 +241,11 @@ type CurtailmentServiceHandler interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
-	// IngestCurtailmentSignal accepts an external dispatch signal (QSE
-	// bridge, aggregator, OpenADR VTN, internal policy actor) and starts
-	// a curtailment event. Provider-opaque envelope: the per-provider
-	// adapter decodes `signal_payload` (raw bytes; JSON by convention)
-	// into a curtailment Start. Idempotent on
-	// (org_id, external_source, external_reference) via the v1
-	// non-terminal partial unique index — replay during an in-flight
-	// event echoes the persisted event; replay after completion fires
-	// fresh.
-	//
-	// Permission: curtailment:ingest. Body returns Unimplemented until
-	// the receiver + first adapter land.
+	// IngestCurtailmentSignal starts a curtailment event from an
+	// external dispatch signal. signal_payload is provider-opaque;
+	// per-provider adapters decode it. Idempotent on
+	// (org_id, external_source, external_reference): replay during
+	// an in-flight event echoes, post-terminal fires fresh.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 }
 
