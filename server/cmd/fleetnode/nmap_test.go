@@ -248,7 +248,7 @@ func TestDiscoverForCommand_NmapPathEmptyFailsClosed(t *testing.T) {
 	}}
 
 	// Act
-	_, err := r.discoverForCommand(context.Background(), req, testLogger())
+	_, _, err := r.discoverForCommand(context.Background(), req, testLogger())
 
 	// Assert
 	require.Error(t, err)

@@ -229,25 +229,25 @@ func (r *RunCmd) lookupIPAddr() func(context.Context, string) ([]net.IPAddr, err
 	return net.DefaultResolver.LookupIPAddr
 }
 
-func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, ports []string, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
+func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, ports []string, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool, error) {
 	if r.nmapPath == "" {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "nmap binary not available or unsafe; nmap-mode commands disabled")
+		return nil, false, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "nmap binary not available or unsafe; nmap-mode commands disabled")
 	}
 	opts, err := r.buildNmapOptions(ctx, req, ports)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	scanner, err := nmap.NewScanner(ctx, opts...)
 	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "create nmap scanner: %s", err)
+		return nil, false, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "create nmap scanner: %s", err)
 	}
 	result, _, err := scanner.Run()
 	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "nmap scan failed: %s", err)
+		return nil, false, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "nmap scan failed: %s", err)
 	}
 	if result == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	var open []endpoint
@@ -276,5 +276,6 @@ func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRe
 	}
 	logger.Info("nmap scan complete", "open_endpoints", len(open))
 
-	return fanOutProbes(ctx, open, nmapProbeConcurrency, r.discoverer.Probe, logger), nil
+	reports, truncated := fanOutProbes(ctx, open, nmapProbeConcurrency, r.discoverer.Probe, logger)
+	return reports, truncated, nil
 }

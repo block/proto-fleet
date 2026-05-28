@@ -884,12 +884,14 @@ func TestFanOutProbes_SupervisorReturnsPartialOnStuckPlugin(t *testing.T) {
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}, {ip: "10.0.0.2", port: "4028"}}
 
 	start := time.Now()
-	result := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
+	result, truncated := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
 	elapsed := time.Since(start)
 
-	// Assert: supervisor caps wall-clock at perProbeTimeout*2; fast probe still reports.
+	// Assert: supervisor caps wall-clock at perProbeTimeout*2; fast probe still
+	// reports; truncated flag set so the caller can ack PARTIAL.
 	require.LessOrEqual(t, elapsed, perProbeTimeout*2+time.Second, "fanOutProbes must return within the supervisor budget even with a stuck plugin")
 	require.Len(t, result, 1)
+	assert.True(t, truncated, "supervisor-fired batch must be flagged truncated")
 	assert.Equal(t, "auto:fast", result[0].GetDeviceIdentifier())
 }
 
@@ -925,11 +927,82 @@ func TestFanOutProbes_DropsInvalidReportInsteadOfPoisoningBatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}, {ip: "10.0.0.2", port: "4028"}}
-	result := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
+	result, _ := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
 
 	// Assert: only the gateway-valid report survives; the bad one is dropped.
 	require.Len(t, result, 1)
 	assert.Equal(t, "auto:good", result[0].GetDeviceIdentifier())
+}
+
+func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
+	// Shrink the supervisor budget into a unit-test window.
+	prev := perProbeTimeout
+	perProbeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { perProbeTimeout = prev })
+
+	// Arrange: one fast probe + one that ignores ctx. Supervisor budget
+	// fires before commandTimeout, so cmdCtx is still alive when
+	// fanOutProbes returns. Without the truncated signal threaded up, the
+	// ack would be OK, hiding the dropped endpoint.
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	disc := &ctxIgnoringDiscoverer{
+		stuck: stuck,
+		fast: map[string]*pb.DiscoveredDeviceReport{
+			"10.0.0.1|4028": {DeviceIdentifier: "auto:fast", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+		},
+		stuckIPs: map[string]bool{"10.0.0.2": true},
+	}
+	cmd := &RunCmd{discoverer: disc}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	fake := &controlFakeGateway{}
+	fake.queueWithID("scan-1", mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1", "10.0.0.2"}, Ports: []string{"4028"}},
+		},
+	}))
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, acks[0].GetCode())
+	assert.Contains(t, acks[0].GetErrorMessage(), "supervisor")
+}
+
+// ctxIgnoringDiscoverer returns a fast report for known IPs and ignores ctx
+// (blocks until `stuck` closes) for any IP in stuckIPs. Drives the
+// fanOutProbes supervisor without involving the bidi stream path.
+type ctxIgnoringDiscoverer struct {
+	fast     map[string]*pb.DiscoveredDeviceReport
+	stuckIPs map[string]bool
+	stuck    chan struct{}
+}
+
+func (d *ctxIgnoringDiscoverer) Probe(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
+	if r, ok := d.fast[ip+"|"+port]; ok {
+		return r, nil
+	}
+	if d.stuckIPs[ip] {
+		<-d.stuck
+	}
+	return nil, nil
+}
+
+func (d *ctxIgnoringDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
+	return []string{"4028"}
 }
 
 func TestFanOutProbes_AcceptsNonHTTPPluginScheme(t *testing.T) {
@@ -950,7 +1023,7 @@ func TestFanOutProbes_AcceptsNonHTTPPluginScheme(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}}
-	result := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
+	result, _ := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
 
 	// Assert
 	require.Len(t, result, 1)
@@ -976,7 +1049,7 @@ func TestFanOutProbes_OverridesPluginSuppliedEndpoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}}
-	result := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
+	result, _ := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
 
 	// Assert: report uses the scanned (ip, port), not what the plugin claimed.
 	require.Len(t, result, 1)

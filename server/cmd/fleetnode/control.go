@@ -235,7 +235,7 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	reports, err := r.discoverForCommand(cmdCtx, &req, logger)
+	reports, truncated, err := r.discoverForCommand(cmdCtx, &req, logger)
 	if err != nil {
 		code := pb.AckCode_ACK_CODE_INTERNAL
 		var ce *commandError
@@ -252,32 +252,37 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_REPORT_FAILED, err.Error(), logger)
 		return
 	}
-	// Truncated scan: partial reports already uploaded; ack with the timeout
-	// code so the server can distinguish from a clean scan. Daemon-shutdown
-	// Canceled lands here too; the stream may be tearing down but we still try.
+	// Truncated scan: partial reports already uploaded; ack PARTIAL so the
+	// server doesn't treat dropped endpoints as a clean OK. Two sources:
+	// cmdCtx deadline (commandTimeout) and the fanOutProbes supervisor
+	// (a probe ignored its ctx and the wg.Wait was capped).
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports)), logger)
+		return
+	}
+	if truncated {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("probe supervisor budget exceeded; %d report(s) uploaded, some endpoints not probed", len(reports)), logger)
 		return
 	}
 	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
 }
 
-func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.DiscoverRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
+func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.DiscoverRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool, error) {
 	if req.GetMode() == nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "discover request mode is required")
+		return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "discover request mode is required")
 	}
 	switch m := req.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
 		ips := m.IpList.GetIpAddresses()
 		if len(ips) == 0 {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip_addresses must be non-empty")
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip_addresses must be non-empty")
 		}
 		if len(ips) > maxIPsPerCommand {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "too many ip_addresses: %d exceeds the limit of %d", len(ips), maxIPsPerCommand)
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "too many ip_addresses: %d exceeds the limit of %d", len(ips), maxIPsPerCommand)
 		}
 		ports, err := r.resolveAndValidatePorts(ctx, m.IpList.GetPorts())
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		normalized := make([]string, 0, len(ips))
 		for _, raw := range ips {
@@ -289,33 +294,35 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			normalized = append(normalized, n)
 		}
 		if len(normalized) == 0 {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (scoped/link-local IPv6 and unresolvable hostnames are skipped)")
+			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (scoped/link-local IPv6 and unresolvable hostnames are skipped)")
 		}
-		return r.probeIPsAndPorts(ctx, normalized, ports, logger), nil
+		reports, truncated := r.probeIPsAndPorts(ctx, normalized, ports, logger)
+		return reports, truncated, nil
 	case *pairingpb.DiscoverRequest_IpRange:
 		ports, err := r.resolveAndValidatePorts(ctx, m.IpRange.GetPorts())
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		ips, err := expandIPv4Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp(), maxIPsPerCommand)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		return r.probeIPsAndPorts(ctx, ips, ports, logger), nil
+		reports, truncated := r.probeIPsAndPorts(ctx, ips, ports, logger)
+		return reports, truncated, nil
 	case *pairingpb.DiscoverRequest_Nmap:
 		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		return r.runNmapDiscovery(ctx, m.Nmap, ports, logger)
 	case *pairingpb.DiscoverRequest_Mdns:
-		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "mdns mode is not supported on the fleet node agent")
+		return nil, false, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "mdns mode is not supported on the fleet node agent")
 	default:
-		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "agent does not support requested discover mode")
+		return nil, false, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "agent does not support requested discover mode")
 	}
 }
 
-func (r *RunCmd) probeIPsAndPorts(ctx context.Context, ips []string, ports []string, logger *slog.Logger) []*pb.DiscoveredDeviceReport {
+func (r *RunCmd) probeIPsAndPorts(ctx context.Context, ips []string, ports []string, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
 	endpoints := make([]endpoint, 0, len(ips)*len(ports))
 	for _, ip := range ips {
 		for _, port := range ports {
@@ -392,9 +399,11 @@ func expandIPv4Range(startStr, endStr string, maxCount int) ([]string, error) {
 
 // Supervisor caps wg.Wait at perProbeTimeout*2 so a plugin Probe that
 // ignores ctx can't pin the agent; stragglers detach, partial batch returns.
-func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) []*pb.DiscoveredDeviceReport {
+// The bool indicates whether the batch is truncated (supervisor fired or
+// ctx cancelled mid-fan-out) so the caller can ack PARTIAL instead of OK.
+func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
 	if len(endpoints) == 0 {
-		return nil
+		return nil, false
 	}
 	var (
 		mu      sync.Mutex
@@ -406,7 +415,8 @@ func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, pr
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			return waitWithSupervisor(&wg, &mu, &reports, perProbeTimeout*2, logger)
+			out, _ := waitWithSupervisor(&wg, &mu, &reports, perProbeTimeout*2, logger)
+			return out, true
 		}
 		wg.Add(1)
 		go func(ip, port string) {
@@ -448,7 +458,7 @@ func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, pr
 	return waitWithSupervisor(&wg, &mu, &reports, perProbeTimeout*2, logger)
 }
 
-func waitWithSupervisor(wg *sync.WaitGroup, mu *sync.Mutex, reports *[]*pb.DiscoveredDeviceReport, maxWait time.Duration, logger *slog.Logger) []*pb.DiscoveredDeviceReport {
+func waitWithSupervisor(wg *sync.WaitGroup, mu *sync.Mutex, reports *[]*pb.DiscoveredDeviceReport, maxWait time.Duration, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -456,16 +466,18 @@ func waitWithSupervisor(wg *sync.WaitGroup, mu *sync.Mutex, reports *[]*pb.Disco
 	}()
 	timer := time.NewTimer(maxWait)
 	defer timer.Stop()
+	truncated := false
 	select {
 	case <-done:
 	case <-timer.C:
+		truncated = true
 		logger.Warn("probe wait exceeded supervisor budget; returning partial batch", "max_wait", maxWait.String())
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	out := make([]*pb.DiscoveredDeviceReport, len(*reports))
 	copy(out, *reports)
-	return out
+	return out, truncated
 }
 
 func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, commandID string, reports []*pb.DiscoveredDeviceReport, logger *slog.Logger) error {
