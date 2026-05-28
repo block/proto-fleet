@@ -1097,15 +1097,17 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 }
 
 func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
-	// Arrange: buffer capacity is 2 (1 in flight + 1 queued). cmd-A's probe
-	// blocks, cmd-B and cmd-C fill the in-flight + queued slots, cmd-D
-	// overflows and must get a busy ack without waiting on cmd-A.
+	// cmd-A's probe blocks forever; with buffer=2 and 5 queued commands,
+	// at least one of the trailing commands must overflow regardless of
+	// worker-vs-receive scheduling. (Picking a specific cmd-X is racy:
+	// which command lands the busy ack depends on whether the worker
+	// drained cmd-A before the receive loop got that far.)
 	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
 	cmd := &RunCmd{discoverer: disc}
 	state := &fleetnodebootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D"} {
+	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D", "cmd-E"} {
 		fake.queueWithID(id, mustMarshal(t, &pairingpb.DiscoverRequest{
 			Mode: &pairingpb.DiscoverRequest_IpList{
 				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
@@ -1121,23 +1123,17 @@ func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
 
-	// Assert: cmd-D must be acked busy without waiting for cmd-A to finish.
+	// Assert
+	var busyAck *pb.ControlAck
 	require.Eventually(t, func() bool {
 		for _, ack := range fake.acksCopy() {
-			if ack.GetCommandId() == "cmd-D" {
+			if ack.GetCode() == pb.AckCode_ACK_CODE_INTERNAL && strings.Contains(ack.GetErrorMessage(), "in flight") {
+				busyAck = ack
 				return true
 			}
 		}
 		return false
-	}, 2*time.Second, 20*time.Millisecond, "cmd-D should get a busy ack without waiting on cmd-A")
-
-	var busyAck *pb.ControlAck
-	for _, ack := range fake.acksCopy() {
-		if ack.GetCommandId() == "cmd-D" {
-			busyAck = ack
-			break
-		}
-	}
+	}, 3*time.Second, 20*time.Millisecond, "at least one trailing command should get a busy ack")
 	require.NotNil(t, busyAck)
 	assert.False(t, busyAck.GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, busyAck.GetCode())
