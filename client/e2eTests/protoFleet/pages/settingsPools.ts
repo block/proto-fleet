@@ -2,6 +2,10 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class SettingsPoolsPage extends BasePage {
+  private getPoolRowByName(name: string) {
+    return this.page.getByTestId("pool-row").filter({ has: this.page.getByTestId("pool-name").getByText(name) });
+  }
+
   async validateMiningPoolsPageOpened() {
     await expect(this.page).toHaveURL(/.*\/mining-pools/);
     await this.validateButtonIsVisible("Add pool");
@@ -13,11 +17,20 @@ export class SettingsPoolsPage extends BasePage {
 
   async validatePoolEntryByUniqueName(expectedName: string, expectedUrl: string, expectedUsername: string) {
     await expect(this.page.getByTestId(`pool-row`).getByTestId("pool-name").getByText(expectedName)).toBeVisible();
-    const row = this.page
-      .getByTestId(`pool-row`)
-      .filter({ has: this.page.getByTestId("pool-name").getByText(expectedName) });
+    const row = this.getPoolRowByName(expectedName);
     await expect(row.getByTestId("pool-url").getByText(expectedUrl)).toBeVisible();
     await expect(row.getByTestId("pool-username").getByText(expectedUsername)).toBeVisible();
+  }
+
+  async deletePoolByNameIfVisible(name: string) {
+    const row = this.getPoolRowByName(name);
+    if (!(await row.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await row.getByRole("button", { name: "Options menu", exact: true }).click();
+    await this.clickButton("Delete pool");
+    await expect(row).toHaveCount(0);
   }
 
   async deleteAllPools() {

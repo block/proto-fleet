@@ -504,6 +504,14 @@ export class RacksPage extends BasePage {
     await this.validateTitleInModal("Manage power");
   }
 
+  async clickRackOverviewAssignPools() {
+    await this.page.getByTestId("mining-pool-popover-button").click();
+  }
+
+  async clickRackOverviewManageSecurity() {
+    await this.page.getByTestId("security-popover-button").click();
+  }
+
   async clickDeleteRack() {
     const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
     if (this.isMobile && (await overflowTrigger.isVisible().catch(() => false))) {
