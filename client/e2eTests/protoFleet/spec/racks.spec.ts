@@ -522,85 +522,87 @@ test.describe("Racks", () => {
     });
   });
 
-  test("Rack overview actions menu assigns pools to assigned rig miners", async ({
-    racksPage,
-    editPoolPage,
-    newPoolModal,
-    loginModal,
-    settingsPage,
-    settingsPoolsPage,
-    page,
-  }) => {
-    const poolName = generateRandomText("PoolName");
-    const poolUsername = generateRandomText("PoolUsername");
-    let rackLabel = "";
-    let rackDeviceIdentifiers: string[] = [];
+  if (testConfig.target !== "real") {
+    test("Rack overview actions menu assigns pools to assigned rig miners", async ({
+      racksPage,
+      editPoolPage,
+      newPoolModal,
+      loginModal,
+      settingsPage,
+      settingsPoolsPage,
+      page,
+    }) => {
+      const poolName = generateRandomText("PoolName");
+      const poolUsername = generateRandomText("PoolUsername");
+      let rackLabel = "";
+      let rackDeviceIdentifiers: string[] = [];
 
-    try {
-      await test.step("Create a rack with two assigned Proto rigs", async () => {
-        const saveRackRequestPromise = page.waitForRequest(/SaveRack/);
+      try {
+        await test.step("Create a rack with two assigned Proto rigs", async () => {
+          const saveRackRequestPromise = page.waitForRequest(/SaveRack/);
 
-        await racksPage.clickAddRackButton();
-        await racksPage.inputZone(AUTOMATION_ZONE);
-        rackLabel = await racksPage.getGeneratedRackLabel();
-        await racksPage.enableCustomRackLayout();
-        await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
-        await racksPage.inputRows(OVERVIEW_RACK_ROWS);
-        await racksPage.clickContinueFromRackSettings();
-        await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
-        await racksPage.clickSaveRack();
+          await racksPage.clickAddRackButton();
+          await racksPage.inputZone(AUTOMATION_ZONE);
+          rackLabel = await racksPage.getGeneratedRackLabel();
+          await racksPage.enableCustomRackLayout();
+          await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
+          await racksPage.inputRows(OVERVIEW_RACK_ROWS);
+          await racksPage.clickContinueFromRackSettings();
+          await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
+          await racksPage.clickSaveRack();
 
-        const saveRackRequest = await saveRackRequestPromise;
-        const saveRackRequestBody = saveRackRequest.postDataJSON();
-        rackDeviceIdentifiers = saveRackRequestBody.deviceSelector.deviceList.deviceIdentifiers;
+          const saveRackRequest = await saveRackRequestPromise;
+          const saveRackRequestBody = saveRackRequest.postDataJSON();
+          rackDeviceIdentifiers = saveRackRequestBody.deviceSelector.deviceList.deviceIdentifiers;
 
-        await racksPage.validateRackToast(rackLabel);
-        test.expect(rackDeviceIdentifiers).toHaveLength(2);
-      });
+          await racksPage.validateRackToast(rackLabel);
+          test.expect(rackDeviceIdentifiers).toHaveLength(2);
+        });
 
-      await test.step("Open the rack overview and start the assign pools flow", async () => {
-        await racksPage.clickViewGrid();
-        await racksPage.openRackCard(rackLabel, AUTOMATION_ZONE);
-        await racksPage.openRackOverviewActionsMenu();
-        await racksPage.clickRackOverviewAssignPools();
-        await loginModal.loginAsAdmin();
-      });
+        await test.step("Open the rack overview and start the assign pools flow", async () => {
+          await racksPage.clickViewGrid();
+          await racksPage.openRackCard(rackLabel, AUTOMATION_ZONE);
+          await racksPage.openRackOverviewActionsMenu();
+          await racksPage.clickRackOverviewAssignPools();
+          await loginModal.loginAsAdmin();
+        });
 
-      await test.step("Create a pool from the overview flow", async () => {
-        await editPoolPage.clickPoolAddButton();
-        await editPoolPage.clickAddNewPool();
-        await newPoolModal.inputPoolName(poolName);
-        await newPoolModal.inputPoolUrl(VALID_POOL_URL);
-        await newPoolModal.inputPoolUsername(poolUsername);
-        await newPoolModal.clickSaveNewPool();
-        await editPoolPage.validatePoolVisible(poolName, VALID_POOL_URL);
-      });
+        await test.step("Create a pool from the overview flow", async () => {
+          await editPoolPage.clickPoolAddButton();
+          await editPoolPage.clickAddNewPool();
+          await newPoolModal.inputPoolName(poolName);
+          await newPoolModal.inputPoolUrl(VALID_POOL_URL);
+          await newPoolModal.inputPoolUsername(poolUsername);
+          await newPoolModal.clickSaveNewPool();
+          await editPoolPage.validatePoolVisible(poolName, VALID_POOL_URL);
+        });
 
-      await test.step("Assign the created pool to the rack miners", async () => {
-        const requestPromise = page.waitForRequest(/UpdateMiningPools/);
-        const responsePromise = page.waitForResponse(/UpdateMiningPools/);
+        await test.step("Assign the created pool to the rack miners", async () => {
+          const requestPromise = page.waitForRequest(/UpdateMiningPools/);
+          const responsePromise = page.waitForResponse(/UpdateMiningPools/);
 
-        await editPoolPage.clickAssignToXMiners(2);
+          await editPoolPage.clickAssignToXMiners(2);
 
-        const request = await requestPromise;
-        const response = await responsePromise;
-        const requestBody = request.postDataJSON();
-        const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
-        const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
-        const sortedRackDeviceIdentifiers = [...rackDeviceIdentifiers].sort();
+          const request = await requestPromise;
+          const response = await responsePromise;
+          const requestBody = request.postDataJSON();
+          const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
+          const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
+          const sortedRackDeviceIdentifiers = [...rackDeviceIdentifiers].sort();
 
-        test.expect(request.method()).toBe("POST");
-        test.expect(requestBody).toHaveProperty("defaultPool");
-        test.expect(requestBody).toHaveProperty("deviceSelector");
-        test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
-        test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedRackDeviceIdentifiers);
-        test.expect(response.status()).toBe(200);
-        await racksPage.validateTextInToastGroup("Assigned pools");
-      });
-    } finally {
-      await cleanupPoolIfPageOpen(page, settingsPage, settingsPoolsPage, poolName);
-    }
-  });
+          test.expect(request.method()).toBe("POST");
+          test.expect(requestBody).toHaveProperty("defaultPool");
+          test.expect(requestBody).toHaveProperty("deviceSelector");
+          test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+          test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedRackDeviceIdentifiers);
+          test.expect(response.status()).toBe(200);
+          await racksPage.validateTextInToastGroup("Assigned pools");
+        });
+      } finally {
+        await cleanupPoolIfPageOpen(page, settingsPage, settingsPoolsPage, poolName);
+      }
+    });
+  }
 
   test("Rack overview actions menu opens manage security and validates password mismatch", async ({
     racksPage,

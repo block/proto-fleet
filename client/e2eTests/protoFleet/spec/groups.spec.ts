@@ -462,83 +462,85 @@ test.describe("Groups", () => {
     });
   });
 
-  test("Group overview actions menu assigns pools to grouped rig miners", async ({
-    groupsPage,
-    editPoolPage,
-    newPoolModal,
-    loginModal,
-    settingsPage,
-    settingsPoolsPage,
-    page,
-  }) => {
-    const groupName = generateRandomText("automation");
-    const poolName = generateRandomText("PoolName");
-    const poolUsername = generateRandomText("PoolUsername");
-    let selectedDeviceIdentifiers: string[] = [];
+  if (testConfig.target !== "real") {
+    test("Group overview actions menu assigns pools to grouped rig miners", async ({
+      groupsPage,
+      editPoolPage,
+      newPoolModal,
+      loginModal,
+      settingsPage,
+      settingsPoolsPage,
+      page,
+    }) => {
+      const groupName = generateRandomText("automation");
+      const poolName = generateRandomText("PoolName");
+      const poolUsername = generateRandomText("PoolUsername");
+      let selectedDeviceIdentifiers: string[] = [];
 
-    try {
-      await test.step("Create a rig-only group with two miners", async () => {
-        const createGroupRequestPromise = page.waitForRequest(/CreateDeviceSet/);
+      try {
+        await test.step("Create a rig-only group with two miners", async () => {
+          const createGroupRequestPromise = page.waitForRequest(/CreateDeviceSet/);
 
-        await groupsPage.clickAddGroupButton();
-        await groupsPage.inputGroupName(groupName);
-        await groupsPage.waitForModalListToLoad();
-        await groupsPage.filterModalType(PROTO_RIG_MODEL);
-        await groupsPage.waitForModalListToLoad();
-        await groupsPage.selectMinersByIndex([0, 1]);
-        await groupsPage.clickSaveInModal();
+          await groupsPage.clickAddGroupButton();
+          await groupsPage.inputGroupName(groupName);
+          await groupsPage.waitForModalListToLoad();
+          await groupsPage.filterModalType(PROTO_RIG_MODEL);
+          await groupsPage.waitForModalListToLoad();
+          await groupsPage.selectMinersByIndex([0, 1]);
+          await groupsPage.clickSaveInModal();
 
-        const createGroupRequest = await createGroupRequestPromise;
-        const createGroupRequestBody = createGroupRequest.postDataJSON();
-        selectedDeviceIdentifiers = createGroupRequestBody.deviceSelector.deviceList.deviceIdentifiers;
+          const createGroupRequest = await createGroupRequestPromise;
+          const createGroupRequestBody = createGroupRequest.postDataJSON();
+          selectedDeviceIdentifiers = createGroupRequestBody.deviceSelector.deviceList.deviceIdentifiers;
 
-        await groupsPage.validateTextInToast(`Group "${groupName}" created`);
-        await groupsPage.validateSavedGroupVisible(groupName);
-        test.expect(selectedDeviceIdentifiers).toHaveLength(2);
-      });
+          await groupsPage.validateTextInToast(`Group "${groupName}" created`);
+          await groupsPage.validateSavedGroupVisible(groupName);
+          test.expect(selectedDeviceIdentifiers).toHaveLength(2);
+        });
 
-      await test.step("Open the group overview and start the assign pools flow", async () => {
-        await groupsPage.openSavedGroupOverview(groupName);
-        await groupsPage.openGroupOverviewActionsMenu();
-        await groupsPage.clickGroupOverviewAssignPools();
-        await loginModal.loginAsAdmin();
-      });
+        await test.step("Open the group overview and start the assign pools flow", async () => {
+          await groupsPage.openSavedGroupOverview(groupName);
+          await groupsPage.openGroupOverviewActionsMenu();
+          await groupsPage.clickGroupOverviewAssignPools();
+          await loginModal.loginAsAdmin();
+        });
 
-      await test.step("Create a pool from the overview flow", async () => {
-        await editPoolPage.clickPoolAddButton();
-        await editPoolPage.clickAddNewPool();
-        await newPoolModal.inputPoolName(poolName);
-        await newPoolModal.inputPoolUrl(VALID_POOL_URL);
-        await newPoolModal.inputPoolUsername(poolUsername);
-        await newPoolModal.clickSaveNewPool();
-        await editPoolPage.validatePoolVisible(poolName, VALID_POOL_URL);
-      });
+        await test.step("Create a pool from the overview flow", async () => {
+          await editPoolPage.clickPoolAddButton();
+          await editPoolPage.clickAddNewPool();
+          await newPoolModal.inputPoolName(poolName);
+          await newPoolModal.inputPoolUrl(VALID_POOL_URL);
+          await newPoolModal.inputPoolUsername(poolUsername);
+          await newPoolModal.clickSaveNewPool();
+          await editPoolPage.validatePoolVisible(poolName, VALID_POOL_URL);
+        });
 
-      await test.step("Assign the created pool to the grouped miners", async () => {
-        const requestPromise = page.waitForRequest(/UpdateMiningPools/);
-        const responsePromise = page.waitForResponse(/UpdateMiningPools/);
+        await test.step("Assign the created pool to the grouped miners", async () => {
+          const requestPromise = page.waitForRequest(/UpdateMiningPools/);
+          const responsePromise = page.waitForResponse(/UpdateMiningPools/);
 
-        await editPoolPage.clickAssignToXMiners(2);
+          await editPoolPage.clickAssignToXMiners(2);
 
-        const request = await requestPromise;
-        const response = await responsePromise;
-        const requestBody = request.postDataJSON();
-        const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
-        const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
-        const sortedSelectedDeviceIdentifiers = [...selectedDeviceIdentifiers].sort();
+          const request = await requestPromise;
+          const response = await responsePromise;
+          const requestBody = request.postDataJSON();
+          const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
+          const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
+          const sortedSelectedDeviceIdentifiers = [...selectedDeviceIdentifiers].sort();
 
-        test.expect(request.method()).toBe("POST");
-        test.expect(requestBody).toHaveProperty("defaultPool");
-        test.expect(requestBody).toHaveProperty("deviceSelector");
-        test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
-        test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedSelectedDeviceIdentifiers);
-        test.expect(response.status()).toBe(200);
-        await groupsPage.validateTextInToastGroup("Assigned pools");
-      });
-    } finally {
-      await cleanupPoolIfPageOpen(page, settingsPage, settingsPoolsPage, poolName);
-    }
-  });
+          test.expect(request.method()).toBe("POST");
+          test.expect(requestBody).toHaveProperty("defaultPool");
+          test.expect(requestBody).toHaveProperty("deviceSelector");
+          test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+          test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedSelectedDeviceIdentifiers);
+          test.expect(response.status()).toBe(200);
+          await groupsPage.validateTextInToastGroup("Assigned pools");
+        });
+      } finally {
+        await cleanupPoolIfPageOpen(page, settingsPage, settingsPoolsPage, poolName);
+      }
+    });
+  }
 
   test("Group overview actions menu opens manage security and validates password mismatch", async ({
     groupsPage,

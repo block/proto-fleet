@@ -3,7 +3,10 @@ import { BasePage } from "./base";
 
 export class SettingsPoolsPage extends BasePage {
   private getPoolRowByName(name: string) {
-    return this.page.getByTestId("pool-row").filter({ has: this.page.getByTestId("pool-name").getByText(name) });
+    return this.page
+      .getByTestId("pool-row")
+      .filter({ has: this.page.getByTestId("pool-name").getByText(name, { exact: true }) })
+      .first();
   }
 
   async validateMiningPoolsPageOpened() {

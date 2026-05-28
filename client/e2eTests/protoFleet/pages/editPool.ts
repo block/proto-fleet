@@ -3,18 +3,17 @@ import { BasePage } from "./base";
 
 export class EditPoolPage extends BasePage {
   private getPoolRowByName(name: string) {
-    return this.page.getByTestId(/^pool-row-\d+$/).filter({ has: this.page.getByTestId("pool-name").getByText(name) });
-  }
-
-  async clickAddPoolButton() {
-    await this.page.getByTestId("add-pool-button").click();
+    return this.page
+      .getByTestId(/^pool-row-\d+$/)
+      .filter({ has: this.page.getByTestId("pool-name").getByText(name, { exact: true }) })
+      .first();
   }
 
   async clickAddAnotherPoolButton() {
     await this.page.getByTestId("add-another-pool-button").click();
   }
 
-  async clickPoolAddButton() {
+  async clickAddPoolButton() {
     const addPoolButton = this.page.getByTestId("add-pool-button");
     if (await addPoolButton.isVisible().catch(() => false)) {
       await addPoolButton.click();
@@ -22,6 +21,10 @@ export class EditPoolPage extends BasePage {
     }
 
     await this.clickAddAnotherPoolButton();
+  }
+
+  async clickPoolAddButton() {
+    await this.clickAddPoolButton();
   }
 
   async clickAddDefaultMiningPool() {
