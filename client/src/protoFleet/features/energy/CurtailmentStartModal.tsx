@@ -112,6 +112,7 @@ interface PreviewStateOptions {
 }
 
 type ParsedNumberField = { parsed?: number; error?: string };
+type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreBatchSize" | "restoreIntervalSec";
 
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
@@ -131,6 +132,12 @@ const defaultValues: CurtailmentFormValues = {
   reason: "",
   includeMaintenance: true,
 };
+const editableCurtailmentFields: EditableCurtailmentField[] = [
+  "reason",
+  "maxDurationSec",
+  "restoreBatchSize",
+  "restoreIntervalSec",
+];
 
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
   return {
@@ -173,9 +180,42 @@ function parseOptionalNonNegativeNumberField(value: string, fieldLabel: string):
   return { parsed };
 }
 
+function parseComparableUint32Field(value: string, max: number): number {
+  const parsedField = parseOptionalUint32Field(value, { label: "value", max });
+  return parsedField.parsed ?? 0;
+}
+
+function hasEditableCurtailmentChanges(values: CurtailmentFormValues, initialValues: CurtailmentFormValues): boolean {
+  return editableCurtailmentFields.some((field) => {
+    if (field === "reason") {
+      return values.reason.trim() !== initialValues.reason.trim();
+    }
+
+    if (field === "maxDurationSec") {
+      return (
+        parseComparableUint32Field(values.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec) !==
+        parseComparableUint32Field(initialValues.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec)
+      );
+    }
+
+    if (field === "restoreBatchSize") {
+      return (
+        parseComparableUint32Field(values.restoreBatchSize, curtailmentNumericFieldLimits.restoreBatchSize) !==
+        parseComparableUint32Field(initialValues.restoreBatchSize, curtailmentNumericFieldLimits.restoreBatchSize)
+      );
+    }
+
+    return (
+      parseComparableUint32Field(values.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec) !==
+      parseComparableUint32Field(initialValues.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec)
+    );
+  });
+}
+
 function validateCurtailmentFormValues(
   values: CurtailmentFormValues,
   mode: CurtailmentStartModalMode = "create",
+  initialValues: CurtailmentFormValues = defaultValues,
 ): CurtailmentFormErrors {
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
@@ -197,6 +237,17 @@ function validateCurtailmentFormValues(
   }
   if (maxDuration.error) {
     localErrors.maxDurationSec = maxDuration.error;
+  }
+  if (isEditMode && maxDuration.error === undefined && maxDuration.parsed === 0) {
+    localErrors.maxDurationSec = "Enter max duration greater than 0.";
+  }
+  if (
+    isEditMode &&
+    maxDuration.error === undefined &&
+    values.maxDurationSec.trim() === "" &&
+    initialValues.maxDurationSec.trim() !== ""
+  ) {
+    localErrors.maxDurationSec = "Max duration cannot be cleared.";
   }
   if (restoreBatchSize.error) {
     localErrors.restoreBatchSize = restoreBatchSize.error;
@@ -370,7 +421,8 @@ function CurtailmentStartModalContent({
   previewError,
   isSubmitting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [values, setValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
+  const initialFormValues = useMemo(() => getInitialValues(initialValues), [initialValues]);
+  const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
   const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
@@ -379,7 +431,10 @@ function CurtailmentStartModalContent({
     setValues((current) => ({ ...current, [key]: value }));
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
   const isEditMode = mode === "edit";
-  const localErrors = useMemo(() => validateCurtailmentFormValues(values, mode), [mode, values]);
+  const localErrors = useMemo(
+    () => validateCurtailmentFormValues(values, mode, initialFormValues),
+    [initialFormValues, mode, values],
+  );
   const effectiveErrors = { ...errors, ...localErrors };
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
   const controlledPreview =
@@ -402,6 +457,8 @@ function CurtailmentStartModalContent({
     previewState.previewError !== undefined ||
     Object.keys(localErrors).length > 0 ||
     Object.keys(errors ?? {}).length > 0;
+  const hasEditableChanges = !isEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
+  const isSubmitDisabled = hasBlockingValidationError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
   const previewPane = isEditMode ? null : <PreviewPane {...previewState} />;
   const paneContainerClassName = isEditMode
@@ -430,7 +487,7 @@ function CurtailmentStartModalContent({
   };
 
   const handleSubmit = () => {
-    if (hasBlockingValidationError) {
+    if (isSubmitDisabled) {
       return;
     }
 
@@ -458,7 +515,7 @@ function CurtailmentStartModalContent({
     text: isEditMode ? "Save" : "Start curtailment",
     variant: variants.primary,
     onClick: handleSubmit,
-    disabled: hasBlockingValidationError,
+    disabled: isSubmitDisabled,
     loading: isSubmitting,
   });
 

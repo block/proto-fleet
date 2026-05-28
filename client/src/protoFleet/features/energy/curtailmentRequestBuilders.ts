@@ -88,6 +88,28 @@ function getChangedUpdateUint32Setting(
   return nextValue === previousValue ? undefined : nextValue;
 }
 
+function getChangedUpdatePositiveUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === 0) {
+    throw new Error(`Enter ${options.label} greater than 0.`);
+  }
+
+  if (initialValue === undefined || initialValue.trim() === "") {
+    return nextValue;
+  }
+
+  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
+  if (nextValue === undefined || nextValue === previousValue) {
+    return undefined;
+  }
+
+  return nextValue;
+}
+
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
   return priority === "emergency" ? ProtoCurtailmentPriority.EMERGENCY : ProtoCurtailmentPriority.NORMAL;
 }
@@ -154,7 +176,7 @@ export function buildUpdateCurtailmentEventRequest(
   return create(UpdateCurtailmentEventRequestSchema, {
     eventUuid,
     reason: getChangedUpdateStringSetting(values.reason, initialValues?.reason),
-    maxDurationSeconds: getChangedUpdateUint32Setting(
+    maxDurationSeconds: getChangedUpdatePositiveUint32Setting(
       values.maxDurationSec,
       initialValues?.maxDurationSec,
       maxDurationOptions,

@@ -182,16 +182,43 @@ describe("CurtailmentStartModal", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.type(screen.getByLabelText("Batch interval (sec)"), "180");
+    expect(saveButton).toBeEnabled();
+    await user.click(saveButton);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         maxDurationSec: "1800",
         restoreBatchSize: "10",
-        restoreIntervalSec: "120",
+        restoreIntervalSec: "180",
         reason: "Grid peak - ERCOT 4CP signal",
       }),
     );
+  });
+
+  it("blocks max duration clears in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Max duration (sec)"));
+
+    expect(screen.getByText("Max duration cannot be cleared.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("renders a stop curtailment action in edit mode", async () => {

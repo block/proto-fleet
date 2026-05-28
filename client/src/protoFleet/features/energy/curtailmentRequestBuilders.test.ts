@@ -129,4 +129,39 @@ describe("curtailmentRequestBuilders", () => {
 
     expect(request.restoreBatchSize).toBe(0);
   });
+
+  it("does not send zero when an update clears max duration", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "Updated grid peak",
+        maxDurationSec: "",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        maxDurationSec: "1800",
+      },
+    );
+
+    expect(request.reason).toBe("Updated grid peak");
+    expect(request.maxDurationSeconds).toBeUndefined();
+  });
+
+  it("rejects zero max duration updates", () => {
+    expect(() =>
+      buildUpdateCurtailmentEventRequest(
+        "curt-1",
+        {
+          ...baseValues,
+          maxDurationSec: "0",
+        },
+        {
+          ...baseValues,
+          maxDurationSec: "1800",
+        },
+      ),
+    ).toThrow("Enter max duration greater than 0.");
+  });
 });
