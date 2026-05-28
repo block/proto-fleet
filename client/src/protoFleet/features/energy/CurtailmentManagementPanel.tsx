@@ -118,11 +118,11 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
         return;
       }
 
-      void updateCurtailment(activeEventId, values)
+      void updateCurtailment(activeEventId, values, activeEventFormValues ?? undefined)
         .then(() => setModalMode(null))
         .catch(() => {});
     },
-    [activeEventId, updateCurtailment],
+    [activeEventFormValues, activeEventId, updateCurtailment],
   );
 
   const handleModalSubmit = useCallback(

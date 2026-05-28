@@ -258,7 +258,9 @@ describe("CurtailmentManagementPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Submit edit" }));
 
-    await waitFor(() => expect(mocks.updateCurtailment).toHaveBeenCalledWith("curt-1", mocks.submitValues));
+    await waitFor(() =>
+      expect(mocks.updateCurtailment).toHaveBeenCalledWith("curt-1", mocks.submitValues, activeEventFormValues),
+    );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
   });
 

@@ -87,7 +87,11 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
     options?: Pick<RefreshCurtailmentOptions, "signal">,
   ) => Promise<CurtailmentSnapshot>;
   startCurtailment: (values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
-  updateCurtailment: (eventUuid: string, values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
+  updateCurtailment: (
+    eventUuid: string,
+    values: CurtailmentSubmitValues,
+    initialValues?: Partial<CurtailmentSubmitValues>,
+  ) => Promise<ProtoCurtailmentEvent>;
   stopCurtailment: (eventUuid: string) => Promise<ProtoCurtailmentEvent>;
 }
 
@@ -163,7 +167,7 @@ function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): Curtailm
     priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
     minDurationSec: formatNumberField(event.minCurtailedDurationSec),
     maxDurationSec: formatNumberField(event.maxDurationSeconds),
-    restoreBatchSize: formatNumberField(event.restoreBatchSize || event.effectiveBatchSize),
+    restoreBatchSize: formatNumberField(event.restoreBatchSize),
     restoreIntervalSec: formatNumberField(event.restoreBatchIntervalSec),
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
@@ -626,13 +630,13 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   );
 
   const updateCurtailment = useCallback(
-    async (eventUuid: string, values: CurtailmentSubmitValues) => {
+    async (eventUuid: string, values: CurtailmentSubmitValues, initialValues?: Partial<CurtailmentSubmitValues>) => {
       setUpdatingEventId(eventUuid);
       setUpdateError(null);
 
       try {
         const response = await curtailmentClient.updateCurtailmentEvent(
-          buildUpdateCurtailmentEventRequest(eventUuid, values),
+          buildUpdateCurtailmentEventRequest(eventUuid, values, initialValues),
         );
         if (!response.event) {
           throw new Error("Updated curtailment response was missing an event.");

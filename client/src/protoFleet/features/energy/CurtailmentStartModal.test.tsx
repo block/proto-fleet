@@ -87,6 +87,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "40",
+  maxDurationSec: "1800",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
@@ -152,7 +153,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
   });
 
-  it("renders edit mode with prefilled values and save copy", async () => {
+  it("renders edit mode with only updateable fields prefilled", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       mode: "edit",
@@ -166,14 +167,26 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Plan a curtailment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue(40);
     expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
+    expect(screen.getByLabelText("Max duration (sec)")).toHaveValue(1800);
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(10);
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disabled: true,
+      }),
+    );
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetKw: "40",
+        maxDurationSec: "1800",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
         reason: "Grid peak - ERCOT 4CP signal",

@@ -84,23 +84,49 @@ describe("curtailmentRequestBuilders", () => {
     ).toThrow("Enter max duration of 604,800 or less.");
   });
 
-  it("builds update requests with optional operator-safe fields only when provided", () => {
-    const request = buildUpdateCurtailmentEventRequest("curt-1", {
-      ...baseValues,
-      reason: "  Updated grid peak  ",
-      maxDurationSec: "1800",
-      restoreBatchSize: "",
-      restoreIntervalSec: "0",
-    });
+  it("builds update requests with changed operator-safe fields only", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "  Updated grid peak  ",
+        maxDurationSec: "1800",
+        restoreBatchSize: "",
+        restoreIntervalSec: "120",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        maxDurationSec: "1800",
+        restoreBatchSize: "",
+        restoreIntervalSec: "60",
+      },
+    );
 
     expect(request).toEqual(
       expect.objectContaining({
         eventUuid: "curt-1",
         reason: "Updated grid peak",
-        maxDurationSeconds: 1800,
-        restoreBatchIntervalSec: 0,
+        restoreBatchIntervalSec: 120,
       }),
     );
+    expect(request.maxDurationSeconds).toBeUndefined();
     expect(request.restoreBatchSize).toBeUndefined();
+  });
+
+  it("sends zero when an update clears a numeric setting", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        restoreBatchSize: "",
+      },
+      {
+        ...baseValues,
+        restoreBatchSize: "10",
+      },
+    );
+
+    expect(request.restoreBatchSize).toBe(0);
   });
 });

@@ -170,7 +170,7 @@ describe("useCurtailmentApi", () => {
         scopeType: "wholeOrg",
         targetKw: "5",
         priority: "emergency",
-        restoreBatchSize: "10",
+        restoreBatchSize: "",
         restoreIntervalSec: "60",
       }),
     );
@@ -433,13 +433,23 @@ describe("useCurtailmentApi", () => {
     const { result } = renderHook(() => useCurtailmentApi());
 
     await act(async () => {
-      await result.current.updateCurtailment("curt-1", {
-        ...baseSubmitValues,
-        reason: " Updated grid peak ",
-        maxDurationSec: "1800",
-        restoreBatchSize: "",
-        restoreIntervalSec: "120",
-      });
+      await result.current.updateCurtailment(
+        "curt-1",
+        {
+          ...baseSubmitValues,
+          reason: " Updated grid peak ",
+          maxDurationSec: "1800",
+          restoreBatchSize: "",
+          restoreIntervalSec: "120",
+        },
+        {
+          ...baseSubmitValues,
+          reason: "Grid peak",
+          maxDurationSec: "",
+          restoreBatchSize: "",
+          restoreIntervalSec: "60",
+        },
+      );
     });
 
     const updateRequest = mockUpdateCurtailment.mock.calls[0][0];
