@@ -220,6 +220,29 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("keeps max duration above the existing min duration in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        minDurationSec: "600",
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Max duration (sec)"));
+    await user.type(screen.getByLabelText("Max duration (sec)"), "300");
+
+    expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("submits edit mode without maintenance confirmation", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({

@@ -211,6 +211,10 @@ function validateCurtailmentFormValues(
     label: "max duration",
     max: curtailmentNumericFieldLimits.maxDurationSec,
   });
+  const minDuration = parseOptionalUint32Field(isEditMode ? initialValues.minDurationSec : values.minDurationSec, {
+    label: "min duration",
+    max: curtailmentNumericFieldLimits.minDurationSec,
+  });
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
@@ -236,6 +240,15 @@ function validateCurtailmentFormValues(
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
   }
+  if (
+    minDuration.error === undefined &&
+    maxDuration.error === undefined &&
+    minDuration.parsed !== undefined &&
+    maxDuration.parsed !== undefined &&
+    minDuration.parsed > maxDuration.parsed
+  ) {
+    localErrors.maxDurationSec = "Max duration must be greater than or equal to min duration.";
+  }
 
   if (isEditMode) {
     return localErrors;
@@ -246,10 +259,6 @@ function validateCurtailmentFormValues(
   const restoreBatchSize = parseOptionalUint32Field(values.restoreBatchSize, {
     label: "batch size",
     max: curtailmentNumericFieldLimits.restoreBatchSize,
-  });
-  const minDuration = parseOptionalUint32Field(values.minDurationSec, {
-    label: "min duration",
-    max: curtailmentNumericFieldLimits.minDurationSec,
   });
 
   if (targetKw.error) {
@@ -263,15 +272,6 @@ function validateCurtailmentFormValues(
   }
   if (minDuration.error) {
     localErrors.minDurationSec = minDuration.error;
-  }
-  if (
-    minDuration.error === undefined &&
-    maxDuration.error === undefined &&
-    minDuration.parsed !== undefined &&
-    maxDuration.parsed !== undefined &&
-    minDuration.parsed > maxDuration.parsed
-  ) {
-    localErrors.maxDurationSec = "Max duration must be greater than or equal to min duration.";
   }
 
   return localErrors;
