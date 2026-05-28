@@ -181,11 +181,6 @@ export function buildUpdateCurtailmentEventRequest(
       initialValues?.maxDurationSec,
       maxDurationOptions,
     ),
-    restoreBatchSize: getChangedUpdateUint32Setting(
-      values.restoreBatchSize,
-      initialValues?.restoreBatchSize,
-      restoreBatchSizeOptions,
-    ),
     restoreBatchIntervalSec: getChangedUpdateUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,

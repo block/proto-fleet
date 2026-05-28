@@ -114,20 +114,23 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.restoreBatchSize).toBeUndefined();
   });
 
-  it("sends zero when an update clears a numeric setting", () => {
+  it("does not include restore batch size in update requests", () => {
     const request = buildUpdateCurtailmentEventRequest(
       "curt-1",
       {
         ...baseValues,
-        restoreBatchSize: "",
+        reason: "Updated grid peak",
+        restoreBatchSize: "20",
       },
       {
         ...baseValues,
+        reason: "Grid peak",
         restoreBatchSize: "10",
       },
     );
 
-    expect(request.restoreBatchSize).toBe(0);
+    expect(request.reason).toBe("Updated grid peak");
+    expect(request.restoreBatchSize).toBeUndefined();
   });
 
   it("does not send zero when an update clears max duration", () => {

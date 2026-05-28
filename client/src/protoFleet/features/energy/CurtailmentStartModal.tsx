@@ -112,7 +112,7 @@ interface PreviewStateOptions {
 }
 
 type ParsedNumberField = { parsed?: number; error?: string };
-type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreBatchSize" | "restoreIntervalSec";
+type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreIntervalSec";
 
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
@@ -132,12 +132,7 @@ const defaultValues: CurtailmentFormValues = {
   reason: "",
   includeMaintenance: true,
 };
-const editableCurtailmentFields: EditableCurtailmentField[] = [
-  "reason",
-  "maxDurationSec",
-  "restoreBatchSize",
-  "restoreIntervalSec",
-];
+const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "maxDurationSec", "restoreIntervalSec"];
 
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
   return {
@@ -198,13 +193,6 @@ function hasEditableCurtailmentChanges(values: CurtailmentFormValues, initialVal
       );
     }
 
-    if (field === "restoreBatchSize") {
-      return (
-        parseComparableUint32Field(values.restoreBatchSize, curtailmentNumericFieldLimits.restoreBatchSize) !==
-        parseComparableUint32Field(initialValues.restoreBatchSize, curtailmentNumericFieldLimits.restoreBatchSize)
-      );
-    }
-
     return (
       parseComparableUint32Field(values.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec) !==
       parseComparableUint32Field(initialValues.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec)
@@ -222,10 +210,6 @@ function validateCurtailmentFormValues(
   const maxDuration = parseOptionalUint32Field(values.maxDurationSec, {
     label: "max duration",
     max: curtailmentNumericFieldLimits.maxDurationSec,
-  });
-  const restoreBatchSize = parseOptionalUint32Field(values.restoreBatchSize, {
-    label: "batch size",
-    max: curtailmentNumericFieldLimits.restoreBatchSize,
   });
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
@@ -249,9 +233,6 @@ function validateCurtailmentFormValues(
   ) {
     localErrors.maxDurationSec = "Max duration cannot be cleared.";
   }
-  if (restoreBatchSize.error) {
-    localErrors.restoreBatchSize = restoreBatchSize.error;
-  }
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
   }
@@ -262,6 +243,10 @@ function validateCurtailmentFormValues(
 
   const targetKw = parseRequiredPositiveNumberField(values.targetKw, "a target reduction");
   const toleranceKw = parseOptionalNonNegativeNumberField(values.toleranceKw, "a tolerance");
+  const restoreBatchSize = parseOptionalUint32Field(values.restoreBatchSize, {
+    label: "batch size",
+    max: curtailmentNumericFieldLimits.restoreBatchSize,
+  });
   const minDuration = parseOptionalUint32Field(values.minDurationSec, {
     label: "min duration",
     max: curtailmentNumericFieldLimits.minDurationSec,
@@ -272,6 +257,9 @@ function validateCurtailmentFormValues(
   }
   if (toleranceKw.error) {
     localErrors.toleranceKw = toleranceKw.error;
+  }
+  if (restoreBatchSize.error) {
+    localErrors.restoreBatchSize = restoreBatchSize.error;
   }
   if (minDuration.error) {
     localErrors.minDurationSec = minDuration.error;
@@ -597,14 +585,7 @@ function CurtailmentStartModalContent({
             )}
 
             <Section title="Restore behavior">
-              <div className="grid gap-3 tablet:grid-cols-2">
-                <Field
-                  id="curtailment-restore-batch-size"
-                  label="Batch size (miners)"
-                  value={values.restoreBatchSize}
-                  error={effectiveErrors.restoreBatchSize}
-                  onChange={(value) => updateValue("restoreBatchSize", value)}
-                />
+              {isEditMode ? (
                 <Field
                   id="curtailment-restore-batch-interval"
                   label="Batch interval (sec)"
@@ -612,7 +593,24 @@ function CurtailmentStartModalContent({
                   error={effectiveErrors.restoreIntervalSec}
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
-              </div>
+              ) : (
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-restore-batch-size"
+                    label="Batch size (miners)"
+                    value={values.restoreBatchSize}
+                    error={effectiveErrors.restoreBatchSize}
+                    onChange={(value) => updateValue("restoreBatchSize", value)}
+                  />
+                  <Field
+                    id="curtailment-restore-batch-interval"
+                    label="Batch interval (sec)"
+                    value={values.restoreIntervalSec}
+                    error={effectiveErrors.restoreIntervalSec}
+                    onChange={(value) => updateValue("restoreIntervalSec", value)}
+                  />
+                </div>
+              )}
             </Section>
 
             {isEditMode ? null : (

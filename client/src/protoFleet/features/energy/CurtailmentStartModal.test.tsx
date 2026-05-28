@@ -169,10 +169,10 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
     expect(screen.getByLabelText("Max duration (sec)")).toHaveValue(1800);
-    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue(10);
     expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
     expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
@@ -193,7 +193,6 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         maxDurationSec: "1800",
-        restoreBatchSize: "10",
         restoreIntervalSec: "180",
         reason: "Grid peak - ERCOT 4CP signal",
       }),
