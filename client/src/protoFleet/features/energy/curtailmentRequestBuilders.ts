@@ -73,20 +73,6 @@ function getChangedUpdateStringSetting(value: string, initialValue?: string): st
   return trimmedValue === initialValue.trim() ? undefined : trimmedValue;
 }
 
-function getChangedUpdateUint32Setting(
-  value: string,
-  initialValue: string | undefined,
-  options: OptionalUint32FieldOptions,
-): number | undefined {
-  const nextValue = getOptionalUpdateUint32Setting(value, options);
-  if (nextValue === undefined) {
-    return undefined;
-  }
-
-  const previousValue = initialValue === undefined ? undefined : getOptionalUpdateUint32Setting(initialValue, options);
-  return nextValue === previousValue ? undefined : nextValue;
-}
-
 function getChangedUpdatePositiveUint32Setting(
   value: string,
   initialValue: string | undefined,
@@ -180,7 +166,7 @@ export function buildUpdateCurtailmentEventRequest(
       initialValues?.maxDurationSec,
       maxDurationOptions,
     ),
-    restoreBatchIntervalSec: getChangedUpdateUint32Setting(
+    restoreBatchIntervalSec: getChangedUpdatePositiveUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,
       restoreBatchIntervalOptions,

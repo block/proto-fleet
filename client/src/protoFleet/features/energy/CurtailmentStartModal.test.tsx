@@ -275,6 +275,28 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("blocks zero restore interval in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.type(screen.getByLabelText("Batch interval (sec)"), "0");
+
+    expect(screen.getByText("Enter batch interval greater than 0.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("keeps max duration above the existing min duration in edit mode", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({

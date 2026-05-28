@@ -26,6 +26,11 @@ interface PendingStopConfirmation {
   eventId: string;
 }
 
+interface EditCurtailmentSession {
+  eventId: string;
+  initialValues: CurtailmentSubmitValues;
+}
+
 interface CurtailmentMessageProps {
   message: string;
 }
@@ -66,6 +71,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     stopCurtailment,
   } = useCurtailmentApi();
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
+  const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const errorMessage = startError ?? updateError ?? stopError ?? loadError;
@@ -93,13 +99,32 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     return () => refreshAbortControllerRef.current?.abort();
   }, [refreshCurtailment, runAbortableRefresh]);
 
+  const closeModal = useCallback(() => {
+    setModalMode(null);
+    setEditSession(null);
+  }, []);
+
+  const openCreateModal = useCallback(() => {
+    setEditSession(null);
+    setModalMode("create");
+  }, []);
+
+  const openEditModal = useCallback(() => {
+    if (!activeEventId || !activeEventFormValues) {
+      return;
+    }
+
+    setEditSession({ eventId: activeEventId, initialValues: activeEventFormValues });
+    setModalMode("edit");
+  }, [activeEventFormValues, activeEventId]);
+
   const openStopConfirmation = useCallback(
-    (action: CurtailmentStopConfirmationAction) => {
-      if (!activeEventId) {
+    (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
+      if (!eventId) {
         return;
       }
 
-      setPendingStopConfirmation({ action, eventId: activeEventId });
+      setPendingStopConfirmation({ action, eventId });
     },
     [activeEventId],
   );
@@ -107,23 +132,24 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const handleStartSubmit = useCallback(
     (values: CurtailmentSubmitValues) => {
       void startCurtailment(values)
-        .then(() => setModalMode(null))
+        .then(closeModal)
         .catch(() => {});
     },
-    [startCurtailment],
+    [closeModal, startCurtailment],
   );
 
   const handleUpdateSubmit = useCallback(
     (values: CurtailmentSubmitValues) => {
-      if (!activeEventId) {
+      const editEventId = editSession?.eventId ?? activeEventId;
+      if (!editEventId) {
         return;
       }
 
-      void updateCurtailment(activeEventId, values, activeEventFormValues ?? undefined)
-        .then(() => setModalMode(null))
+      void updateCurtailment(editEventId, values, editSession?.initialValues ?? activeEventFormValues ?? undefined)
+        .then(closeModal)
         .catch(() => {});
     },
-    [activeEventFormValues, activeEventId, updateCurtailment],
+    [activeEventFormValues, activeEventId, closeModal, editSession, updateCurtailment],
   );
 
   const handleModalSubmit = useCallback(
@@ -168,9 +194,11 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   }, [pendingStopConfirmation, stopCurtailment]);
 
   const handleEditStopCurtailment = useCallback(() => {
-    setModalMode(null);
-    openStopConfirmation("stopCurtailment");
-  }, [openStopConfirmation]);
+    const editEventId = editSession?.eventId ?? activeEventId;
+
+    closeModal();
+    openStopConfirmation("stopCurtailment", editEventId);
+  }, [activeEventId, closeModal, editSession, openStopConfirmation]);
 
   return (
     <section className={clsx("grid gap-6", className)}>
@@ -180,7 +208,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           variant={variants.primary}
           size={sizes.base}
           text="Plan curtailment"
-          onClick={() => setModalMode("create")}
+          onClick={openCreateModal}
           disabled={isStarting || isUpdating}
           className="phone:w-full"
         />
@@ -197,7 +225,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           {activeEvent ? (
             <ActiveCurtailmentStatus
               event={activeEvent}
-              onRequestEdit={() => setModalMode("edit")}
+              onRequestEdit={openEditModal}
               onRequestRestore={() => openStopConfirmation("restore")}
               onRequestStop={() => openStopConfirmation("stopCurtailment")}
             />
@@ -222,8 +250,8 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
         <CurtailmentStartModal
           open
           mode={modalMode}
-          initialValues={isEditingCurtailment ? (activeEventFormValues ?? undefined) : undefined}
-          onDismiss={() => setModalMode(null)}
+          initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
+          onDismiss={closeModal}
           onSubmit={handleModalSubmit}
           onStopCurtailment={isEditingCurtailment ? handleEditStopCurtailment : undefined}
           isSubmitting={isModalSubmitting}

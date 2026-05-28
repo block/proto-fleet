@@ -263,6 +263,42 @@ describe("CurtailmentManagementPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
   });
 
+  it("keeps the edit baseline stable after active event refreshes", async () => {
+    const user = userEvent.setup();
+    const refreshedFormValues = {
+      ...activeEventFormValues,
+      reason: "Operator draft",
+    } as CurtailmentSubmitValues;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+      }),
+    );
+
+    const { rerender } = render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Request edit" }));
+
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues: refreshedFormValues,
+      }),
+    );
+    rerender(<CurtailmentManagementPanel />);
+
+    expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Grid peak");
+
+    await user.click(screen.getByRole("button", { name: "Submit edit" }));
+
+    await waitFor(() =>
+      expect(mocks.updateCurtailment).toHaveBeenCalledWith("curt-1", mocks.submitValues, activeEventFormValues),
+    );
+  });
+
   it("opens stop confirmation from the management modal", async () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(

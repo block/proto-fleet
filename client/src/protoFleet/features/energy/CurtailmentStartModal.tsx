@@ -234,6 +234,9 @@ function validateCurtailmentFormValues(
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
   }
+  if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
+    localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
+  }
   if (
     isEditMode &&
     restoreInterval.error === undefined &&
