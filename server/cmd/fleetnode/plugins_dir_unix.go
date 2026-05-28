@@ -33,11 +33,9 @@ func checkPluginsDirPerms(path string) error {
 	return nil
 }
 
-// validatePluginFiles enforces the per-file safety bar that the container
-// check can't see. Ownership and writability checks apply to every regular
-// file, not just executable ones: a non-executable file owned by another
-// user can be chmod +x'd by that user between validation and plugin load,
-// turning it into an RCE vector under the agent uid.
+// Every regular file is checked, not just executables: a non-exec file
+// owned by another user can be chmod +x'd between validation and load,
+// becoming RCE under the agent uid.
 func validatePluginFiles(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -75,16 +73,11 @@ func validatePluginFiles(dir string) error {
 	return nil
 }
 
-// validatePathChain verifies that every directory above path is owned by
-// root or the running uid and not group/world-writable. Without this, a
-// writable ancestor lets another user swap the validated plugins dir
-// between resolvePluginsDir and the loader's exec call.
-//
-// Both the original path and (when it differs) its symlink-resolved form
-// are walked: walking the original chain catches a swappable symlink
-// component (its containing dir's perms protect it from replacement);
-// walking the resolved chain catches the case where a trusted symlink
-// points into an attacker-writable target tree.
+// Without ancestor validation a writable parent lets another user swap the
+// validated plugins dir between resolvePluginsDir and the loader's exec.
+// Both the original and resolved chains are walked: the original catches
+// swappable symlinks (via their containing dir's perms), the resolved
+// catches a trusted symlink pointing into an attacker-writable target.
 func validatePathChain(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("validatePathChain requires absolute path, got %q", path)
@@ -113,10 +106,9 @@ func walkAncestors(path string) error {
 			return fmt.Errorf("lstat path component %s: %w", current, err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			// Symlink components reduce to two checks already in scope:
-			// the symlink's containing dir (next iteration) protects it
-			// from replacement, and EvalSymlinks-resolved target chain
-			// validates the underlying directory.
+			// Symlink components are guarded transitively: containing dir
+			// (next iteration) blocks replacement; resolved-chain walk
+			// covers the target.
 			parent := filepath.Dir(current)
 			if parent == current {
 				break
@@ -134,10 +126,8 @@ func walkAncestors(path string) error {
 		if stat.Uid != 0 && stat.Uid != uid {
 			return fmt.Errorf("path component %s: owner uid %d must be 0 (root) or %d (this process)", current, stat.Uid, uid)
 		}
-		// Sticky-bit exception: dirs like /tmp are mode 0o1777 (world-
-		// writable + sticky) so other users can create their own entries
-		// but cannot delete or rename ours. That protects the descendants
-		// we actually care about, so accept sticky+writable ancestors.
+		// /tmp-style 0o1777: sticky bit blocks non-owner delete/rename, so
+		// our descendants are protected even though the dir is world-writable.
 		if mode := info.Mode().Perm(); mode&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
 			return fmt.Errorf("path component %s: mode %#o must not be group- or world-writable", current, mode)
 		}

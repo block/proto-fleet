@@ -14,24 +14,10 @@ import (
 	"time"
 )
 
-// reapOrphanedPlugins kills plugin-binary processes whose argv0 matches an
-// installed plugin under pluginsDir and whose parent is no longer alive
-// (true orphans). Runs before newPluginDiscoverer and under the state lock,
-// so any match left after the ppid filter is leftover from a prior crash.
-// Best-effort: a missing/broken ps never blocks startup.
-//
-// pluginsDir must be the same string the loader passes to exec.Command so
-// argv0 in ps matches the paths enumerated here. resolvePluginsDir rejects
-// a symlinked leaf, but path components above can still be symlinks --
-// using the unresolved path keeps loader and reaper aligned in either case.
-//
-// We match against os.ReadDir entries (the actual plugin filenames) rather
-// than splitting ps's space-joined argv on spaces; that way install paths
-// containing spaces ("/opt/Proto Fleet/plugins/...") match correctly.
-//
-// The ppid check matters when two agents share a binary/plugins layout but
-// hold different state locks (e.g. --state-dir variants). Without it, agent
-// B's startup would kill agent A's live plugin children.
+// Matching against os.ReadDir entries (rather than parsing ps argv) lets
+// plugin paths containing spaces resolve correctly. The ppid filter avoids
+// killing live plugins owned by another agent sharing the same pluginsDir
+// under a different --state-dir.
 func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Logger) {
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {
@@ -50,10 +36,7 @@ func reapOrphanedPlugins(ctx context.Context, pluginsDir string, logger *slog.Lo
 	}
 	psCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Hard-coded absolute path: /bin/ps is the canonical location on Linux
-	// (real binary or merge-usr symlink) and macOS, and dropping PATH
-	// resolution prevents a hostile $PATH from injecting a shim that runs
-	// as the daemon during startup.
+	// /bin/ps explicit so a hostile $PATH can't inject a shim during startup.
 	out, err := exec.CommandContext(psCtx, "/bin/ps", "-eo", "pid=,ppid=,command=").Output()
 	if err != nil {
 		logger.Debug("orphan reaper: ps failed; skipping", "err", err)
@@ -68,11 +51,8 @@ type psEntry struct {
 	command string
 }
 
-// reapOrphans is split out for testability: callers inject the ps output,
-// the set of allowed plugin paths, the running self pid, and the kill
-// function. Matching against allowed paths sidesteps ps's space-joined argv
-// representation -- an entry matches when e.command is exactly an allowed
-// path, or an allowed path followed by a space (its first argument).
+// Split from reapOrphanedPlugins so tests inject ps output and the kill
+// function directly instead of forking.
 func reapOrphans(psOutput string, allowed []string, selfPID int, logger *slog.Logger, killFn func(pid int, sig syscall.Signal) error) {
 	var entries []psEntry
 	alive := make(map[int]bool)
@@ -106,9 +86,7 @@ func reapOrphans(psOutput string, allowed []string, selfPID int, logger *slog.Lo
 		if matchedPath == "" {
 			continue
 		}
-		// Skip if the parent is still alive and not init/launchd. A live
-		// non-init parent means another agent (or a debugger) still owns
-		// this child.
+		// Live non-init parent = another agent (or debugger) still owns this child.
 		if e.ppid > 1 && alive[e.ppid] {
 			logger.Debug("orphan reaper: parent still alive; skipping", "pid", e.pid, "ppid", e.ppid)
 			continue

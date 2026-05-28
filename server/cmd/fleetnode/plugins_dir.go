@@ -20,9 +20,8 @@ func resolvePluginsDir(exeDir string) (string, error) {
 		}
 		return "", fmt.Errorf("lstat plugins dir %s: %w", candidate, err)
 	}
-	// A symlink as the dir entry defeats checkPluginsDirPerms (which Stats
-	// the target) and creates a path-mismatch with the orphan reaper, which
-	// resolves symlinks. Refuse early.
+	// Symlink leaves add a mutable layer between validation and exec; refuse
+	// so the reaper, validator, and loader all see the same path.
 	if info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("plugins dir %s is a symlink; refuse to follow", candidate)
 	}

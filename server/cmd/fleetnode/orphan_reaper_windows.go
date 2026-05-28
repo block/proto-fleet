@@ -7,7 +7,6 @@ import (
 	"log/slog"
 )
 
-// No-op: Windows go-plugin children share a job object that auto-terminates
-// when the parent exits. The signature matches the Unix variant so the
-// shared run.go caller compiles on both platforms.
+// Windows go-plugin children share a job object that auto-terminates with
+// the parent, so no manual reaping is needed.
 func reapOrphanedPlugins(_ context.Context, _ string, _ *slog.Logger) {}
