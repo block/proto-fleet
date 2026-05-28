@@ -49,6 +49,13 @@ func (h *Handler) CompleteImport(ctx context.Context, r *connect.Request[pb.Comp
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// ImportGroups/ImportRacks branches create rack/group collections, so
+	// they need the same authority as direct rack mutations.
+	if r.Msg.GetImportGroups() || r.Msg.GetImportRacks() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateCredentials(r.Msg.Credentials); err != nil {
 		return nil, err
 	}
