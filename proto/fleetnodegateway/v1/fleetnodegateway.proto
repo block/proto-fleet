@@ -109,7 +109,11 @@ message DiscoveredDeviceReport {
             expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
         }
     ];
-    string url_scheme       = 4 [(buf.validate.field).string = {in: ["http", "https"]}];
+    // No {in: [...]} restriction here: plugins may report non-http schemes
+    // (e.g., the virtual driver uses "virtual") and the pairing.Device proto
+    // accepts any string, so the gateway should not be stricter than the
+    // source schema. max_len keeps the field bounded.
+    string url_scheme       = 4 [(buf.validate.field).string.max_len = 32];
     string driver_name      = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
     string model            = 6 [(buf.validate.field).string.max_len = 255];
     string manufacturer     = 7 [(buf.validate.field).string.max_len = 255];

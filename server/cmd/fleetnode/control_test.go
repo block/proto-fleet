@@ -919,8 +919,9 @@ func TestFanOutProbes_DropsInvalidReportInsteadOfPoisoningBatch(t *testing.T) {
 				DeviceIdentifier: "auto:bad",
 				IpAddress:        ip,
 				Port:             "4028",
-				UrlScheme:        "virtual", // not in {"http", "https"}
+				UrlScheme:        "http",
 				DriverName:       "antminer",
+				Model:            strings.Repeat("X", 300), // exceeds max_len=255
 			}, nil
 		}
 		return nil, nil
@@ -935,6 +936,31 @@ func TestFanOutProbes_DropsInvalidReportInsteadOfPoisoningBatch(t *testing.T) {
 	// Assert: only the gateway-valid report survives; the bad one is dropped.
 	require.Len(t, result, 1)
 	assert.Equal(t, "auto:good", result[0].GetDeviceIdentifier())
+}
+
+func TestFanOutProbes_AcceptsNonHTTPPluginScheme(t *testing.T) {
+	// Arrange: virtual plugin (and any future non-http plugin) reports its
+	// own url_scheme. The gateway proto previously restricted url_scheme to
+	// {"http","https"} which silently dropped these reports.
+	probe := func(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
+		return &pb.DiscoveredDeviceReport{
+			DeviceIdentifier: "auto:virt",
+			IpAddress:        ip,
+			Port:             port,
+			UrlScheme:        "virtual",
+			DriverName:       "virtual",
+		}, nil
+	}
+
+	// Act
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	endpoints := []endpoint{{ip: "10.0.0.1", port: "4028"}}
+	result := fanOutProbes(ctx, endpoints, 1, probe, discardLogger(t))
+
+	// Assert
+	require.Len(t, result, 1)
+	assert.Equal(t, "virtual", result[0].GetUrlScheme())
 }
 
 func TestFanOutProbes_OverridesPluginSuppliedEndpoint(t *testing.T) {
