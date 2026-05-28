@@ -54,8 +54,20 @@ service CurtailmentService {
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
-    // IngestCurtailmentSignal is reserved for v2 webhook ingestion.
-    // Proto3 cannot reserve service RPC names.
+    // IngestCurtailmentSignal accepts an external dispatch signal (QSE
+    // bridge, aggregator, OpenADR VTN, internal policy actor) and starts
+    // a curtailment event. Provider-opaque envelope: the per-provider
+    // adapter decodes `signal_payload` (raw bytes; JSON by convention)
+    // into a curtailment Start. Idempotent on
+    // (org_id, external_source, external_reference) via the v1
+    // non-terminal partial unique index — replay during an in-flight
+    // event echoes the persisted event; replay after completion fires
+    // fresh.
+    //
+    // Permission: curtailment:ingest. Body returns Unimplemented until
+    // the receiver + first adapter land.
+    rpc IngestCurtailmentSignal(IngestCurtailmentSignalRequest)
+        returns (IngestCurtailmentSignalResponse);
 }
 
 // --- Enums ---
@@ -567,4 +579,56 @@ message AdminTerminateEventRequest {
 
 message AdminTerminateEventResponse {
     CurtailmentEvent event = 1;
+}
+
+// IngestCurtailmentSignal — see service-level doc.
+message IngestCurtailmentSignalRequest {
+    // Provider identifier. Must match a registered adapter.
+    // v2: "ercot-qse". Later: "voltus", "openadr3", etc.
+    string external_source = 1 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 64
+    }];
+
+    // Provider-assigned dispatch identifier; forms the
+    // (external_source, external_reference) idempotency key.
+    string external_reference = 2 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 256
+    }];
+
+    // Raw provider payload. Adapter decodes (JSON by convention) and
+    // validates shape. Size cap is a sanity ceiling; large multi-interval
+    // OpenADR events still fit.
+    bytes signal_payload = 3 [(buf.validate.field).bytes = {
+        min_len: 1
+        max_len: 65536
+    }];
+
+    // Optional scope override. When unset, the adapter selects the
+    // default scope (whole-org for most grid-program signals).
+    oneof scope_override {
+        ScopeWholeOrg   whole_org_override          = 10;
+        ScopeDeviceSets device_set_ids_override     = 11;
+        ScopeDeviceList device_identifiers_override = 12;
+    }
+
+    // Operator-facing free text; adapter or handler may default to
+    // "<external_source>:<external_reference>" when empty.
+    string reason = 20 [(buf.validate.field).string.max_len = 256];
+}
+
+message IngestCurtailmentSignalResponse {
+    // The curtailment event created (or echoed on idempotent replay).
+    CurtailmentEvent event = 1;
+
+    // True when this call inserted a new event row. False when an
+    // in-flight event with the same (external_source, external_reference)
+    // was returned via the idempotency replay path.
+    bool created = 2;
+
+    // Adapter-surfaced soft warnings (e.g. "unknown_program",
+    // "tolerance_defaulted"). Hard adapter rejections return
+    // InvalidArgument instead of riding here.
+    repeated string adapter_warnings = 3;
 }

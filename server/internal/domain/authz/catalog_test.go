@@ -59,6 +59,7 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermServerlogRead,
 		PermCurtailmentRead,
 		PermCurtailmentManage,
+		PermCurtailmentIngest,
 		PermFleetnodeRead,
 		PermFleetnodeManage,
 		PermAPIKeyManage,

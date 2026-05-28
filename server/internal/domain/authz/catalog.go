@@ -49,6 +49,13 @@ const (
 	// curtailment — top-nav operational page.
 	PermCurtailmentRead   = "curtailment:read"
 	PermCurtailmentManage = "curtailment:manage"
+	// PermCurtailmentIngest gates the machine-callable
+	// IngestCurtailmentSignal RPC. Issued to provider service accounts
+	// (QSE bridge, aggregator, OpenADR VTN) under a custom role; auto-
+	// granted to SUPER_ADMIN/ADMIN via the boot reconciler, but the
+	// intended primary caller is a webhook integrator, not an
+	// interactive admin.
+	PermCurtailmentIngest = "curtailment:ingest"
 
 	// fleetnode — top-nav admin operations.
 	PermFleetnodeRead   = "fleetnode:read"
@@ -127,6 +134,7 @@ var catalog = []CatalogEntry{
 
 	{PermCurtailmentRead, "View curtailment policies and preview impact.", ResourceCurtailment},
 	{PermCurtailmentManage, "Create, edit, and delete curtailment policies.", ResourceCurtailment},
+	{PermCurtailmentIngest, "Accept curtailment dispatch signals from external providers (QSE bridge, aggregator, OpenADR VTN).", ResourceCurtailment},
 
 	{PermFleetnodeRead, "View fleet-node state.", ResourceFleetNode},
 	{PermFleetnodeManage, "Perform fleet-node admin operations.", ResourceFleetNode},

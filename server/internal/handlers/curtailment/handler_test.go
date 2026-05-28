@@ -570,6 +570,124 @@ func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
 }
 
+// TestHandler_IngestCurtailmentSignalPermissionGate exercises the
+// permission boundary BE-V2-1 ships: callers without curtailment:ingest
+// see PermissionDenied; callers with it reach the still-unimplemented
+// body and see Unimplemented.
+func TestHandler_IngestCurtailmentSignalPermissionGate(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	req := connect.NewRequest(&pb.IngestCurtailmentSignalRequest{
+		ExternalSource:    "ercot-qse",
+		ExternalReference: "ERS10-20260612-0915-EVT001",
+		SignalPayload:     []byte(`{}`),
+	})
+
+	cases := []struct {
+		name        string
+		permissions []string
+		wantCode    connect.Code
+	}{
+		{"caller without curtailment:ingest is rejected", []string{authz.PermCurtailmentRead, authz.PermCurtailmentManage}, connect.CodePermissionDenied},
+		{"empty permissions set is rejected", nil, connect.CodePermissionDenied},
+		{"caller with curtailment:ingest reaches Unimplemented body", []string{authz.PermCurtailmentIngest}, connect.CodeUnimplemented},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			eff := authz.NewEffectivePermissions([]authz.Assignment{{
+				AssignmentID: 1,
+				ScopeType:    authz.ScopeOrg,
+				Permissions:  tc.permissions,
+			}})
+			ctx := authn.SetInfo(t.Context(), &session.Info{})
+			ctx = middleware.WithEffectivePermissions(ctx, eff)
+
+			_, err := h.IngestCurtailmentSignal(ctx, req)
+
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr, "expected fleeterror.FleetError, got %T", err)
+			assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+		})
+	}
+}
+
+// buf.validate constraints on IngestCurtailmentSignalRequest:
+// external_source min_len=1/max_len=64, external_reference min_len=1/
+// max_len=256, signal_payload min_len=1/max_len=65536, reason max_len=256.
+// Validator-passed requests reach the handler and surface
+// CodeUnauthenticated from middleware.RequirePermission (no session in
+// context); we accept that as "validator passed". Permission-gate
+// behavior is covered by TestHandler_IngestCurtailmentSignalPermissionGate.
+func TestHandler_IngestCurtailmentSignalValidation(t *testing.T) {
+	t.Parallel()
+
+	client := newValidationTestClient(t)
+
+	validReq := func() *pb.IngestCurtailmentSignalRequest {
+		return &pb.IngestCurtailmentSignalRequest{
+			ExternalSource:    "ercot-qse",
+			ExternalReference: "ERS10-20260612-0915-EVT001",
+			SignalPayload:     []byte(`{"dispatch_id":"ERS10-20260612-0915-EVT001"}`),
+			Reason:            "ercot-qse dispatch",
+		}
+	}
+
+	cases := []struct {
+		name     string
+		mutate   func(*pb.IngestCurtailmentSignalRequest)
+		wantCode connect.Code
+	}{
+		{
+			"valid request reaches handler",
+			func(*pb.IngestCurtailmentSignalRequest) {},
+			connect.CodeUnauthenticated,
+		},
+		{
+			"empty external_source is rejected",
+			func(r *pb.IngestCurtailmentSignalRequest) { r.ExternalSource = "" },
+			connect.CodeInvalidArgument,
+		},
+		{
+			"empty external_reference is rejected",
+			func(r *pb.IngestCurtailmentSignalRequest) { r.ExternalReference = "" },
+			connect.CodeInvalidArgument,
+		},
+		{
+			"empty signal_payload is rejected",
+			func(r *pb.IngestCurtailmentSignalRequest) { r.SignalPayload = nil },
+			connect.CodeInvalidArgument,
+		},
+		{
+			"signal_payload over 64 KiB is rejected",
+			func(r *pb.IngestCurtailmentSignalRequest) {
+				r.SignalPayload = make([]byte, 65537)
+			},
+			connect.CodeInvalidArgument,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := validReq()
+			tc.mutate(req)
+
+			_, err := client.IngestCurtailmentSignal(t.Context(), connect.NewRequest(req))
+
+			require.Error(t, err)
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.Equal(t, tc.wantCode, connectErr.Code())
+		})
+	}
+}
+
 func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServiceClient {
 	t.Helper()
 

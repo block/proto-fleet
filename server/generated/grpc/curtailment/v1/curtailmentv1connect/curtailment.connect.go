@@ -55,6 +55,9 @@ const (
 	// CurtailmentServiceAdminTerminateEventProcedure is the fully-qualified name of the
 	// CurtailmentService's AdminTerminateEvent RPC.
 	CurtailmentServiceAdminTerminateEventProcedure = "/curtailment.v1.CurtailmentService/AdminTerminateEvent"
+	// CurtailmentServiceIngestCurtailmentSignalProcedure is the fully-qualified name of the
+	// CurtailmentService's IngestCurtailmentSignal RPC.
+	CurtailmentServiceIngestCurtailmentSignalProcedure = "/curtailment.v1.CurtailmentService/IngestCurtailmentSignal"
 )
 
 // CurtailmentServiceClient is a client for the curtailment.v1.CurtailmentService service.
@@ -91,6 +94,19 @@ type CurtailmentServiceClient interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
+	// IngestCurtailmentSignal accepts an external dispatch signal (QSE
+	// bridge, aggregator, OpenADR VTN, internal policy actor) and starts
+	// a curtailment event. Provider-opaque envelope: the per-provider
+	// adapter decodes `signal_payload` (raw bytes; JSON by convention)
+	// into a curtailment Start. Idempotent on
+	// (org_id, external_source, external_reference) via the v1
+	// non-terminal partial unique index — replay during an in-flight
+	// event echoes the persisted event; replay after completion fires
+	// fresh.
+	//
+	// Permission: curtailment:ingest. Body returns Unimplemented until
+	// the receiver + first adapter land.
+	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 }
 
 // NewCurtailmentServiceClient constructs a client for the curtailment.v1.CurtailmentService
@@ -138,18 +154,24 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceAdminTerminateEventProcedure,
 			opts...,
 		),
+		ingestCurtailmentSignal: connect.NewClient[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse](
+			httpClient,
+			baseURL+CurtailmentServiceIngestCurtailmentSignalProcedure,
+			opts...,
+		),
 	}
 }
 
 // curtailmentServiceClient implements CurtailmentServiceClient.
 type curtailmentServiceClient struct {
-	previewCurtailmentPlan *connect.Client[v1.PreviewCurtailmentPlanRequest, v1.PreviewCurtailmentPlanResponse]
-	startCurtailment       *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
-	updateCurtailmentEvent *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
-	stopCurtailment        *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
-	getActiveCurtailment   *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
-	listCurtailmentEvents  *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
-	adminTerminateEvent    *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
+	previewCurtailmentPlan  *connect.Client[v1.PreviewCurtailmentPlanRequest, v1.PreviewCurtailmentPlanResponse]
+	startCurtailment        *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
+	updateCurtailmentEvent  *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
+	stopCurtailment         *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
+	getActiveCurtailment    *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
+	listCurtailmentEvents   *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
+	adminTerminateEvent     *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
+	ingestCurtailmentSignal *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
 }
 
 // PreviewCurtailmentPlan calls curtailment.v1.CurtailmentService.PreviewCurtailmentPlan.
@@ -187,6 +209,11 @@ func (c *curtailmentServiceClient) AdminTerminateEvent(ctx context.Context, req 
 	return c.adminTerminateEvent.CallUnary(ctx, req)
 }
 
+// IngestCurtailmentSignal calls curtailment.v1.CurtailmentService.IngestCurtailmentSignal.
+func (c *curtailmentServiceClient) IngestCurtailmentSignal(ctx context.Context, req *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error) {
+	return c.ingestCurtailmentSignal.CallUnary(ctx, req)
+}
+
 // CurtailmentServiceHandler is an implementation of the curtailment.v1.CurtailmentService service.
 type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
@@ -221,6 +248,19 @@ type CurtailmentServiceHandler interface {
 	// even when Uncurtails are in flight. Race-window targets persist as
 	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
+	// IngestCurtailmentSignal accepts an external dispatch signal (QSE
+	// bridge, aggregator, OpenADR VTN, internal policy actor) and starts
+	// a curtailment event. Provider-opaque envelope: the per-provider
+	// adapter decodes `signal_payload` (raw bytes; JSON by convention)
+	// into a curtailment Start. Idempotent on
+	// (org_id, external_source, external_reference) via the v1
+	// non-terminal partial unique index — replay during an in-flight
+	// event echoes the persisted event; replay after completion fires
+	// fresh.
+	//
+	// Permission: curtailment:ingest. Body returns Unimplemented until
+	// the receiver + first adapter land.
+	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 }
 
 // NewCurtailmentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -264,6 +304,11 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.AdminTerminateEvent,
 		opts...,
 	)
+	curtailmentServiceIngestCurtailmentSignalHandler := connect.NewUnaryHandler(
+		CurtailmentServiceIngestCurtailmentSignalProcedure,
+		svc.IngestCurtailmentSignal,
+		opts...,
+	)
 	return "/curtailment.v1.CurtailmentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CurtailmentServicePreviewCurtailmentPlanProcedure:
@@ -280,6 +325,8 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceListCurtailmentEventsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceAdminTerminateEventProcedure:
 			curtailmentServiceAdminTerminateEventHandler.ServeHTTP(w, r)
+		case CurtailmentServiceIngestCurtailmentSignalProcedure:
+			curtailmentServiceIngestCurtailmentSignalHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -315,4 +362,8 @@ func (UnimplementedCurtailmentServiceHandler) ListCurtailmentEvents(context.Cont
 
 func (UnimplementedCurtailmentServiceHandler) AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.AdminTerminateEvent is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.IngestCurtailmentSignal is not implemented"))
 }
