@@ -7,6 +7,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -46,6 +47,5 @@ func (h Handler) UpdateNetworkNickname(ctx context.Context, _ *connect.Request[p
 	if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	// TODO implement me
-	panic("unimplemented")
+	return nil, fleeterror.NewUnimplementedError("UpdateNetworkNickname is not implemented")
 }
