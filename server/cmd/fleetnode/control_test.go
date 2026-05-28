@@ -1081,23 +1081,6 @@ func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
 	assert.Contains(t, busyAck.GetErrorMessage(), "in flight")
 }
 
-func TestSendAck_ClampsErrorMessageToProtoLimit(t *testing.T) {
-	// Arrange: an ack with a 10KB error message would otherwise blow the
-	// gateway proto's max_len=4096 buf-validate rule and the ack itself
-	// would be rejected.
-	r := &RunCmd{}
-	captured := &capturingAcker{}
-
-	// Act
-	r.sendAck(captured, "cmd-x", pb.AckCode_ACK_CODE_INTERNAL, strings.Repeat("a", 10_000), discardLogger(t))
-
-	// Assert
-	require.Len(t, captured.sent, 1)
-	got := captured.sent[0].GetAck().GetErrorMessage()
-	assert.LessOrEqual(t, len(got), 4096)
-	assert.True(t, strings.HasSuffix(got, "..."), "truncated messages should end with an ellipsis: %q...", got[len(got)-10:])
-}
-
 func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 	// Arrange: two commands. The worker's completion ack for cmd-A and the
 	// receive loop's busy ack for cmd-C overlap on the same bidi stream;

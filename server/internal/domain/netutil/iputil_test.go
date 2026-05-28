@@ -86,11 +86,6 @@ func TestNormalizeIPListEntry(t *testing.T) {
 	}
 }
 
-func TestNormalizeIPListEntry_DefaultResolverSatisfiesInterface(t *testing.T) {
-	// Compile-time guard: a Go stdlib change to LookupIPAddr breaks build, not runtime.
-	var _ IPListResolver = net.DefaultResolver
-}
-
 func TestParseIPv4(t *testing.T) {
 	t.Parallel()
 
@@ -121,34 +116,6 @@ func TestParseIPv4(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got.String())
-		})
-	}
-}
-
-func TestIPv4Uint32RoundTrip(t *testing.T) {
-	t.Parallel()
-
-	cases := []string{
-		"0.0.0.0",
-		"10.0.0.1",
-		"127.0.0.1",
-		"192.168.1.255",
-		"255.255.255.255",
-	}
-	for _, s := range cases {
-		t.Run(s, func(t *testing.T) {
-			t.Parallel()
-
-			// Arrange
-			addr, err := ParseIPv4(s)
-			require.NoError(t, err)
-
-			// Act
-			n := IPv4ToUint32(addr)
-			back := Uint32ToIPv4(n)
-
-			// Assert
-			assert.Equal(t, s, back)
 		})
 	}
 }

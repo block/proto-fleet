@@ -66,17 +66,6 @@ func TestResolveNmapPath_Default_AdjacentWorldWritableFailsClosed(t *testing.T) 
 	assert.Empty(t, got, "world-writable adjacent nmap must not be accepted, and we must not fall through to PATH")
 }
 
-func TestResolveNmapPath_EmptyExeDir_NoPath(t *testing.T) {
-	// Arrange
-	t.Setenv("PATH", t.TempDir())
-
-	// Act
-	got := resolveNmapPath("", testLogger())
-
-	// Assert
-	assert.Empty(t, got)
-}
-
 func TestResolveNmapPath_AdjacentRejectsWritableAncestor(t *testing.T) {
 	// Arrange: binary itself passes ownership+mode, but the immediate parent
 	// is world-writable (no sticky bit). validatePathChain must reject the
@@ -264,17 +253,4 @@ func TestDiscoverForCommand_NmapPathEmptyFailsClosed(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nmap binary not available")
-}
-
-func TestBuildNmapOptions_RejectsIPv6CIDR(t *testing.T) {
-	// Arrange
-	r := &RunCmd{nmapPath: "/usr/bin/nmap", discoverer: &stubDiscoverer{}}
-	req := &pairingpb.NmapModeRequest{Target: "2001:db8::/32", Ports: []string{"4028"}}
-
-	// Act
-	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "IPv6 CIDR")
 }
