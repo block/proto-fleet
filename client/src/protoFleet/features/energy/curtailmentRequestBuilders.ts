@@ -11,10 +11,13 @@ import {
   ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
+  type UpdateCurtailmentEventRequest,
+  UpdateCurtailmentEventRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   curtailmentNumericFieldLimits,
   getOptionalUint32Setting,
+  parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
@@ -31,6 +34,18 @@ function parseOptionalNumber(value: string): number | undefined {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getOptionalUpdateUint32Setting(
+  value: string,
+  options: Parameters<typeof parseOptionalUint32Field>[1],
+): number | undefined {
+  const parsedField = parseOptionalUint32Field(value, options);
+  if (parsedField.error) {
+    throw new Error(parsedField.error);
+  }
+
+  return parsedField.parsed;
 }
 
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
@@ -100,5 +115,27 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
       max: curtailmentNumericFieldLimits.minDurationSec,
     }),
     reason: values.reason.trim(),
+  });
+}
+
+export function buildUpdateCurtailmentEventRequest(
+  eventUuid: string,
+  values: CurtailmentSubmitValues,
+): UpdateCurtailmentEventRequest {
+  return create(UpdateCurtailmentEventRequestSchema, {
+    eventUuid,
+    reason: values.reason.trim(),
+    maxDurationSeconds: getOptionalUpdateUint32Setting(values.maxDurationSec, {
+      label: "max duration",
+      max: curtailmentNumericFieldLimits.maxDurationSec,
+    }),
+    restoreBatchSize: getOptionalUpdateUint32Setting(values.restoreBatchSize, {
+      label: "restore batch size",
+      max: curtailmentNumericFieldLimits.restoreBatchSize,
+    }),
+    restoreBatchIntervalSec: getOptionalUpdateUint32Setting(values.restoreIntervalSec, {
+      label: "restore batch interval",
+      max: curtailmentNumericFieldLimits.restoreIntervalSec,
+    }),
   });
 }

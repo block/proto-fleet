@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  buildStartCurtailmentRequest,
+  buildUpdateCurtailmentEventRequest,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const baseValues: CurtailmentSubmitValues = {
@@ -79,5 +82,25 @@ describe("curtailmentRequestBuilders", () => {
         maxDurationSec: "604801",
       }),
     ).toThrow("Enter max duration of 604,800 or less.");
+  });
+
+  it("builds update requests with optional operator-safe fields only when provided", () => {
+    const request = buildUpdateCurtailmentEventRequest("curt-1", {
+      ...baseValues,
+      reason: "  Updated grid peak  ",
+      maxDurationSec: "1800",
+      restoreBatchSize: "",
+      restoreIntervalSec: "0",
+    });
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        reason: "Updated grid peak",
+        maxDurationSeconds: 1800,
+        restoreBatchIntervalSec: 0,
+      }),
+    );
+    expect(request.restoreBatchSize).toBeUndefined();
   });
 });

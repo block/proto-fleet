@@ -25,12 +25,14 @@ const {
   mockListCurtailmentEvents,
   mockStartCurtailment,
   mockStopCurtailment,
+  mockUpdateCurtailment,
 } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
   mockListCurtailmentEvents: vi.fn(),
   mockStartCurtailment: vi.fn(),
   mockStopCurtailment: vi.fn(),
+  mockUpdateCurtailment: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -39,6 +41,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
     listCurtailmentEvents: mockListCurtailmentEvents,
     startCurtailment: mockStartCurtailment,
     stopCurtailment: mockStopCurtailment,
+    updateCurtailmentEvent: mockUpdateCurtailment,
   },
 }));
 
@@ -159,6 +162,16 @@ describe("useCurtailmentApi", () => {
         targetKw: 5,
         observedReductionKw: 5,
         remainingPowerKw: 1,
+      }),
+    );
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        reason: "Grid peak",
+        scopeType: "wholeOrg",
+        targetKw: "5",
+        priority: "emergency",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "60",
       }),
     );
     expect(result.current.activeEvent?.rollups).toEqual([
@@ -405,6 +418,43 @@ describe("useCurtailmentApi", () => {
     );
     expect(changedListener).toHaveBeenCalledTimes(2);
     expect(result.current.activeEvent?.state).toBe("restoring");
+
+    window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+  });
+
+  it("updates active curtailment fields and refreshes listeners", async () => {
+    const changedListener = vi.fn();
+    window.addEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+    const updatedEvent = curtailmentEvent({ reason: "Updated grid peak", restoreBatchIntervalSec: 120 });
+    mockUpdateCurtailment.mockResolvedValueOnce({ event: updatedEvent });
+    mockGetActiveCurtailment.mockResolvedValue({ event: updatedEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [updatedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.updateCurtailment("curt-1", {
+        ...baseSubmitValues,
+        reason: " Updated grid peak ",
+        maxDurationSec: "1800",
+        restoreBatchSize: "",
+        restoreIntervalSec: "120",
+      });
+    });
+
+    const updateRequest = mockUpdateCurtailment.mock.calls[0][0];
+    expect(mockUpdateCurtailment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        reason: "Updated grid peak",
+        maxDurationSeconds: 1800,
+        restoreBatchIntervalSec: 120,
+      }),
+    );
+    expect(updateRequest.restoreBatchSize).toBeUndefined();
+    expect(changedListener).toHaveBeenCalledTimes(1);
+    expect(result.current.activeEvent?.reason).toBe("Updated grid peak");
+    expect(result.current.activeEventFormValues?.restoreIntervalSec).toBe("120");
 
     window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
   });

@@ -27,7 +27,10 @@ import {
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
-import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  buildStartCurtailmentRequest,
+  buildUpdateCurtailmentEventRequest,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -40,6 +43,7 @@ export interface RefreshCurtailmentOptions {
 interface CurtailmentSnapshot {
   activeEvent: ActiveCurtailmentEvent | null;
   activeEventId: string | null;
+  activeEventFormValues: CurtailmentSubmitValues | null;
   historyEvents: CurtailmentHistoryEvent[];
 }
 
@@ -62,9 +66,11 @@ interface CurtailmentHistoryPaginationState {
 export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   isLoading: boolean;
   isStarting: boolean;
+  isUpdating: boolean;
   stoppingEventId: string | null;
   loadError: string | null;
   startError: string | null;
+  updateError: string | null;
   stopError: string | null;
   historyCurrentPage: number;
   historyHasNextPage: boolean;
@@ -81,6 +87,7 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
     options?: Pick<RefreshCurtailmentOptions, "signal">,
   ) => Promise<CurtailmentSnapshot>;
   startCurtailment: (values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
+  updateCurtailment: (eventUuid: string, values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
   stopCurtailment: (eventUuid: string) => Promise<ProtoCurtailmentEvent>;
 }
 
@@ -103,6 +110,64 @@ function timestampToIsoString(timestamp?: Timestamp): string | undefined {
 
 function getFixedKwTarget(event: ProtoCurtailmentEvent): number | undefined {
   return event.modeParams.case === "fixedKw" ? event.modeParams.value.targetKw : undefined;
+}
+
+function getFixedKwTolerance(event: ProtoCurtailmentEvent): number | undefined {
+  return event.modeParams.case === "fixedKw" ? event.modeParams.value.toleranceKw : undefined;
+}
+
+function formatNumberField(value: number | undefined): string {
+  return value && value > 0 ? String(value) : "";
+}
+
+function mapCurtailmentEventScopeToFormValues(
+  event: ProtoCurtailmentEvent,
+): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "deviceSetIds" | "deviceIdentifiers"> {
+  switch (event.scope.case) {
+    case "deviceIdentifiers":
+      return {
+        scopeType: "explicitMiners",
+        scopeId: "explicit-miners",
+        deviceSetIds: [],
+        deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
+      };
+    case "deviceSetIds":
+      return {
+        scopeType: "deviceSet",
+        scopeId: "device-sets",
+        deviceSetIds: [...event.scope.value.deviceSetIds],
+        deviceIdentifiers: [],
+      };
+    case "wholeOrg":
+    default:
+      return {
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      };
+  }
+}
+
+function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): CurtailmentSubmitValues {
+  const fixedKwTarget = getFixedKwTarget(event);
+  const fixedKwTolerance = getFixedKwTolerance(event);
+
+  return {
+    ...mapCurtailmentEventScopeToFormValues(event),
+    responseProfileId: "customPlan",
+    curtailmentMode: "fixedKwReduction",
+    minerSelectionStrategy: "leastEfficientFirst",
+    targetKw: fixedKwTarget !== undefined ? String(fixedKwTarget) : "",
+    toleranceKw: fixedKwTolerance !== undefined ? String(fixedKwTolerance) : "",
+    priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+    minDurationSec: formatNumberField(event.minCurtailedDurationSec),
+    maxDurationSec: formatNumberField(event.maxDurationSeconds),
+    restoreBatchSize: formatNumberField(event.restoreBatchSize || event.effectiveBatchSize),
+    restoreIntervalSec: formatNumberField(event.restoreBatchIntervalSec),
+    reason: event.reason || "Curtailment",
+    includeMaintenance: event.includeMaintenance,
+  };
 }
 
 function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): CurtailmentPriority {
@@ -285,6 +350,7 @@ function createSnapshot(
   return {
     activeEvent: nextActiveEvent,
     activeEventId: activeEvent && nextActiveEvent ? activeEvent.eventUuid : null,
+    activeEventFormValues: activeEvent && nextActiveEvent ? mapCurtailmentEventToFormValues(activeEvent) : null,
     historyEvents: nextHistoryEvents,
   };
 }
@@ -326,13 +392,16 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const [snapshot, setSnapshot] = useState<CurtailmentSnapshot>({
     activeEvent: null,
     activeEventId: null,
+    activeEventFormValues: null,
     historyEvents: [],
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [updatingEventId, setUpdatingEventId] = useState<string | null>(null);
   const [stoppingEventId, setStoppingEventId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
   const [historyPagination, setHistoryPagination] =
     useState<CurtailmentHistoryPaginationState>(initialHistoryPagination);
@@ -384,6 +453,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       updateSnapshot((current) => ({
         activeEvent: nextActiveEvent,
         activeEventId: nextActiveEvent ? event.eventUuid : null,
+        activeEventFormValues: nextActiveEvent ? mapCurtailmentEventToFormValues(event) : null,
         historyEvents: shouldUpdateHistoryPage
           ? upsertHistoryEvent(current.historyEvents, event)
           : current.historyEvents,
@@ -555,6 +625,33 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     [applyEvent, handleFailure, refreshAfterMutation],
   );
 
+  const updateCurtailment = useCallback(
+    async (eventUuid: string, values: CurtailmentSubmitValues) => {
+      setUpdatingEventId(eventUuid);
+      setUpdateError(null);
+
+      try {
+        const response = await curtailmentClient.updateCurtailmentEvent(
+          buildUpdateCurtailmentEventRequest(eventUuid, values),
+        );
+        if (!response.event) {
+          throw new Error("Updated curtailment response was missing an event.");
+        }
+
+        applyEvent(response.event);
+        await refreshAfterMutation();
+        return response.event;
+      } catch (error) {
+        const resolvedError = handleFailure(error, "Failed to update curtailment.");
+        setUpdateError(resolvedError.message);
+        throw resolvedError;
+      } finally {
+        setUpdatingEventId((currentEventId) => (currentEventId === eventUuid ? null : currentEventId));
+      }
+    },
+    [applyEvent, handleFailure, refreshAfterMutation],
+  );
+
   const stopCurtailment = useCallback(
     async (eventUuid: string) => {
       setStoppingEventId(eventUuid);
@@ -587,9 +684,11 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       ...snapshot,
       isLoading,
       isStarting,
+      isUpdating: updatingEventId !== null,
       stoppingEventId,
       loadError,
       startError,
+      updateError,
       stopError,
       historyCurrentPage: historyPagination.currentPage,
       historyHasNextPage: historyPagination.nextPageToken !== "",
@@ -600,6 +699,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       goToHistoryPage,
       setHistoryStatusFilter,
       startCurtailment,
+      updateCurtailment,
       stopCurtailment,
     }),
     [
@@ -609,15 +709,18 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       historyStatusFilter,
       isLoading,
       isStarting,
+      updatingEventId,
       loadError,
       refreshCurtailment,
       setHistoryStatusFilter,
       snapshot,
       startCurtailment,
+      updateCurtailment,
       stopCurtailment,
       stopError,
       stoppingEventId,
       startError,
+      updateError,
     ],
   );
 }

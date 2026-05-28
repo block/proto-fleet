@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   startCurtailment: vi.fn(),
   stopCurtailment: vi.fn(),
   submitValues: { reason: "Grid peak" },
+  updateCurtailment: vi.fn(),
   useCurtailmentApi: vi.fn(),
 }));
 
@@ -23,8 +24,19 @@ vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
-  default: ({ onRequestRestore, onRequestStop }: { onRequestRestore?: () => void; onRequestStop?: () => void }) => (
+  default: ({
+    onRequestEdit,
+    onRequestRestore,
+    onRequestStop,
+  }: {
+    onRequestEdit?: () => void;
+    onRequestRestore?: () => void;
+    onRequestStop?: () => void;
+  }) => (
     <div data-testid="active-curtailment-status">
+      <button type="button" onClick={onRequestEdit}>
+        Request edit
+      </button>
       <button type="button" onClick={onRequestRestore}>
         Request restore
       </button>
@@ -78,11 +90,27 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
-  default: ({ onSubmit }: { onSubmit: (values: CurtailmentSubmitValues) => void }) => (
-    <div role="dialog" aria-label="Plan curtailment">
+  default: ({
+    initialValues,
+    mode,
+    onStopCurtailment,
+    onSubmit,
+  }: {
+    initialValues?: Partial<CurtailmentSubmitValues>;
+    mode?: string;
+    onStopCurtailment?: () => void;
+    onSubmit: (values: CurtailmentSubmitValues) => void;
+  }) => (
+    <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "Plan curtailment"}>
+      <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <button type="button" onClick={() => onSubmit(mocks.submitValues as CurtailmentSubmitValues)}>
-        Submit plan
+        Submit {mode === "edit" ? "edit" : "plan"}
       </button>
+      {mode === "edit" ? (
+        <button type="button" onClick={onStopCurtailment}>
+          Stop from editor
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -98,24 +126,29 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStopConfirmationDialog", () => 
 }));
 
 const activeEvent = { reason: "Grid peak" } as ActiveCurtailmentEvent;
+const activeEventFormValues = { reason: "Grid peak", targetKw: "5" } as CurtailmentSubmitValues;
 const historyEvent = { id: "curt-1" } as CurtailmentHistoryEvent;
 
 const emptySnapshot = {
   activeEvent: null,
   activeEventId: null,
+  activeEventFormValues: null,
   historyEvents: [],
 };
 
 function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseCurtailmentApiResult {
-  return {
+  const apiResult: UseCurtailmentApiResult = {
     activeEvent: null,
     activeEventId: null,
     historyEvents: [],
+    activeEventFormValues: null,
     isLoading: false,
     isStarting: false,
+    isUpdating: false,
     stoppingEventId: null,
     loadError: null,
     startError: null,
+    updateError: null,
     stopError: null,
     historyCurrentPage: 0,
     historyHasNextPage: false,
@@ -125,9 +158,11 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     goToHistoryPage: mocks.goToHistoryPage as UseCurtailmentApiResult["goToHistoryPage"],
     setHistoryStatusFilter: mocks.setHistoryStatusFilter as UseCurtailmentApiResult["setHistoryStatusFilter"],
     startCurtailment: mocks.startCurtailment as UseCurtailmentApiResult["startCurtailment"],
+    updateCurtailment: mocks.updateCurtailment as UseCurtailmentApiResult["updateCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
-    ...overrides,
   };
+
+  return Object.assign(apiResult, overrides);
 }
 
 describe("CurtailmentManagementPanel", () => {
@@ -138,6 +173,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.setHistoryStatusFilter.mockResolvedValue(emptySnapshot);
     mocks.startCurtailment.mockResolvedValue({});
     mocks.stopCurtailment.mockResolvedValue({});
+    mocks.updateCurtailment.mockResolvedValue({});
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
   });
 
@@ -201,6 +237,48 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Stop history event" }));
 
     expect(mocks.stopCurtailment).toHaveBeenLastCalledWith("curt-1");
+  });
+
+  it("opens active curtailment management and submits updates", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Request edit" }));
+
+    expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
+    expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Grid peak");
+
+    await user.click(screen.getByRole("button", { name: "Submit edit" }));
+
+    await waitFor(() => expect(mocks.updateCurtailment).toHaveBeenCalledWith("curt-1", mocks.submitValues));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
+  });
+
+  it("opens stop confirmation from the management modal", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Request edit" }));
+    await user.click(screen.getByRole("button", { name: "Stop from editor" }));
+
+    expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument();
   });
 
   it("loads controlled history pages and surfaces focused errors", async () => {
