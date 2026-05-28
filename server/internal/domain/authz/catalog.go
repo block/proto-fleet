@@ -52,6 +52,11 @@ const (
 	PermCurtailmentManage = "curtailment:manage"
 	PermCurtailmentIngest = "curtailment:ingest"
 
+	// pool — org-level mining pool definitions applied to miners. Not
+	// site-scoped: pools are a global org resource.
+	PermPoolRead   = "pool:read"
+	PermPoolManage = "pool:manage"
+
 	// fleetnode — top-nav admin operations.
 	PermFleetnodeRead   = "fleetnode:read"
 	PermFleetnodeManage = "fleetnode:manage"
@@ -79,6 +84,7 @@ const (
 	ResourceSite        = "site"
 	ResourceServerLog   = "serverlog"
 	ResourceCurtailment = "curtailment"
+	ResourcePool        = "pool"
 	ResourceFleetNode   = "fleetnode"
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
@@ -130,6 +136,9 @@ var catalog = []CatalogEntry{
 	{PermCurtailmentRead, "View curtailment policies and preview impact.", ResourceCurtailment},
 	{PermCurtailmentManage, "Create, edit, and delete curtailment policies.", ResourceCurtailment},
 	{PermCurtailmentIngest, "Accept curtailment dispatch signals from external providers (QSE bridge, aggregator, OpenADR VTN).", ResourceCurtailment},
+
+	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
+	{PermPoolManage, "Create, edit, and delete saved mining pool configurations.", ResourcePool},
 
 	{PermFleetnodeRead, "View fleet-node state.", ResourceFleetNode},
 	{PermFleetnodeManage, "Perform fleet-node admin operations.", ResourceFleetNode},
