@@ -77,11 +77,14 @@ func validateNmapTarget(s string) error {
 }
 
 const (
-	nmapHostTimeout       = 10 * time.Second
-	nmapMinRTT            = 100 * time.Millisecond
-	nmapProbeConcurrency  = 16
-	nmapDefaultBinaryName = "nmap"
+	nmapHostTimeout      = 10 * time.Second
+	nmapMinRTT           = 100 * time.Millisecond
+	nmapProbeConcurrency = 16
 )
+
+// nmapBinaryName and nmapAllowPATHFallback live in platform-split files:
+// Windows uses "nmap.exe" and disables PATH fallback because we can't
+// validate Windows ACLs the way we validate POSIX uid/mode.
 
 // Adjacent <exe-dir>/nmap (installer-staged) takes precedence and fails
 // closed if unsafe; we must not fall through to PATH because that would
@@ -92,7 +95,7 @@ const (
 // cleanly instead of running an attacker-controlled binary.
 func resolveNmapPath(exeDir string, logger *slog.Logger) string {
 	if exeDir != "" {
-		candidate := filepath.Join(exeDir, nmapDefaultBinaryName)
+		candidate := filepath.Join(exeDir, nmapBinaryName)
 		target, err := validateNmapBinary(candidate)
 		switch {
 		case err == nil:
@@ -102,13 +105,17 @@ func resolveNmapPath(exeDir string, logger *slog.Logger) string {
 			}
 			return target
 		case errors.Is(err, os.ErrNotExist):
-			// Adjacent absent; fall through to PATH.
+			// Adjacent absent; fall through to PATH on platforms that allow it.
 		default:
 			logger.Error("nmap binary at exe-dir is unsafe; nmap-mode commands disabled", "path", candidate, "err", err)
 			return ""
 		}
 	}
-	resolved, err := exec.LookPath(nmapDefaultBinaryName)
+	if !nmapAllowPATHFallback {
+		logger.Warn("no adjacent nmap binary and PATH fallback disabled on this platform; nmap-mode commands will fail")
+		return ""
+	}
+	resolved, err := exec.LookPath(nmapBinaryName)
 	if err != nil {
 		logger.Warn("nmap not found on PATH; nmap-mode commands will fail", "err", err)
 		return ""

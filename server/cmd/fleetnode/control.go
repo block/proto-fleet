@@ -212,6 +212,18 @@ func (r *RunCmd) commandWorker(ctx context.Context, client gatewayClient, stream
 
 func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
+	// Validate against the proto contract before using any fields. If
+	// command_id itself violates min_len/max_len we can't echo it safely
+	// in an ack -- the gateway would reject the ack and close the stream.
+	// Drop silently in that case; the server will time out and retry.
+	if vErr := protovalidate.Validate(cmd); vErr != nil {
+		if commandID == "" || len(commandID) > 128 {
+			logger.Warn("dropping inbound ControlCommand: command_id violates proto contract, cannot ack safely", "err", vErr)
+			return
+		}
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid ControlCommand: %v", vErr), logger)
+		return
+	}
 	logger.Info("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
 
 	var req pairingpb.DiscoverRequest

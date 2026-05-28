@@ -8,6 +8,11 @@ import (
 	"syscall"
 )
 
+const (
+	nmapBinaryName        = "nmap"
+	nmapAllowPATHFallback = true
+)
+
 // POSIX-mode safety: uid + write bits + exec bit. Windows .exe doesn't
 // model these; the windows version of this helper is a no-op.
 func checkNmapBinaryOwnership(path string, info os.FileInfo) error {

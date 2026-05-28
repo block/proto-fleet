@@ -1081,6 +1081,44 @@ func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
 	assert.Contains(t, busyAck.GetErrorMessage(), "in flight")
 }
 
+func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
+	// Arrange: empty command_id violates the proto's min_len=1. The agent
+	// must drop silently rather than ack -- echoing "" back in an ack
+	// would itself fail buf-validate at the gateway and close the stream.
+	// Queue a valid follow-up so we can prove via its ack that the loop
+	// kept running normally past the dropped command.
+	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+		"10.0.0.1|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+	}}
+	cmd := &RunCmd{discoverer: disc}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	fake := &controlFakeGateway{}
+	payload := mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
+		},
+	})
+	fake.queueWithID("", payload)     // invalid: empty command_id, drop silently
+	fake.queueWithID("good", payload) // valid: this one should ack
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() >= 1 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert: exactly the valid command was acked.
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1, "the empty-command_id command must be dropped silently")
+	assert.Equal(t, "good", acks[0].GetCommandId())
+}
+
 func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 	// Arrange: two commands. The worker's completion ack for cmd-A and the
 	// receive loop's busy ack for cmd-C overlap on the same bidi stream;
