@@ -252,10 +252,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_REPORT_FAILED, err.Error(), logger)
 		return
 	}
-	// Truncated scan: partial reports already uploaded; ack PARTIAL so the
-	// server doesn't treat dropped endpoints as a clean OK. Two sources:
-	// cmdCtx deadline (commandTimeout) and the fanOutProbes supervisor
-	// (a probe ignored its ctx and the wg.Wait was capped).
+	// Two PARTIAL sources: cmdCtx deadline (commandTimeout) or fanOutProbes
+	// supervisor (a probe ignored ctx). Either way reports already uploaded.
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("scan exceeded command deadline (%s); %d partial report(s) uploaded", commandTimeout, len(reports)), logger)
 		return
@@ -397,10 +395,9 @@ func expandIPv4Range(startStr, endStr string, maxCount int) ([]string, error) {
 	return out, nil
 }
 
-// Supervisor caps wg.Wait at perProbeTimeout*2 so a plugin Probe that
-// ignores ctx can't pin the agent; stragglers detach, partial batch returns.
-// The bool indicates whether the batch is truncated (supervisor fired or
-// ctx cancelled mid-fan-out) so the caller can ack PARTIAL instead of OK.
+// Returns (reports, truncated). Supervisor caps wg.Wait at perProbeTimeout*2
+// so a plugin Probe that ignores ctx can't pin the agent; truncated=true
+// lets the caller ack PARTIAL.
 func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
 	if len(endpoints) == 0 {
 		return nil, false

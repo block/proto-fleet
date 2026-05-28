@@ -887,8 +887,7 @@ func TestFanOutProbes_SupervisorReturnsPartialOnStuckPlugin(t *testing.T) {
 	result, truncated := fanOutProbes(ctx, endpoints, 2, probe, discardLogger(t))
 	elapsed := time.Since(start)
 
-	// Assert: supervisor caps wall-clock at perProbeTimeout*2; fast probe still
-	// reports; truncated flag set so the caller can ack PARTIAL.
+	// Assert: capped wall-clock, fast probe still reports, truncated set.
 	require.LessOrEqual(t, elapsed, perProbeTimeout*2+time.Second, "fanOutProbes must return within the supervisor budget even with a stuck plugin")
 	require.Len(t, result, 1)
 	assert.True(t, truncated, "supervisor-fired batch must be flagged truncated")
@@ -940,10 +939,8 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 	perProbeTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { perProbeTimeout = prev })
 
-	// Arrange: one fast probe + one that ignores ctx. Supervisor budget
-	// fires before commandTimeout, so cmdCtx is still alive when
-	// fanOutProbes returns. Without the truncated signal threaded up, the
-	// ack would be OK, hiding the dropped endpoint.
+	// Arrange: one fast probe + one that ignores ctx; supervisor fires
+	// before commandTimeout so cmdCtx stays alive.
 	stuck := make(chan struct{})
 	t.Cleanup(func() { close(stuck) })
 	disc := &ctxIgnoringDiscoverer{
@@ -982,9 +979,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 	assert.Contains(t, acks[0].GetErrorMessage(), "supervisor")
 }
 
-// ctxIgnoringDiscoverer returns a fast report for known IPs and ignores ctx
-// (blocks until `stuck` closes) for any IP in stuckIPs. Drives the
-// fanOutProbes supervisor without involving the bidi stream path.
+// Ignores ctx for IPs in stuckIPs (blocks on `stuck`); fast for IPs in fast.
 type ctxIgnoringDiscoverer struct {
 	fast     map[string]*pb.DiscoveredDeviceReport
 	stuckIPs map[string]bool
