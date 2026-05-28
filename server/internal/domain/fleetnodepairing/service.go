@@ -130,9 +130,9 @@ func validateReport(r DiscoveredDeviceReport) error {
 		return fmt.Errorf("port %q is not in 1-65535", r.Port)
 	}
 	switch r.URLScheme {
-	case "", "http", "https":
+	case "http", "https", "virtual":
 	default:
-		return fmt.Errorf("url_scheme %q is not allowed (http, https)", r.URLScheme)
+		return fmt.Errorf("url_scheme %q is not allowed (http, https, virtual)", r.URLScheme)
 	}
 	return nil
 }

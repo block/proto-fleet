@@ -358,6 +358,38 @@ func TestUpsertDiscoveredDevices_RejectsDisallowedScheme(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestUpsertDiscoveredDevices_AcceptsVirtualScheme(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-virtual-scheme")
+
+	// Act
+	accepted, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+		{DeviceIdentifier: "virt-1", IPAddress: "10.0.0.1", Port: "80", URLScheme: "virtual", DriverName: "virtual"},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), accepted)
+}
+
+func TestUpsertDiscoveredDevices_RejectsEmptyScheme(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-empty-scheme")
+
+	// Act
+	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "80", URLScheme: "", DriverName: "virtual"},
+	})
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
 // NOT EXISTS guard: a device already paired with fleet node A must not
 // have its discovered_device row overwritten by a report from fleet node B.
 func TestUpsertDiscoveredDevices_RejectsClaimingDevicePairedToOtherFleetNode(t *testing.T) {
