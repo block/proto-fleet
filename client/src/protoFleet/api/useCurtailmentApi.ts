@@ -102,6 +102,12 @@ const initialHistoryPagination: CurtailmentHistoryPaginationState = {
   nextPageToken: "",
   pageTokens: [undefined],
 };
+const initialCurtailmentSnapshot: CurtailmentSnapshot = {
+  activeEvent: null,
+  activeEventId: null,
+  activeEventFormValues: null,
+  historyEvents: [],
+};
 
 function timestampToIsoString(timestamp?: Timestamp): string | undefined {
   if (!timestamp) {
@@ -120,8 +126,12 @@ function getFixedKwTolerance(event: ProtoCurtailmentEvent): number | undefined {
   return event.modeParams.case === "fixedKw" ? event.modeParams.value.toleranceKw : undefined;
 }
 
-function formatNumberField(value: number | undefined): string {
-  return value && value > 0 ? String(value) : "";
+function formatPositiveNumberField(value: number | undefined): string {
+  if (value === undefined || value <= 0) {
+    return "";
+  }
+
+  return String(value);
 }
 
 function mapCurtailmentEventScopeToFormValues(
@@ -165,10 +175,10 @@ function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): Curtailm
     targetKw: fixedKwTarget !== undefined ? String(fixedKwTarget) : "",
     toleranceKw: fixedKwTolerance !== undefined ? String(fixedKwTolerance) : "",
     priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
-    minDurationSec: formatNumberField(event.minCurtailedDurationSec),
-    maxDurationSec: formatNumberField(event.maxDurationSeconds),
-    restoreBatchSize: formatNumberField(event.restoreBatchSize),
-    restoreIntervalSec: formatNumberField(event.restoreBatchIntervalSec),
+    minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
+    maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
+    restoreBatchSize: formatPositiveNumberField(event.restoreBatchSize),
+    restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
   };
@@ -393,12 +403,7 @@ function getSafeNextPageToken(
 
 export function useCurtailmentApi(): UseCurtailmentApiResult {
   const { handleAuthErrors } = useAuthErrors();
-  const [snapshot, setSnapshot] = useState<CurtailmentSnapshot>({
-    activeEvent: null,
-    activeEventId: null,
-    activeEventFormValues: null,
-    historyEvents: [],
-  });
+  const [snapshot, setSnapshot] = useState<CurtailmentSnapshot>(initialCurtailmentSnapshot);
   const [isLoading, setIsLoading] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [updatingEventId, setUpdatingEventId] = useState<string | null>(null);

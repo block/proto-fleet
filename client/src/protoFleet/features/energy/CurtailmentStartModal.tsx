@@ -104,6 +104,13 @@ interface PreviewPaneProps {
   isPreviewLoading?: boolean;
 }
 
+interface PreviewStateOptions {
+  apiPreview: PreviewPaneProps;
+  controlledPreview?: PreviewPaneProps;
+  isEditMode: boolean;
+  unsupportedDeviceSetPreviewError?: string;
+}
+
 type ParsedNumberField = { parsed?: number; error?: string };
 
 const defaultValues: CurtailmentFormValues = {
@@ -334,6 +341,23 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   return values.deviceIdentifiers;
 }
 
+function getPreviewState({
+  apiPreview,
+  controlledPreview,
+  isEditMode,
+  unsupportedDeviceSetPreviewError,
+}: PreviewStateOptions): PreviewPaneProps {
+  if (isEditMode) {
+    return { preview: undefined, previewError: undefined, isPreviewLoading: false };
+  }
+
+  if (unsupportedDeviceSetPreviewError) {
+    return { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
+  }
+
+  return controlledPreview ?? apiPreview;
+}
+
 function CurtailmentStartModalContent({
   open,
   onDismiss,
@@ -358,31 +382,35 @@ function CurtailmentStartModalContent({
   const localErrors = useMemo(() => validateCurtailmentFormValues(values, mode), [mode, values]);
   const effectiveErrors = { ...errors, ...localErrors };
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
-  const hasControlledPreview = isEditMode || preview !== undefined || previewError !== undefined;
+  const controlledPreview =
+    preview !== undefined || previewError !== undefined
+      ? { preview, previewError, isPreviewLoading: false }
+      : undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values,
-    disabled: hasControlledPreview,
+    disabled: isEditMode || controlledPreview !== undefined,
   });
-  let previewState: PreviewPaneProps = hasControlledPreview
-    ? { preview, previewError, isPreviewLoading: false }
-    : apiPreview;
-
-  if (unsupportedDeviceSetPreviewError) {
-    previewState = { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
-  }
-  if (isEditMode) {
-    previewState = { preview: undefined, previewError: undefined, isPreviewLoading: false };
-  }
+  const previewState = getPreviewState({
+    apiPreview,
+    controlledPreview,
+    isEditMode,
+    unsupportedDeviceSetPreviewError,
+  });
 
   const hasBlockingValidationError =
     previewState.previewError !== undefined ||
     Object.keys(localErrors).length > 0 ||
     Object.keys(errors ?? {}).length > 0;
-  const selectedTargets = {
-    miners: getSelectedMinerIds(values),
-  };
+  const selectedMinerIds = getSelectedMinerIds(values);
   const previewPane = isEditMode ? null : <PreviewPane {...previewState} />;
+  const paneContainerClassName = isEditMode
+    ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
+    : undefined;
+  const primaryPaneClassName = isEditMode ? "mx-auto w-full max-w-[720px] laptop:pl-0" : undefined;
+  const secondaryPaneClassName = isEditMode
+    ? "!hidden"
+    : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
 
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
     const hasSelectedMiners = deviceIdentifiers.length > 0;
@@ -536,7 +564,7 @@ function CurtailmentStartModalContent({
                   <div className="grid">
                     <TargetSelectButton
                       label="Miners"
-                      value={getTargetButtonLabel(selectedTargets.miners.length, "miner")}
+                      value={getTargetButtonLabel(selectedMinerIds.length, "miner")}
                       onClick={() => setShowMinerSelectionModal(true)}
                     />
                   </div>
@@ -565,13 +593,9 @@ function CurtailmentStartModalContent({
           </section>
         }
         secondaryPane={previewPane}
-        paneContainerClassName={
-          isEditMode ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10" : undefined
-        }
-        primaryPaneClassName={isEditMode ? "mx-auto w-full max-w-[720px] laptop:pl-0" : undefined}
-        secondaryPaneClassName={
-          isEditMode ? "!hidden" : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]"
-        }
+        paneContainerClassName={paneContainerClassName}
+        primaryPaneClassName={primaryPaneClassName}
+        secondaryPaneClassName={secondaryPaneClassName}
       />
       <Dialog
         open={showMaintenanceConfirmation}
@@ -604,7 +628,7 @@ function CurtailmentStartModalContent({
       {showMinerSelectionModal ? (
         <MinerSelectionModal
           open={showMinerSelectionModal}
-          selectedMinerIds={selectedTargets.miners}
+          selectedMinerIds={selectedMinerIds}
           onDismiss={() => setShowMinerSelectionModal(false)}
           onSave={(minerIds) => {
             handleMinerSelection(minerIds);

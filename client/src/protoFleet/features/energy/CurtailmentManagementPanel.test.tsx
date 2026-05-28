@@ -137,7 +137,7 @@ const emptySnapshot = {
 };
 
 function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseCurtailmentApiResult {
-  const apiResult: UseCurtailmentApiResult = {
+  return {
     activeEvent: null,
     activeEventId: null,
     historyEvents: [],
@@ -160,9 +160,8 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     startCurtailment: mocks.startCurtailment as UseCurtailmentApiResult["startCurtailment"],
     updateCurtailment: mocks.updateCurtailment as UseCurtailmentApiResult["updateCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
+    ...overrides,
   };
-
-  return Object.assign(apiResult, overrides);
 }
 
 describe("CurtailmentManagementPanel", () => {

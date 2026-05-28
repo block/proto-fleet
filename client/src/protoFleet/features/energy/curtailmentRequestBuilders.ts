@@ -21,10 +21,29 @@ import {
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
+type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
+
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   "scope" | "mode" | "strategy" | "level" | "priority" | "modeParams" | "includeMaintenance" | "forceIncludeMaintenance"
 >;
+
+const maxDurationOptions: OptionalUint32FieldOptions = {
+  label: "max duration",
+  max: curtailmentNumericFieldLimits.maxDurationSec,
+};
+const minCurtailedDurationOptions: OptionalUint32FieldOptions = {
+  label: "min curtailed duration",
+  max: curtailmentNumericFieldLimits.minDurationSec,
+};
+const restoreBatchSizeOptions: OptionalUint32FieldOptions = {
+  label: "restore batch size",
+  max: curtailmentNumericFieldLimits.restoreBatchSize,
+};
+const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
+  label: "restore batch interval",
+  max: curtailmentNumericFieldLimits.restoreIntervalSec,
+};
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -36,10 +55,7 @@ function parseOptionalNumber(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function getOptionalUpdateUint32Setting(
-  value: string,
-  options: Parameters<typeof parseOptionalUint32Field>[1],
-): number | undefined {
+function getOptionalUpdateUint32Setting(value: string, options: OptionalUint32FieldOptions): number | undefined {
   const parsedField = parseOptionalUint32Field(value, options);
   if (parsedField.error) {
     throw new Error(parsedField.error);
@@ -60,7 +76,7 @@ function getChangedUpdateStringSetting(value: string, initialValue?: string): st
 function getChangedUpdateUint32Setting(
   value: string,
   initialValue: string | undefined,
-  options: Parameters<typeof parseOptionalUint32Field>[1],
+  options: OptionalUint32FieldOptions,
 ): number | undefined {
   if (initialValue === undefined) {
     return getOptionalUpdateUint32Setting(value, options);
@@ -122,22 +138,10 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
-    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, {
-      label: "max duration",
-      max: curtailmentNumericFieldLimits.maxDurationSec,
-    }),
-    restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, {
-      label: "restore batch size",
-      max: curtailmentNumericFieldLimits.restoreBatchSize,
-    }),
-    restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, {
-      label: "restore batch interval",
-      max: curtailmentNumericFieldLimits.restoreIntervalSec,
-    }),
-    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, {
-      label: "min curtailed duration",
-      max: curtailmentNumericFieldLimits.minDurationSec,
-    }),
+    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
+    restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
+    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
     reason: values.reason.trim(),
   });
 }
@@ -150,21 +154,20 @@ export function buildUpdateCurtailmentEventRequest(
   return create(UpdateCurtailmentEventRequestSchema, {
     eventUuid,
     reason: getChangedUpdateStringSetting(values.reason, initialValues?.reason),
-    maxDurationSeconds: getChangedUpdateUint32Setting(values.maxDurationSec, initialValues?.maxDurationSec, {
-      label: "max duration",
-      max: curtailmentNumericFieldLimits.maxDurationSec,
-    }),
-    restoreBatchSize: getChangedUpdateUint32Setting(values.restoreBatchSize, initialValues?.restoreBatchSize, {
-      label: "restore batch size",
-      max: curtailmentNumericFieldLimits.restoreBatchSize,
-    }),
+    maxDurationSeconds: getChangedUpdateUint32Setting(
+      values.maxDurationSec,
+      initialValues?.maxDurationSec,
+      maxDurationOptions,
+    ),
+    restoreBatchSize: getChangedUpdateUint32Setting(
+      values.restoreBatchSize,
+      initialValues?.restoreBatchSize,
+      restoreBatchSizeOptions,
+    ),
     restoreBatchIntervalSec: getChangedUpdateUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,
-      {
-        label: "restore batch interval",
-        max: curtailmentNumericFieldLimits.restoreIntervalSec,
-      },
+      restoreBatchIntervalOptions,
     ),
   });
 }

@@ -72,7 +72,8 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
-  const isModalSubmitting = modalMode === "edit" ? isUpdating : isStarting;
+  const isEditingCurtailment = modalMode === "edit";
+  const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     refreshAbortControllerRef.current?.abort();
@@ -127,14 +128,14 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
 
   const handleModalSubmit = useCallback(
     (values: CurtailmentSubmitValues) => {
-      if (modalMode === "edit") {
+      if (isEditingCurtailment) {
         handleUpdateSubmit(values);
         return;
       }
 
       handleStartSubmit(values);
     },
-    [handleStartSubmit, handleUpdateSubmit, modalMode],
+    [handleStartSubmit, handleUpdateSubmit, isEditingCurtailment],
   );
 
   const handleHistoryStop = useCallback(
@@ -221,10 +222,10 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
         <CurtailmentStartModal
           open
           mode={modalMode}
-          initialValues={modalMode === "edit" ? (activeEventFormValues ?? undefined) : undefined}
+          initialValues={isEditingCurtailment ? (activeEventFormValues ?? undefined) : undefined}
           onDismiss={() => setModalMode(null)}
           onSubmit={handleModalSubmit}
-          onStopCurtailment={modalMode === "edit" ? handleEditStopCurtailment : undefined}
+          onStopCurtailment={isEditingCurtailment ? handleEditStopCurtailment : undefined}
           isSubmitting={isModalSubmitting}
         />
       ) : null}
