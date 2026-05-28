@@ -220,6 +220,31 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("submits edit mode without maintenance confirmation", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: true,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.type(screen.getByLabelText("Batch interval (sec)"), "180");
+    await user.click(saveButton);
+
+    expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeMaintenance: true,
+        restoreIntervalSec: "180",
+      }),
+    );
+  });
+
   it("renders a stop curtailment action in edit mode", async () => {
     const user = userEvent.setup();
     const onStopCurtailment = vi.fn();

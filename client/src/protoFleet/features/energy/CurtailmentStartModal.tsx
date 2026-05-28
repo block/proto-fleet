@@ -479,7 +479,7 @@ function CurtailmentStartModalContent({
       return;
     }
 
-    if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
+    if (!isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
       setSubmitAfterMaintenanceConfirmation(true);
       setShowMaintenanceConfirmation(true);
       return;
