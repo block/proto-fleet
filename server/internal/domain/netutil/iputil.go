@@ -82,14 +82,12 @@ func ParseIPv4(s string) (netip.Addr, error) {
 	return a, nil
 }
 
-// IPv4ToUint32 returns the 32-bit big-endian representation of an IPv4
-// address. Caller must ensure a.Is4(); passing IPv6 panics via As4().
+// Caller must ensure a.Is4(); As4 panics on IPv6.
 func IPv4ToUint32(a netip.Addr) uint32 {
 	b := a.As4()
 	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 }
 
-// Uint32ToIPv4 returns the dotted-decimal form of a 32-bit IPv4 address.
 func Uint32ToIPv4(n uint32) string {
 	return netip.AddrFrom4([4]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}).String()
 }

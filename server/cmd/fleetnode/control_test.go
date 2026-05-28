@@ -28,8 +28,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-// discoverIPList builds an IPList DiscoverRequest for the table-driven
-// control-loop tests; saves marshalling ceremony at each case.
 func discoverIPList(ips, ports []string) *pairingpb.DiscoverRequest {
 	return &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{
@@ -38,9 +36,7 @@ func discoverIPList(ips, ports []string) *pairingpb.DiscoverRequest {
 	}
 }
 
-// runControlLoopOnce drives runControlLoop until at least one ack lands,
-// then cancels. Callers prepare `fake` with the request(s) and behavior
-// they want, then inspect acks/reports from it after this returns.
+// Drives runControlLoop until one ack lands, then cancels.
 func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 	t.Helper()
 	state := &fleetnodebootstrap.State{FleetNodeID: 7}
@@ -55,8 +51,6 @@ func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 }
 
 func TestControlLoop_AcksAndReports(t *testing.T) {
-	// All fixtures carry url_scheme and driver_name to satisfy the gateway
-	// proto's buf-validate rules; fanOutProbes now drops reports that don't.
 	happyDisc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028":    {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 		"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
@@ -991,9 +985,7 @@ func TestFanOutProbes_OverridesPluginSuppliedEndpoint(t *testing.T) {
 }
 
 func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
-	// Shrink commandTimeout so the failure mode is observable: without
-	// sessionCtx wiring, the loop's defer would block here for
-	// commandTimeout before backing off and reconnecting.
+	// Bump commandTimeout so the unfixed failure mode would visibly hang.
 	prev := commandTimeout
 	commandTimeout = 30 * time.Second
 	t.Cleanup(func() { commandTimeout = prev })

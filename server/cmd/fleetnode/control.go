@@ -76,8 +76,6 @@ func (l *lockedAcker) Send(req *pb.ControlStreamRequest) error {
 
 type endpoint struct{ ip, port string }
 
-// commandError carries an AckCode through the discoverForCommand call chain
-// so handleCommand can ack with both a structured code and a debug string.
 type commandError struct {
 	code pb.AckCode
 	msg  string
@@ -315,9 +313,8 @@ func (r *RunCmd) probeIPsAndPorts(ctx context.Context, ips []string, ports []str
 	return fanOutProbes(ctx, endpoints, probeConcurrency, r.discoverer.Probe, logger)
 }
 
-// Single-decimal-port-only: range ("1-65535") and comma ("80,443") syntax
-// would otherwise let one list entry bypass maxPortsPerIP. Plugin defaults
-// run through the same validator so a buggy plugin can't slip odd specs in.
+// Single decimal port only; range/comma syntax would let one entry bypass
+// maxPortsPerIP. Plugin defaults pass through the same validator.
 func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string) ([]string, error) {
 	ports := supplied
 	if len(ports) == 0 {
@@ -329,9 +326,7 @@ func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string)
 	if len(ports) > maxPortsPerIP {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
 	}
-	// Emit canonical decimal form: strconv.Atoi accepts "+80"/"080" which the
-	// gateway proto's ^[1-9][0-9]*$ rule would later reject. Dedupe by the
-	// canonical value so "80" and "080" don't both land in the output.
+	// Emit canonical form so "+80"/"080" don't reach the gateway's ^[1-9][0-9]*$ check.
 	seen := make(map[string]struct{}, len(ports))
 	out := make([]string, 0, len(ports))
 	for _, p := range ports {
