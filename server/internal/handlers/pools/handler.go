@@ -76,7 +76,12 @@ func (h *Handler) DeletePool(ctx context.Context, r *connect.Request[pb.DeletePo
 }
 
 func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.ValidatePoolRequest]) (*connect.Response[pb.ValidatePoolResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermPoolRead, authz.ResourceContext{}); err != nil {
+	// Pool validation drives an outbound Stratum/SV2 handshake against
+	// the caller-supplied URL, so it's gated on pool:manage rather than
+	// pool:read — it's the same authority as creating or editing a
+	// saved pool and keeps a read-only role from triggering server-side
+	// network probes against arbitrary addresses.
+	if _, err := middleware.RequirePermission(ctx, authz.PermPoolManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	var pass *secrets.Text

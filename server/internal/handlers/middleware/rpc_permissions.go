@@ -186,11 +186,13 @@ var ProcedurePermissions = map[string]string{
 	pairingv1connect.PairingServiceDiscoverProcedure: authz.PermMinerPair,
 	pairingv1connect.PairingServicePairProcedure:     authz.PermMinerPair,
 
-	// PoolsService — saved mining pool definitions. ValidatePool only
-	// exercises connectivity against the supplied URL, so it sits on
-	// the read key.
+	// PoolsService — saved mining pool definitions. ValidatePool drives
+	// an outbound Stratum/SV2 handshake against the caller-supplied
+	// URL, so it sits on the manage key alongside the mutations to
+	// prevent a read-only role from triggering server-side network
+	// probes.
 	poolsv1connect.PoolsServiceListPoolsProcedure:    authz.PermPoolRead,
-	poolsv1connect.PoolsServiceValidatePoolProcedure: authz.PermPoolRead,
+	poolsv1connect.PoolsServiceValidatePoolProcedure: authz.PermPoolManage,
 	poolsv1connect.PoolsServiceCreatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
