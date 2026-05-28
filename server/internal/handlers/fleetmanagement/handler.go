@@ -24,17 +24,8 @@ func NewHandler(fleetMgmtSvc *fleetmanagement.Service) *Handler {
 	}
 }
 
-// requirePerm is a local thin wrapper so each handler reads as
-// "gate then service call" without three lines of boilerplate.
-// ResourceContext is always empty here: per-miner site narrowing is
-// deferred until DeviceSelector resolution lands.
-func requirePerm(ctx context.Context, key string) error {
-	_, err := middleware.RequirePermission(ctx, key, authz.ResourceContext{})
-	return err
-}
-
 func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Request[pb.ListMinerStateSnapshotsRequest]) (*connect.Response[pb.ListMinerStateSnapshotsResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.ListMinerStateSnapshots(ctx, r.Msg)
@@ -46,7 +37,7 @@ func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Reques
 }
 
 func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.ExportMinerListCsvRequest], stream *connect.ServerStream[pb.ExportMinerListCsvResponse]) error {
-	if err := requirePerm(ctx, authz.PermMinerExportCSV); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerExportCSV, authz.ResourceContext{}); err != nil {
 		return err
 	}
 	return h.fleetMgmtSvc.ExportMinerListCsv(ctx, r.Msg, func(chunk *pb.ExportMinerListCsvResponse) error {
@@ -55,7 +46,7 @@ func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.
 }
 
 func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb.GetMinerStateCountsRequest]) (*connect.Response[pb.GetMinerStateCountsResponse], error) {
-	if err := requirePerm(ctx, authz.PermFleetRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.GetMinerStateCounts(ctx, r.Msg)
@@ -67,7 +58,7 @@ func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb
 }
 
 func (h *Handler) GetMinerPoolAssignments(ctx context.Context, r *connect.Request[pb.GetMinerPoolAssignmentsRequest]) (*connect.Response[pb.GetMinerPoolAssignmentsResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.GetMinerPoolAssignments(ctx, r.Msg)
@@ -79,7 +70,7 @@ func (h *Handler) GetMinerPoolAssignments(ctx context.Context, r *connect.Reques
 }
 
 func (h *Handler) GetMinerCoolingMode(ctx context.Context, r *connect.Request[pb.GetMinerCoolingModeRequest]) (*connect.Response[pb.GetMinerCoolingModeResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.GetMinerCoolingMode(ctx, r.Msg)
@@ -91,7 +82,7 @@ func (h *Handler) GetMinerCoolingMode(ctx context.Context, r *connect.Request[pb
 }
 
 func (h *Handler) DeleteMiners(ctx context.Context, r *connect.Request[pb.DeleteMinersRequest]) (*connect.Response[pb.DeleteMinersResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerDelete); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerDelete, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.DeleteMiners(ctx, r.Msg)
@@ -103,7 +94,7 @@ func (h *Handler) DeleteMiners(ctx context.Context, r *connect.Request[pb.Delete
 }
 
 func (h *Handler) GetMinerModelGroups(ctx context.Context, r *connect.Request[pb.GetMinerModelGroupsRequest]) (*connect.Response[pb.GetMinerModelGroupsResponse], error) {
-	if err := requirePerm(ctx, authz.PermFleetRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.GetMinerModelGroups(ctx, r.Msg)
@@ -115,7 +106,7 @@ func (h *Handler) GetMinerModelGroups(ctx context.Context, r *connect.Request[pb
 }
 
 func (h *Handler) RenameMiners(ctx context.Context, r *connect.Request[pb.RenameMinersRequest]) (*connect.Response[pb.RenameMinersResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerRename); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRename, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.RenameMiners(ctx, r.Msg)
@@ -127,7 +118,7 @@ func (h *Handler) RenameMiners(ctx context.Context, r *connect.Request[pb.Rename
 }
 
 func (h *Handler) UpdateWorkerNames(ctx context.Context, r *connect.Request[pb.UpdateWorkerNamesRequest]) (*connect.Response[pb.UpdateWorkerNamesResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerUpdateWorkerName); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUpdateWorkerName, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.UpdateWorkerNames(ctx, r.Msg)

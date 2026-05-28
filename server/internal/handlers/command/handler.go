@@ -29,19 +29,11 @@ func NewHandler(commandSvc *command.Service) *Handler {
 	}
 }
 
-// requirePerm gates a handler on the supplied catalog key at org scope.
-// Per-miner site narrowing is deferred until DeviceSelector resolution
-// can surface the target miners' SiteIDs before the gate runs.
-func requirePerm(ctx context.Context, key string) error {
-	_, err := middleware.RequirePermission(ctx, key, authz.ResourceContext{})
-	return err
-}
-
 func (h *Handler) Reboot(
 	ctx context.Context,
 	req *connect.Request[pb.RebootRequest],
 ) (*connect.Response[pb.RebootResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerReboot); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.Reboot(ctx, req.Msg.DeviceSelector)
@@ -55,7 +47,7 @@ func (h *Handler) StopMining(
 	ctx context.Context,
 	req *connect.Request[pb.StopMiningRequest],
 ) (*connect.Response[pb.StopMiningResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerStopMining); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerStopMining, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceSelector)
@@ -69,7 +61,7 @@ func (h *Handler) StartMining(
 	ctx context.Context,
 	req *connect.Request[pb.StartMiningRequest],
 ) (*connect.Response[pb.StartMiningResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerStartMining); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerStartMining, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceSelector)
@@ -83,7 +75,7 @@ func (h *Handler) SetCoolingMode(
 	ctx context.Context,
 	req *connect.Request[pb.SetCoolingModeRequest],
 ) (*connect.Response[pb.SetCoolingModeResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerSetCoolingMode); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerSetCoolingMode, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceSelector, req.Msg.Mode)
@@ -97,7 +89,7 @@ func (h *Handler) SetPowerTarget(
 	ctx context.Context,
 	req *connect.Request[pb.SetPowerTargetRequest],
 ) (*connect.Response[pb.SetPowerTargetResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerSetPowerTarget); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerSetPowerTarget, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.SetPowerTarget(ctx, req.Msg.DeviceSelector, req.Msg.PerformanceMode)
@@ -111,7 +103,7 @@ func (h *Handler) UpdateMiningPools(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMiningPoolsRequest],
 ) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerUpdatePools); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUpdatePools, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.UpdateMiningPools(
@@ -181,7 +173,7 @@ func (h *Handler) DownloadLogs(
 	ctx context.Context,
 	req *connect.Request[pb.DownloadLogsRequest],
 ) (*connect.Response[pb.DownloadLogsResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerDownloadLogs); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerDownloadLogs, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceSelector)
@@ -192,7 +184,7 @@ func (h *Handler) DownloadLogs(
 }
 
 func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLEDRequest]) (*connect.Response[pb.BlinkLEDResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerBlinkLED); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerBlinkLED, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.BlinkLED(ctx, req.Msg.DeviceSelector)
@@ -203,7 +195,7 @@ func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLED
 }
 
 func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.FirmwareUpdateRequest]) (*connect.Response[pb.FirmwareUpdateResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerFirmwareUpdate); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerFirmwareUpdate, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector, req.Msg.GetFirmwareFileId())
@@ -214,7 +206,7 @@ func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.Fi
 }
 
 func (h *Handler) Unpair(ctx context.Context, req *connect.Request[pb.UnpairRequest]) (*connect.Response[pb.UnpairResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerUnpair); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUnpair, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.Unpair(ctx, req.Msg.DeviceSelector)
@@ -228,7 +220,7 @@ func (h *Handler) UpdateMinerPassword(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMinerPasswordRequest],
 ) (*connect.Response[pb.UpdateMinerPasswordResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerUpdatePassword); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUpdatePassword, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.commandSvc.UpdateMinerPassword(
@@ -246,7 +238,7 @@ func (h *Handler) UpdateMinerPassword(
 }
 
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
-	if err := requirePerm(ctx, authz.PermFleetRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return err
 	}
 	slog.Debug("handling request to stream command batch updates", "request", r)
@@ -277,7 +269,7 @@ func (h *Handler) GetCommandBatchLogBundle(
 	ctx context.Context,
 	req *connect.Request[pb.GetCommandBatchLogBundleRequest],
 ) (*connect.Response[pb.GetCommandBatchLogBundleResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerDownloadLogs); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerDownloadLogs, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	resp, err := h.commandSvc.GetCommandBatchLogBundle(req.Msg.BatchIdentifier)
@@ -292,7 +284,7 @@ func (h *Handler) CheckCommandCapabilities(
 	ctx context.Context,
 	req *connect.Request[pb.CheckCommandCapabilitiesRequest],
 ) (*connect.Response[pb.CheckCommandCapabilitiesResponse], error) {
-	if err := requirePerm(ctx, authz.PermMinerRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	resp, err := h.commandSvc.CheckCommandCapabilities(ctx, req.Msg)
@@ -311,7 +303,7 @@ func (h *Handler) GetCommandBatchDeviceResults(
 	ctx context.Context,
 	req *connect.Request[pb.GetCommandBatchDeviceResultsRequest],
 ) (*connect.Response[pb.GetCommandBatchDeviceResultsResponse], error) {
-	if err := requirePerm(ctx, authz.PermFleetRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	resp, err := h.commandSvc.GetCommandBatchDeviceResults(ctx, req.Msg)

@@ -14,7 +14,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -33,20 +32,12 @@ func NewHandler(diagnosticsService *diagnostics.Service) *Handler {
 	}
 }
 
-// requireFleetRead is the read gate for every ErrorQueryService method.
-// Diagnostics are scoped to the caller's organization; the gate runs
-// before any service call to fail closed on missing session / missing
-// effective permissions.
-func requireFleetRead(ctx context.Context) (*session.Info, error) {
-	return middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
-}
-
 // Query handles the Query RPC call.
 func (h *Handler) Query(
 	ctx context.Context,
 	req *connect.Request[errorsv1.QueryRequest],
 ) (*connect.Response[errorsv1.QueryResponse], error) {
-	info, err := requireFleetRead(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +64,7 @@ func (h *Handler) GetError(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("error_id is required"))
 	}
 
-	info, err := requireFleetRead(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +89,7 @@ func (h *Handler) ListMinerErrors(
 	ctx context.Context,
 	_ *connect.Request[errorsv1.ListMinerErrorsRequest],
 ) (*connect.Response[errorsv1.ListMinerErrorsResponse], error) {
-	if _, err := requireFleetRead(ctx); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	metadata := h.diagnosticsService.ListMinerErrors(ctx)
@@ -131,7 +122,7 @@ func (h *Handler) Watch(
 	req *connect.Request[errorsv1.WatchRequest],
 	stream *connect.ServerStream[errorsv1.WatchResponse],
 ) error {
-	info, err := requireFleetRead(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return err
 	}

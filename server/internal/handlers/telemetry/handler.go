@@ -11,7 +11,6 @@ import (
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -31,18 +30,15 @@ func (h *Handler) GetCombinedMetrics(
 	ctx context.Context,
 	req *connect.Request[telemetryv1.GetCombinedMetricsRequest],
 ) (*connect.Response[telemetryv1.GetCombinedMetricsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
 	query, err := toCombinedMetricsQuery(req.Msg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-
-	// Scope to caller's org; store returns nil counts when OrgID is unset.
-	if info, err := session.GetInfo(ctx); err == nil {
-		query.OrganizationID = info.OrganizationID
-	}
+	query.OrganizationID = info.OrganizationID
 
 	combinedMetrics, err := h.telemetryService.GetCombinedMetrics(ctx, query)
 	if err != nil {

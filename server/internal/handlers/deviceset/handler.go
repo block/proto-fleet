@@ -13,13 +13,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// requirePerm gates at org scope. Per-rack site narrowing is deferred
-// until the device-set CRUD payload surfaces the target site.
-func requirePerm(ctx context.Context, key string) error {
-	_, err := middleware.RequirePermission(ctx, key, authz.ResourceContext{})
-	return err
-}
-
 // Handler implements the DeviceSetService gRPC handler.
 // It adapts between the new DeviceSet proto types and the existing collection.Service
 // which still uses the old Collection proto types internally.
@@ -35,7 +28,7 @@ func NewHandler(svc *collection.Service) *Handler {
 }
 
 func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.CreateDeviceSetRequest]) (*connect.Response[dspb.CreateDeviceSetResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	req := toCollectionCreateReq(r.Msg)
@@ -50,7 +43,7 @@ func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.C
 }
 
 func (h *Handler) GetDeviceSet(ctx context.Context, r *connect.Request[dspb.GetDeviceSetRequest]) (*connect.Response[dspb.GetDeviceSetResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.GetCollection(ctx, &collectionpb.GetCollectionRequest{
@@ -65,7 +58,7 @@ func (h *Handler) GetDeviceSet(ctx context.Context, r *connect.Request[dspb.GetD
 }
 
 func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.UpdateDeviceSetRequest]) (*connect.Response[dspb.UpdateDeviceSetResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	req := toCollectionUpdateReq(r.Msg)
@@ -79,7 +72,7 @@ func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.U
 }
 
 func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.DeleteDeviceSetRequest]) (*connect.Response[dspb.DeleteDeviceSetResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	_, err := h.svc.DeleteCollection(ctx, &collectionpb.DeleteCollectionRequest{
@@ -92,7 +85,7 @@ func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.D
 }
 
 func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.ListDeviceSetsRequest]) (*connect.Response[dspb.ListDeviceSetsResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	params, err := toListCollectionsParams(r.Msg)
@@ -115,7 +108,7 @@ func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.Li
 }
 
 func (h *Handler) AddDevicesToDeviceSet(ctx context.Context, r *connect.Request[dspb.AddDevicesToDeviceSetRequest]) (*connect.Response[dspb.AddDevicesToDeviceSetResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
@@ -133,7 +126,7 @@ func (h *Handler) AddDevicesToDeviceSet(ctx context.Context, r *connect.Request[
 }
 
 func (h *Handler) RemoveDevicesFromDeviceSet(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[dspb.RemoveDevicesFromDeviceSetResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.RemoveDevicesFromCollection(ctx, &collectionpb.RemoveDevicesFromCollectionRequest{
@@ -149,7 +142,7 @@ func (h *Handler) RemoveDevicesFromDeviceSet(ctx context.Context, r *connect.Req
 }
 
 func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[dspb.ListDeviceSetMembersRequest]) (*connect.Response[dspb.ListDeviceSetMembersResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.ListCollectionMembers(ctx, &collectionpb.ListCollectionMembersRequest{
@@ -171,7 +164,7 @@ func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[d
 }
 
 func (h *Handler) GetDeviceDeviceSets(ctx context.Context, r *connect.Request[dspb.GetDeviceDeviceSetsRequest]) (*connect.Response[dspb.GetDeviceDeviceSetsResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.GetDeviceCollections(ctx, &collectionpb.GetDeviceCollectionsRequest{
@@ -191,7 +184,7 @@ func (h *Handler) GetDeviceDeviceSets(ctx context.Context, r *connect.Request[ds
 }
 
 func (h *Handler) SetRackSlotPosition(ctx context.Context, r *connect.Request[dspb.SetRackSlotPositionRequest]) (*connect.Response[dspb.SetRackSlotPositionResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.SetRackSlotPosition(ctx, &collectionpb.SetRackSlotPositionRequest{
@@ -209,7 +202,7 @@ func (h *Handler) SetRackSlotPosition(ctx context.Context, r *connect.Request[ds
 }
 
 func (h *Handler) ClearRackSlotPosition(ctx context.Context, r *connect.Request[dspb.ClearRackSlotPositionRequest]) (*connect.Response[dspb.ClearRackSlotPositionResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	_, err := h.svc.ClearRackSlotPosition(ctx, &collectionpb.ClearRackSlotPositionRequest{
@@ -223,7 +216,7 @@ func (h *Handler) ClearRackSlotPosition(ctx context.Context, r *connect.Request[
 }
 
 func (h *Handler) GetRackSlots(ctx context.Context, r *connect.Request[dspb.GetRackSlotsRequest]) (*connect.Response[dspb.GetRackSlotsResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.GetRackSlots(ctx, &collectionpb.GetRackSlotsRequest{
@@ -242,7 +235,7 @@ func (h *Handler) GetRackSlots(ctx context.Context, r *connect.Request[dspb.GetR
 }
 
 func (h *Handler) GetDeviceSetStats(ctx context.Context, r *connect.Request[dspb.GetDeviceSetStatsRequest]) (*connect.Response[dspb.GetDeviceSetStatsResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.GetCollectionStats(ctx, &collectionpb.GetCollectionStatsRequest{
@@ -261,7 +254,7 @@ func (h *Handler) GetDeviceSetStats(ctx context.Context, r *connect.Request[dspb
 }
 
 func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[dspb.ListRackZonesRequest]) (*connect.Response[dspb.ListRackZonesResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.ListRackZones(ctx, &collectionpb.ListRackZonesRequest{})
@@ -274,7 +267,7 @@ func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[dspb.Lis
 }
 
 func (h *Handler) ListRackZoneRefs(ctx context.Context, r *connect.Request[dspb.ListRackZoneRefsRequest]) (*connect.Response[dspb.ListRackZoneRefsResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	refs, err := h.svc.ListRackZoneRefs(ctx)
@@ -297,7 +290,7 @@ func (h *Handler) ListRackZoneRefs(ctx context.Context, r *connect.Request[dspb.
 }
 
 func (h *Handler) ListRackTypes(ctx context.Context, r *connect.Request[dspb.ListRackTypesRequest]) (*connect.Response[dspb.ListRackTypesResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackRead); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.ListRackTypes(ctx, &collectionpb.ListRackTypesRequest{})
@@ -318,7 +311,7 @@ func (h *Handler) ListRackTypes(ctx context.Context, r *connect.Request[dspb.Lis
 }
 
 func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRackRequest]) (*connect.Response[dspb.SaveRackResponse], error) {
-	if err := requirePerm(ctx, authz.PermRackManage); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	req := toCollectionSaveRackReq(r.Msg)
