@@ -79,8 +79,11 @@ var ProcedurePermissions = map[string]string{
 
 	// CurtailmentService — only AdminTerminateEvent moves in this swap.
 	// Start/Stop/Preview retain their conditional inline gates pending
-	// the broader curtailment authz redesign.
-	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure: authz.PermCurtailmentManage,
+	// the broader curtailment authz redesign. IngestCurtailmentSignal
+	// is gated on PermCurtailmentIngest, the machine-caller permission
+	// for external dispatch signals.
+	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure: authz.PermCurtailmentIngest,
 
 	// FleetNodeAdminService — read for List, manage for the rest.
 	// Pair/Unpair/ListFleetNodeDevices/DiscoverOnFleetNode remain
