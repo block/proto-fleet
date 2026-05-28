@@ -167,7 +167,9 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
 
-	cmdCh := make(chan *pb.ControlCommand, 1)
+	// Capacity 2 (1 in flight + 1 queued) absorbs the receive-vs-drain
+	// race; a 3rd outstanding command hits the busy-ack path.
+	cmdCh := make(chan *pb.ControlCommand, 2)
 	workerDone := make(chan struct{})
 	go r.commandWorker(sessionCtx, client, sender, cmdCh, workerDone, logger)
 	defer func() {
@@ -212,10 +214,8 @@ func (r *RunCmd) commandWorker(ctx context.Context, client gatewayClient, stream
 
 func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
-	// Validate against the proto contract before using any fields. If
-	// command_id itself violates min_len/max_len we can't echo it safely
-	// in an ack -- the gateway would reject the ack and close the stream.
-	// Drop silently in that case; the server will time out and retry.
+	// Drop silently if command_id is itself unsafe to echo in an ack; the
+	// gateway would reject the ack and close the stream. Server retries.
 	if vErr := protovalidate.Validate(cmd); vErr != nil {
 		if commandID == "" || len(commandID) > 128 {
 			logger.Warn("dropping inbound ControlCommand: command_id violates proto contract, cannot ack safely", "err", vErr)

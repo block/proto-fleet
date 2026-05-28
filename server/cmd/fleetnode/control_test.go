@@ -1029,18 +1029,15 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 }
 
 func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
-	// Arrange: two commands with a blocking probe on the first so the
-	// worker stays busy. The receive loop reads cmd-A into the buffer,
-	// the worker drains it, and the receive loop reads cmd-B into the
-	// now-empty buffer. cmd-C arrives while cmd-B is still queued, so
-	// the non-blocking send must fail-fast with a busy ack instead of
-	// parking the receive loop until cmd-A finishes.
+	// Arrange: buffer capacity is 2 (1 in flight + 1 queued). cmd-A's probe
+	// blocks, cmd-B and cmd-C fill the in-flight + queued slots, cmd-D
+	// overflows and must get a busy ack without waiting on cmd-A.
 	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
 	cmd := &RunCmd{discoverer: disc}
 	state := &fleetnodebootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C"} {
+	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D"} {
 		fake.queueWithID(id, mustMarshal(t, &pairingpb.DiscoverRequest{
 			Mode: &pairingpb.DiscoverRequest_IpList{
 				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
@@ -1056,21 +1053,19 @@ func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
 
-	// Assert: cmd-C must be acked busy without waiting for cmd-A to finish.
-	// We expect the ack within a short window; if the receive loop parked,
-	// no ack would arrive until cmd-A's blocking probe is released.
+	// Assert: cmd-D must be acked busy without waiting for cmd-A to finish.
 	require.Eventually(t, func() bool {
 		for _, ack := range fake.acksCopy() {
-			if ack.GetCommandId() == "cmd-C" {
+			if ack.GetCommandId() == "cmd-D" {
 				return true
 			}
 		}
 		return false
-	}, 2*time.Second, 20*time.Millisecond, "cmd-C should get a busy ack without waiting on cmd-A")
+	}, 2*time.Second, 20*time.Millisecond, "cmd-D should get a busy ack without waiting on cmd-A")
 
 	var busyAck *pb.ControlAck
 	for _, ack := range fake.acksCopy() {
-		if ack.GetCommandId() == "cmd-C" {
+		if ack.GetCommandId() == "cmd-D" {
 			busyAck = ack
 			break
 		}

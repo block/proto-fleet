@@ -82,9 +82,7 @@ const (
 	nmapProbeConcurrency = 16
 )
 
-// nmapBinaryName and nmapAllowPATHFallback live in platform-split files:
-// Windows uses "nmap.exe" and disables PATH fallback because we can't
-// validate Windows ACLs the way we validate POSIX uid/mode.
+// nmapBinaryName and nmapAllowPATHFallback are platform-split.
 
 // Adjacent <exe-dir>/nmap (installer-staged) takes precedence and fails
 // closed if unsafe; we must not fall through to PATH because that would
