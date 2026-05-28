@@ -185,12 +185,7 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   restoring: "Restoring",
 };
 
-const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>([
-  "curtailed",
-  "curtailing",
-  "pending",
-  "restoring",
-]);
+const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
 
 function Dot({ className }: DotProps): ReactElement {
   return <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
