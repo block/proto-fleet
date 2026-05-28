@@ -14,11 +14,13 @@ import (
 )
 
 // RedactedRequestProcedures lists procedures whose requests contain secrets
-// (passwords, pool credentials) and must not be logged at debug level.
+// (passwords, pool credentials, provider attestations) and must not be
+// logged at debug level.
 var RedactedRequestProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,

@@ -575,7 +575,10 @@ message AdminTerminateEventResponse {
 }
 
 message IngestCurtailmentSignalRequest {
-    // Provider identifier; must match a registered adapter.
+    // Provider identifier; must match a registered adapter. max_len is
+    // intentionally tighter than StartCurtailmentRequest.external_source
+    // (256) — provider names are short identifiers ("ercot-qse",
+    // "voltus", "openadr3"); the validator catches misconfigured callers.
     string external_source = 1 [(buf.validate.field).string = {
         min_len: 1
         max_len: 64

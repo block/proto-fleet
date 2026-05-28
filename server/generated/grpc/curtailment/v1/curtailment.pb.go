@@ -2717,7 +2717,10 @@ func (x *AdminTerminateEventResponse) GetEvent() *CurtailmentEvent {
 
 type IngestCurtailmentSignalRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Provider identifier; must match a registered adapter.
+	// Provider identifier; must match a registered adapter. max_len is
+	// intentionally tighter than StartCurtailmentRequest.external_source
+	// (256) — provider names are short identifiers ("ercot-qse",
+	// "voltus", "openadr3"); the validator catches misconfigured callers.
 	ExternalSource string `protobuf:"bytes,1,opt,name=external_source,json=externalSource,proto3" json:"external_source,omitempty"`
 	// Provider-assigned dispatch ID; forms the idempotency key with external_source.
 	ExternalReference string `protobuf:"bytes,2,opt,name=external_reference,json=externalReference,proto3" json:"external_reference,omitempty"`

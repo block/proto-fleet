@@ -1215,7 +1215,10 @@ export const AdminTerminateEventResponseSchema: GenMessage<AdminTerminateEventRe
  */
 export type IngestCurtailmentSignalRequest = Message<"curtailment.v1.IngestCurtailmentSignalRequest"> & {
   /**
-   * Provider identifier; must match a registered adapter.
+   * Provider identifier; must match a registered adapter. max_len is
+   * intentionally tighter than StartCurtailmentRequest.external_source
+   * (256) — provider names are short identifiers ("ercot-qse",
+   * "voltus", "openadr3"); the validator catches misconfigured callers.
    *
    * @generated from field: string external_source = 1;
    */
