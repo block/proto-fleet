@@ -67,11 +67,15 @@ var ProcedurePermissions = map[string]string{
 	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
 
 	// Buildings CRUD — site:read for reads, site:manage for writes.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:  authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:    authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure: authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceUpdateBuildingProcedure: authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceDeleteBuildingProcedure: authz.PermSiteManage,
+	// ListBuildingRacks is a building-scoped read; AssignRackToBuilding
+	// mutates the rack's building/site/zone/grid placement.
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:        authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:          authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:    authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure:       authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:       authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:       authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceAssignRackToBuildingProcedure: authz.PermSiteManage,
 
 	// CurtailmentService — only AdminTerminateEvent moves in this swap.
 	// Start/Stop/Preview retain their conditional inline gates pending

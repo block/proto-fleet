@@ -159,6 +159,84 @@ func (s *SQLBuildingStore) BuildingsByIDs(ctx context.Context, orgID int64, ids 
 	return rows, nil
 }
 
+func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error) {
+	cursor, err := decodeBuildingRackCursor(pageToken)
+	if err != nil {
+		return nil, "", err
+	}
+	params := sqlc.ListBuildingRacksParams{
+		OrgID:      orgID,
+		BuildingID: zeroToNullInt64(buildingID),
+		// Fetch one extra row so we can detect whether the next page
+		// exists without an additional COUNT query.
+		LimitN: pageSize + 1,
+	}
+	if cursor != nil {
+		params.CursorLabel = sql.NullString{String: cursor.Label, Valid: true}
+		params.CursorID = sql.NullInt64{Int64: cursor.ID, Valid: true}
+	}
+	rows, err := s.GetQueries(ctx).ListBuildingRacks(ctx, params)
+	if err != nil {
+		return nil, "", fleeterror.NewInternalErrorf("failed to list building racks: %v", err)
+	}
+	var nextPageToken string
+	// Compare in int space — pageSize is service-clamped to
+	// ListBuildingRacksMaxPageSize (1000), so the conversion is
+	// always safe. Cast pageSize → int rather than len(rows) → int32
+	// to keep gosec G115 happy.
+	if len(rows) > int(pageSize) {
+		// Trim the probe row and encode a cursor at the last in-page row.
+		rows = rows[:pageSize]
+		last := rows[len(rows)-1]
+		nextPageToken = encodeBuildingRackCursor(&buildingRackCursor{Label: last.RackLabel, ID: last.RackID})
+	}
+	out := make([]models.BuildingRack, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.BuildingRack{
+			RackID:          row.RackID,
+			RackLabel:       row.RackLabel,
+			AisleIndex:      nullInt32ToPtr(row.AisleIndex),
+			PositionInAisle: nullInt32ToPtr(row.PositionInAisle),
+		})
+	}
+	return out, nextPageToken, nil
+}
+
+func (s *SQLBuildingStore) ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error) {
+	rows, err := s.GetQueries(ctx).ListRacksOutsideBuildingBounds(ctx, sqlc.ListRacksOutsideBuildingBoundsParams{
+		OrgID:            orgID,
+		BuildingID:       zeroToNullInt64(buildingID),
+		NewAisles:        newAisles,
+		NewRacksPerAisle: newRacksPerAisle,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to scan out-of-bounds racks: %v", err)
+	}
+	out := make([]models.BuildingRack, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.BuildingRack{
+			RackID:          row.RackID,
+			RackLabel:       row.RackLabel,
+			AisleIndex:      nullInt32ToPtr(row.AisleIndex),
+			PositionInAisle: nullInt32ToPtr(row.PositionInAisle),
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLBuildingStore) SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error {
+	err := s.GetQueries(ctx).SetRackBuildingPosition(ctx, sqlc.SetRackBuildingPositionParams{
+		RackID:          rackID,
+		OrgID:           orgID,
+		AisleIndex:      ptrToNullInt32(aisleIndex),
+		PositionInAisle: ptrToNullInt32(positionInAisle),
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to set rack building position: %v", err)
+	}
+	return nil
+}
+
 func buildingFromRow(row sqlc.Building) models.Building {
 	return models.Building{
 		ID:                    row.ID,

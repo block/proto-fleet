@@ -1,17 +1,24 @@
 import ManageSiteModal from "../ManageSiteModal";
 import SiteDeleteDialog from "../SiteDeleteDialog";
-import SiteDetailsModal from "../SiteDetailsModal";
+import SiteSettingsModal from "../SiteSettingsModal";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 
 interface SiteModalsProps {
   modals: ReturnType<typeof useSiteModals>;
   // SiteWithCounts cache from the host page. Used to resolve the cascade
-  // dialog target when Delete is clicked inside SiteDetailsModal (edit mode).
+  // dialog target when Delete is clicked inside SiteSettingsModal (edit mode).
   sites: SiteWithCounts[] | undefined;
+  // Pass-through for the ManageSiteModal buildings table. Provided by the
+  // host page so the building modal stack shares its useBuildingModals
+  // instance with the page-level buildings table.
+  onAddBuilding?: (siteId: bigint, siteName?: string) => void;
+  onEditBuilding?: (row: BuildingWithCounts, siteName?: string) => void;
+  buildingsRefreshKey?: number;
 }
 
-const SiteModals = ({ modals, sites }: SiteModalsProps) => {
+const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRefreshKey }: SiteModalsProps) => {
   const { state, deleteTarget } = modals;
   const showManage =
     state.kind === "manageCreate" ||
@@ -36,7 +43,7 @@ const SiteModals = ({ modals, sites }: SiteModalsProps) => {
 
   return (
     <>
-      {/* Render ManageSiteModal first so SiteDetailsModal's portal lands
+      {/* Render ManageSiteModal first so SiteSettingsModal's portal lands
           later in the DOM and naturally stacks on top at the same z-50. */}
       {showManage && manageDraft ? (
         <ManageSiteModal
@@ -49,10 +56,13 @@ const SiteModals = ({ modals, sites }: SiteModalsProps) => {
           onNetworkConfigChange={modals.manageNetworkConfigChange}
           onDismiss={modals.dismiss}
           saving={modals.saving}
+          onAddBuilding={onAddBuilding && manageSite ? () => onAddBuilding(manageSite.id, manageSite.name) : undefined}
+          onEditBuilding={onEditBuilding && manageSite ? (row) => onEditBuilding(row, manageSite.name) : undefined}
+          buildingsRefreshKey={buildingsRefreshKey}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (
-        <SiteDetailsModal
+        <SiteSettingsModal
           open
           mode="create"
           initialValues={state.draft}
@@ -62,7 +72,7 @@ const SiteModals = ({ modals, sites }: SiteModalsProps) => {
         />
       ) : null}
       {state.kind === "manageCreateEditingDetails" ? (
-        <SiteDetailsModal
+        <SiteSettingsModal
           open
           mode="createReturn"
           initialValues={state.draft}
@@ -73,7 +83,7 @@ const SiteModals = ({ modals, sites }: SiteModalsProps) => {
         />
       ) : null}
       {state.kind === "manageEditEditingDetails" ? (
-        <SiteDetailsModal
+        <SiteSettingsModal
           open
           mode="edit"
           initialValues={state.draft}

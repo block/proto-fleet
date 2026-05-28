@@ -224,6 +224,84 @@ func (q *Queries) GetBuilding(ctx context.Context, arg GetBuildingParams) (Build
 	return i, err
 }
 
+const listBuildingRacks = `-- name: ListBuildingRacks :many
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = $1
+  AND dsr.building_id = $2
+  AND ds.deleted_at IS NULL
+  AND (
+       $3::text IS NULL
+    OR (ds.label, dsr.device_set_id) > ($3::text, $4::bigint)
+  )
+ORDER BY ds.label, dsr.device_set_id
+LIMIT $5::int
+`
+
+type ListBuildingRacksParams struct {
+	OrgID       int64
+	BuildingID  sql.NullInt64
+	CursorLabel sql.NullString
+	CursorID    sql.NullInt64
+	LimitN      int32
+}
+
+type ListBuildingRacksRow struct {
+	RackID          int64
+	RackLabel       string
+	AisleIndex      sql.NullInt32
+	PositionInAisle sql.NullInt32
+}
+
+// Returns racks currently assigned to a building with their grid
+// position. Used by ManageBuildingModal to seed the layout grid.
+// Excludes soft-deleted rack collections; org guard is checked
+// against the denormalized org_id on device_set_rack.
+//
+// Cursor-paginated by (ds.label, dsr.device_set_id). The cursor pair
+// breaks ties deterministically when labels collide. cursor_label /
+// cursor_id are NULL on the first page; when provided, only rows
+// strictly greater than the cursor are returned. Caller asks for
+// `limit_n + 1` rows to detect whether more pages exist.
+func (q *Queries) ListBuildingRacks(ctx context.Context, arg ListBuildingRacksParams) ([]ListBuildingRacksRow, error) {
+	rows, err := q.query(ctx, q.listBuildingRacksStmt, listBuildingRacks,
+		arg.OrgID,
+		arg.BuildingID,
+		arg.CursorLabel,
+		arg.CursorID,
+		arg.LimitN,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBuildingRacksRow
+	for rows.Next() {
+		var i ListBuildingRacksRow
+		if err := rows.Scan(
+			&i.RackID,
+			&i.RackLabel,
+			&i.AisleIndex,
+			&i.PositionInAisle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBuildingsByOrg = `-- name: ListBuildingsByOrg :many
 SELECT
     b.id, b.org_id, b.site_id, b.name, b.description, b.power_kw, b.overhead_kw, b.aisles, b.physical_rack_count, b.racks_per_aisle, b.default_rack_rows, b.default_rack_columns, b.default_rack_order_index, b.created_at, b.updated_at, b.deleted_at,
@@ -319,6 +397,111 @@ func (q *Queries) ListBuildingsByOrg(ctx context.Context, arg ListBuildingsByOrg
 	return items, nil
 }
 
+const listRacksOutsideBuildingBounds = `-- name: ListRacksOutsideBuildingBounds :many
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = $1
+  AND dsr.building_id = $2
+  AND ds.deleted_at IS NULL
+  AND dsr.aisle_index IS NOT NULL
+  AND dsr.position_in_aisle IS NOT NULL
+  AND (
+       dsr.aisle_index >= $3::int
+    OR dsr.position_in_aisle >= $4::int
+  )
+ORDER BY ds.label
+LIMIT 1
+`
+
+type ListRacksOutsideBuildingBoundsParams struct {
+	OrgID            int64
+	BuildingID       sql.NullInt64
+	NewAisles        int32
+	NewRacksPerAisle int32
+}
+
+type ListRacksOutsideBuildingBoundsRow struct {
+	RackID          int64
+	RackLabel       string
+	AisleIndex      sql.NullInt32
+	PositionInAisle sql.NullInt32
+}
+
+// Returns the first rack row whose (aisle_index, position_in_aisle)
+// would fall outside the proposed (aisles, racks_per_aisle) layout.
+// Used by UpdateBuilding's shrink guard which only needs proof of
+// one orphan to reject the shrink — caller surfaces the label +
+// coordinates in the error and stops. LIMIT 1 keeps the scan cheap
+// on large buildings.
+func (q *Queries) ListRacksOutsideBuildingBounds(ctx context.Context, arg ListRacksOutsideBuildingBoundsParams) ([]ListRacksOutsideBuildingBoundsRow, error) {
+	rows, err := q.query(ctx, q.listRacksOutsideBuildingBoundsStmt, listRacksOutsideBuildingBounds,
+		arg.OrgID,
+		arg.BuildingID,
+		arg.NewAisles,
+		arg.NewRacksPerAisle,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRacksOutsideBuildingBoundsRow
+	for rows.Next() {
+		var i ListRacksOutsideBuildingBoundsRow
+		if err := rows.Scan(
+			&i.RackID,
+			&i.RackLabel,
+			&i.AisleIndex,
+			&i.PositionInAisle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setRackBuildingPosition = `-- name: SetRackBuildingPosition :exec
+UPDATE device_set_rack
+SET aisle_index = $1::int,
+    position_in_aisle = $2::int
+WHERE device_set_id = $3
+  AND org_id = $4
+`
+
+type SetRackBuildingPositionParams struct {
+	AisleIndex      sql.NullInt32
+	PositionInAisle sql.NullInt32
+	RackID          int64
+	OrgID           int64
+}
+
+// Writes the rack's grid placement (aisle_index, position_in_aisle).
+// Caller must have already set building_id via UpdateRackPlacement —
+// this query intentionally does not touch building_id so the two
+// writes stay separable. Both fields are paired by application logic
+// and the device_set_rack CHECK constraint: passing one without the
+// other is rejected at the SQL layer.
+func (q *Queries) SetRackBuildingPosition(ctx context.Context, arg SetRackBuildingPositionParams) error {
+	_, err := q.exec(ctx, q.setRackBuildingPositionStmt, setRackBuildingPosition,
+		arg.AisleIndex,
+		arg.PositionInAisle,
+		arg.RackID,
+		arg.OrgID,
+	)
+	return err
+}
+
 const softDeleteBuilding = `-- name: SoftDeleteBuilding :execrows
 UPDATE building
 SET deleted_at = CURRENT_TIMESTAMP
@@ -345,7 +528,9 @@ func (q *Queries) SoftDeleteBuilding(ctx context.Context, arg SoftDeleteBuilding
 const unassignRacksFromBuilding = `-- name: UnassignRacksFromBuilding :execrows
 UPDATE device_set_rack dsr
 SET building_id = NULL,
-    zone = NULL
+    zone = NULL,
+    aisle_index = NULL,
+    position_in_aisle = NULL
 WHERE dsr.org_id = $1
   AND dsr.building_id = $2
   AND EXISTS (
@@ -361,12 +546,15 @@ type UnassignRacksFromBuildingParams struct {
 }
 
 // Sets device_set_rack.building_id = NULL (and clears the free-form
-// zone label) for every live rack pointing at the given building. Org
-// guard reads `device_set_rack.org_id` directly (denormalized from
-// device_set in migration 000046, kept in lockstep via the composite
-// FK on `(device_set_id, org_id) → device_set(id, org_id)`). The
-// EXISTS subquery on device_set skips soft-deleted rack collections so
-// the cascade count matches ListBuildings.rack_count's filter.
+// zone label + grid position) for every live rack pointing at the
+// given building. Org guard reads `device_set_rack.org_id` directly
+// (denormalized from device_set in migration 000046, kept in lockstep
+// via the composite FK on `(device_set_id, org_id) →
+// device_set(id, org_id)`). The EXISTS subquery on device_set skips
+// soft-deleted rack collections so the cascade count matches
+// ListBuildings.rack_count's filter. aisle_index / position_in_aisle
+// are cleared because they're meaningless without a parent building
+// (the CHECK constraint on device_set_rack enforces this).
 func (q *Queries) UnassignRacksFromBuilding(ctx context.Context, arg UnassignRacksFromBuildingParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignRacksFromBuildingStmt, unassignRacksFromBuilding, arg.OrgID, arg.BuildingID)
 	if err != nil {

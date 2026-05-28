@@ -586,15 +586,17 @@ type DeviceSetMembership struct {
 }
 
 type DeviceSetRack struct {
-	DeviceSetID int64
-	Zone        sql.NullString
-	Rows        int32
-	Columns     int32
-	OrderIndex  int16
-	CoolingType int16
-	OrgID       int64
-	BuildingID  sql.NullInt64
-	SiteID      sql.NullInt64
+	DeviceSetID     int64
+	Zone            sql.NullString
+	Rows            int32
+	Columns         int32
+	OrderIndex      int16
+	CoolingType     int16
+	OrgID           int64
+	BuildingID      sql.NullInt64
+	SiteID          sql.NullInt64
+	AisleIndex      sql.NullInt32
+	PositionInAisle sql.NullInt32
 }
 
 type DeviceStatus struct {

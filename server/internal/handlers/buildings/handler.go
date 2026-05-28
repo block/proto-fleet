@@ -93,3 +93,35 @@ func (h *Handler) DeleteBuilding(ctx context.Context, req *connect.Request[pb.De
 		UnassignedRackCount: out.UnassignedRackCount,
 	}), nil
 }
+
+func (h *Handler) ListBuildingRacks(ctx context.Context, req *connect.Request[pb.ListBuildingRacksRequest]) (*connect.Response[pb.ListBuildingRacksResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	racks, nextPageToken, err := h.service.ListBuildingRacks(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetBuildingId(),
+		req.Msg.GetPageSize(),
+		req.Msg.GetPageToken(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toListBuildingRacksResponse(racks, nextPageToken)), nil
+}
+
+func (h *Handler) AssignRackToBuilding(ctx context.Context, req *connect.Request[pb.AssignRackToBuildingRequest]) (*connect.Response[pb.AssignRackToBuildingResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	out, err := h.service.AssignRackToBuilding(ctx, toAssignRackToBuildingParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AssignRackToBuildingResponse{
+		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
+	}), nil
+}

@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_buildings_v1_buildings: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChxidWlsZGluZ3MvdjEvYnVpbGRpbmdzLnByb3RvEgxidWlsZGluZ3MudjEioQMKCEJ1aWxkaW5nEgoKAmlkGAEgASgDEhQKB3NpdGVfaWQYAiABKANIAIgBARIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhAKCHBvd2VyX2t3GAUgASgBEhMKC292ZXJoZWFkX2t3GAYgASgBEg4KBmFpc2xlcxgHIAEoBRIbChNwaHlzaWNhbF9yYWNrX2NvdW50GAggASgFEhcKD3JhY2tzX3Blcl9haXNsZRgJIAEoBRIZChFkZWZhdWx0X3JhY2tfcm93cxgKIAEoBRIcChRkZWZhdWx0X3JhY2tfY29sdW1ucxgLIAEoBRI+ChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYDCABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXgSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiUgoSQnVpbGRpbmdXaXRoQ291bnRzEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nEhIKCnJhY2tfY291bnQYAiABKAMiXAoUTGlzdEJ1aWxkaW5nc1JlcXVlc3QSGgoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAEhkKD3VuYXNzaWduZWRfb25seRgCIAEoCEgAQg0KC3NpdGVfZmlsdGVyIkwKFUxpc3RCdWlsZGluZ3NSZXNwb25zZRIzCglidWlsZGluZ3MYASADKAsyIC5idWlsZGluZ3MudjEuQnVpbGRpbmdXaXRoQ291bnRzIikKEkdldEJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI/ChNHZXRCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIuYEChVDcmVhdGVCdWlsZGluZ1JlcXVlc3QSHQoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAiAEBEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAyABKAlCCLpIBXIDGIAgEiAKCHBvd2VyX2t3GAQgASgBQg66SAsSCSkAAAAAAAAAABIjCgtvdmVyaGVhZF9rdxgFIAEoAUIOukgLEgkpAAAAAAAAAAASFwoGYWlzbGVzGAYgASgFQge6SAQaAigAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIAoPcmFja3NfcGVyX2Fpc2xlGAggASgFQge6SAQaAigAEiIKEWRlZmF1bHRfcmFja19yb3dzGAkgASgFQge6SAQaAigAEiUKFGRlZmF1bHRfcmFja19jb2x1bW5zGAogASgFQge6SAQaAigAEkgKGGRlZmF1bHRfcmFja19vcmRlcl9pbmRleBgLIAEoDjIcLmJ1aWxkaW5ncy52MS5SYWNrT3JkZXJJbmRleEIIukgFggECEAE6qwG6SKcBGqQBChhkZWZhdWx0X3JhY2tfZGltc19wYWlyZWQSRWRlZmF1bHRfcmFja19yb3dzIGFuZCBkZWZhdWx0X3JhY2tfY29sdW1ucyBtdXN0IGJvdGggYmUgMCBvciBib3RoID4gMBpBKHRoaXMuZGVmYXVsdF9yYWNrX3Jvd3MgPT0gMCkgPT0gKHRoaXMuZGVmYXVsdF9yYWNrX2NvbHVtbnMgPT0gMClCCgoIX3NpdGVfaWQiQgoWQ3JlYXRlQnVpbGRpbmdSZXNwb25zZRIoCghidWlsZGluZxgBIAEoCzIWLmJ1aWxkaW5ncy52MS5CdWlsZGluZyLQBAoVVXBkYXRlQnVpbGRpbmdSZXF1ZXN0EhMKAmlkGAEgASgDQge6SAQiAiAAEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAyABKAlCCLpIBXIDGIAgEiAKCHBvd2VyX2t3GAQgASgBQg66SAsSCSkAAAAAAAAAABIjCgtvdmVyaGVhZF9rdxgFIAEoAUIOukgLEgkpAAAAAAAAAAASFwoGYWlzbGVzGAYgASgFQge6SAQaAigAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIAoPcmFja3NfcGVyX2Fpc2xlGAggASgFQge6SAQaAigAEiIKEWRlZmF1bHRfcmFja19yb3dzGAkgASgFQge6SAQaAigAEiUKFGRlZmF1bHRfcmFja19jb2x1bW5zGAogASgFQge6SAQaAigAEkgKGGRlZmF1bHRfcmFja19vcmRlcl9pbmRleBgLIAEoDjIcLmJ1aWxkaW5ncy52MS5SYWNrT3JkZXJJbmRleEIIukgFggECEAE6qwG6SKcBGqQBChhkZWZhdWx0X3JhY2tfZGltc19wYWlyZWQSRWRlZmF1bHRfcmFja19yb3dzIGFuZCBkZWZhdWx0X3JhY2tfY29sdW1ucyBtdXN0IGJvdGggYmUgMCBvciBib3RoID4gMBpBKHRoaXMuZGVmYXVsdF9yYWNrX3Jvd3MgPT0gMCkgPT0gKHRoaXMuZGVmYXVsdF9yYWNrX2NvbHVtbnMgPT0gMCkiQgoWVXBkYXRlQnVpbGRpbmdSZXNwb25zZRIoCghidWlsZGluZxgBIAEoCzIWLmJ1aWxkaW5ncy52MS5CdWlsZGluZyIsChVEZWxldGVCdWlsZGluZ1JlcXVlc3QSEwoCaWQYASABKANCB7pIBCICIAAiNwoWRGVsZXRlQnVpbGRpbmdSZXNwb25zZRIdChV1bmFzc2lnbmVkX3JhY2tfY291bnQYASABKAMqtgEKDlJhY2tPcmRlckluZGV4EiAKHFJBQ0tfT1JERVJfSU5ERVhfVU5TUEVDSUZJRUQQABIgChxSQUNLX09SREVSX0lOREVYX0JPVFRPTV9MRUZUEAESHQoZUkFDS19PUkRFUl9JTkRFWF9UT1BfTEVGVBACEiEKHVJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX1JJR0hUEAMSHgoaUkFDS19PUkRFUl9JTkRFWF9UT1BfUklHSFQQBDLWAwoPQnVpbGRpbmdTZXJ2aWNlElgKDUxpc3RCdWlsZGluZ3MSIi5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nc1JlcXVlc3QaIy5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nc1Jlc3BvbnNlElIKC0dldEJ1aWxkaW5nEiAuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nUmVxdWVzdBohLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1Jlc3BvbnNlElsKDkNyZWF0ZUJ1aWxkaW5nEiMuYnVpbGRpbmdzLnYxLkNyZWF0ZUJ1aWxkaW5nUmVxdWVzdBokLmJ1aWxkaW5ncy52MS5DcmVhdGVCdWlsZGluZ1Jlc3BvbnNlElsKDlVwZGF0ZUJ1aWxkaW5nEiMuYnVpbGRpbmdzLnYxLlVwZGF0ZUJ1aWxkaW5nUmVxdWVzdBokLmJ1aWxkaW5ncy52MS5VcGRhdGVCdWlsZGluZ1Jlc3BvbnNlElsKDkRlbGV0ZUJ1aWxkaW5nEiMuYnVpbGRpbmdzLnYxLkRlbGV0ZUJ1aWxkaW5nUmVxdWVzdBokLmJ1aWxkaW5ncy52MS5EZWxldGVCdWlsZGluZ1Jlc3BvbnNlQsABChBjb20uYnVpbGRpbmdzLnYxQg5CdWlsZGluZ3NQcm90b1ABWktnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9idWlsZGluZ3MvdjE7YnVpbGRpbmdzdjGiAgNCWFiqAgxCdWlsZGluZ3MuVjHKAgxCdWlsZGluZ3NcVjHiAhhCdWlsZGluZ3NcVjFcR1BCTWV0YWRhdGHqAg1CdWlsZGluZ3M6OlYxYgZwcm90bzM",
+    "ChxidWlsZGluZ3MvdjEvYnVpbGRpbmdzLnByb3RvEgxidWlsZGluZ3MudjEioQMKCEJ1aWxkaW5nEgoKAmlkGAEgASgDEhQKB3NpdGVfaWQYAiABKANIAIgBARIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhAKCHBvd2VyX2t3GAUgASgBEhMKC292ZXJoZWFkX2t3GAYgASgBEg4KBmFpc2xlcxgHIAEoBRIbChNwaHlzaWNhbF9yYWNrX2NvdW50GAggASgFEhcKD3JhY2tzX3Blcl9haXNsZRgJIAEoBRIZChFkZWZhdWx0X3JhY2tfcm93cxgKIAEoBRIcChRkZWZhdWx0X3JhY2tfY29sdW1ucxgLIAEoBRI+ChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYDCABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXgSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiUgoSQnVpbGRpbmdXaXRoQ291bnRzEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nEhIKCnJhY2tfY291bnQYAiABKAMiXAoUTGlzdEJ1aWxkaW5nc1JlcXVlc3QSGgoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAEhkKD3VuYXNzaWduZWRfb25seRgCIAEoCEgAQg0KC3NpdGVfZmlsdGVyIkwKFUxpc3RCdWlsZGluZ3NSZXNwb25zZRIzCglidWlsZGluZ3MYASADKAsyIC5idWlsZGluZ3MudjEuQnVpbGRpbmdXaXRoQ291bnRzIikKEkdldEJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI/ChNHZXRCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIuoEChVDcmVhdGVCdWlsZGluZ1JlcXVlc3QSHQoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAiAEBEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAyABKAlCCLpIBXIDGIAgEiAKCHBvd2VyX2t3GAQgASgBQg66SAsSCSkAAAAAAAAAABIjCgtvdmVyaGVhZF9rdxgFIAEoAUIOukgLEgkpAAAAAAAAAAASGQoGYWlzbGVzGAYgASgFQgm6SAYaBBhkKAASJAoTcGh5c2ljYWxfcmFja19jb3VudBgHIAEoBUIHukgEGgIoABIiCg9yYWNrc19wZXJfYWlzbGUYCCABKAVCCbpIBhoEGGQoABIiChFkZWZhdWx0X3JhY2tfcm93cxgJIAEoBUIHukgEGgIoABIlChRkZWZhdWx0X3JhY2tfY29sdW1ucxgKIAEoBUIHukgEGgIoABJIChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYCyABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXhCCLpIBYIBAhABOqsBukinARqkAQoYZGVmYXVsdF9yYWNrX2RpbXNfcGFpcmVkEkVkZWZhdWx0X3JhY2tfcm93cyBhbmQgZGVmYXVsdF9yYWNrX2NvbHVtbnMgbXVzdCBib3RoIGJlIDAgb3IgYm90aCA+IDAaQSh0aGlzLmRlZmF1bHRfcmFja19yb3dzID09IDApID09ICh0aGlzLmRlZmF1bHRfcmFja19jb2x1bW5zID09IDApQgoKCF9zaXRlX2lkIkIKFkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USKAoIYnVpbGRpbmcYASABKAsyFi5idWlsZGluZ3MudjEuQnVpbGRpbmci1AQKFVVwZGF0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIgCghwb3dlcl9rdxgEIAEoAUIOukgLEgkpAAAAAAAAAAASIwoLb3ZlcmhlYWRfa3cYBSABKAFCDrpICxIJKQAAAAAAAAAAEhkKBmFpc2xlcxgGIAEoBUIJukgGGgQYZCgAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIgoPcmFja3NfcGVyX2Fpc2xlGAggASgFQgm6SAYaBBhkKAASIgoRZGVmYXVsdF9yYWNrX3Jvd3MYCSABKAVCB7pIBBoCKAASJQoUZGVmYXVsdF9yYWNrX2NvbHVtbnMYCiABKAVCB7pIBBoCKAASSAoYZGVmYXVsdF9yYWNrX29yZGVyX2luZGV4GAsgASgOMhwuYnVpbGRpbmdzLnYxLlJhY2tPcmRlckluZGV4Qgi6SAWCAQIQATqrAbpIpwEapAEKGGRlZmF1bHRfcmFja19kaW1zX3BhaXJlZBJFZGVmYXVsdF9yYWNrX3Jvd3MgYW5kIGRlZmF1bHRfcmFja19jb2x1bW5zIG11c3QgYm90aCBiZSAwIG9yIGJvdGggPiAwGkEodGhpcy5kZWZhdWx0X3JhY2tfcm93cyA9PSAwKSA9PSAodGhpcy5kZWZhdWx0X3JhY2tfY29sdW1ucyA9PSAwKSJCChZVcGRhdGVCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIiwKFURlbGV0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI3ChZEZWxldGVCdWlsZGluZ1Jlc3BvbnNlEh0KFXVuYXNzaWduZWRfcmFja19jb3VudBgBIAEoAyJ1ChhMaXN0QnVpbGRpbmdSYWNrc1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAASHQoJcGFnZV9zaXplGAIgASgFQgq6SAcaBRjoBygAEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAQIpMBCgxCdWlsZGluZ1JhY2sSDwoHcmFja19pZBgBIAEoAxISCgpyYWNrX2xhYmVsGAIgASgJEhgKC2Fpc2xlX2luZGV4GAMgASgFSACIAQESHgoRcG9zaXRpb25faW5fYWlzbGUYBCABKAVIAYgBAUIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlIl8KGUxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2USKQoFcmFja3MYASADKAsyGi5idWlsZGluZ3MudjEuQnVpbGRpbmdSYWNrEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSL2AgobQXNzaWduUmFja1RvQnVpbGRpbmdSZXF1ZXN0EhgKB3JhY2tfaWQYASABKANCB7pIBCICIAASIQoLYnVpbGRpbmdfaWQYAiABKANCB7pIBCICIABIAIgBARIhCgthaXNsZV9pbmRleBgDIAEoBUIHukgEGgIoAEgBiAEBEicKEXBvc2l0aW9uX2luX2Fpc2xlGAQgASgFQge6SAQaAigASAKIAQE6lwG6SJMBGpABChZwb3NpdGlvbl9wYWlyX3JlcXVpcmVkEkBhaXNsZV9pbmRleCBhbmQgcG9zaXRpb25faW5fYWlzbGUgbXVzdCBib3RoIGJlIHNldCBvciBib3RoIHVuc2V0GjRoYXModGhpcy5haXNsZV9pbmRleCkgPT0gaGFzKHRoaXMucG9zaXRpb25faW5fYWlzbGUpQg4KDF9idWlsZGluZ19pZEIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlIkQKHEFzc2lnblJhY2tUb0J1aWxkaW5nUmVzcG9uc2USJAocc2l0ZV9yZWFzc2lnbmVkX2RldmljZV9jb3VudBgBIAEoAyq2AQoOUmFja09yZGVySW5kZXgSIAocUkFDS19PUkRFUl9JTkRFWF9VTlNQRUNJRklFRBAAEiAKHFJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX0xFRlQQARIdChlSQUNLX09SREVSX0lOREVYX1RPUF9MRUZUEAISIQodUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fUklHSFQQAxIeChpSQUNLX09SREVSX0lOREVYX1RPUF9SSUdIVBAEMqsFCg9CdWlsZGluZ1NlcnZpY2USWAoNTGlzdEJ1aWxkaW5ncxIiLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdzUmVxdWVzdBojLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdzUmVzcG9uc2USUgoLR2V0QnVpbGRpbmcSIC5idWlsZGluZ3MudjEuR2V0QnVpbGRpbmdSZXF1ZXN0GiEuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nUmVzcG9uc2USWwoOQ3JlYXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuQ3JlYXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USWwoOVXBkYXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuVXBkYXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLlVwZGF0ZUJ1aWxkaW5nUmVzcG9uc2USWwoORGVsZXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuRGVsZXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLkRlbGV0ZUJ1aWxkaW5nUmVzcG9uc2USZAoRTGlzdEJ1aWxkaW5nUmFja3MSJi5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nUmFja3NSZXF1ZXN0GicuYnVpbGRpbmdzLnYxLkxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2USbQoUQXNzaWduUmFja1RvQnVpbGRpbmcSKS5idWlsZGluZ3MudjEuQXNzaWduUmFja1RvQnVpbGRpbmdSZXF1ZXN0GiouYnVpbGRpbmdzLnYxLkFzc2lnblJhY2tUb0J1aWxkaW5nUmVzcG9uc2VCwAEKEGNvbS5idWlsZGluZ3MudjFCDkJ1aWxkaW5nc1Byb3RvUAFaS2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2J1aWxkaW5ncy92MTtidWlsZGluZ3N2MaICA0JYWKoCDEJ1aWxkaW5ncy5WMcoCDEJ1aWxkaW5nc1xWMeICGEJ1aWxkaW5nc1xWMVxHUEJNZXRhZGF0YeoCDUJ1aWxkaW5nczo6VjFiBnByb3RvMw",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -256,6 +256,11 @@ export type CreateBuildingRequest = Message<"buildings.v1.CreateBuildingRequest"
   overheadKw: number;
 
   /**
+   * Layout dimensions are capped at 100 each. Above that the
+   * operator UI's aisles × racks_per_aisle grid renders impractically
+   * large (100×100 = 10k cells, still responsive); the cap keeps a
+   * typo from allocating a million-node grid in the browser.
+   *
    * @generated from field: int32 aisles = 6;
    */
   aisles: number;
@@ -342,6 +347,10 @@ export type UpdateBuildingRequest = Message<"buildings.v1.UpdateBuildingRequest"
   overheadKw: number;
 
   /**
+   * Layout dimensions are capped at 100 each. Matches the
+   * CreateBuildingRequest cap; the operator UI grid is the
+   * motivating constraint.
+   *
    * @generated from field: int32 aisles = 6;
    */
   aisles: number;
@@ -433,6 +442,171 @@ export type DeleteBuildingResponse = Message<"buildings.v1.DeleteBuildingRespons
 export const DeleteBuildingResponseSchema: GenMessage<DeleteBuildingResponse> =
   /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 11);
+
+/**
+ * @generated from message buildings.v1.ListBuildingRacksRequest
+ */
+export type ListBuildingRacksRequest = Message<"buildings.v1.ListBuildingRacksRequest"> & {
+  /**
+   * @generated from field: int64 building_id = 1;
+   */
+  buildingId: bigint;
+
+  /**
+   * Cursor pagination — defaults to 50 (matches the device-list
+   * ergonomics) when page_size is 0, capped at 1000. page_token is
+   * an opaque cursor returned by a prior response; empty string
+   * starts at the first page. Callers that need the full working
+   * set (e.g. ManageBuildingModal seeding) loop until
+   * next_page_token is empty.
+   *
+   * @generated from field: int32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * 2048 covers the worst-case server-issued cursor: base64-encoded
+   * JSON containing a rack label (up to 255 chars, potentially
+   * multi-byte) + id + struct overhead. The token is always server-
+   * issued so the cap is defensive, not a contract.
+   *
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message buildings.v1.ListBuildingRacksRequest.
+ * Use `create(ListBuildingRacksRequestSchema)` to create a new message.
+ */
+export const ListBuildingRacksRequestSchema: GenMessage<ListBuildingRacksRequest> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 12);
+
+/**
+ * BuildingRack is the rack-in-building read shape used by the
+ * ManageBuildingModal grid. Position fields are unset when the rack
+ * is a building member without a chosen grid cell.
+ *
+ * @generated from message buildings.v1.BuildingRack
+ */
+export type BuildingRack = Message<"buildings.v1.BuildingRack"> & {
+  /**
+   * @generated from field: int64 rack_id = 1;
+   */
+  rackId: bigint;
+
+  /**
+   * @generated from field: string rack_label = 2;
+   */
+  rackLabel: string;
+
+  /**
+   * @generated from field: optional int32 aisle_index = 3;
+   */
+  aisleIndex?: number | undefined;
+
+  /**
+   * @generated from field: optional int32 position_in_aisle = 4;
+   */
+  positionInAisle?: number | undefined;
+};
+
+/**
+ * Describes the message buildings.v1.BuildingRack.
+ * Use `create(BuildingRackSchema)` to create a new message.
+ */
+export const BuildingRackSchema: GenMessage<BuildingRack> = /*@__PURE__*/ messageDesc(file_buildings_v1_buildings, 13);
+
+/**
+ * @generated from message buildings.v1.ListBuildingRacksResponse
+ */
+export type ListBuildingRacksResponse = Message<"buildings.v1.ListBuildingRacksResponse"> & {
+  /**
+   * @generated from field: repeated buildings.v1.BuildingRack racks = 1;
+   */
+  racks: BuildingRack[];
+
+  /**
+   * Empty when the result fits in one response (current behavior).
+   * Future paging implementations should populate this with an
+   * opaque cursor the client can send back in the next request's
+   * page_token to fetch the next slice.
+   *
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message buildings.v1.ListBuildingRacksResponse.
+ * Use `create(ListBuildingRacksResponseSchema)` to create a new message.
+ */
+export const ListBuildingRacksResponseSchema: GenMessage<ListBuildingRacksResponse> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 14);
+
+/**
+ * @generated from message buildings.v1.AssignRackToBuildingRequest
+ */
+export type AssignRackToBuildingRequest = Message<"buildings.v1.AssignRackToBuildingRequest"> & {
+  /**
+   * @generated from field: int64 rack_id = 1;
+   */
+  rackId: bigint;
+
+  /**
+   * Unset = unassign rack from any building. When present, must be > 0.
+   *
+   * @generated from field: optional int64 building_id = 2;
+   */
+  buildingId?: bigint | undefined;
+
+  /**
+   * Optional grid placement inside the target building. Must be set
+   * together or both unset (a half-set position would be ambiguous).
+   * Upper bounds are validated server-side against the target
+   * building's aisles / racks_per_aisle.
+   *
+   * @generated from field: optional int32 aisle_index = 3;
+   */
+  aisleIndex?: number | undefined;
+
+  /**
+   * @generated from field: optional int32 position_in_aisle = 4;
+   */
+  positionInAisle?: number | undefined;
+};
+
+/**
+ * Describes the message buildings.v1.AssignRackToBuildingRequest.
+ * Use `create(AssignRackToBuildingRequestSchema)` to create a new message.
+ */
+export const AssignRackToBuildingRequestSchema: GenMessage<AssignRackToBuildingRequest> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 15);
+
+/**
+ * @generated from message buildings.v1.AssignRackToBuildingResponse
+ */
+export type AssignRackToBuildingResponse = Message<"buildings.v1.AssignRackToBuildingResponse"> & {
+  /**
+   * Cascade impact: how many descendant devices had their site_id
+   * re-stamped to the target building's site_id (or NULL when the
+   * rack moved to unassigned). Zero when no cascade was needed.
+   *
+   * @generated from field: int64 site_reassigned_device_count = 1;
+   */
+  siteReassignedDeviceCount: bigint;
+};
+
+/**
+ * Describes the message buildings.v1.AssignRackToBuildingResponse.
+ * Use `create(AssignRackToBuildingResponseSchema)` to create a new message.
+ */
+export const AssignRackToBuildingResponseSchema: GenMessage<AssignRackToBuildingResponse> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 16);
 
 /**
  * RackOrderIndex mirrors device_set/v1's enum. We re-declare it here
@@ -544,5 +718,36 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof DeleteBuildingRequestSchema;
     output: typeof DeleteBuildingResponseSchema;
+  };
+  /**
+   * ListBuildingRacks returns every rack currently assigned to the
+   * building along with its grid placement (aisle_index,
+   * position_in_aisle). Used by ManageBuildingModal to seed its
+   * grid view; the broader ListDeviceSets RPC stays unaware of
+   * grid placement.
+   *
+   * @generated from rpc buildings.v1.BuildingService.ListBuildingRacks
+   */
+  listBuildingRacks: {
+    methodKind: "unary";
+    input: typeof ListBuildingRacksRequestSchema;
+    output: typeof ListBuildingRacksResponseSchema;
+  };
+  /**
+   * AssignRackToBuilding sets the rack's building_id and optionally
+   * positions it at (aisle_index, position_in_aisle) inside the
+   * building's grid. Leaving building_id unset unassigns the rack
+   * from any building. Position fields must be set together or
+   * both unset; the server clears them automatically on any
+   * building_id transition. Runs the same site-cascade for
+   * descendant device.site_id that SaveRack runs when the rack's
+   * site changes.
+   *
+   * @generated from rpc buildings.v1.BuildingService.AssignRackToBuilding
+   */
+  assignRackToBuilding: {
+    methodKind: "unary";
+    input: typeof AssignRackToBuildingRequestSchema;
+    output: typeof AssignRackToBuildingResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_buildings_v1_buildings, 0);

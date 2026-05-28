@@ -107,10 +107,24 @@ WHERE device_set_id = $6
 -- name: UpdateRackPlacement :exec
 -- Sets the rack's site_id, building_id, and zone atomically. NULL
 -- values unassign placement; caller clears zone via empty string.
+-- Clears aisle_index / position_in_aisle only when building_id
+-- changes (transitions to a different non-null value, or to NULL).
+-- A no-op building_id update preserves the existing grid position so
+-- SaveRack callers that don't touch building placement (rack rename,
+-- cooling change, etc.) don't accidentally nuke the operator's
+-- ManageBuildingModal layout work.
 UPDATE device_set_rack
 SET site_id = sqlc.narg('site_id')::bigint,
     building_id = sqlc.narg('building_id')::bigint,
-    zone = sqlc.arg('zone')
+    zone = sqlc.arg('zone'),
+    aisle_index = CASE
+        WHEN sqlc.narg('building_id')::bigint IS DISTINCT FROM building_id THEN NULL
+        ELSE aisle_index
+    END,
+    position_in_aisle = CASE
+        WHEN sqlc.narg('building_id')::bigint IS DISTINCT FROM building_id THEN NULL
+        ELSE position_in_aisle
+    END
 WHERE device_set_id = sqlc.arg('device_set_id')
   AND EXISTS (
     SELECT 1 FROM device_set ds
@@ -123,6 +137,20 @@ WHERE device_set_id = sqlc.arg('device_set_id')
 UPDATE device_set
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
+
+-- name: ClearRackPlacementForSoftDelete :exec
+-- Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
+-- the device_set_rack placement so a soft-deleted rack doesn't leave
+-- an orphan (building_id, aisle_index, position_in_aisle) tuple that
+-- the partial unique index uk_device_set_rack_building_position still
+-- treats as occupied. Callers wrap this and SoftDeleteDeviceSet in the
+-- same transaction; non-rack collection types simply match 0 rows.
+UPDATE device_set_rack
+SET aisle_index = NULL,
+    position_in_aisle = NULL,
+    building_id = NULL,
+    zone = ''
+WHERE device_set_id = $1 AND org_id = $2;
 
 -- name: DeviceSetBelongsToOrg :one
 SELECT EXISTS(

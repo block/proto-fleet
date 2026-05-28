@@ -515,6 +515,17 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 				return err
 			}
 			siteUnassignedCount = n
+			// Clear device_set_rack placement BEFORE soft-deleting the
+			// device_set row so the partial unique index
+			// uk_device_set_rack_building_position releases the cell
+			// atomically. Without this, the orphan row would keep the
+			// cell occupied while ListBuildingRacks hid it — operators
+			// would see an empty cell that fails on assign. Scoped to
+			// the rack branch because non-rack collection types don't
+			// have device_set_rack rows.
+			if err := s.collectionStore.ClearRackPlacementForSoftDelete(ctx, info.OrganizationID, req.CollectionId); err != nil {
+				return err
+			}
 		}
 		// Drop membership before soft-delete so idx_one_rack_per_device
 		// allows re-adding devices to another rack.

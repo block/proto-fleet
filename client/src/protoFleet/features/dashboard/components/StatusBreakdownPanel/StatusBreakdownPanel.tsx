@@ -26,7 +26,7 @@ export const StatusBreakdownPanel = ({ items, className }: StatusBreakdownPanelP
   return (
     <div
       className={clsx(
-        "flex flex-col justify-between space-y-3 bg-transparent p-6 pt-0 laptop:p-10 laptop:pt-0 dark:bg-transparent",
+        "flex flex-col justify-between space-y-4 bg-transparent p-6 laptop:p-10 dark:bg-transparent",
         className,
       )}
     >
@@ -56,7 +56,7 @@ export const StatusBreakdownPanel = ({ items, className }: StatusBreakdownPanelP
             </Button>
           ) : null}
 
-          {idx < items.length - 1 ? <Divider className="absolute -bottom-4 left-0 w-full" /> : null}
+          {idx < items.length - 1 ? <Divider className="absolute -bottom-2 left-0 w-full" /> : null}
         </div>
       ))}
     </div>

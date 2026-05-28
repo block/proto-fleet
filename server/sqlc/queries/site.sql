@@ -127,14 +127,20 @@ WHERE dsr.org_id = sqlc.arg('org_id')
   );
 
 -- name: UnassignRacksFromBuildingsBySite :execrows
--- Clears rack→building linkage (and the zone label) for every live
--- rack under any building of the given site. Run BEFORE buildings are
--- soft-deleted so the JOIN against building still resolves. The
--- EXISTS subquery on device_set skips soft-deleted rack collections,
--- matching ListBuildings.rack_count's filter.
+-- Clears rack→building linkage (and the zone + grid placement) for
+-- every live rack under any building of the given site. Run BEFORE
+-- buildings are soft-deleted so the JOIN against building still
+-- resolves. The EXISTS subquery on device_set skips soft-deleted
+-- rack collections, matching ListBuildings.rack_count's filter.
+-- aisle_index/position_in_aisle MUST be cleared in the same update —
+-- the ck_device_set_rack_position_requires_building CHECK rejects
+-- rows where building_id IS NULL but a position is set, so a
+-- separate two-statement cascade would violate the constraint.
 UPDATE device_set_rack dsr
 SET building_id = NULL,
-    zone = NULL
+    zone = NULL,
+    aisle_index = NULL,
+    position_in_aisle = NULL
 WHERE dsr.org_id = sqlc.arg('org_id')
   AND dsr.building_id IN (
       SELECT b.id FROM building b

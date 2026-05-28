@@ -101,6 +101,22 @@ func (mr *MockBuildingStoreMockRecorder) GetBuilding(ctx, orgID, id any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBuilding", reflect.TypeOf((*MockBuildingStore)(nil).GetBuilding), ctx, orgID, id)
 }
 
+// ListBuildingRacks mocks base method.
+func (m *MockBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBuildingRacks", ctx, orgID, buildingID, pageSize, pageToken)
+	ret0, _ := ret[0].([]models.BuildingRack)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListBuildingRacks indicates an expected call of ListBuildingRacks.
+func (mr *MockBuildingStoreMockRecorder) ListBuildingRacks(ctx, orgID, buildingID, pageSize, pageToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildingRacks", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildingRacks), ctx, orgID, buildingID, pageSize, pageToken)
+}
+
 // ListBuildings mocks base method.
 func (m *MockBuildingStore) ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error) {
 	m.ctrl.T.Helper()
@@ -114,6 +130,35 @@ func (m *MockBuildingStore) ListBuildings(ctx context.Context, filter models.Lis
 func (mr *MockBuildingStoreMockRecorder) ListBuildings(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildings", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildings), ctx, filter)
+}
+
+// ListRacksOutsideBuildingBounds mocks base method.
+func (m *MockBuildingStore) ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRacksOutsideBuildingBounds", ctx, orgID, buildingID, newAisles, newRacksPerAisle)
+	ret0, _ := ret[0].([]models.BuildingRack)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRacksOutsideBuildingBounds indicates an expected call of ListRacksOutsideBuildingBounds.
+func (mr *MockBuildingStoreMockRecorder) ListRacksOutsideBuildingBounds(ctx, orgID, buildingID, newAisles, newRacksPerAisle any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRacksOutsideBuildingBounds", reflect.TypeOf((*MockBuildingStore)(nil).ListRacksOutsideBuildingBounds), ctx, orgID, buildingID, newAisles, newRacksPerAisle)
+}
+
+// SetRackBuildingPosition mocks base method.
+func (m *MockBuildingStore) SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRackBuildingPosition", ctx, orgID, rackID, aisleIndex, positionInAisle)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRackBuildingPosition indicates an expected call of SetRackBuildingPosition.
+func (mr *MockBuildingStoreMockRecorder) SetRackBuildingPosition(ctx, orgID, rackID, aisleIndex, positionInAisle any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRackBuildingPosition", reflect.TypeOf((*MockBuildingStore)(nil).SetRackBuildingPosition), ctx, orgID, rackID, aisleIndex, positionInAisle)
 }
 
 // SoftDeleteBuilding mocks base method.

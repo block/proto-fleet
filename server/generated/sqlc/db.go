@@ -81,6 +81,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
 	}
+	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
+	}
 	if q.clearRackSlotPositionStmt, err = db.PrepareContext(ctx, clearRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackSlotPosition: %w", err)
 	}
@@ -594,6 +597,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
+	if q.listBuildingRacksStmt, err = db.PrepareContext(ctx, listBuildingRacks); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBuildingRacks: %w", err)
+	}
 	if q.listBuildingsByOrgStmt, err = db.PrepareContext(ctx, listBuildingsByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingsByOrg: %w", err)
 	}
@@ -650,6 +656,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listRackZonesStmt, err = db.PrepareContext(ctx, listRackZones); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRackZones: %w", err)
+	}
+	if q.listRacksOutsideBuildingBoundsStmt, err = db.PrepareContext(ctx, listRacksOutsideBuildingBounds); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRacksOutsideBuildingBounds: %w", err)
 	}
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByOrg: %w", err)
@@ -773,6 +782,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
+	}
+	if q.setRackBuildingPositionStmt, err = db.PrepareContext(ctx, setRackBuildingPosition); err != nil {
+		return nil, fmt.Errorf("error preparing query SetRackBuildingPosition: %w", err)
 	}
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
@@ -1106,6 +1118,11 @@ func (q *Queries) Close() error {
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
+		}
+	}
+	if q.clearRackPlacementForSoftDeleteStmt != nil {
+		if cerr := q.clearRackPlacementForSoftDeleteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearRackPlacementForSoftDeleteStmt: %w", cerr)
 		}
 	}
 	if q.clearRackSlotPositionStmt != nil {
@@ -1963,6 +1980,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
+	if q.listBuildingRacksStmt != nil {
+		if cerr := q.listBuildingRacksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBuildingRacksStmt: %w", cerr)
+		}
+	}
 	if q.listBuildingsByOrgStmt != nil {
 		if cerr := q.listBuildingsByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBuildingsByOrgStmt: %w", cerr)
@@ -2056,6 +2078,11 @@ func (q *Queries) Close() error {
 	if q.listRackZonesStmt != nil {
 		if cerr := q.listRackZonesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRackZonesStmt: %w", cerr)
+		}
+	}
+	if q.listRacksOutsideBuildingBoundsStmt != nil {
+		if cerr := q.listRacksOutsideBuildingBoundsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRacksOutsideBuildingBoundsStmt: %w", cerr)
 		}
 	}
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt != nil {
@@ -2261,6 +2288,11 @@ func (q *Queries) Close() error {
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
 		if cerr := q.setFleetNodeEnrollmentStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
+		}
+	}
+	if q.setRackBuildingPositionStmt != nil {
+		if cerr := q.setRackBuildingPositionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setRackBuildingPositionStmt: %w", cerr)
 		}
 	}
 	if q.setRackSlotPositionStmt != nil {
@@ -2711,6 +2743,7 @@ type Queries struct {
 	cascadeAddedDeviceSitesStmt                         *sql.Stmt
 	cascadeRackDeviceSitesStmt                          *sql.Stmt
 	claimMessageForProcessingStmt                       *sql.Stmt
+	clearRackPlacementForSoftDeleteStmt                 *sql.Stmt
 	clearRackSlotPositionStmt                           *sql.Stmt
 	clearRolePermissionsStmt                            *sql.Stmt
 	closeStaleErrorsStmt                                *sql.Stmt
@@ -2882,6 +2915,7 @@ type Queries struct {
 	listAssignmentsForRoleStmt                          *sql.Stmt
 	listAssignmentsForUserStmt                          *sql.Stmt
 	listBatchDeviceResultsStmt                          *sql.Stmt
+	listBuildingRacksStmt                               *sql.Stmt
 	listBuildingsByOrgStmt                              *sql.Stmt
 	listBuiltinRolesForOrgStmt                          *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
@@ -2901,6 +2935,7 @@ type Queries struct {
 	listRackTypesStmt                                   *sql.Stmt
 	listRackZoneRefsStmt                                *sql.Stmt
 	listRackZonesStmt                                   *sql.Stmt
+	listRacksOutsideBuildingBoundsStmt                  *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt       *sql.Stmt
 	listRolePermissionKeysStmt                          *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
@@ -2942,6 +2977,7 @@ type Queries struct {
 	revokePermissionFromRoleStmt                        *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                    *sql.Stmt
+	setRackBuildingPositionStmt                         *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
 	setScheduleRunningStmt                              *sql.Stmt
@@ -3045,6 +3081,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeAddedDeviceSitesStmt:                         q.cascadeAddedDeviceSitesStmt,
 		cascadeRackDeviceSitesStmt:                          q.cascadeRackDeviceSitesStmt,
 		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
+		clearRackPlacementForSoftDeleteStmt:                 q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                            q.clearRolePermissionsStmt,
 		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
@@ -3216,6 +3253,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listAssignmentsForRoleStmt:                          q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                          q.listAssignmentsForUserStmt,
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
+		listBuildingRacksStmt:                               q.listBuildingRacksStmt,
 		listBuildingsByOrgStmt:                              q.listBuildingsByOrgStmt,
 		listBuiltinRolesForOrgStmt:                          q.listBuiltinRolesForOrgStmt,
 		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
@@ -3235,6 +3273,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRackTypesStmt:                                   q.listRackTypesStmt,
 		listRackZoneRefsStmt:                                q.listRackZoneRefsStmt,
 		listRackZonesStmt:                                   q.listRackZonesStmt,
+		listRacksOutsideBuildingBoundsStmt:                  q.listRacksOutsideBuildingBoundsStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:       q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRolePermissionKeysStmt:                          q.listRolePermissionKeysStmt,
 		listRolesStmt:                                       q.listRolesStmt,
@@ -3276,6 +3315,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokePermissionFromRoleStmt:                        q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setFleetNodeEnrollmentStatusStmt:                    q.setFleetNodeEnrollmentStatusStmt,
+		setRackBuildingPositionStmt:                         q.setRackBuildingPositionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                              q.setScheduleRunningStmt,

@@ -10,6 +10,8 @@ import (
 
 // BuildingStore is the persistence boundary for the buildings domain.
 // All methods are org-scoped.
+//
+//nolint:interfacebloat // complete CRUD for buildings + rack-placement queries
 type BuildingStore interface {
 	// CreateBuilding inserts a new building row. Maps a
 	// unique-violation on (site_id, name) to AlreadyExists.
@@ -50,4 +52,24 @@ type BuildingStore interface {
 	// parseFilter to bulk-validate building_ids and zone_keys
 	// references in one round trip.
 	BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
+
+	// ListBuildingRacks returns racks currently assigned to the
+	// building with their grid placement, paginated by an opaque
+	// cursor. Service layer clamps pageSize to the proto cap; an
+	// empty pageToken starts at the first page. Returns the next
+	// page token (empty when the caller has reached the last page).
+	ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error)
+
+	// ListRacksOutsideBuildingBounds returns racks whose grid
+	// position would fall outside the proposed (aisles,
+	// racksPerAisle) layout. Unbounded by design — used by
+	// UpdateBuilding's shrink guard, where missing a tail row
+	// would silently orphan it past the cap.
+	ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error)
+
+	// SetRackBuildingPosition writes only the grid-position fields on
+	// device_set_rack. Caller is expected to have already set
+	// building_id via the collection store's UpdateRackPlacement in
+	// the same transaction.
+	SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error
 }

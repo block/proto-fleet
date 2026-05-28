@@ -11,9 +11,9 @@ import Select from "@/shared/components/Select";
 // ManageSiteModal during the create flow — they're already mid-create, so the
 // CTAs read Delete (discard pending site) + Save (apply changes and return to
 // the manage view) instead of Cancel + Continue.
-export type SiteDetailsModalMode = "create" | "createReturn" | "edit";
+export type SiteSettingsModalMode = "create" | "createReturn" | "edit";
 
-interface SiteDetailsModalCommonProps {
+interface SiteSettingsModalCommonProps {
   open: boolean;
   initialValues: SiteFormValues;
   onDismiss: () => void;
@@ -25,7 +25,7 @@ interface SiteDetailsModalCommonProps {
 // (Delete discards the pending create); edit needs onSave + onDeleteRequested
 // (Delete opens the cascade dialog). A misconfigured caller fails to compile
 // instead of silently no-opping the primary action.
-export type SiteDetailsModalProps = SiteDetailsModalCommonProps &
+export type SiteSettingsModalProps = SiteSettingsModalCommonProps &
   (
     | { mode: "create"; onContinue: (values: SiteFormValues) => void }
     | {
@@ -52,7 +52,7 @@ const parseCapacity = (input: string): number | null => {
   return parsed;
 };
 
-const SiteDetailsModal = (props: SiteDetailsModalProps) => {
+const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   const { open, initialValues, onDismiss, saving = false } = props;
   const [name, setName] = useState(initialValues.name);
   const [city, setCity] = useState(initialValues.locationCity);
@@ -107,7 +107,7 @@ const SiteDetailsModal = (props: SiteDetailsModalProps) => {
             text: "Cancel",
             variant: variants.secondary,
             onClick: onDismiss,
-            testId: "site-details-modal-cancel",
+            testId: "site-settings-modal-cancel",
           },
           {
             text: "Continue",
@@ -115,7 +115,7 @@ const SiteDetailsModal = (props: SiteDetailsModalProps) => {
             onClick: handlePrimary,
             disabled: primaryDisabled,
             dismissModalOnClick: false,
-            testId: "site-details-modal-continue",
+            testId: "site-settings-modal-continue",
           },
         ]
       : [
@@ -124,7 +124,7 @@ const SiteDetailsModal = (props: SiteDetailsModalProps) => {
             variant: variants.secondaryDanger,
             onClick: props.onDeleteRequested,
             disabled: saving,
-            testId: "site-details-modal-delete",
+            testId: "site-settings-modal-delete",
           },
           {
             text: saving ? "Saving…" : "Save",
@@ -132,11 +132,11 @@ const SiteDetailsModal = (props: SiteDetailsModalProps) => {
             onClick: handlePrimary,
             disabled: primaryDisabled,
             dismissModalOnClick: false,
-            testId: "site-details-modal-save",
+            testId: "site-settings-modal-save",
           },
         ];
 
-  const title = props.mode === "create" ? "Add site" : "Edit site";
+  const title = "Site settings";
 
   return (
     <Modal
@@ -144,40 +144,40 @@ const SiteDetailsModal = (props: SiteDetailsModalProps) => {
       onDismiss={saving ? undefined : onDismiss}
       title={title}
       buttons={buttons}
-      testId="site-details-modal"
+      testId="site-settings-modal"
     >
       <div className="flex flex-col gap-4 py-2">
         <Input
-          id="site-details-name"
+          id="site-settings-name"
           label="Name"
           initValue={name}
           onChange={(v) => setName(v)}
           maxLength={255}
           required
           autoFocus
-          testId="site-details-name-input"
+          testId="site-settings-name-input"
         />
         <div className="grid grid-cols-2 gap-4">
           <Input
-            id="site-details-city"
+            id="site-settings-city"
             label="City"
             initValue={city}
             onChange={(v) => setCity(v)}
             maxLength={255}
-            testId="site-details-city-input"
+            testId="site-settings-city-input"
           />
           <Select
-            id="site-details-state"
+            id="site-settings-state"
             label="State"
             options={US_STATE_OPTIONS}
             value={state}
             onChange={setState}
             forceBelow
-            testId="site-details-state-select"
+            testId="site-settings-state-select"
           />
         </div>
         <Input
-          id="site-details-capacity"
+          id="site-settings-capacity"
           label="Power capacity"
           initValue={capacityText}
           onChange={(v) => {
@@ -186,20 +186,20 @@ const SiteDetailsModal = (props: SiteDetailsModalProps) => {
           }}
           units="MW"
           error={capacityError ?? false}
-          testId="site-details-capacity-input"
+          testId="site-settings-capacity-input"
         />
         <Select
-          id="site-details-timezone"
+          id="site-settings-timezone"
           label="Timezone"
           options={US_TIMEZONE_OPTIONS}
           value={timezone}
           onChange={setTimezone}
           forceBelow
-          testId="site-details-timezone-select"
+          testId="site-settings-timezone-select"
         />
       </div>
     </Modal>
   );
 };
 
-export default SiteDetailsModal;
+export default SiteSettingsModal;

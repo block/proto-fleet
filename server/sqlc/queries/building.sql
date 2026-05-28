@@ -106,15 +106,20 @@ WHERE id = sqlc.arg('id')
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form
--- zone label) for every live rack pointing at the given building. Org
--- guard reads `device_set_rack.org_id` directly (denormalized from
--- device_set in migration 000046, kept in lockstep via the composite
--- FK on `(device_set_id, org_id) → device_set(id, org_id)`). The
--- EXISTS subquery on device_set skips soft-deleted rack collections so
--- the cascade count matches ListBuildings.rack_count's filter.
+-- zone label + grid position) for every live rack pointing at the
+-- given building. Org guard reads `device_set_rack.org_id` directly
+-- (denormalized from device_set in migration 000046, kept in lockstep
+-- via the composite FK on `(device_set_id, org_id) →
+-- device_set(id, org_id)`). The EXISTS subquery on device_set skips
+-- soft-deleted rack collections so the cascade count matches
+-- ListBuildings.rack_count's filter. aisle_index / position_in_aisle
+-- are cleared because they're meaningless without a parent building
+-- (the CHECK constraint on device_set_rack enforces this).
 UPDATE device_set_rack dsr
 SET building_id = NULL,
-    zone = NULL
+    zone = NULL,
+    aisle_index = NULL,
+    position_in_aisle = NULL
 WHERE dsr.org_id = sqlc.arg('org_id')
   AND dsr.building_id = sqlc.arg('building_id')
   AND EXISTS (
@@ -122,6 +127,73 @@ WHERE dsr.org_id = sqlc.arg('org_id')
       WHERE ds.id = dsr.device_set_id
         AND ds.deleted_at IS NULL
   );
+
+-- name: ListBuildingRacks :many
+-- Returns racks currently assigned to a building with their grid
+-- position. Used by ManageBuildingModal to seed the layout grid.
+-- Excludes soft-deleted rack collections; org guard is checked
+-- against the denormalized org_id on device_set_rack.
+--
+-- Cursor-paginated by (ds.label, dsr.device_set_id). The cursor pair
+-- breaks ties deterministically when labels collide. cursor_label /
+-- cursor_id are NULL on the first page; when provided, only rows
+-- strictly greater than the cursor are returned. Caller asks for
+-- `limit_n + 1` rows to detect whether more pages exist.
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND ds.deleted_at IS NULL
+  AND (
+       sqlc.narg('cursor_label')::text IS NULL
+    OR (ds.label, dsr.device_set_id) > (sqlc.narg('cursor_label')::text, sqlc.narg('cursor_id')::bigint)
+  )
+ORDER BY ds.label, dsr.device_set_id
+LIMIT sqlc.arg('limit_n')::int;
+
+-- name: ListRacksOutsideBuildingBounds :many
+-- Returns the first rack row whose (aisle_index, position_in_aisle)
+-- would fall outside the proposed (aisles, racks_per_aisle) layout.
+-- Used by UpdateBuilding's shrink guard which only needs proof of
+-- one orphan to reject the shrink — caller surfaces the label +
+-- coordinates in the error and stops. LIMIT 1 keeps the scan cheap
+-- on large buildings.
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND ds.deleted_at IS NULL
+  AND dsr.aisle_index IS NOT NULL
+  AND dsr.position_in_aisle IS NOT NULL
+  AND (
+       dsr.aisle_index >= sqlc.arg('new_aisles')::int
+    OR dsr.position_in_aisle >= sqlc.arg('new_racks_per_aisle')::int
+  )
+ORDER BY ds.label
+LIMIT 1;
+
+-- name: SetRackBuildingPosition :exec
+-- Writes the rack's grid placement (aisle_index, position_in_aisle).
+-- Caller must have already set building_id via UpdateRackPlacement —
+-- this query intentionally does not touch building_id so the two
+-- writes stay separable. Both fields are paired by application logic
+-- and the device_set_rack CHECK constraint: passing one without the
+-- other is rejected at the SQL layer.
+UPDATE device_set_rack
+SET aisle_index = sqlc.narg('aisle_index')::int,
+    position_in_aisle = sqlc.narg('position_in_aisle')::int
+WHERE device_set_id = sqlc.arg('rack_id')
+  AND org_id = sqlc.arg('org_id');
 
 -- name: BuildingBelongsToOrg :one
 SELECT EXISTS(

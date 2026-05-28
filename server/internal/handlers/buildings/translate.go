@@ -99,3 +99,44 @@ func toListBuildingsResponse(rows []models.BuildingWithCounts) *pb.ListBuildings
 	}
 	return &pb.ListBuildingsResponse{Buildings: out}
 }
+
+func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken string) *pb.ListBuildingRacksResponse {
+	out := make([]*pb.BuildingRack, 0, len(rows))
+	for i := range rows {
+		row := rows[i]
+		entry := &pb.BuildingRack{
+			RackId:    row.RackID,
+			RackLabel: row.RackLabel,
+		}
+		if row.AisleIndex != nil {
+			v := *row.AisleIndex
+			entry.AisleIndex = &v
+		}
+		if row.PositionInAisle != nil {
+			v := *row.PositionInAisle
+			entry.PositionInAisle = &v
+		}
+		out = append(out, entry)
+	}
+	return &pb.ListBuildingRacksResponse{Racks: out, NextPageToken: nextPageToken}
+}
+
+func toAssignRackToBuildingParams(req *pb.AssignRackToBuildingRequest, orgID int64) models.AssignRackToBuildingParams {
+	out := models.AssignRackToBuildingParams{
+		OrgID:  orgID,
+		RackID: req.GetRackId(),
+	}
+	if req.BuildingId != nil {
+		v := req.GetBuildingId()
+		out.BuildingID = &v
+	}
+	if req.AisleIndex != nil {
+		v := req.GetAisleIndex()
+		out.AisleIndex = &v
+	}
+	if req.PositionInAisle != nil {
+		v := req.GetPositionInAisle()
+		out.PositionInAisle = &v
+	}
+	return out
+}

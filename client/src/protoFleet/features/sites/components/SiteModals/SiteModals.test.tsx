@@ -58,7 +58,7 @@ describe("SiteModals", () => {
 
     render(<SiteModals modals={modals} sites={sites} />);
 
-    fireEvent.click(screen.getByTestId("site-details-modal-delete"));
+    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
 
     expect(requestDeleteCurrent).toHaveBeenCalledWith(sites);
     expect(modals.deleteConfirm).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe("SiteModals", () => {
 
     render(<SiteModals modals={modals} sites={undefined} />);
 
-    fireEvent.click(screen.getByTestId("site-details-modal-delete"));
+    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
 
     expect(modals.cancelAll).toHaveBeenCalled();
     expect(modals.requestDeleteCurrent).not.toHaveBeenCalled();

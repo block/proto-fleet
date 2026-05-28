@@ -14,7 +14,7 @@ export type SiteModalState =
   | { kind: "none" }
   | { kind: "detailsCreate"; draft: SiteFormValues }
   | { kind: "manageCreate"; draft: SiteFormValues }
-  // Stacked: ManageSiteModal stays open while SiteDetailsModal renders on
+  // Stacked: ManageSiteModal stays open while SiteSettingsModal renders on
   // top. CTAs in details read Delete (discard pending create) + Save (apply
   // changes and return to manage).
   | { kind: "manageCreateEditingDetails"; draft: SiteFormValues }
@@ -45,11 +45,11 @@ export interface SiteModalsApi {
   // manage, otherwise closes everything to none.
   dismiss: () => void;
   // Closes every modal regardless of stack — used when the operator
-  // discards a pending create from the SiteDetailsModal Delete button.
+  // discards a pending create from the SiteSettingsModal Delete button.
   cancelAll: () => void;
   // SiteDeleteDialog onDismiss — closes only the cascade dialog.
   dismissDeleteConfirm: () => void;
-  // SiteDetailsModal handlers
+  // SiteSettingsModal handlers
   detailsContinueCreate: (values: SiteFormValues) => void;
   detailsSaveEdit: (values: SiteFormValues) => Promise<void>;
   // ManageSiteModal handlers
@@ -90,7 +90,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   const requestDeleteCurrent = useCallback((sites: SiteWithCounts[] | undefined) => {
     // Pulls the currently-edited site id from state and resolves the matching
     // SiteWithCounts row from the page's list cache. Triggered when Delete is
-    // clicked inside SiteDetailsModal (edit mode) or any future row-level
+    // clicked inside SiteSettingsModal (edit mode) or any future row-level
     // delete affordance.
     setState((prev) => {
       if (prev.kind !== "manageEdit" && prev.kind !== "manageEditEditingDetails") return prev;
@@ -130,7 +130,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   }, []);
 
   const detailsContinueCreate = useCallback((values: SiteFormValues) => {
-    // Carry the existing networkConfig draft through; SiteDetailsModal only
+    // Carry the existing networkConfig draft through; SiteSettingsModal only
     // owns the descriptive fields, so the value typed in ManageSiteModal
     // survives bouncing between the two surfaces.
     setState((prev) => {
@@ -186,7 +186,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   const manageEditDetails = useCallback(() => {
     setState((prev) => {
       // Stack details on top of manage. Manage stays in the underlying state
-      // so it remains visible behind SiteDetailsModal.
+      // so it remains visible behind SiteSettingsModal.
       if (prev.kind === "manageCreate") return { kind: "manageCreateEditingDetails", draft: prev.draft };
       if (prev.kind === "manageEdit") {
         return { kind: "manageEditEditingDetails", site: prev.site, draft: prev.draft };

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
 
+import BuildingModals from "../components/BuildingModals";
 import BuildingPageHeader from "../components/BuildingPageHeader";
+import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type Building } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { parseBigIntId } from "@/protoFleet/api/sites";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -25,7 +28,8 @@ type FetchOutcome =
 
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
-  const { getBuilding } = useBuildings();
+  const navigate = useNavigate();
+  const { getBuilding, listBuildingRacks } = useBuildings();
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
 
@@ -33,16 +37,23 @@ const BuildingPage = () => {
   // (back/forward between two building URLs) doesn't render the older
   // response against the newer URL while the new request is in flight.
   const [response, setResponse] = useState<{ id: bigint; outcome: FetchOutcome } | undefined>(undefined);
+  // Parallel-fetched rack count keyed by buildingId so it can't race a
+  // navigation. Used to populate the cascade-delete dialog's count copy;
+  // falls back to 0n when the count fetch hasn't resolved yet (dialog
+  // then uses the generic "Are you sure?" copy — never undercount).
+  const [rackCountResponse, setRackCountResponse] = useState<{ id: bigint; count: bigint } | undefined>(undefined);
 
   // Hold the latest in-flight AbortController in a ref so retries (and rapid
   // re-mounts) abort the previous request before issuing a new one. Without
   // this, two retry clicks would race and the later result could be
   // overwritten by the earlier one resolving last.
   const inflightControllerRef = useRef<AbortController | null>(null);
+  const racksInflightRef = useRef<AbortController | null>(null);
 
   const fetchBuilding = useCallback(
     (targetId: bigint) => {
       inflightControllerRef.current?.abort();
+      racksInflightRef.current?.abort();
       const controller = new AbortController();
       inflightControllerRef.current = controller;
       void getBuilding({
@@ -55,14 +66,41 @@ const BuildingPage = () => {
           }),
         onError: (message) => setResponse({ id: targetId, outcome: { status: "error", message } }),
       });
+
+      // Parallel rack-count fetch so the cascade-delete dialog has the
+      // live count without waiting for the user to open the manage
+      // modal. Errors here are silent — the dialog falls back to the
+      // generic copy when the count is unknown, which is acceptable.
+      const racksController = new AbortController();
+      racksInflightRef.current = racksController;
+      void listBuildingRacks({
+        buildingId: targetId,
+        signal: racksController.signal,
+        onSuccess: (racks) => setRackCountResponse({ id: targetId, count: BigInt(racks.length) }),
+        onError: () => {
+          // Leave rackCountResponse stale on error; cascade dialog
+          // falls back to "Are you sure?" rather than block the page.
+        },
+      });
     },
-    [getBuilding],
+    [getBuilding, listBuildingRacks],
   );
 
   useEffect(() => {
     if (buildingId === null) return;
     fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
+
+  // Mount BuildingModals at the page level so the manage flow can stack
+  // BuildingSettingsModal on top without re-rendering the page shell. The
+  // delete-from-manage rule (per plan PR 3) redirects to /sites — the
+  // manage modal's anchor is the now-deleted building so we can't stay.
+  const buildingModals = useBuildingModals({
+    refetchBuildings: () => {
+      if (buildingId !== null) fetchBuilding(buildingId);
+    },
+    onDeleteFromManage: () => navigate("/sites"),
+  });
 
   // Unmount cleanup aborts whatever's currently in flight — including
   // retry-spawned controllers that didn't come from the effect above.
@@ -72,6 +110,8 @@ const BuildingPage = () => {
     return () => {
       inflightControllerRef.current?.abort();
       inflightControllerRef.current = null;
+      racksInflightRef.current?.abort();
+      racksInflightRef.current = null;
     };
   }, []);
 
@@ -125,10 +165,27 @@ const BuildingPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page">
-      <BuildingPageHeader label={label} buildingId={idForHeader} />
+      <BuildingPageHeader
+        label={label}
+        buildingId={idForHeader}
+        // Synthesize a BuildingWithCounts row for the modal hook,
+        // populating rack_count from the parallel listBuildingRacks
+        // fetch when it's resolved against the same building id. Falls
+        // back to 0n when the count fetch is still in flight or
+        // errored — the cascade dialog then shows the generic
+        // "Are you sure?" copy, never an under-count.
+        onEditBuilding={() => {
+          const liveCount =
+            rackCountResponse && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : 0n;
+          buildingModals.openManage(
+            create(BuildingWithCountsSchema, { building: effectiveBuilding, rackCount: liveCount }),
+          );
+        }}
+      />
       <PlaceholderBlock label="Metrics row (Hashrate, Power, Efficiency, Miners online) — #264" className="h-20" />
       <PlaceholderBlock label="Diagnostics (rack grid + health) — #264" className="h-64" />
       <PlaceholderBlock label="Performance — #264" className="h-64" />
+      <BuildingModals modals={buildingModals} />
     </div>
   );
 };

@@ -102,6 +102,31 @@ func (q *Queries) CascadeRackDeviceSites(ctx context.Context, arg CascadeRackDev
 	return result.RowsAffected()
 }
 
+const clearRackPlacementForSoftDelete = `-- name: ClearRackPlacementForSoftDelete :exec
+UPDATE device_set_rack
+SET aisle_index = NULL,
+    position_in_aisle = NULL,
+    building_id = NULL,
+    zone = ''
+WHERE device_set_id = $1 AND org_id = $2
+`
+
+type ClearRackPlacementForSoftDeleteParams struct {
+	DeviceSetID int64
+	OrgID       int64
+}
+
+// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
+// the device_set_rack placement so a soft-deleted rack doesn't leave
+// an orphan (building_id, aisle_index, position_in_aisle) tuple that
+// the partial unique index uk_device_set_rack_building_position still
+// treats as occupied. Callers wrap this and SoftDeleteDeviceSet in the
+// same transaction; non-rack collection types simply match 0 rows.
+func (q *Queries) ClearRackPlacementForSoftDelete(ctx context.Context, arg ClearRackPlacementForSoftDeleteParams) error {
+	_, err := q.exec(ctx, q.clearRackPlacementForSoftDeleteStmt, clearRackPlacementForSoftDelete, arg.DeviceSetID, arg.OrgID)
+	return err
+}
+
 const clearRackSlotPosition = `-- name: ClearRackSlotPosition :exec
 DELETE FROM rack_slot rs
 WHERE rs.device_set_id = $1
@@ -1333,7 +1358,15 @@ const updateRackPlacement = `-- name: UpdateRackPlacement :exec
 UPDATE device_set_rack
 SET site_id = $1::bigint,
     building_id = $2::bigint,
-    zone = $3
+    zone = $3,
+    aisle_index = CASE
+        WHEN $2::bigint IS DISTINCT FROM building_id THEN NULL
+        ELSE aisle_index
+    END,
+    position_in_aisle = CASE
+        WHEN $2::bigint IS DISTINCT FROM building_id THEN NULL
+        ELSE position_in_aisle
+    END
 WHERE device_set_id = $4
   AND EXISTS (
     SELECT 1 FROM device_set ds
@@ -1353,6 +1386,12 @@ type UpdateRackPlacementParams struct {
 
 // Sets the rack's site_id, building_id, and zone atomically. NULL
 // values unassign placement; caller clears zone via empty string.
+// Clears aisle_index / position_in_aisle only when building_id
+// changes (transitions to a different non-null value, or to NULL).
+// A no-op building_id update preserves the existing grid position so
+// SaveRack callers that don't touch building placement (rack rename,
+// cooling change, etc.) don't accidentally nuke the operator's
+// ManageBuildingModal layout work.
 func (q *Queries) UpdateRackPlacement(ctx context.Context, arg UpdateRackPlacementParams) error {
 	_, err := q.exec(ctx, q.updateRackPlacementStmt, updateRackPlacement,
 		arg.SiteID,

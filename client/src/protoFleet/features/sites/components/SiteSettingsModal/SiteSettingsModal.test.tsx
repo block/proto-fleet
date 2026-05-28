@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import SiteDetailsModal from "./SiteDetailsModal";
+import SiteSettingsModal from "./SiteSettingsModal";
 import { emptySiteFormValues, type SiteFormValues } from "@/protoFleet/api/sites";
 
 const baseValues = (overrides: Partial<SiteFormValues> = {}): SiteFormValues => ({
@@ -9,11 +9,11 @@ const baseValues = (overrides: Partial<SiteFormValues> = {}): SiteFormValues => 
   ...overrides,
 });
 
-describe("SiteDetailsModal — create mode", () => {
+describe("SiteSettingsModal — create mode", () => {
   it("disables Continue until name is set", () => {
     const onContinue = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="create"
         initialValues={baseValues()}
@@ -22,17 +22,17 @@ describe("SiteDetailsModal — create mode", () => {
       />,
     );
 
-    const continueBtn = screen.getByTestId("site-details-modal-continue");
+    const continueBtn = screen.getByTestId("site-settings-modal-continue");
     expect(continueBtn).toBeDisabled();
 
-    fireEvent.change(screen.getByTestId("site-details-name-input"), { target: { value: "North DC" } });
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "North DC" } });
     expect(continueBtn).not.toBeDisabled();
   });
 
   it("invokes onContinue with typed text + selected dropdown values", () => {
     const onContinue = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="create"
         initialValues={baseValues()}
@@ -41,19 +41,19 @@ describe("SiteDetailsModal — create mode", () => {
       />,
     );
 
-    fireEvent.change(screen.getByTestId("site-details-name-input"), { target: { value: "North DC" } });
-    fireEvent.change(screen.getByTestId("site-details-city-input"), { target: { value: "Chicago" } });
-    fireEvent.change(screen.getByTestId("site-details-capacity-input"), { target: { value: "12.5" } });
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "North DC" } });
+    fireEvent.change(screen.getByTestId("site-settings-city-input"), { target: { value: "Chicago" } });
+    fireEvent.change(screen.getByTestId("site-settings-capacity-input"), { target: { value: "12.5" } });
 
     // State dropdown: open + pick Illinois.
-    fireEvent.click(screen.getByTestId("site-details-state-select"));
+    fireEvent.click(screen.getByTestId("site-settings-state-select"));
     fireEvent.click(screen.getByText("Illinois"));
 
     // Timezone dropdown: open + pick Central (CT).
-    fireEvent.click(screen.getByTestId("site-details-timezone-select"));
+    fireEvent.click(screen.getByTestId("site-settings-timezone-select"));
     fireEvent.click(screen.getByText("Central (CT)"));
 
-    fireEvent.click(screen.getByTestId("site-details-modal-continue"));
+    fireEvent.click(screen.getByTestId("site-settings-modal-continue"));
 
     expect(onContinue).toHaveBeenCalledWith({
       name: "North DC",
@@ -68,7 +68,7 @@ describe("SiteDetailsModal — create mode", () => {
   it("rejects non-numeric capacity and surfaces an inline error", () => {
     const onContinue = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="create"
         initialValues={baseValues()}
@@ -77,19 +77,19 @@ describe("SiteDetailsModal — create mode", () => {
       />,
     );
 
-    fireEvent.change(screen.getByTestId("site-details-name-input"), { target: { value: "North DC" } });
-    fireEvent.change(screen.getByTestId("site-details-capacity-input"), { target: { value: "abc" } });
-    fireEvent.click(screen.getByTestId("site-details-modal-continue"));
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "North DC" } });
+    fireEvent.change(screen.getByTestId("site-settings-capacity-input"), { target: { value: "abc" } });
+    fireEvent.click(screen.getByTestId("site-settings-modal-continue"));
 
     expect(onContinue).not.toHaveBeenCalled();
     expect(screen.getByText("Enter a number ≥ 0")).toBeInTheDocument();
   });
 });
 
-describe("SiteDetailsModal — edit mode", () => {
+describe("SiteSettingsModal — edit mode", () => {
   it("pre-populates inputs from initialValues", () => {
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="edit"
         initialValues={baseValues({ name: "East DC", locationCity: "Boston", powerCapacityMw: 8 })}
@@ -99,15 +99,15 @@ describe("SiteDetailsModal — edit mode", () => {
       />,
     );
 
-    expect((screen.getByTestId("site-details-name-input") as HTMLInputElement).value).toBe("East DC");
-    expect((screen.getByTestId("site-details-city-input") as HTMLInputElement).value).toBe("Boston");
-    expect((screen.getByTestId("site-details-capacity-input") as HTMLInputElement).value).toBe("8");
+    expect((screen.getByTestId("site-settings-name-input") as HTMLInputElement).value).toBe("East DC");
+    expect((screen.getByTestId("site-settings-city-input") as HTMLInputElement).value).toBe("Boston");
+    expect((screen.getByTestId("site-settings-capacity-input") as HTMLInputElement).value).toBe("8");
   });
 
   it("Save calls onSave with the typed values", () => {
     const onSave = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="edit"
         initialValues={baseValues({ name: "East DC" })}
@@ -117,8 +117,8 @@ describe("SiteDetailsModal — edit mode", () => {
       />,
     );
 
-    fireEvent.change(screen.getByTestId("site-details-name-input"), { target: { value: "East DC 2" } });
-    fireEvent.click(screen.getByTestId("site-details-modal-save"));
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC 2" } });
+    fireEvent.click(screen.getByTestId("site-settings-modal-save"));
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "East DC 2", powerCapacityMw: 0 }));
   });
@@ -126,7 +126,7 @@ describe("SiteDetailsModal — edit mode", () => {
   it("Delete triggers onDeleteRequested", () => {
     const onDeleteRequested = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="edit"
         initialValues={baseValues({ name: "East DC" })}
@@ -136,15 +136,15 @@ describe("SiteDetailsModal — edit mode", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("site-details-modal-delete"));
+    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
     expect(onDeleteRequested).toHaveBeenCalled();
   });
 });
 
-describe("SiteDetailsModal — createReturn mode", () => {
+describe("SiteSettingsModal — createReturn mode", () => {
   it("renders Delete + Save instead of Cancel + Continue", () => {
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="createReturn"
         initialValues={baseValues({ name: "North DC" })}
@@ -154,16 +154,16 @@ describe("SiteDetailsModal — createReturn mode", () => {
       />,
     );
 
-    expect(screen.queryByTestId("site-details-modal-continue")).toBeNull();
-    expect(screen.queryByTestId("site-details-modal-cancel")).toBeNull();
-    expect(screen.getByTestId("site-details-modal-delete")).toBeInTheDocument();
-    expect(screen.getByTestId("site-details-modal-save")).toBeInTheDocument();
+    expect(screen.queryByTestId("site-settings-modal-continue")).toBeNull();
+    expect(screen.queryByTestId("site-settings-modal-cancel")).toBeNull();
+    expect(screen.getByTestId("site-settings-modal-delete")).toBeInTheDocument();
+    expect(screen.getByTestId("site-settings-modal-save")).toBeInTheDocument();
   });
 
   it("Save invokes onContinue with the current values", () => {
     const onContinue = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="createReturn"
         initialValues={baseValues({ name: "North DC" })}
@@ -173,8 +173,8 @@ describe("SiteDetailsModal — createReturn mode", () => {
       />,
     );
 
-    fireEvent.change(screen.getByTestId("site-details-name-input"), { target: { value: "North DC 2" } });
-    fireEvent.click(screen.getByTestId("site-details-modal-save"));
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "North DC 2" } });
+    fireEvent.click(screen.getByTestId("site-settings-modal-save"));
 
     expect(onContinue).toHaveBeenCalledWith(expect.objectContaining({ name: "North DC 2" }));
   });
@@ -182,7 +182,7 @@ describe("SiteDetailsModal — createReturn mode", () => {
   it("Delete invokes onDeleteRequested (discard pending create)", () => {
     const onDeleteRequested = vi.fn();
     render(
-      <SiteDetailsModal
+      <SiteSettingsModal
         open
         mode="createReturn"
         initialValues={baseValues({ name: "North DC" })}
@@ -192,7 +192,7 @@ describe("SiteDetailsModal — createReturn mode", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("site-details-modal-delete"));
+    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
     expect(onDeleteRequested).toHaveBeenCalled();
   });
 });
