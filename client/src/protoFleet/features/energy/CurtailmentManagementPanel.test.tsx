@@ -307,6 +307,18 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.goToHistoryPage).toHaveBeenCalledWith(2, { signal: expect.any(AbortSignal) });
   });
 
+  it("surfaces update errors", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        updateError: "Failed to update curtailment.",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    expect(screen.getByText("Failed to update curtailment.")).toBeInTheDocument();
+  });
+
   it("passes status filters through to the curtailment API hook", async () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(

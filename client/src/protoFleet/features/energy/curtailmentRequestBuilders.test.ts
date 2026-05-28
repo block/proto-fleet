@@ -152,6 +152,25 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.maxDurationSeconds).toBeUndefined();
   });
 
+  it("does not send zero when an update clears restore interval", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "Updated grid peak",
+        restoreIntervalSec: "",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        restoreIntervalSec: "60",
+      },
+    );
+
+    expect(request.reason).toBe("Updated grid peak");
+    expect(request.restoreBatchIntervalSec).toBeUndefined();
+  });
+
   it("rejects zero max duration updates", () => {
     expect(() =>
       buildUpdateCurtailmentEventRequest(

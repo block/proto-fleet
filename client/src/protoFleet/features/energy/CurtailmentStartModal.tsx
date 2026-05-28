@@ -141,12 +141,6 @@ function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): Curta
   };
 }
 
-function getInitialValuesKey(initialValues?: Partial<CurtailmentFormValues>): string {
-  return Object.entries(getInitialValues(initialValues))
-    .map(([key, value]) => `${key}:${String(value)}`)
-    .join("|");
-}
-
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
   const trimmed = value.trim();
   if (trimmed === "") {
@@ -239,6 +233,14 @@ function validateCurtailmentFormValues(
   }
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
+  }
+  if (
+    isEditMode &&
+    restoreInterval.error === undefined &&
+    values.restoreIntervalSec.trim() === "" &&
+    initialValues.restoreIntervalSec.trim() !== ""
+  ) {
+    localErrors.restoreIntervalSec = "Restore interval cannot be cleared.";
   }
   if (
     minDuration.error === undefined &&
@@ -409,7 +411,7 @@ function CurtailmentStartModalContent({
   previewError,
   isSubmitting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const initialFormValues = useMemo(() => getInitialValues(initialValues), [initialValues]);
+  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
@@ -700,7 +702,7 @@ function CurtailmentStartModal(props: CurtailmentStartModalProps): ReactElement 
     return null;
   }
 
-  return <CurtailmentStartModalContent key={getInitialValuesKey(props.initialValues)} {...props} />;
+  return <CurtailmentStartModalContent {...props} />;
 }
 
 export default CurtailmentStartModal;

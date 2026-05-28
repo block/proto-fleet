@@ -199,6 +199,40 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("keeps in-progress edit values when initial values refresh", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+
+    await user.clear(screen.getByLabelText("Reason"));
+    await user.type(screen.getByLabelText("Reason"), "Operator draft");
+
+    rerender(
+      <CurtailmentStartModal
+        open
+        mode="edit"
+        initialValues={{
+          ...configuredValues,
+          reason: "Server refresh",
+          restoreIntervalSec: "240",
+          includeMaintenance: false,
+        }}
+        onDismiss={vi.fn()}
+        onSubmit={vi.fn()}
+        preview={preview}
+      />,
+    );
+
+    expect(screen.getByLabelText("Reason")).toHaveValue("Operator draft");
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
+  });
+
   it("blocks max duration clears in edit mode", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
@@ -214,6 +248,27 @@ describe("CurtailmentStartModal", () => {
     await user.clear(screen.getByLabelText("Max duration (sec)"));
 
     expect(screen.getByText("Max duration cannot be cleared.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("blocks restore interval clears in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+
+    expect(screen.getByText("Restore interval cannot be cleared.")).toBeInTheDocument();
     expect(saveButton).toBeDisabled();
 
     await user.click(saveButton);

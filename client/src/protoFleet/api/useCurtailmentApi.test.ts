@@ -468,4 +468,23 @@ describe("useCurtailmentApi", () => {
 
     window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
   });
+
+  it("surfaces update failures without refreshing listeners", async () => {
+    const changedListener = vi.fn();
+    window.addEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+    mockUpdateCurtailment.mockRejectedValueOnce(new Error("rpc failed"));
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await expect(result.current.updateCurtailment("curt-1", baseSubmitValues, baseSubmitValues)).rejects.toThrow(
+        "rpc failed",
+      );
+    });
+
+    expect(result.current.updateError).toBe("rpc failed");
+    expect(changedListener).not.toHaveBeenCalled();
+
+    window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+  });
 });

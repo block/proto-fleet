@@ -78,13 +78,12 @@ function getChangedUpdateUint32Setting(
   initialValue: string | undefined,
   options: OptionalUint32FieldOptions,
 ): number | undefined {
-  if (initialValue === undefined) {
-    return getOptionalUpdateUint32Setting(value, options);
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === undefined) {
+    return undefined;
   }
 
-  const nextValue = getOptionalUpdateUint32Setting(value, options) ?? 0;
-  const previousValue = getOptionalUpdateUint32Setting(initialValue, options) ?? 0;
-
+  const previousValue = initialValue === undefined ? undefined : getOptionalUpdateUint32Setting(initialValue, options);
   return nextValue === previousValue ? undefined : nextValue;
 }
 
