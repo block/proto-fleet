@@ -153,4 +153,25 @@ message ControlAck {
     string command_id    = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
     bool   succeeded     = 2;
     string error_message = 3 [(buf.validate.field).string.max_len = 4096];
+    AckCode code         = 4;
+}
+
+// AckCode is the structured outcome class for a ControlCommand. error_message
+// carries the precise human-readable reason. Codes route on consumer-visible
+// distinctions only (e.g., retry on different node for AGENT_INCAPABLE;
+// surface partial results for PARTIAL).
+enum AckCode {
+    ACK_CODE_UNSPECIFIED     = 0;
+    ACK_CODE_OK              = 1;
+    // PARTIAL: scan completed partially after commandTimeout; reports already uploaded.
+    ACK_CODE_PARTIAL         = 2;
+    // BAD_REQUEST: malformed payload, missing/invalid mode, invalid targets/ports, limits exceeded.
+    ACK_CODE_BAD_REQUEST     = 3;
+    // AGENT_INCAPABLE: this agent cannot execute the requested mode (mdns, nmap missing). Retry on a different node.
+    ACK_CODE_AGENT_INCAPABLE = 4;
+    // SCAN_FAILED: scanning machinery errored (nmap subprocess, etc.).
+    ACK_CODE_SCAN_FAILED     = 5;
+    // REPORT_FAILED: scan finished, report upload to the server failed.
+    ACK_CODE_REPORT_FAILED   = 6;
+    ACK_CODE_INTERNAL        = 7;
 }
