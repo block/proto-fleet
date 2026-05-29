@@ -46,6 +46,18 @@ func NewService(store interfaces.ScheduleStore, targetStore interfaces.ScheduleT
 	}
 }
 
+// GetSchedule returns the stored schedule for the caller's organization.
+// Used by the handler to look up a schedule's persisted action before
+// resuming it, so the resumer's underlying-action permission can be
+// re-checked.
+func (s *Service) GetSchedule(ctx context.Context, scheduleID int64) (*pb.Schedule, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.GetSchedule(ctx, info.OrganizationID, scheduleID)
+}
+
 func (s *Service) ListSchedules(ctx context.Context, status, action string) ([]*pb.Schedule, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
