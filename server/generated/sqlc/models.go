@@ -444,6 +444,35 @@ type CurtailmentEvent struct {
 	CreatedByUserID         int64
 }
 
+type CurtailmentMqttSourceConfig struct {
+	ID                      int64
+	OrganizationID          int64
+	SourceName              string
+	Topic                   string
+	BrokerPrimaryHost       string
+	BrokerSecondaryHost     string
+	BrokerPort              int32
+	MqttUsername            string
+	MqttPasswordEncrypted   []byte
+	ContractedCurtailmentKw int32
+	StalenessThresholdSec   int32
+	MinCurtailedDurationSec int32
+	Enabled                 bool
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+type CurtailmentMqttSourceState struct {
+	SourceConfigID     int64
+	LastTarget         sql.NullInt16
+	LastTargetAt       sql.NullTime
+	LastReceivedAt     sql.NullTime
+	LastReceivedBroker sql.NullString
+	LastEdgeAt         sql.NullTime
+	LastEdgeEventUuid  uuid.NullUUID
+	UpdatedAt          time.Time
+}
+
 type CurtailmentOrgConfig struct {
 	OrgID                 int64
 	MaxDurationDefaultSec int32

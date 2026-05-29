@@ -417,6 +417,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
 	}
+	if q.getMQTTSourceConfigByIDStmt, err = db.PrepareContext(ctx, getMQTTSourceConfigByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMQTTSourceConfigByID: %w", err)
+	}
+	if q.getMQTTSourceStateByIDStmt, err = db.PrepareContext(ctx, getMQTTSourceStateByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMQTTSourceStateByID: %w", err)
+	}
 	if q.getMaxPriorityStmt, err = db.PrepareContext(ctx, getMaxPriority); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMaxPriority: %w", err)
 	}
@@ -567,6 +573,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
+	if q.insertMQTTSourceConfigStmt, err = db.PrepareContext(ctx, insertMQTTSourceConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertMQTTSourceConfig: %w", err)
+	}
 	if q.insertMinerStateSnapshotStmt, err = db.PrepareContext(ctx, insertMinerStateSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertMinerStateSnapshot: %w", err)
 	}
@@ -627,11 +636,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
+	if q.listEnabledMQTTSourcesStmt, err = db.PrepareContext(ctx, listEnabledMQTTSources); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEnabledMQTTSources: %w", err)
+	}
 	if q.listExistingDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listExistingDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListExistingDeviceIdentifiers: %w", err)
 	}
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
+	}
+	if q.listMQTTSourcesForWatchdogStmt, err = db.PrepareContext(ctx, listMQTTSourcesForWatchdog); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMQTTSourcesForWatchdog: %w", err)
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
@@ -1013,6 +1028,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertFleetNodeSessionStmt, err = db.PrepareContext(ctx, upsertFleetNodeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertFleetNodeSession: %w", err)
+	}
+	if q.upsertMQTTSourceStateStmt, err = db.PrepareContext(ctx, upsertMQTTSourceState); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertMQTTSourceState: %w", err)
 	}
 	if q.upsertMinerCredentialsStmt, err = db.PrepareContext(ctx, upsertMinerCredentials); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertMinerCredentials: %w", err)
@@ -1680,6 +1698,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
 		}
 	}
+	if q.getMQTTSourceConfigByIDStmt != nil {
+		if cerr := q.getMQTTSourceConfigByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMQTTSourceConfigByIDStmt: %w", cerr)
+		}
+	}
+	if q.getMQTTSourceStateByIDStmt != nil {
+		if cerr := q.getMQTTSourceStateByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMQTTSourceStateByIDStmt: %w", cerr)
+		}
+	}
 	if q.getMaxPriorityStmt != nil {
 		if cerr := q.getMaxPriorityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMaxPriorityStmt: %w", cerr)
@@ -1930,6 +1958,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
+	if q.insertMQTTSourceConfigStmt != nil {
+		if cerr := q.insertMQTTSourceConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertMQTTSourceConfigStmt: %w", cerr)
+		}
+	}
 	if q.insertMinerStateSnapshotStmt != nil {
 		if cerr := q.insertMinerStateSnapshotStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertMinerStateSnapshotStmt: %w", cerr)
@@ -2030,6 +2063,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
 		}
 	}
+	if q.listEnabledMQTTSourcesStmt != nil {
+		if cerr := q.listEnabledMQTTSourcesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEnabledMQTTSourcesStmt: %w", cerr)
+		}
+	}
 	if q.listExistingDeviceIdentifiersStmt != nil {
 		if cerr := q.listExistingDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listExistingDeviceIdentifiersStmt: %w", cerr)
@@ -2038,6 +2076,11 @@ func (q *Queries) Close() error {
 	if q.listFleetNodesForOrganizationStmt != nil {
 		if cerr := q.listFleetNodesForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.listMQTTSourcesForWatchdogStmt != nil {
+		if cerr := q.listMQTTSourcesForWatchdogStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMQTTSourcesForWatchdogStmt: %w", cerr)
 		}
 	}
 	if q.listMinerStateSnapshotsStmt != nil {
@@ -2675,6 +2718,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertFleetNodeSessionStmt: %w", cerr)
 		}
 	}
+	if q.upsertMQTTSourceStateStmt != nil {
+		if cerr := q.upsertMQTTSourceStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertMQTTSourceStateStmt: %w", cerr)
+		}
+	}
 	if q.upsertMinerCredentialsStmt != nil {
 		if cerr := q.upsertMinerCredentialsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertMinerCredentialsStmt: %w", cerr)
@@ -2855,6 +2903,8 @@ type Queries struct {
 	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
+	getMQTTSourceConfigByIDStmt                         *sql.Stmt
+	getMQTTSourceStateByIDStmt                          *sql.Stmt
 	getMaxPriorityStmt                                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
@@ -2905,6 +2955,7 @@ type Queries struct {
 	insertDeviceStmt                                    *sql.Stmt
 	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
+	insertMQTTSourceConfigStmt                          *sql.Stmt
 	insertMinerStateSnapshotStmt                        *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
@@ -2925,8 +2976,10 @@ type Queries struct {
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listEffectivePermissionsForUserStmt                 *sql.Stmt
+	listEnabledMQTTSourcesStmt                          *sql.Stmt
 	listExistingDeviceIdentifiersStmt                   *sql.Stmt
 	listFleetNodesForOrganizationStmt                   *sql.Stmt
+	listMQTTSourcesForWatchdogStmt                      *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
@@ -3054,6 +3107,7 @@ type Queries struct {
 	upsertDiscoveredDeviceStmt                          *sql.Stmt
 	upsertFleetNodeAuthChallengeStmt                    *sql.Stmt
 	upsertFleetNodeSessionStmt                          *sql.Stmt
+	upsertMQTTSourceStateStmt                           *sql.Stmt
 	upsertMinerCredentialsStmt                          *sql.Stmt
 	upsertPermissionStmt                                *sql.Stmt
 }
@@ -3193,6 +3247,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
+		getMQTTSourceConfigByIDStmt:                         q.getMQTTSourceConfigByIDStmt,
+		getMQTTSourceStateByIDStmt:                          q.getMQTTSourceStateByIDStmt,
 		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
@@ -3243,6 +3299,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
+		insertMQTTSourceConfigStmt:                          q.insertMQTTSourceConfigStmt,
 		insertMinerStateSnapshotStmt:                        q.insertMinerStateSnapshotStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
@@ -3263,8 +3320,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listEffectivePermissionsForUserStmt:                 q.listEffectivePermissionsForUserStmt,
+		listEnabledMQTTSourcesStmt:                          q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
 		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,
+		listMQTTSourcesForWatchdogStmt:                      q.listMQTTSourcesForWatchdogStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                q.listNonTerminalCurtailmentEventsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
@@ -3392,6 +3451,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertDiscoveredDeviceStmt:                          q.upsertDiscoveredDeviceStmt,
 		upsertFleetNodeAuthChallengeStmt:                    q.upsertFleetNodeAuthChallengeStmt,
 		upsertFleetNodeSessionStmt:                          q.upsertFleetNodeSessionStmt,
+		upsertMQTTSourceStateStmt:                           q.upsertMQTTSourceStateStmt,
 		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
 		upsertPermissionStmt:                                q.upsertPermissionStmt,
 	}
