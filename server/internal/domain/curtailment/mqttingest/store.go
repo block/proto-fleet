@@ -16,6 +16,7 @@ import (
 type SourceConfig struct {
 	ID                      int64
 	OrganizationID          int64
+	ServiceUserID           int64
 	SourceName              string
 	Topic                   string
 	BrokerPrimaryHost       string
@@ -169,6 +170,7 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 	return SourceConfig{
 		ID:                      r.ID,
 		OrganizationID:          r.OrganizationID,
+		ServiceUserID:           r.ServiceUserID,
 		SourceName:              r.SourceName,
 		Topic:                   r.Topic,
 		BrokerPrimaryHost:       r.BrokerPrimaryHost,

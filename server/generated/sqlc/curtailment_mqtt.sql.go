@@ -13,7 +13,7 @@ import (
 )
 
 const getMQTTSourceConfigByID = `-- name: GetMQTTSourceConfigByID :one
-SELECT id, organization_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE id = $1
 `
@@ -24,6 +24,7 @@ func (q *Queries) GetMQTTSourceConfigByID(ctx context.Context, id int64) (Curtai
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
+		&i.ServiceUserID,
 		&i.SourceName,
 		&i.Topic,
 		&i.BrokerPrimaryHost,
@@ -66,6 +67,7 @@ func (q *Queries) GetMQTTSourceStateByID(ctx context.Context, sourceConfigID int
 const insertMQTTSourceConfig = `-- name: InsertMQTTSourceConfig :one
 INSERT INTO curtailment_mqtt_source_config (
     organization_id,
+    service_user_id,
     source_name,
     topic,
     broker_primary_host,
@@ -89,13 +91,15 @@ INSERT INTO curtailment_mqtt_source_config (
     $9,
     $10,
     $11,
-    $12
+    $12,
+    $13
 )
-RETURNING id, organization_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 `
 
 type InsertMQTTSourceConfigParams struct {
 	OrganizationID          int64
+	ServiceUserID           int64
 	SourceName              string
 	Topic                   string
 	BrokerPrimaryHost       string
@@ -114,6 +118,7 @@ type InsertMQTTSourceConfigParams struct {
 func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
 	row := q.queryRow(ctx, q.insertMQTTSourceConfigStmt, insertMQTTSourceConfig,
 		arg.OrganizationID,
+		arg.ServiceUserID,
 		arg.SourceName,
 		arg.Topic,
 		arg.BrokerPrimaryHost,
@@ -130,6 +135,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
+		&i.ServiceUserID,
 		&i.SourceName,
 		&i.Topic,
 		&i.BrokerPrimaryHost,
@@ -148,7 +154,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 }
 
 const listEnabledMQTTSources = `-- name: ListEnabledMQTTSources :many
-SELECT id, organization_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE enabled = TRUE
 ORDER BY id
@@ -169,6 +175,7 @@ func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqtt
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrganizationID,
+			&i.ServiceUserID,
 			&i.SourceName,
 			&i.Topic,
 			&i.BrokerPrimaryHost,

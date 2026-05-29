@@ -447,6 +447,7 @@ type CurtailmentEvent struct {
 type CurtailmentMqttSourceConfig struct {
 	ID                      int64
 	OrganizationID          int64
+	ServiceUserID           int64
 	SourceName              string
 	Topic                   string
 	BrokerPrimaryHost       string

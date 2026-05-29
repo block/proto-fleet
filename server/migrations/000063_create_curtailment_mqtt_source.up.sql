@@ -5,6 +5,10 @@
 CREATE TABLE curtailment_mqtt_source_config (
     id                              BIGSERIAL    PRIMARY KEY,
     organization_id                 BIGINT       NOT NULL,
+    -- Service-account user the subscriber acts as. curtailment_event has a
+    -- NOT NULL FK to "user"; the subscriber runs without a human session,
+    -- so the operator provisions a service-account user per source.
+    service_user_id                 BIGINT       NOT NULL,
     -- Stable internal label; surfaces in event.external_source.
     source_name                     VARCHAR(64)  NOT NULL,
     topic                           VARCHAR(255) NOT NULL,
@@ -27,6 +31,8 @@ CREATE TABLE curtailment_mqtt_source_config (
 
     CONSTRAINT fk_curtailment_mqtt_source_config_org FOREIGN KEY (organization_id)
         REFERENCES organization(id) ON DELETE CASCADE,
+    CONSTRAINT fk_curtailment_mqtt_source_config_service_user FOREIGN KEY (service_user_id)
+        REFERENCES "user"(id) ON DELETE RESTRICT,
     CONSTRAINT uq_curtailment_mqtt_source_config_org_name UNIQUE (organization_id, source_name),
     CONSTRAINT ck_curtailment_mqtt_source_config_port_positive
         CHECK (broker_port > 0 AND broker_port < 65536),

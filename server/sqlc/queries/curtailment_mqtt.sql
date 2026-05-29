@@ -68,6 +68,7 @@ ORDER BY c.id;
 -- seeded via migration data until the CRUD RPC (v2.1) lands.
 INSERT INTO curtailment_mqtt_source_config (
     organization_id,
+    service_user_id,
     source_name,
     topic,
     broker_primary_host,
@@ -81,6 +82,7 @@ INSERT INTO curtailment_mqtt_source_config (
     enabled
 ) VALUES (
     sqlc.arg('organization_id'),
+    sqlc.arg('service_user_id'),
     sqlc.arg('source_name'),
     sqlc.arg('topic'),
     sqlc.arg('broker_primary_host'),
