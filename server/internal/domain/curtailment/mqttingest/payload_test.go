@@ -2,6 +2,7 @@ package mqttingest
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -130,26 +131,7 @@ func TestTarget_Predicates(t *testing.T) {
 	assert.False(t, TargetUnknown.IsOn())
 }
 
-// itoa avoids importing strconv just for one int64 → string conversion in
-// the table-driven test cases above.
-func itoa(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	negative := n < 0
-	if negative {
-		n = -n
-	}
-	var digits [20]byte
-	i := len(digits)
-	for n > 0 {
-		i--
-		digits[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if negative {
-		i--
-		digits[i] = '-'
-	}
-	return string(digits[i:])
-}
+// itoa is a thin alias for the int64-formatting test helper used by
+// table-driven cases above. Kept as a named helper so the test bodies
+// read as "<source>:" + itoa(ts) rather than wrapping strconv inline.
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

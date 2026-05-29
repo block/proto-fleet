@@ -20,6 +20,7 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- is operator-driven for v2.0.
     mqtt_password_enc               TEXT         NOT NULL,
     -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges.
+    -- Upper bound is a fat-finger sanity ceiling (1 GW per source).
     contracted_curtailment_kw       INT          NOT NULL,
     -- Watchdog fires WATCHDOG_OFF after this many seconds of broker silence.
     staleness_threshold_sec         INT          NOT NULL DEFAULT 240,
@@ -38,6 +39,8 @@ CREATE TABLE curtailment_mqtt_source_config (
         CHECK (broker_port > 0 AND broker_port < 65536),
     CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_positive
         CHECK (contracted_curtailment_kw > 0),
+    CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_max
+        CHECK (contracted_curtailment_kw <= 1000000),
     CONSTRAINT ck_curtailment_mqtt_source_config_staleness_positive
         CHECK (staleness_threshold_sec > 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_hold_nonneg
@@ -72,7 +75,9 @@ CREATE TABLE curtailment_mqtt_source_state (
     -- Timestamp of the most recent ON<->OFF flip.
     last_edge_at            TIMESTAMPTZ  NULL,
     -- Curtailment event created by the last ON->OFF (or WATCHDOG_OFF) edge,
-    -- so OFF->ON can resolve which event to Stop.
+    -- stored for audit. v2.0 Stop resolution uses Service.GetActive, not
+    -- this column; if multi-source-per-org lands the driver should pivot
+    -- to read here so cross-source events aren't accidentally stopped.
     last_edge_event_uuid    UUID         NULL,
     updated_at              TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
