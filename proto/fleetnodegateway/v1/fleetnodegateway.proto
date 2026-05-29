@@ -178,4 +178,6 @@ enum AckCode {
     // REPORT_FAILED: scan finished, report upload to the server failed.
     ACK_CODE_REPORT_FAILED   = 6;
     ACK_CODE_INTERNAL        = 7;
+    // BUSY: agent already has a command in flight; safe to retry shortly.
+    ACK_CODE_BUSY            = 8;
 }

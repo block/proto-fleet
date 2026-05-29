@@ -1127,17 +1127,15 @@ func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
 	var busyAck *pb.ControlAck
 	require.Eventually(t, func() bool {
 		for _, ack := range fake.acksCopy() {
-			if ack.GetCode() == pb.AckCode_ACK_CODE_INTERNAL && strings.Contains(ack.GetErrorMessage(), "in flight") {
+			if ack.GetCode() == pb.AckCode_ACK_CODE_BUSY {
 				busyAck = ack
 				return true
 			}
 		}
 		return false
-	}, 3*time.Second, 20*time.Millisecond, "at least one trailing command should get a busy ack")
+	}, 3*time.Second, 20*time.Millisecond, "at least one trailing command should get a BUSY ack")
 	require.NotNil(t, busyAck)
 	assert.False(t, busyAck.GetSucceeded())
-	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, busyAck.GetCode())
-	assert.Contains(t, busyAck.GetErrorMessage(), "in flight")
 }
 
 func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {

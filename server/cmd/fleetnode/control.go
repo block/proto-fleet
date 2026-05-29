@@ -200,7 +200,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		case cmdCh <- cmd:
 		default:
 			logger.Warn("agent busy; dropping pipelined command", "command_id", cmd.GetCommandId())
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_INTERNAL, "agent already has a command in flight; retry after the prior ack", logger)
+			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent already has a command in flight; retry after the prior ack", logger)
 		}
 	}
 }
