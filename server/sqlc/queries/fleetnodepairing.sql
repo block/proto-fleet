@@ -1,7 +1,9 @@
 -- name: UpsertDiscoveredDeviceFromFleetNode :execrows
--- 0 rows on conflict signals rejection. Blocks updates to a device
--- already paired with a different fleet_node so a late report from a
--- prior reporter can't redirect the operator's pairing choice.
+-- 0 rows on conflict signals rejection. Blocks updates only when a
+-- promoted `device` row for this identifier is currently paired with a
+-- *different* fleet_node — that's the hijack the operator's pairing
+-- choice has to be protected from. Unpaired devices (no fleet_node_device
+-- row at all) remain refreshable by the original reporting node.
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -28,14 +30,13 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
 WHERE NOT EXISTS (
     SELECT 1
     FROM device d
-    LEFT JOIN fleet_node_device fnd
+    JOIN fleet_node_device fnd
         ON fnd.device_id = d.id
        AND fnd.org_id = d.org_id
-       AND fnd.fleet_node_id = $10
+       AND fnd.fleet_node_id <> $10
     WHERE d.discovered_device_id = discovered_device.id
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
-      AND fnd.fleet_node_id IS NULL
 );
 
 -- name: PairDeviceToFleetNode :execrows

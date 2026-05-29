@@ -122,6 +122,10 @@ message DiscoveredDeviceReport {
 
 message ReportDiscoveredDevicesResponse {
     int64 accepted_count = 1;
+    // Reports the server refused to persist because the device is already
+    // paired with a different fleet_node. Operators see these as "the
+    // agent reported something it doesn't own."
+    int64 rejected_count = 2;
 }
 
 message ControlStreamRequest {

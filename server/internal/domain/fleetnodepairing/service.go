@@ -95,20 +95,32 @@ func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgI
 	return pairs, nil
 }
 
+// UpsertDiscoveredDevices validates the whole batch up front, then runs
+// every upsert inside a single transaction so a mid-batch failure can't
+// leave a committed prefix. Ownership-rejected rows (0 rows affected) are
+// counted in rejectedOwnership without aborting the tx — they're the
+// store's normal "we refused to overwrite a hijacked row" signal.
 func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (accepted, rejectedOwnership int64, err error) {
 	for i, r := range reports {
 		if vErr := validateReport(r); vErr != nil {
-			return accepted, rejectedOwnership, fleeterror.NewInvalidArgumentErrorf("report %d: %v", i, vErr)
+			return 0, 0, fleeterror.NewInvalidArgumentErrorf("report %d: %v", i, vErr)
 		}
-		rows, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
-		if upErr != nil {
-			return accepted, rejectedOwnership, fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
+	}
+	if txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		for _, r := range reports {
+			rows, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
+			if upErr != nil {
+				return fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
+			}
+			if rows == 0 {
+				rejectedOwnership++
+				continue
+			}
+			accepted++
 		}
-		if rows == 0 {
-			rejectedOwnership++
-			continue
-		}
-		accepted++
+		return nil
+	}); txErr != nil {
+		return 0, 0, txErr
 	}
 	return accepted, rejectedOwnership, nil
 }
@@ -129,10 +141,10 @@ func validateReport(r DiscoveredDeviceReport) error {
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("port %q is not in 1-65535", r.Port)
 	}
-	switch r.URLScheme {
-	case "http", "https", "virtual":
-	default:
-		return fmt.Errorf("url_scheme %q is not allowed (http, https, virtual)", r.URLScheme)
-	}
+	// URL scheme is bounded by proto-validate (max_len 32). The gateway
+	// deliberately matches the source schema's permissive stance rather
+	// than gating on a fixed allowlist — plugins like the virtual driver
+	// emit non-http schemes, and the cloud-facing pairing.Device proto
+	// accepts any string.
 	return nil
 }

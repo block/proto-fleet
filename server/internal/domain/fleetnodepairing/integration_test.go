@@ -163,14 +163,18 @@ func TestPairRejectsFleetNodeFromDifferentOrg(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
-func TestUpsertDiscoveredDevices_RejectsRetargetOfLocallyPairedDevice(t *testing.T) {
-	// Arrange
+func TestUpsertDiscoveredDevices_RefreshesUnpairedDeviceFromOriginatingNode(t *testing.T) {
+	// Arrange: simulate a device that has a promoted `device` row but no
+	// fleet_node_device pairing — either operator hasn't paired yet or has
+	// since unpaired. The originating fleet node must still be able to
+	// refresh the discovered_device row; under the older WHERE fnd IS NULL
+	// predicate this was blocked, freezing is_active / last_seen / ip.
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	nodeID := createFleetNode(t, enrollment, orgID, "node-retarget")
+	nodeID := createFleetNode(t, enrollment, orgID, "node-refresh")
 	var ddID int64
 	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active)
-		VALUES ($1, 'local-only', '10.0.0.60', '80', 'http', 'virtual', TRUE) RETURNING id`, orgID).Scan(&ddID))
+		VALUES ($1, 'unpaired-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE) RETURNING id`, orgID).Scan(&ddID))
 	_, err := db.Exec(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
 		VALUES ($1, $2, $3, $4, $5)`,
 		fmt.Sprintf("local-dev-%d", ddID),
@@ -182,16 +186,37 @@ func TestUpsertDiscoveredDevices_RejectsRetargetOfLocallyPairedDevice(t *testing
 
 	// Act
 	accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, nodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "local-only", IPAddress: "10.0.0.99", Port: "80", URLScheme: "http", DriverName: "virtual"},
+		{DeviceIdentifier: "unpaired-shared", IPAddress: "10.0.0.99", Port: "80", URLScheme: "http", DriverName: "virtual"},
 	})
 
-	// Assert
+	// Assert: refresh accepted, IP updated to the new value.
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), accepted)
-	assert.Equal(t, int64(1), rejected, "fleet node cannot retarget a locally-paired device")
+	assert.Equal(t, int64(1), accepted)
+	assert.Equal(t, int64(0), rejected)
 	var ip string
 	require.NoError(t, db.QueryRow(`SELECT ip_address FROM discovered_device WHERE id = $1`, ddID).Scan(&ip))
-	assert.Equal(t, "10.0.0.60", ip, "ip_address must not be overwritten")
+	assert.Equal(t, "10.0.0.99", ip, "originating node must be able to refresh an unpaired device row")
+}
+
+func TestUpsertDiscoveredDevices_BatchValidationErrorRollsBack(t *testing.T) {
+	// Arrange: one valid + one invalid report in the same batch. The
+	// service must reject the whole batch up-front and persist nothing.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	nodeID := createFleetNode(t, enrollment, orgID, "node-rollback")
+
+	// Act: report[1] has a non-private IP that validateReport rejects.
+	_, _, err := pairing.UpsertDiscoveredDevices(ctx, nodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+		{DeviceIdentifier: "rollback-ok", IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual"},
+		{DeviceIdentifier: "rollback-bad", IPAddress: "8.8.8.8", Port: "80", URLScheme: "http", DriverName: "virtual"},
+	})
+
+	// Assert: error returned, neither row persisted.
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	var rowCount int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM discovered_device WHERE org_id = $1 AND device_identifier IN ('rollback-ok', 'rollback-bad')`, orgID).Scan(&rowCount))
+	assert.Equal(t, 0, rowCount, "validation failure must roll back the whole batch")
 }
 
 func TestRevokeClearsPairings(t *testing.T) {
@@ -342,22 +367,6 @@ func TestUpsertDiscoveredDevices_RejectsInvalidPort(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestUpsertDiscoveredDevices_RejectsDisallowedScheme(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-scheme")
-
-	// Act
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "80", URLScheme: "ftp", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
 func TestUpsertDiscoveredDevices_AcceptsVirtualScheme(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
@@ -372,22 +381,6 @@ func TestUpsertDiscoveredDevices_AcceptsVirtualScheme(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), accepted)
-}
-
-func TestUpsertDiscoveredDevices_RejectsEmptyScheme(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-empty-scheme")
-
-	// Act
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "80", URLScheme: "", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 // NOT EXISTS guard: a device already paired with fleet node A must not

@@ -2,6 +2,7 @@ package fleetnodegateway
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"connectrpc.com/connect"
@@ -95,11 +96,19 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
 	}
-	accepted, _, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
+	accepted, rejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
 	if err != nil {
 		return nil, err
 	}
+	if rejected > 0 {
+		slog.Warn("fleet node reported devices that conflict with existing pairings",
+			"fleet_node_id", subject.FleetNodeID,
+			"org_id", subject.OrgID,
+			"rejected_count", rejected,
+		)
+	}
 	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{
 		AcceptedCount: accepted,
+		RejectedCount: rejected,
 	}), nil
 }
