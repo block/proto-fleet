@@ -12,8 +12,9 @@ CREATE TABLE curtailment_mqtt_source_config (
     broker_secondary_host           VARCHAR(255) NOT NULL,
     broker_port                     INT          NOT NULL DEFAULT 1883,
     mqtt_username                   VARCHAR(255) NOT NULL,
-    -- Encrypted via domain/encrypt; rotation is operator-driven for v2.0.
-    mqtt_password_encrypted         BYTEA        NOT NULL,
+    -- Encrypted via infrastructure/encrypt (base64-wrapped); rotation
+    -- is operator-driven for v2.0.
+    mqtt_password_enc               TEXT         NOT NULL,
     -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges.
     contracted_curtailment_kw       INT          NOT NULL,
     -- Watchdog fires WATCHDOG_OFF after this many seconds of broker silence.

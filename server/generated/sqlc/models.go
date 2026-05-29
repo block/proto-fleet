@@ -453,7 +453,7 @@ type CurtailmentMqttSourceConfig struct {
 	BrokerSecondaryHost     string
 	BrokerPort              int32
 	MqttUsername            string
-	MqttPasswordEncrypted   []byte
+	MqttPasswordEnc         string
 	ContractedCurtailmentKw int32
 	StalenessThresholdSec   int32
 	MinCurtailedDurationSec int32
