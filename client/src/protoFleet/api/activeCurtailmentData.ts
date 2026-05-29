@@ -54,14 +54,14 @@ function setActiveCurtailmentSnapshot(
   snapshot: ActiveCurtailmentSnapshot,
   writeVersion = getNextWriteVersion(),
 ): ActiveCurtailmentSnapshot {
+  if (writeVersion < appliedWriteVersion) {
+    return getActiveCurtailmentSnapshot();
+  }
+
   if (snapshot.event?.eventUuid && snapshot.event.eventUuid === dismissedEventUuid) {
     snapshot = initialSnapshot;
   } else if (snapshot.event?.eventUuid) {
     dismissedEventUuid = null;
-  }
-
-  if (writeVersion < appliedWriteVersion) {
-    return getActiveCurtailmentSnapshot();
   }
 
   appliedWriteVersion = writeVersion;
@@ -134,6 +134,9 @@ function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest
 function releaseActiveCurtailmentRequestSubscriber(request: InFlightActiveCurtailmentRequest): void {
   request.subscribers = Math.max(0, request.subscribers - 1);
   if (request.subscribers === 0 && !request.settled) {
+    if (inFlightActiveCurtailmentRequest === request) {
+      inFlightActiveCurtailmentRequest = null;
+    }
     request.abortController.abort();
   }
 }

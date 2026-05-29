@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 
 import {
   applyActiveCurtailmentEvent,
+  dismissActiveCurtailmentEvent,
   fetchActiveCurtailmentData,
   getActiveCurtailmentSnapshot,
   refreshActiveCurtailmentData,
@@ -37,21 +38,24 @@ describe("activeCurtailmentData", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps newer active curtailment data when an older refresh returns later", async () => {
+  it("keeps dismissed events suppressed when an older refresh is discarded", async () => {
     let resolveRefresh: (value: { event: CurtailmentEvent }) => void = () => {};
-    mockGetActiveCurtailment.mockReturnValue(
-      new Promise<{ event: CurtailmentEvent }>((resolve) => {
-        resolveRefresh = resolve;
-      }),
-    );
+    mockGetActiveCurtailment
+      .mockReturnValueOnce(
+        new Promise<{ event: CurtailmentEvent }>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({ event: curtailmentEvent("dismissed-event") });
 
-    const refreshPromise = refreshActiveCurtailmentData();
-    applyActiveCurtailmentEvent(curtailmentEvent("newer-event"));
-    resolveRefresh({ event: curtailmentEvent("older-event") });
+    const staleRefreshPromise = refreshActiveCurtailmentData();
+    dismissActiveCurtailmentEvent("dismissed-event");
+    resolveRefresh({ event: curtailmentEvent("different-event") });
 
-    await refreshPromise;
+    await staleRefreshPromise;
+    await refreshActiveCurtailmentData();
 
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("newer-event");
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
   it("shares one active curtailment request across concurrent refresh callers", async () => {
@@ -77,6 +81,32 @@ describe("activeCurtailmentData", () => {
 
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("shared-event");
     expect(mockGetActiveCurtailment).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a fresh request after all shared request subscribers abort", async () => {
+    mockGetActiveCurtailment
+      .mockImplementationOnce(
+        (_request: unknown, options?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("The operation was aborted.", "AbortError")),
+              { once: true },
+            );
+          }),
+      )
+      .mockResolvedValueOnce({ event: curtailmentEvent("fresh-event") });
+
+    const abortController = new AbortController();
+    const abortedRequest = fetchActiveCurtailmentData({ signal: abortController.signal }).catch((error) => error);
+
+    abortController.abort();
+
+    const freshRefresh = await fetchActiveCurtailmentData();
+
+    expect(freshRefresh.event?.eventUuid).toBe("fresh-event");
+    expect(mockGetActiveCurtailment).toHaveBeenCalledTimes(2);
+    await expect(abortedRequest).resolves.toBeInstanceOf(DOMException);
   });
 
   it.each([

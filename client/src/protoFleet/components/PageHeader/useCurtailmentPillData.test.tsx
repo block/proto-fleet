@@ -167,6 +167,32 @@ describe("useCurtailmentPillData", () => {
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
   });
 
+  it("clears the cached active event when a refresh fails", async () => {
+    mockHandleAuthErrors.mockImplementation(({ onError }: { onError?: (error: unknown) => void }) => {
+      onError?.(new Error("load failed"));
+    });
+    mockGetActiveCurtailment
+      .mockResolvedValueOnce({ event: curtailmentEvent() })
+      .mockRejectedValueOnce(new Error("load failed"));
+
+    const { result } = renderHook(() => useCurtailmentPillData());
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {});
+
+    expect(result.current.activeEvent?.reason).toBe("Grid peak call");
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+      await Promise.resolve();
+    });
+
+    expect(result.current.activeEvent).toBeNull();
+    expect(mockHandleAuthErrors).toHaveBeenCalledOnce();
+  });
+
   it("queues a fresh refresh when curtailment changes during an in-flight poll", async () => {
     let resolveFirstRequest: (value: { event: CurtailmentEvent }) => void = () => {};
     let resolveSecondRequest: (value: { event: CurtailmentEvent }) => void = () => {};
