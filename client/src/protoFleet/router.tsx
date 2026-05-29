@@ -10,6 +10,7 @@ import {
   importAuth,
   importBuildingPage,
   importDashboard,
+  importEnergyPage,
   importFleetDown,
   importGroupOverviewPage,
   importGroupsPage,
@@ -44,6 +45,7 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
 const ActivityPage = lazy(importActivityPage);
+const EnergyPage = lazy(importEnergyPage);
 const ServerLogsPage = lazy(importServerLogsPage);
 const GroupsPage = lazy(importGroupsPage);
 const GroupOverviewPage = lazy(importGroupOverviewPage);
@@ -148,6 +150,9 @@ const router = createBrowserRouter([
   // unguarded so direct URL access works during dogfood)
   createRoute("/sites", <SitesPage />),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
+
+  // Energy
+  createRoute("/energy", <EnergyPage />),
 
   // Activity
   createRoute("/activity", <ActivityPage />),

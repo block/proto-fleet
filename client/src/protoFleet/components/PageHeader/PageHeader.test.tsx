@@ -7,6 +7,14 @@ import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
+const mockCurtailmentPill = vi.fn();
+
+vi.mock("./CurtailmentPill", () => ({
+  default: (props: { detailsPath?: string }) => {
+    mockCurtailmentPill(props);
+    return <div>Curtailment pill</div>;
+  },
+}));
 
 vi.mock("./LocationSelector", () => ({
   default: () => <div>Location selector</div>,
@@ -53,6 +61,7 @@ const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = 
 
 describe("PageHeader", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockUseWindowDimensions.mockReturnValue({
       isPhone: true,
       isTablet: false,
@@ -84,5 +93,29 @@ describe("PageHeader", () => {
 
     expect(screen.queryByText("Continue setup")).not.toBeInTheDocument();
     expect(screen.queryByText("Night reboot")).not.toBeInTheDocument();
+  });
+
+  it("links the curtailment pill to the Energy page", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          activeCurtailmentEvent={{
+            reason: "Grid peak call",
+            state: "curtailing",
+            scopeLabel: "Whole fleet",
+            selectedMiners: 48,
+            estimatedReductionKw: 126.4,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(mockCurtailmentPill).toHaveBeenCalledWith(expect.objectContaining({ detailsPath: "/energy" }));
   });
 });

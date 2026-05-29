@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
-import { Activity, Fleet, Groups, Home, IconProps, Racks, Settings, Site } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Racks, Settings, Site } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -59,6 +59,11 @@ export const primaryNavItems: NavItem[] = [
     path: "/groups",
     label: "Groups",
     icon: Groups,
+  },
+  {
+    path: "/energy",
+    label: "Energy",
+    icon: LightningAlt,
   },
   {
     path: "/activity",

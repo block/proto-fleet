@@ -152,6 +152,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Curtail behavior")).toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("type", "text");
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("inputmode", "decimal");
     expect(screen.queryByRole("button", { name: "Profile" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Curtailment mode" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Miner selection strategy" })).not.toBeInTheDocument();
@@ -160,6 +162,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveAttribute("type", "text");
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveAttribute("inputmode", "numeric");
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();

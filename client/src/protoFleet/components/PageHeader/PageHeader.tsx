@@ -44,7 +44,7 @@ function HeaderWidgets({
 
   return (
     <div className={clsx("flex space-x-3", className)}>
-      {activeCurtailmentEvent ? <CurtailmentPill event={activeCurtailmentEvent} /> : null}
+      {activeCurtailmentEvent ? <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" /> : null}
       {pillSchedule ? (
         <SchedulePill
           pillSchedule={pillSchedule}
