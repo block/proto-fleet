@@ -42,6 +42,8 @@ func main() {
 	// Create miner state
 	state := NewMinerState(serialNumber, macAddress)
 	configureStartupAuthState(state)
+	applyTelemetryConfig(state)
+	applyPoolConfig(state)
 
 	// Apply error configuration from environment
 	applyErrorConfig(state)
@@ -121,6 +123,37 @@ func configureStartupAuthState(state *MinerState) {
 	if defaultPassword := os.Getenv("FAKE_RIG_DEFAULT_PASSWORD"); defaultPassword != "" {
 		state.SeedDefaultPassword(defaultPassword)
 	}
+}
+
+func applyTelemetryConfig(state *MinerState) {
+	if powerW := getEnvFloat("BASE_POWER_W", 0); powerW > 0 {
+		state.BasePowerW = powerW
+		if state.BaseHashrateTHS > 0 {
+			state.BaseEfficiencyJTH = powerW / state.BaseHashrateTHS
+		}
+		log.Printf("Telemetry config: base power = %.1fW", powerW)
+	}
+}
+
+func applyPoolConfig(state *MinerState) {
+	if !getEnvBool("START_WITH_DEFAULT_POOL", false) {
+		return
+	}
+
+	state.Pools = append(state.Pools, &Pool{
+		Idx:      0,
+		Priority: 0,
+		Url:      defaultPoolURL,
+		Username: defaultPoolWorker,
+		Password: "x",
+		Statistics: &PoolStatistics{
+			AcceptedShares:    defaultPoolAcceptedShares,
+			RejectedShares:    defaultPoolRejectedShares,
+			CurrentDifficulty: defaultPoolDifficulty,
+		},
+	})
+	state.PoolNames[0] = "Default"
+	log.Printf("Pool config: started with default pool %s", defaultPoolURL)
 }
 
 // applyErrorConfig reads error configuration from environment variables.

@@ -201,6 +201,12 @@ type DevsResponse struct {
 	ID      int          `json:"id"`
 }
 
+type StatsResponse struct {
+	Status []StatusInfo     `json:"STATUS"`
+	Stats  []map[string]any `json:"STATS"`
+	ID     int              `json:"id"`
+}
+
 func (s *MinerState) currentWorkModeLocked() string {
 	switch {
 	case s.MinerMode != "":

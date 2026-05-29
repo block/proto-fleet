@@ -105,6 +105,8 @@ services:
       dockerfile: server/fake-proto-rig/Dockerfile
     environment:
       HTTP_PORT: "8080"
+      BASE_POWER_W: "12000"
+      START_WITH_DEFAULT_POOL: "true"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
@@ -277,6 +279,8 @@ services:
     environment:
       HTTP_PORT: "8080"
       SERIAL_NUMBER: "PROTO-SIM-001"
+      BASE_POWER_W: "12000"
+      START_WITH_DEFAULT_POOL: "true"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
