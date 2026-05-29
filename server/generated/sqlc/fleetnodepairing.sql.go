@@ -30,6 +30,33 @@ func (q *Queries) DeletePairingsForFleetNode(ctx context.Context, arg DeletePair
 	return result.RowsAffected()
 }
 
+const deviceHasActiveCloudPairing = `-- name: DeviceHasActiveCloudPairing :one
+SELECT EXISTS (
+    SELECT 1
+    FROM device_pairing dp
+    JOIN device d ON d.id = dp.device_id
+    WHERE dp.device_id = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+      AND dp.pairing_status = 'PAIRED'
+)
+`
+
+type DeviceHasActiveCloudPairingParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+// True when the device has a PAIRED cloud device_pairing. Fleet-node pairing
+// refuses these: the upsert guard blocks refreshing a cloud-paired row, so
+// pairing one would strand the node unable to refresh its discovery endpoint.
+func (q *Queries) DeviceHasActiveCloudPairing(ctx context.Context, arg DeviceHasActiveCloudPairingParams) (bool, error) {
+	row := q.queryRow(ctx, q.deviceHasActiveCloudPairingStmt, deviceHasActiveCloudPairing, arg.DeviceID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listFleetNodeDevices = `-- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,
@@ -115,6 +142,36 @@ func (q *Queries) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFle
 	return result.RowsAffected()
 }
 
+const transferDiscoveredDeviceAttribution = `-- name: TransferDiscoveredDeviceAttribution :execrows
+UPDATE discovered_device
+SET discovered_by_fleet_node_id = $1::bigint
+FROM device
+WHERE device.id = $2
+  AND device.org_id = $3
+  AND device.deleted_at IS NULL
+  AND device.discovered_device_id = discovered_device.id
+  AND discovered_device.org_id = $3
+  AND discovered_device.deleted_at IS NULL
+`
+
+type TransferDiscoveredDeviceAttributionParams struct {
+	FleetNodeID int64
+	DeviceID    int64
+	OrgID       int64
+}
+
+// Pairing makes the fleet node the discovery owner so its future reports refresh
+// the row (the upsert keys refreshability on discovered_by_fleet_node_id);
+// otherwise a replacement node's reports are rejected until repaired by hand.
+// No-op (0 rows) when the device has no discovered_device origin.
+func (q *Queries) TransferDiscoveredDeviceAttribution(ctx context.Context, arg TransferDiscoveredDeviceAttributionParams) (int64, error) {
+	result, err := q.exec(ctx, q.transferDiscoveredDeviceAttributionStmt, transferDiscoveredDeviceAttribution, arg.FleetNodeID, arg.DeviceID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const unpairDevice = `-- name: UnpairDevice :execrows
 DELETE FROM fleet_node_device
 WHERE device_id = $1 AND org_id = $2
@@ -144,9 +201,10 @@ INSERT INTO discovered_device (
     model,
     manufacturer,
     firmware_version,
+    discovered_by_fleet_node_id,
     is_active
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     port = EXCLUDED.port,
@@ -155,39 +213,71 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
     manufacturer = EXCLUDED.manufacturer,
     firmware_version = EXCLUDED.firmware_version,
+    discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
-WHERE NOT EXISTS (
+WHERE (
+    discovered_device.discovered_by_fleet_node_id IS NULL
+    OR discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
+    -- The attributing node was revoked (soft-deleted), so a replacement node may
+    -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
+    -- is rejected forever). Attribution moves to the reporter ($10), staying
+    -- non-NULL, so cloud-exclusion (discovered_by_fleet_node_id IS NULL) is never
+    -- widened. Cloud-paired and live-cross-node rows remain blocked below.
+    OR NOT EXISTS (
+      SELECT 1
+      FROM fleet_node fn
+      WHERE fn.id = discovered_device.discovered_by_fleet_node_id
+        AND fn.org_id = discovered_device.org_id
+        AND fn.deleted_at IS NULL
+    )
+  )
+  AND NOT EXISTS (
+    -- The promotion guard (rationale in the header): blocks rows promoted to a
+    -- cloud-paired device or one paired to another node; bare and own-node pass.
     SELECT 1
     FROM device d
-    JOIN fleet_node_device fnd
-        ON fnd.device_id = d.id
-       AND fnd.org_id = d.org_id
-       AND fnd.fleet_node_id <> $10
     WHERE d.discovered_device_id = discovered_device.id
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
+      AND (
+        EXISTS (
+          SELECT 1
+          FROM device_pairing dp
+          WHERE dp.device_id = d.id
+            AND dp.pairing_status = 'PAIRED'
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM fleet_node_device fnd
+          WHERE fnd.device_id = d.id
+            AND fnd.org_id = d.org_id
+            AND fnd.fleet_node_id <> $10
+        )
+      )
 )
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
-	OrgID            int64
-	DeviceIdentifier string
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	DriverName       string
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	FirmwareVersion  sql.NullString
-	FleetNodeID      int64
+	OrgID                   int64
+	DeviceIdentifier        string
+	IpAddress               string
+	Port                    string
+	UrlScheme               string
+	DriverName              string
+	Model                   sql.NullString
+	Manufacturer            sql.NullString
+	FirmwareVersion         sql.NullString
+	DiscoveredByFleetNodeID sql.NullInt64
 }
 
-// 0 rows on conflict signals rejection. Blocks updates only when a
-// promoted `device` row for this identifier is currently paired with a
-// *different* fleet_node — that's the hijack the operator's pairing
-// choice has to be protected from. Unpaired devices (no fleet_node_device
-// row at all) remain refreshable by the original reporting node.
+// 0 rows on conflict signals rejection. A remote report must not redirect the
+// endpoint/credentials of a miner the cloud actively dials, so the update is
+// blocked when the row is promoted to a cloud-paired device (device_pairing
+// PAIRED) or one paired to a different fleet node. Bare promoted devices and
+// devices paired to the reporting node itself stay refreshable, subject to the
+// attribution guard. The agent synthesizes a stable per-device identifier
+// (mac:/serial:, else auto:<hash>), so a re-scan reuses the same row.
 func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error) {
 	result, err := q.exec(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
@@ -199,7 +289,7 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.Model,
 		arg.Manufacturer,
 		arg.FirmwareVersion,
-		arg.FleetNodeID,
+		arg.DiscoveredByFleetNodeID,
 	)
 	if err != nil {
 		return 0, err

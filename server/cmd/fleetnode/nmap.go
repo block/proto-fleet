@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,60 +19,12 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 )
 
-// Targets reach nmap as argv (no shell); a leading dash would parse as a
-// flag (-iL, -oN reach file r/w on the agent). Range regex distinguishes
-// "A.B.C.D-N" from dash-bearing hostnames like "miner-01.lan".
-var (
-	nmapHostnameRE  = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
-	nmapIPv4RangeRE = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}-\d{1,3}$`)
-	nmapAllowedRE   = regexp.MustCompile(`^[A-Za-z0-9.:/-]+$`)
-	// nmap multi-octet ranges (e.g. 10.0-255.0-255.1-254) match nmapHostnameRE
-	// but would bypass the /22 cap. Dot-required so all-numeric single labels
-	// still fall through.
-	nmapMultiOctetRangeRE = regexp.MustCompile(`^\d+(-\d+)?(\.\d+(-\d+)?)+$`)
-)
-
-// Caps IPv4 CIDR breadth at 1024 hosts so /0 can't aim a multi-hour scan
-// at the public internet. Operators split larger scopes across commands.
-const minNmapIPv4PrefixBits = 22
-
+// validateNmapTarget enforces the shared nmap target grammar (see nmaptarget).
 func validateNmapTarget(s string) error {
-	if s == "" {
-		return errors.New("nmap target is required")
-	}
-	if strings.HasPrefix(s, "-") {
-		return fmt.Errorf("nmap target %q must not start with '-'", s)
-	}
-	if !nmapAllowedRE.MatchString(s) {
-		return fmt.Errorf("nmap target %q contains disallowed characters", s)
-	}
-	if prefix, perr := netip.ParsePrefix(s); perr == nil {
-		if prefix.Addr().Is4() && prefix.Bits() < minNmapIPv4PrefixBits {
-			return fmt.Errorf("nmap target %q has CIDR prefix /%d shorter than the supported minimum /%d", s, prefix.Bits(), minNmapIPv4PrefixBits)
-		}
-		return nil
-	}
-	if _, err := netip.ParseAddr(s); err == nil {
-		return nil
-	}
-	if nmapIPv4RangeRE.MatchString(s) {
-		head, tail, _ := strings.Cut(s, "-")
-		ip := net.ParseIP(head)
-		n, perr := strconv.Atoi(tail)
-		if ip != nil && ip.To4() != nil && perr == nil && n >= 0 && n <= 255 {
-			return nil
-		}
-		return fmt.Errorf("nmap target %q has invalid IPv4 range", s)
-	}
-	if nmapMultiOctetRangeRE.MatchString(s) {
-		return fmt.Errorf("nmap target %q: multi-octet IPv4 ranges are not supported; use IpRange mode or split into separate commands", s)
-	}
-	if nmapHostnameRE.MatchString(s) {
-		return nil
-	}
-	return fmt.Errorf("nmap target %q is not a valid IP, CIDR, range, or hostname", s)
+	return nmaptarget.Validate(s)
 }
 
 const (
@@ -193,7 +144,7 @@ func resolveNmapTarget(ctx context.Context, target string, lookup func(context.C
 	if addr, perr := netip.ParseAddr(target); perr == nil {
 		return target, addr.Is6(), nil
 	}
-	if nmapIPv4RangeRE.MatchString(target) {
+	if nmaptarget.IsIPv4Range(target) {
 		return target, false, nil
 	}
 	addrs, lookupErr := lookup(ctx, target)

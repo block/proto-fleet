@@ -8,10 +8,10 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 )
 
-var _ fleetnodeauth.Store = &SQLFleetNodeAuthStore{}
+var _ auth.Store = &SQLFleetNodeAuthStore{}
 
 type SQLFleetNodeAuthStore struct {
 	SQLConnectionManager
@@ -59,7 +59,7 @@ func (s *SQLFleetNodeAuthStore) UpsertSession(ctx context.Context, tokenHash str
 	})
 }
 
-func (s *SQLFleetNodeAuthStore) GetSessionFleetNode(ctx context.Context, tokenHash string, now time.Time) (*fleetnodeauth.ResolvedFleetNode, error) {
+func (s *SQLFleetNodeAuthStore) GetSessionFleetNode(ctx context.Context, tokenHash string, now time.Time) (*auth.ResolvedFleetNode, error) {
 	row, err := s.q(ctx).GetFleetNodeSessionByTokenHash(ctx, sqlc.GetFleetNodeSessionByTokenHashParams{
 		TokenHash: tokenHash,
 		ExpiresAt: now,
@@ -70,7 +70,7 @@ func (s *SQLFleetNodeAuthStore) GetSessionFleetNode(ctx context.Context, tokenHa
 		}
 		return nil, err
 	}
-	return &fleetnodeauth.ResolvedFleetNode{
+	return &auth.ResolvedFleetNode{
 		FleetNodeID:    row.FleetNodeID,
 		OrgID:          row.OrgID,
 		Name:           row.Name,

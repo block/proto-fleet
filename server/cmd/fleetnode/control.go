@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -20,11 +23,11 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
-	"github.com/block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 const (
@@ -36,8 +39,8 @@ const (
 	probeConcurrency       = 32
 	discoveryReportTimeout = 30 * time.Second
 	maxDevicesPerReport    = 1024 // server enforces max_items=1024
-	maxIPsPerCommand       = 1024 // mirrors pairing-service safety bar
-	maxPortsPerIP          = 10   // mirrors pairing.MaxPortsPerIP
+	maxIPsPerCommand       = discoverylimits.MaxScanTargets
+	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
 	// Mirrors the proto cap so a verbose error doesn't fail buf-validate on the ack itself.
 	maxAckErrorMessageBytes = 4096
 )
@@ -87,7 +90,7 @@ func cmdErr(code pb.AckCode, format string, args ...any) *commandError {
 	return &commandError{code: code, msg: fmt.Sprintf(format, args...)}
 }
 
-func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, logger *slog.Logger) error {
+func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, logger *slog.Logger) error {
 	loopLogger := logger.With("fleet_node_id", st.FleetNodeID)
 	backoff := controlReconnectInitial
 	// Per-loop rng so tests don't race on math/rand's global source.
@@ -103,7 +106,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *f
 		if err == nil {
 			return nil
 		}
-		if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
+		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
 			return err
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
@@ -386,9 +389,9 @@ func expandIPv4Range(startStr, endStr string, maxCount int) ([]string, error) {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", size, maxCount)
 	}
 	out := make([]string, 0, size)
-	for v := startU; v <= endU; v++ {
+	for v := startU; ; v++ {
 		out = append(out, netutil.Uint32ToIPv4(v))
-		if v == ^uint32(0) {
+		if v == endU {
 			break
 		}
 	}
@@ -516,9 +519,11 @@ func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg
 type pluginDiscoverer struct {
 	multi *plugins.MultiTypeDiscoverer
 	svc   *plugins.Service
+	// fleetNodeID is folded into synthesized auto: identifiers (see synthesizeIdentifier).
+	fleetNodeID int64
 }
 
-func newPluginDiscoverer(parent context.Context, pluginsDir string) (*pluginDiscoverer, func(), error) {
+func newPluginDiscoverer(parent context.Context, pluginsDir string, fleetNodeID int64) (*pluginDiscoverer, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -547,8 +552,9 @@ func newPluginDiscoverer(parent context.Context, pluginsDir string) (*pluginDisc
 		_ = manager.Shutdown(shutdownCtx)
 	}
 	return &pluginDiscoverer{
-		multi: plugins.NewMultiTypeDiscoverer(manager),
-		svc:   plugins.NewService(manager),
+		multi:       plugins.NewMultiTypeDiscoverer(manager),
+		svc:         plugins.NewService(manager),
+		fleetNodeID: fleetNodeID,
 	}, cleanup, nil
 }
 
@@ -560,7 +566,7 @@ func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*
 	if dev == nil {
 		return nil, nil
 	}
-	return reportFromDiscovered(dev), nil
+	return reportFromDiscovered(dev, ipAddress, port, p.fleetNodeID), nil
 }
 
 func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {
@@ -568,16 +574,18 @@ func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {
 }
 
 // SDK drivers often leave DeviceIdentifier empty; the agent has no DB so it
-// synthesizes auto:* and lets the server reconcile by (fleet_node, ip, port).
-func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice) *pb.DiscoveredDeviceReport {
+// synthesizes a stable identifier. ip/port are the trusted probed endpoint
+// (what fanOutProbes also stamps onto the report), not the plugin-reported one,
+// which may be blank or wrong.
+func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) *pb.DiscoveredDeviceReport {
 	deviceID := dev.GetDeviceIdentifier()
 	if deviceID == "" {
-		deviceID = synthesizeIdentifier(dev.GetMacAddress(), dev.GetSerialNumber())
+		deviceID = synthesizeIdentifier(dev, ip, port, fleetNodeID)
 	}
 	return &pb.DiscoveredDeviceReport{
 		DeviceIdentifier: deviceID,
-		IpAddress:        dev.GetIpAddress(),
-		Port:             dev.GetPort(),
+		IpAddress:        ip,
+		Port:             port,
 		UrlScheme:        dev.GetUrlScheme(),
 		DriverName:       dev.GetDriverName(),
 		Model:            dev.GetModel(),
@@ -586,12 +594,20 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice) *pb.DiscoveredD
 	}
 }
 
-func synthesizeIdentifier(mac, serial string) string {
-	if mac != "" {
+// synthesizeIdentifier derives a stable identifier for a device the driver left
+// unidentified. MAC/serial are preferred; absent both, it hashes the fleet node
+// id + probed endpoint + type, so the same device re-keys identically across
+// scans while distinct endpoints stay distinct (no duplicate rows, no
+// server-side reconciliation). The fleet node id is in the hash so two nodes on
+// overlapping RFC1918 space don't mint the same auto: key for distinct miners.
+func synthesizeIdentifier(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) string {
+	if mac := dev.GetMacAddress(); mac != "" {
 		return "mac:" + mac
 	}
-	if serial != "" {
+	if serial := dev.GetSerialNumber(); serial != "" {
 		return "serial:" + serial
 	}
-	return "auto:" + id.GenerateID()
+	node := strconv.FormatInt(fleetNodeID, 10)
+	sum := sha256.Sum256([]byte(strings.Join([]string{node, ip, port, dev.GetDriverName(), dev.GetModel()}, "\x00")))
+	return "auto:" + hex.EncodeToString(sum[:8])
 }

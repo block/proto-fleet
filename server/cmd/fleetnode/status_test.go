@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 func TestStatusCmd_FailsWhenNoState(t *testing.T) {
@@ -35,7 +35,7 @@ func TestStatusCmd_RedactsSecrets(t *testing.T) {
 	dir := t.TempDir()
 	const apiKey = "fleet_super_secret_apikey_xyz" //nolint:gosec // test fixture
 	const sessionToken = "session-token-also-secret"
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:             "https://fleet.example.com",
 		FleetNodeID:           1234,
 		IdentityFingerprint:   "abcdef0123456789",
@@ -68,7 +68,7 @@ func TestStatusCmd_FlagsMissingSecretsAsFalse(t *testing.T) {
 	// Arrange: partial state (post-Register, pre-CompleteEnrollment) shows
 	// api_key_present=false so an operator can spot recovery candidates.
 	dir := t.TempDir()
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:             "https://fleet.example.com",
 		FleetNodeID:           9,
 		IdentityFingerprint:   "0011223344556677",

@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 type StatusCmd struct{}
@@ -16,8 +16,8 @@ func (s *StatusCmd) Run(c *Context) error {
 }
 
 func (s *StatusCmd) run(c *Context, w io.Writer) error {
-	path := fleetnodebootstrap.StatePath(c.StateDir)
-	st, exists, err := fleetnodebootstrap.LoadState(path)
+	path := bootstrap.StatePath(c.StateDir)
+	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
 		return err
 	}

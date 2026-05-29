@@ -69,9 +69,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
+	fleetnodeauth "github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
@@ -94,8 +95,8 @@ import (
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
-	"github.com/block/proto-fleet/server/internal/handlers/fleetnodeadmin"
-	"github.com/block/proto-fleet/server/internal/handlers/fleetnodegateway"
+	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
+	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -215,11 +216,12 @@ func start(config *Config) error {
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
 	fleetNodeEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
-	fleetNodeEnrollmentSvc := fleetnodeenrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
-	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
-	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
+	fleetNodeEnrollmentSvc := enrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
+	fleetNodeControlRegistry := control.NewRegistry()
+	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
+	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -529,8 +531,8 @@ func start(config *Config) error {
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
-	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc), li))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc), li))
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeControlRegistry), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

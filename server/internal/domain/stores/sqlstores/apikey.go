@@ -90,7 +90,7 @@ func (s *SQLApiKeyStore) GetApiKeyByHash(ctx context.Context, keyHash string) (*
 
 // ListApiKeysByOrganization returns non-revoked user-owned keys for the org.
 // FleetNode-owned keys are intentionally excluded; fleet nodes are listed via
-// the fleetnodeadmin service.
+// the fleet node admin service.
 func (s *SQLApiKeyStore) ListApiKeysByOrganization(ctx context.Context, orgID int64) ([]interfaces.ApiKey, error) {
 	rows, err := s.getQueries(ctx).ListApiKeysByOrganization(ctx, orgID)
 	if err != nil {

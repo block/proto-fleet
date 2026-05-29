@@ -649,24 +649,25 @@ type DeviceStatusHourly struct {
 }
 
 type DiscoveredDevice struct {
-	ID                int64
-	OrgID             int64
-	DeviceIdentifier  string
-	Model             sql.NullString
-	Manufacturer      sql.NullString
-	FirmwareVersion   sql.NullString
-	IpAddress         string
-	Port              string
-	UrlScheme         string
-	DiscoveryMetadata sql.NullString
-	FirstDiscovered   sql.NullTime
-	LastSeen          sql.NullTime
-	IsActive          bool
-	CreatedAt         sql.NullTime
-	UpdatedAt         sql.NullTime
-	DeletedAt         sql.NullTime
-	DriverName        string
-	IpAddressInet     pqtype.Inet
+	ID                      int64
+	OrgID                   int64
+	DeviceIdentifier        string
+	Model                   sql.NullString
+	Manufacturer            sql.NullString
+	FirmwareVersion         sql.NullString
+	IpAddress               string
+	Port                    string
+	UrlScheme               string
+	DiscoveryMetadata       sql.NullString
+	FirstDiscovered         sql.NullTime
+	LastSeen                sql.NullTime
+	IsActive                bool
+	CreatedAt               sql.NullTime
+	UpdatedAt               sql.NullTime
+	DeletedAt               sql.NullTime
+	DriverName              string
+	IpAddressInet           pqtype.Inet
+	DiscoveredByFleetNodeID sql.NullInt64
 }
 
 type Error struct {

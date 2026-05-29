@@ -4,7 +4,7 @@ import (
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 type Context struct {
@@ -27,7 +27,7 @@ func main() {
 		kong.Description("Fleet node CLI: enroll, authenticate, refresh."),
 		kong.Configuration(kongyaml.Loader, "/etc/fleetnode/config.yaml"),
 	)
-	stateDir, err := fleetnodebootstrap.ResolveStateDir(cli.StateDir)
+	stateDir, err := bootstrap.ResolveStateDir(cli.StateDir)
 	kctx.FatalIfErrorf(err)
 	kctx.FatalIfErrorf(kctx.Run(&Context{StateDir: stateDir}))
 }
