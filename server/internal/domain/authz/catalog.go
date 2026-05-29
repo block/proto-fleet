@@ -57,6 +57,14 @@ const (
 	PermPoolRead   = "pool:read"
 	PermPoolManage = "pool:manage"
 
+	// schedule — recurring miner actions (set_power_target, reboot,
+	// sleep). schedule:manage gates the list/CRUD surface; create and
+	// update additionally require the underlying miner action permission
+	// so a manager can't smuggle a privileged action through the
+	// scheduler.
+	PermScheduleRead   = "schedule:read"
+	PermScheduleManage = "schedule:manage"
+
 	// fleetnode — top-nav admin operations.
 	PermFleetnodeRead   = "fleetnode:read"
 	PermFleetnodeManage = "fleetnode:manage"
@@ -85,6 +93,7 @@ const (
 	ResourceServerLog   = "serverlog"
 	ResourceCurtailment = "curtailment"
 	ResourcePool        = "pool"
+	ResourceSchedule    = "schedule"
 	ResourceFleetNode   = "fleetnode"
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
@@ -139,6 +148,9 @@ var catalog = []CatalogEntry{
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
 	{PermPoolManage, "Create, edit, and delete saved mining pool configurations.", ResourcePool},
+
+	{PermScheduleRead, "View scheduled miner actions.", ResourceSchedule},
+	{PermScheduleManage, "Create, edit, pause, resume, and delete scheduled miner actions. Requires the underlying miner action permission to schedule that action.", ResourceSchedule},
 
 	{PermFleetnodeRead, "View fleet-node state.", ResourceFleetNode},
 	{PermFleetnodeManage, "Perform fleet-node admin operations.", ResourceFleetNode},
