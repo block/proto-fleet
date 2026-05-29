@@ -44,6 +44,9 @@ let nextWriteVersion = 0;
 let appliedWriteVersion = 0;
 let inFlightActiveCurtailmentRequest: InFlightActiveCurtailmentRequest | null = null;
 let dismissedEventUuid: string | null = null;
+let emptyActiveRefreshCount = 0;
+
+const preservedEmptyActiveRefreshLimit = 1;
 
 function getNextWriteVersion(): number {
   nextWriteVersion += 1;
@@ -97,13 +100,22 @@ function shouldPreserveCurrentActiveCurtailmentEvent(event: ProtoCurtailmentEven
 
 function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentSnapshot {
   if (event) {
+    emptyActiveRefreshCount = 0;
     return { event };
   }
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
-  return currentSnapshot.event && shouldPreserveCurrentActiveCurtailmentEvent(currentSnapshot.event)
-    ? currentSnapshot
-    : initialSnapshot;
+  if (
+    currentSnapshot.event &&
+    shouldPreserveCurrentActiveCurtailmentEvent(currentSnapshot.event) &&
+    emptyActiveRefreshCount < preservedEmptyActiveRefreshLimit
+  ) {
+    emptyActiveRefreshCount += 1;
+    return currentSnapshot;
+  }
+
+  emptyActiveRefreshCount = 0;
+  return initialSnapshot;
 }
 
 function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest {
@@ -192,6 +204,7 @@ export function resetActiveCurtailmentData(): void {
   inFlightActiveCurtailmentRequest?.abortController.abort();
   inFlightActiveCurtailmentRequest = null;
   dismissedEventUuid = null;
+  emptyActiveRefreshCount = 0;
   nextWriteVersion = 0;
   appliedWriteVersion = 0;
   useActiveCurtailmentDataStore.setState(initialStoreState, true);

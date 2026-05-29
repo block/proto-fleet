@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 
+import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
 import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -47,6 +48,7 @@ const useLogin = () => {
 
           // Session cookie is automatically stored by browser
           // We just track the expiry and user info in state
+          resetActiveCurtailmentData();
           setSessionExpiry(new Date(Number(sessionExpiry) * 1000));
           setIsAuthenticated(true);
           setUsername(userInfo.username);

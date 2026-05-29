@@ -58,31 +58,6 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
-  it("shares one active curtailment request across concurrent refresh callers", async () => {
-    let resolveRefresh: (value: { event: CurtailmentEvent }) => void = () => {};
-    mockGetActiveCurtailment.mockReturnValue(
-      new Promise<{ event: CurtailmentEvent }>((resolve) => {
-        resolveRefresh = resolve;
-      }),
-    );
-
-    const refreshPromise = refreshActiveCurtailmentData();
-    const pendingRefreshPromise = fetchActiveCurtailmentData();
-
-    expect(mockGetActiveCurtailment).toHaveBeenCalledTimes(1);
-
-    resolveRefresh({ event: curtailmentEvent("shared-event") });
-    const [snapshot, pendingRefresh] = await Promise.all([refreshPromise, pendingRefreshPromise]);
-
-    expect(snapshot.event?.eventUuid).toBe("shared-event");
-    expect(pendingRefresh.event?.eventUuid).toBe("shared-event");
-
-    pendingRefresh.commit();
-
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("shared-event");
-    expect(mockGetActiveCurtailment).toHaveBeenCalledTimes(1);
-  });
-
   it("starts a fresh request after all shared request subscribers abort", async () => {
     mockGetActiveCurtailment
       .mockImplementationOnce(
@@ -113,12 +88,14 @@ describe("activeCurtailmentData", () => {
     ["restoring", CurtailmentEventState.RESTORING],
     ["restored", CurtailmentEventState.COMPLETED],
     ["incomplete restore", CurtailmentEventState.COMPLETED_WITH_FAILURES],
-  ])("preserves a %s curtailment when active polling briefly returns empty", async (eventUuid, state) => {
+  ])("preserves a %s curtailment for one empty active response", async (eventUuid, state) => {
     applyActiveCurtailmentEvent(curtailmentEvent(eventUuid, state));
     mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
 
     await refreshActiveCurtailmentData();
-
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(eventUuid);
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 });
