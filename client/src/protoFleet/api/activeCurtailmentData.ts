@@ -205,7 +205,6 @@ export function resetActiveCurtailmentData(): void {
   inFlightActiveCurtailmentRequest = null;
   dismissedEventUuid = null;
   emptyActiveRefreshCount = 0;
-  nextWriteVersion = 0;
-  appliedWriteVersion = 0;
-  useActiveCurtailmentDataStore.setState(initialStoreState, true);
+  appliedWriteVersion = getNextWriteVersion();
+  useActiveCurtailmentDataStore.setState({ ...initialSnapshot, version: appliedWriteVersion }, true);
 }
