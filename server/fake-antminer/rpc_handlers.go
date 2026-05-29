@@ -223,13 +223,14 @@ func generateStatsResponse(state *MinerState) StatsResponse {
 	defer state.mu.RUnlock()
 
 	now := time.Now().Unix()
-	hashRateGHS := state.effectiveHashRateLocked() * thsToGhsConversionFactor
+	effectiveHashRate := state.effectiveHashRateLocked()
+	hashRateGHS := effectiveHashRate * thsToGhsConversionFactor
 	ghs5s := hashRateGHS - hashrate5sVariation
 	ghsav := hashRateGHS
 	ghs30m := hashRateGHS + hashrate30mVariation
 	powerW := mockChainPowerW
 	if state.HashRate > 0 {
-		powerW = mockChainPowerW * state.effectiveHashRateLocked() / state.HashRate
+		powerW = mockChainPowerW * effectiveHashRate / state.HashRate
 	}
 	if hashRateGHS == 0 {
 		ghs5s = 0
