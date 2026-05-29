@@ -1,4 +1,4 @@
--- Reverses 000062_seed_pool_permissions.up.sql by removing pool:read and
+-- Reverses 000063_seed_pool_permissions.up.sql by removing pool:read and
 -- pool:manage from every role that holds them and then deleting the
 -- permission rows themselves. Rolling back the data migration cleanly is
 -- impossible without provenance tracking; the rollback path is rare/
