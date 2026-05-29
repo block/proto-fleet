@@ -3,6 +3,7 @@ package mqttingest
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +18,11 @@ import (
 
 // fakeService captures Start/Stop/GetActive calls so tests can assert
 // the driver's translation of edges into curtailment-service requests.
+// Methods take the mutex so the subscriber test can safely poll
+// startCalls from a different goroutine than the worker that drives
+// dispatch.
 type fakeService struct {
+	mu             sync.Mutex
 	startCalls     []curtailment.StartRequest
 	stopCalls      []curtailment.StopRequest
 	getActiveCalls []int64
@@ -31,18 +36,42 @@ type fakeService struct {
 }
 
 func (f *fakeService) Start(_ context.Context, req curtailment.StartRequest) (*curtailment.Plan, error) {
+	f.mu.Lock()
 	f.startCalls = append(f.startCalls, req)
-	return f.startResult, f.startErr
+	res, err := f.startResult, f.startErr
+	f.mu.Unlock()
+	return res, err
 }
 
 func (f *fakeService) Stop(_ context.Context, req curtailment.StopRequest) (*models.Event, error) {
+	f.mu.Lock()
 	f.stopCalls = append(f.stopCalls, req)
-	return f.stopResult, f.stopErr
+	res, err := f.stopResult, f.stopErr
+	f.mu.Unlock()
+	return res, err
 }
 
 func (f *fakeService) GetActive(_ context.Context, orgID int64) (*models.Event, error) {
+	f.mu.Lock()
 	f.getActiveCalls = append(f.getActiveCalls, orgID)
-	return f.getActiveResult, f.getActiveErr
+	res, err := f.getActiveResult, f.getActiveErr
+	f.mu.Unlock()
+	return res, err
+}
+
+// startCallsLen is the lock-protected read the subscriber test uses
+// to poll for dispatch completion.
+func (f *fakeService) startCallsLen() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.startCalls)
+}
+
+// startCallAt returns a copy of the i-th captured Start request.
+func (f *fakeService) startCallAt(i int) curtailment.StartRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.startCalls[i]
 }
 
 func sampleSource() SourceConfig {
