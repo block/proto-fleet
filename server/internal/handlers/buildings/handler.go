@@ -125,3 +125,59 @@ func (h *Handler) AssignRackToBuilding(ctx context.Context, req *connect.Request
 		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
 	}), nil
 }
+
+func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.GetBuildingStatsRequest]) (*connect.Response[pb.GetBuildingStatsResponse], error) {
+	// GetBuildingStats returns telemetry rollups + per-rack health +
+	// device_identifiers, so it layers three permissions: site:read for
+	// the building-existence surface, fleet:read for the aggregate
+	// telemetry, and miner:read because device_identifiers is a miner-
+	// inventory surface (the FE uses it to scope downstream telemetry +
+	// component-error fetches). Future migration to site-scoped
+	// narrowing on PermSiteRead requires resolving building→site before
+	// the authz check.
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId())
+	if err != nil {
+		return nil, err
+	}
+	rackHealth := make([]*pb.BuildingRackHealth, 0, len(out.RackHealth))
+	for _, r := range out.RackHealth {
+		rackHealth = append(rackHealth, &pb.BuildingRackHealth{
+			RackId:          r.RackID,
+			RackLabel:       r.RackLabel,
+			AisleIndex:      r.AisleIndex,
+			PositionInAisle: r.PositionInAisle,
+			HashingCount:    r.HashingCount,
+			BrokenCount:     r.BrokenCount,
+			OfflineCount:    r.OfflineCount,
+			SleepingCount:   r.SleepingCount,
+		})
+	}
+	return connect.NewResponse(&pb.GetBuildingStatsResponse{
+		BuildingId:               out.BuildingID,
+		RackCount:                out.RackCount,
+		DeviceCount:              out.DeviceCount,
+		ReportingCount:           out.ReportingCount,
+		HashrateReportingCount:   out.HashrateReportingCount,
+		EfficiencyReportingCount: out.EfficiencyReportingCount,
+		PowerReportingCount:      out.PowerReportingCount,
+		TotalHashrateThs:         out.TotalHashrateThs,
+		AvgEfficiencyJth:         out.AvgEfficiencyJth,
+		TotalPowerKw:             out.TotalPowerKw,
+		HashingCount:             out.HashingCount,
+		BrokenCount:              out.BrokenCount,
+		OfflineCount:             out.OfflineCount,
+		SleepingCount:            out.SleepingCount,
+		RackHealth:               rackHealth,
+		DeviceIdentifiers:        out.DeviceIdentifiers,
+	}), nil
+}

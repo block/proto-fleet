@@ -129,3 +129,41 @@ type AssignRackToBuildingParams struct {
 type AssignRackToBuildingResult struct {
 	SiteReassignedDeviceCount int64
 }
+
+// BuildingStats is the rollup returned by GetBuildingStats. Scope is
+// every device whose rack lives in the building.
+type BuildingStats struct {
+	BuildingID               int64
+	RackCount                int32
+	DeviceCount              int32
+	ReportingCount           int32
+	HashrateReportingCount   int32
+	EfficiencyReportingCount int32
+	PowerReportingCount      int32
+	TotalHashrateThs         float64
+	AvgEfficiencyJth         float64
+	TotalPowerKw             float64
+	HashingCount             int32
+	BrokenCount              int32
+	OfflineCount             int32
+	SleepingCount            int32
+	RackHealth               []BuildingRackHealth
+	// DeviceIdentifiers is the set of devices the rollup was computed
+	// over. Returned so FE telemetry consumers can scope themselves
+	// without a separate ListMinerStateSnapshots pagination.
+	DeviceIdentifiers []string
+}
+
+// BuildingRackHealth is the per-rack rollup returned alongside
+// BuildingStats. State counts use the same DeviceSetStats buckets; the
+// FE owns the priority rule that collapses them into a visual state.
+type BuildingRackHealth struct {
+	RackID          int64
+	RackLabel       string
+	AisleIndex      *int32
+	PositionInAisle *int32
+	HashingCount    int32
+	BrokenCount     int32
+	OfflineCount    int32
+	SleepingCount   int32
+}

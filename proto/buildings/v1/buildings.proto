@@ -54,6 +54,13 @@ service BuildingService {
     // descendant device.site_id that SaveRack runs when the rack's
     // site changes.
     rpc AssignRackToBuilding(AssignRackToBuildingRequest) returns (AssignRackToBuildingResponse);
+
+    // GetBuildingStats returns server-rolled telemetry + miner-state
+    // counts for every device whose rack lives in the building, plus a
+    // per-rack health summary (rack id, label, position, state counts)
+    // sized to the building's aisles × racks_per_aisle floor plan.
+    // Drives the /sites BuildingCard.
+    rpc GetBuildingStats(GetBuildingStatsRequest) returns (GetBuildingStatsResponse);
 }
 
 // RackOrderIndex mirrors device_set/v1's enum. We re-declare it here
@@ -265,4 +272,63 @@ message AssignRackToBuildingResponse {
     // re-stamped to the target building's site_id (or NULL when the
     // rack moved to unassigned). Zero when no cascade was needed.
     int64 site_reassigned_device_count = 1;
+}
+
+// GetBuildingStats
+
+message GetBuildingStatsRequest {
+    int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+// GetBuildingStatsResponse mirrors DeviceSetStats for the rollup fields
+// and adds a rack-level breakdown for the BuildingCard floor plan.
+message GetBuildingStatsResponse {
+    int64  building_id        = 1;
+    int32  rack_count         = 2;
+    int32  device_count       = 3;
+    int32  reporting_count    = 4;
+    double total_hashrate_ths = 5;
+    double avg_efficiency_jth = 6;
+    double total_power_kw     = 7;
+    int32  hashing_count      = 8;
+    int32  broken_count       = 9;
+    int32  offline_count      = 10;
+    int32  sleeping_count     = 11;
+    // One entry per rack currently assigned to the building. Positions
+    // mirror BuildingRack so callers don't need a second lookup to paint
+    // the floor plan. Racks without a position are still returned (the
+    // operator can place them via ManageBuildingModal); position fields
+    // are unset in that case.
+    repeated BuildingRackHealth rack_health = 12;
+
+    // Device identifiers in scope for this building. Returned so the
+    // BuildingPage performance + component-error consumers don't have to
+    // separately paginate ListMinerStateSnapshots just to learn which
+    // devices to query telemetry for — the server already computed this
+    // set when summing the rollup fields above.
+    repeated string device_identifiers = 13;
+
+    // Per-field reporting counts so the FE can distinguish "no devices
+    // reporting" from "devices reporting but the field is missing." A
+    // reporting device with EfficiencyJH = nil shouldn't make the average
+    // look like real data; if efficiency_reporting_count == 0 the FE shows
+    // the dash even when reporting_count > 0.
+    int32 hashrate_reporting_count    = 14;
+    int32 efficiency_reporting_count  = 15;
+    int32 power_reporting_count       = 16;
+}
+
+// BuildingRackHealth is the per-rack rollup returned by GetBuildingStats.
+// State counts mirror DeviceSetStats; the FE owns the priority rule that
+// collapses them into a single visual state (so design iteration doesn't
+// churn the proto).
+message BuildingRackHealth {
+    int64           rack_id           = 1;
+    string          rack_label        = 2;
+    optional int32  aisle_index       = 3;
+    optional int32  position_in_aisle = 4;
+    int32           hashing_count     = 5;
+    int32           broken_count      = 6;
+    int32           offline_count     = 7;
+    int32           sleeping_count    = 8;
 }

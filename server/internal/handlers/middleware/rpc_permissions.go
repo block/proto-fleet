@@ -71,6 +71,11 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRackToBuildingProcedure: authz.PermSiteManage,
+	// GetBuildingStats also calls RequirePermission(PermFleetRead) and
+	// RequirePermission(PermMinerRead) inline — those gate the telemetry
+	// rollup and the device_identifiers surface respectively. The map
+	// entry is the primary gate (site:read = "can see this building").
+	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
 
 	// CurtailmentService — reads + AdminTerminateEvent + UpdateCurtailmentEvent
 	// + IngestCurtailmentSignal. Start/Stop/Preview retain conditional inline
@@ -141,16 +146,13 @@ var ProcedurePermissions = map[string]string{
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            authz.PermMinerDelete,
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      authz.PermMinerExportCSV,
 
-	// FleetNodeAdminService — read for the list endpoints, manage for
-	// everything that mutates fleet-node state. DiscoverOnFleetNode is
-	// still pending until the ControlStream surface lands.
-	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        authz.PermFleetnodeRead,
-	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:       authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  authz.PermFleetnodeRead,
+	// FleetNodeAdminService — read for List, manage for the rest.
+	// Pair/Unpair/ListFleetNodeDevices/DiscoverOnFleetNode remain
+	// Unimplemented stubs and stay in ProceduresPendingMigration.
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure: authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:       authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:     authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:      authz.PermFleetnodeManage,
 
 	// ForemanImportService — bulk miner import flow. Gated on
 	// miner:pair, the same key as the per-miner pairing endpoints —
@@ -210,6 +212,10 @@ var ProcedurePermissions = map[string]string{
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceReassignDevicesToSiteProcedure: authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure:  authz.PermSiteManage,
+	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to
+	// cover the aggregate telemetry surface (matching the gate on
+	// telemetry.GetCombinedMetrics). The map entry is the primary gate.
+	sitesv1connect.SiteServiceGetSiteStatsProcedure: authz.PermSiteRead,
 
 	// TelemetryService — fleet:read for combined-metrics surfaces.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          authz.PermFleetRead,
@@ -252,9 +258,11 @@ var ProceduresPendingMigration = map[string]string{
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
 
-	// FleetNodeAdminService — DiscoverOnFleetNode remains a stub until
-	// the ControlStream surface lands.
-	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	// FleetNodeAdminService — Unimplemented stubs; gate when implemented.
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:   "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
 
 	// ScheduleService — operator-managed schedules. Needs a new
 	// schedule:read / schedule:manage catalog pair + ADMIN backfill
