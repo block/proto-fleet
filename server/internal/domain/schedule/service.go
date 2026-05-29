@@ -46,18 +46,6 @@ func NewService(store interfaces.ScheduleStore, targetStore interfaces.ScheduleT
 	}
 }
 
-// GetSchedule returns the stored schedule for the caller's organization.
-// Used by the handler to look up a schedule's persisted action before
-// resuming it, so the resumer's underlying-action permission can be
-// re-checked.
-func (s *Service) GetSchedule(ctx context.Context, scheduleID int64) (*pb.Schedule, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.store.GetSchedule(ctx, info.OrganizationID, scheduleID)
-}
-
 func (s *Service) ListSchedules(ctx context.Context, status, action string) ([]*pb.Schedule, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -313,7 +301,13 @@ func (s *Service) PauseSchedule(ctx context.Context, scheduleID int64) (*pb.Sche
 	return paused, nil
 }
 
-func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64) (*pb.Schedule, error) {
+// ResumeSchedule reactivates a paused schedule. authorizeAction, if
+// non-nil, runs inside the same transaction as the read and update so
+// the caller's authority is checked against the same row state that
+// gets resumed. Used to close a TOCTOU window where a separate
+// pre-flight authz read could authorize a different action than the
+// one finally resumed if an Update raced in between.
+func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authorizeAction func(pb.ScheduleAction) error) (*pb.Schedule, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -323,6 +317,12 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64) (*pb.Sch
 		existing, err := s.store.GetSchedule(ctx, info.OrganizationID, scheduleID)
 		if err != nil {
 			return nil, err
+		}
+
+		if authorizeAction != nil {
+			if err := authorizeAction(existing.Action); err != nil {
+				return nil, err
+			}
 		}
 
 		nextRun, err := ComputeNextRun(existing, s.now())

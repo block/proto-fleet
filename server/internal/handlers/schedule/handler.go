@@ -91,18 +91,13 @@ func (h *Handler) ResumeSchedule(ctx context.Context, r *connect.Request[pb.Resu
 	if _, err := middleware.RequirePermission(ctx, authz.PermScheduleManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	// Reactivating an existing paused schedule causes the processor to
-	// dispatch its stored action. Re-check the caller's authority for
-	// that action so a schedule:manage holder can't escalate by
-	// resuming a privileged schedule they did not create themselves.
-	existing, err := h.svc.GetSchedule(ctx, r.Msg.ScheduleId)
-	if err != nil {
-		return nil, err
-	}
-	if err := requireActionAuthority(ctx, existing.Action); err != nil {
-		return nil, err
-	}
-	schedule, err := h.svc.ResumeSchedule(ctx, r.Msg.ScheduleId)
+	// The action-authority check runs inside the service's transaction
+	// so it sees the same row the resume update operates on; a pre-flight
+	// handler-side read could race with an Update that swapped the
+	// schedule's action between the read and the resume.
+	schedule, err := h.svc.ResumeSchedule(ctx, r.Msg.ScheduleId, func(action pb.ScheduleAction) error {
+		return requireActionAuthority(ctx, action)
+	})
 	if err != nil {
 		return nil, err
 	}
