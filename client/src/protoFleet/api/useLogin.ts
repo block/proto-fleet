@@ -48,7 +48,9 @@ const useLogin = () => {
 
           // Session cookie is automatically stored by browser
           // We just track the expiry and user info in state
-          resetActiveCurtailmentData();
+          if (!skipLogoutOnError) {
+            resetActiveCurtailmentData();
+          }
           setSessionExpiry(new Date(Number(sessionExpiry) * 1000));
           setIsAuthenticated(true);
           setUsername(userInfo.username);
