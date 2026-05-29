@@ -136,6 +136,17 @@ describe("formatHashrateWithUnit", () => {
   test("should handle undefined/null values", () => {
     expect(formatHashrateWithUnit()).toEqual({ value: 0, unit: "TH/S" });
   });
+
+  test("scales sub-TH/s into GH/S", () => {
+    expect(formatHashrateWithUnit(0.5)).toEqual({ value: 500, unit: "GH/S" });
+    expect(formatHashrateWithUnit(0.001)).toEqual({ value: 1, unit: "GH/S" });
+  });
+
+  test("scales > 1,000,000 TH/s into EH/S", () => {
+    expect(formatHashrateWithUnit(2_500_000)).toEqual({ value: 2.5, unit: "EH/S" });
+    // Strict `>` keeps 1,000,000 TH/s in PH/s rather than tipping into EH/s.
+    expect(formatHashrateWithUnit(1_000_000)).toEqual({ value: 1000, unit: "PH/S" });
+  });
 });
 
 describe("formatTempRange", () => {

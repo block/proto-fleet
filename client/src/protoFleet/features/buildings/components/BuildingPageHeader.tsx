@@ -1,6 +1,8 @@
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
+import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
 
 interface BuildingPageHeaderProps {
   label: string;
@@ -11,29 +13,49 @@ interface BuildingPageHeaderProps {
   onEditBuilding?: () => void;
 }
 
-// "View miners" and "View racks" link to their respective lists with the
-// `building` URL filter — the singular key parsed by filterUrlParams.ts
-// (mirroring the existing `group` and `rack` singular keys). RacksPage
-// parses the same param to pre-select its building filter chip.
-const BuildingPageHeader = ({ label, buildingId, onEditBuilding }: BuildingPageHeaderProps) => (
-  <div className="flex items-start justify-between gap-4">
-    <h1 className="text-heading-500 text-text-primary">{label}</h1>
-    <div className="flex items-center gap-2">
-      <Link to={`/racks?building=${buildingId}`} data-testid="building-page-view-racks">
-        <Button variant={variants.secondary} text="View racks" onClick={() => undefined} />
-      </Link>
-      <Link to={`/miners?building=${buildingId}`} data-testid="building-page-view-miners">
-        <Button variant={variants.secondary} text="View miners" onClick={() => undefined} />
-      </Link>
-      <Button
-        variant={variants.primary}
-        text="Edit building"
-        onClick={onEditBuilding ?? (() => undefined)}
-        disabled={!onEditBuilding}
-        testId="building-page-edit"
-      />
-    </div>
-  </div>
-);
+// Mirrors RackOverviewPage's header: chevron-left back button, heading-300
+// title, and a cluster of three secondary buttons. "View miners" and "View
+// racks" link to their respective lists with the `building` URL filter — the
+// singular key parsed by filterUrlParams.ts (mirroring the existing `group`
+// and `rack` singular keys). RacksPage parses the same param to pre-select
+// its building filter chip.
+const BuildingPageHeader = ({ label, buildingId, onEditBuilding }: BuildingPageHeaderProps) => {
+  const navigate = useNavigate();
+  return (
+    <Header
+      title={label}
+      titleSize="text-heading-300"
+      inline
+      icon={<ChevronDown className="rotate-90" />}
+      iconAriaLabel="Back to sites"
+      iconOnClick={() => navigate("/sites")}
+    >
+      <div className="ml-3 flex items-center gap-3">
+        <Button
+          variant={variants.secondary}
+          onClick={() => navigate(`/racks?building=${buildingId}`)}
+          testId="building-page-view-racks"
+        >
+          View racks
+        </Button>
+        <Button
+          variant={variants.secondary}
+          onClick={() => navigate(`/miners?building=${buildingId}`)}
+          testId="building-page-view-miners"
+        >
+          View miners
+        </Button>
+        <Button
+          variant={variants.secondary}
+          onClick={onEditBuilding ?? (() => undefined)}
+          disabled={!onEditBuilding}
+          testId="building-page-edit"
+        >
+          Edit building
+        </Button>
+      </div>
+    </Header>
+  );
+};
 
 export default BuildingPageHeader;

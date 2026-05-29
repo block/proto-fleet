@@ -48,21 +48,43 @@ export const convertMegahashSecToTerahashSec = (value?: number | null) => (value
 export const convertGigahashSecToTerahashSec = (value?: number | null) => (value ?? 0) / 1000;
 export const convertWtoKW = (value?: number | null) => (value ?? 0) / 1000;
 
-// Hashrate unit conversion constants
+// Hashrate unit conversion constants. Retained for backwards compatibility
+// with callers that import these directly; formatHashrateWithUnit no longer
+// uses TH_TO_PH_THRESHOLD/TH_TO_PH_DIVISOR internally.
 export const TH_TO_PH_THRESHOLD = 1000;
 export const TH_TO_PH_DIVISOR = 1000;
 
+// Unit ladder for hashrate display. Value in is always TH/s; the formatter
+// scales it into GH/s, TH/s, PH/s, or EH/s so the displayed number stays in
+// [1, 1000) for non-zero inputs. Zero stays in TH/s as the conventional
+// "no signal" default.
+const TH_PER_PH = 1_000;
+const TH_PER_EH = 1_000_000;
+const GH_PER_TH = 1_000;
+
 export const formatHashrateWithUnit = (value: number = 0) => {
-  if (value > TH_TO_PH_THRESHOLD) {
-    return {
-      value: value / TH_TO_PH_DIVISOR,
-      unit: "PH/S",
-    };
+  // NaN/Infinity guard. Bad upstream data (corrupted telemetry, division
+  // by zero in an aggregation) shouldn't propagate `NaN TH/s` to the UI;
+  // fall through to the zero rendering instead.
+  if (!Number.isFinite(value)) {
+    return { value: 0, unit: "TH/S" };
   }
-  return {
-    value: value,
-    unit: "TH/S",
-  };
+  if (value <= 0) {
+    return { value: 0, unit: "TH/S" };
+  }
+  // Strict `>` boundaries keep prior callers (AsicPopover, HashRateValue)
+  // rendering 1000 TH/s as "1000 TH/S" instead of "1 PH/S"; same rule
+  // applies one step up at the EH boundary.
+  if (value > TH_PER_EH) {
+    return { value: value / TH_PER_EH, unit: "EH/S" };
+  }
+  if (value > TH_PER_PH) {
+    return { value: value / TH_PER_PH, unit: "PH/S" };
+  }
+  if (value < 1) {
+    return { value: value * GH_PER_TH, unit: "GH/S" };
+  }
+  return { value, unit: "TH/S" };
 };
 
 export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;

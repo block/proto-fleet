@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import SiteModals from "../components/SiteModals";
 import SiteOverviewSection from "../components/SiteOverviewSection";
@@ -10,9 +10,11 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 // `/sites` operational overview. Phase 1a renders the scaffolding — header,
 // per-site sections with placeholder metrics + FPO BuildingCards, and the
@@ -30,9 +32,7 @@ const SitesPage = () => {
   // PermissionDenied for non-admins) don't collapse into "no sites yet"
   // and mislead the operator into thinking the org has no sites.
   const fetchSites = useCallback(() => {
-    const controller = new AbortController();
     void listSites({
-      signal: controller.signal,
       onSuccess: (rows) => {
         setSites(rows);
         setSitesError(null);
@@ -42,10 +42,7 @@ const SitesPage = () => {
         setSites([]);
       },
     });
-    return () => controller.abort();
   }, [listSites]);
-
-  useEffect(() => fetchSites(), [fetchSites]);
 
   // One ListBuildings call at the page level, then we bucket the rows by
   // siteId client-side so each SiteOverviewSection can render synchronously
@@ -53,9 +50,7 @@ const SitesPage = () => {
   // the earlier scaffold had. Track buildingsError separately so failures
   // don't collapse every site into "No buildings in this site yet."
   const fetchBuildings = useCallback(() => {
-    const controller = new AbortController();
     void listAllBuildings({
-      signal: controller.signal,
       onSuccess: (rows) => {
         setBuildings(rows);
         setBuildingsError(null);
@@ -65,10 +60,15 @@ const SitesPage = () => {
         setBuildings([]);
       },
     });
-    return () => controller.abort();
   }, [listAllBuildings]);
 
-  useEffect(() => fetchBuildings(), [fetchBuildings]);
+  // Poll both sites + buildings on the same cadence as the per-card stats
+  // (POLL_INTERVAL_MS) so building cards stay in sync when racks are added
+  // or removed without forcing a manual refresh. The shared usePoll
+  // scheduler dedups concurrent fetches and runs an initial fetch on mount,
+  // replacing the earlier one-shot useEffect.
+  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  usePoll({ fetchData: fetchBuildings, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
 
@@ -104,7 +104,7 @@ const SitesPage = () => {
   if (sites === undefined) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6">
-        <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+        <SitesPageHeader headline="Sites" />
         <div className="text-300 text-text-primary-70">Loading…</div>
       </div>
     );
@@ -113,7 +113,7 @@ const SitesPage = () => {
   if (sitesError) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page-error">
-        <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+        <SitesPageHeader headline="Sites" />
         <div
           className="flex flex-col items-start gap-3 rounded-xl border border-border-5 p-6"
           data-testid="sites-page-error-card"
@@ -140,11 +140,7 @@ const SitesPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page">
-      <SitesPageHeader
-        headline="Sites"
-        subheadline="Manage your sites, buildings, and rack infrastructure."
-        onAddSite={showAddSite ? modals.openCreate : undefined}
-      />
+      <SitesPageHeader headline="Sites" onAddSite={showAddSite ? modals.openCreate : undefined} />
       {sites.length === 0 ? (
         <SitesEmptyState onAddSite={modals.openCreate} />
       ) : activeSite.kind === "unassigned" ? (
@@ -157,7 +153,7 @@ const SitesPage = () => {
           No sites match the current selection.
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-12">
           {buildingsError ? (
             <div
               className="flex items-center justify-between rounded-xl border border-border-5 p-4"
