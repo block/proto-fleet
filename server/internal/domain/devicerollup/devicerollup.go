@@ -61,9 +61,19 @@ type MetricsRollup struct {
 
 // AggregateLatestMetrics sums hashrate + power and averages efficiency
 // across the supplied device set. Devices missing from `metrics` are
-// skipped silently — they simply don't contribute. NaN/negative average
-// efficiency clamps to zero so floating-point noise never reaches the
-// FE. Empty input returns the zero value with ReportingCount = 0.
+// skipped silently — they simply don't contribute. Per-field values are
+// validated to be finite (not NaN / ±Inf) and non-negative before they
+// count; an invalid value behaves the same as "field absent" — it
+// doesn't increment that field's reporting count and doesn't poison the
+// aggregate. A device with all three fields invalid still increments
+// ReportingCount (the latest-metrics record itself is present) but
+// contributes nothing to any rollup. Empty input returns the zero
+// value with ReportingCount = 0.
+//
+// This is defense in depth against plugins that return NaN/Inf for
+// disconnected or mis-reporting hardware: without these checks one bad
+// metric value would silently flip site- or building-level totals to
+// NaN/Inf and break the FE.
 func AggregateLatestMetrics(
 	metrics map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics,
 	deviceIDs []minerModels.DeviceIdentifier,
@@ -77,21 +87,26 @@ func AggregateLatestMetrics(
 		powerSum       float64
 		efficiencySum  float64
 	)
+	finiteNonNegative := func(v float64) bool {
+		// math.IsInf(v, 0) catches both +Inf and -Inf; the v >= 0 clause
+		// also rejects -0 silently (rounds to 0 in the sum, harmless).
+		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0
+	}
 	for _, devID := range deviceIDs {
 		m, ok := metrics[devID]
 		if !ok {
 			continue
 		}
 		reportingCount++
-		if m.HashrateHS != nil {
+		if m.HashrateHS != nil && finiteNonNegative(m.HashrateHS.Value) {
 			hashrateSum += m.HashrateHS.Value
 			hashrateN++
 		}
-		if m.PowerW != nil {
+		if m.PowerW != nil && finiteNonNegative(m.PowerW.Value) {
 			powerSum += m.PowerW.Value
 			powerN++
 		}
-		if m.EfficiencyJH != nil {
+		if m.EfficiencyJH != nil && finiteNonNegative(m.EfficiencyJH.Value) {
 			efficiencySum += m.EfficiencyJH.Value
 			efficiencyN++
 		}

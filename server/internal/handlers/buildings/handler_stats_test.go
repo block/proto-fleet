@@ -73,6 +73,10 @@ func intPtrStats(v int32) *int32 { return &v }
 func TestHandler_GetBuildingStats_requiresSiteRead(t *testing.T) {
 	t.Parallel()
 	h := newStatsHandler(t)
+	// GetBuilding runs before the authz checks so we can narrow them to
+	// the building's site. The mock returns a building so the handler
+	// reaches the perm check, which is what we're exercising.
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).Return(&models.Building{}, nil)
 	ctx := handlerstest.CtxWithPermissions(t, 7) // no perms
 	_, err := h.handler.GetBuildingStats(ctx, connect.NewRequest(&pb.GetBuildingStatsRequest{BuildingId: 1}))
 	require.Error(t, err)
@@ -94,7 +98,10 @@ func TestHandler_GetBuildingStats_plumbsRackHealth(t *testing.T) {
 		"",
 		nil,
 	)
-	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1}, nil)
+	// GetBuilding is called twice: once by the handler for site-scoped
+	// authz narrowing, once by the service for the layout-bounds clamp
+	// on rack_health.
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1}, nil).Times(2)
 	h.deviceQueryer.collections = map[int64]interfaces.MinerStateCounts{
 		10: {HashingCount: 3, BrokenCount: 1},
 	}
@@ -114,7 +121,10 @@ func TestHandler_GetBuildingStats_plumbsRackHealth(t *testing.T) {
 func TestHandler_GetBuildingStats_propagatesNotFound(t *testing.T) {
 	t.Parallel()
 	h := newStatsHandler(t)
-	h.buildingStore.EXPECT().BuildingBelongsToOrg(gomock.Any(), int64(7), int64(99)).Return(false, nil)
+	// GetBuilding runs first now so site-scoped authz can narrow against
+	// the building's site. NotFound from this initial lookup propagates
+	// out the same way the service-layer NotFound would.
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(99)).Return(nil, fleeterror.NewNotFoundError("building 99 not found"))
 
 	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead)
 	_, err := h.handler.GetBuildingStats(ctx, connect.NewRequest(&pb.GetBuildingStatsRequest{BuildingId: 99}))

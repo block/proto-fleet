@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -132,17 +133,41 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 	// the building-existence surface, fleet:read for the aggregate
 	// telemetry, and miner:read because device_identifiers is a miner-
 	// inventory surface (the FE uses it to scope downstream telemetry +
-	// component-error fetches). Future migration to site-scoped
-	// narrowing on PermSiteRead requires resolving building→site before
-	// the authz check.
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	// component-error fetches).
+	//
+	// Resolve building → site_id BEFORE authz so site-scoped roles get
+	// narrowed checks against the building's site. Without this, a user
+	// with a site-A-narrowed grant evaluated against ResourceContext{}
+	// would be treated as org-scoped and could read stats for buildings
+	// in other sites. Org-scoped grants still satisfy the narrower
+	// ResourceContext, so this only tightens — it never broadens.
+	//
+	// Pre-authz GetBuilding does leak existence to same-org callers that
+	// later fail the site-scoped check (timing channel). Acceptable
+	// trade-off: same pattern as miner:read → miner:site resolution.
+	// Cross-org callers still see NotFound because GetBuilding is
+	// org-scoped via session.OrganizationID.
+	sess, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+	building, err := h.service.GetBuilding(ctx, sess.OrganizationID, req.Msg.GetBuildingId())
+	if err != nil {
 		return nil, err
 	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
+	// Unassigned buildings (SiteID == nil) carry an empty ResourceContext,
+	// so only org-scoped grants pass — site-scoped operators legitimately
+	// can't see buildings outside their site, including the unassigned
+	// pool.
+	rc := authz.ResourceContext{SiteID: building.SiteID}
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, rc)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, rc); err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, rc); err != nil {
 		return nil, err
 	}
 	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId())

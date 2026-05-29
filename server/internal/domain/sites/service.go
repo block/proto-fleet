@@ -37,6 +37,15 @@ const (
 // total separately; the truncated list is just a debugging affordance.
 const maxDeviceIdentifiersInMetadata = 50
 
+// MaxDevicesPerSiteStatsRequest caps the device list GetSiteStats will
+// materialize in-memory before bailing. Unlike GetBuildingStats this
+// list is never echoed in the response — the ceiling guards against
+// runaway memory + giant Postgres/Timescale ANY() queries on a site
+// that's been pathologically misconfigured. Production single-site
+// fleets cap around 30k devices; 100k is generous headroom and still
+// well below the point a single rollup would stall a 60s poll tick.
+const MaxDevicesPerSiteStatsRequest = 100_000
+
 // Service is the domain entry point for site CRUD, device reassignment,
 // and building site reassignment. The transactor is required: the
 // site delete cascade and the bulk-reassign all-or-nothing semantics
@@ -554,6 +563,9 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	})
 	if err != nil {
 		return nil, err
+	}
+	if len(deviceIDs) > MaxDevicesPerSiteStatsRequest {
+		return nil, fleeterror.NewInternalErrorf("site %d exceeded the %d device cap (%d devices)", siteID, MaxDevicesPerSiteStatsRequest, len(deviceIDs))
 	}
 
 	stats := &models.SiteStats{
