@@ -432,6 +432,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerModelGroupsStmt, err = db.PrepareContext(ctx, getMinerModelGroups); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerModelGroups: %w", err)
 	}
+	if q.getMinerStateCountsByDeviceIDsStmt, err = db.PrepareContext(ctx, getMinerStateCountsByDeviceIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateCountsByDeviceIDs: %w", err)
+	}
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
 	}
@@ -1720,6 +1723,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerModelGroupsStmt: %w", cerr)
 		}
 	}
+	if q.getMinerStateCountsByDeviceIDsStmt != nil {
+		if cerr := q.getMinerStateCountsByDeviceIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateCountsByDeviceIDsStmt: %w", cerr)
+		}
+	}
 	if q.getMinerStateSnapshotsStmt != nil {
 		if cerr := q.getMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
@@ -2900,6 +2908,7 @@ type Queries struct {
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getMinerModelGroupsStmt                             *sql.Stmt
+	getMinerStateCountsByDeviceIDsStmt                  *sql.Stmt
 	getMinerStateSnapshotsStmt                          *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                          *sql.Stmt
@@ -3243,6 +3252,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
+		getMinerStateCountsByDeviceIDsStmt:                  q.getMinerStateCountsByDeviceIDsStmt,
 		getMinerStateSnapshotsStmt:                          q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,

@@ -1409,66 +1409,26 @@ GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 // GetMinerStateCountsByDeviceIDs sums fleet-health buckets across a
 // flat device-identifier list. Same bucket priority rules as
 // GetMinerStateCountsByCollections, but with no device_set_membership
-// join so site-direct (un-racked) devices are included.
+// join so site-direct (un-racked) devices are included. Implemented as
+// a sqlc query (see device.sql) so DB access stays on the prepared-
+// statement path required by AGENTS.md §7.
 func (s *SQLDeviceStore) GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (stores.MinerStateCounts, error) {
 	if len(deviceIdentifiers) == 0 {
 		return stores.MinerStateCounts{}, nil
 	}
-
-	query := fmt.Sprintf(`SELECT
-    -- Offline
-    COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
-        THEN 1 ELSE 0
-    END), 0)::int AS offline_count,
-    -- Sleeping
-    COALESCE(SUM(CASE
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
-        THEN 1 ELSE 0
-    END), 0)::int AS sleeping_count,
-    -- Broken
-    COALESCE(SUM(CASE
-        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
-                  OR open_errors.device_id IS NOT NULL)
-        THEN 1 ELSE 0
-    END), 0)::int AS broken_count,
-    -- Hashing
-    COALESCE(SUM(CASE
-        WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
-             AND open_errors.device_id IS NULL
-        THEN 1 ELSE 0
-    END), 0)::int AS hashing_count
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN (
-    SELECT DISTINCT device_id
-    FROM errors
-    WHERE errors.org_id = $1
-      AND errors.closed_at IS NULL
-      AND %s
-) open_errors ON d.id = open_errors.device_id
-WHERE d.org_id = $1
-  AND d.device_identifier = ANY($2::text[])
-  AND d.deleted_at IS NULL
-  AND dd.deleted_at IS NULL
-  AND dd.is_active = TRUE
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')`, actionableErrorSeveritiesExpr("errors"))
-
-	var counts stores.MinerStateCounts
-	row := s.conn.QueryRowContext(ctx, query, orgID, pq.Array(deviceIdentifiers))
-	if err := row.Scan(&counts.OfflineCount, &counts.SleepingCount, &counts.BrokenCount, &counts.HashingCount); err != nil {
-		return stores.MinerStateCounts{}, fleeterror.NewInternalErrorf("failed to scan miner state counts by device ids: %v", err)
+	row, err := s.getQueries(ctx).GetMinerStateCountsByDeviceIDs(ctx, sqlc.GetMinerStateCountsByDeviceIDsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return stores.MinerStateCounts{}, fleeterror.NewInternalErrorf("failed to get miner state counts by device ids: %v", err)
 	}
-	return counts, nil
+	return stores.MinerStateCounts{
+		OfflineCount:  row.OfflineCount,
+		SleepingCount: row.SleepingCount,
+		BrokenCount:   row.BrokenCount,
+		HashingCount:  row.HashingCount,
+	}, nil
 }
 
 func (s *SQLDeviceStore) GetComponentErrorCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) ([]stores.ComponentErrorCount, error) {
