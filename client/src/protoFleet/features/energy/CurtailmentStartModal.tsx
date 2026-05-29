@@ -104,7 +104,15 @@ interface PreviewPaneProps {
   isPreviewLoading?: boolean;
 }
 
+interface PreviewStateOptions {
+  apiPreview: PreviewPaneProps;
+  controlledPreview?: PreviewPaneProps;
+  isEditMode: boolean;
+  unsupportedDeviceSetPreviewError?: string;
+}
+
 type ParsedNumberField = { parsed?: number; error?: string };
+type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreIntervalSec";
 
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
@@ -124,18 +132,13 @@ const defaultValues: CurtailmentFormValues = {
   reason: "",
   includeMaintenance: true,
 };
+const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "maxDurationSec", "restoreIntervalSec"];
 
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
   return {
     ...defaultValues,
     ...initialValues,
   };
-}
-
-function getInitialValuesKey(initialValues?: Partial<CurtailmentFormValues>): string {
-  return Object.entries(getInitialValues(initialValues))
-    .map(([key, value]) => `${key}:${String(value)}`)
-    .join("|");
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -166,47 +169,81 @@ function parseOptionalNonNegativeNumberField(value: string, fieldLabel: string):
   return { parsed };
 }
 
-function validateCurtailmentFormValues(values: CurtailmentFormValues): CurtailmentFormErrors {
-  const localErrors: CurtailmentFormErrors = {};
-  const targetKw = parseRequiredPositiveNumberField(values.targetKw, "a target reduction");
-  const toleranceKw = parseOptionalNonNegativeNumberField(values.toleranceKw, "a tolerance");
-  const minDuration = parseOptionalUint32Field(values.minDurationSec, {
-    label: "min duration",
-    max: curtailmentNumericFieldLimits.minDurationSec,
+function parseComparableUint32Field(value: string, max: number): number {
+  const parsedField = parseOptionalUint32Field(value, { label: "value", max });
+  return parsedField.parsed ?? 0;
+}
+
+function hasEditableCurtailmentChanges(values: CurtailmentFormValues, initialValues: CurtailmentFormValues): boolean {
+  return editableCurtailmentFields.some((field) => {
+    if (field === "reason") {
+      return values.reason.trim() !== initialValues.reason.trim();
+    }
+
+    if (field === "maxDurationSec") {
+      return (
+        parseComparableUint32Field(values.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec) !==
+        parseComparableUint32Field(initialValues.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec)
+      );
+    }
+
+    return (
+      parseComparableUint32Field(values.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec) !==
+      parseComparableUint32Field(initialValues.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec)
+    );
   });
+}
+
+function validateCurtailmentFormValues(
+  values: CurtailmentFormValues,
+  mode: CurtailmentStartModalMode = "create",
+  initialValues: CurtailmentFormValues = defaultValues,
+): CurtailmentFormErrors {
+  const localErrors: CurtailmentFormErrors = {};
+  const isEditMode = mode === "edit";
   const maxDuration = parseOptionalUint32Field(values.maxDurationSec, {
     label: "max duration",
     max: curtailmentNumericFieldLimits.maxDurationSec,
   });
-  const restoreBatchSize = parseOptionalUint32Field(values.restoreBatchSize, {
-    label: "batch size",
-    max: curtailmentNumericFieldLimits.restoreBatchSize,
+  const minDuration = parseOptionalUint32Field(isEditMode ? initialValues.minDurationSec : values.minDurationSec, {
+    label: "min duration",
+    max: curtailmentNumericFieldLimits.minDurationSec,
   });
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
   });
 
-  if (targetKw.error) {
-    localErrors.targetKw = targetKw.error;
-  }
-  if (toleranceKw.error) {
-    localErrors.toleranceKw = toleranceKw.error;
-  }
   if (values.reason.trim() === "") {
     localErrors.reason = "Enter a reason.";
-  }
-  if (minDuration.error) {
-    localErrors.minDurationSec = minDuration.error;
   }
   if (maxDuration.error) {
     localErrors.maxDurationSec = maxDuration.error;
   }
-  if (restoreBatchSize.error) {
-    localErrors.restoreBatchSize = restoreBatchSize.error;
+  if (isEditMode && maxDuration.error === undefined && maxDuration.parsed === 0) {
+    localErrors.maxDurationSec = "Enter max duration greater than 0.";
+  }
+  if (
+    isEditMode &&
+    maxDuration.error === undefined &&
+    values.maxDurationSec.trim() === "" &&
+    initialValues.maxDurationSec.trim() !== ""
+  ) {
+    localErrors.maxDurationSec = "Max duration cannot be cleared.";
   }
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
+  }
+  if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
+    localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
+  }
+  if (
+    isEditMode &&
+    restoreInterval.error === undefined &&
+    values.restoreIntervalSec.trim() === "" &&
+    initialValues.restoreIntervalSec.trim() !== ""
+  ) {
+    localErrors.restoreIntervalSec = "Restore interval cannot be cleared.";
   }
   if (
     minDuration.error === undefined &&
@@ -216,6 +253,30 @@ function validateCurtailmentFormValues(values: CurtailmentFormValues): Curtailme
     minDuration.parsed > maxDuration.parsed
   ) {
     localErrors.maxDurationSec = "Max duration must be greater than or equal to min duration.";
+  }
+
+  if (isEditMode) {
+    return localErrors;
+  }
+
+  const targetKw = parseRequiredPositiveNumberField(values.targetKw, "a target reduction");
+  const toleranceKw = parseOptionalNonNegativeNumberField(values.toleranceKw, "a tolerance");
+  const restoreBatchSize = parseOptionalUint32Field(values.restoreBatchSize, {
+    label: "batch size",
+    max: curtailmentNumericFieldLimits.restoreBatchSize,
+  });
+
+  if (targetKw.error) {
+    localErrors.targetKw = targetKw.error;
+  }
+  if (toleranceKw.error) {
+    localErrors.toleranceKw = toleranceKw.error;
+  }
+  if (restoreBatchSize.error) {
+    localErrors.restoreBatchSize = restoreBatchSize.error;
+  }
+  if (minDuration.error) {
+    localErrors.minDurationSec = minDuration.error;
   }
 
   return localErrors;
@@ -324,6 +385,23 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   return values.deviceIdentifiers;
 }
 
+function getPreviewState({
+  apiPreview,
+  controlledPreview,
+  isEditMode,
+  unsupportedDeviceSetPreviewError,
+}: PreviewStateOptions): PreviewPaneProps {
+  if (isEditMode) {
+    return { preview: undefined, previewError: undefined, isPreviewLoading: false };
+  }
+
+  if (unsupportedDeviceSetPreviewError) {
+    return { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
+  }
+
+  return controlledPreview ?? apiPreview;
+}
+
 function CurtailmentStartModalContent({
   open,
   onDismiss,
@@ -336,7 +414,8 @@ function CurtailmentStartModalContent({
   previewError,
   isSubmitting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [values, setValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
+  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
+  const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
   const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
@@ -344,32 +423,44 @@ function CurtailmentStartModalContent({
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
     setValues((current) => ({ ...current, [key]: value }));
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
-  const localErrors = useMemo(() => validateCurtailmentFormValues(values), [values]);
-  const effectiveErrors = { ...errors, ...localErrors };
   const isEditMode = mode === "edit";
+  const localErrors = useMemo(
+    () => validateCurtailmentFormValues(values, mode, initialFormValues),
+    [initialFormValues, mode, values],
+  );
+  const effectiveErrors = { ...errors, ...localErrors };
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
-  const hasControlledPreview = preview !== undefined || previewError !== undefined;
+  const controlledPreview =
+    preview !== undefined || previewError !== undefined
+      ? { preview, previewError, isPreviewLoading: false }
+      : undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values,
-    disabled: hasControlledPreview,
+    disabled: isEditMode || controlledPreview !== undefined,
   });
-  let previewState: PreviewPaneProps = hasControlledPreview
-    ? { preview, previewError, isPreviewLoading: false }
-    : apiPreview;
-
-  if (unsupportedDeviceSetPreviewError) {
-    previewState = { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
-  }
+  const previewState = getPreviewState({
+    apiPreview,
+    controlledPreview,
+    isEditMode,
+    unsupportedDeviceSetPreviewError,
+  });
 
   const hasBlockingValidationError =
     previewState.previewError !== undefined ||
     Object.keys(localErrors).length > 0 ||
     Object.keys(errors ?? {}).length > 0;
-  const selectedTargets = {
-    miners: getSelectedMinerIds(values),
-  };
-  const previewPane = <PreviewPane {...previewState} />;
+  const hasEditableChanges = !isEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
+  const isSubmitDisabled = hasBlockingValidationError || !hasEditableChanges;
+  const selectedMinerIds = getSelectedMinerIds(values);
+  const previewPane = isEditMode ? null : <PreviewPane {...previewState} />;
+  const paneContainerClassName = isEditMode
+    ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
+    : undefined;
+  const primaryPaneClassName = isEditMode ? "mx-auto w-full max-w-[720px] laptop:pl-0" : undefined;
+  const secondaryPaneClassName = isEditMode
+    ? "!hidden"
+    : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
 
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
     const hasSelectedMiners = deviceIdentifiers.length > 0;
@@ -389,11 +480,11 @@ function CurtailmentStartModalContent({
   };
 
   const handleSubmit = () => {
-    if (hasBlockingValidationError) {
+    if (isSubmitDisabled) {
       return;
     }
 
-    if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
+    if (!isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
       setSubmitAfterMaintenanceConfirmation(true);
       setShowMaintenanceConfirmation(true);
       return;
@@ -417,7 +508,7 @@ function CurtailmentStartModalContent({
     text: isEditMode ? "Save" : "Start curtailment",
     variant: variants.primary,
     onClick: handleSubmit,
-    disabled: hasBlockingValidationError,
+    disabled: isSubmitDisabled,
     loading: isSubmitting,
   });
 
@@ -443,7 +534,7 @@ function CurtailmentStartModalContent({
         onDismiss={onDismiss}
         isBusy={isSubmitting}
         buttons={buttons}
-        abovePanes={<div className="px-6 pb-6 laptop:hidden">{previewPane}</div>}
+        abovePanes={previewPane ? <div className="px-6 pb-6 laptop:hidden">{previewPane}</div> : null}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
             <Field
@@ -455,46 +546,51 @@ function CurtailmentStartModalContent({
               onChange={(value) => updateValue("reason", value)}
             />
 
-            <Section
-              title="Curtail behavior"
-              subtext="Fleet will automatically curtail the least efficient miners first."
-            >
-              <div className="grid gap-3">
+            {isEditMode ? (
+              <Section title="Curtail behavior">
                 <Field
-                  id="curtailment-target-kw"
-                  label="Fixed target reduction (kW)"
-                  value={values.targetKw}
-                  error={effectiveErrors.targetKw}
-                  onChange={(value) => updateValue("targetKw", value)}
+                  id="curtailment-max-duration"
+                  label="Max duration (sec)"
+                  value={values.maxDurationSec}
+                  error={effectiveErrors.maxDurationSec}
+                  onChange={(value) => updateValue("maxDurationSec", value)}
                 />
-                <div className="grid gap-3 tablet:grid-cols-2">
+              </Section>
+            ) : (
+              <Section
+                title="Curtail behavior"
+                subtext="Fleet will automatically curtail the least efficient miners first."
+              >
+                <div className="grid gap-3">
                   <Field
-                    id="curtailment-min-duration"
-                    label="Min duration (sec)"
-                    value={values.minDurationSec}
-                    error={effectiveErrors.minDurationSec}
-                    onChange={(value) => updateValue("minDurationSec", value)}
+                    id="curtailment-target-kw"
+                    label="Fixed target reduction (kW)"
+                    value={values.targetKw}
+                    error={effectiveErrors.targetKw}
+                    onChange={(value) => updateValue("targetKw", value)}
                   />
-                  <Field
-                    id="curtailment-max-duration"
-                    label="Max duration (sec)"
-                    value={values.maxDurationSec}
-                    error={effectiveErrors.maxDurationSec}
-                    onChange={(value) => updateValue("maxDurationSec", value)}
-                  />
+                  <div className="grid gap-3 tablet:grid-cols-2">
+                    <Field
+                      id="curtailment-min-duration"
+                      label="Min duration (sec)"
+                      value={values.minDurationSec}
+                      error={effectiveErrors.minDurationSec}
+                      onChange={(value) => updateValue("minDurationSec", value)}
+                    />
+                    <Field
+                      id="curtailment-max-duration"
+                      label="Max duration (sec)"
+                      value={values.maxDurationSec}
+                      error={effectiveErrors.maxDurationSec}
+                      onChange={(value) => updateValue("maxDurationSec", value)}
+                    />
+                  </div>
                 </div>
-              </div>
-            </Section>
+              </Section>
+            )}
 
             <Section title="Restore behavior">
-              <div className="grid gap-3 tablet:grid-cols-2">
-                <Field
-                  id="curtailment-restore-batch-size"
-                  label="Batch size (miners)"
-                  value={values.restoreBatchSize}
-                  error={effectiveErrors.restoreBatchSize}
-                  onChange={(value) => updateValue("restoreBatchSize", value)}
-                />
+              {isEditMode ? (
                 <Field
                   id="curtailment-restore-batch-interval"
                   label="Batch interval (sec)"
@@ -502,41 +598,64 @@ function CurtailmentStartModalContent({
                   error={effectiveErrors.restoreIntervalSec}
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
-              </div>
+              ) : (
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-restore-batch-size"
+                    label="Batch size (miners)"
+                    value={values.restoreBatchSize}
+                    error={effectiveErrors.restoreBatchSize}
+                    onChange={(value) => updateValue("restoreBatchSize", value)}
+                  />
+                  <Field
+                    id="curtailment-restore-batch-interval"
+                    label="Batch interval (sec)"
+                    value={values.restoreIntervalSec}
+                    error={effectiveErrors.restoreIntervalSec}
+                    onChange={(value) => updateValue("restoreIntervalSec", value)}
+                  />
+                </div>
+              )}
             </Section>
 
-            <Section title="Apply to">
-              <div className="grid">
-                <TargetSelectButton
-                  label="Miners"
-                  value={getTargetButtonLabel(selectedTargets.miners.length, "miner")}
-                  onClick={() => setShowMinerSelectionModal(true)}
-                />
-              </div>
-            </Section>
+            {isEditMode ? null : (
+              <>
+                <Section title="Apply to">
+                  <div className="grid">
+                    <TargetSelectButton
+                      label="Miners"
+                      value={getTargetButtonLabel(selectedMinerIds.length, "miner")}
+                      onClick={() => setShowMinerSelectionModal(true)}
+                    />
+                  </div>
+                </Section>
 
-            <label className="flex cursor-pointer items-start gap-3 text-left">
-              <Checkbox
-                checked={values.includeMaintenance}
-                onChange={(event) => {
-                  if (event.currentTarget.checked) {
-                    setSubmitAfterMaintenanceConfirmation(false);
-                    setShowMaintenanceConfirmation(true);
-                    return;
-                  }
+                <label className="flex cursor-pointer items-start gap-3 text-left">
+                  <Checkbox
+                    checked={values.includeMaintenance}
+                    onChange={(event) => {
+                      if (event.currentTarget.checked) {
+                        setSubmitAfterMaintenanceConfirmation(false);
+                        setShowMaintenanceConfirmation(true);
+                        return;
+                      }
 
-                  setMaintenanceInclusionConfirmed(false);
-                  updateValue("includeMaintenance", false);
-                }}
-              />
-              <span>
-                <span className="block text-300 text-text-primary">Include miners in maintenance</span>
-              </span>
-            </label>
+                      setMaintenanceInclusionConfirmed(false);
+                      updateValue("includeMaintenance", false);
+                    }}
+                  />
+                  <span>
+                    <span className="block text-300 text-text-primary">Include miners in maintenance</span>
+                  </span>
+                </label>
+              </>
+            )}
           </section>
         }
         secondaryPane={previewPane}
-        secondaryPaneClassName="!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]"
+        paneContainerClassName={paneContainerClassName}
+        primaryPaneClassName={primaryPaneClassName}
+        secondaryPaneClassName={secondaryPaneClassName}
       />
       <Dialog
         open={showMaintenanceConfirmation}
@@ -569,7 +688,7 @@ function CurtailmentStartModalContent({
       {showMinerSelectionModal ? (
         <MinerSelectionModal
           open={showMinerSelectionModal}
-          selectedMinerIds={selectedTargets.miners}
+          selectedMinerIds={selectedMinerIds}
           onDismiss={() => setShowMinerSelectionModal(false)}
           onSave={(minerIds) => {
             handleMinerSelection(minerIds);
@@ -586,7 +705,7 @@ function CurtailmentStartModal(props: CurtailmentStartModalProps): ReactElement 
     return null;
   }
 
-  return <CurtailmentStartModalContent key={getInitialValuesKey(props.initialValues)} {...props} />;
+  return <CurtailmentStartModalContent {...props} />;
 }
 
 export default CurtailmentStartModal;

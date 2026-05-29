@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	mock "github.com/block/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 var mockTime = time.Now()
@@ -227,12 +228,18 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 			mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+			// The live-uptime-bar pass calls GetMinerStateCounts whenever
+			// orgID != 0. These tests now run with a real orgID (gated
+			// handlers require session+permissions), so allow the call
+			// to fall through without asserting on its arguments.
+			mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
 			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
 			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 			handler := NewHandler(service)
 
-			resp, err := handler.GetCombinedMetrics(t.Context(), connect.NewRequest(tt.request))
+			resp, err := handler.GetCombinedMetrics(testutil.MockAuthContextForTesting(t.Context(), 1, 1), connect.NewRequest(tt.request))
 
 			if tt.expectedError {
 				require.Error(t, err, "Expected error but got none - this indicates a bug!")

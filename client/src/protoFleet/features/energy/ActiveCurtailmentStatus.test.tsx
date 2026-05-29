@@ -97,17 +97,15 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
   });
 
-  it("shows manage without stop or restore while restoring", async () => {
-    const user = userEvent.setup();
+  it("does not show manage while restoring", () => {
     const onRequestEdit = vi.fn();
 
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} onRequestEdit={onRequestEdit} />);
 
-    await user.click(screen.getByRole("button", { name: "Manage" }));
-
-    expect(onRequestEdit).toHaveBeenCalledOnce();
+    expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
+    expect(onRequestEdit).not.toHaveBeenCalled();
   });
 
   it("renders a curtailed event with restore available", async () => {

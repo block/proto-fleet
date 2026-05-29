@@ -11,17 +11,39 @@ import {
   ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
+  type UpdateCurtailmentEventRequest,
+  UpdateCurtailmentEventRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   curtailmentNumericFieldLimits,
   getOptionalUint32Setting,
+  parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
+
+type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   "scope" | "mode" | "strategy" | "level" | "priority" | "modeParams" | "includeMaintenance" | "forceIncludeMaintenance"
 >;
+
+const maxDurationOptions: OptionalUint32FieldOptions = {
+  label: "max duration",
+  max: curtailmentNumericFieldLimits.maxDurationSec,
+};
+const minCurtailedDurationOptions: OptionalUint32FieldOptions = {
+  label: "min curtailed duration",
+  max: curtailmentNumericFieldLimits.minDurationSec,
+};
+const restoreBatchSizeOptions: OptionalUint32FieldOptions = {
+  label: "restore batch size",
+  max: curtailmentNumericFieldLimits.restoreBatchSize,
+};
+const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
+  label: "restore batch interval",
+  max: curtailmentNumericFieldLimits.restoreIntervalSec,
+};
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -31,6 +53,46 @@ function parseOptionalNumber(value: string): number | undefined {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getOptionalUpdateUint32Setting(value: string, options: OptionalUint32FieldOptions): number | undefined {
+  const parsedField = parseOptionalUint32Field(value, options);
+  if (parsedField.error) {
+    throw new Error(parsedField.error);
+  }
+
+  return parsedField.parsed;
+}
+
+function getChangedUpdateStringSetting(value: string, initialValue?: string): string | undefined {
+  const trimmedValue = value.trim();
+  if (initialValue === undefined) {
+    return trimmedValue;
+  }
+
+  return trimmedValue === initialValue.trim() ? undefined : trimmedValue;
+}
+
+function getChangedUpdatePositiveUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === 0) {
+    throw new Error(`Enter ${options.label} greater than 0.`);
+  }
+
+  if (initialValue === undefined || initialValue.trim() === "") {
+    return nextValue;
+  }
+
+  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
+  if (nextValue === undefined || nextValue === previousValue) {
+    return undefined;
+  }
+
+  return nextValue;
 }
 
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
@@ -83,22 +145,31 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
-    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, {
-      label: "max duration",
-      max: curtailmentNumericFieldLimits.maxDurationSec,
-    }),
-    restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, {
-      label: "restore batch size",
-      max: curtailmentNumericFieldLimits.restoreBatchSize,
-    }),
-    restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, {
-      label: "restore batch interval",
-      max: curtailmentNumericFieldLimits.restoreIntervalSec,
-    }),
-    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, {
-      label: "min curtailed duration",
-      max: curtailmentNumericFieldLimits.minDurationSec,
-    }),
+    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
+    restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
+    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
     reason: values.reason.trim(),
+  });
+}
+
+export function buildUpdateCurtailmentEventRequest(
+  eventUuid: string,
+  values: CurtailmentSubmitValues,
+  initialValues?: Partial<CurtailmentSubmitValues>,
+): UpdateCurtailmentEventRequest {
+  return create(UpdateCurtailmentEventRequestSchema, {
+    eventUuid,
+    reason: getChangedUpdateStringSetting(values.reason, initialValues?.reason),
+    maxDurationSeconds: getChangedUpdatePositiveUint32Setting(
+      values.maxDurationSec,
+      initialValues?.maxDurationSec,
+      maxDurationOptions,
+    ),
+    restoreBatchIntervalSec: getChangedUpdatePositiveUint32Setting(
+      values.restoreIntervalSec,
+      initialValues?.restoreIntervalSec,
+      restoreBatchIntervalOptions,
+    ),
   });
 }

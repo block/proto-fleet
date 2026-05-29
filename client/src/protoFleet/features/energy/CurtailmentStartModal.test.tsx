@@ -87,6 +87,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "40",
+  maxDurationSec: "1800",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
@@ -152,7 +153,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
   });
 
-  it("renders edit mode with prefilled values and save copy", async () => {
+  it("renders edit mode with only updateable fields prefilled", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       mode: "edit",
@@ -166,17 +167,180 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Plan a curtailment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue(40);
     expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
+    expect(screen.getByLabelText("Max duration (sec)")).toHaveValue(1800);
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disabled: true,
+      }),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.type(screen.getByLabelText("Batch interval (sec)"), "180");
+    expect(saveButton).toBeEnabled();
+    await user.click(saveButton);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetKw: "40",
-        restoreBatchSize: "10",
-        restoreIntervalSec: "120",
+        maxDurationSec: "1800",
+        restoreIntervalSec: "180",
         reason: "Grid peak - ERCOT 4CP signal",
+      }),
+    );
+  });
+
+  it("keeps in-progress edit values when initial values refresh", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+
+    await user.clear(screen.getByLabelText("Reason"));
+    await user.type(screen.getByLabelText("Reason"), "Operator draft");
+
+    rerender(
+      <CurtailmentStartModal
+        open
+        mode="edit"
+        initialValues={{
+          ...configuredValues,
+          reason: "Server refresh",
+          restoreIntervalSec: "240",
+          includeMaintenance: false,
+        }}
+        onDismiss={vi.fn()}
+        onSubmit={vi.fn()}
+        preview={preview}
+      />,
+    );
+
+    expect(screen.getByLabelText("Reason")).toHaveValue("Operator draft");
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
+  });
+
+  it("blocks max duration clears in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Max duration (sec)"));
+
+    expect(screen.getByText("Max duration cannot be cleared.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("blocks restore interval clears in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+
+    expect(screen.getByText("Restore interval cannot be cleared.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("blocks zero restore interval in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.type(screen.getByLabelText("Batch interval (sec)"), "0");
+
+    expect(screen.getByText("Enter batch interval greater than 0.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps max duration above the existing min duration in edit mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        minDurationSec: "600",
+        includeMaintenance: false,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Max duration (sec)"));
+    await user.type(screen.getByLabelText("Max duration (sec)"), "300");
+
+    expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
+    expect(saveButton).toBeDisabled();
+
+    await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits edit mode without maintenance confirmation", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: true,
+      },
+      preview,
+    });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+
+    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.type(screen.getByLabelText("Batch interval (sec)"), "180");
+    await user.click(saveButton);
+
+    expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeMaintenance: true,
+        restoreIntervalSec: "180",
       }),
     );
   });

@@ -10,10 +10,11 @@ import (
 
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // Ensure Handler implements the service interface.
@@ -31,21 +32,12 @@ func NewHandler(diagnosticsService *diagnostics.Service) *Handler {
 	}
 }
 
-// getSessionInfo retrieves session information from the context and returns an authentication error if not present.
-func getSessionInfo(ctx context.Context) (*session.Info, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, err)
-	}
-	return info, nil
-}
-
 // Query handles the Query RPC call.
 func (h *Handler) Query(
 	ctx context.Context,
 	req *connect.Request[errorsv1.QueryRequest],
 ) (*connect.Response[errorsv1.QueryResponse], error) {
-	info, err := getSessionInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +64,7 @@ func (h *Handler) GetError(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("error_id is required"))
 	}
 
-	info, err := getSessionInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +89,9 @@ func (h *Handler) ListMinerErrors(
 	ctx context.Context,
 	_ *connect.Request[errorsv1.ListMinerErrorsRequest],
 ) (*connect.Response[errorsv1.ListMinerErrorsResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	metadata := h.diagnosticsService.ListMinerErrors(ctx)
 
 	var items []*errorsv1.MinerErrorInfo
@@ -127,7 +122,7 @@ func (h *Handler) Watch(
 	req *connect.Request[errorsv1.WatchRequest],
 	stream *connect.ServerStream[errorsv1.WatchResponse],
 ) error {
-	info, err := getSessionInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return err
 	}

@@ -6,7 +6,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/onboarding"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
@@ -47,6 +49,9 @@ func (s *Handler) GetFleetInitStatus(ctx context.Context, _ *connect.Request[pb.
 }
 
 func (s *Handler) GetFleetOnboardingStatus(ctx context.Context, _ *connect.Request[pb.GetFleetOnboardingStatusRequest]) (*connect.Response[pb.GetFleetOnboardingStatusResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	status, err := s.onboardingSvc.GetFleetOnboardingStatus(ctx)
 	if err != nil {
 		return nil, err

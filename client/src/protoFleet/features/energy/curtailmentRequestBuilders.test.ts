@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  buildStartCurtailmentRequest,
+  buildUpdateCurtailmentEventRequest,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const baseValues: CurtailmentSubmitValues = {
@@ -79,5 +82,124 @@ describe("curtailmentRequestBuilders", () => {
         maxDurationSec: "604801",
       }),
     ).toThrow("Enter max duration of 604,800 or less.");
+  });
+
+  it("builds update requests with changed operator-safe fields only", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "  Updated grid peak  ",
+        maxDurationSec: "1800",
+        restoreBatchSize: "",
+        restoreIntervalSec: "120",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        maxDurationSec: "1800",
+        restoreBatchSize: "",
+        restoreIntervalSec: "60",
+      },
+    );
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        reason: "Updated grid peak",
+        restoreBatchIntervalSec: 120,
+      }),
+    );
+    expect(request.maxDurationSeconds).toBeUndefined();
+    expect(request.restoreBatchSize).toBeUndefined();
+  });
+
+  it("does not include restore batch size in update requests", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "Updated grid peak",
+        restoreBatchSize: "20",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        restoreBatchSize: "10",
+      },
+    );
+
+    expect(request.reason).toBe("Updated grid peak");
+    expect(request.restoreBatchSize).toBeUndefined();
+  });
+
+  it("does not send zero when an update clears max duration", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "Updated grid peak",
+        maxDurationSec: "",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        maxDurationSec: "1800",
+      },
+    );
+
+    expect(request.reason).toBe("Updated grid peak");
+    expect(request.maxDurationSeconds).toBeUndefined();
+  });
+
+  it("does not send zero when an update clears restore interval", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        reason: "Updated grid peak",
+        restoreIntervalSec: "",
+      },
+      {
+        ...baseValues,
+        reason: "Grid peak",
+        restoreIntervalSec: "60",
+      },
+    );
+
+    expect(request.reason).toBe("Updated grid peak");
+    expect(request.restoreBatchIntervalSec).toBeUndefined();
+  });
+
+  it("rejects zero max duration updates", () => {
+    expect(() =>
+      buildUpdateCurtailmentEventRequest(
+        "curt-1",
+        {
+          ...baseValues,
+          maxDurationSec: "0",
+        },
+        {
+          ...baseValues,
+          maxDurationSec: "1800",
+        },
+      ),
+    ).toThrow("Enter max duration greater than 0.");
+  });
+
+  it("rejects zero restore interval updates", () => {
+    expect(() =>
+      buildUpdateCurtailmentEventRequest(
+        "curt-1",
+        {
+          ...baseValues,
+          restoreIntervalSec: "0",
+        },
+        {
+          ...baseValues,
+          restoreIntervalSec: "60",
+        },
+      ),
+    ).toThrow("Enter restore batch interval greater than 0.");
   });
 });
