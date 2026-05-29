@@ -72,6 +72,22 @@ func TestRequireActionAuthority_UnspecifiedIsNoOp(t *testing.T) {
 	require.NoError(t, requireActionAuthority(ctx, pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED))
 }
 
+func TestRequireActionAuthority_UnknownActionFailsClosed(t *testing.T) {
+	t.Parallel()
+	// A future proto value not yet mapped here must be rejected before
+	// it reaches the service. If we no-opped instead, a schedule:manage
+	// holder could persist a schedule the processor doesn't understand.
+	unknown := pb.ScheduleAction(9999)
+	ctx := ctxWithPermissions(t, authz.PermScheduleManage)
+
+	err := requireActionAuthority(ctx, unknown)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+}
+
 func ctxWithPermissions(t *testing.T, permissions ...string) context.Context {
 	t.Helper()
 	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: 1})

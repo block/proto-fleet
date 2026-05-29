@@ -8,6 +8,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -123,19 +124,28 @@ func (h *Handler) ReorderSchedules(ctx context.Context, r *connect.Request[pb.Re
 // schedule:manage alone is not enough — a manager without
 // miner:set_power_target should not be able to schedule a
 // SET_POWER_TARGET job that the processor later runs on their behalf.
-// UNSPECIFIED is left to the service-level field validation to reject.
+//
+// UNSPECIFIED falls through to the service's field validation, which
+// rejects it with InvalidArgument. Any other unrecognized enum value
+// fails closed here so a future action added to the proto can't be
+// persisted by a schedule:manage holder before this mapping is updated.
 func requireActionAuthority(ctx context.Context, action pb.ScheduleAction) error {
+	if action == pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED {
+		return nil
+	}
 	key, ok := requiredPermForAction(action)
 	if !ok {
-		return nil
+		return fleeterror.NewInvalidArgumentErrorf("unsupported schedule action %v", action)
 	}
 	_, err := middleware.RequirePermission(ctx, key, authz.ResourceContext{})
 	return err
 }
 
 // requiredPermForAction maps a schedule action to the catalog key the
-// caller must hold to schedule it. Returns ok=false for UNSPECIFIED so
-// field validation can produce the canonical "action required" error.
+// caller must hold to schedule it. Returns ok=false for UNSPECIFIED and
+// any unrecognized enum value; the caller (requireActionAuthority)
+// distinguishes the two and rejects unrecognized actions with
+// InvalidArgument so they never reach the service layer.
 func requiredPermForAction(action pb.ScheduleAction) (string, bool) {
 	switch action {
 	case pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET:

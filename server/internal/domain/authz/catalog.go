@@ -58,10 +58,11 @@ const (
 	PermPoolManage = "pool:manage"
 
 	// schedule — recurring miner actions (set_power_target, reboot,
-	// sleep). schedule:manage gates the list/CRUD surface; create and
-	// update additionally require the underlying miner action permission
-	// so a manager can't smuggle a privileged action through the
-	// scheduler.
+	// sleep). schedule:read gates the list surface; schedule:manage
+	// gates create/update/delete/pause/resume/reorder. Create, update,
+	// and resume additionally require the underlying miner action
+	// permission so a manager can't smuggle a privileged action through
+	// the scheduler.
 	PermScheduleRead   = "schedule:read"
 	PermScheduleManage = "schedule:manage"
 
