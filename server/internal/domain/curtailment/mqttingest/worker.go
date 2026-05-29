@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // sourceWorker owns the runtime for one MQTT source: two broker
@@ -95,10 +97,9 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 	return client.Subscribe(ctx, w.source.Topic, func(payload []byte, receivedAt time.Time) {
 		select {
 		case messages <- observation{broker: host, payload: payload, receivedAt: receivedAt}:
-		case <-ctx.Done():
 		default:
-			// Channel full; drop oldest by skipping. Surfacing this
-			// loss in metrics is BE-V2-3 work.
+			// Channel full; surface loss as a Warn. Metric counter is a
+			// follow-on observability slice.
 			w.cfg.Logger.Warn("mqttingest: message channel full, dropping",
 				slog.String("source", w.source.SourceName),
 				slog.String("broker", host))
@@ -108,7 +109,10 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 
 // handleMessage decodes one inbound observation, updates the
 // per-broker cache, resolves canonical state via precedence, asks the
-// edge detector whether to dispatch, and persists state.
+// edge detector whether to dispatch, and persists state. Freshness
+// fields advance unconditionally on a successfully-decoded message;
+// LastTarget only advances when applyEdge confirms the dispatch
+// (EdgeNone counts as confirmed since no dispatch was needed).
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
 	payload, err := DecodePayload(obs.payload, obs.receivedAt)
 	if err != nil {
@@ -131,8 +135,8 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	secondaryObs := w.lastObs[BrokerSecondary]
 	w.mu.Unlock()
 
-	canonical, ok := CanonicalFromPair(primaryObs, secondaryObs, w.cfg.BrokerFreshness)
-	if !ok {
+	canonical, canonicalOK := CanonicalFromPair(primaryObs, secondaryObs, w.cfg.BrokerFreshness)
+	if !canonicalOK {
 		return prior
 	}
 
@@ -140,36 +144,61 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 
-	state := w.applyEdge(ctx, prior, canonical, direction)
-	state.LastTarget = canonical.Target
+	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
+
+	// Freshness columns reflect "we heard something" and advance on every
+	// successfully-decoded message, even when the dispatch failed.
 	state.LastTargetAt = canonical.PublishedAt
 	state.LastReceivedAt = canonical.ReceivedAt
 	state.LastReceivedBroker = canonical.Broker
+
+	// LastTarget is the canonical state derived from the wire; it only
+	// advances when the dispatch we owed for the implied transition
+	// landed. A failed dispatch must not look like a successful
+	// transition or the next OFF observation is a no-op repeat and the
+	// site silently uncurtails.
+	if dispatched {
+		state.LastTarget = canonical.Target
+	}
 
 	w.persistState(ctx, state)
 	return state
 }
 
 // handleWatchdog inspects staleness and synthesizes a WATCHDOG_OFF
-// dispatch when appropriate. Repeated firings are deduped by the v1
-// partial unique index — the synthetic external_reference includes
-// the second-resolution timestamp so back-to-back ticks produce the
-// same reference and the second hits the index.
+// dispatch when appropriate. After a successful dispatch the worker
+// records LastTarget=TargetOff and persists, so EvaluateWatchdog
+// returns Idle on subsequent ticks until a real message clears the
+// stale condition. The driver's synthetic external_reference quantizes
+// to the source's staleness threshold so a crash mid-window resumes
+// against the same idempotency key.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	now := w.cfg.Clock()
 	decision := EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold)
 	if decision == WatchdogIdle {
 		return prior
 	}
-	// Synthesize a canonical state for the dispatch — the existing
-	// dispatch shape only needs the target and edge timestamp.
 	canonical := CanonicalState{Target: TargetOff, ReceivedAt: now}
-	return w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
+	state, dispatched := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
+	if !dispatched {
+		// Dispatch failed; do not advance LastTarget so the next tick
+		// retries against the same staleness window (the driver's
+		// quantized external_reference replays idempotently).
+		return prior
+	}
+	state.LastTarget = TargetOff
+	w.persistState(ctx, state)
+	return state
 }
 
-func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonical CanonicalState, direction EdgeDirection) SourceState {
+// applyEdge dispatches the implied edge and returns (state, true) on
+// success or (prior, false) on dispatch failure. EdgeNone short-circuits
+// to (prior, true) since no dispatch was required. The boolean lets the
+// caller distinguish "no work owed" and "work owed and confirmed" from
+// "work owed but failed".
+func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonical CanonicalState, direction EdgeDirection) (SourceState, bool) {
 	if direction == EdgeNone {
-		return prior
+		return prior, true
 	}
 
 	edgeAt := canonical.ReceivedAt
@@ -179,22 +208,19 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 			slog.String("source", w.source.SourceName),
 			slog.String("direction", direction.String()),
 			slog.Any("error", err))
-		// Do not advance prior on dispatch failure — the next tick
-		// will retry. WatchdogOff specifically is the case where the
-		// dispatch matters most.
-		return prior
+		return prior, false
 	}
 
 	state := prior
 	state.LastEdgeAt = edgeAt
-	if outcome.EventUUID.String() != "00000000-0000-0000-0000-000000000000" {
+	if outcome.EventUUID != uuid.Nil {
 		state.LastEdgeEventUUID = outcome.EventUUID.String()
 	}
 	w.cfg.Logger.Info("mqttingest: edge dispatched",
 		slog.String("source", w.source.SourceName),
 		slog.String("direction", direction.String()),
 		slog.String("event_uuid", state.LastEdgeEventUUID))
-	return state
+	return state, true
 }
 
 func (w *sourceWorker) persistState(ctx context.Context, s SourceState) {

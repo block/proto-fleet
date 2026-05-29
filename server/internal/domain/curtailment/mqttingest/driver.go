@@ -85,7 +85,7 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 }
 
 func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time) (uuid.UUID, error) {
-	externalRef := startExternalReference(src.SourceName, direction, edgeAt)
+	externalRef := startExternalReference(src.SourceName, direction, edgeAt, src.StalenessThreshold)
 	reason := startReason(src.SourceName, direction, edgeAt)
 
 	externalSource := src.SourceName
@@ -184,9 +184,21 @@ func clampToInt32Seconds(d time.Duration) int32 {
 // the curtailment service uses for idempotency. Format keeps the v1
 // partial-unique index dedupe working across broker-pair race and
 // fleetd restart-near-edge. Only called for ON->OFF and WATCHDOG_OFF.
-func startExternalReference(source string, direction EdgeDirection, edgeAt time.Time) string {
+//
+// Watchdog references are quantized to the source's staleness threshold
+// so back-to-back ticks within the same stale episode produce the same
+// reference. Without this, a 1 s watchdog tick generates a fresh
+// external_reference every second; the partial-unique index would not
+// see them as replays and the curtailment service would run a full
+// selector pass each tick.
+func startExternalReference(source string, direction EdgeDirection, edgeAt time.Time, stalenessThreshold time.Duration) string {
 	if direction == EdgeWatchdogOff {
-		return fmt.Sprintf("%s:watchdog:%d", source, edgeAt.Unix())
+		thresholdSec := int64(stalenessThreshold / time.Second)
+		if thresholdSec <= 0 {
+			thresholdSec = 1
+		}
+		windowStart := (edgeAt.Unix() / thresholdSec) * thresholdSec
+		return fmt.Sprintf("%s:watchdog:%d", source, windowStart)
 	}
 	return fmt.Sprintf("%s:%d", source, edgeAt.Unix())
 }

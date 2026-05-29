@@ -81,6 +81,7 @@ func sampleSource() SourceConfig {
 		ServiceUserID:           99,
 		SourceName:              "site-a",
 		ContractedCurtailmentKw: 12500,
+		StalenessThreshold:      240 * time.Second,
 		MinCurtailedDuration:    600 * time.Second,
 	}
 }
@@ -136,7 +137,9 @@ func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	d := NewDriver(svc, nil)
 
 	src := sampleSource()
-	edgeAt := time.Date(2026, 5, 28, 11, 55, 0, 0, time.UTC)
+	// Pick a timestamp mid-window so the quantization is observable.
+	// 11:55:37 with a 240 s threshold should quantize down to 11:52:00.
+	edgeAt := time.Date(2026, 5, 28, 11, 55, 37, 0, time.UTC)
 
 	outcome, err := d.Dispatch(context.Background(), src, EdgeWatchdogOff, edgeAt)
 
@@ -147,7 +150,40 @@ func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	require.Len(t, svc.startCalls, 1)
 	start := svc.startCalls[0]
 	require.NotNil(t, start.ExternalReference)
-	assert.Equal(t, "site-a:watchdog:"+itoa(edgeAt.Unix()), *start.ExternalReference)
+	wantWindow := (edgeAt.Unix() / int64(src.StalenessThreshold/time.Second)) * int64(src.StalenessThreshold/time.Second)
+	assert.Equal(t, "site-a:watchdog:"+itoa(wantWindow), *start.ExternalReference)
+}
+
+// Back-to-back watchdog ticks inside one staleness window must produce
+// the same external_reference so the curtailment-service partial unique
+// index dedupes them as replays. Without quantization, a 1 s ticker
+// would generate a fresh reference every second and trigger a full
+// selector pass per tick.
+func TestDriver_Dispatch_WatchdogOff_QuantizesWithinWindow(t *testing.T) {
+	t.Parallel()
+
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	d := NewDriver(svc, nil)
+
+	src := sampleSource() // StalenessThreshold = 240 s
+	tickA := time.Date(2026, 5, 28, 11, 52, 5, 0, time.UTC)
+	tickB := tickA.Add(60 * time.Second)  // same 240 s window
+	tickC := tickA.Add(300 * time.Second) // next window
+
+	_, err := d.Dispatch(context.Background(), src, EdgeWatchdogOff, tickA)
+	require.NoError(t, err)
+	_, err = d.Dispatch(context.Background(), src, EdgeWatchdogOff, tickB)
+	require.NoError(t, err)
+	_, err = d.Dispatch(context.Background(), src, EdgeWatchdogOff, tickC)
+	require.NoError(t, err)
+
+	require.Len(t, svc.startCalls, 3)
+	refA := *svc.startCalls[0].ExternalReference
+	refB := *svc.startCalls[1].ExternalReference
+	refC := *svc.startCalls[2].ExternalReference
+	assert.Equal(t, refA, refB, "ticks in the same staleness window must share external_reference")
+	assert.NotEqual(t, refA, refC, "ticks in different staleness windows must diverge")
 }
 
 func TestDriver_Dispatch_ReplayUsesPersistedEventUUID(t *testing.T) {
