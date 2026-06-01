@@ -11,8 +11,6 @@ interface UsePollProps {
 }
 
 const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000, enabled = true }: UsePollProps) => {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMountedRef = useRef(true);
   const fetchDataRef = useRef(fetchData);
 
   // Keep fetchData ref up to date
@@ -23,20 +21,22 @@ const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000, enabled 
   }, [fetchData]);
 
   useEffect(() => {
-    isMountedRef.current = true;
+    if (!enabled) return undefined;
 
-    if (!enabled) {
-      return () => {
-        isMountedRef.current = false;
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-      };
-    }
+    // Effect-local cancellation. Each effect run gets its own `alive`
+    // flag and `timeoutId`. Cleanup flips this run's flag and clears
+    // its timeout — so the in-flight fetch's continuation can't
+    // accidentally schedule a follow-up after the user toggles
+    // `enabled` off and back on (e.g. a BuildingCard scrolling out and
+    // back into the viewport before its request resolves). Using a
+    // shared ref here would let the new effect's `alive = true` reset
+    // the flag the old continuation reads, attaching a second
+    // concurrent poll loop to the same card.
+    let alive = true;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const pollWithDelay = async () => {
-      if (!isMountedRef.current) return;
+      if (!alive) return;
 
       try {
         await fetchDataRef.current();
@@ -45,9 +45,10 @@ const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000, enabled 
         console.error("Poll request failed:", error);
       }
 
-      // Only schedule next poll if still mounted and polling is enabled
-      if (isMountedRef.current && poll) {
-        timeoutRef.current = setTimeout(pollWithDelay, pollIntervalMs);
+      // Schedule next poll only if this effect run is still alive and
+      // polling is enabled.
+      if (alive && poll) {
+        timeoutId = setTimeout(pollWithDelay, pollIntervalMs);
       }
     };
 
@@ -55,10 +56,10 @@ const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000, enabled 
     pollWithDelay();
 
     return () => {
-      isMountedRef.current = false;
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
+      alive = false;
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
       }
     };
   }, [enabled, params, poll, pollIntervalMs]);

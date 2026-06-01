@@ -225,21 +225,24 @@ const BuildingPage = () => {
   const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
 
   // Edit/Delete require the rack count to render an accurate cascade
-  // warning ("deleting this building will unassign N racks"). When
-  // ListBuildingRacks is still inflight (large buildings paginate) or
-  // failed, default to a disabled Edit so the operator can't open the
-  // manage/delete flow with rackCount: 0n and miss the warning.
-  const rackCountReady = rackCountResponse !== undefined && rackCountResponse.id === effectiveBuilding.id;
-  const handleEditBuilding = rackCountReady
-    ? () => {
-        buildingModals.openManage(
-          create(BuildingWithCountsSchema, {
-            building: effectiveBuilding,
-            rackCount: rackCountResponse.count,
-          }),
-        );
-      }
-    : undefined;
+  // warning ("deleting this building will unassign N racks"). Prefer the
+  // precise count from the parallel ListBuildingRacks call when it
+  // landed, but never gate the Edit button on it — a transient
+  // listBuildingRacks failure would otherwise leave Edit permanently
+  // disabled with no recovery path. Falls back to the polled
+  // stats.rackCount (live, refreshes with the page) and finally to 0
+  // (cascade dialog renders a generic warning).
+  const racksFromList =
+    rackCountResponse !== undefined && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : null;
+  const fallbackRackCount = racksFromList ?? (stats ? BigInt(stats.rackCount) : 0n);
+  const handleEditBuilding = () => {
+    buildingModals.openManage(
+      create(BuildingWithCountsSchema, {
+        building: effectiveBuilding,
+        rackCount: fallbackRackCount,
+      }),
+    );
+  };
 
   return (
     <div className="h-full" data-testid="building-page">
