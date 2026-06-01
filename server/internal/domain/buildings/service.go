@@ -605,6 +605,21 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	}
 
 	// Per-rack state counts via the existing collection-membership query.
+	//
+	// Residual race window (intentionally not guarded): if
+	// AssignRackToBuilding moves a rack out of this building between
+	// the ListBuildingRacks above and this counts read, the response
+	// still includes per-rack state counts (hashing/broken/offline/
+	// sleeping totals) for that rack. The post-read building.SiteID
+	// check at the bottom catches building-level moves; rack-level
+	// moves within a building that stays in the caller's site slip
+	// through. The leaked surface is four aggregate ints per rack
+	// (no device identifiers, no telemetry — those are scoped by site
+	// above), and the window is the gap between two adjacent queries
+	// in the same RPC. If operator workflows ever start moving racks
+	// frequently enough that this matters, the fix is a post-counts
+	// re-list with set comparison; today the noise:value ratio
+	// doesn't justify the extra query on every poll tick.
 	rackIDs := make([]int64, 0, len(racks))
 	for _, r := range racks {
 		rackIDs = append(rackIDs, r.RackID)
