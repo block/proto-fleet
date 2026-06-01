@@ -2042,3 +2042,178 @@ func TestHandleUpdate_PutWhileDownloading_Rejects(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusConflict, rr.Code, rr.Body.String())
 	}
 }
+
+func TestTelemetryService_GET_ReturnsRunningStatus(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/telemetry", nil)
+	h.handleTelemetryConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var status TelemetryServiceStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil {
+		t.Fatalf("failed to unmarshal status: %v; body=%s", err, rr.Body.String())
+	}
+	if !status.Enabled {
+		t.Errorf("expected telemetry enabled by default, got %v", status.Enabled)
+	}
+	if status.Message != "Telemetry is enabled" {
+		t.Errorf("expected message %q, got %q", "Telemetry is enabled", status.Message)
+	}
+}
+
+func TestTelemetryService_PUT_StopsServiceAndPersists(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/telemetry", strings.NewReader(`{"enabled":false}`))
+	h.handleTelemetryConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var status TelemetryServiceStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil {
+		t.Fatalf("failed to unmarshal status: %v; body=%s", err, rr.Body.String())
+	}
+	if status.Enabled || status.Message != "Telemetry is disabled" {
+		t.Errorf("expected disabled status, got %+v", status)
+	}
+	if state.IsTelemetryEnabled() {
+		t.Error("expected telemetry state to be disabled after PUT")
+	}
+
+	// A subsequent GET reflects the persisted state.
+	getRR := httptest.NewRecorder()
+	h.handleTelemetryConfig(getRR, httptest.NewRequest(http.MethodGet, "/api/v1/system/telemetry", nil))
+	var getStatus TelemetryServiceStatus
+	if err := json.Unmarshal(getRR.Body.Bytes(), &getStatus); err != nil {
+		t.Fatalf("failed to unmarshal status: %v; body=%s", err, getRR.Body.String())
+	}
+	if getStatus.Enabled {
+		t.Error("expected GET after PUT to report telemetry disabled")
+	}
+}
+
+func TestTelemetryService_PUT_InvalidBody_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/telemetry", strings.NewReader(`{not json`))
+	h.handleTelemetryConfig(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+}
+
+func TestPowerSuppliesUpdate_EmptyBody_Returns202(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", nil)
+	h.handlePowerSuppliesUpdate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+}
+
+func TestPowerSuppliesUpdate_ValidPSUTypes_Returns202(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	body := `{"psu_types":{"1":"boco_bs502a17","2":"boco_bs402a17"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(body))
+	h.handlePowerSuppliesUpdate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+}
+
+func TestPowerSuppliesUpdate_UnknownPSUType_Returns422(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	body := `{"psu_types":{"1":"acme_9000"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(body))
+	h.handlePowerSuppliesUpdate(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+}
+
+func TestPowerSuppliesUpdate_InvalidSlot_Returns422(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	body := `{"psu_types":{"9":"chicony_s24"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(body))
+	h.handlePowerSuppliesUpdate(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+}
+
+func TestPowerSuppliesUpdate_MalformedJSON_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(`{"psu_types":`))
+	h.handlePowerSuppliesUpdate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHashboardEndpoints_ReportValidBoardEnum(t *testing.T) {
+	// MDK-API 1.8.1 split the "B4" board enum into "B4_128"/"B4_192"; both the
+	// /hardware and /hashboards handlers must report a value still in the enum.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	hwRR := httptest.NewRecorder()
+	h.handleHardware(hwRR, httptest.NewRequest(http.MethodGet, "/api/v1/hardware", nil))
+	var hw HardwareInfo
+	if err := json.Unmarshal(hwRR.Body.Bytes(), &hw); err != nil {
+		t.Fatalf("failed to unmarshal hardware info: %v; body=%s", err, hwRR.Body.String())
+	}
+	if len(hw.HardwareInfo.Hashboards) == 0 {
+		t.Fatal("expected at least one hashboard from /hardware")
+	}
+	for _, hb := range hw.HardwareInfo.Hashboards {
+		if hb.Board != "B4_128" {
+			t.Errorf("/hardware: expected board %q, got %q", "B4_128", hb.Board)
+		}
+	}
+
+	hbRR := httptest.NewRecorder()
+	h.handleHashboards(hbRR, httptest.NewRequest(http.MethodGet, "/api/v1/hashboards", nil))
+	var hbs HashboardsResponse
+	if err := json.Unmarshal(hbRR.Body.Bytes(), &hbs); err != nil {
+		t.Fatalf("failed to unmarshal hashboards: %v; body=%s", err, hbRR.Body.String())
+	}
+	if len(hbs.Hashboards) == 0 {
+		t.Fatal("expected at least one hashboard from /hashboards")
+	}
+	for _, hb := range hbs.Hashboards {
+		if hb.Board != "B4_128" {
+			t.Errorf("/hashboards: expected board %q, got %q", "B4_128", hb.Board)
+		}
+	}
+}

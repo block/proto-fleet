@@ -177,6 +177,9 @@ type MinerState struct {
 	// Locate sequence active
 	LocateActive bool
 
+	// Telemetry-service running state (toggled via PUT /api/v1/system/telemetry)
+	TelemetryEnabled bool
+
 	// Firmware update simulation
 	FWUpdateStatus    string // "current", "downloading", "downloaded", "installing", "installed"
 	FWCurrentVersion  string // running firmware version; initialized to defaultFirmwareVersion
@@ -220,6 +223,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 		TargetTempC:        defaultTargetTempC,
 		PowerTargetW:       defaultPowerTargetW,
 		PerformanceModeVal: PerformanceModeMaxHashrate,
+		TelemetryEnabled:   true,
 		DHCP:               true,
 		NetMask:            "255.255.255.0",
 		Gateway:            "192.168.2.1",
@@ -566,6 +570,20 @@ func (s *MinerState) SetLocateActive(active bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.LocateActive = active
+}
+
+// IsTelemetryEnabled reports whether the telemetry-service is running.
+func (s *MinerState) IsTelemetryEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.TelemetryEnabled
+}
+
+// SetTelemetryEnabled starts or stops the telemetry-service.
+func (s *MinerState) SetTelemetryEnabled(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TelemetryEnabled = enabled
 }
 
 // applyVariation adds random variation to a base value.

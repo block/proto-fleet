@@ -202,6 +202,9 @@ When implementing or updating endpoints, verify these common patterns from the O
 | **Hashboard status enum** | `"Running"`, `"Stopped"`, `"Error"`, `"Overheated"`, `"Unknown"` | `"Mining"`, `"Off"` |
 | **Mining status enum** | `"PoweringOn"`, `"Uninitialized"` | `"Starting"`, `"Unknown"` |
 | **PerformanceMode enum** | `"MaximumHashrate"`, `"Efficiency"` | `"MaximumEfficiency"` |
+| **Board enum** | `"B4_128"`, `"B4_192"` | `"B4"` (split in MDK-API 1.8.1) |
+| **Telemetry-service status** | GET/PUT `/system/telemetry` return `{"enabled", "message"}` (TelemetryResponse) | bare `{"enabled"}` or a message-only body |
+| **PSU update body** | optional `psu_types` map (slot ID → PSU type enum), validated (422 on bad value/slot) | ignore body or accept unknown PSU types |
 | **Port field** | `json:"port"` (0 is valid) | `json:"port,omitempty"` (omits 0) |
 | **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |
 
