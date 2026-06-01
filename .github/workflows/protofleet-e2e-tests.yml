@@ -79,7 +79,7 @@ jobs:
           npm run build:protoFleet
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       # Docker cache is computed before the plugin build so the gitignored
       # `server/plugins/*` binaries (not a Docker build input) don't enter
