@@ -79,6 +79,40 @@ export class ActivityPage extends BasePage {
     await expect(this.activityRowByDescription(description)).toBeVisible();
   }
 
+  async validateActivityRowVisible(description: string, scopeText: string) {
+    await expect(this.activityRowByDescriptionAndScope(description, scopeText)).toBeVisible();
+  }
+
+  async validateActivityRowUser(description: string, scopeText: string, username: string) {
+    await expect(this.activityRowByDescriptionAndScope(description, scopeText).getByTestId("user")).toHaveText(
+      username,
+    );
+  }
+
+  async validateActivityRowNotMarkedFailed(description: string, scopeText: string) {
+    await expect(
+      this.activityRowByDescriptionAndScope(description, scopeText).getByTestId("activity-row-failed-indicator"),
+    ).toHaveCount(0);
+  }
+
+  async validateCompletedActivityRowVisible(description: string, scopeText: string) {
+    await expect(this.completedActivityRowByDescriptionAndScope(description, scopeText)).toBeVisible();
+  }
+
+  async validateCompletedActivityRowUser(description: string, scopeText: string, username: string) {
+    await expect(this.completedActivityRowByDescriptionAndScope(description, scopeText).getByTestId("user")).toHaveText(
+      username,
+    );
+  }
+
+  async validateCompletedActivityRowNotMarkedFailed(description: string, scopeText: string) {
+    await expect(
+      this.completedActivityRowByDescriptionAndScope(description, scopeText).getByTestId(
+        "activity-row-failed-indicator",
+      ),
+    ).toHaveCount(0);
+  }
+
   async validateActivityDescriptionNotVisible(description: string) {
     await expect(this.activityRowByDescription(description)).toHaveCount(0);
   }
@@ -104,6 +138,16 @@ export class ActivityPage extends BasePage {
 
   async openLatestActivityDetails() {
     await this.latestActivityRow().click();
+    await this.validateTitleInModal("Actions");
+  }
+
+  async openActivityDetails(description: string, scopeText: string) {
+    await this.activityRowByDescriptionAndScope(description, scopeText).click();
+    await this.validateTitleInModal("Actions");
+  }
+
+  async openCompletedActivityDetails(description: string, scopeText: string) {
+    await this.completedActivityRowByDescriptionAndScope(description, scopeText).click();
     await this.validateTitleInModal("Actions");
   }
 
@@ -173,6 +217,23 @@ export class ActivityPage extends BasePage {
     return this.page.getByTestId("list-row").filter({
       has: this.page.getByTestId("type").getByText(description, { exact: false }),
     });
+  }
+
+  private activityRowByDescriptionAndScope(description: string, scopeText: string): Locator {
+    return this.activityRowByDescription(description)
+      .filter({
+        has: this.page.getByTestId("scope").getByText(scopeText, { exact: true }),
+      })
+      .first();
+  }
+
+  private completedActivityRowByDescriptionAndScope(description: string, scopeText: string): Locator {
+    return this.activityRowByDescription(description)
+      .filter({
+        has: this.page.getByTestId("scope").getByText(scopeText, { exact: true }),
+      })
+      .filter({ hasText: "succeeded" })
+      .first();
   }
 
   private filterPillByLabel(label: string): Locator {

@@ -64,22 +64,20 @@ test.describe("Proto Fleet - Activity", () => {
       await minersPage.clickBlinkLEDsButton();
     });
 
-    await test.step("Open Activity and narrow to the Blink LEDs activity", async () => {
+    await test.step("Open Activity and filter by user", async () => {
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
-      await activityPage.searchActivity("Blink LEDs");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
     });
 
-    await test.step("Validate the latest activity row", async () => {
-      await activityPage.validateLatestActivityDescription("Blink LEDs");
-      await activityPage.validateLatestActivityScope("3 miners");
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityNotMarkedFailed();
+    await test.step("Validate the Blink LEDs activity row", async () => {
+      await activityPage.validateCompletedActivityRowVisible("Blink LEDs", "3 miners");
+      await activityPage.validateCompletedActivityRowUser("Blink LEDs", "3 miners", testConfig.users.admin.username);
+      await activityPage.validateCompletedActivityRowNotMarkedFailed("Blink LEDs", "3 miners");
     });
 
     await test.step("Open the detail modal and validate per-miner results", async () => {
-      await activityPage.openLatestActivityDetails();
+      await activityPage.openCompletedActivityDetails("Blink LEDs", "3 miners");
       await activityPage.validateActivityDetailSucceededCount(3);
       await activityPage.validateActivityDetailFailedCount(0);
       for (const minerIp of selectedMinerIps) {
