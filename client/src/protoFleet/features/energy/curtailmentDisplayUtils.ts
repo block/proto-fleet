@@ -1,6 +1,7 @@
 import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentEventState as ProtoCurtailmentEventState,
+  CurtailmentTargetState as ProtoCurtailmentTargetState,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 export const curtailmentEventStateConfigs = {
@@ -51,8 +52,92 @@ export const activeCurtailmentEventStates = [
 ] as const satisfies readonly CurtailmentEventState[];
 
 export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
+export type CurtailmentTargetState =
+  | "pending"
+  | "dispatched"
+  | "confirmed"
+  | "drifted"
+  | "resolved"
+  | "released"
+  | "restoreFailed";
+
+export interface CurtailmentTargetRollup {
+  state: CurtailmentTargetState;
+  count: number;
+}
+
+export const activeCurtailmentDisplayStateConfigs = {
+  cancelled: {
+    label: "Cancelled",
+    dotClassName: "bg-intent-critical-fill",
+  },
+  curtailed: {
+    label: "Curtailed",
+    dotClassName: "bg-text-primary",
+  },
+  curtailing: {
+    label: "Curtailing",
+    dotClassName: "bg-core-accent-fill",
+  },
+  failed: {
+    label: "Failed",
+    dotClassName: "bg-intent-critical-fill",
+  },
+  pending: {
+    label: "Pending",
+    dotClassName: "bg-core-accent-fill",
+  },
+  restoreIncomplete: {
+    label: "Restore incomplete",
+    dotClassName: "bg-text-primary-30",
+  },
+  restored: {
+    label: "Restored",
+    dotClassName: "bg-text-primary-30",
+  },
+  restoring: {
+    label: "Restoring",
+    dotClassName: "bg-core-accent-fill",
+  },
+} as const;
+
+export type ActiveCurtailmentDisplayState = keyof typeof activeCurtailmentDisplayStateConfigs;
+
+interface ActiveCurtailmentDisplayEvent {
+  state: CurtailmentEventState;
+  selectedMiners: number;
+  estimatedReductionKw: number;
+  targetKw?: number;
+  observedReductionKw: number;
+  rollups: CurtailmentTargetRollup[];
+}
+
+export interface ActiveCurtailmentMinerCompliance {
+  curtailedCount: number;
+  restoreFailedCount: number;
+  restoredCount: number;
+  totalCount: number;
+}
 
 const activeCurtailmentEventStateSet = new Set<CurtailmentEventState>(activeCurtailmentEventStates);
+const countedTargetStates: CurtailmentTargetState[] = [
+  "pending",
+  "dispatched",
+  "confirmed",
+  "drifted",
+  "resolved",
+  "released",
+  "restoreFailed",
+];
+const startedCurtailmentDispatchTargetStates: CurtailmentTargetState[] = [
+  "dispatched",
+  "confirmed",
+  "drifted",
+  "restoreFailed",
+];
+const curtailedTargetStates: CurtailmentTargetState[] = ["confirmed", "resolved"];
+const restoreFailedTargetStates: CurtailmentTargetState[] = ["restoreFailed"];
+const restoredTargetStates: CurtailmentTargetState[] = ["resolved", "released"];
 const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 const wattsPerKilowatt = 1000;
@@ -101,6 +186,58 @@ export function mapCurtailmentEventState(state: ProtoCurtailmentEventState): Cur
   }
 }
 
+export function mapCurtailmentTargetState(state: ProtoCurtailmentTargetState): CurtailmentTargetState {
+  switch (state) {
+    case ProtoCurtailmentTargetState.DISPATCHING:
+    case ProtoCurtailmentTargetState.DISPATCHED:
+      return "dispatched";
+    case ProtoCurtailmentTargetState.CONFIRMED:
+      return "confirmed";
+    case ProtoCurtailmentTargetState.DRIFTED:
+      return "drifted";
+    case ProtoCurtailmentTargetState.RESOLVED:
+      return "resolved";
+    case ProtoCurtailmentTargetState.RELEASED:
+      return "released";
+    case ProtoCurtailmentTargetState.RESTORE_FAILED:
+      return "restoreFailed";
+    case ProtoCurtailmentTargetState.PENDING:
+    case ProtoCurtailmentTargetState.UNSPECIFIED:
+    default:
+      return "pending";
+  }
+}
+
+function getRollupsFromTargets(event: ProtoCurtailmentEvent): CurtailmentTargetRollup[] {
+  const counts = new Map<CurtailmentTargetState, number>();
+
+  for (const target of event.targets) {
+    const state = mapCurtailmentTargetState(target.state);
+    counts.set(state, (counts.get(state) ?? 0) + 1);
+  }
+
+  return Array.from(counts, ([state, count]) => ({ state, count }));
+}
+
+export function getCurtailmentTargetRollups(event: ProtoCurtailmentEvent): CurtailmentTargetRollup[] {
+  const rollup = event.targetRollup;
+  if (!rollup) {
+    return getRollupsFromTargets(event);
+  }
+
+  const rollups: CurtailmentTargetRollup[] = [
+    { state: "pending", count: rollup.pending },
+    { state: "dispatched", count: rollup.dispatched },
+    { state: "confirmed", count: rollup.confirmed },
+    { state: "drifted", count: rollup.drifted },
+    { state: "resolved", count: rollup.resolved },
+    { state: "released", count: rollup.released },
+    { state: "restoreFailed", count: rollup.restoreFailed },
+  ];
+
+  return rollups.filter((targetRollup) => targetRollup.count > 0);
+}
+
 export function getCurtailmentEventSelectedMinerCount(event: ProtoCurtailmentEvent): number {
   const snapshotSelectedCount = getSnapshotNumber(event, selectedCountSnapshotKeys);
   return snapshotSelectedCount ?? event.targetRollup?.total ?? event.targets.length;
@@ -114,6 +251,42 @@ export function getCurtailmentEventEstimatedReductionKw(event: ProtoCurtailmentE
 
   const baselinePowerW = event.targets.reduce((total, target) => total + (target.baselinePowerW ?? 0), 0);
   return baselinePowerW / wattsPerKilowatt;
+}
+
+function getConfirmedTargetCount(event: ProtoCurtailmentEvent): number {
+  if (event.targetRollup) {
+    return event.targetRollup.confirmed;
+  }
+
+  return event.targets.filter((target) => target.state === ProtoCurtailmentTargetState.CONFIRMED).length;
+}
+
+function getEstimatedObservedReductionKw(event: ProtoCurtailmentEvent, estimatedReductionKw: number): number {
+  const selectedCount = getCurtailmentEventSelectedMinerCount(event);
+  if (selectedCount <= 0) {
+    return 0;
+  }
+
+  return estimatedReductionKw * (getConfirmedTargetCount(event) / selectedCount);
+}
+
+export function getCurtailmentEventObservedReductionKw(
+  event: ProtoCurtailmentEvent,
+  estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event),
+): number {
+  let observedReductionTotalW = 0;
+  let hasObservedReduction = false;
+
+  for (const { baselinePowerW, observedPowerW } of event.targets) {
+    if (baselinePowerW !== undefined && observedPowerW !== undefined) {
+      hasObservedReduction = true;
+      observedReductionTotalW += Math.max(baselinePowerW - observedPowerW, 0);
+    }
+  }
+
+  return hasObservedReduction
+    ? observedReductionTotalW / wattsPerKilowatt
+    : getEstimatedObservedReductionKw(event, estimatedReductionKw);
 }
 
 export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent): string {
@@ -133,6 +306,89 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent): str
 
 export function getCurtailmentTargetKw(event: CurtailmentTargetKwEvent): number {
   return event.targetKw ?? event.estimatedReductionKw;
+}
+
+export function getCurtailmentProgressPercent(value: number, total: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.max((value / total) * 100, 0), 100);
+}
+
+export function getActiveCurtailmentRollupCount(
+  event: ActiveCurtailmentDisplayEvent,
+  states: CurtailmentTargetState[],
+): number {
+  return event.rollups.reduce((total, rollup) => {
+    if (!states.includes(rollup.state)) {
+      return total;
+    }
+
+    return total + rollup.count;
+  }, 0);
+}
+
+export function getActiveCurtailmentMinerCompliance(
+  event: ActiveCurtailmentDisplayEvent,
+): ActiveCurtailmentMinerCompliance {
+  const curtailedCount = getActiveCurtailmentRollupCount(event, curtailedTargetStates);
+  const restoreFailedCount = getActiveCurtailmentRollupCount(event, restoreFailedTargetStates);
+  const restoredCount = getActiveCurtailmentRollupCount(event, restoredTargetStates);
+  const countedTargetCount = getActiveCurtailmentRollupCount(event, countedTargetStates);
+  const totalCount = Math.max(event.selectedMiners, countedTargetCount);
+
+  return {
+    curtailedCount,
+    restoreFailedCount,
+    restoredCount,
+    totalCount,
+  };
+}
+
+export function hasActiveCurtailmentDispatchStarted(event: ActiveCurtailmentDisplayEvent): boolean {
+  return getActiveCurtailmentRollupCount(event, startedCurtailmentDispatchTargetStates) > 0;
+}
+
+function isRestoredEventState(state: CurtailmentEventState): boolean {
+  return state === "completed";
+}
+
+function isRestoreIncompleteEventState(state: CurtailmentEventState): boolean {
+  return state === "completedWithFailures";
+}
+
+export function getActiveCurtailmentDisplayState(event: ActiveCurtailmentDisplayEvent): ActiveCurtailmentDisplayState {
+  if (event.state === "restoring") {
+    return "restoring";
+  }
+
+  if (event.state === "pending") {
+    return hasActiveCurtailmentDispatchStarted(event) ? "curtailing" : "pending";
+  }
+
+  if (isRestoreIncompleteEventState(event.state)) {
+    return "restoreIncomplete";
+  }
+
+  if (isRestoredEventState(event.state)) {
+    return "restored";
+  }
+
+  if (event.state === "cancelled") {
+    return "cancelled";
+  }
+
+  if (event.state === "failed") {
+    return "failed";
+  }
+
+  const targetKw = getCurtailmentTargetKw(event);
+  const compliance = getActiveCurtailmentMinerCompliance(event);
+  const powerShedPercent = getCurtailmentProgressPercent(event.observedReductionKw, targetKw);
+  const curtailedPercent = getCurtailmentProgressPercent(compliance.curtailedCount, compliance.totalCount);
+
+  return powerShedPercent >= 100 || curtailedPercent >= 100 ? "curtailed" : "curtailing";
 }
 
 export function formatCurtailmentKw(value: number, fractionDigits = 1): string {

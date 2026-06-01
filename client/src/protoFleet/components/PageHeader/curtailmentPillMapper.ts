@@ -1,9 +1,13 @@
-import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
+import { type CurtailmentPillEvent, isCurtailmentPillState } from "./curtailmentPillTypes";
+import { getFixedKwTarget } from "@/protoFleet/api/curtailmentMappers";
 import type { CurtailmentEvent as ProtoCurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
+  getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
+  getCurtailmentEventObservedReductionKw,
   getCurtailmentEventScopeLabel,
   getCurtailmentEventSelectedMinerCount,
+  getCurtailmentTargetRollups,
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
@@ -18,11 +22,26 @@ export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): Curtailm
     return null;
   }
 
+  const selectedMiners = getCurtailmentEventSelectedMinerCount(event);
+  const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
+  const displayState = getActiveCurtailmentDisplayState({
+    state,
+    selectedMiners,
+    estimatedReductionKw,
+    targetKw: getFixedKwTarget(event),
+    observedReductionKw: getCurtailmentEventObservedReductionKw(event, estimatedReductionKw),
+    rollups: getCurtailmentTargetRollups(event),
+  });
+
+  if (!isCurtailmentPillState(displayState)) {
+    return null;
+  }
+
   return {
     reason: event.reason,
-    state,
+    state: displayState,
     scopeLabel: getCurtailmentEventScopeLabel(event),
-    selectedMiners: getCurtailmentEventSelectedMinerCount(event),
-    estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
+    selectedMiners,
+    estimatedReductionKw,
   };
 }

@@ -189,7 +189,7 @@ const InteractiveSchedulePillStory = () => {
 
 const storyCurtailmentEvent: CurtailmentPillEvent = {
   reason: "ERCOT demand response",
-  state: "active",
+  state: "curtailing",
   scopeLabel: "Racks A1-A4",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,
@@ -219,7 +219,7 @@ export const SchedulePill = () => {
   );
 };
 
-export const CurtailmentPill = ({ state = "active" }: { state?: CurtailmentPillState }) => {
+export const CurtailmentPill = ({ state = "curtailing" }: { state?: CurtailmentPillState }) => {
   return (
     <StoryFrame>
       <CurtailmentPillComponent event={{ ...storyCurtailmentEvent, state }} />
@@ -228,7 +228,7 @@ export const CurtailmentPill = ({ state = "active" }: { state?: CurtailmentPillS
 };
 
 CurtailmentPill.args = {
-  state: "active",
+  state: "curtailing",
 };
 
 CurtailmentPill.argTypes = {

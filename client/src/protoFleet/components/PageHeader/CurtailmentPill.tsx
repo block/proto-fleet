@@ -1,8 +1,11 @@
+import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 
-import type { CurtailmentPillProps } from "./curtailmentPillTypes";
+import type { CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
 import {
+  activeCurtailmentDisplayStateConfigs,
+  type CurtailmentEventState,
   curtailmentEventStateConfigs,
   formatCurtailmentKw,
   formatCurtailmentSelectedMinerCount,
@@ -10,8 +13,20 @@ import {
 
 export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 
-function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps) {
-  const stateConfig = curtailmentEventStateConfigs[event.state];
+function getLegacyCurtailmentPillHeaderState(state: CurtailmentPillState): CurtailmentEventState {
+  switch (state) {
+    case "curtailing":
+    case "curtailed":
+      return "active";
+    case "pending":
+    case "restoring":
+      return state;
+  }
+}
+
+function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps): ReactElement {
+  const stateConfig = activeCurtailmentDisplayStateConfigs[event.state];
+  const headerStateConfig = curtailmentEventStateConfigs[getLegacyCurtailmentPillHeaderState(event.state)];
   const plannedReductionDetail = `${formatCurtailmentSelectedMinerCount(event.selectedMiners)} - ${formatCurtailmentKw(
     event.estimatedReductionKw,
   )} planned`;
@@ -24,9 +39,9 @@ function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps) {
   return (
     <PageHeaderPopoverPill
       ariaLabel={`View curtailment details for ${event.reason}`}
-      dotClassName={stateConfig.dotClassName}
+      dotClassName={headerStateConfig.dotClassName}
       triggerClassName="curtailment-pill-trigger"
-      triggerLabel={`Curtailment ${stateConfig.label.toLowerCase()}`}
+      triggerLabel={`Curtailment ${headerStateConfig.label.toLowerCase()}`}
     >
       {({ closePopover }) => (
         <div className="flex flex-col gap-3">
