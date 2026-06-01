@@ -22,18 +22,41 @@ func TestInferTimezone_USStates(t *testing.T) {
 	}
 }
 
+func TestInferTimezone_CAProvinces(t *testing.T) {
+	cases := []struct {
+		province string
+		want     string
+	}{
+		{"ON", "America/Toronto"},
+		{"QC", "America/Toronto"},
+		{"BC", "America/Vancouver"},
+		{"AB", "America/Edmonton"},
+		{"SK", "America/Regina"},
+		{"NL", "America/St_Johns"},
+		{"YT", "America/Whitehorse"},
+		{"NU", "America/Iqaluit"},
+		{"PE", "America/Halifax"},
+	}
+	for _, c := range cases {
+		if got := InferTimezone("CA", c.province); got != c.want {
+			t.Errorf("InferTimezone(\"CA\", %q) = %q, want %q", c.province, got, c.want)
+		}
+	}
+}
+
 func TestInferTimezone_NormalizesWhitespaceAndCase(t *testing.T) {
 	cases := []struct {
-		country, state string
+		country, state, want string
 	}{
-		{"us", "ca"},
-		{"  US ", "  Ca  "},
-		{"US", "cA"},
+		{"us", "ca", "America/Los_Angeles"},
+		{"  US ", "  Ca  ", "America/Los_Angeles"},
+		{"US", "cA", "America/Los_Angeles"},
+		{"ca", "on", "America/Toronto"},
+		{"  Ca  ", " ON ", "America/Toronto"},
 	}
-	const want = "America/Los_Angeles"
 	for _, c := range cases {
-		if got := InferTimezone(c.country, c.state); got != want {
-			t.Errorf("InferTimezone(%q, %q) = %q, want %q", c.country, c.state, got, want)
+		if got := InferTimezone(c.country, c.state); got != c.want {
+			t.Errorf("InferTimezone(%q, %q) = %q, want %q", c.country, c.state, got, c.want)
 		}
 	}
 }
@@ -47,11 +70,11 @@ func TestInferTimezone_EmptyCountryDefaultsToUS(t *testing.T) {
 	}
 }
 
-func TestInferTimezone_NonUSCountryReturnsEmpty(t *testing.T) {
+func TestInferTimezone_UnsupportedCountryReturnsEmpty(t *testing.T) {
 	cases := []struct{ country, state string }{
-		{"CA", "ON"}, // Canada / Ontario — out of scope today
 		{"MX", "DF"},
 		{"GB", ""},
+		{"DE", "BY"},
 	}
 	for _, c := range cases {
 		if got := InferTimezone(c.country, c.state); got != "" {
@@ -61,19 +84,30 @@ func TestInferTimezone_NonUSCountryReturnsEmpty(t *testing.T) {
 }
 
 func TestInferTimezone_UnknownStateReturnsEmpty(t *testing.T) {
-	cases := []string{"", "ZZ", "XX", "123"}
-	for _, s := range cases {
-		if got := InferTimezone("US", s); got != "" {
-			t.Errorf("InferTimezone(\"US\", %q) = %q, want empty", s, got)
+	cases := []struct{ country, state string }{
+		{"US", ""},
+		{"US", "ZZ"},
+		{"US", "XX"},
+		{"US", "123"},
+		{"CA", ""},
+		{"CA", "ZZ"},
+		{"CA", "ON1"},
+	}
+	for _, c := range cases {
+		if got := InferTimezone(c.country, c.state); got != "" {
+			t.Errorf("InferTimezone(%q, %q) = %q, want empty", c.country, c.state, got)
 		}
 	}
 }
 
 func TestInferTimezone_CoversAllFiftyStatesPlusDC(t *testing.T) {
-	// Guard against accidental deletions from the lookup table. If a
-	// future change drops a state, this test fails noisily instead of
-	// silently regressing every site in that state to empty timezone.
 	if got, want := len(usStateToTimezone), 51; got != want {
 		t.Errorf("usStateToTimezone has %d entries, want %d (50 states + DC)", got, want)
+	}
+}
+
+func TestInferTimezone_CoversAllCanadianProvincesAndTerritories(t *testing.T) {
+	if got, want := len(caProvinceToTimezone), 13; got != want {
+		t.Errorf("caProvinceToTimezone has %d entries, want %d (10 provinces + 3 territories)", got, want)
 	}
 }

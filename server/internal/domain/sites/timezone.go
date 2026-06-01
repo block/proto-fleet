@@ -2,9 +2,9 @@ package sites
 
 import "strings"
 
-// usStateToTimezone maps USPS two-letter codes to the IANA timezone the
-// bulk of the state observes. Multi-zone states resolve to the most
-// populous zone; refine here when a counter-example matters.
+// usStateToTimezone maps USPS two-letter codes to the IANA timezone
+// the bulk of the state observes. Multi-zone states resolve to the
+// most populous zone; refine here when a counter-example matters.
 var usStateToTimezone = map[string]string{
 	"AL": "America/Chicago",
 	"AK": "America/Anchorage",
@@ -59,6 +59,26 @@ var usStateToTimezone = map[string]string{
 	"WY": "America/Denver",
 }
 
+// caProvinceToTimezone maps Canadian province / territory two-letter
+// codes to the IANA timezone the bulk of the province observes.
+// Multi-zone provinces (NT, NU, BC's far east) resolve to the most
+// populous zone.
+var caProvinceToTimezone = map[string]string{
+	"AB": "America/Edmonton",
+	"BC": "America/Vancouver",
+	"MB": "America/Winnipeg",
+	"NB": "America/Moncton",
+	"NL": "America/St_Johns",
+	"NS": "America/Halifax",
+	"NT": "America/Yellowknife",
+	"NU": "America/Iqaluit",
+	"ON": "America/Toronto",
+	"PE": "America/Halifax",
+	"QC": "America/Toronto",
+	"SK": "America/Regina",
+	"YT": "America/Whitehorse",
+}
+
 // InferTimezone returns an IANA timezone id derived from a (country,
 // state) pair. Empty country defaults to "US" (the DB column default).
 // Returns "" when nothing matches — caller decides how to render that.
@@ -71,8 +91,13 @@ func InferTimezone(country, state string) string {
 	if c == "" {
 		c = "US"
 	}
-	if c != "US" {
+	s := strings.ToUpper(strings.TrimSpace(state))
+	switch c {
+	case "US":
+		return usStateToTimezone[s]
+	case "CA":
+		return caProvinceToTimezone[s]
+	default:
 		return ""
 	}
-	return usStateToTimezone[strings.ToUpper(strings.TrimSpace(state))]
 }

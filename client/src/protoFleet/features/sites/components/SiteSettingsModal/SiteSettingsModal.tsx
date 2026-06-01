@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
-import { US_STATE_OPTIONS } from "@/protoFleet/features/sites/constants";
+import { CA_PROVINCE_OPTIONS, COUNTRY_OPTIONS, US_STATE_OPTIONS } from "@/protoFleet/features/sites/constants";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -51,6 +51,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   const [city, setCity] = useState(initialValues.locationCity);
   const [state, setState] = useState(initialValues.locationState);
   const [postalCode, setPostalCode] = useState(initialValues.postalCode);
+  const [country, setCountry] = useState(initialValues.country || "US");
   const [notes, setNotes] = useState(initialValues.notes);
   const [capacityText, setCapacityText] = useState(
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
@@ -70,14 +71,12 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
       locationCity: city.trim(),
       locationState: state.trim(),
       postalCode: postalCode.trim(),
-      // Country is implicit US for now — non-US support requires per-
-      // country state lists + timezone tables (#266 follow-up).
-      country: "US",
+      country: country || "US",
       powerCapacityMw: capacity,
       networkConfig: initialValues.networkConfig,
       notes: notes,
     };
-  }, [name, address, city, state, postalCode, capacityText, notes, initialValues.networkConfig]);
+  }, [name, address, city, state, postalCode, country, capacityText, notes, initialValues.networkConfig]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
@@ -157,6 +156,21 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           maxLength={255}
           testId="site-settings-address-input"
         />
+        <Select
+          id="site-settings-country"
+          label="Country"
+          options={COUNTRY_OPTIONS}
+          value={country}
+          onChange={(v) => {
+            setCountry(v);
+            // State list is country-scoped — keeping a stale value (e.g.
+            // "IL" when switching US → CA) would persist a code that
+            // resolves to no timezone.
+            setState("");
+          }}
+          forceBelow
+          testId="site-settings-country-select"
+        />
         <div className="grid grid-cols-2 gap-4">
           <Input
             id="site-settings-city"
@@ -168,8 +182,8 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           />
           <Select
             id="site-settings-state"
-            label="State"
-            options={US_STATE_OPTIONS}
+            label={country === "CA" ? "Province" : "State"}
+            options={country === "CA" ? CA_PROVINCE_OPTIONS : US_STATE_OPTIONS}
             value={state}
             onChange={setState}
             forceBelow
