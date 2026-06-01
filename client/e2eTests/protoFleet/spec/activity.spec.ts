@@ -280,7 +280,7 @@ test.describe("Proto Fleet - Activity Login", () => {
     authPage,
     browser,
   }, testInfo) => {
-    const viewport = testInfo.project.use?.viewport;
+    const viewport = testInfo.project.use?.viewport ?? undefined;
     const isMobile = testInfo.project.use?.isMobile ?? false;
 
     await test.step("Record a failed admin login, then sign in successfully", async () => {
