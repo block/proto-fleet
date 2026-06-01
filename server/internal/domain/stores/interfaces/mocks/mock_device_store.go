@@ -274,6 +274,21 @@ func (mr *MockDeviceStoreMockRecorder) GetMinerStateCountsByCollections(ctx, org
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerStateCountsByCollections", reflect.TypeOf((*MockDeviceStore)(nil).GetMinerStateCountsByCollections), ctx, orgID, collectionIDs)
 }
 
+// GetMinerStateCountsByDeviceIDs mocks base method.
+func (m *MockDeviceStore) GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (interfaces.MinerStateCounts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerStateCountsByDeviceIDs", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(interfaces.MinerStateCounts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerStateCountsByDeviceIDs indicates an expected call of GetMinerStateCountsByDeviceIDs.
+func (mr *MockDeviceStoreMockRecorder) GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerStateCountsByDeviceIDs", reflect.TypeOf((*MockDeviceStore)(nil).GetMinerStateCountsByDeviceIDs), ctx, orgID, deviceIdentifiers)
+}
+
 // GetOfflineDevices mocks base method.
 func (m *MockDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]interfaces.OfflineDeviceInfo, error) {
 	m.ctrl.T.Helper()

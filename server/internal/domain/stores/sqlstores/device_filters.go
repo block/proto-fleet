@@ -59,6 +59,11 @@ type minerFilterParams struct {
 	// ipCIDRValues are pre-stringified prefixes (already normalized by
 	// parseFilter) suitable for pq.Array on a $N::cidr[] parameter.
 	ipCIDRValues []string
+	// limit, when > 0, becomes a SQL-level `LIMIT N` on the device-id
+	// query. Threaded through from MinerFilter.Limit so the stats RPCs
+	// can fail-fast on oversize fleets without first materializing every
+	// matching identifier.
+	limit int
 }
 
 // buildMinerFilterParams converts a MinerFilter to SQL-ready parameters.
@@ -176,6 +181,10 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		for i, p := range filter.IPCIDRs {
 			fp.ipCIDRValues[i] = p.String()
 		}
+	}
+
+	if filter.Limit > 0 {
+		fp.limit = filter.Limit
 	}
 
 	return fp

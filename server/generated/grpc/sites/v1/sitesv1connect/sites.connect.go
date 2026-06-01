@@ -48,6 +48,9 @@ const (
 	// SiteServiceAssignBuildingToSiteProcedure is the fully-qualified name of the SiteService's
 	// AssignBuildingToSite RPC.
 	SiteServiceAssignBuildingToSiteProcedure = "/sites.v1.SiteService/AssignBuildingToSite"
+	// SiteServiceGetSiteStatsProcedure is the fully-qualified name of the SiteService's GetSiteStats
+	// RPC.
+	SiteServiceGetSiteStatsProcedure = "/sites.v1.SiteService/GetSiteStats"
 )
 
 // SiteServiceClient is a client for the sites.v1.SiteService service.
@@ -80,6 +83,11 @@ type SiteServiceClient interface {
 	// transaction cascades site_id down to the building's racks and
 	// their devices. Returns the cascade counts.
 	AssignBuildingToSite(context.Context, *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error)
+	// GetSiteStats returns server-rolled telemetry + miner-state counts
+	// for every device assigned to the site, including devices whose
+	// rack has no building set and devices that have no rack at all.
+	// Drives the /sites operational overview metric row.
+	GetSiteStats(context.Context, *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error)
 }
 
 // NewSiteServiceClient constructs a client for the sites.v1.SiteService service. By default, it
@@ -122,6 +130,11 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+SiteServiceAssignBuildingToSiteProcedure,
 			opts...,
 		),
+		getSiteStats: connect.NewClient[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse](
+			httpClient,
+			baseURL+SiteServiceGetSiteStatsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -133,6 +146,7 @@ type siteServiceClient struct {
 	deleteSite            *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
 	reassignDevicesToSite *connect.Client[v1.ReassignDevicesToSiteRequest, v1.ReassignDevicesToSiteResponse]
 	assignBuildingToSite  *connect.Client[v1.AssignBuildingToSiteRequest, v1.AssignBuildingToSiteResponse]
+	getSiteStats          *connect.Client[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse]
 }
 
 // ListSites calls sites.v1.SiteService.ListSites.
@@ -165,6 +179,11 @@ func (c *siteServiceClient) AssignBuildingToSite(ctx context.Context, req *conne
 	return c.assignBuildingToSite.CallUnary(ctx, req)
 }
 
+// GetSiteStats calls sites.v1.SiteService.GetSiteStats.
+func (c *siteServiceClient) GetSiteStats(ctx context.Context, req *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error) {
+	return c.getSiteStats.CallUnary(ctx, req)
+}
+
 // SiteServiceHandler is an implementation of the sites.v1.SiteService service.
 type SiteServiceHandler interface {
 	// ListSites returns every live site in the caller's org with
@@ -195,6 +214,11 @@ type SiteServiceHandler interface {
 	// transaction cascades site_id down to the building's racks and
 	// their devices. Returns the cascade counts.
 	AssignBuildingToSite(context.Context, *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error)
+	// GetSiteStats returns server-rolled telemetry + miner-state counts
+	// for every device assigned to the site, including devices whose
+	// rack has no building set and devices that have no rack at all.
+	// Drives the /sites operational overview metric row.
+	GetSiteStats(context.Context, *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error)
 }
 
 // NewSiteServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -233,6 +257,11 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		svc.AssignBuildingToSite,
 		opts...,
 	)
+	siteServiceGetSiteStatsHandler := connect.NewUnaryHandler(
+		SiteServiceGetSiteStatsProcedure,
+		svc.GetSiteStats,
+		opts...,
+	)
 	return "/sites.v1.SiteService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SiteServiceListSitesProcedure:
@@ -247,6 +276,8 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 			siteServiceReassignDevicesToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceAssignBuildingToSiteProcedure:
 			siteServiceAssignBuildingToSiteHandler.ServeHTTP(w, r)
+		case SiteServiceGetSiteStatsProcedure:
+			siteServiceGetSiteStatsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -278,4 +309,8 @@ func (UnimplementedSiteServiceHandler) ReassignDevicesToSite(context.Context, *c
 
 func (UnimplementedSiteServiceHandler) AssignBuildingToSite(context.Context, *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignBuildingToSite is not implemented"))
+}
+
+func (UnimplementedSiteServiceHandler) GetSiteStats(context.Context, *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.GetSiteStats is not implemented"))
 }

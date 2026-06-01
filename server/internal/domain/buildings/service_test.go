@@ -53,7 +53,7 @@ func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	// Both calls happen inside RunInTx; assert via inTxCtx.
 	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(1), nil)
@@ -76,7 +76,7 @@ func TestDeleteBuilding_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	// SoftDeleteBuilding runs inside the tx and returns 0; cascade short-circuits.
 	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
@@ -92,7 +92,7 @@ func TestCreateBuilding_rejectsUnknownSiteID(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	// The race-fix wraps CreateBuilding in a tx and replaces the
 	// SiteBelongsToOrg pre-check with LockSiteForWrite. When the site is
@@ -117,7 +117,7 @@ func TestCreateBuilding_unassignedSkipsSiteCheck(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	// LockSiteForWrite must not be invoked when SiteID is nil. The insert
 	// still runs inside the tx (inTxCtx asserts that).
@@ -142,7 +142,7 @@ func TestCreateBuilding_withSiteLocksAndPersists(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	// Site→insert ordering inside the tx, both with inTxCtx.
 	gomock.InOrder(
@@ -173,7 +173,7 @@ func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	_, err := svc.ListBuildings(context.Background(), models.ListFilter{
 		OrgID:          testOrgID,
@@ -201,7 +201,7 @@ func newAssignHarness(t *testing.T) *assignHarness {
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, collectionStore, tx, nil)
+	svc := NewService(store, siteStore, collectionStore, nil, nil, tx, nil)
 	return &assignHarness{
 		store:           store,
 		siteStore:       siteStore,
@@ -453,7 +453,7 @@ func TestUpdateBuilding_rejectsShrinkThatOrphansPlacement(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
@@ -486,7 +486,7 @@ func TestCreateBuilding_rejectsLayoutAbove100(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
@@ -520,7 +520,7 @@ func TestUpdateBuilding_growthSkipsBoundsScan(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
@@ -547,7 +547,7 @@ func TestCreateBuilding_rejectsInvalidOrderIndex(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, siteStore, nil, tx, nil)
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,

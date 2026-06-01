@@ -12,8 +12,11 @@ import (
 	"sort"
 	"strings"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
+	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -33,22 +36,52 @@ const (
 // total separately; the truncated list is just a debugging affordance.
 const maxDeviceIdentifiersInMetadata = 50
 
+// MaxDevicesPerSiteStatsRequest caps the device list GetSiteStats will
+// materialize in-memory before bailing. Unlike GetBuildingStats this
+// list is never echoed in the response — the ceiling guards against
+// runaway memory + giant Postgres/Timescale ANY() queries on a site
+// that's been pathologically misconfigured. Production single-site
+// fleets cap around 30k devices; 100k is generous headroom and still
+// well below the point a single rollup would stall a 60s poll tick.
+const MaxDevicesPerSiteStatsRequest = 100_000
+
 // Service is the domain entry point for site CRUD, device reassignment,
 // and building site reassignment. The transactor is required: the
 // site delete cascade and the bulk-reassign all-or-nothing semantics
 // both depend on it.
 type Service struct {
-	store       interfaces.SiteStore
-	transactor  interfaces.Transactor
-	activitySvc *activity.Service
+	store         interfaces.SiteStore
+	buildingStore interfaces.BuildingStore
+	deviceQueryer devicerollup.DeviceQueryer
+	telemetry     devicerollup.TelemetryCollector
+	transactor    interfaces.Transactor
+	activitySvc   *activity.Service
 }
 
 // NewService wires a SiteStore, Transactor, and the activity Service
 // used for fire-and-forget audit logs. activitySvc may be nil in tests
 // or in environments where activity logging is disabled; activity.Log
 // is nil-receiver-safe.
-func NewService(store interfaces.SiteStore, transactor interfaces.Transactor, activitySvc *activity.Service) *Service {
-	return &Service{store: store, transactor: transactor, activitySvc: activitySvc}
+//
+// buildingStore, deviceQueryer, and telemetry power GetSiteStats only.
+// Any of them may be nil in test setups where the stats RPC isn't
+// exercised; GetSiteStats returns an internal error in that case.
+func NewService(
+	store interfaces.SiteStore,
+	buildingStore interfaces.BuildingStore,
+	deviceQueryer devicerollup.DeviceQueryer,
+	telemetry devicerollup.TelemetryCollector,
+	transactor interfaces.Transactor,
+	activitySvc *activity.Service,
+) *Service {
+	return &Service{
+		store:         store,
+		buildingStore: buildingStore,
+		deviceQueryer: deviceQueryer,
+		telemetry:     telemetry,
+		transactor:    transactor,
+		activitySvc:   activitySvc,
+	}
 }
 
 // CreateResult is the output of CreateSite, carrying both the saved
@@ -488,4 +521,94 @@ func formatSiteIDForDescription(target *int64) string {
 		return "Unassigned"
 	}
 	return fmt.Sprintf("%d", *target)
+}
+
+// GetSiteStats rolls up telemetry + miner-state counts for every device
+// in the site (racked or directly site-attached) plus the live building
+// count. NotFound when the site doesn't exist in the org.
+func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*models.SiteStats, error) {
+	if s.deviceQueryer == nil || s.telemetry == nil || s.buildingStore == nil {
+		return nil, fleeterror.NewInternalErrorf("sites.GetSiteStats requires deviceQueryer, telemetry, and buildingStore")
+	}
+
+	// Existence check — NotFound if the site is gone or belongs to a
+	// different org. Cheaper than fetching the full row.
+	exists, err := s.store.SiteBelongsToOrg(ctx, orgID, siteID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+	}
+
+	// Building count from the buildings store.
+	bldgs, err := s.buildingStore.ListBuildings(ctx, buildingsmodels.ListFilter{OrgID: orgID, SiteID: &siteID})
+	if err != nil {
+		return nil, err
+	}
+
+	// Device identifiers scoped to the site via the existing MinerFilter.
+	// SiteIDs alone is enough — site-direct devices have device.site_id
+	// set; racked devices inherit site_id through the rack cascade.
+	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
+	// counts AUTH_NEEDED devices the same way the miner list does — without
+	// this, the default PAIRED-only filter would silently undercount.
+	// Limit = cap + 1 lets us detect over-cap with a single bounded query
+	// rather than materializing the full identifier list before bailing.
+	// The cap-exceeded guard below trips when the SQL returns cap+1 rows;
+	// we never hold a slice larger than that even for an unboundedly-sized
+	// site.
+	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
+		SiteIDs: []int64{siteID},
+		PairingStatuses: []fm.PairingStatus{
+			fm.PairingStatus_PAIRING_STATUS_PAIRED,
+			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		},
+		Limit: MaxDevicesPerSiteStatsRequest + 1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(deviceIDs) > MaxDevicesPerSiteStatsRequest {
+		return nil, fleeterror.NewInternalErrorf("site %d exceeded the %d device cap", siteID, MaxDevicesPerSiteStatsRequest)
+	}
+
+	stats := &models.SiteStats{
+		SiteID:        siteID,
+		BuildingCount: int32(len(bldgs)),     //nolint:gosec // building count bounded by org config
+		DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
+	}
+
+	if len(deviceIDs) == 0 {
+		return stats, nil
+	}
+
+	// State counts via the flat by-device-ids query (covers un-racked devices
+	// that wouldn't appear in a collection-membership join).
+	counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+	if err != nil {
+		return nil, err
+	}
+	stats.HashingCount = counts.HashingCount
+	stats.BrokenCount = counts.BrokenCount
+	stats.OfflineCount = counts.OfflineCount
+	stats.SleepingCount = counts.SleepingCount
+
+	// Telemetry rollup runs through the shared aggregator so site +
+	// building stats can't drift on unit conversions or NaN handling.
+	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+	metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to fetch site telemetry: %v", err)
+	}
+	rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+	stats.ReportingCount = rollup.ReportingCount
+	stats.HashrateReportingCount = rollup.HashrateReportingCount
+	stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+	stats.PowerReportingCount = rollup.PowerReportingCount
+	stats.TotalHashrateThs = rollup.TotalHashrateThs
+	stats.TotalPowerKw = rollup.TotalPowerKw
+	stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+
+	return stats, nil
 }

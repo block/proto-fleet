@@ -55,6 +55,9 @@ const (
 	// BuildingServiceAssignRackToBuildingProcedure is the fully-qualified name of the BuildingService's
 	// AssignRackToBuilding RPC.
 	BuildingServiceAssignRackToBuildingProcedure = "/buildings.v1.BuildingService/AssignRackToBuilding"
+	// BuildingServiceGetBuildingStatsProcedure is the fully-qualified name of the BuildingService's
+	// GetBuildingStats RPC.
+	BuildingServiceGetBuildingStatsProcedure = "/buildings.v1.BuildingService/GetBuildingStats"
 )
 
 // BuildingServiceClient is a client for the buildings.v1.BuildingService service.
@@ -97,6 +100,12 @@ type BuildingServiceClient interface {
 	// descendant device.site_id that SaveRack runs when the rack's
 	// site changes.
 	AssignRackToBuilding(context.Context, *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error)
+	// GetBuildingStats returns server-rolled telemetry + miner-state
+	// counts for every device whose rack lives in the building, plus a
+	// per-rack health summary (rack id, label, position, state counts)
+	// sized to the building's aisles × racks_per_aisle floor plan.
+	// Drives the /sites BuildingCard.
+	GetBuildingStats(context.Context, *connect.Request[v1.GetBuildingStatsRequest]) (*connect.Response[v1.GetBuildingStatsResponse], error)
 }
 
 // NewBuildingServiceClient constructs a client for the buildings.v1.BuildingService service. By
@@ -144,6 +153,11 @@ func NewBuildingServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+BuildingServiceAssignRackToBuildingProcedure,
 			opts...,
 		),
+		getBuildingStats: connect.NewClient[v1.GetBuildingStatsRequest, v1.GetBuildingStatsResponse](
+			httpClient,
+			baseURL+BuildingServiceGetBuildingStatsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -156,6 +170,7 @@ type buildingServiceClient struct {
 	deleteBuilding       *connect.Client[v1.DeleteBuildingRequest, v1.DeleteBuildingResponse]
 	listBuildingRacks    *connect.Client[v1.ListBuildingRacksRequest, v1.ListBuildingRacksResponse]
 	assignRackToBuilding *connect.Client[v1.AssignRackToBuildingRequest, v1.AssignRackToBuildingResponse]
+	getBuildingStats     *connect.Client[v1.GetBuildingStatsRequest, v1.GetBuildingStatsResponse]
 }
 
 // ListBuildings calls buildings.v1.BuildingService.ListBuildings.
@@ -191,6 +206,11 @@ func (c *buildingServiceClient) ListBuildingRacks(ctx context.Context, req *conn
 // AssignRackToBuilding calls buildings.v1.BuildingService.AssignRackToBuilding.
 func (c *buildingServiceClient) AssignRackToBuilding(ctx context.Context, req *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error) {
 	return c.assignRackToBuilding.CallUnary(ctx, req)
+}
+
+// GetBuildingStats calls buildings.v1.BuildingService.GetBuildingStats.
+func (c *buildingServiceClient) GetBuildingStats(ctx context.Context, req *connect.Request[v1.GetBuildingStatsRequest]) (*connect.Response[v1.GetBuildingStatsResponse], error) {
+	return c.getBuildingStats.CallUnary(ctx, req)
 }
 
 // BuildingServiceHandler is an implementation of the buildings.v1.BuildingService service.
@@ -233,6 +253,12 @@ type BuildingServiceHandler interface {
 	// descendant device.site_id that SaveRack runs when the rack's
 	// site changes.
 	AssignRackToBuilding(context.Context, *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error)
+	// GetBuildingStats returns server-rolled telemetry + miner-state
+	// counts for every device whose rack lives in the building, plus a
+	// per-rack health summary (rack id, label, position, state counts)
+	// sized to the building's aisles × racks_per_aisle floor plan.
+	// Drives the /sites BuildingCard.
+	GetBuildingStats(context.Context, *connect.Request[v1.GetBuildingStatsRequest]) (*connect.Response[v1.GetBuildingStatsResponse], error)
 }
 
 // NewBuildingServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -276,6 +302,11 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 		svc.AssignRackToBuilding,
 		opts...,
 	)
+	buildingServiceGetBuildingStatsHandler := connect.NewUnaryHandler(
+		BuildingServiceGetBuildingStatsProcedure,
+		svc.GetBuildingStats,
+		opts...,
+	)
 	return "/buildings.v1.BuildingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BuildingServiceListBuildingsProcedure:
@@ -292,6 +323,8 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 			buildingServiceListBuildingRacksHandler.ServeHTTP(w, r)
 		case BuildingServiceAssignRackToBuildingProcedure:
 			buildingServiceAssignRackToBuildingHandler.ServeHTTP(w, r)
+		case BuildingServiceGetBuildingStatsProcedure:
+			buildingServiceGetBuildingStatsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -327,4 +360,8 @@ func (UnimplementedBuildingServiceHandler) ListBuildingRacks(context.Context, *c
 
 func (UnimplementedBuildingServiceHandler) AssignRackToBuilding(context.Context, *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.AssignRackToBuilding is not implemented"))
+}
+
+func (UnimplementedBuildingServiceHandler) GetBuildingStats(context.Context, *connect.Request[v1.GetBuildingStatsRequest]) (*connect.Response[v1.GetBuildingStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.GetBuildingStats is not implemented"))
 }
