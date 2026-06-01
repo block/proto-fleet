@@ -559,16 +559,17 @@ func toUpdateRequest(msg *pb.UpdateCurtailmentEventRequest, info *session.Info) 
 }
 
 // toListEventsRequest maps the proto request to the service-layer shape.
-// UNSPECIFIED state pass-through → empty string = "all states" downstream.
+// The repeated state_filters field takes precedence over the legacy singular
+// state_filter field. UNSPECIFIED filters collapse to "all states".
 func toListEventsRequest(msg *pb.ListCurtailmentEventsRequest, orgID int64) (curtailment.ListEventsRequest, error) {
 	if orgID <= 0 {
 		return curtailment.ListEventsRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 	return curtailment.ListEventsRequest{
-		OrgID:       orgID,
-		PageSize:    msg.GetPageSize(),
-		PageToken:   msg.GetPageToken(),
-		StateFilter: eventStateFromProto(msg.GetStateFilter()),
+		OrgID:        orgID,
+		PageSize:     msg.GetPageSize(),
+		PageToken:    msg.GetPageToken(),
+		StateFilters: eventStatesFromListEventsRequestProto(msg),
 	}, nil
 }
 
@@ -820,6 +821,24 @@ func eventStateFromProto(s pb.CurtailmentEventState) models.EventState {
 		return models.EventStateFailed
 	}
 	return ""
+}
+
+func eventStatesFromListEventsRequestProto(msg *pb.ListCurtailmentEventsRequest) []models.EventState {
+	if filters := msg.GetStateFilters(); len(filters) > 0 {
+		out := make([]models.EventState, 0, len(filters))
+		for _, filter := range filters {
+			state := eventStateFromProto(filter)
+			if state != "" {
+				out = append(out, state)
+			}
+		}
+		return out
+	}
+
+	if state := eventStateFromProto(msg.GetStateFilter()); state != "" {
+		return []models.EventState{state}
+	}
+	return nil
 }
 
 func eventStateProto(s models.EventState) pb.CurtailmentEventState {

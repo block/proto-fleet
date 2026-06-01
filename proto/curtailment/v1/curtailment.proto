@@ -540,8 +540,17 @@ message ListCurtailmentEventsRequest {
     // Opaque cursor; empty for first page. Capped to bound the decode path.
     string page_token = 2 [(buf.validate.field).string.max_len = 1024];
 
-    // Optional state filter; unspecified returns all states.
+    // Optional legacy state filter; unspecified returns all states.
+    // Prefer state_filters for new clients.
     CurtailmentEventState state_filter = 3 [(buf.validate.field).enum.defined_only = true];
+
+    // Optional state filters; empty returns all states. When this is set, it
+    // takes precedence over the legacy singular state_filter field.
+    repeated CurtailmentEventState state_filters = 4 [(buf.validate.field).repeated = {
+        unique: true
+        max_items: 7
+        items: { enum: { defined_only: true } }
+    }];
 }
 
 message ListCurtailmentEventsResponse {

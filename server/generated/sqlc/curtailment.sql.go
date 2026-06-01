@@ -903,16 +903,19 @@ SELECT
 FROM curtailment_event
 WHERE org_id = $1
     AND ($2::BIGINT = 0 OR id < $2::BIGINT)
-    AND ($3::TEXT = '' OR state = $3::TEXT)
+    AND (
+        COALESCE(cardinality($3::TEXT[]), 0) = 0
+        OR state = ANY($3::TEXT[])
+    )
 ORDER BY id DESC
 LIMIT $4::BIGINT
 `
 
 type ListCurtailmentEventsForOrgParams struct {
-	OrgID       int64
-	CursorID    int64
-	StateFilter string
-	RowLimit    int64
+	OrgID        int64
+	CursorID     int64
+	StateFilters []string
+	RowLimit     int64
 }
 
 type ListCurtailmentEventsForOrgRow struct {
@@ -953,7 +956,7 @@ type ListCurtailmentEventsForOrgRow struct {
 }
 
 // Cursor-paginated history (newest-first). cursor_id=0 is the first page;
-// state_filter empty = all states; caller passes limit+1 to detect a next page.
+// state_filters empty = all states; caller passes limit+1 to detect a next page.
 //
 // decision_snapshot_jsonb is projected with the per-device `skipped` array
 // stripped into a `skipped_aggregate` reason→count map so 10K-miner
@@ -962,7 +965,7 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 	rows, err := q.query(ctx, q.listCurtailmentEventsForOrgStmt, listCurtailmentEventsForOrg,
 		arg.OrgID,
 		arg.CursorID,
-		arg.StateFilter,
+		pq.Array(arg.StateFilters),
 		arg.RowLimit,
 	)
 	if err != nil {

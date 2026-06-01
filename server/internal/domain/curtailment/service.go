@@ -282,13 +282,13 @@ func (s *Service) GetActive(ctx context.Context, orgID int64) (*models.Event, er
 
 // ListEventsRequest is the service-level shape of a ListCurtailmentEvents
 // call. PageToken is empty for the first page; subsequent pages reuse the
-// next-page token returned by the previous call. StateFilter is the
-// canonical empty-string-or-EventState; the handler maps the proto enum.
+// next-page token returned by the previous call. StateFilters empty means
+// all states; the handler maps proto enums to canonical EventState values.
 type ListEventsRequest struct {
-	OrgID       int64
-	PageSize    int32
-	PageToken   string
-	StateFilter models.EventState
+	OrgID        int64
+	PageSize     int32
+	PageToken    string
+	StateFilters []models.EventState
 }
 
 // UpdateRequest is the service-level shape of an UpdateCurtailmentEvent
@@ -766,10 +766,10 @@ func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*mod
 		)
 	}
 	return s.store.ListEvents(ctx, interfaces.ListEventsParams{
-		OrgID:       req.OrgID,
-		PageSize:    req.PageSize,
-		PageToken:   req.PageToken,
-		StateFilter: req.StateFilter,
+		OrgID:        req.OrgID,
+		PageSize:     req.PageSize,
+		PageToken:    req.PageToken,
+		StateFilters: req.StateFilters,
 	})
 }
 

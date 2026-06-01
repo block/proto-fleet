@@ -237,7 +237,7 @@ RETURNING *;
 
 -- name: ListCurtailmentEventsForOrg :many
 -- Cursor-paginated history (newest-first). cursor_id=0 is the first page;
--- state_filter empty = all states; caller passes limit+1 to detect a next page.
+-- state_filters empty = all states; caller passes limit+1 to detect a next page.
 --
 -- decision_snapshot_jsonb is projected with the per-device `skipped` array
 -- stripped into a `skipped_aggregate` reason→count map so 10K-miner
@@ -276,7 +276,10 @@ SELECT
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND (sqlc.arg('cursor_id')::BIGINT = 0 OR id < sqlc.arg('cursor_id')::BIGINT)
-    AND (sqlc.arg('state_filter')::TEXT = '' OR state = sqlc.arg('state_filter')::TEXT)
+    AND (
+        COALESCE(cardinality(sqlc.arg('state_filters')::TEXT[]), 0) = 0
+        OR state = ANY(sqlc.arg('state_filters')::TEXT[])
+    )
 ORDER BY id DESC
 LIMIT sqlc.arg('row_limit')::BIGINT;
 

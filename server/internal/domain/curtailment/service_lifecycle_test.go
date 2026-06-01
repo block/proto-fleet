@@ -303,9 +303,9 @@ func TestService_Lifecycle_ListEventsReturnsTerminalRow(t *testing.T) {
 	svc := NewService(store)
 
 	got, _, err := svc.ListEvents(t.Context(), ListEventsRequest{
-		OrgID:       orgID,
-		PageSize:    20,
-		StateFilter: models.EventStateFailed,
+		OrgID:        orgID,
+		PageSize:     20,
+		StateFilters: []models.EventState{models.EventStateFailed},
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)

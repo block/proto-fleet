@@ -68,13 +68,13 @@ type UpsertCurtailmentHeartbeatParams struct {
 }
 
 // ListEventsParams configures the cursor-paginated history query.
-// PageToken empty = first page; StateFilter empty = all states.
+// PageToken empty = first page; StateFilters empty = all states.
 // PageSize <=0 falls back to the store's default page size.
 type ListEventsParams struct {
-	OrgID       int64
-	PageSize    int32
-	PageToken   string
-	StateFilter models.EventState
+	OrgID        int64
+	PageSize     int32
+	PageToken    string
+	StateFilters []models.EventState
 }
 
 // UpdateOperatorFieldsParams carries the optional patch fields for a
