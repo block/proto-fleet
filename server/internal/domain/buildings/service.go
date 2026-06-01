@@ -647,13 +647,27 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// scope (this is a building roll-up, not a site roll-up).
 	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
 	// counts AUTH_NEEDED devices the same way the miner list does.
-	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
+	//
+	// Also constrain by expectedSiteID so a concurrent AssignBuildingToSite
+	// that commits between the building re-read and the device fetch can't
+	// leak the new site's device set: the cascade stamps device.site_id
+	// onto every device under the moved building, so requiring
+	// device.site_id == expectedSiteID returns an empty set the moment the
+	// move commits. Pairs with the post-read re-check below as belt-and-
+	// braces.
+	devFilter := &interfaces.MinerFilter{
 		BuildingIDs: []int64{buildingID},
 		PairingStatuses: []fm.PairingStatus{
 			fm.PairingStatus_PAIRING_STATUS_PAIRED,
 			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 		},
-	})
+	}
+	if expectedSiteID != nil {
+		devFilter.SiteIDs = []int64{*expectedSiteID}
+	} else {
+		devFilter.IncludeUnassigned = true
+	}
+	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, devFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -663,32 +677,52 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	}
 	stats.DeviceIdentifiers = deviceIDs
 
-	if len(deviceIDs) == 0 {
-		return stats, nil
+	// State counts + telemetry only run when there's at least one
+	// device; we still fall through to the post-read site re-check
+	// below either way, so an empty-device path can't skip the race
+	// guard.
+	if len(deviceIDs) > 0 {
+		counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+		if err != nil {
+			return nil, err
+		}
+		stats.HashingCount = counts.HashingCount
+		stats.BrokenCount = counts.BrokenCount
+		stats.OfflineCount = counts.OfflineCount
+		stats.SleepingCount = counts.SleepingCount
+
+		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+		metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to fetch building telemetry: %v", err)
+		}
+		rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+		stats.ReportingCount = rollup.ReportingCount
+		stats.HashrateReportingCount = rollup.HashrateReportingCount
+		stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+		stats.PowerReportingCount = rollup.PowerReportingCount
+		stats.TotalHashrateThs = rollup.TotalHashrateThs
+		stats.TotalPowerKw = rollup.TotalPowerKw
+		stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
 	}
 
-	counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+	// Belt-and-braces: re-read the building after all the rollup queries.
+	// The device fetch is already scoped to expectedSiteID, but the rack
+	// and per-rack state queries join on building_id alone — if
+	// AssignBuildingToSite committed between the initial GetBuilding check
+	// and these reads, the rack/state data would still be that of the
+	// moved building (which now belongs to a site the caller wasn't
+	// authorized for). Catch that here and surface NotFound rather than
+	// return a snapshot that mixes pre-move authz with post-move data.
+	// Runs in both the with-devices and zero-devices paths so a moved
+	// building that no longer has any site-A devices still trips here.
+	postReadBuilding, err := s.store.GetBuilding(ctx, orgID, buildingID)
 	if err != nil {
 		return nil, err
 	}
-	stats.HashingCount = counts.HashingCount
-	stats.BrokenCount = counts.BrokenCount
-	stats.OfflineCount = counts.OfflineCount
-	stats.SleepingCount = counts.SleepingCount
-
-	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
-	metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch building telemetry: %v", err)
+	if !int64PtrEqual(expectedSiteID, postReadBuilding.SiteID) {
+		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 	}
-	rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
-	stats.ReportingCount = rollup.ReportingCount
-	stats.HashrateReportingCount = rollup.HashrateReportingCount
-	stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
-	stats.PowerReportingCount = rollup.PowerReportingCount
-	stats.TotalHashrateThs = rollup.TotalHashrateThs
-	stats.TotalPowerKw = rollup.TotalPowerKw
-	stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
 
 	return stats, nil
 }

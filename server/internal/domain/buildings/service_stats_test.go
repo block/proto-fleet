@@ -91,6 +91,33 @@ func TestGetBuildingStats_notFoundWhenSiteMovedDuringAuthz(t *testing.T) {
 	}
 }
 
+func TestGetBuildingStats_notFoundWhenSiteMovedAfterReads(t *testing.T) {
+	// Sharper race: handler + initial site read both saw site A, so the
+	// rollup proceeded. AssignBuildingToSite then commits to site B
+	// before the service hits its post-read re-check. Expectation: the
+	// post-read guard catches the move and returns NotFound rather than
+	// handing the caller a snapshot built under stale authz.
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
+	siteA := int64(1)
+	siteB := int64(2)
+	// First GetBuilding (layout bounds + initial site check) returns A;
+	// second (post-read re-check) returns B, simulating a mid-call move.
+	gomock.InOrder(
+		store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1, SiteID: &siteA}, nil),
+		store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1, SiteID: &siteB}, nil),
+	)
+
+	svc := NewService(store, nil, nil, newDevices(nil), newTelemetry(), newTx(), nil)
+	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, &siteA)
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeNotFound {
+		t.Fatalf("expected NotFound from post-read re-check, got %v", err)
+	}
+}
+
 func TestGetBuildingStats_internalErrorWhenDepsMissing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
@@ -107,7 +134,8 @@ func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
 	store := mocks.NewMockBuildingStore(ctrl)
 	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
 	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
-	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(2, 4), nil)
+	// GetBuilding called twice: layout-bounds read + post-read race re-check.
+	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(2, 4), nil).Times(2)
 
 	devices := newDevices(nil)
 	svc := NewService(store, nil, nil, devices, newTelemetry(), newTx(), nil)
@@ -145,7 +173,7 @@ func TestGetBuildingStats_clearsOutOfBoundsRackPositions(t *testing.T) {
 		"",
 		nil,
 	)
-	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(2, 3), nil)
+	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(2, 3), nil).Times(2)
 
 	svc := NewService(store, nil, nil, newDevices(nil), newTelemetry(), newTx(), nil)
 	stats, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, nil)
@@ -181,7 +209,7 @@ func TestGetBuildingStats_rollsUpDeviceMetrics(t *testing.T) {
 		"",
 		nil,
 	)
-	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(1, 1), nil)
+	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(1, 1), nil).Times(2)
 
 	devices := &fakeDeviceQueryer{
 		deviceIDs:   []string{"d1", "d2"},

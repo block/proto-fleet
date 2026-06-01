@@ -98,10 +98,11 @@ func TestHandler_GetBuildingStats_plumbsRackHealth(t *testing.T) {
 		"",
 		nil,
 	)
-	// GetBuilding is called twice: once by the handler for site-scoped
-	// authz narrowing, once by the service for the layout-bounds clamp
-	// on rack_health.
-	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1}, nil).Times(2)
+	// GetBuilding is called three times: once by the handler for
+	// site-scoped authz narrowing, once by the service for the
+	// layout-bounds clamp on rack_health, and once by the service's
+	// post-read race re-check.
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1}, nil).Times(3)
 	h.deviceQueryer.collections = map[int64]interfaces.MinerStateCounts{
 		10: {HashingCount: 3, BrokenCount: 1},
 	}
