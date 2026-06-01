@@ -42,25 +42,38 @@ func TestRequiredPermForAction_Mapping(t *testing.T) {
 	}
 }
 
-func TestRequireActionAuthority_DeniesWithoutUnderlyingMinerPerm(t *testing.T) {
+// Caller holds schedule:manage but not the underlying miner action key.
+// The scheduler can't be used as an end-run around the action gate, so
+// each action must deny with PermissionDenied. The grant case asserts
+// the per-action key is the only thing missing from the deny case.
+func TestRequireActionAuthority_PerAction(t *testing.T) {
 	t.Parallel()
-	// Caller holds schedule:manage but not miner:reboot. Scheduling a
-	// REBOOT must fail with PermissionDenied so the scheduler can't be
-	// used as an end-run around the action gate.
-	ctx := ctxWithPermissions(t, authz.PermScheduleManage)
+	cases := []struct {
+		action      pb.ScheduleAction
+		requiredKey string
+	}{
+		{pb.ScheduleAction_SCHEDULE_ACTION_REBOOT, authz.PermMinerReboot},
+		{pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET, authz.PermMinerSetPowerTarget},
+		{pb.ScheduleAction_SCHEDULE_ACTION_SLEEP, authz.PermMinerStopMining},
+	}
+	for _, tc := range cases {
+		t.Run(tc.action.String()+"_denies_without_underlying_perm", func(t *testing.T) {
+			t.Parallel()
+			ctx := ctxWithPermissions(t, authz.PermScheduleManage)
 
-	err := requireActionAuthority(ctx, pb.ScheduleAction_SCHEDULE_ACTION_REBOOT)
+			err := requireActionAuthority(ctx, tc.action)
 
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-}
-
-func TestRequireActionAuthority_AllowsWithUnderlyingMinerPerm(t *testing.T) {
-	t.Parallel()
-	ctx := ctxWithPermissions(t, authz.PermScheduleManage, authz.PermMinerReboot)
-	require.NoError(t, requireActionAuthority(ctx, pb.ScheduleAction_SCHEDULE_ACTION_REBOOT))
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+		t.Run(tc.action.String()+"_allows_with_underlying_perm", func(t *testing.T) {
+			t.Parallel()
+			ctx := ctxWithPermissions(t, authz.PermScheduleManage, tc.requiredKey)
+			require.NoError(t, requireActionAuthority(ctx, tc.action))
+		})
+	}
 }
 
 func TestRequireActionAuthority_UnspecifiedIsNoOp(t *testing.T) {
@@ -86,6 +99,82 @@ func TestRequireActionAuthority_UnknownActionFailsClosed(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+}
+
+// Every ScheduleService RPC must reject sessions that hold no schedule
+// permissions before any service work runs. A future refactor that
+// drops a RequirePermission line from a handler stays green only if
+// this list keeps that handler covered.
+func TestScheduleHandler_GatesEveryRPC(t *testing.T) {
+	t.Parallel()
+	h := NewHandler(nil)
+	ctx := ctxWithPermissions(t) // no permissions
+
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{
+			"ListSchedules",
+			func() error {
+				_, err := h.ListSchedules(ctx, connect.NewRequest(&pb.ListSchedulesRequest{}))
+				return err
+			},
+		},
+		{
+			"CreateSchedule",
+			func() error {
+				_, err := h.CreateSchedule(ctx, connect.NewRequest(&pb.CreateScheduleRequest{}))
+				return err
+			},
+		},
+		{
+			"UpdateSchedule",
+			func() error {
+				_, err := h.UpdateSchedule(ctx, connect.NewRequest(&pb.UpdateScheduleRequest{}))
+				return err
+			},
+		},
+		{
+			"DeleteSchedule",
+			func() error {
+				_, err := h.DeleteSchedule(ctx, connect.NewRequest(&pb.DeleteScheduleRequest{}))
+				return err
+			},
+		},
+		{
+			"PauseSchedule",
+			func() error {
+				_, err := h.PauseSchedule(ctx, connect.NewRequest(&pb.PauseScheduleRequest{}))
+				return err
+			},
+		},
+		{
+			"ResumeSchedule",
+			func() error {
+				_, err := h.ResumeSchedule(ctx, connect.NewRequest(&pb.ResumeScheduleRequest{}))
+				return err
+			},
+		},
+		{
+			"ReorderSchedules",
+			func() error {
+				_, err := h.ReorderSchedules(ctx, connect.NewRequest(&pb.ReorderSchedulesRequest{}))
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.call()
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr, "expected fleeterror.FleetError, got %T", err)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
 }
 
 func ctxWithPermissions(t *testing.T, permissions ...string) context.Context {
