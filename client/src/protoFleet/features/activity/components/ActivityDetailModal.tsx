@@ -8,6 +8,7 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
+import { getActivityBatchId } from "@/protoFleet/features/activity/utils/getActivityBatchId";
 import { Alert, Info } from "@/shared/assets/icons";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -19,9 +20,16 @@ interface ActivityDetailModalProps {
   onDismiss: () => void;
 }
 
+function summaryRowTestId(label: string) {
+  return `activity-detail-${label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`;
+}
+
 function SummaryRow({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5">
+    <div data-testid={summaryRowTestId(label)} className="flex items-baseline justify-between gap-4 py-1.5">
       <span className="shrink-0 text-text-primary-50">{label}</span>
       <span className={clsx("text-right text-text-primary", className)}>{children}</span>
     </div>
@@ -29,7 +37,7 @@ function SummaryRow({ label, children, className }: { label: string; children: R
 }
 
 const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => {
-  const batchId = entry?.batchId;
+  const batchId = entry ? getActivityBatchId(entry) : undefined;
   const { fetch, getResult } = useCommandBatchDeviceResults({
     activeBatchId: batchId,
     pollIntervalMs: POLL_INTERVAL_MS,
@@ -126,7 +134,7 @@ function BatchDeviceResults({
 
   if (!data) {
     return error ? (
-      <div className="text-intent-critical flex items-center gap-2 text-200">
+      <div data-testid="activity-detail-error" className="text-intent-critical flex items-center gap-2 text-200">
         <Alert width="w-3.5" />
         <span>{error}</span>
       </div>
@@ -151,7 +159,10 @@ function BatchDeviceResults({
 
   return (
     <>
-      <div className="max-h-56 overflow-y-auto rounded-lg border border-surface-10">
+      <div
+        data-testid="activity-detail-device-results-table"
+        className="max-h-56 overflow-y-auto rounded-lg border border-surface-10"
+      >
         <table className="w-full text-200">
           <thead className="sticky top-0 bg-surface-5 text-left text-text-primary-50">
             <tr>
@@ -163,7 +174,11 @@ function BatchDeviceResults({
           </thead>
           <tbody className="divide-y divide-surface-10">
             {data.deviceResults.map((result) => (
-              <tr key={result.deviceIdentifier} className="text-text-primary">
+              <tr
+                key={result.deviceIdentifier}
+                data-testid="activity-detail-device-result-row"
+                className="text-text-primary"
+              >
                 <td className="px-3 py-2">
                   <div>{result.deviceName ?? result.deviceIdentifier}</div>
                   {result.macAddress || result.ipAddress ? (

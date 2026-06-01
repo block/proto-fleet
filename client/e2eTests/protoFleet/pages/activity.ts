@@ -1,4 +1,4 @@
-import { expect, type Locator } from "@playwright/test";
+import { type Download, expect, type Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
@@ -68,15 +68,90 @@ export class ActivityPage extends BasePage {
   }
 
   async validateLatestActivityMarkedFailed() {
-    await expect(this.latestActivityRow().getByText("Failed", { exact: true })).toBeVisible();
+    await expect(this.latestActivityRow().getByTestId("activity-row-failed-indicator")).toBeVisible();
   }
 
   async validateLatestActivityNotMarkedFailed() {
-    await expect(this.latestActivityRow().getByText("Failed", { exact: true })).toHaveCount(0);
+    await expect(this.latestActivityRow().getByTestId("activity-row-failed-indicator")).toHaveCount(0);
   }
 
   async validateActivityDescriptionVisible(description: string) {
     await expect(this.activityRowByDescription(description)).toBeVisible();
+  }
+
+  async validateActivityDescriptionNotVisible(description: string) {
+    await expect(this.activityRowByDescription(description)).toHaveCount(0);
+  }
+
+  async validateFilterPillVisible(label: string) {
+    await expect(this.filterPillByLabel(label)).toBeVisible();
+  }
+
+  async validateFilterPillNotVisible(label: string) {
+    await expect(this.filterPillByLabel(label)).toHaveCount(0);
+  }
+
+  async removeFilterPill(label: string) {
+    await this.filterPillByLabel(label).click();
+    await this.waitForActivityListToLoad();
+  }
+
+  async exportCsvAndWaitForDownload(): Promise<Download> {
+    const downloadPromise = this.page.waitForEvent("download");
+    await this.page.getByRole("button", { name: "Export CSV", exact: true }).click();
+    return await downloadPromise;
+  }
+
+  async openLatestActivityDetails() {
+    await this.latestActivityRow().click();
+    await this.validateTitleInModal("Actions");
+  }
+
+  async closeActivityDetails() {
+    await this.page.getByTestId("modal").getByRole("button", { name: "Close dialog", exact: true }).click();
+    await expect(this.page.getByTestId("modal")).toBeHidden();
+  }
+
+  async validateActivityDetailResult(expectedResult: "Success" | "Failure" | "In progress") {
+    await expect(this.page.getByTestId("activity-detail-result")).toContainText(expectedResult);
+  }
+
+  async validateActivityDetailSucceededCount(count: number) {
+    await expect(this.page.getByTestId("activity-detail-succeeded")).toContainText(
+      `${count} ${count === 1 ? "miner" : "miners"}`,
+    );
+  }
+
+  async validateActivityDetailFailedCount(count: number) {
+    await expect(this.page.getByTestId("activity-detail-failed")).toContainText(
+      `${count} ${count === 1 ? "miner" : "miners"}`,
+    );
+  }
+
+  async validateActivityDetailMinerResultVisible(minerIdentifier: string, status: "Success" | "Failed") {
+    const resultsTable = this.page.getByTestId("activity-detail-device-results-table");
+    const row = resultsTable.getByTestId("activity-detail-device-result-row").filter({
+      hasText: minerIdentifier,
+    });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(status);
+  }
+
+  async validateActivityDetailError(text: string) {
+    await expect(this.page.getByTestId("activity-detail-error")).toContainText(text);
+  }
+
+  async getVisibleActivityRowCount() {
+    return await this.page.getByTestId("list-row").count();
+  }
+
+  async validateLoadMoreVisible() {
+    await expect(this.page.getByRole("button", { name: "Load more", exact: true })).toBeVisible();
+  }
+
+  async clickLoadMore() {
+    await this.page.getByRole("button", { name: "Load more", exact: true }).click();
+    await this.waitForActivityListToLoad();
   }
 
   private latestActivityRow(): Locator {
@@ -87,6 +162,10 @@ export class ActivityPage extends BasePage {
     return this.page.getByTestId("list-row").filter({
       has: this.page.getByTestId("type").getByText(description, { exact: false }),
     });
+  }
+
+  private filterPillByLabel(label: string): Locator {
+    return this.page.locator("button").filter({ hasText: label });
   }
 
   private async selectDropdownFilter(title: string, optionLabel: string) {

@@ -6,6 +6,7 @@ import ActivityDetailModal from "@/protoFleet/features/activity/components/Activ
 import { getActivityIcon } from "@/protoFleet/features/activity/utils/activityIcons";
 import { isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
+import { getActivityBatchId } from "@/protoFleet/features/activity/utils/getActivityBatchId";
 import { Alert } from "@/shared/assets/icons";
 import { formatActivityTimestamp } from "@/shared/utils/formatTimestamp";
 
@@ -19,14 +20,16 @@ const defaultNoDataElement = <div className="py-10 text-center text-text-primary
 function groupActivities(activities: ActivityEntry[]): ActivityEntry[] {
   const completedBatchIds = new Set<string>();
   for (const entry of activities) {
-    if (entry.batchId && isCompletedEvent(entry.eventType)) {
-      completedBatchIds.add(entry.batchId);
+    const batchId = getActivityBatchId(entry);
+    if (batchId && isCompletedEvent(entry.eventType)) {
+      completedBatchIds.add(batchId);
     }
   }
   return activities.filter((entry) => {
-    if (!entry.batchId) return true;
+    const batchId = getActivityBatchId(entry);
+    if (!batchId) return true;
     if (isCompletedEvent(entry.eventType)) return true;
-    return !completedBatchIds.has(entry.batchId);
+    return !completedBatchIds.has(batchId);
   });
 }
 
@@ -69,7 +72,11 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
               <div data-testid="type" className="flex items-start gap-2">
                 <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
                   <Icon width="w-4" />
-                  {isFailed ? <span className="sr-only">Failed</span> : null}
+                  {isFailed ? (
+                    <span data-testid="activity-row-failed-indicator" className="sr-only">
+                      Failed
+                    </span>
+                  ) : null}
                 </div>
                 <span className="min-w-0 break-words">
                   {isCompletedEvent(entry.eventType)

@@ -1,5 +1,6 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
+import { recordFailedAdminLogin, seedAdminLoginActivities } from "../helpers/activityHelper";
 import { CommonSteps } from "../helpers/commonSteps";
 import { generateRandomText } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
@@ -7,6 +8,7 @@ import { MinersPage } from "../pages/miners";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 
 const SCHEDULE_PREFIX = "activity_schedule_e2e";
+const LOGIN_EVENTS_FOR_PAGINATION = 55;
 
 test.describe("Proto Fleet - Activity", () => {
   test.beforeEach(async ({ page }) => {
@@ -35,24 +37,28 @@ test.describe("Proto Fleet - Activity", () => {
     }
   });
 
-  test("Blink LEDs bulk action is visible in Activity with the right miner count", async ({
+  test("Blink LEDs activity opens detail modal and shows per-miner results", async ({
     activityPage,
     commonSteps,
     minersPage,
   }) => {
+    let selectedMinerIps: string[] = [];
+
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
-    await test.step("Filter Proto miners as a workaround", async () => {
-      await minersPage.filterRigMiners();
-    });
+    await test.step("Select three authenticated miners and trigger Blink LEDs", async () => {
+      selectedMinerIps = [
+        await minersPage.getAuthenticatedMinerIpAddressByIndex(0),
+        await minersPage.getAuthenticatedMinerIpAddressByIndex(1),
+        await minersPage.getAuthenticatedMinerIpAddressByIndex(2),
+      ];
 
-    await test.step("Select three miners and trigger Blink LEDs", async () => {
-      await minersPage.clickMinerCheckboxByIndex(0);
+      await minersPage.clickMinerCheckbox(selectedMinerIps[0]);
       await minersPage.validateActionBarMinerCount(1);
-      await minersPage.clickMinerCheckboxByIndex(1);
+      await minersPage.clickMinerCheckbox(selectedMinerIps[1]);
       await minersPage.validateActionBarMinerCount(2);
-      await minersPage.clickMinerCheckboxByIndex(2);
+      await minersPage.clickMinerCheckbox(selectedMinerIps[2]);
       await minersPage.validateActionBarMinerCount(3);
 
       await minersPage.clickBlinkLEDsButton();
@@ -74,6 +80,17 @@ test.describe("Proto Fleet - Activity", () => {
       await activityPage.validateLatestActivityScope("3 miners");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityNotMarkedFailed();
+    });
+
+    await test.step("Open the detail modal and validate per-miner results", async () => {
+      await activityPage.openLatestActivityDetails();
+      await activityPage.validateActivityDetailResult("Success");
+      await activityPage.validateActivityDetailSucceededCount(3);
+      await activityPage.validateActivityDetailFailedCount(0);
+      for (const minerIp of selectedMinerIps) {
+        await activityPage.validateActivityDetailMinerResultVisible(minerIp, "Success");
+      }
+      await activityPage.closeActivityDetails();
     });
   });
 
@@ -133,6 +150,100 @@ test.describe("Proto Fleet - Activity", () => {
       await activityPage.validateActivityDescriptionVisible(`Created schedule: ${scheduleName}`);
     });
   });
+
+  test("Activity filter pills can be removed individually", async ({
+    activityPage,
+    commonSteps,
+    settingsSchedulesPage,
+  }) => {
+    const scheduleName = generateRandomText(SCHEDULE_PREFIX);
+
+    await commonSteps.loginAsAdmin();
+
+    await test.step("Create a uniquely named schedule for Activity filtering", async () => {
+      await settingsSchedulesPage.navigateToSchedulesSettings();
+      await settingsSchedulesPage.validateSchedulesPageOpened();
+      await settingsSchedulesPage.clickAddSchedule();
+      await settingsSchedulesPage.inputScheduleName(scheduleName);
+      await settingsSchedulesPage.selectStartDate(1);
+      await settingsSchedulesPage.openMinersTargetSelector();
+      await settingsSchedulesPage.waitForMinerSelectionModalToLoad();
+      await settingsSchedulesPage.selectFirstMiners(1);
+      await settingsSchedulesPage.confirmMinerSelection();
+      await settingsSchedulesPage.clickSaveSchedule();
+      await settingsSchedulesPage.validateScheduleVisible(scheduleName);
+    });
+
+    await test.step("Apply Activity filters that generate removable pills", async () => {
+      await activityPage.navigateToActivityPage();
+      await activityPage.waitForActivityListToLoad();
+      await activityPage.searchActivity(scheduleName);
+      await activityPage.selectTypeFilter("Create schedule");
+      await activityPage.selectUserFilter(testConfig.users.admin.username);
+      await activityPage.validateActivityDescriptionVisible(`Created schedule: ${scheduleName}`);
+      await activityPage.validateFilterPillVisible("Create schedule");
+      await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
+    });
+
+    await test.step("Remove the type pill and keep the user pill active", async () => {
+      await activityPage.removeFilterPill("Create schedule");
+      await activityPage.validateFilterPillNotVisible("Create schedule");
+      await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
+      await activityPage.validateActivityDescriptionVisible(`Created schedule: ${scheduleName}`);
+    });
+
+    await test.step("Remove the user pill and leave the search state intact", async () => {
+      await activityPage.removeFilterPill(testConfig.users.admin.username);
+      await activityPage.validateFilterPillNotVisible(testConfig.users.admin.username);
+      await activityPage.validateSearchInputValue(scheduleName);
+      await activityPage.validateActivityDescriptionVisible(`Created schedule: ${scheduleName}`);
+    });
+  });
+
+  test("Activity export starts a CSV download", async ({ activityPage, commonSteps }) => {
+    await commonSteps.loginAsAdmin();
+
+    await test.step("Open Activity with visible rows", async () => {
+      await activityPage.navigateToActivityPage();
+      await activityPage.waitForActivityListToLoad();
+      await activityPage.validateLatestActivityDescription("Login");
+    });
+
+    await test.step("Export activity as CSV", async () => {
+      const download = await activityPage.exportCsvAndWaitForDownload();
+      test.expect(download.suggestedFilename()).toMatch(/activity-export.*\.csv$/i);
+    });
+  });
+
+  test("Activity load more appends older rows", async ({ activityPage, browser, commonSteps }, testInfo) => {
+    const viewport = testInfo.project.use?.viewport;
+    const isMobile = testInfo.project.use?.isMobile ?? false;
+
+    await commonSteps.loginAsAdmin();
+    await seedAdminLoginActivities(browser, {
+      count: LOGIN_EVENTS_FOR_PAGINATION,
+      isMobile,
+      viewport,
+    });
+
+    await test.step("Open Activity and filter to admin logins", async () => {
+      await activityPage.navigateToActivityPage();
+      await activityPage.waitForActivityListToLoad();
+      await activityPage.selectTypeFilter("Login");
+      await activityPage.selectUserFilter(testConfig.users.admin.username);
+      await activityPage.validateLoadMoreVisible();
+    });
+
+    await test.step("Load more activity rows and validate the list grows", async () => {
+      const initialRowCount = await activityPage.getVisibleActivityRowCount();
+      test.expect(initialRowCount).toBeGreaterThan(0);
+
+      await activityPage.clickLoadMore();
+
+      const expandedRowCount = await activityPage.getVisibleActivityRowCount();
+      test.expect(expandedRowCount).toBeGreaterThan(initialRowCount);
+    });
+  });
 });
 
 test.describe("Proto Fleet - Activity Login", () => {
@@ -161,6 +272,39 @@ test.describe("Proto Fleet - Activity Login", () => {
       await activityPage.validateLatestActivityDescription("Login");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityNotMarkedFailed();
+    });
+  });
+
+  test("Failed activity row is marked failed and opens correct details", async ({
+    activityPage,
+    authPage,
+    browser,
+  }, testInfo) => {
+    const viewport = testInfo.project.use?.viewport;
+    const isMobile = testInfo.project.use?.isMobile ?? false;
+
+    await test.step("Record a failed admin login, then sign in successfully", async () => {
+      await recordFailedAdminLogin(browser, { isMobile, viewport });
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Filter Activity to the failed login row", async () => {
+      await activityPage.navigateToActivityPage();
+      await activityPage.waitForActivityListToLoad();
+      await activityPage.searchActivity("Login failed");
+      await activityPage.selectUserFilter(testConfig.users.admin.username);
+      await activityPage.validateLatestActivityDescription("Login failed");
+      await activityPage.validateLatestActivityMarkedFailed();
+    });
+
+    await test.step("Open the failed activity details and validate the error", async () => {
+      await activityPage.openLatestActivityDetails();
+      await activityPage.validateActivityDetailResult("Failure");
+      await activityPage.validateActivityDetailError("invalid credentials");
+      await activityPage.closeActivityDetails();
     });
   });
 });
