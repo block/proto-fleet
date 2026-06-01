@@ -1,15 +1,20 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
-import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
+import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
+import {
+  type CurtailmentEvent,
+  CurtailmentEventSchema,
+  CurtailmentEventState,
+} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 
-const { mockGetActiveCurtailment, mockHandleAuthErrors, mockMapCurtailmentPillEvent } = vi.hoisted(() => ({
+const { mockGetActiveCurtailment, mockHandleAuthErrors } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
-  mockMapCurtailmentPillEvent: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -24,23 +29,19 @@ vi.mock("@/protoFleet/store", () => ({
   }),
 }));
 
-vi.mock("./curtailmentPillMapper", () => ({
-  mapCurtailmentPillEvent: mockMapCurtailmentPillEvent,
-}));
-
-const activeCurtailmentEvent: CurtailmentPillEvent = {
-  reason: "Grid peak call",
-  state: "active",
-  scopeLabel: "Whole fleet",
-  selectedMiners: 48,
-  estimatedReductionKw: 126.4,
-};
+function curtailmentEvent(): CurtailmentEvent {
+  return create(CurtailmentEventSchema, {
+    eventUuid: "curt-1",
+    reason: "Grid peak call",
+    state: CurtailmentEventState.ACTIVE,
+  });
+}
 
 describe("useCurtailmentPillData", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    resetActiveCurtailmentData();
     vi.clearAllMocks();
-    mockMapCurtailmentPillEvent.mockReturnValue(activeCurtailmentEvent);
   });
 
   afterEach(() => {
@@ -48,10 +49,10 @@ describe("useCurtailmentPillData", () => {
   });
 
   it("does not start overlapping polling requests", async () => {
-    let resolveRequest: (value: { event: unknown }) => void = () => {};
+    let resolveRequest: (value: { event?: CurtailmentEvent }) => void = () => {};
     mockGetActiveCurtailment.mockImplementation(
       () =>
-        new Promise((resolve) => {
+        new Promise<{ event?: CurtailmentEvent }>((resolve) => {
           resolveRequest = resolve;
         }),
     );
@@ -69,12 +70,36 @@ describe("useCurtailmentPillData", () => {
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveRequest({ event: {} });
+      resolveRequest({ event: undefined });
     });
 
     act(() => {
       vi.advanceTimersByTime(30_000);
     });
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
+  });
+
+  it("polls active curtailments more frequently", async () => {
+    mockGetActiveCurtailment.mockResolvedValue({ event: curtailmentEvent() });
+
+    renderHook(() => useCurtailmentPillData());
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {});
+
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(2_999);
+    });
+    expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
   });
 
@@ -96,7 +121,7 @@ describe("useCurtailmentPillData", () => {
   });
 
   it("refreshes immediately when curtailment changes", async () => {
-    mockGetActiveCurtailment.mockResolvedValue({ event: {} });
+    mockGetActiveCurtailment.mockResolvedValue({ event: curtailmentEvent() });
 
     renderHook(() => useCurtailmentPillData());
 
@@ -115,19 +140,45 @@ describe("useCurtailmentPillData", () => {
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
   });
 
+  it("clears the cached active event when a refresh fails", async () => {
+    mockHandleAuthErrors.mockImplementation(({ onError }: { onError?: (error: unknown) => void }) => {
+      onError?.(new Error("load failed"));
+    });
+    mockGetActiveCurtailment
+      .mockResolvedValueOnce({ event: curtailmentEvent() })
+      .mockRejectedValueOnce(new Error("load failed"));
+
+    const { result } = renderHook(() => useCurtailmentPillData());
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {});
+
+    expect(result.current.activeEvent?.reason).toBe("Grid peak call");
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+      await Promise.resolve();
+    });
+
+    expect(result.current.activeEvent).toBeNull();
+    expect(mockHandleAuthErrors).toHaveBeenCalledOnce();
+  });
+
   it("queues a fresh refresh when curtailment changes during an in-flight poll", async () => {
-    let resolveFirstRequest: (value: { event: unknown }) => void = () => {};
-    let resolveSecondRequest: (value: { event: unknown }) => void = () => {};
+    let resolveFirstRequest: (value: { event: CurtailmentEvent }) => void = () => {};
+    let resolveSecondRequest: (value: { event: CurtailmentEvent }) => void = () => {};
     mockGetActiveCurtailment
       .mockImplementationOnce(
         () =>
-          new Promise((resolve) => {
+          new Promise<{ event: CurtailmentEvent }>((resolve) => {
             resolveFirstRequest = resolve;
           }),
       )
       .mockImplementationOnce(
         () =>
-          new Promise((resolve) => {
+          new Promise<{ event: CurtailmentEvent }>((resolve) => {
             resolveSecondRequest = resolve;
           }),
       );
@@ -146,13 +197,13 @@ describe("useCurtailmentPillData", () => {
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveFirstRequest({ event: {} });
+      resolveFirstRequest({ event: curtailmentEvent() });
       await Promise.resolve();
     });
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
 
     await act(async () => {
-      resolveSecondRequest({ event: {} });
+      resolveSecondRequest({ event: curtailmentEvent() });
     });
   });
 });

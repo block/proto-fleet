@@ -44,6 +44,17 @@ func (s *SQLScheduleStore) GetSchedule(ctx context.Context, orgID, scheduleID in
 	return convertGetScheduleRowToProtoSchedule(row)
 }
 
+func (s *SQLScheduleStore) GetScheduleForUpdate(ctx context.Context, orgID, scheduleID int64) (*pb.Schedule, error) {
+	row, err := s.GetQueries(ctx).GetScheduleForUpdate(ctx, sqlc.GetScheduleForUpdateParams{OrgID: orgID, ID: scheduleID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("schedule not found: %d", scheduleID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get schedule for update: %v", err)
+	}
+	return convertGetScheduleForUpdateRowToProtoSchedule(row)
+}
+
 func (s *SQLScheduleStore) ListSchedules(ctx context.Context, orgID int64, status, action string) ([]*pb.Schedule, error) {
 	rows, err := s.GetQueries(ctx).ListSchedules(ctx, sqlc.ListSchedulesParams{
 		OrgID:  orgID,
@@ -411,6 +422,36 @@ func convertToProtoSchedule(row sqlc.Schedule) (*pb.Schedule, error) {
 		sched.Recurrence = &rec
 	}
 
+	return sched, nil
+}
+
+func convertGetScheduleForUpdateRowToProtoSchedule(row sqlc.GetScheduleForUpdateRow) (*pb.Schedule, error) {
+	sched, err := convertToProtoSchedule(sqlc.Schedule{
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		Name:         row.Name,
+		Action:       row.Action,
+		ActionConfig: row.ActionConfig,
+		ScheduleType: row.ScheduleType,
+		Recurrence:   row.Recurrence,
+		StartDate:    row.StartDate,
+		StartTime:    row.StartTime,
+		EndTime:      row.EndTime,
+		EndDate:      row.EndDate,
+		Timezone:     row.Timezone,
+		Status:       row.Status,
+		Priority:     row.Priority,
+		CreatedBy:    row.CreatedBy,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
+		DeletedAt:    row.DeletedAt,
+		LastRunAt:    row.LastRunAt,
+		NextRunAt:    row.NextRunAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sched.CreatedByUsername = row.CreatedByUsername.String
 	return sched, nil
 }
 

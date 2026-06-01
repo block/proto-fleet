@@ -65,10 +65,16 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
   requestKey: undefined,
 };
 
+interface CurtailmentPlanPreviewSource {
+  selectedMinerCount: number;
+  targetKw?: number;
+  estimatedReductionKw: number;
+}
+
 const emptyCandidatesPreviewError = "No miners match this curtailment.";
 
-function parseNumber(value: string, isValid: (value: number) => boolean): number | undefined {
-  const trimmed = value.trim();
+function parseNumber(value: string | undefined, isValid: (value: number) => boolean): number | undefined {
+  const trimmed = value?.trim() ?? "";
   if (trimmed === "") {
     return undefined;
   }
@@ -174,17 +180,18 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
   switch (values.scopeType) {
     case "deviceSet":
       if (values.scopeId === "racks") {
-        return formatSelectedScopeLabel(values.deviceSetIds.length, "rack");
+        return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
       }
 
       if (values.scopeId === "groups") {
-        return formatSelectedScopeLabel(values.deviceSetIds.length, "group");
+        return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "group");
       }
 
-      return formatSelectedScopeLabel(values.deviceSetIds.length, "set");
+      return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "set");
     case "explicitMiners":
-      return formatSelectedScopeLabel(values.deviceIdentifiers.length, "miner");
+      return formatSelectedScopeLabel(values.deviceIdentifiers?.length ?? 0, "miner");
     case "wholeOrg":
+    default:
       return "across the fleet";
   }
 }
@@ -250,20 +257,38 @@ function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCou
   return formatDurationEstimate(Math.max(restoreBatchCount - 1, 0) * restoreIntervalSec);
 }
 
+export function createCurtailmentPlanPreview(
+  values: CurtailmentFormValues,
+  source: CurtailmentPlanPreviewSource,
+): CurtailmentPlanPreview {
+  const selectedMinerCount = Number.isFinite(source.selectedMinerCount) ? source.selectedMinerCount : 0;
+  const targetKw =
+    source.targetKw !== undefined && Number.isFinite(source.targetKw)
+      ? source.targetKw
+      : (parsePositiveNumber(values.targetKw) ?? 0);
+  const estimatedReductionKw = Number.isFinite(source.estimatedReductionKw) ? source.estimatedReductionKw : targetKw;
+
+  return {
+    selectedMinerCount,
+    targetKw,
+    estimatedReductionKw,
+    curtailEstimate: estimateCurtailDuration(values),
+    restoreEstimate: estimateRestoreDuration(values, selectedMinerCount),
+    scopeLabel: formatScopeLabel(values),
+  };
+}
+
 function toCurtailmentPlanPreview(
   response: PreviewCurtailmentPlanResponse,
   values: CurtailmentFormValues,
 ): CurtailmentPlanPreview {
   const fixedKw = response.modeParams.case === "fixedKw" ? response.modeParams.value : undefined;
 
-  return {
+  return createCurtailmentPlanPreview(values, {
     selectedMinerCount: response.candidates.length,
-    targetKw: fixedKw?.targetKw ?? parsePositiveNumber(values.targetKw) ?? 0,
+    targetKw: fixedKw?.targetKw,
     estimatedReductionKw: response.estimatedReductionKw,
-    curtailEstimate: estimateCurtailDuration(values),
-    restoreEstimate: estimateRestoreDuration(values, response.candidates.length),
-    scopeLabel: formatScopeLabel(values),
-  };
+  });
 }
 
 export function useCurtailmentPlanPreview({

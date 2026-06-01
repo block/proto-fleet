@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
-import { curtailmentClient } from "@/protoFleet/api/clients";
+import {
+  applyActiveCurtailmentEvent,
+  refreshActiveCurtailmentData,
+  useActiveCurtailmentEvent,
+} from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
-import { GetActiveCurtailmentRequestSchema } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -13,13 +15,19 @@ export interface UseCurtailmentPillDataResult {
   activeEvent: CurtailmentPillEvent | null;
 }
 
-const POLL_INTERVAL_MS = 30_000;
+const idlePollIntervalMs = 30_000;
+const activeCurtailmentPollIntervalMs = 3_000;
 
 export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
-  const [activeEvent, setActiveEvent] = useState<CurtailmentPillEvent | null>(null);
+  const activeCurtailmentEvent = useActiveCurtailmentEvent();
+  const activeEvent = useMemo<CurtailmentPillEvent | null>(
+    () => mapCurtailmentPillEvent(activeCurtailmentEvent),
+    [activeCurtailmentEvent],
+  );
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const pendingFreshRefreshRef = useRef(false);
+  const pollIntervalMs = activeEvent === null ? idlePollIntervalMs : activeCurtailmentPollIntervalMs;
 
   const refreshActiveCurtailment = useCallback(
     (signal: AbortSignal, forceFresh = false): Promise<void> => {
@@ -46,23 +54,13 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
       pendingFreshRefreshRef.current = false;
       const refreshPromise = (async (): Promise<void> => {
         try {
-          const response = await curtailmentClient.getActiveCurtailment(create(GetActiveCurtailmentRequestSchema, {}), {
-            signal,
-          });
-          if (signal.aborted) {
-            return;
-          }
-
-          setActiveEvent(mapCurtailmentPillEvent(response.event));
+          await refreshActiveCurtailmentData({ signal });
         } catch (error) {
           if (isAbortError(error, signal)) {
             return;
           }
 
-          handleAuthErrors({
-            error,
-            onError: () => setActiveEvent(null),
-          });
+          handleAuthErrors({ error, onError: () => applyActiveCurtailmentEvent(undefined) });
         } finally {
           inFlightRefreshRef.current = null;
         }
@@ -85,16 +83,26 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
     };
 
     const initialRefreshId = window.setTimeout(refresh, 0);
-    const intervalId = window.setInterval(refresh, POLL_INTERVAL_MS);
     window.addEventListener(CURTAILMENT_CHANGED_EVENT, refreshAfterCurtailmentChange);
 
     return () => {
       window.clearTimeout(initialRefreshId);
-      window.clearInterval(intervalId);
       window.removeEventListener(CURTAILMENT_CHANGED_EVENT, refreshAfterCurtailmentChange);
       abortController.abort();
     };
   }, [refreshActiveCurtailment]);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    const intervalId = window.setInterval(() => {
+      void refreshActiveCurtailment(abortController.signal);
+    }, pollIntervalMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+      abortController.abort();
+    };
+  }, [pollIntervalMs, refreshActiveCurtailment]);
 
   return { activeEvent };
 }

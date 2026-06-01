@@ -146,11 +146,21 @@ message UserInfo {
     // May be null if the user has never logged in
     google.protobuf.Timestamp last_login_at = 4;
 
-    // Role name
+    // Role name. Retained for backward compatibility while the client
+    // migrates to the `permissions` field below; intended to be retired
+    // once every UI gate uses `hasPermission(...)` checks.
     string role = 5;
 
     // Indicates whether the user must change their password
     bool requires_password_change = 6;
+
+    // Effective permission keys for the caller, sorted. Populated only
+    // when the UserInfo represents the caller's own identity (e.g. the
+    // Authenticate response). Other surfaces that return UserInfo for
+    // peer users (ListUsers) leave this empty: per-user permission
+    // queries belong on a dedicated authz RPC, not bundled into peer
+    // listing where they would leak authority across the org.
+    repeated string permissions = 7;
 }
 
 message ListUsersResponse {

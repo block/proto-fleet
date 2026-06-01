@@ -2,8 +2,10 @@ package auth_test
 
 import (
 	"net/http"
+	"sort"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/testutil"
 
 	"connectrpc.com/connect"
@@ -39,6 +41,13 @@ func TestAuthServer_Authenticate(t *testing.T) {
 		assert.True(t, authResp.Msg.UserInfo != nil, "expected user_info in response")
 		assert.NotEqual(t, "", authResp.Msg.UserInfo.UserId, "expected user_id in response")
 		assert.True(t, authResp.Msg.SessionExpiry > 0, "expected session_expiry to be set")
+
+		// UserInfo.Permissions: the onboarded user is the org's founding
+		// admin and gets the SUPER_ADMIN assignment, so its permission
+		// set should equal the full catalog. Sorted projection means we
+		// can compare against AllPermissionsSorted() directly.
+		assert.Equal(t, authz.AllPermissionsSorted(), authResp.Msg.UserInfo.Permissions)
+		assert.True(t, sort.StringsAreSorted(authResp.Msg.UserInfo.Permissions), "permissions must be sorted")
 
 		// Verify Set-Cookie header is present
 		setCookie := authResp.Header().Get("Set-Cookie")

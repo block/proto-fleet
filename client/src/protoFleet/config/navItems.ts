@@ -85,6 +85,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/mining-pools",
     label: "Pools",
     parent: "/settings",
+    // PoolsService is server-side gated on pool:read / pool:manage; only
+    // SUPER_ADMIN and ADMIN seed with those keys. Mirror the gate here so
+    // FIELD_TECH / custom roles don't land on a page that immediately
+    // hits PermissionDenied on every RPC.
+    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
   {
     path: "/settings/firmware",
@@ -95,6 +100,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/schedules",
     label: "Schedules",
     parent: "/settings",
+    // ScheduleService is server-side gated on schedule:read /
+    // schedule:manage; only SUPER_ADMIN and ADMIN seed with those keys.
+    // Mirror the gate so FIELD_TECH / custom roles don't see a nav entry
+    // that's guaranteed to fail.
+    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
   {
     path: "/settings/api-keys",

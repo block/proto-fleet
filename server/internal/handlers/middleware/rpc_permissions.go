@@ -146,13 +146,16 @@ var ProcedurePermissions = map[string]string{
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            authz.PermMinerDelete,
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      authz.PermMinerExportCSV,
 
-	// FleetNodeAdminService — read for List, manage for the rest.
-	// Pair/Unpair/ListFleetNodeDevices/DiscoverOnFleetNode remain
-	// Unimplemented stubs and stay in ProceduresPendingMigration.
-	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure: authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:       authz.PermFleetnodeRead,
-	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:     authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:      authz.PermFleetnodeManage,
+	// FleetNodeAdminService — read for the list endpoints, manage for
+	// everything that mutates fleet-node state. DiscoverOnFleetNode is
+	// still pending until the ControlStream surface lands.
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:       authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  authz.PermFleetnodeRead,
 
 	// ForemanImportService — bulk miner import flow. Gated on
 	// miner:pair, the same key as the per-miner pairing endpoints —
@@ -201,6 +204,19 @@ var ProcedurePermissions = map[string]string{
 	poolsv1connect.PoolsServiceCreatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
+
+	// ScheduleService — recurring miner actions. CreateSchedule and
+	// UpdateSchedule additionally re-check the underlying miner action
+	// permission (reboot / stop_mining / set_power_target) inside the
+	// handler so a schedule:manage holder cannot smuggle a privileged
+	// action through the scheduler.
+	schedulev1connect.ScheduleServiceListSchedulesProcedure:    authz.PermScheduleRead,
+	schedulev1connect.ScheduleServiceCreateScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceUpdateScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceDeleteScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServicePauseScheduleProcedure:    authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceResumeScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceReorderSchedulesProcedure: authz.PermScheduleManage,
 
 	// ServerLogService — gated by PermServerlogRead.
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
@@ -258,20 +274,7 @@ var ProceduresPendingMigration = map[string]string{
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
 
-	// FleetNodeAdminService — Unimplemented stubs; gate when implemented.
-	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
-	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
-	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:   "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
-
-	// ScheduleService — operator-managed schedules. Needs a new
-	// schedule:read / schedule:manage catalog pair + ADMIN backfill
-	// migration; deferred from the new-gate slice.
-	schedulev1connect.ScheduleServiceListSchedulesProcedure:    "ungated; needs new schedule:read catalog key",
-	schedulev1connect.ScheduleServiceCreateScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceUpdateScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceDeleteScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServicePauseScheduleProcedure:    "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceResumeScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceReorderSchedulesProcedure: "ungated; needs new schedule:manage catalog key",
+	// FleetNodeAdminService — DiscoverOnFleetNode remains a stub until
+	// the ControlStream surface lands.
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
 }

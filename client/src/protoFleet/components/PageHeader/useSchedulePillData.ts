@@ -4,6 +4,7 @@ import { buildSchedulePopoverSections, type SchedulePopoverSection, selectPillSc
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
+import { useRole } from "@/protoFleet/store";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 export interface UseSchedulePillDataResult {
@@ -15,12 +16,23 @@ export interface UseSchedulePillDataResult {
 }
 
 const POLL_INTERVAL_MS = 30_000;
+const ROLES_WITH_SCHEDULE_READ = new Set(["SUPER_ADMIN", "ADMIN"]);
 
 export const useSchedulePillData = (): UseSchedulePillDataResult => {
   const { schedules, refreshSchedules, pauseSchedule, resumeSchedule } = useScheduleApiContext();
   const [pendingScheduleId, setPendingScheduleId] = useState<string | null>(null);
+  const role = useRole();
+  // ListSchedules is server-side gated on schedule:read. Mirror the same
+  // role-name allowlist used by navItems.ts so non-admin sessions don't
+  // generate PermissionDenied every poll interval from this globally-
+  // mounted hook. Permission-key plumbing for custom roles is a separate
+  // follow-up (UserInfo.permissions + client store changes).
+  const canReadSchedules = ROLES_WITH_SCHEDULE_READ.has(role);
 
   useEffect(() => {
+    if (!canReadSchedules) {
+      return;
+    }
     const refreshScheduleSummary = () => {
       void refreshSchedules({ background: true }).catch(() => {});
     };
@@ -31,7 +43,7 @@ export const useSchedulePillData = (): UseSchedulePillDataResult => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [refreshSchedules]);
+  }, [canReadSchedules, refreshSchedules]);
 
   const { sections, pillSchedule } = useMemo(() => {
     const nextSections = buildSchedulePopoverSections(schedules);
