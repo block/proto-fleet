@@ -301,15 +301,40 @@ func (s *Service) PauseSchedule(ctx context.Context, scheduleID int64) (*pb.Sche
 	return paused, nil
 }
 
-func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64) (*pb.Schedule, error) {
+// ResumeSchedule reactivates a paused schedule. authorizeAction runs
+// inside the same transaction as the read and update so the caller's
+// authority is checked against the same row state that gets resumed —
+// without it the per-action gate could authorize one action and then
+// resume a different one if an Update raced in between. Callers must
+// pass a non-nil callback.
+func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authorizeAction func(pb.ScheduleAction) error) (*pb.Schedule, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		existing, err := s.store.GetSchedule(ctx, info.OrganizationID, scheduleID)
+		// Lock ordering: priority advisory lock before the schedule row
+		// lock. ReorderSchedules and CreateSchedule take the priority
+		// lock first; if Resume took the row lock first it would
+		// deadlock against a concurrent reorder that's already holding
+		// the priority lock and waiting on this row. We acquire the
+		// priority lock unconditionally rather than only on the
+		// completion path because we can't tell which path we're on
+		// until after we've read existing — and switching the order
+		// after the read would reintroduce the deadlock.
+		if err := s.priorityStore.LockSchedulePriority(ctx, info.OrganizationID); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to lock priority: %v", err)
+		}
+
+		// FOR UPDATE locks the row so a concurrent UpdateSchedule can't
+		// change the action between authorizeAction and ResumePausedSchedule.
+		existing, err := s.store.GetScheduleForUpdate(ctx, info.OrganizationID, scheduleID)
 		if err != nil {
+			return nil, err
+		}
+
+		if err := authorizeAction(existing.Action); err != nil {
 			return nil, err
 		}
 
@@ -325,12 +350,6 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64) (*pb.Sch
 			nextRunUnix = &u
 		} else {
 			newStatus = statusCompleted
-		}
-
-		if newStatus == statusCompleted {
-			if err := s.priorityStore.LockSchedulePriority(ctx, info.OrganizationID); err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to lock priority: %v", err)
-			}
 		}
 
 		rows, err := s.store.ResumePausedSchedule(ctx, info.OrganizationID, scheduleID, newStatus, nextRunUnix)

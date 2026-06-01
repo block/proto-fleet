@@ -507,6 +507,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getScheduleByIDForProcessorStmt, err = db.PrepareContext(ctx, getScheduleByIDForProcessor); err != nil {
 		return nil, fmt.Errorf("error preparing query GetScheduleByIDForProcessor: %w", err)
 	}
+	if q.getScheduleForUpdateStmt, err = db.PrepareContext(ctx, getScheduleForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetScheduleForUpdate: %w", err)
+	}
 	if q.getScheduleTargetsStmt, err = db.PrepareContext(ctx, getScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetScheduleTargets: %w", err)
 	}
@@ -1845,6 +1848,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getScheduleByIDForProcessorStmt: %w", cerr)
 		}
 	}
+	if q.getScheduleForUpdateStmt != nil {
+		if cerr := q.getScheduleForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getScheduleForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getScheduleTargetsStmt != nil {
 		if cerr := q.getScheduleTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getScheduleTargetsStmt: %w", cerr)
@@ -2925,6 +2933,7 @@ type Queries struct {
 	getRunningPowerTargetScheduleOverlapsStmt           *sql.Stmt
 	getScheduleStmt                                     *sql.Stmt
 	getScheduleByIDForProcessorStmt                     *sql.Stmt
+	getScheduleForUpdateStmt                            *sql.Stmt
 	getScheduleTargetsStmt                              *sql.Stmt
 	getScheduleTargetsByScheduleIDsStmt                 *sql.Stmt
 	getSessionByIDStmt                                  *sql.Stmt
@@ -3268,6 +3277,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRunningPowerTargetScheduleOverlapsStmt:           q.getRunningPowerTargetScheduleOverlapsStmt,
 		getScheduleStmt:                                     q.getScheduleStmt,
 		getScheduleByIDForProcessorStmt:                     q.getScheduleByIDForProcessorStmt,
+		getScheduleForUpdateStmt:                            q.getScheduleForUpdateStmt,
 		getScheduleTargetsStmt:                              q.getScheduleTargetsStmt,
 		getScheduleTargetsByScheduleIDsStmt:                 q.getScheduleTargetsByScheduleIDsStmt,
 		getSessionByIDStmt:                                  q.getSessionByIDStmt,

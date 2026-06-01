@@ -200,6 +200,19 @@ var ProcedurePermissions = map[string]string{
 	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
 
+	// ScheduleService — recurring miner actions. CreateSchedule and
+	// UpdateSchedule additionally re-check the underlying miner action
+	// permission (reboot / stop_mining / set_power_target) inside the
+	// handler so a schedule:manage holder cannot smuggle a privileged
+	// action through the scheduler.
+	schedulev1connect.ScheduleServiceListSchedulesProcedure:    authz.PermScheduleRead,
+	schedulev1connect.ScheduleServiceCreateScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceUpdateScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceDeleteScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServicePauseScheduleProcedure:    authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceResumeScheduleProcedure:   authz.PermScheduleManage,
+	schedulev1connect.ScheduleServiceReorderSchedulesProcedure: authz.PermScheduleManage,
+
 	// ServerLogService — gated by PermServerlogRead.
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
 
@@ -255,15 +268,4 @@ var ProceduresPendingMigration = map[string]string{
 	// FleetNodeAdminService — DiscoverOnFleetNode remains a stub until
 	// the ControlStream surface lands.
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
-
-	// ScheduleService — operator-managed schedules. Needs a new
-	// schedule:read / schedule:manage catalog pair + ADMIN backfill
-	// migration; deferred from the new-gate slice.
-	schedulev1connect.ScheduleServiceListSchedulesProcedure:    "ungated; needs new schedule:read catalog key",
-	schedulev1connect.ScheduleServiceCreateScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceUpdateScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceDeleteScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServicePauseScheduleProcedure:    "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceResumeScheduleProcedure:   "ungated; needs new schedule:manage catalog key",
-	schedulev1connect.ScheduleServiceReorderSchedulesProcedure: "ungated; needs new schedule:manage catalog key",
 }

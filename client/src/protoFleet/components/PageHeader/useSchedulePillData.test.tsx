@@ -4,9 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSchedulePillData } from "./useSchedulePillData";
 import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
 import { SCHEDULES_CHANGED_EVENT } from "@/protoFleet/api/scheduleEvents";
+import { useRole } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/api/ScheduleApiContext", () => ({
   useScheduleApiContext: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/store", () => ({
+  useRole: vi.fn(),
 }));
 
 vi.mock("@/shared/features/toaster", () => ({
@@ -22,6 +27,7 @@ describe("useSchedulePillData", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     refreshSchedules.mockClear();
+    vi.mocked(useRole).mockReturnValue("ADMIN");
     vi.mocked(useScheduleApiContext).mockReturnValue({
       schedules: [],
       isLoading: false,
@@ -61,6 +67,23 @@ describe("useSchedulePillData", () => {
 
     await act(async () => {
       window.dispatchEvent(new CustomEvent(SCHEDULES_CHANGED_EVENT));
+    });
+
+    expect(refreshSchedules).not.toHaveBeenCalled();
+  });
+
+  it("does not poll for roles without schedule:read", async () => {
+    // ListSchedules is server-side gated on schedule:read; without a
+    // role-side guard the hook would generate PermissionDenied every
+    // poll interval for FIELD_TECH and similar non-admin sessions.
+    vi.mocked(useRole).mockReturnValue("FIELD_TECH");
+
+    renderHook(() => useSchedulePillData());
+
+    expect(refreshSchedules).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
     });
 
     expect(refreshSchedules).not.toHaveBeenCalled();
