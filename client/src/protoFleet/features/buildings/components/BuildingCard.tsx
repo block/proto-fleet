@@ -5,16 +5,12 @@ import clsx from "clsx";
 import { type BuildingRackHealth, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import {
-  formatEfficiencyOrDash,
-  formatHashrateOrDash,
-  formatPowerMwOrDash,
-} from "@/protoFleet/features/sites/utils/formatSiteMetrics";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import { useInViewport } from "@/shared/hooks/useInViewport";
+import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerMwOrDash } from "@/shared/utils/telemetryFormat";
 
 interface BuildingCardProps {
   building: BuildingWithCounts;

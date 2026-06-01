@@ -1,12 +1,7 @@
 import { type GetBuildingStatsResponse } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import {
-  formatEfficiency,
-  formatHashrate,
-  formatPowerUsedCapacity,
-  KW_PER_MW,
-} from "@/protoFleet/features/sites/utils/formatSiteMetrics";
 import Metric from "@/shared/components/Metric";
 import { separateByCommas } from "@/shared/utils/stringUtils";
+import { formatEfficiency, formatHashrate, formatPowerUsedCapacity, KW_PER_MW } from "@/shared/utils/telemetryFormat";
 
 interface BuildingMetricsRowProps {
   // Building capacity (power_kw on the Building proto). 0 = unset → renders

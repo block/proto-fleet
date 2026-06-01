@@ -1,10 +1,6 @@
-import {
-  formatEfficiency,
-  formatHashrate,
-  formatLocation,
-  formatPowerUsedCapacity,
-} from "@/protoFleet/features/sites/utils/formatSiteMetrics";
+import { formatLocation } from "@/protoFleet/features/sites/utils/formatSiteMetrics";
 import Metric from "@/shared/components/Metric";
+import { formatEfficiency, formatHashrate, formatPowerUsedCapacity } from "@/shared/utils/telemetryFormat";
 
 // Telemetry roll-up shape accepted by SiteMetricsRow. Mirrors the server's
 // GetSiteStatsResponse, accepts either it or any subset. Numeric fields are
