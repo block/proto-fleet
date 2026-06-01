@@ -7,6 +7,7 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import {
   useSetAuthLoading,
   useSetIsAuthenticated,
+  useSetPermissions,
   useSetRole,
   useSetSessionExpiry,
   useSetUsername,
@@ -31,6 +32,7 @@ const useLogin = () => {
   const setIsAuthenticated = useSetIsAuthenticated();
   const setUsername = useSetUsername();
   const setRole = useSetRole();
+  const setPermissions = useSetPermissions();
   const setAuthLoading = useSetAuthLoading();
   const { handleAuthErrors } = useAuthErrors();
 
@@ -55,6 +57,7 @@ const useLogin = () => {
           setIsAuthenticated(true);
           setUsername(userInfo.username);
           setRole(userInfo.role);
+          setPermissions(userInfo.permissions);
           setAuthLoading(false);
           onSuccess?.(userInfo.requiresPasswordChange);
         })
@@ -75,7 +78,7 @@ const useLogin = () => {
           onFinally?.();
         });
     },
-    [setSessionExpiry, setIsAuthenticated, setUsername, setRole, setAuthLoading, handleAuthErrors],
+    [setSessionExpiry, setIsAuthenticated, setUsername, setRole, setPermissions, setAuthLoading, handleAuthErrors],
   );
 
   return login;

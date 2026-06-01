@@ -29,7 +29,7 @@ export interface FleetStore {
 
 // Type for the partial state that we persist
 type PersistedFleetState = {
-  auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role">;
+  auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions">;
   ui: Pick<
     UISlice,
     | "theme"
@@ -97,6 +97,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 isAuthenticated: state.auth.isAuthenticated,
                 username: state.auth.username,
                 role: state.auth.role,
+                permissions: state.auth.permissions,
               },
             },
             version: value.version,
@@ -172,6 +173,7 @@ export const useFleetStore = create<FleetStore>()(
               isAuthenticated: state.auth.isAuthenticated,
               username: state.auth.username,
               role: state.auth.role,
+              permissions: state.auth.permissions,
             },
             ui: {
               theme: state.ui.theme,
@@ -196,6 +198,13 @@ export const useFleetStore = create<FleetStore>()(
                 isAuthenticated: persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated,
                 username: persisted?.auth?.username ?? currentState.auth.username,
                 role: persisted?.auth?.role ?? currentState.auth.role,
+                // Stale localStorage from sessions created before
+                // permissions was added falls back to []; the next
+                // login replaces it from UserInfo.permissions. Until
+                // then, users will see "no perms" gates as denied.
+                permissions: Array.isArray(persisted?.auth?.permissions)
+                  ? persisted.auth.permissions
+                  : currentState.auth.permissions,
                 // If we have persisted session, set loading to false
                 authLoading: hasPersistedSession ? false : currentState.auth.authLoading,
               },

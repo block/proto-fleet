@@ -12,6 +12,10 @@ export interface AuthSlice {
   isAuthenticated: boolean;
   username: string;
   role: string;
+  // permissions is the caller's effective permission keys, populated
+  // from UserInfo.permissions on login. UI gates query this via
+  // useHasPermission; the server still enforces every gate.
+  permissions: string[];
   authLoading: boolean;
   temporaryPassword: string | null;
 
@@ -20,6 +24,7 @@ export interface AuthSlice {
   setIsAuthenticated: (isAuthenticated: boolean) => void;
   setUsername: (username: string) => void;
   setRole: (role: string) => void;
+  setPermissions: (permissions: string[]) => void;
   setAuthLoading: (loading: boolean) => void;
   setTemporaryPassword: (password: string | null) => void;
   logout: () => void;
@@ -35,6 +40,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
   isAuthenticated: false,
   username: "",
   role: "",
+  permissions: [],
   authLoading: true,
   temporaryPassword: null,
 
@@ -59,6 +65,11 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.role = role;
     }),
 
+  setPermissions: (permissions) =>
+    set((state) => {
+      state.auth.permissions = permissions;
+    }),
+
   setAuthLoading: (loading) =>
     set((state) => {
       state.auth.authLoading = loading;
@@ -76,6 +87,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.isAuthenticated = false;
       state.auth.username = "";
       state.auth.role = "";
+      state.auth.permissions = [];
       state.auth.authLoading = false;
       state.auth.temporaryPassword = null;
       // Reset multi-site active selection on logout so user B doesn't

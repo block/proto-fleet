@@ -4,7 +4,7 @@ import AddTeamMemberModal from "@/protoFleet/features/settings/components/AddTea
 import DeactivateUserDialog from "@/protoFleet/features/settings/components/DeactivateUserDialog";
 import ResetPasswordModal from "@/protoFleet/features/settings/components/ResetPasswordModal";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
-import { useRole } from "@/protoFleet/store";
+import { useHasPermission } from "@/protoFleet/store";
 import { Lock, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -33,7 +33,7 @@ const colTitles: ColTitles<UserColumns> = {
 
 const Team = () => {
   const { listUsers, resetUserPassword, deactivateUser } = useUserManagement();
-  const currentUserRole = useRole();
+  const canAddTeamMembers = useHasPermission("user:manage");
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -165,8 +165,6 @@ const Team = () => {
       },
     });
   }, [deactivateUserData, deactivateUser, fetchUsers]);
-
-  const canAddTeamMembers = useMemo(() => currentUserRole === "SUPER_ADMIN", [currentUserRole]);
 
   const availableActions = useMemo(() => {
     if (!canAddTeamMembers) {

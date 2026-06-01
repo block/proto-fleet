@@ -2,7 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
 import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
-import { useRole } from "@/protoFleet/store";
+import { usePermissions } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
@@ -13,18 +13,18 @@ type SecondaryNavigationProps = {
 const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
-  const currentRole = useRole();
+  const permissions = usePermissions();
 
   // Hide on mobile and tablet since secondary nav items are shown in main menu
   if (isPhone || isTablet) return null;
 
-  // Filter items to only show those whose parent matches the current path and whose role matches
+  // Filter items by current-path parent and required permission.
   const visibleItems = items.filter((item) => {
     const _pathname = stripLeadingSlash(pathname);
     const _parent = stripLeadingSlash(item.parent);
     const pathMatch = _pathname === _parent || _pathname.startsWith(`${_parent}/`);
-    const roleMatch = !item.allowedRoles || item.allowedRoles.includes(currentRole);
-    return pathMatch && roleMatch;
+    const permissionMatch = !item.requiredPermission || permissions.includes(item.requiredPermission);
+    return pathMatch && permissionMatch;
   });
 
   const isCurrentPath = (path: string) => {
