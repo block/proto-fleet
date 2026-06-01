@@ -8,9 +8,11 @@ import (
 	"context"
 	"fmt"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
+	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -28,6 +30,8 @@ type Service struct {
 	store           interfaces.BuildingStore
 	siteStore       interfaces.SiteStore
 	collectionStore interfaces.CollectionStore
+	deviceQueryer   devicerollup.DeviceQueryer
+	telemetry       devicerollup.TelemetryCollector
 	transactor      interfaces.Transactor
 	activitySvc     *activity.Service
 }
@@ -38,10 +42,16 @@ type Service struct {
 // activity Service used for fire-and-forget audit logs. activitySvc
 // may be nil in tests or environments where activity logging is
 // disabled.
+//
+// deviceQueryer and telemetry power GetBuildingStats only. Either may
+// be nil in test setups that don't exercise the stats RPC;
+// GetBuildingStats returns an internal error in that case.
 func NewService(
 	store interfaces.BuildingStore,
 	siteStore interfaces.SiteStore,
 	collectionStore interfaces.CollectionStore,
+	deviceQueryer devicerollup.DeviceQueryer,
+	telemetry devicerollup.TelemetryCollector,
 	transactor interfaces.Transactor,
 	activitySvc *activity.Service,
 ) *Service {
@@ -49,6 +59,8 @@ func NewService(
 		store:           store,
 		siteStore:       siteStore,
 		collectionStore: collectionStore,
+		deviceQueryer:   deviceQueryer,
+		telemetry:       telemetry,
 		transactor:      transactor,
 		activitySvc:     activitySvc,
 	}
@@ -207,6 +219,20 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 const (
 	ListBuildingRacksDefaultPageSize = int32(50)
 	ListBuildingRacksMaxPageSize     = int32(1000)
+	// MaxRacksPerStatsRequest caps the total number of racks GetBuildingStats
+	// will walk before bailing. 10k racks ≈ 100×100 layout (the schema
+	// validation ceiling) — anything higher signals a runaway. Without the
+	// cap, a corrupted page cursor or unintended unbounded data could spin
+	// GetBuildingStats indefinitely at every 60s poll tick.
+	MaxRacksPerStatsRequest = 10_000
+	// MaxDevicesPerStatsResponse caps the number of device identifiers
+	// echoed in GetBuildingStats responses. The FE uses this list to scope
+	// downstream telemetry + component-error fetches, so we ship every ID
+	// for normal buildings; the cap is a defensive ceiling against
+	// pathological orgs where a single building has hundreds of thousands
+	// of miners (response payload + FE memory blow-up). 50k devices ≈ 5×
+	// the largest expected building.
+	MaxDevicesPerStatsResponse = 50_000
 )
 
 // ListBuildingRacks returns one page of racks currently assigned to a
@@ -497,4 +523,226 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 	s.activitySvc.Log(ctx, event)
 
 	return &out, nil
+}
+
+// GetBuildingStats returns a server-rolled telemetry + state-count
+// snapshot for the building, plus a per-rack BuildingRackHealth entry
+// for each placed rack. NotFound when the building doesn't exist in
+// the org.
+//
+// `expectedSiteID` carries the site the handler resolved at authz time:
+// if a concurrent AssignBuildingToSite moves the building between the
+// handler's pre-authz lookup and this read, the building's current
+// site will diverge from what the caller was authorized for. We
+// surface that as NotFound rather than leaking telemetry into the
+// wrong site-scope. nil means "the handler saw an unassigned
+// building"; nil/nil and equal int64 pointers compare as a match.
+func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64, expectedSiteID *int64) (*models.BuildingStats, error) {
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("buildings.GetBuildingStats requires deviceQueryer and telemetry")
+	}
+
+	exists, err := s.store.BuildingBelongsToOrg(ctx, orgID, buildingID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+	}
+
+	// Pull every rack placement, paging at the store-clamp ceiling so a
+	// building with hundreds of racks doesn't take dozens of round-trips.
+	// `MaxRacksPerStatsRequest` is a defensive ceiling — the layout
+	// validation already caps real buildings well below it.
+	var racks []models.BuildingRack
+	var pageToken string
+	for {
+		page, next, listErr := s.store.ListBuildingRacks(ctx, orgID, buildingID, ListBuildingRacksMaxPageSize, pageToken)
+		if listErr != nil {
+			return nil, listErr
+		}
+		racks = append(racks, page...)
+		// Strict `>` so a building at the exact layout-validation ceiling
+		// (100×100 = 10,000 racks) returns stats; the cap only trips when
+		// pagination produced more rows than that. Checked BEFORE the
+		// `next == ""` break so a runaway final page can't slip through
+		// (a page-1 of 10,000 + final page of 1,000 with next="" would
+		// otherwise bypass the cap entirely).
+		if len(racks) > MaxRacksPerStatsRequest {
+			return nil, fleeterror.NewInternalErrorf("building %d exceeded the %d rack scan cap", buildingID, MaxRacksPerStatsRequest)
+		}
+		if next == "" {
+			break
+		}
+		pageToken = next
+	}
+
+	// Resolve floor-plan bounds for the out-of-range filter below. A rack
+	// with aisle_index >= aisles or position_in_aisle >= racks_per_aisle
+	// shouldn't normally exist (AssignRackToBuilding + UpdateBuilding both
+	// validate), but the FE silently drops cells outside the rendered
+	// grid, so we clear the position fields server-side here for defense
+	// in depth — the rack still appears in rack_health[] without a cell.
+	building, err := s.store.GetBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return nil, err
+	}
+	// Guard against the AssignBuildingToSite race: if the building has
+	// moved to a different site since the handler's pre-authz lookup,
+	// the permission grant we ran against doesn't match the current
+	// scope. NotFound is the safe surface here — the caller was never
+	// authorized for the building at its new site.
+	if !int64PtrEqual(expectedSiteID, building.SiteID) {
+		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+	}
+	aisles := building.Aisles
+	racksPerAisle := building.RacksPerAisle
+
+	stats := &models.BuildingStats{
+		BuildingID: buildingID,
+		RackCount:  int32(len(racks)), //nolint:gosec // bounded by org capacity
+		RackHealth: make([]models.BuildingRackHealth, 0, len(racks)),
+	}
+
+	// Per-rack state counts via the existing collection-membership query.
+	//
+	// Residual race window (intentionally not guarded): if
+	// AssignRackToBuilding moves a rack out of this building between
+	// the ListBuildingRacks above and this counts read, the response
+	// still includes per-rack state counts (hashing/broken/offline/
+	// sleeping totals) for that rack. The post-read building.SiteID
+	// check at the bottom catches building-level moves; rack-level
+	// moves within a building that stays in the caller's site slip
+	// through. The leaked surface is four aggregate ints per rack
+	// (no device identifiers, no telemetry — those are scoped by site
+	// above), and the window is the gap between two adjacent queries
+	// in the same RPC. If operator workflows ever start moving racks
+	// frequently enough that this matters, the fix is a post-counts
+	// re-list with set comparison; today the noise:value ratio
+	// doesn't justify the extra query on every poll tick.
+	rackIDs := make([]int64, 0, len(racks))
+	for _, r := range racks {
+		rackIDs = append(rackIDs, r.RackID)
+	}
+	rackCounts := map[int64]interfaces.MinerStateCounts{}
+	if len(rackIDs) > 0 {
+		rackCounts, err = s.deviceQueryer.GetMinerStateCountsByCollections(ctx, orgID, rackIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, r := range racks {
+		counts := rackCounts[r.RackID]
+		// Clear out-of-bounds positions so the cell stays out of the FE
+		// floor plan but the rack still surfaces in the rack_health list
+		// (operator can spot it via a future "unplaced racks" affordance).
+		aisleIdx := r.AisleIndex
+		posIdx := r.PositionInAisle
+		if aisleIdx != nil && posIdx != nil {
+			if *aisleIdx < 0 || *aisleIdx >= aisles || *posIdx < 0 || *posIdx >= racksPerAisle {
+				aisleIdx = nil
+				posIdx = nil
+			}
+		}
+		stats.RackHealth = append(stats.RackHealth, models.BuildingRackHealth{
+			RackID:          r.RackID,
+			RackLabel:       r.RackLabel,
+			AisleIndex:      aisleIdx,
+			PositionInAisle: posIdx,
+			HashingCount:    counts.HashingCount,
+			BrokenCount:     counts.BrokenCount,
+			OfflineCount:    counts.OfflineCount,
+			SleepingCount:   counts.SleepingCount,
+		})
+	}
+
+	// Building-scoped device identifiers via the existing MinerFilter.
+	// BuildingIDs joins rack → building_id; un-racked devices at the
+	// site without a building aren't visible here, which is the right
+	// scope (this is a building roll-up, not a site roll-up).
+	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
+	// counts AUTH_NEEDED devices the same way the miner list does.
+	//
+	// Also constrain by expectedSiteID so a concurrent AssignBuildingToSite
+	// that commits between the building re-read and the device fetch can't
+	// leak the new site's device set: the cascade stamps device.site_id
+	// onto every device under the moved building, so requiring
+	// device.site_id == expectedSiteID returns an empty set the moment the
+	// move commits. Pairs with the post-read re-check below as belt-and-
+	// braces.
+	// Limit = cap + 1 lets us detect over-cap from one bounded SQL query
+	// rather than materializing the entire matching identifier set first.
+	// We never hold (or fan out to state/telemetry queries with) more
+	// than cap+1 rows even for a pathological building.
+	devFilter := &interfaces.MinerFilter{
+		BuildingIDs: []int64{buildingID},
+		PairingStatuses: []fm.PairingStatus{
+			fm.PairingStatus_PAIRING_STATUS_PAIRED,
+			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		},
+		Limit: MaxDevicesPerStatsResponse + 1,
+	}
+	if expectedSiteID != nil {
+		devFilter.SiteIDs = []int64{*expectedSiteID}
+	} else {
+		devFilter.IncludeUnassigned = true
+	}
+	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, devFilter)
+	if err != nil {
+		return nil, err
+	}
+	if len(deviceIDs) > MaxDevicesPerStatsResponse {
+		return nil, fleeterror.NewInternalErrorf("building %d exceeded the %d device cap", buildingID, MaxDevicesPerStatsResponse)
+	}
+	stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
+	stats.DeviceIdentifiers = deviceIDs
+
+	// State counts + telemetry only run when there's at least one
+	// device; we still fall through to the post-read site re-check
+	// below either way, so an empty-device path can't skip the race
+	// guard.
+	if len(deviceIDs) > 0 {
+		counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+		if err != nil {
+			return nil, err
+		}
+		stats.HashingCount = counts.HashingCount
+		stats.BrokenCount = counts.BrokenCount
+		stats.OfflineCount = counts.OfflineCount
+		stats.SleepingCount = counts.SleepingCount
+
+		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+		metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to fetch building telemetry: %v", err)
+		}
+		rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+		stats.ReportingCount = rollup.ReportingCount
+		stats.HashrateReportingCount = rollup.HashrateReportingCount
+		stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+		stats.PowerReportingCount = rollup.PowerReportingCount
+		stats.TotalHashrateThs = rollup.TotalHashrateThs
+		stats.TotalPowerKw = rollup.TotalPowerKw
+		stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+	}
+
+	// Belt-and-braces: re-read the building after all the rollup queries.
+	// The device fetch is already scoped to expectedSiteID, but the rack
+	// and per-rack state queries join on building_id alone — if
+	// AssignBuildingToSite committed between the initial GetBuilding check
+	// and these reads, the rack/state data would still be that of the
+	// moved building (which now belongs to a site the caller wasn't
+	// authorized for). Catch that here and surface NotFound rather than
+	// return a snapshot that mixes pre-move authz with post-move data.
+	// Runs in both the with-devices and zero-devices paths so a moved
+	// building that no longer has any site-A devices still trips here.
+	postReadBuilding, err := s.store.GetBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return nil, err
+	}
+	if !int64PtrEqual(expectedSiteID, postReadBuilding.SiteID) {
+		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+	}
+
+	return stats, nil
 }

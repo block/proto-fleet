@@ -439,8 +439,8 @@ func start(config *Config) error {
 		curtailmentDomain.WithAuditLogger(activitySvc),
 	)
 
-	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
-	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, transactor, activitySvc)
+	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, deviceStore, telemetryService, transactor, activitySvc)
+	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)

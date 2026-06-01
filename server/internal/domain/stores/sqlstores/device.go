@@ -1308,7 +1308,14 @@ WHERE device.deleted_at IS NULL
     AND discovered_device.is_active = TRUE
     AND discovered_device.deleted_at IS NULL`)
 
-	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	args, argNum = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	// Limit bounds the result at the SQL level so callers using this for
+	// fail-fast over-cap detection (the stats RPCs) don't materialize the
+	// entire fleet just to discard most of it.
+	if fp.limit > 0 {
+		fmt.Fprintf(&sb, " LIMIT $%d", argNum)
+		args = append(args, fp.limit)
+	}
 	return sb.String(), args
 }
 
@@ -1404,6 +1411,31 @@ GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 	}
 
 	return result, nil
+}
+
+// GetMinerStateCountsByDeviceIDs sums fleet-health buckets across a
+// flat device-identifier list. Same bucket priority rules as
+// GetMinerStateCountsByCollections, but with no device_set_membership
+// join so site-direct (un-racked) devices are included. Implemented as
+// a sqlc query (see device.sql) so DB access stays on the prepared-
+// statement path required by AGENTS.md §7.
+func (s *SQLDeviceStore) GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (stores.MinerStateCounts, error) {
+	if len(deviceIdentifiers) == 0 {
+		return stores.MinerStateCounts{}, nil
+	}
+	row, err := s.getQueries(ctx).GetMinerStateCountsByDeviceIDs(ctx, sqlc.GetMinerStateCountsByDeviceIDsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return stores.MinerStateCounts{}, fleeterror.NewInternalErrorf("failed to get miner state counts by device ids: %v", err)
+	}
+	return stores.MinerStateCounts{
+		OfflineCount:  row.OfflineCount,
+		SleepingCount: row.SleepingCount,
+		BrokenCount:   row.BrokenCount,
+		HashingCount:  row.HashingCount,
+	}, nil
 }
 
 func (s *SQLDeviceStore) GetComponentErrorCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) ([]stores.ComponentErrorCount, error) {

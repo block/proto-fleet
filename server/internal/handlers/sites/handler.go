@@ -115,3 +115,41 @@ func (h *Handler) AssignBuildingToSite(ctx context.Context, req *connect.Request
 		ReassignedDeviceCount: out.ReassignedDeviceCount,
 	}), nil
 }
+
+func (h *Handler) GetSiteStats(ctx context.Context, req *connect.Request[pb.GetSiteStatsRequest]) (*connect.Response[pb.GetSiteStatsResponse], error) {
+	// GetSiteStats returns telemetry rollups + miner health buckets, so
+	// site:read alone isn't enough; we also gate on fleet:read. Both checks
+	// pass the request's SiteID as ResourceContext so a caller with only a
+	// site-scoped role (e.g. ADMIN-scoped to this site) still satisfies
+	// both gates — an org-scoped fleet:read check would reject valid
+	// site-scoped operators even though the rollup is scoped to the
+	// requested site.
+	siteID := req.Msg.GetSiteId()
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &siteID})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID}); err != nil {
+		return nil, err
+	}
+	out, err := h.service.GetSiteStats(ctx, info.OrganizationID, siteID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetSiteStatsResponse{
+		SiteId:                   out.SiteID,
+		BuildingCount:            out.BuildingCount,
+		DeviceCount:              out.DeviceCount,
+		ReportingCount:           out.ReportingCount,
+		HashrateReportingCount:   out.HashrateReportingCount,
+		EfficiencyReportingCount: out.EfficiencyReportingCount,
+		PowerReportingCount:      out.PowerReportingCount,
+		TotalHashrateThs:         out.TotalHashrateThs,
+		AvgEfficiencyJth:         out.AvgEfficiencyJth,
+		TotalPowerKw:             out.TotalPowerKw,
+		HashingCount:             out.HashingCount,
+		BrokenCount:              out.BrokenCount,
+		OfflineCount:             out.OfflineCount,
+		SleepingCount:            out.SleepingCount,
+	}), nil
+}

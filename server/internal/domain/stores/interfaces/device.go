@@ -71,6 +71,12 @@ type MinerFilter struct {
 	IncludeNoBuilding   bool                              // When true, include devices whose rack has building_id IS NULL. Does NOT include devices with no rack at all (see IncludeNoRack).
 	ZoneKeys            []ZoneKey                         // Filter by (building_id, zone) pairs. BuildingID == 0 wildcards across buildings. Excludes miners not in any rack.
 	IncludeNoRack       bool                              // When true, include devices with no rack membership at all. Distinct from IncludeNoBuilding.
+	// Limit, when > 0, caps the number of identifiers returned at the
+	// SQL level via `LIMIT N`. Used by the stats RPCs to fail-fast on
+	// oversize sites/buildings without first materializing the full
+	// identifier list. 0 (default) means no SQL-level limit; the caller
+	// gets every row matching the filter.
+	Limit int
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.
@@ -165,6 +171,12 @@ type DeviceStore interface {
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]MinerStateCounts, error)
+	// GetMinerStateCountsByDeviceIDs aggregates fleet-health buckets
+	// (hashing / broken / offline / sleeping) across the given device
+	// identifiers without going through device_set_membership — so it
+	// also counts site-direct devices that aren't placed in any rack.
+	// Mirrors the bucket logic in GetMinerStateCountsByCollections.
+	GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (MinerStateCounts, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)

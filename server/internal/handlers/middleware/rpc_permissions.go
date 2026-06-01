@@ -71,6 +71,11 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRackToBuildingProcedure: authz.PermSiteManage,
+	// GetBuildingStats also calls RequirePermission(PermFleetRead) and
+	// RequirePermission(PermMinerRead) inline — those gate the telemetry
+	// rollup and the device_identifiers surface respectively. The map
+	// entry is the primary gate (site:read = "can see this building").
+	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
 
 	// CurtailmentService — reads + AdminTerminateEvent + UpdateCurtailmentEvent
 	// + IngestCurtailmentSignal. Start/Stop/Preview retain conditional inline
@@ -223,6 +228,10 @@ var ProcedurePermissions = map[string]string{
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceReassignDevicesToSiteProcedure: authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure:  authz.PermSiteManage,
+	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to
+	// cover the aggregate telemetry surface (matching the gate on
+	// telemetry.GetCombinedMetrics). The map entry is the primary gate.
+	sitesv1connect.SiteServiceGetSiteStatsProcedure: authz.PermSiteRead,
 
 	// TelemetryService — fleet:read for combined-metrics surfaces.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          authz.PermFleetRead,

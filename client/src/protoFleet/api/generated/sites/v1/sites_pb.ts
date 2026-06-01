@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_sites_v1_sites: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRzaXRlcy92MS9zaXRlcy5wcm90bxIIc2l0ZXMudjEi5AIKBFNpdGUSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIVCg1sb2NhdGlvbl9jaXR5GAQgASgJEhYKDmxvY2F0aW9uX3N0YXRlGAUgASgJEhAKCHRpbWV6b25lGAYgASgJEhkKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBEhYKDm5ldHdvcmtfY29uZmlnGAggASgJEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB2FkZHJlc3MYCyABKAkSEwoLcG9zdGFsX2NvZGUYDSABKAkSDwoHY291bnRyeRgOIAEoCRINCgVub3RlcxgPIAEoCUoECAwQDVINYWRkcmVzc19saW5lMiJwCg5TaXRlV2l0aENvdW50cxIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIUCgxkZXZpY2VfY291bnQYAiABKAMSFgoOYnVpbGRpbmdfY291bnQYAyABKAMSEgoKcmFja19jb3VudBgEIAEoAyISChBMaXN0U2l0ZXNSZXF1ZXN0IjwKEUxpc3RTaXRlc1Jlc3BvbnNlEicKBXNpdGVzGAEgAygLMhguc2l0ZXMudjEuU2l0ZVdpdGhDb3VudHMi7gIKEUNyZWF0ZVNpdGVSZXF1ZXN0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAiABKAlCCLpIBXIDGIAgEh8KDWxvY2F0aW9uX2NpdHkYAyABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAQgASgJQgi6SAVyAxj/ARIpChFwb3dlcl9jYXBhY2l0eV9tdxgGIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYByABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAggASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgKIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAsgASgJQge6SARyAhgCEhcKBW5vdGVzGAwgASgJQgi6SAVyAxiAIEoECAUQBkoECAkQClIIdGltZXpvbmVSDWFkZHJlc3NfbGluZTIiUwoSQ3JlYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIoMDChFVcGRhdGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIfCg1sb2NhdGlvbl9jaXR5GAQgASgJQgi6SAVyAxj/ARIgCg5sb2NhdGlvbl9zdGF0ZRgFIAEoCUIIukgFcgMY/wESKQoRcG93ZXJfY2FwYWNpdHlfbXcYByABKAFCDrpICxIJKQAAAAAAAAAAEiEKDm5ldHdvcmtfY29uZmlnGAggASgJQgm6SAZyBCiAgAESGQoHYWRkcmVzcxgJIAEoCUIIukgFcgMY/wESHAoLcG9zdGFsX2NvZGUYCyABKAlCB7pIBHICGCASGAoHY291bnRyeRgMIAEoCUIHukgEcgIYAhIXCgVub3RlcxgNIAEoCUIIukgFcgMYgCBKBAgGEAdKBAgKEAtSCHRpbWV6b25lUg1hZGRyZXNzX2xpbmUyIlMKElVwZGF0ZVNpdGVSZXNwb25zZRIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIfChduZXR3b3JrX2NvbmZpZ193YXJuaW5ncxgCIAMoCSIoChFEZWxldGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACJ0ChJEZWxldGVTaXRlUmVzcG9uc2USHwoXdW5hc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMSHgoWZGVsZXRlZF9idWlsZGluZ19jb3VudBgCIAEoAxIdChV1bmFzc2lnbmVkX3JhY2tfY291bnQYAyABKAMiiQEKHFJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QSJAoOdGFyZ2V0X3NpdGVfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACQhEKD190YXJnZXRfc2l0ZV9pZCJ+ChFQZXJEZXZpY2VDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCgZyZWFzb24YAiABKA4yIS5zaXRlcy52MS5QZXJEZXZpY2VDb25mbGljdFJlYXNvbhIbChNjb25mbGljdGluZ19zaXRlX2lkGAMgASgDImkKHVJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlc3BvbnNlEhgKEHJlYXNzaWduZWRfY291bnQYASABKAMSLgoJY29uZmxpY3RzGAIgAygLMhsuc2l0ZXMudjEuUGVyRGV2aWNlQ29uZmxpY3QidAobQXNzaWduQnVpbGRpbmdUb1NpdGVSZXF1ZXN0EhwKC2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAAEiQKDnRhcmdldF9zaXRlX2lkGAIgASgDQge6SAQiAiAASACIAQFCEQoPX3RhcmdldF9zaXRlX2lkIl4KHEFzc2lnbkJ1aWxkaW5nVG9TaXRlUmVzcG9uc2USHQoVcmVhc3NpZ25lZF9yYWNrX2NvdW50GAEgASgDEh8KF3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAIgASgDKrMBChdQZXJEZXZpY2VDb25mbGljdFJlYXNvbhIqCiZQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEi8KK1BFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9OT1RfRk9VTkQQARI7CjdQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfSU5fUkFDS19BVF9PVEhFUl9TSVRFEAIy/wMKC1NpdGVTZXJ2aWNlEkQKCUxpc3RTaXRlcxIaLnNpdGVzLnYxLkxpc3RTaXRlc1JlcXVlc3QaGy5zaXRlcy52MS5MaXN0U2l0ZXNSZXNwb25zZRJHCgpDcmVhdGVTaXRlEhsuc2l0ZXMudjEuQ3JlYXRlU2l0ZVJlcXVlc3QaHC5zaXRlcy52MS5DcmVhdGVTaXRlUmVzcG9uc2USRwoKVXBkYXRlU2l0ZRIbLnNpdGVzLnYxLlVwZGF0ZVNpdGVSZXF1ZXN0Ghwuc2l0ZXMudjEuVXBkYXRlU2l0ZVJlc3BvbnNlEkcKCkRlbGV0ZVNpdGUSGy5zaXRlcy52MS5EZWxldGVTaXRlUmVxdWVzdBocLnNpdGVzLnYxLkRlbGV0ZVNpdGVSZXNwb25zZRJoChVSZWFzc2lnbkRldmljZXNUb1NpdGUSJi5zaXRlcy52MS5SZWFzc2lnbkRldmljZXNUb1NpdGVSZXF1ZXN0Gicuc2l0ZXMudjEuUmVhc3NpZ25EZXZpY2VzVG9TaXRlUmVzcG9uc2USZQoUQXNzaWduQnVpbGRpbmdUb1NpdGUSJS5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlcXVlc3QaJi5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlc3BvbnNlQqABCgxjb20uc2l0ZXMudjFCClNpdGVzUHJvdG9QAVpDZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvc2l0ZXMvdjE7c2l0ZXN2MaICA1NYWKoCCFNpdGVzLlYxygIIU2l0ZXNcVjHiAhRTaXRlc1xWMVxHUEJNZXRhZGF0YeoCCVNpdGVzOjpWMWIGcHJvdG8z",
+    "ChRzaXRlcy92MS9zaXRlcy5wcm90bxIIc2l0ZXMudjEi5AIKBFNpdGUSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIVCg1sb2NhdGlvbl9jaXR5GAQgASgJEhYKDmxvY2F0aW9uX3N0YXRlGAUgASgJEhAKCHRpbWV6b25lGAYgASgJEhkKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBEhYKDm5ldHdvcmtfY29uZmlnGAggASgJEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB2FkZHJlc3MYCyABKAkSEwoLcG9zdGFsX2NvZGUYDSABKAkSDwoHY291bnRyeRgOIAEoCRINCgVub3RlcxgPIAEoCUoECAwQDVINYWRkcmVzc19saW5lMiJwCg5TaXRlV2l0aENvdW50cxIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIUCgxkZXZpY2VfY291bnQYAiABKAMSFgoOYnVpbGRpbmdfY291bnQYAyABKAMSEgoKcmFja19jb3VudBgEIAEoAyISChBMaXN0U2l0ZXNSZXF1ZXN0IjwKEUxpc3RTaXRlc1Jlc3BvbnNlEicKBXNpdGVzGAEgAygLMhguc2l0ZXMudjEuU2l0ZVdpdGhDb3VudHMi7gIKEUNyZWF0ZVNpdGVSZXF1ZXN0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAiABKAlCCLpIBXIDGIAgEh8KDWxvY2F0aW9uX2NpdHkYAyABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAQgASgJQgi6SAVyAxj/ARIpChFwb3dlcl9jYXBhY2l0eV9tdxgGIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYByABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAggASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgKIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAsgASgJQge6SARyAhgCEhcKBW5vdGVzGAwgASgJQgi6SAVyAxiAIEoECAUQBkoECAkQClIIdGltZXpvbmVSDWFkZHJlc3NfbGluZTIiUwoSQ3JlYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIoMDChFVcGRhdGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIfCg1sb2NhdGlvbl9jaXR5GAQgASgJQgi6SAVyAxj/ARIgCg5sb2NhdGlvbl9zdGF0ZRgFIAEoCUIIukgFcgMY/wESKQoRcG93ZXJfY2FwYWNpdHlfbXcYByABKAFCDrpICxIJKQAAAAAAAAAAEiEKDm5ldHdvcmtfY29uZmlnGAggASgJQgm6SAZyBCiAgAESGQoHYWRkcmVzcxgJIAEoCUIIukgFcgMY/wESHAoLcG9zdGFsX2NvZGUYCyABKAlCB7pIBHICGCASGAoHY291bnRyeRgMIAEoCUIHukgEcgIYAhIXCgVub3RlcxgNIAEoCUIIukgFcgMYgCBKBAgGEAdKBAgKEAtSCHRpbWV6b25lUg1hZGRyZXNzX2xpbmUyIlMKElVwZGF0ZVNpdGVSZXNwb25zZRIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIfChduZXR3b3JrX2NvbmZpZ193YXJuaW5ncxgCIAMoCSIoChFEZWxldGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACJ0ChJEZWxldGVTaXRlUmVzcG9uc2USHwoXdW5hc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMSHgoWZGVsZXRlZF9idWlsZGluZ19jb3VudBgCIAEoAxIdChV1bmFzc2lnbmVkX3JhY2tfY291bnQYAyABKAMiiQEKHFJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QSJAoOdGFyZ2V0X3NpdGVfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACQhEKD190YXJnZXRfc2l0ZV9pZCJ+ChFQZXJEZXZpY2VDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCgZyZWFzb24YAiABKA4yIS5zaXRlcy52MS5QZXJEZXZpY2VDb25mbGljdFJlYXNvbhIbChNjb25mbGljdGluZ19zaXRlX2lkGAMgASgDImkKHVJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlc3BvbnNlEhgKEHJlYXNzaWduZWRfY291bnQYASABKAMSLgoJY29uZmxpY3RzGAIgAygLMhsuc2l0ZXMudjEuUGVyRGV2aWNlQ29uZmxpY3QidAobQXNzaWduQnVpbGRpbmdUb1NpdGVSZXF1ZXN0EhwKC2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAAEiQKDnRhcmdldF9zaXRlX2lkGAIgASgDQge6SAQiAiAASACIAQFCEQoPX3RhcmdldF9zaXRlX2lkIl4KHEFzc2lnbkJ1aWxkaW5nVG9TaXRlUmVzcG9uc2USHQoVcmVhc3NpZ25lZF9yYWNrX2NvdW50GAEgASgDEh8KF3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAIgASgDIi8KE0dldFNpdGVTdGF0c1JlcXVlc3QSGAoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgACL/AgoUR2V0U2l0ZVN0YXRzUmVzcG9uc2USDwoHc2l0ZV9pZBgBIAEoAxIWCg5idWlsZGluZ19jb3VudBgCIAEoBRIUCgxkZXZpY2VfY291bnQYAyABKAUSFwoPcmVwb3J0aW5nX2NvdW50GAQgASgFEhoKEnRvdGFsX2hhc2hyYXRlX3RocxgFIAEoARIaChJhdmdfZWZmaWNpZW5jeV9qdGgYBiABKAESFgoOdG90YWxfcG93ZXJfa3cYByABKAESFQoNaGFzaGluZ19jb3VudBgIIAEoBRIUCgxicm9rZW5fY291bnQYCSABKAUSFQoNb2ZmbGluZV9jb3VudBgKIAEoBRIWCg5zbGVlcGluZ19jb3VudBgLIAEoBRIgChhoYXNocmF0ZV9yZXBvcnRpbmdfY291bnQYDCABKAUSIgoaZWZmaWNpZW5jeV9yZXBvcnRpbmdfY291bnQYDSABKAUSHQoVcG93ZXJfcmVwb3J0aW5nX2NvdW50GA4gASgFKrMBChdQZXJEZXZpY2VDb25mbGljdFJlYXNvbhIqCiZQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEi8KK1BFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9OT1RfRk9VTkQQARI7CjdQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfSU5fUkFDS19BVF9PVEhFUl9TSVRFEAIyzgQKC1NpdGVTZXJ2aWNlEkQKCUxpc3RTaXRlcxIaLnNpdGVzLnYxLkxpc3RTaXRlc1JlcXVlc3QaGy5zaXRlcy52MS5MaXN0U2l0ZXNSZXNwb25zZRJHCgpDcmVhdGVTaXRlEhsuc2l0ZXMudjEuQ3JlYXRlU2l0ZVJlcXVlc3QaHC5zaXRlcy52MS5DcmVhdGVTaXRlUmVzcG9uc2USRwoKVXBkYXRlU2l0ZRIbLnNpdGVzLnYxLlVwZGF0ZVNpdGVSZXF1ZXN0Ghwuc2l0ZXMudjEuVXBkYXRlU2l0ZVJlc3BvbnNlEkcKCkRlbGV0ZVNpdGUSGy5zaXRlcy52MS5EZWxldGVTaXRlUmVxdWVzdBocLnNpdGVzLnYxLkRlbGV0ZVNpdGVSZXNwb25zZRJoChVSZWFzc2lnbkRldmljZXNUb1NpdGUSJi5zaXRlcy52MS5SZWFzc2lnbkRldmljZXNUb1NpdGVSZXF1ZXN0Gicuc2l0ZXMudjEuUmVhc3NpZ25EZXZpY2VzVG9TaXRlUmVzcG9uc2USZQoUQXNzaWduQnVpbGRpbmdUb1NpdGUSJS5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlcXVlc3QaJi5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlc3BvbnNlEk0KDEdldFNpdGVTdGF0cxIdLnNpdGVzLnYxLkdldFNpdGVTdGF0c1JlcXVlc3QaHi5zaXRlcy52MS5HZXRTaXRlU3RhdHNSZXNwb25zZUKgAQoMY29tLnNpdGVzLnYxQgpTaXRlc1Byb3RvUAFaQ2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3NpdGVzL3YxO3NpdGVzdjGiAgNTWFiqAghTaXRlcy5WMcoCCFNpdGVzXFYx4gIUU2l0ZXNcVjFcR1BCTWV0YWRhdGHqAglTaXRlczo6VjFiBnByb3RvMw",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -551,6 +551,120 @@ export const AssignBuildingToSiteResponseSchema: GenMessage<AssignBuildingToSite
   messageDesc(file_sites_v1_sites, 14);
 
 /**
+ * @generated from message sites.v1.GetSiteStatsRequest
+ */
+export type GetSiteStatsRequest = Message<"sites.v1.GetSiteStatsRequest"> & {
+  /**
+   * @generated from field: int64 site_id = 1;
+   */
+  siteId: bigint;
+};
+
+/**
+ * Describes the message sites.v1.GetSiteStatsRequest.
+ * Use `create(GetSiteStatsRequestSchema)` to create a new message.
+ */
+export const GetSiteStatsRequestSchema: GenMessage<GetSiteStatsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_sites_v1_sites, 15);
+
+/**
+ * GetSiteStatsResponse mirrors device_set.v1.DeviceSetStats for the
+ * rollup-shaped fields. Scope is every device with site_id = request.site_id
+ * (racked or not) — the /sites overview joins this onto the site row.
+ *
+ * @generated from message sites.v1.GetSiteStatsResponse
+ */
+export type GetSiteStatsResponse = Message<"sites.v1.GetSiteStatsResponse"> & {
+  /**
+   * @generated from field: int64 site_id = 1;
+   */
+  siteId: bigint;
+
+  /**
+   * @generated from field: int32 building_count = 2;
+   */
+  buildingCount: number;
+
+  /**
+   * @generated from field: int32 device_count = 3;
+   */
+  deviceCount: number;
+
+  /**
+   * @generated from field: int32 reporting_count = 4;
+   */
+  reportingCount: number;
+
+  /**
+   * @generated from field: double total_hashrate_ths = 5;
+   */
+  totalHashrateThs: number;
+
+  /**
+   * @generated from field: double avg_efficiency_jth = 6;
+   */
+  avgEfficiencyJth: number;
+
+  /**
+   * @generated from field: double total_power_kw = 7;
+   */
+  totalPowerKw: number;
+
+  /**
+   * Fleet-health buckets mirror DeviceSetStats so the colour map stays
+   * consistent across surfaces.
+   *
+   * @generated from field: int32 hashing_count = 8;
+   */
+  hashingCount: number;
+
+  /**
+   * @generated from field: int32 broken_count = 9;
+   */
+  brokenCount: number;
+
+  /**
+   * @generated from field: int32 offline_count = 10;
+   */
+  offlineCount: number;
+
+  /**
+   * @generated from field: int32 sleeping_count = 11;
+   */
+  sleepingCount: number;
+
+  /**
+   * Per-field reporting counts so the FE can distinguish "no devices
+   * reporting" from "devices reporting but the field is missing." A
+   * reporting device with EfficiencyJH = nil shouldn't make the average
+   * look like real data; if efficiency_reporting_count == 0 the FE shows
+   * the dash even when reporting_count > 0.
+   *
+   * @generated from field: int32 hashrate_reporting_count = 12;
+   */
+  hashrateReportingCount: number;
+
+  /**
+   * @generated from field: int32 efficiency_reporting_count = 13;
+   */
+  efficiencyReportingCount: number;
+
+  /**
+   * @generated from field: int32 power_reporting_count = 14;
+   */
+  powerReportingCount: number;
+};
+
+/**
+ * Describes the message sites.v1.GetSiteStatsResponse.
+ * Use `create(GetSiteStatsResponseSchema)` to create a new message.
+ */
+export const GetSiteStatsResponseSchema: GenMessage<GetSiteStatsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_sites_v1_sites, 16);
+
+/**
  * PerDeviceConflictReason enumerates the reasons a device can be
  * rejected by ReassignDevicesToSite.
  *
@@ -663,5 +777,18 @@ export const SiteService: GenService<{
     methodKind: "unary";
     input: typeof AssignBuildingToSiteRequestSchema;
     output: typeof AssignBuildingToSiteResponseSchema;
+  };
+  /**
+   * GetSiteStats returns server-rolled telemetry + miner-state counts
+   * for every device assigned to the site, including devices whose
+   * rack has no building set and devices that have no rack at all.
+   * Drives the /sites operational overview metric row.
+   *
+   * @generated from rpc sites.v1.SiteService.GetSiteStats
+   */
+  getSiteStats: {
+    methodKind: "unary";
+    input: typeof GetSiteStatsRequestSchema;
+    output: typeof GetSiteStatsResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_sites_v1_sites, 0);
