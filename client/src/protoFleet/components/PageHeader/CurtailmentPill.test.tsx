@@ -8,7 +8,7 @@ const triggerName = "View curtailment details for Grid peak call";
 
 const activeCurtailmentEvent: CurtailmentPillEvent = {
   reason: "Grid peak call",
-  state: "active",
+  state: "curtailing",
   scopeLabel: "Whole org",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,
@@ -44,16 +44,18 @@ function getPlannedReductionText(selectedMiners: number, estimatedReductionKw: n
 }
 
 describe("CurtailmentPill", () => {
-  it("renders the current curtailment state in the trigger", () => {
-    renderCurtailmentPill({
-      event: {
-        ...activeCurtailmentEvent,
-        state: "restoring",
-      },
-    });
+  it.each([
+    ["pending", "Curtailment pending", "bg-core-accent-fill"],
+    ["curtailing", "Curtailment active", "bg-intent-warning-fill"],
+    ["curtailed", "Curtailment active", "bg-intent-warning-fill"],
+    ["restoring", "Curtailment restoring", "bg-core-accent-fill"],
+  ] as const)("renders the legacy %s curtailment state in the trigger", (state, label, dotClassName) => {
+    renderCurtailmentPill({ event: { ...activeCurtailmentEvent, state } });
 
-    expect(screen.getByRole("button", { name: triggerName })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText("Curtailment restoring")).toBeVisible();
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger.querySelector(`.${dotClassName}`)).not.toBeNull();
+    expect(screen.getByText(label)).toBeVisible();
   });
 
   it("shows curtailment details in the popover", () => {
@@ -62,7 +64,7 @@ describe("CurtailmentPill", () => {
     openCurtailmentPopover();
 
     expect(screen.getByText("Grid peak call")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Curtailing")).toBeInTheDocument();
     expect(screen.getByText("Whole org")).toBeInTheDocument();
     expect(screen.getByText(getPlannedReductionText(48, 126.4))).toBeInTheDocument();
   });
