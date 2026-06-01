@@ -63,7 +63,28 @@ func TestGetBuildingStats_notFound(t *testing.T) {
 	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(42)).Return(false, nil)
 
 	svc := NewService(store, nil, nil, newDevices(nil), newTelemetry(), newTx(), nil)
-	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 42)
+	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 42, nil)
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeNotFound {
+		t.Fatalf("expected NotFound, got %v", err)
+	}
+}
+
+func TestGetBuildingStats_notFoundWhenSiteMovedDuringAuthz(t *testing.T) {
+	// Race: handler resolved the building at site A, but a concurrent
+	// AssignBuildingToSite moved it to site B before the service read.
+	// Expectation: surface NotFound rather than return stats the caller
+	// wasn't authorized for in the new site-scope.
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
+	siteB := int64(2)
+	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1, SiteID: &siteB}, nil)
+
+	svc := NewService(store, nil, nil, newDevices(nil), newTelemetry(), newTx(), nil)
+	siteA := int64(1)
+	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, &siteA)
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeNotFound {
 		t.Fatalf("expected NotFound, got %v", err)
@@ -74,7 +95,7 @@ func TestGetBuildingStats_internalErrorWhenDepsMissing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
 	svc := NewService(store, nil, nil, nil, nil, newTx(), nil)
-	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1)
+	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, nil)
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
 		t.Fatalf("expected Internal, got %v", err)
@@ -90,7 +111,7 @@ func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
 
 	devices := newDevices(nil)
 	svc := NewService(store, nil, nil, devices, newTelemetry(), newTx(), nil)
-	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1)
+	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,7 +148,7 @@ func TestGetBuildingStats_clearsOutOfBoundsRackPositions(t *testing.T) {
 	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(2, 3), nil)
 
 	svc := NewService(store, nil, nil, newDevices(nil), newTelemetry(), newTx(), nil)
-	stats, err := svc.GetBuildingStats(context.Background(), testOrgID, 1)
+	stats, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +198,7 @@ func TestGetBuildingStats_rollsUpDeviceMetrics(t *testing.T) {
 	}
 
 	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
-	stats, err := svc.GetBuildingStats(context.Background(), testOrgID, 1)
+	stats, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

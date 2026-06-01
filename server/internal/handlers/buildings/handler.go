@@ -170,7 +170,11 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, rc); err != nil {
 		return nil, err
 	}
-	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId())
+	// Pass the building's site as we saw it at authz time. The service
+	// re-reads the building and rejects with NotFound if a concurrent
+	// AssignBuildingToSite moved it — otherwise a site-scoped caller
+	// could end up with telemetry for a site they're not authorized for.
+	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId(), building.SiteID)
 	if err != nil {
 		return nil, err
 	}

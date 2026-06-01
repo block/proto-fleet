@@ -529,7 +529,15 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 // snapshot for the building, plus a per-rack BuildingRackHealth entry
 // for each placed rack. NotFound when the building doesn't exist in
 // the org.
-func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64) (*models.BuildingStats, error) {
+//
+// `expectedSiteID` carries the site the handler resolved at authz time:
+// if a concurrent AssignBuildingToSite moves the building between the
+// handler's pre-authz lookup and this read, the building's current
+// site will diverge from what the caller was authorized for. We
+// surface that as NotFound rather than leaking telemetry into the
+// wrong site-scope. nil means "the handler saw an unassigned
+// building"; nil/nil and equal int64 pointers compare as a match.
+func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64, expectedSiteID *int64) (*models.BuildingStats, error) {
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("buildings.GetBuildingStats requires deviceQueryer and telemetry")
 	}
@@ -578,6 +586,14 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64)
 	building, err := s.store.GetBuilding(ctx, orgID, buildingID)
 	if err != nil {
 		return nil, err
+	}
+	// Guard against the AssignBuildingToSite race: if the building has
+	// moved to a different site since the handler's pre-authz lookup,
+	// the permission grant we ran against doesn't match the current
+	// scope. NotFound is the safe surface here — the caller was never
+	// authorized for the building at its new site.
+	if !int64PtrEqual(expectedSiteID, building.SiteID) {
+		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 	}
 	aisles := building.Aisles
 	racksPerAisle := building.RacksPerAisle
