@@ -20,13 +20,17 @@ const POLL_INTERVAL_MS = 30_000;
 export const useSchedulePillData = (): UseSchedulePillDataResult => {
   const { schedules, refreshSchedules, pauseSchedule, resumeSchedule } = useScheduleApiContext();
   const [pendingScheduleId, setPendingScheduleId] = useState<string | null>(null);
-  // ListSchedules is server-side gated on schedule:read; skip the global
-  // 30s polling loop for sessions without the key so they don't generate
-  // PermissionDenied traffic every interval from this app-shell mount.
-  const canReadSchedules = useHasPermission("schedule:read");
+  // Gated on schedule:manage rather than schedule:read because the
+  // popover surface this hook feeds is mutation-shaped: Pause / Resume
+  // controls and a link to /settings/schedules, which itself requires
+  // schedule:manage. Skipping the global 30s polling loop for sessions
+  // without :manage means a read-only schedule:read role has no header
+  // pill that 403s on every action — same outcome as the Pools and
+  // Schedules secondary-nav entries.
+  const canManageSchedules = useHasPermission("schedule:manage");
 
   useEffect(() => {
-    if (!canReadSchedules) {
+    if (!canManageSchedules) {
       return;
     }
     const refreshScheduleSummary = () => {
@@ -39,7 +43,7 @@ export const useSchedulePillData = (): UseSchedulePillDataResult => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [canReadSchedules, refreshSchedules]);
+  }, [canManageSchedules, refreshSchedules]);
 
   const { sections, pillSchedule } = useMemo(() => {
     const nextSections = buildSchedulePopoverSections(schedules);
