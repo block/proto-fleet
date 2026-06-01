@@ -105,7 +105,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         ) : null}
 
         <ul data-testid="navigation-menu" className="flex w-full flex-col items-start gap-1 px-3">
-          {visibleItems.map((item, idx) => {
+          {visibleItems.map((item) => {
             // Skip Settings item on mobile/tablet if it has secondary nav items - we'll render it separately with expand/collapse
             if (
               (isPhone || isTablet) &&
@@ -116,7 +116,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             }
 
             return item.path ? (
-              <li key={idx} className="w-full">
+              <li key={item.path} className="w-full">
                 <Link
                   to={item.path}
                   onClick={() => closeMenu?.()}

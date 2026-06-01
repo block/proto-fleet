@@ -188,24 +188,36 @@ export const useFleetStore = create<FleetStore>()(
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
             const hasPersistedSession = persisted?.auth?.isAuthenticated && persisted?.auth?.sessionExpiry;
+            // Pre-U10a localStorage didn't carry a permissions array.
+            // Rehydrating a stale session would leave the user logged
+            // in with permissions:[], losing every permission-gated UI
+            // surface (nav, schedule pill, settings pages). Drop the
+            // session so the next request triggers a fresh Authenticate
+            // and the new field is populated from UserInfo.permissions.
+            const hasPersistedPermissions = Array.isArray(persisted?.auth?.permissions);
+            const sessionIsStalePreU10a = hasPersistedSession && !hasPersistedPermissions;
             const persistedDuration = persisted?.ui?.duration;
 
             return {
               ...currentState,
               auth: {
                 ...currentState.auth,
-                sessionExpiry: persisted?.auth?.sessionExpiry ?? currentState.auth.sessionExpiry,
-                isAuthenticated: persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated,
-                username: persisted?.auth?.username ?? currentState.auth.username,
-                role: persisted?.auth?.role ?? currentState.auth.role,
-                // Stale localStorage from sessions created before
-                // permissions was added falls back to []; the next
-                // login replaces it from UserInfo.permissions. Until
-                // then, users will see "no perms" gates as denied.
-                permissions: Array.isArray(persisted?.auth?.permissions)
-                  ? persisted.auth.permissions
-                  : currentState.auth.permissions,
-                // If we have persisted session, set loading to false
+                sessionExpiry: sessionIsStalePreU10a
+                  ? currentState.auth.sessionExpiry
+                  : (persisted?.auth?.sessionExpiry ?? currentState.auth.sessionExpiry),
+                isAuthenticated: sessionIsStalePreU10a
+                  ? false
+                  : (persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated),
+                username: sessionIsStalePreU10a
+                  ? currentState.auth.username
+                  : (persisted?.auth?.username ?? currentState.auth.username),
+                role: sessionIsStalePreU10a
+                  ? currentState.auth.role
+                  : (persisted?.auth?.role ?? currentState.auth.role),
+                permissions: hasPersistedPermissions ? persisted.auth.permissions : currentState.auth.permissions,
+                // If we have persisted session, set loading to false.
+                // Stale pre-U10a sessions also stop loading so the
+                // login redirect path engages immediately.
                 authLoading: hasPersistedSession ? false : currentState.auth.authLoading,
               },
               ui: {
