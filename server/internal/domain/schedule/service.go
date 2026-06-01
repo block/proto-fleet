@@ -314,6 +314,19 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authoriz
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		// Lock ordering: priority advisory lock before the schedule row
+		// lock. ReorderSchedules and CreateSchedule take the priority
+		// lock first; if Resume took the row lock first it would
+		// deadlock against a concurrent reorder that's already holding
+		// the priority lock and waiting on this row. We acquire the
+		// priority lock unconditionally rather than only on the
+		// completion path because we can't tell which path we're on
+		// until after we've read existing — and switching the order
+		// after the read would reintroduce the deadlock.
+		if err := s.priorityStore.LockSchedulePriority(ctx, info.OrganizationID); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to lock priority: %v", err)
+		}
+
 		// FOR UPDATE locks the row so a concurrent UpdateSchedule can't
 		// change the action between authorizeAction and ResumePausedSchedule.
 		existing, err := s.store.GetScheduleForUpdate(ctx, info.OrganizationID, scheduleID)
@@ -337,12 +350,6 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authoriz
 			nextRunUnix = &u
 		} else {
 			newStatus = statusCompleted
-		}
-
-		if newStatus == statusCompleted {
-			if err := s.priorityStore.LockSchedulePriority(ctx, info.OrganizationID); err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to lock priority: %v", err)
-			}
 		}
 
 		rows, err := s.store.ResumePausedSchedule(ctx, info.OrganizationID, scheduleID, newStatus, nextRunUnix)
