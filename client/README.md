@@ -11,7 +11,7 @@ This directory contains two React applications and a shared component library:
 ### Tech Stack
 
 - **React 19** with TypeScript
-- **Vite 7** for builds and dev server
+- **Vite 8** for builds and dev server
 - **Zustand** for state management with Immer middleware
 - **React Router 7** for routing
 - **Tailwind CSS 4** for styling
