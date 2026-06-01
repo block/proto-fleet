@@ -38,7 +38,7 @@ export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): Curtailm
   }
 
   return {
-    reason: event.reason,
+    reason: event.reason || "Curtailment",
     state: displayState,
     scopeLabel: getCurtailmentEventScopeLabel(event),
     selectedMiners,

@@ -3,7 +3,6 @@ import { create } from "@bufbuild/protobuf";
 
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import {
-  type CurtailmentEvent,
   CurtailmentEventSchema,
   CurtailmentEventState,
   CurtailmentMode,
@@ -12,6 +11,11 @@ import {
   FixedKwParamsSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import type { CurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+
+function targetRollup(values: { pending?: number; confirmed?: number; total?: number }) {
+  return create(CurtailmentTargetRollupSchema, values);
+}
 
 function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): CurtailmentEvent {
   const event = create(CurtailmentEventSchema, {
@@ -28,10 +32,7 @@ function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): Curtailmen
       case: "fixedKw",
       value: create(FixedKwParamsSchema, { targetKw: 20 }),
     },
-    targetRollup: create(CurtailmentTargetRollupSchema, {
-      pending: 2,
-      total: 2,
-    }),
+    targetRollup: targetRollup({ pending: 2, total: 2 }),
     decisionSnapshot: {
       estimated_reduction_kw: 23.4,
       selected_count: 2,
@@ -42,82 +43,23 @@ function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): Curtailmen
 }
 
 describe("mapCurtailmentPillEvent", () => {
-  it("keeps a fully pending active event pending", () => {
-    expect(mapCurtailmentPillEvent(curtailmentEvent())).toEqual(
+  it.each([
+    [{}, "pending"],
+    [{ targetRollup: targetRollup({ confirmed: 1, pending: 1, total: 2 }) }, "curtailing"],
+    [{ state: CurtailmentEventState.ACTIVE, targetRollup: targetRollup({ confirmed: 2, total: 2 }) }, "curtailed"],
+    [{ state: CurtailmentEventState.RESTORING }, "restoring"],
+  ] satisfies readonly [Partial<CurtailmentEvent>, string][])("maps display state", (overrides, state) => {
+    expect(mapCurtailmentPillEvent(curtailmentEvent(overrides))).toEqual(
       expect.objectContaining({
-        state: "pending",
+        state,
       }),
     );
   });
 
-  it("shows a pending event with started targets as curtailing", () => {
-    const event = curtailmentEvent({
-      targetRollup: create(CurtailmentTargetRollupSchema, {
-        confirmed: 1,
-        pending: 1,
-        total: 2,
-      }),
-    });
-
-    expect(mapCurtailmentPillEvent(event)).toEqual(
+  it("falls back when the event reason is blank", () => {
+    expect(mapCurtailmentPillEvent(curtailmentEvent({ reason: "" }))).toEqual(
       expect.objectContaining({
-        state: "curtailing",
-      }),
-    );
-  });
-
-  it("keeps a pending event with all targets confirmed as curtailing", () => {
-    const event = curtailmentEvent({
-      targetRollup: create(CurtailmentTargetRollupSchema, {
-        confirmed: 2,
-        total: 2,
-      }),
-    });
-
-    expect(mapCurtailmentPillEvent(event)).toEqual(
-      expect.objectContaining({
-        state: "curtailing",
-      }),
-    );
-  });
-
-  it("shows an active event with remaining targets as curtailing", () => {
-    const event = curtailmentEvent({
-      state: CurtailmentEventState.ACTIVE,
-      targetRollup: create(CurtailmentTargetRollupSchema, {
-        confirmed: 1,
-        pending: 1,
-        total: 2,
-      }),
-    });
-
-    expect(mapCurtailmentPillEvent(event)).toEqual(
-      expect.objectContaining({
-        state: "curtailing",
-      }),
-    );
-  });
-
-  it("shows an active event with all targets confirmed as curtailed", () => {
-    const event = curtailmentEvent({
-      state: CurtailmentEventState.ACTIVE,
-      targetRollup: create(CurtailmentTargetRollupSchema, {
-        confirmed: 2,
-        total: 2,
-      }),
-    });
-
-    expect(mapCurtailmentPillEvent(event)).toEqual(
-      expect.objectContaining({
-        state: "curtailed",
-      }),
-    );
-  });
-
-  it("passes through restoring events as restoring", () => {
-    expect(mapCurtailmentPillEvent(curtailmentEvent({ state: CurtailmentEventState.RESTORING }))).toEqual(
-      expect.objectContaining({
-        state: "restoring",
+        reason: "Curtailment",
       }),
     );
   });
