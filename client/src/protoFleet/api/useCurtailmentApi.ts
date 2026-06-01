@@ -1,32 +1,28 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { emitCurtailmentChanged } from "@/protoFleet/api/curtailmentEvents";
+import {
+  mapActiveCurtailmentEvent,
+  mapCurtailmentEventToFormValues,
+  mapCurtailmentHistoryEvent,
+} from "@/protoFleet/api/curtailmentMappers";
 import {
   GetActiveCurtailmentRequestSchema,
   ListCurtailmentEventsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentEventState as ProtoCurtailmentEventState,
-  CurtailmentPriority as ProtoCurtailmentPriority,
-  CurtailmentTargetState as ProtoCurtailmentTargetState,
   StopCurtailmentRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
-import type {
-  ActiveCurtailmentEvent,
-  CurtailmentTargetRollup,
-} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   type CurtailmentEventState,
-  getCurtailmentEventEstimatedReductionKw,
-  getCurtailmentEventScopeLabel,
-  getCurtailmentEventSelectedMinerCount,
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
+import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
@@ -45,11 +41,6 @@ interface CurtailmentSnapshot {
   activeEventId: string | null;
   activeEventFormValues: CurtailmentSubmitValues | null;
   historyEvents: CurtailmentHistoryEvent[];
-}
-
-interface ObservedPowerSummary {
-  observedReductionKw: number;
-  remainingPowerKw?: number;
 }
 
 interface CurtailmentHistoryPage {
@@ -95,7 +86,6 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   stopCurtailment: (eventUuid: string) => Promise<ProtoCurtailmentEvent>;
 }
 
-const wattsPerKilowatt = 1000;
 const curtailmentHistoryPageSize = 50;
 const initialHistoryPagination: CurtailmentHistoryPaginationState = {
   currentPage: 0,
@@ -108,94 +98,6 @@ const initialCurtailmentSnapshot: CurtailmentSnapshot = {
   activeEventFormValues: null,
   historyEvents: [],
 };
-
-function timestampToIsoString(timestamp?: Timestamp): string | undefined {
-  if (!timestamp) {
-    return undefined;
-  }
-
-  const date = new Date(Number(timestamp.seconds) * 1000 + Math.floor(timestamp.nanos / 1_000_000));
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-function getFixedKwTarget(event: ProtoCurtailmentEvent): number | undefined {
-  return event.modeParams.case === "fixedKw" ? event.modeParams.value.targetKw : undefined;
-}
-
-function getFixedKwTolerance(event: ProtoCurtailmentEvent): number | undefined {
-  return event.modeParams.case === "fixedKw" ? event.modeParams.value.toleranceKw : undefined;
-}
-
-function formatPositiveNumberField(value: number | undefined): string {
-  if (value === undefined || value <= 0) {
-    return "";
-  }
-
-  return String(value);
-}
-
-function mapCurtailmentEventScopeToFormValues(
-  event: ProtoCurtailmentEvent,
-): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "deviceSetIds" | "deviceIdentifiers"> {
-  switch (event.scope.case) {
-    case "deviceIdentifiers":
-      return {
-        scopeType: "explicitMiners",
-        scopeId: "explicit-miners",
-        deviceSetIds: [],
-        deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
-      };
-    case "deviceSetIds":
-      return {
-        scopeType: "deviceSet",
-        scopeId: "device-sets",
-        deviceSetIds: [...event.scope.value.deviceSetIds],
-        deviceIdentifiers: [],
-      };
-    case "wholeOrg":
-    default:
-      return {
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
-        deviceSetIds: [],
-        deviceIdentifiers: [],
-      };
-  }
-}
-
-function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): CurtailmentSubmitValues {
-  const fixedKwTarget = getFixedKwTarget(event);
-  const fixedKwTolerance = getFixedKwTolerance(event);
-
-  return {
-    ...mapCurtailmentEventScopeToFormValues(event),
-    responseProfileId: "customPlan",
-    curtailmentMode: "fixedKwReduction",
-    minerSelectionStrategy: "leastEfficientFirst",
-    targetKw: fixedKwTarget !== undefined ? String(fixedKwTarget) : "",
-    toleranceKw: fixedKwTolerance !== undefined ? String(fixedKwTolerance) : "",
-    priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
-    minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
-    maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
-    restoreBatchSize: formatPositiveNumberField(event.restoreBatchSize),
-    restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
-    reason: event.reason || "Curtailment",
-    includeMaintenance: event.includeMaintenance,
-  };
-}
-
-function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): CurtailmentPriority {
-  switch (priority) {
-    case ProtoCurtailmentPriority.EMERGENCY:
-      return "emergency";
-    case ProtoCurtailmentPriority.HIGH:
-      return "high";
-    case ProtoCurtailmentPriority.NORMAL:
-    case ProtoCurtailmentPriority.UNSPECIFIED:
-    default:
-      return "normal";
-  }
-}
 
 function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtailmentEventState {
   switch (stateFilter) {
@@ -216,124 +118,6 @@ function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtai
     default:
       return ProtoCurtailmentEventState.UNSPECIFIED;
   }
-}
-
-function mapCurtailmentTargetState(state: ProtoCurtailmentTargetState): CurtailmentTargetRollup["state"] {
-  switch (state) {
-    case ProtoCurtailmentTargetState.DISPATCHING:
-    case ProtoCurtailmentTargetState.DISPATCHED:
-      return "dispatched";
-    case ProtoCurtailmentTargetState.CONFIRMED:
-      return "confirmed";
-    case ProtoCurtailmentTargetState.DRIFTED:
-      return "drifted";
-    case ProtoCurtailmentTargetState.RESOLVED:
-      return "resolved";
-    case ProtoCurtailmentTargetState.RELEASED:
-      return "released";
-    case ProtoCurtailmentTargetState.RESTORE_FAILED:
-      return "restoreFailed";
-    case ProtoCurtailmentTargetState.PENDING:
-    case ProtoCurtailmentTargetState.UNSPECIFIED:
-    default:
-      return "pending";
-  }
-}
-
-function getSourceLabel(event: ProtoCurtailmentEvent): string {
-  return event.externalSource.trim() || "Manual";
-}
-
-function getRollupsFromTargets(event: ProtoCurtailmentEvent): CurtailmentTargetRollup[] {
-  const counts = new Map<CurtailmentTargetRollup["state"], number>();
-
-  for (const target of event.targets) {
-    const state = mapCurtailmentTargetState(target.state);
-    counts.set(state, (counts.get(state) ?? 0) + 1);
-  }
-
-  return Array.from(counts, ([state, count]) => ({ state, count }));
-}
-
-function getRollups(event: ProtoCurtailmentEvent): CurtailmentTargetRollup[] {
-  const rollup = event.targetRollup;
-  if (!rollup) {
-    return getRollupsFromTargets(event);
-  }
-
-  const rollups: CurtailmentTargetRollup[] = [
-    { state: "pending", count: rollup.pending },
-    { state: "dispatched", count: rollup.dispatched },
-    { state: "confirmed", count: rollup.confirmed },
-    { state: "drifted", count: rollup.drifted },
-    { state: "resolved", count: rollup.resolved },
-    { state: "released", count: rollup.released },
-    { state: "restoreFailed", count: rollup.restoreFailed },
-  ];
-
-  return rollups.filter((targetRollup) => targetRollup.count > 0);
-}
-
-function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductionKw: number): ObservedPowerSummary {
-  let observedPowerTotalW = 0;
-  let observedReductionTotalW = 0;
-  let hasObservedPower = false;
-  let hasObservedReduction = false;
-
-  for (const { baselinePowerW, observedPowerW } of event.targets) {
-    if (observedPowerW !== undefined) {
-      hasObservedPower = true;
-      observedPowerTotalW += observedPowerW;
-    }
-
-    if (baselinePowerW !== undefined && observedPowerW !== undefined) {
-      hasObservedReduction = true;
-      observedReductionTotalW += Math.max(baselinePowerW - observedPowerW, 0);
-    }
-  }
-
-  return {
-    observedReductionKw: hasObservedReduction ? observedReductionTotalW / wattsPerKilowatt : estimatedReductionKw,
-    remainingPowerKw: hasObservedPower ? observedPowerTotalW / wattsPerKilowatt : undefined,
-  };
-}
-
-export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveCurtailmentEvent {
-  const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
-  const observedPowerSummary = getObservedPowerSummary(event, estimatedReductionKw);
-
-  return {
-    reason: event.reason || "Curtailment",
-    state: mapCurtailmentEventState(event.state),
-    scopeLabel: getCurtailmentEventScopeLabel(event),
-    endedAt: timestampToIsoString(event.endedAt),
-    selectedMiners: getCurtailmentEventSelectedMinerCount(event),
-    estimatedReductionKw,
-    targetKw: getFixedKwTarget(event),
-    observedReductionKw: observedPowerSummary.observedReductionKw,
-    remainingPowerKw: observedPowerSummary.remainingPowerKw,
-    restoreBatchSize: event.effectiveBatchSize || event.restoreBatchSize,
-    restoreBatchIntervalSec: event.restoreBatchIntervalSec,
-    rollups: getRollups(event),
-  };
-}
-
-export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
-  return {
-    id: event.eventUuid,
-    reason: event.reason || "Curtailment",
-    state: mapCurtailmentEventState(event.state),
-    priority: mapCurtailmentPriority(event.priority),
-    scopeLabel: getCurtailmentEventScopeLabel(event),
-    selectedMiners: getCurtailmentEventSelectedMinerCount(event),
-    estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
-    targetKw: getFixedKwTarget(event),
-    sourceLabel: getSourceLabel(event),
-    startedAt: timestampToIsoString(event.startedAt),
-    endedAt: timestampToIsoString(event.endedAt),
-    scheduledAt: timestampToIsoString(event.scheduledStartAt),
-    createdAt: timestampToIsoString(event.createdAt),
-  };
 }
 
 function getActiveSnapshotEvent(activeEvent: ProtoCurtailmentEvent | undefined): ActiveCurtailmentEvent | null {
