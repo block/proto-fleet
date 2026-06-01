@@ -21,10 +21,12 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 const testOrgID = int64(42)
@@ -32,13 +34,18 @@ const testOrgID = int64(42)
 var testTime = time.Date(2026, 3, 23, 21, 30, 0, 0, time.UTC)
 
 func authedCtx() context.Context {
-	return authn.SetInfo(context.Background(), &session.Info{
+	ctx := authn.SetInfo(context.Background(), &session.Info{
 		SessionID:      "sess-1",
 		UserID:         1,
 		OrganizationID: testOrgID,
 		ExternalUserID: "usr_abc",
 		Username:       "admin",
 	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermActivityRead},
+	}}))
 }
 
 func newTestHandler(t *testing.T) (*Handler, *mocks.MockActivityStore) {

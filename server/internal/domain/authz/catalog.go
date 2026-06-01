@@ -43,6 +43,10 @@ const (
 	PermSiteRead   = "site:read"
 	PermSiteManage = "site:manage"
 
+	// activity — org audit/event log. Read-only catalog; writes happen
+	// implicitly as a side effect of every gated mutation.
+	PermActivityRead = "activity:read"
+
 	// serverlog — admin server-side log viewer.
 	PermServerlogRead = "serverlog:read"
 
@@ -91,6 +95,7 @@ const (
 	ResourceMiner       = "miner"
 	ResourceRack        = "rack"
 	ResourceSite        = "site"
+	ResourceActivity    = "activity"
 	ResourceServerLog   = "serverlog"
 	ResourceCurtailment = "curtailment"
 	ResourcePool        = "pool"
@@ -140,6 +145,8 @@ var catalog = []CatalogEntry{
 
 	{PermSiteRead, "View sites and buildings.", ResourceSite},
 	{PermSiteManage, "Create, edit, and delete sites and buildings.", ResourceSite},
+
+	{PermActivityRead, "View the organization-wide activity log and export it as CSV.", ResourceActivity},
 
 	{PermServerlogRead, "View server-side logs.", ResourceServerLog},
 

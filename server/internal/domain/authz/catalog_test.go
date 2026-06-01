@@ -56,6 +56,7 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermRackManage,
 		PermSiteRead,
 		PermSiteManage,
+		PermActivityRead,
 		PermServerlogRead,
 		PermCurtailmentRead,
 		PermCurtailmentManage,
@@ -111,7 +112,7 @@ func TestCatalogByResource_GroupsAndAssociates(t *testing.T) {
 	groups := CatalogByResource()
 
 	for _, resource := range []string{
-		ResourceFleet, ResourceMiner, ResourceRack, ResourceSite,
+		ResourceFleet, ResourceMiner, ResourceRack, ResourceSite, ResourceActivity,
 		ResourceServerLog, ResourceCurtailment, ResourcePool, ResourceSchedule, ResourceFleetNode,
 		ResourceAPIKey, ResourceUser, ResourceRole,
 	} {
@@ -139,6 +140,7 @@ func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
 		ResourceMiner,
 		ResourceRack,
 		ResourceSite,
+		ResourceActivity,
 		ResourceServerLog,
 		ResourceCurtailment,
 		ResourcePool,
