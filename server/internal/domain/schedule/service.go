@@ -314,7 +314,9 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authoriz
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		existing, err := s.store.GetSchedule(ctx, info.OrganizationID, scheduleID)
+		// FOR UPDATE locks the row so a concurrent UpdateSchedule can't
+		// change the action between authorizeAction and ResumePausedSchedule.
+		existing, err := s.store.GetScheduleForUpdate(ctx, info.OrganizationID, scheduleID)
 		if err != nil {
 			return nil, err
 		}

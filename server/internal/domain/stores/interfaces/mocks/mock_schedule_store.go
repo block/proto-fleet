@@ -72,6 +72,21 @@ func (mr *MockScheduleStoreMockRecorder) GetSchedule(ctx, orgID, scheduleID any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSchedule", reflect.TypeOf((*MockScheduleStore)(nil).GetSchedule), ctx, orgID, scheduleID)
 }
 
+// GetScheduleForUpdate mocks base method.
+func (m *MockScheduleStore) GetScheduleForUpdate(ctx context.Context, orgID, scheduleID int64) (*schedulev1.Schedule, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetScheduleForUpdate", ctx, orgID, scheduleID)
+	ret0, _ := ret[0].(*schedulev1.Schedule)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetScheduleForUpdate indicates an expected call of GetScheduleForUpdate.
+func (mr *MockScheduleStoreMockRecorder) GetScheduleForUpdate(ctx, orgID, scheduleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScheduleForUpdate", reflect.TypeOf((*MockScheduleStore)(nil).GetScheduleForUpdate), ctx, orgID, scheduleID)
+}
+
 // ListSchedules mocks base method.
 func (m *MockScheduleStore) ListSchedules(ctx context.Context, orgID int64, status, action string) ([]*schedulev1.Schedule, error) {
 	m.ctrl.T.Helper()

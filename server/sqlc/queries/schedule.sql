@@ -6,6 +6,19 @@ WHERE s.org_id = $1
   AND s.id = $2
   AND s.deleted_at IS NULL;
 
+-- GetScheduleForUpdate is the row-locking variant used by ResumeSchedule
+-- so the per-action authorization check inside the transaction is bound
+-- to the row state that the resume UPDATE will mutate. A concurrent
+-- UpdateSchedule on the same row blocks until this transaction commits.
+-- name: GetScheduleForUpdate :one
+SELECT s.*, u.username AS created_by_username
+FROM schedule s
+LEFT JOIN "user" u ON u.id = s.created_by
+WHERE s.org_id = $1
+  AND s.id = $2
+  AND s.deleted_at IS NULL
+FOR UPDATE OF s;
+
 -- name: ListSchedules :many
 SELECT s.*, u.username AS created_by_username
 FROM schedule s
