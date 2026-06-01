@@ -9,12 +9,6 @@ import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
   CurtailmentEventState,
-  CurtailmentMode,
-  CurtailmentTargetRollupSchema,
-  CurtailmentTargetSchema,
-  CurtailmentTargetState,
-  FixedKwParamsSchema,
-  ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 
@@ -35,33 +29,12 @@ vi.mock("@/protoFleet/store", () => ({
   }),
 }));
 
-function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): CurtailmentEvent {
-  const event = create(CurtailmentEventSchema, {
+function curtailmentEvent(): CurtailmentEvent {
+  return create(CurtailmentEventSchema, {
     eventUuid: "curt-1",
     reason: "Grid peak call",
     state: CurtailmentEventState.ACTIVE,
-    mode: CurtailmentMode.FIXED_KW,
-    scope: {
-      case: "wholeOrg",
-      value: create(ScopeWholeOrgSchema, {}),
-    },
-    modeParams: {
-      case: "fixedKw",
-      value: create(FixedKwParamsSchema, { targetKw: 126.4 }),
-    },
-    targetRollup: create(CurtailmentTargetRollupSchema, {
-      dispatched: 48,
-      total: 48,
-    }),
-    targets: [
-      create(CurtailmentTargetSchema, {
-        state: CurtailmentTargetState.DISPATCHED,
-        baselinePowerW: 126_400,
-      }),
-    ],
   });
-
-  return Object.assign(event, overrides);
 }
 
 describe("useCurtailmentPillData", () => {

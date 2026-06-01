@@ -1,13 +1,14 @@
-import { create as createMessage } from "@bufbuild/protobuf";
+import { create as createMessage, equals } from "@bufbuild/protobuf";
 import { create as createStore } from "zustand";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  CurtailmentEventSchema,
   CurtailmentEventState,
   GetActiveCurtailmentRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { assertNotAborted } from "@/protoFleet/api/requestErrors";
+import { assertNotAborted, isAbortError } from "@/protoFleet/api/requestErrors";
 
 export interface ActiveCurtailmentSnapshot {
   event: ProtoCurtailmentEvent | undefined;
@@ -21,10 +22,6 @@ export interface PendingActiveCurtailmentRefresh extends ActiveCurtailmentSnapsh
   commit: () => ActiveCurtailmentSnapshot;
 }
 
-interface ActiveCurtailmentDataStore extends ActiveCurtailmentSnapshot {
-  version: number;
-}
-
 interface InFlightActiveCurtailmentRequest {
   abortController: AbortController;
   promise: Promise<ActiveCurtailmentSnapshot>;
@@ -33,12 +30,8 @@ interface InFlightActiveCurtailmentRequest {
 }
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined };
-const initialStoreState: ActiveCurtailmentDataStore = {
-  ...initialSnapshot,
-  version: 0,
-};
 
-const useActiveCurtailmentDataStore = createStore<ActiveCurtailmentDataStore>(() => initialStoreState);
+const useActiveCurtailmentDataStore = createStore<ActiveCurtailmentSnapshot>(() => initialSnapshot);
 
 let nextWriteVersion = 0;
 let appliedWriteVersion = 0;
@@ -51,6 +44,17 @@ const preservedEmptyActiveRefreshLimit = 1;
 function getNextWriteVersion(): number {
   nextWriteVersion += 1;
   return nextWriteVersion;
+}
+
+function areActiveCurtailmentSnapshotsEqual(
+  current: ActiveCurtailmentSnapshot,
+  next: ActiveCurtailmentSnapshot,
+): boolean {
+  if (!current.event || !next.event) {
+    return current.event === next.event;
+  }
+
+  return equals(CurtailmentEventSchema, current.event, next.event);
 }
 
 function setActiveCurtailmentSnapshot(
@@ -67,8 +71,17 @@ function setActiveCurtailmentSnapshot(
     dismissedEventUuid = null;
   }
 
+  if (!snapshot.event) {
+    emptyActiveRefreshCount = 0;
+  }
+
   appliedWriteVersion = writeVersion;
-  useActiveCurtailmentDataStore.setState({ event: snapshot.event, version: writeVersion });
+  const currentSnapshot = getActiveCurtailmentSnapshot();
+  if (areActiveCurtailmentSnapshotsEqual(currentSnapshot, snapshot)) {
+    return currentSnapshot;
+  }
+
+  useActiveCurtailmentDataStore.setState(snapshot);
   return snapshot;
 }
 
@@ -131,6 +144,13 @@ function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest
     promise: curtailmentClient
       .getActiveCurtailment(createMessage(GetActiveCurtailmentRequestSchema, {}), { signal: abortController.signal })
       .then((response) => getActiveCurtailmentSnapshotFromResponse(response.event))
+      .catch((error) => {
+        if (isAbortError(error, abortController.signal)) {
+          throw new DOMException("The operation was aborted.", "AbortError");
+        }
+
+        throw error;
+      })
       .finally(() => {
         request.settled = true;
         if (inFlightActiveCurtailmentRequest === request) {
@@ -206,5 +226,5 @@ export function resetActiveCurtailmentData(): void {
   dismissedEventUuid = null;
   emptyActiveRefreshCount = 0;
   appliedWriteVersion = getNextWriteVersion();
-  useActiveCurtailmentDataStore.setState({ ...initialSnapshot, version: appliedWriteVersion }, true);
+  useActiveCurtailmentDataStore.setState(initialSnapshot, true);
 }

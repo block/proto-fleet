@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   applyActiveCurtailmentEvent,
@@ -18,18 +19,10 @@ import {
 const { mockGetActiveCurtailment } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
 }));
-
-vi.mock("@/protoFleet/api/clients", () => ({
-  curtailmentClient: {
-    getActiveCurtailment: mockGetActiveCurtailment,
-  },
-}));
+vi.mock("@/protoFleet/api/clients", () => ({ curtailmentClient: { getActiveCurtailment: mockGetActiveCurtailment } }));
 
 function curtailmentEvent(eventUuid: string, state = CurtailmentEventState.ACTIVE): CurtailmentEvent {
-  return create(CurtailmentEventSchema, {
-    eventUuid,
-    state,
-  });
+  return create(CurtailmentEventSchema, { eventUuid, state });
 }
 
 describe("activeCurtailmentData", () => {
@@ -82,6 +75,22 @@ describe("activeCurtailmentData", () => {
     expect(freshRefresh.event?.eventUuid).toBe("fresh-event");
     expect(mockGetActiveCurtailment).toHaveBeenCalledTimes(2);
     await expect(abortedRequest).resolves.toBeInstanceOf(DOMException);
+  });
+
+  it("rejects a reset-aborted shared request as an AbortError", async () => {
+    mockGetActiveCurtailment.mockImplementationOnce(
+      (_request: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(new ConnectError("canceled", Code.Canceled)), {
+            once: true,
+          });
+        }),
+    );
+
+    const pendingRefresh = refreshActiveCurtailmentData();
+    resetActiveCurtailmentData();
+
+    await expect(pendingRefresh).rejects.toBeInstanceOf(DOMException);
   });
 
   it.each([
