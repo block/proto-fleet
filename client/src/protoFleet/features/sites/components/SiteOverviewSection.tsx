@@ -33,8 +33,17 @@ const SiteOverviewSection = ({ site, buildings }: SiteOverviewSectionProps) => {
     refetch: refetchStats,
   } = useSiteStats({ siteId, enabled: hasSiteId, pollIntervalMs: POLL_INTERVAL_MS });
 
+  // Site name renders above the metric row so two sites with blank or
+  // duplicate locations are still distinguishable in the All-Sites view.
+  // Location remains a tile in the metric row for at-a-glance scanning;
+  // the name is the authoritative identifier.
+  const siteName = site.site?.name ?? "(unnamed site)";
+
   return (
     <section className="flex flex-col gap-6" data-testid={`site-overview-section-${siteIdText}`}>
+      <h2 className="text-emphasis-300 text-text-primary" data-testid={`site-overview-section-${siteIdText}-name`}>
+        {siteName}
+      </h2>
       {statsError ? (
         <div
           className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"

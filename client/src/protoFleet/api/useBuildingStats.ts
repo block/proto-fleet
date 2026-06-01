@@ -39,7 +39,11 @@ export const useBuildingStats = ({
   const requestIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
 
-  const scopeKey = `${buildingId.toString()}|${enabled ? "on" : "off"}`;
+  // Scope key only includes buildingId — toggling `enabled` (e.g. by
+  // viewport gating to throttle polling on /sites cards) must not wipe
+  // the last-good stats and force a skeleton on re-reveal. Only a
+  // genuine building change should reset the cached snapshot.
+  const scopeKey = buildingId.toString();
   const prevScopeRef = useRef(scopeKey);
   if (prevScopeRef.current !== scopeKey) {
     prevScopeRef.current = scopeKey;

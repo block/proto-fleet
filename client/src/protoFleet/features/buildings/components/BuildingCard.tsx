@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
@@ -14,6 +14,7 @@ import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
+import { useInViewport } from "@/shared/hooks/useInViewport";
 
 interface BuildingCardProps {
   building: BuildingWithCounts;
@@ -176,12 +177,20 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
   const aisles = building.building?.aisles ?? 0;
   const racksPerAisle = building.building?.racksPerAisle ?? 0;
 
+  // Viewport-gate the poll so an "All Sites" page rendering 50+ cards
+  // doesn't fan out 50 GetBuildingStats RPCs every poll tick — only
+  // currently-visible cards refresh. Cards retain their last-good stats
+  // when scrolled offscreen (the hook keeps the snapshot when `enabled`
+  // toggles), so re-revealing doesn't flash a skeleton.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const isVisible = useInViewport(cardRef);
+
   // Poll so cards on /sites stay live as miners change state — without
   // this, the rollup numbers + cell colours drift until the next manual
   // refresh.
   const { stats, error: statsError } = useBuildingStats({
     buildingId: id,
-    enabled: id !== 0n,
+    enabled: id !== 0n && isVisible,
     pollIntervalMs: POLL_INTERVAL_MS,
   });
 
@@ -226,6 +235,7 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
 
   return (
     <div
+      ref={cardRef}
       role="link"
       tabIndex={0}
       onClick={(e) => {

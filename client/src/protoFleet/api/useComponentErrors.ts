@@ -17,7 +17,11 @@ interface ComponentErrorCounts {
   psuErrors: number;
 }
 
-interface UseComponentErrorsReturn extends ComponentErrorCounts {
+interface UseComponentErrorsReturn extends Partial<ComponentErrorCounts> {
+  controlBoardErrors: number | undefined;
+  fanErrors: number | undefined;
+  hashboardErrors: number | undefined;
+  psuErrors: number | undefined;
   isLoading: boolean;
   hasLoaded: boolean;
   error: Error | null;
@@ -29,6 +33,14 @@ interface UseComponentErrorsOptions {
   deviceIdentifiers?: string[];
   /** Optional polling interval in milliseconds */
   pollIntervalMs?: number;
+  /**
+   * Gate the entire hook: skip fetching and return `undefined` for every
+   * count when false. Used by BuildingPage to hold the diagnostics panel
+   * in a loading state until the building's device scope is known —
+   * otherwise an empty-scope fetch races to "No issues" before the real
+   * scope arrives. Default true.
+   */
+  enabled?: boolean;
 }
 
 /**
@@ -38,8 +50,15 @@ interface UseComponentErrorsOptions {
  */
 export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComponentErrorsReturn => {
   const deviceIdentifiers = options?.deviceIdentifiers;
+  const enabled = options?.enabled ?? true;
   const isEmptyScope = deviceIdentifiers !== undefined && deviceIdentifiers.length === 0;
-  const deviceIdentifiersKey = deviceIdentifiers === undefined ? "__undefined__" : deviceIdentifiers.join(",");
+  // Key the scope cache off enabled too so flipping enabled (e.g. scope
+  // becoming known after stats land) re-fetches.
+  const deviceIdentifiersKey = enabled
+    ? deviceIdentifiers === undefined
+      ? "__undefined__"
+      : deviceIdentifiers.join(",")
+    : "__disabled__";
 
   const authLoading = useFleetStore((state) => state.auth.authLoading);
   const { handleAuthErrors } = useAuthErrors();
@@ -76,18 +95,42 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
     hasLoadedRef.current = false;
   }
 
-  const errorCounts: ComponentErrorCounts = {
-    controlBoardErrors: counts[ComponentType.CONTROL_BOARD] || 0,
-    fanErrors: counts[ComponentType.FAN] || 0,
-    hashboardErrors: counts[ComponentType.HASH_BOARD] || 0,
-    psuErrors: counts[ComponentType.PSU] || 0,
-  };
+  // While disabled, every count returns `undefined` so consumers
+  // (ComponentErrors tile) render the skeleton instead of zero. Once
+  // enabled flips true and the fetch lands, hasLoaded gates which mode
+  // we're in.
+  const errorCounts: Pick<
+    UseComponentErrorsReturn,
+    "controlBoardErrors" | "fanErrors" | "hashboardErrors" | "psuErrors"
+  > =
+    enabled && hasLoaded
+      ? {
+          controlBoardErrors: counts[ComponentType.CONTROL_BOARD] || 0,
+          fanErrors: counts[ComponentType.FAN] || 0,
+          hashboardErrors: counts[ComponentType.HASH_BOARD] || 0,
+          psuErrors: counts[ComponentType.PSU] || 0,
+        }
+      : {
+          controlBoardErrors: undefined,
+          fanErrors: undefined,
+          hashboardErrors: undefined,
+          psuErrors: undefined,
+        };
 
   const fetchComponentErrors = useCallback(async () => {
+    if (!enabled) {
+      ++requestIdRef.current;
+      setIsLoading(false);
+      return;
+    }
     if (isEmptyScope) {
       ++requestIdRef.current;
       setCounts({});
       setIsLoading(false);
+      // Empty scope is a real "no devices to query" answer, not loading;
+      // flip hasLoaded so ComponentErrors renders 0 instead of skeleton.
+      hasLoadedRef.current = true;
+      setHasLoaded(true);
       return;
     }
 
@@ -138,7 +181,7 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
         setIsLoading(false);
       }
     }
-  }, [handleAuthErrors, isEmptyScope]);
+  }, [enabled, handleAuthErrors, isEmptyScope]);
 
   // Initial fetch + refetch on scope change
   useEffect(() => {
@@ -150,14 +193,14 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
 
   // Polling
   useEffect(() => {
-    if (!options?.pollIntervalMs || authLoading) return;
+    if (!options?.pollIntervalMs || authLoading || !enabled) return;
 
     const intervalId = setInterval(() => {
       void fetchComponentErrors();
     }, options.pollIntervalMs);
 
     return () => clearInterval(intervalId);
-  }, [options?.pollIntervalMs, authLoading, fetchComponentErrors]);
+  }, [options?.pollIntervalMs, authLoading, enabled, fetchComponentErrors]);
 
   return {
     ...errorCounts,

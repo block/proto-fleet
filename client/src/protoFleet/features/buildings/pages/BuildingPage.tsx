@@ -122,7 +122,12 @@ const BuildingPage = () => {
   // Server-rolled metrics for the header strip. The response now carries
   // device_identifiers, so telemetry + component-error consumers can scope
   // themselves directly without a second ListMinerStateSnapshots paginate.
-  const { stats } = useBuildingStats({
+  const {
+    stats,
+    error: statsError,
+    hasLoaded: statsHasLoaded,
+    refetch: refetchStats,
+  } = useBuildingStats({
     buildingId: buildingId ?? 0n,
     enabled: buildingId !== null,
     pollIntervalMs: POLL_INTERVAL_MS,
@@ -137,12 +142,17 @@ const BuildingPage = () => {
   const { refs } = useStickyState();
 
   // Component errors scoped to the building's devices. While stats are
-  // loading (memberDeviceIds === null) we pass an explicit empty array so
-  // useComponentErrors short-circuits — passing `undefined` would make
-  // the hook fall back to fleet-wide and momentarily fetch every miner's
-  // error data on every BuildingPage visit until stats land.
+  // still loading (memberDeviceIds === null) we pass enabled=false so the
+  // hook holds an undefined-count state — otherwise it would race to an
+  // empty-scope fetch and render "No issues" before the real scope ever
+  // arrives, hiding genuine component failures during the brief
+  // GetBuildingStats outage or initial load.
   const componentErrorsOptions = useMemo(
-    () => ({ deviceIdentifiers: memberDeviceIds ?? [], pollIntervalMs: POLL_INTERVAL_MS }),
+    () => ({
+      deviceIdentifiers: memberDeviceIds ?? [],
+      enabled: memberDeviceIds !== null,
+      pollIntervalMs: POLL_INTERVAL_MS,
+    }),
     [memberDeviceIds],
   );
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
@@ -214,22 +224,51 @@ const BuildingPage = () => {
   const idForHeader = effectiveBuilding.id.toString();
   const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
 
+  // Edit/Delete require the rack count to render an accurate cascade
+  // warning ("deleting this building will unassign N racks"). When
+  // ListBuildingRacks is still inflight (large buildings paginate) or
+  // failed, default to a disabled Edit so the operator can't open the
+  // manage/delete flow with rackCount: 0n and miss the warning.
+  const rackCountReady = rackCountResponse !== undefined && rackCountResponse.id === effectiveBuilding.id;
+  const handleEditBuilding = rackCountReady
+    ? () => {
+        buildingModals.openManage(
+          create(BuildingWithCountsSchema, {
+            building: effectiveBuilding,
+            rackCount: rackCountResponse.count,
+          }),
+        );
+      }
+    : undefined;
+
   return (
     <div className="h-full" data-testid="building-page">
       <div className="flex flex-col">
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
-          <BuildingPageHeader
-            label={label}
-            buildingId={idForHeader}
-            onEditBuilding={() => {
-              const liveCount =
-                rackCountResponse && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : 0n;
-              buildingModals.openManage(
-                create(BuildingWithCountsSchema, { building: effectiveBuilding, rackCount: liveCount }),
-              );
-            }}
-          />
+          <BuildingPageHeader label={label} buildingId={idForHeader} onEditBuilding={handleEditBuilding} />
         </div>
+
+        {/* Stats fetch failure on initial load — surface it inline so the
+            metrics row, diagnostics, and performance section don't sit
+            indefinitely in skeleton state with no recovery affordance. */}
+        {statsError && !statsHasLoaded ? (
+          <div className="px-6 pt-6 laptop:px-10 laptop:pt-10">
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
+              data-testid="building-page-stats-error"
+            >
+              <span>Couldn&apos;t load building metrics: {statsError}</span>
+              <button
+                type="button"
+                onClick={() => refetchStats()}
+                className="shrink-0 underline hover:opacity-80"
+                data-testid="building-page-stats-retry"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Metrics row */}
         <section className="px-6 pt-6 laptop:px-10 laptop:pt-10">
