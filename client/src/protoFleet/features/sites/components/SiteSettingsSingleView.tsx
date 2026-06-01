@@ -83,9 +83,13 @@ const SiteSettingsSingleView = ({
   const buildings = buildingsResponse && buildingsResponse.siteId === siteId ? buildingsResponse.rows : undefined;
   const displayBuildings = siteId === 0n ? [] : buildings;
 
-  const addressLine = [site.site?.locationCity, site.site?.locationState].filter(Boolean).join(", ");
+  const cityState = [site.site?.locationCity, site.site?.locationState].filter(Boolean).join(", ");
+  const addressLine = [site.site?.address, cityState, site.site?.postalCode, site.site?.country]
+    .filter(Boolean)
+    .join(" • ");
   const powerCapacity = site.site?.powerCapacityMw ? `${site.site.powerCapacityMw} MW` : "—";
   const timezone = site.site?.timezone || "—";
+  const notes = site.site?.notes ?? "";
 
   return (
     <div className="flex flex-col gap-10" data-testid="site-settings-single-view">
@@ -119,11 +123,12 @@ const SiteSettingsSingleView = ({
         </div>
         <DetailRow label="Power" value={`— / ${powerCapacity}`} />
         <DetailRow label="Timezone" value={timezone} />
+        {notes ? <DetailRow label="Notes" value={notes} /> : null}
         {/*
-          PUE / Gateway / Power contract / Notes rows depend on backend
-          follow-ups (#266 for notes; gateway likely arrives via the fleet-
-          node workstream; power-contract columns are deferred). Each row is
-          gated on its underlying field so we don't render empty shells.
+          PUE / Gateway / Power-contract rows depend on backend follow-ups
+          (gateway likely arrives via the fleet-node workstream; power-
+          contract columns are deferred). Each row is gated on its
+          underlying field so we don't render empty shells.
         */}
       </section>
 

@@ -53,6 +53,10 @@ message Site {
     string description = 3;
     string location_city = 4;
     string location_state = 5;
+    // timezone is server-derived from (country, location_state) on
+    // every response — not stored. Empty when the address doesn't
+    // resolve to a known IANA id. Read-only; not accepted on
+    // Create/Update.
     string timezone = 6;
     // power_capacity_mw is 0 when unset; otherwise megawatts as a
     // floating-point number.
@@ -63,6 +67,17 @@ message Site {
 
     google.protobuf.Timestamp created_at = 9;
     google.protobuf.Timestamp updated_at = 10;
+
+    string address     = 11;
+    reserved 12;            // was: address_line2 — collapsed into address.
+    reserved "address_line2";
+    string postal_code = 13;
+    // ISO 3166-1 alpha-2 country code. Defaults to "US" at the DB
+    // level; clients can leave empty on create and the server uses the
+    // default.
+    string country     = 14;
+    // Free-form operator notes. No structure enforced.
+    string notes       = 15;
 }
 
 // SiteWithCounts pairs a Site with its attachment counts. Returned by
@@ -89,7 +104,8 @@ message CreateSiteRequest {
     string description = 2 [(buf.validate.field).string.max_len = 4096];
     string location_city = 3 [(buf.validate.field).string.max_len = 255];
     string location_state = 4 [(buf.validate.field).string.max_len = 255];
-    string timezone = 5 [(buf.validate.field).string.max_len = 64];
+    reserved 5;            // was: timezone — derived from address.
+    reserved "timezone";
     // Megawatts; 0 = no capacity recorded.
     double power_capacity_mw = 6 [(buf.validate.field).double.gte = 0];
     // Newline-separated CIDR/IP entries. Server canonicalizes,
@@ -97,6 +113,15 @@ message CreateSiteRequest {
     // overlaps with InvalidArgument; cross-site overlaps surface as
     // a warning string in the response, not a block.
     string network_config = 7 [(buf.validate.field).string.max_bytes = 16384];
+
+    string address     = 8  [(buf.validate.field).string.max_len = 255];
+    reserved 9;            // was: address_line2 — collapsed into address.
+    reserved "address_line2";
+    string postal_code = 10 [(buf.validate.field).string.max_len = 32];
+    // ISO 3166-1 alpha-2. Empty falls back to the DB default ("US").
+    string country     = 11 [(buf.validate.field).string.max_len = 2];
+    // Free-form operator notes.
+    string notes       = 12 [(buf.validate.field).string.max_len = 4096];
 }
 
 message CreateSiteResponse {
@@ -115,9 +140,17 @@ message UpdateSiteRequest {
     string description = 3 [(buf.validate.field).string.max_len = 4096];
     string location_city = 4 [(buf.validate.field).string.max_len = 255];
     string location_state = 5 [(buf.validate.field).string.max_len = 255];
-    string timezone = 6 [(buf.validate.field).string.max_len = 64];
+    reserved 6;            // was: timezone — derived from address.
+    reserved "timezone";
     double power_capacity_mw = 7 [(buf.validate.field).double.gte = 0];
     string network_config = 8 [(buf.validate.field).string.max_bytes = 16384];
+
+    string address     = 9  [(buf.validate.field).string.max_len = 255];
+    reserved 10;            // was: address_line2 — collapsed into address.
+    reserved "address_line2";
+    string postal_code = 11 [(buf.validate.field).string.max_len = 32];
+    string country     = 12 [(buf.validate.field).string.max_len = 2];
+    string notes       = 13 [(buf.validate.field).string.max_len = 4096];
 }
 
 message UpdateSiteResponse {

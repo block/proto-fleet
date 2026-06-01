@@ -42,26 +42,27 @@ describe("SiteSettingsModal — create mode", () => {
     );
 
     fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "North DC" } });
+    fireEvent.change(screen.getByTestId("site-settings-address-input"), { target: { value: "123 Main St" } });
     fireEvent.change(screen.getByTestId("site-settings-city-input"), { target: { value: "Chicago" } });
+    fireEvent.change(screen.getByTestId("site-settings-postal-code-input"), { target: { value: "60601" } });
     fireEvent.change(screen.getByTestId("site-settings-capacity-input"), { target: { value: "12.5" } });
+    fireEvent.change(screen.getByTestId("site-settings-notes-input"), { target: { value: "rack row A1" } });
 
-    // State dropdown: open + pick Illinois.
     fireEvent.click(screen.getByTestId("site-settings-state-select"));
     fireEvent.click(screen.getByText("Illinois"));
-
-    // Timezone dropdown: open + pick Central (CT).
-    fireEvent.click(screen.getByTestId("site-settings-timezone-select"));
-    fireEvent.click(screen.getByText("Central (CT)"));
 
     fireEvent.click(screen.getByTestId("site-settings-modal-continue"));
 
     expect(onContinue).toHaveBeenCalledWith({
       name: "North DC",
+      address: "123 Main St",
       locationCity: "Chicago",
       locationState: "IL",
-      timezone: "America/Chicago",
+      postalCode: "60601",
+      country: "US",
       powerCapacityMw: 12.5,
       networkConfig: "",
+      notes: "rack row A1",
     });
   });
 

@@ -35,9 +35,9 @@ const SitesAllTable = ({ sites }: SitesAllTableProps) => {
       </div>
       {ordered.map((entry) => {
         const id = (entry.site?.id ?? 0n).toString();
-        const city = entry.site?.locationCity ?? "";
-        const state = entry.site?.locationState ?? "";
-        const location = city && state ? `${city}, ${state}` : city || state || "—";
+        const cityState = [entry.site?.locationCity, entry.site?.locationState].filter(Boolean).join(", ");
+        const locationParts = [entry.site?.address, cityState, entry.site?.postalCode].filter(Boolean);
+        const location = locationParts.length > 0 ? locationParts.join(" • ") : "—";
         const powerCapacity = entry.site?.powerCapacityMw ? `${entry.site.powerCapacityMw} MW` : "—";
         return (
           <button

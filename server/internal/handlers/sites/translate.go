@@ -4,6 +4,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
+	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 )
 
@@ -14,9 +15,12 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 		Description:     req.GetDescription(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
-		Timezone:        req.GetTimezone(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
 		NetworkConfig:   req.GetNetworkConfig(),
+		Address:         req.GetAddress(),
+		PostalCode:      req.GetPostalCode(),
+		Country:         req.GetCountry(),
+		Notes:           req.GetNotes(),
 	}
 }
 
@@ -28,9 +32,12 @@ func toUpdateSiteParams(req *pb.UpdateSiteRequest, orgID int64) models.UpdateSit
 		Description:     req.GetDescription(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
-		Timezone:        req.GetTimezone(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
 		NetworkConfig:   req.GetNetworkConfig(),
+		Address:         req.GetAddress(),
+		PostalCode:      req.GetPostalCode(),
+		Country:         req.GetCountry(),
+		Notes:           req.GetNotes(),
 	}
 }
 
@@ -70,9 +77,13 @@ func toProtoSite(site *models.Site) *pb.Site {
 		Description:     site.Description,
 		LocationCity:    site.LocationCity,
 		LocationState:   site.LocationState,
-		Timezone:        site.Timezone,
+		Timezone:        sites.InferTimezone(site.Country, site.LocationState),
 		PowerCapacityMw: site.PowerCapacityMw,
 		NetworkConfig:   site.NetworkConfig,
+		Address:         site.Address,
+		PostalCode:      site.PostalCode,
+		Country:         site.Country,
+		Notes:           site.Notes,
 		CreatedAt:       timestamppb.New(site.CreatedAt),
 		UpdatedAt:       timestamppb.New(site.UpdatedAt),
 	}

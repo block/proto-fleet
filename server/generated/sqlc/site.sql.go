@@ -20,9 +20,12 @@ INSERT INTO site (
     description,
     location_city,
     location_state,
-    timezone,
     power_capacity_mw,
-    network_config
+    network_config,
+    address,
+    postal_code,
+    country,
+    notes
 ) VALUES (
     $1,
     $2,
@@ -31,9 +34,12 @@ INSERT INTO site (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9,
+    COALESCE($10::text, 'US'),
+    $11
 )
-RETURNING id, org_id, name, description, location_city, location_state, timezone, power_capacity_mw, network_config, created_at, updated_at, deleted_at
+RETURNING id, org_id, name, description, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
 `
 
 type CreateSiteParams struct {
@@ -42,9 +48,12 @@ type CreateSiteParams struct {
 	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
-	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
+	Address         sql.NullString
+	PostalCode      sql.NullString
+	Country         sql.NullString
+	Notes           sql.NullString
 }
 
 // Org-scoped insert. The unique partial index on (org_id, name) where
@@ -57,9 +66,12 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		arg.Description,
 		arg.LocationCity,
 		arg.LocationState,
-		arg.Timezone,
 		arg.PowerCapacityMw,
 		arg.NetworkConfig,
+		arg.Address,
+		arg.PostalCode,
+		arg.Country,
+		arg.Notes,
 	)
 	var i Site
 	err := row.Scan(
@@ -69,12 +81,15 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		&i.Description,
 		&i.LocationCity,
 		&i.LocationState,
-		&i.Timezone,
 		&i.PowerCapacityMw,
 		&i.NetworkConfig,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Address,
+		&i.PostalCode,
+		&i.Country,
+		&i.Notes,
 	)
 	return i, err
 }
@@ -140,7 +155,7 @@ func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSit
 }
 
 const getSite = `-- name: GetSite :one
-SELECT id, org_id, name, description, location_city, location_state, timezone, power_capacity_mw, network_config, created_at, updated_at, deleted_at
+SELECT id, org_id, name, description, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
 FROM site
 WHERE id = $1
   AND org_id = $2
@@ -162,12 +177,15 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 		&i.Description,
 		&i.LocationCity,
 		&i.LocationState,
-		&i.Timezone,
 		&i.PowerCapacityMw,
 		&i.NetworkConfig,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Address,
+		&i.PostalCode,
+		&i.Country,
+		&i.Notes,
 	)
 	return i, err
 }
@@ -259,7 +277,7 @@ func (q *Queries) ListSiteNetworkConfigsForOverlap(ctx context.Context, arg List
 
 const listSites = `-- name: ListSites :many
 SELECT
-    s.id, s.org_id, s.name, s.description, s.location_city, s.location_state, s.timezone, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at,
+    s.id, s.org_id, s.name, s.description, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
     COALESCE(r.rack_count, 0)::bigint AS rack_count
@@ -301,12 +319,15 @@ type ListSitesRow struct {
 	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
-	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       sql.NullTime
+	Address         sql.NullString
+	PostalCode      sql.NullString
+	Country         string
+	Notes           sql.NullString
 	DeviceCount     int64
 	BuildingCount   int64
 	RackCount       int64
@@ -330,12 +351,15 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.Description,
 			&i.LocationCity,
 			&i.LocationState,
-			&i.Timezone,
 			&i.PowerCapacityMw,
 			&i.NetworkConfig,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Address,
+			&i.PostalCode,
+			&i.Country,
+			&i.Notes,
 			&i.DeviceCount,
 			&i.BuildingCount,
 			&i.RackCount,
@@ -744,12 +768,15 @@ SET name              = $1,
     description       = $2,
     location_city     = $3,
     location_state    = $4,
-    timezone          = $5,
-    power_capacity_mw = $6,
-    network_config    = $7,
+    power_capacity_mw = $5,
+    network_config    = $6,
+    address           = $7,
+    postal_code       = $8,
+    country           = COALESCE($9::text, country),
+    notes             = $10,
     updated_at        = CURRENT_TIMESTAMP
-WHERE id = $8
-  AND org_id = $9
+WHERE id = $11
+  AND org_id = $12
   AND deleted_at IS NULL
 `
 
@@ -758,9 +785,12 @@ type UpdateSiteParams struct {
 	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
-	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
+	Address         sql.NullString
+	PostalCode      sql.NullString
+	Country         sql.NullString
+	Notes           sql.NullString
 	ID              int64
 	OrgID           int64
 }
@@ -771,9 +801,12 @@ func (q *Queries) UpdateSite(ctx context.Context, arg UpdateSiteParams) error {
 		arg.Description,
 		arg.LocationCity,
 		arg.LocationState,
-		arg.Timezone,
 		arg.PowerCapacityMw,
 		arg.NetworkConfig,
+		arg.Address,
+		arg.PostalCode,
+		arg.Country,
+		arg.Notes,
 		arg.ID,
 		arg.OrgID,
 	)

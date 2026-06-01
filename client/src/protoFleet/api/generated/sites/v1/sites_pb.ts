@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_sites_v1_sites: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRzaXRlcy92MS9zaXRlcy5wcm90bxIIc2l0ZXMudjEiiQIKBFNpdGUSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIVCg1sb2NhdGlvbl9jaXR5GAQgASgJEhYKDmxvY2F0aW9uX3N0YXRlGAUgASgJEhAKCHRpbWV6b25lGAYgASgJEhkKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBEhYKDm5ldHdvcmtfY29uZmlnGAggASgJEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wInAKDlNpdGVXaXRoQ291bnRzEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEhQKDGRldmljZV9jb3VudBgCIAEoAxIWCg5idWlsZGluZ19jb3VudBgDIAEoAxISCgpyYWNrX2NvdW50GAQgASgDIhIKEExpc3RTaXRlc1JlcXVlc3QiPAoRTGlzdFNpdGVzUmVzcG9uc2USJwoFc2l0ZXMYASADKAsyGC5zaXRlcy52MS5TaXRlV2l0aENvdW50cyL4AQoRQ3JlYXRlU2l0ZVJlcXVlc3QSGAoEbmFtZRgBIAEoCUIKukgHcgUQARj/ARIdCgtkZXNjcmlwdGlvbhgCIAEoCUIIukgFcgMYgCASHwoNbG9jYXRpb25fY2l0eRgDIAEoCUIIukgFcgMY/wESIAoObG9jYXRpb25fc3RhdGUYBCABKAlCCLpIBXIDGP8BEhkKCHRpbWV6b25lGAUgASgJQge6SARyAhhAEikKEXBvd2VyX2NhcGFjaXR5X213GAYgASgBQg66SAsSCSkAAAAAAAAAABIhCg5uZXR3b3JrX2NvbmZpZxgHIAEoCUIJukgGcgQogIABIlMKEkNyZWF0ZVNpdGVSZXNwb25zZRIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIfChduZXR3b3JrX2NvbmZpZ193YXJuaW5ncxgCIAMoCSKNAgoRVXBkYXRlU2l0ZVJlcXVlc3QSEwoCaWQYASABKANCB7pIBCICIAASGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ARIdCgtkZXNjcmlwdGlvbhgDIAEoCUIIukgFcgMYgCASHwoNbG9jYXRpb25fY2l0eRgEIAEoCUIIukgFcgMY/wESIAoObG9jYXRpb25fc3RhdGUYBSABKAlCCLpIBXIDGP8BEhkKCHRpbWV6b25lGAYgASgJQge6SARyAhhAEikKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBQg66SAsSCSkAAAAAAAAAABIhCg5uZXR3b3JrX2NvbmZpZxgIIAEoCUIJukgGcgQogIABIlMKElVwZGF0ZVNpdGVSZXNwb25zZRIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIfChduZXR3b3JrX2NvbmZpZ193YXJuaW5ncxgCIAMoCSIoChFEZWxldGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACJ0ChJEZWxldGVTaXRlUmVzcG9uc2USHwoXdW5hc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMSHgoWZGVsZXRlZF9idWlsZGluZ19jb3VudBgCIAEoAxIdChV1bmFzc2lnbmVkX3JhY2tfY291bnQYAyABKAMiiQEKHFJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QSJAoOdGFyZ2V0X3NpdGVfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACQhEKD190YXJnZXRfc2l0ZV9pZCJ+ChFQZXJEZXZpY2VDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCgZyZWFzb24YAiABKA4yIS5zaXRlcy52MS5QZXJEZXZpY2VDb25mbGljdFJlYXNvbhIbChNjb25mbGljdGluZ19zaXRlX2lkGAMgASgDImkKHVJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlc3BvbnNlEhgKEHJlYXNzaWduZWRfY291bnQYASABKAMSLgoJY29uZmxpY3RzGAIgAygLMhsuc2l0ZXMudjEuUGVyRGV2aWNlQ29uZmxpY3QidAobQXNzaWduQnVpbGRpbmdUb1NpdGVSZXF1ZXN0EhwKC2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAAEiQKDnRhcmdldF9zaXRlX2lkGAIgASgDQge6SAQiAiAASACIAQFCEQoPX3RhcmdldF9zaXRlX2lkIl4KHEFzc2lnbkJ1aWxkaW5nVG9TaXRlUmVzcG9uc2USHQoVcmVhc3NpZ25lZF9yYWNrX2NvdW50GAEgASgDEh8KF3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAIgASgDKrMBChdQZXJEZXZpY2VDb25mbGljdFJlYXNvbhIqCiZQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEi8KK1BFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9OT1RfRk9VTkQQARI7CjdQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfSU5fUkFDS19BVF9PVEhFUl9TSVRFEAIy/wMKC1NpdGVTZXJ2aWNlEkQKCUxpc3RTaXRlcxIaLnNpdGVzLnYxLkxpc3RTaXRlc1JlcXVlc3QaGy5zaXRlcy52MS5MaXN0U2l0ZXNSZXNwb25zZRJHCgpDcmVhdGVTaXRlEhsuc2l0ZXMudjEuQ3JlYXRlU2l0ZVJlcXVlc3QaHC5zaXRlcy52MS5DcmVhdGVTaXRlUmVzcG9uc2USRwoKVXBkYXRlU2l0ZRIbLnNpdGVzLnYxLlVwZGF0ZVNpdGVSZXF1ZXN0Ghwuc2l0ZXMudjEuVXBkYXRlU2l0ZVJlc3BvbnNlEkcKCkRlbGV0ZVNpdGUSGy5zaXRlcy52MS5EZWxldGVTaXRlUmVxdWVzdBocLnNpdGVzLnYxLkRlbGV0ZVNpdGVSZXNwb25zZRJoChVSZWFzc2lnbkRldmljZXNUb1NpdGUSJi5zaXRlcy52MS5SZWFzc2lnbkRldmljZXNUb1NpdGVSZXF1ZXN0Gicuc2l0ZXMudjEuUmVhc3NpZ25EZXZpY2VzVG9TaXRlUmVzcG9uc2USZQoUQXNzaWduQnVpbGRpbmdUb1NpdGUSJS5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlcXVlc3QaJi5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlc3BvbnNlQqABCgxjb20uc2l0ZXMudjFCClNpdGVzUHJvdG9QAVpDZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvc2l0ZXMvdjE7c2l0ZXN2MaICA1NYWKoCCFNpdGVzLlYxygIIU2l0ZXNcVjHiAhRTaXRlc1xWMVxHUEJNZXRhZGF0YeoCCVNpdGVzOjpWMWIGcHJvdG8z",
+    "ChRzaXRlcy92MS9zaXRlcy5wcm90bxIIc2l0ZXMudjEi5AIKBFNpdGUSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIVCg1sb2NhdGlvbl9jaXR5GAQgASgJEhYKDmxvY2F0aW9uX3N0YXRlGAUgASgJEhAKCHRpbWV6b25lGAYgASgJEhkKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBEhYKDm5ldHdvcmtfY29uZmlnGAggASgJEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB2FkZHJlc3MYCyABKAkSEwoLcG9zdGFsX2NvZGUYDSABKAkSDwoHY291bnRyeRgOIAEoCRINCgVub3RlcxgPIAEoCUoECAwQDVINYWRkcmVzc19saW5lMiJwCg5TaXRlV2l0aENvdW50cxIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIUCgxkZXZpY2VfY291bnQYAiABKAMSFgoOYnVpbGRpbmdfY291bnQYAyABKAMSEgoKcmFja19jb3VudBgEIAEoAyISChBMaXN0U2l0ZXNSZXF1ZXN0IjwKEUxpc3RTaXRlc1Jlc3BvbnNlEicKBXNpdGVzGAEgAygLMhguc2l0ZXMudjEuU2l0ZVdpdGhDb3VudHMi7gIKEUNyZWF0ZVNpdGVSZXF1ZXN0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAiABKAlCCLpIBXIDGIAgEh8KDWxvY2F0aW9uX2NpdHkYAyABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAQgASgJQgi6SAVyAxj/ARIpChFwb3dlcl9jYXBhY2l0eV9tdxgGIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYByABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAggASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgKIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAsgASgJQge6SARyAhgCEhcKBW5vdGVzGAwgASgJQgi6SAVyAxiAIEoECAUQBkoECAkQClIIdGltZXpvbmVSDWFkZHJlc3NfbGluZTIiUwoSQ3JlYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIoMDChFVcGRhdGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIfCg1sb2NhdGlvbl9jaXR5GAQgASgJQgi6SAVyAxj/ARIgCg5sb2NhdGlvbl9zdGF0ZRgFIAEoCUIIukgFcgMY/wESKQoRcG93ZXJfY2FwYWNpdHlfbXcYByABKAFCDrpICxIJKQAAAAAAAAAAEiEKDm5ldHdvcmtfY29uZmlnGAggASgJQgm6SAZyBCiAgAESGQoHYWRkcmVzcxgJIAEoCUIIukgFcgMY/wESHAoLcG9zdGFsX2NvZGUYCyABKAlCB7pIBHICGCASGAoHY291bnRyeRgMIAEoCUIHukgEcgIYAhIXCgVub3RlcxgNIAEoCUIIukgFcgMYgCBKBAgGEAdKBAgKEAtSCHRpbWV6b25lUg1hZGRyZXNzX2xpbmUyIlMKElVwZGF0ZVNpdGVSZXNwb25zZRIcCgRzaXRlGAEgASgLMg4uc2l0ZXMudjEuU2l0ZRIfChduZXR3b3JrX2NvbmZpZ193YXJuaW5ncxgCIAMoCSIoChFEZWxldGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACJ0ChJEZWxldGVTaXRlUmVzcG9uc2USHwoXdW5hc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMSHgoWZGVsZXRlZF9idWlsZGluZ19jb3VudBgCIAEoAxIdChV1bmFzc2lnbmVkX3JhY2tfY291bnQYAyABKAMiiQEKHFJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QSJAoOdGFyZ2V0X3NpdGVfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACQhEKD190YXJnZXRfc2l0ZV9pZCJ+ChFQZXJEZXZpY2VDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCgZyZWFzb24YAiABKA4yIS5zaXRlcy52MS5QZXJEZXZpY2VDb25mbGljdFJlYXNvbhIbChNjb25mbGljdGluZ19zaXRlX2lkGAMgASgDImkKHVJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlc3BvbnNlEhgKEHJlYXNzaWduZWRfY291bnQYASABKAMSLgoJY29uZmxpY3RzGAIgAygLMhsuc2l0ZXMudjEuUGVyRGV2aWNlQ29uZmxpY3QidAobQXNzaWduQnVpbGRpbmdUb1NpdGVSZXF1ZXN0EhwKC2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAAEiQKDnRhcmdldF9zaXRlX2lkGAIgASgDQge6SAQiAiAASACIAQFCEQoPX3RhcmdldF9zaXRlX2lkIl4KHEFzc2lnbkJ1aWxkaW5nVG9TaXRlUmVzcG9uc2USHQoVcmVhc3NpZ25lZF9yYWNrX2NvdW50GAEgASgDEh8KF3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAIgASgDKrMBChdQZXJEZXZpY2VDb25mbGljdFJlYXNvbhIqCiZQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEi8KK1BFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9OT1RfRk9VTkQQARI7CjdQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfSU5fUkFDS19BVF9PVEhFUl9TSVRFEAIy/wMKC1NpdGVTZXJ2aWNlEkQKCUxpc3RTaXRlcxIaLnNpdGVzLnYxLkxpc3RTaXRlc1JlcXVlc3QaGy5zaXRlcy52MS5MaXN0U2l0ZXNSZXNwb25zZRJHCgpDcmVhdGVTaXRlEhsuc2l0ZXMudjEuQ3JlYXRlU2l0ZVJlcXVlc3QaHC5zaXRlcy52MS5DcmVhdGVTaXRlUmVzcG9uc2USRwoKVXBkYXRlU2l0ZRIbLnNpdGVzLnYxLlVwZGF0ZVNpdGVSZXF1ZXN0Ghwuc2l0ZXMudjEuVXBkYXRlU2l0ZVJlc3BvbnNlEkcKCkRlbGV0ZVNpdGUSGy5zaXRlcy52MS5EZWxldGVTaXRlUmVxdWVzdBocLnNpdGVzLnYxLkRlbGV0ZVNpdGVSZXNwb25zZRJoChVSZWFzc2lnbkRldmljZXNUb1NpdGUSJi5zaXRlcy52MS5SZWFzc2lnbkRldmljZXNUb1NpdGVSZXF1ZXN0Gicuc2l0ZXMudjEuUmVhc3NpZ25EZXZpY2VzVG9TaXRlUmVzcG9uc2USZQoUQXNzaWduQnVpbGRpbmdUb1NpdGUSJS5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlcXVlc3QaJi5zaXRlcy52MS5Bc3NpZ25CdWlsZGluZ1RvU2l0ZVJlc3BvbnNlQqABCgxjb20uc2l0ZXMudjFCClNpdGVzUHJvdG9QAVpDZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvc2l0ZXMvdjE7c2l0ZXN2MaICA1NYWKoCCFNpdGVzLlYxygIIU2l0ZXNcVjHiAhRTaXRlc1xWMVxHUEJNZXRhZGF0YeoCCVNpdGVzOjpWMWIGcHJvdG8z",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -51,6 +51,11 @@ export type Site = Message<"sites.v1.Site"> & {
   locationState: string;
 
   /**
+   * timezone is server-derived from (country, location_state) on
+   * every response — not stored. Empty when the address doesn't
+   * resolve to a known IANA id. Read-only; not accepted on
+   * Create/Update.
+   *
    * @generated from field: string timezone = 6;
    */
   timezone: string;
@@ -80,6 +85,32 @@ export type Site = Message<"sites.v1.Site"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 10;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string address = 11;
+   */
+  address: string;
+
+  /**
+   * @generated from field: string postal_code = 13;
+   */
+  postalCode: string;
+
+  /**
+   * ISO 3166-1 alpha-2 country code. Defaults to "US" at the DB
+   * level; clients can leave empty on create and the server uses the
+   * default.
+   *
+   * @generated from field: string country = 14;
+   */
+  country: string;
+
+  /**
+   * Free-form operator notes. No structure enforced.
+   *
+   * @generated from field: string notes = 15;
+   */
+  notes: string;
 };
 
 /**
@@ -174,11 +205,6 @@ export type CreateSiteRequest = Message<"sites.v1.CreateSiteRequest"> & {
   locationState: string;
 
   /**
-   * @generated from field: string timezone = 5;
-   */
-  timezone: string;
-
-  /**
    * Megawatts; 0 = no capacity recorded.
    *
    * @generated from field: double power_capacity_mw = 6;
@@ -194,6 +220,30 @@ export type CreateSiteRequest = Message<"sites.v1.CreateSiteRequest"> & {
    * @generated from field: string network_config = 7;
    */
   networkConfig: string;
+
+  /**
+   * @generated from field: string address = 8;
+   */
+  address: string;
+
+  /**
+   * @generated from field: string postal_code = 10;
+   */
+  postalCode: string;
+
+  /**
+   * ISO 3166-1 alpha-2. Empty falls back to the DB default ("US").
+   *
+   * @generated from field: string country = 11;
+   */
+  country: string;
+
+  /**
+   * Free-form operator notes.
+   *
+   * @generated from field: string notes = 12;
+   */
+  notes: string;
 };
 
 /**
@@ -259,11 +309,6 @@ export type UpdateSiteRequest = Message<"sites.v1.UpdateSiteRequest"> & {
   locationState: string;
 
   /**
-   * @generated from field: string timezone = 6;
-   */
-  timezone: string;
-
-  /**
    * @generated from field: double power_capacity_mw = 7;
    */
   powerCapacityMw: number;
@@ -272,6 +317,26 @@ export type UpdateSiteRequest = Message<"sites.v1.UpdateSiteRequest"> & {
    * @generated from field: string network_config = 8;
    */
   networkConfig: string;
+
+  /**
+   * @generated from field: string address = 9;
+   */
+  address: string;
+
+  /**
+   * @generated from field: string postal_code = 11;
+   */
+  postalCode: string;
+
+  /**
+   * @generated from field: string country = 12;
+   */
+  country: string;
+
+  /**
+   * @generated from field: string notes = 13;
+   */
+  notes: string;
 };
 
 /**

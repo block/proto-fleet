@@ -38,29 +38,38 @@ export const buildKnownSiteIds = (sites: SiteWithCounts[] | undefined): Set<stri
 // switches between the two surfaces.
 export interface SiteFormValues {
   name: string;
+  address: string;
   locationCity: string;
   locationState: string;
-  timezone: string;
+  postalCode: string;
+  country: string;
   powerCapacityMw: number;
   networkConfig: string;
+  notes: string;
 }
 
 export const emptySiteFormValues = (): SiteFormValues => ({
   name: "",
+  address: "",
   locationCity: "",
   locationState: "",
-  timezone: "",
+  postalCode: "",
+  country: "US",
   powerCapacityMw: 0,
   networkConfig: "",
+  notes: "",
 });
 
 export const siteFormValuesFromSite = (site: Site): SiteFormValues => ({
   name: site.name,
+  address: site.address,
   locationCity: site.locationCity,
   locationState: site.locationState,
-  timezone: site.timezone,
+  postalCode: site.postalCode,
+  country: site.country || "US",
   powerCapacityMw: site.powerCapacityMw,
   networkConfig: site.networkConfig,
+  notes: site.notes,
 });
 
 interface CreateSiteProps {
@@ -138,16 +147,15 @@ const useSites = () => {
         const response = await sitesClient.createSite(
           {
             name: values.name,
-            // TODO(#266): hardcoded to "" until #266 either surfaces a notes
-            // input in SiteDetailsModal (round-tripping the value through
-            // SiteFormValues) or drops the proto field. Until then any
-            // existing description set out-of-band is overwritten on save.
             description: "",
             locationCity: values.locationCity,
             locationState: values.locationState,
-            timezone: values.timezone,
             powerCapacityMw: values.powerCapacityMw,
             networkConfig: values.networkConfig,
+            address: values.address,
+            postalCode: values.postalCode,
+            country: values.country,
+            notes: values.notes,
           },
           { signal },
         );
@@ -179,14 +187,15 @@ const useSites = () => {
           {
             id,
             name: values.name,
-            // TODO(#266): see createSite — hardcoded "" pending the notes
-            // surface or proto field removal.
             description: "",
             locationCity: values.locationCity,
             locationState: values.locationState,
-            timezone: values.timezone,
             powerCapacityMw: values.powerCapacityMw,
             networkConfig: values.networkConfig,
+            address: values.address,
+            postalCode: values.postalCode,
+            country: values.country,
+            notes: values.notes,
           },
           { signal },
         );

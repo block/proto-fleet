@@ -55,18 +55,10 @@ export const US_STATE_OPTIONS = [
   { value: "WY", label: "Wyoming" },
 ];
 
-// Timezone options scoped to US zones the operator base actually uses today.
-// Values are IANA identifiers so they round-trip cleanly through the proto
-// `timezone` string; labels match the wording in master plan §J3.
-export const US_TIMEZONE_OPTIONS = [
-  { value: "America/New_York", label: "Eastern (ET)" },
-  { value: "America/Chicago", label: "Central (CT)" },
-  { value: "America/Denver", label: "Mountain (MT)" },
-  { value: "America/Los_Angeles", label: "Pacific (PT)" },
-  { value: "America/Phoenix", label: "Arizona (MST)" },
-  { value: "America/Anchorage", label: "Alaska (AKT)" },
-  { value: "Pacific/Honolulu", label: "Hawaii (HST)" },
-  { value: "America/Indiana/Indianapolis", label: "Indiana (ET)" },
-  { value: "America/Boise", label: "Boise (MT)" },
-  { value: "America/Detroit", label: "Detroit (ET)" },
+// Country options for the SiteSettingsModal country dropdown. Values are
+// ISO 3166-1 alpha-2 codes — match the DB column shape.
+export const COUNTRY_OPTIONS = [
+  { value: "US", label: "United States" },
+  { value: "CA", label: "Canada" },
+  { value: "MX", label: "Mexico" },
 ];

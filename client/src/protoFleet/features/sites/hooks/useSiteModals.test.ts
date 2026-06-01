@@ -14,6 +14,7 @@ import {
   type UpdateSiteResponse,
   UpdateSiteResponseSchema,
 } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { emptySiteFormValues } from "@/protoFleet/api/sites";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -74,7 +75,7 @@ describe("useSiteModals", () => {
     act(() => result.current.openCreate());
     expect(result.current.state).toEqual({
       kind: "detailsCreate",
-      draft: { name: "", locationCity: "", locationState: "", timezone: "", powerCapacityMw: 0, networkConfig: "" },
+      draft: emptySiteFormValues(),
     });
   });
 
@@ -85,10 +86,10 @@ describe("useSiteModals", () => {
     // then re-entering details: detailsContinueCreate must preserve it.
     act(() =>
       result.current.detailsContinueCreate({
+        ...emptySiteFormValues(),
         name: "North DC",
         locationCity: "Chicago",
         locationState: "IL",
-        timezone: "America/Chicago",
         powerCapacityMw: 5,
         networkConfig: "(unused — initial empty)",
       }),
@@ -98,10 +99,10 @@ describe("useSiteModals", () => {
     expect(result.current.state.kind).toBe("manageCreateEditingDetails");
     act(() =>
       result.current.detailsContinueCreate({
+        ...emptySiteFormValues(),
         name: "North DC 2",
         locationCity: "Chicago",
         locationState: "IL",
-        timezone: "America/Chicago",
         powerCapacityMw: 5,
         networkConfig: "",
       }),
@@ -118,12 +119,8 @@ describe("useSiteModals", () => {
     act(() => result.current.openCreate());
     act(() =>
       result.current.detailsContinueCreate({
+        ...emptySiteFormValues(),
         name: "X",
-        locationCity: "",
-        locationState: "",
-        timezone: "",
-        powerCapacityMw: 0,
-        networkConfig: "",
       }),
     );
     act(() => result.current.manageEditDetails());
@@ -150,11 +147,8 @@ describe("useSiteModals", () => {
     act(() => result.current.openCreate());
     act(() =>
       result.current.detailsContinueCreate({
+        ...emptySiteFormValues(),
         name: "North DC",
-        locationCity: "",
-        locationState: "",
-        timezone: "",
-        powerCapacityMw: 0,
         networkConfig: "10.0.0.0/24",
       }),
     );
@@ -192,12 +186,8 @@ describe("useSiteModals", () => {
 
     await act(async () => {
       await result.current.detailsSaveEdit({
+        ...emptySiteFormValues(),
         name: "New",
-        locationCity: "",
-        locationState: "",
-        timezone: "",
-        powerCapacityMw: 0,
-        networkConfig: "",
       });
     });
 

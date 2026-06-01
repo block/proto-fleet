@@ -874,12 +874,15 @@ type Site struct {
 	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
-	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       sql.NullTime
+	Address         sql.NullString
+	PostalCode      sql.NullString
+	Country         string
+	Notes           sql.NullString
 }
 
 type User struct {

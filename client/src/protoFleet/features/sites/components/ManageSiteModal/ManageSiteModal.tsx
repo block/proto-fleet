@@ -90,9 +90,13 @@ const ManageSiteModal = ({
 
   const previewTitle = (site?.name || draft.name || "Untitled site").trim();
   const previewLocation = useMemo(() => {
-    const parts = [draft.locationCity, draft.locationState].map((s) => s.trim()).filter(Boolean);
-    return parts.length > 0 ? parts.join(", ") : "—";
-  }, [draft.locationCity, draft.locationState]);
+    const cityState = [draft.locationCity, draft.locationState]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(", ");
+    const parts = [draft.address, cityState, draft.postalCode].map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts.join(" • ") : "—";
+  }, [draft.address, draft.locationCity, draft.locationState, draft.postalCode]);
   const previewCapacity = draft.powerCapacityMw > 0 ? `${draft.powerCapacityMw} MW` : "—";
   const buildingCount = displayBuildings?.length ?? 0;
 
