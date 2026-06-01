@@ -91,7 +91,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/mining-pools",
     label: "Pools",
     parent: "/settings",
-    requiredPermission: "pool:read",
+    // The Pools settings page is a management surface (Add / Edit /
+    // Test / Delete with no read-only mode), so gate the nav on
+    // pool:manage to match the page's capability rather than pool:read.
+    // Read-only-pool custom roles get no useful UI here today.
+    requiredPermission: "pool:manage",
   },
   {
     path: "/settings/firmware",
@@ -102,7 +106,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/schedules",
     label: "Schedules",
     parent: "/settings",
-    requiredPermission: "schedule:read",
+    // The Schedules settings page is a management surface (Add, edit,
+    // pause, resume, delete, reorder; no view-only mode), so gate the
+    // nav on schedule:manage to match the page's capability rather
+    // than schedule:read.
+    requiredPermission: "schedule:manage",
   },
   {
     path: "/settings/api-keys",
