@@ -54,11 +54,3 @@ export const US_STATE_OPTIONS = [
   { value: "WI", label: "Wisconsin" },
   { value: "WY", label: "Wyoming" },
 ];
-
-// Country options for the SiteSettingsModal country dropdown. Values are
-// ISO 3166-1 alpha-2 codes — match the DB column shape.
-export const COUNTRY_OPTIONS = [
-  { value: "US", label: "United States" },
-  { value: "CA", label: "Canada" },
-  { value: "MX", label: "Mexico" },
-];

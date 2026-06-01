@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
-import { COUNTRY_OPTIONS, US_STATE_OPTIONS } from "@/protoFleet/features/sites/constants";
+import { US_STATE_OPTIONS } from "@/protoFleet/features/sites/constants";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -51,7 +51,6 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   const [city, setCity] = useState(initialValues.locationCity);
   const [state, setState] = useState(initialValues.locationState);
   const [postalCode, setPostalCode] = useState(initialValues.postalCode);
-  const [country, setCountry] = useState(initialValues.country || "US");
   const [notes, setNotes] = useState(initialValues.notes);
   const [capacityText, setCapacityText] = useState(
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
@@ -71,12 +70,14 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
       locationCity: city.trim(),
       locationState: state.trim(),
       postalCode: postalCode.trim(),
-      country: country.trim() || "US",
+      // Country is implicit US for now — non-US support requires per-
+      // country state lists + timezone tables (#266 follow-up).
+      country: "US",
       powerCapacityMw: capacity,
       networkConfig: initialValues.networkConfig,
       notes: notes,
     };
-  }, [name, address, city, state, postalCode, country, capacityText, notes, initialValues.networkConfig]);
+  }, [name, address, city, state, postalCode, capacityText, notes, initialValues.networkConfig]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
@@ -175,25 +176,14 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             testId="site-settings-state-select"
           />
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            id="site-settings-postal-code"
-            label="Postal code"
-            initValue={postalCode}
-            onChange={(v) => setPostalCode(v)}
-            maxLength={32}
-            testId="site-settings-postal-code-input"
-          />
-          <Select
-            id="site-settings-country"
-            label="Country"
-            options={COUNTRY_OPTIONS}
-            value={country}
-            onChange={setCountry}
-            forceBelow
-            testId="site-settings-country-select"
-          />
-        </div>
+        <Input
+          id="site-settings-postal-code"
+          label="Postal code"
+          initValue={postalCode}
+          onChange={(v) => setPostalCode(v)}
+          maxLength={32}
+          testId="site-settings-postal-code-input"
+        />
         <Input
           id="site-settings-capacity"
           label="Power capacity"
