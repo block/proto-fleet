@@ -61,8 +61,9 @@ export const primaryNavItems: NavItem[] = [
     path: "/activity",
     label: "Activity",
     icon: Activity,
-    // ActivityService is server-gated on activity:read.
-    requiredPermission: "activity:read",
+    // ActivityService is still pending its activity:read catalog key
+    // (tracked separately). Once the server-side gating lands, gate
+    // this nav entry on activity:read to mirror the RPC gate.
   },
   {
     path: "/settings",
