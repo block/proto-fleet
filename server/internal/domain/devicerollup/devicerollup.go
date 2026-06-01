@@ -41,6 +41,18 @@ type DeviceQueryer interface {
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]interfaces.MinerStateCounts, error)
 }
 
+// ToDeviceIdentifiers converts the device-id string slice that comes
+// out of the device store into the typed DeviceIdentifier slice the
+// telemetry collector takes. Same loop lives at every stats callsite;
+// keeping it in one place avoids the typed/untyped slice mix-up.
+func ToDeviceIdentifiers(deviceIDs []string) []minerModels.DeviceIdentifier {
+	out := make([]minerModels.DeviceIdentifier, 0, len(deviceIDs))
+	for _, id := range deviceIDs {
+		out = append(out, minerModels.DeviceIdentifier(id))
+	}
+	return out
+}
+
 // MetricsRollup is the per-fleet aggregate of latest telemetry across a
 // set of devices. Values are unit-converted to the proto contract (TH/s,
 // kW, J/TH); zero values mean "no reporting device contributed."

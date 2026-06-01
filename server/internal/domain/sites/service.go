@@ -18,7 +18,6 @@ import (
 	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -591,10 +590,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 
 	// Telemetry rollup runs through the shared aggregator so site +
 	// building stats can't drift on unit conversions or NaN handling.
-	telemetryIDs := make([]minerModels.DeviceIdentifier, 0, len(deviceIDs))
-	for _, id := range deviceIDs {
-		telemetryIDs = append(telemetryIDs, minerModels.DeviceIdentifier(id))
-	}
+	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
 	metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to fetch site telemetry: %v", err)

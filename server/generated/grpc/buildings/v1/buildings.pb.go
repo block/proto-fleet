@@ -1323,6 +1323,14 @@ type GetBuildingStatsResponse struct {
 	// separately paginate ListMinerStateSnapshots just to learn which
 	// devices to query telemetry for — the server already computed this
 	// set when summing the rollup fields above.
+	//
+	// An empty list always means "no devices in this building." The
+	// server defensively caps this field at MaxDevicesPerStatsResponse
+	// (50k); a building larger than the cap fails the whole RPC with
+	// Internal rather than returning a partial set, so an empty list
+	// here cannot mean "truncated." If operators ever start hitting the
+	// cap we'll switch this to a truncate-with-flag shape (see #339
+	// discussion) — for now Internal is the explicit failure mode.
 	DeviceIdentifiers []string `protobuf:"bytes,13,rep,name=device_identifiers,json=deviceIdentifiers,proto3" json:"device_identifiers,omitempty"`
 	// Per-field reporting counts so the FE can distinguish "no devices
 	// reporting" from "devices reporting but the field is missing." A

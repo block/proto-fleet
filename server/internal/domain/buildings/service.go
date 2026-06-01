@@ -14,7 +14,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -661,10 +660,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64)
 	stats.OfflineCount = counts.OfflineCount
 	stats.SleepingCount = counts.SleepingCount
 
-	telemetryIDs := make([]minerModels.DeviceIdentifier, 0, len(deviceIDs))
-	for _, id := range deviceIDs {
-		telemetryIDs = append(telemetryIDs, minerModels.DeviceIdentifier(id))
-	}
+	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
 	metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to fetch building telemetry: %v", err)

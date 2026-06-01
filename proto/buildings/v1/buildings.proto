@@ -306,6 +306,14 @@ message GetBuildingStatsResponse {
     // separately paginate ListMinerStateSnapshots just to learn which
     // devices to query telemetry for — the server already computed this
     // set when summing the rollup fields above.
+    //
+    // An empty list always means "no devices in this building." The
+    // server defensively caps this field at MaxDevicesPerStatsResponse
+    // (50k); a building larger than the cap fails the whole RPC with
+    // Internal rather than returning a partial set, so an empty list
+    // here cannot mean "truncated." If operators ever start hitting the
+    // cap we'll switch this to a truncate-with-flag shape (see #339
+    // discussion) — for now Internal is the explicit failure mode.
     repeated string device_identifiers = 13;
 
     // Per-field reporting counts so the FE can distinguish "no devices
