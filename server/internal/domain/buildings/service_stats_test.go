@@ -155,6 +155,31 @@ func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
 	if !hasPaired || !hasAuthNeeded {
 		t.Errorf("expected PAIRED+AUTH_NEEDED filter; got %v", devices.lastFilter.PairingStatuses)
 	}
+	if devices.lastFilter.Limit != MaxDevicesPerStatsResponse+1 {
+		t.Errorf("expected SQL-level Limit=cap+1 (%d); got %d", MaxDevicesPerStatsResponse+1, devices.lastFilter.Limit)
+	}
+}
+
+func TestGetBuildingStats_failsFastOverCap(t *testing.T) {
+	// SQL returns cap+1; service must trip the over-cap guard and never
+	// call into state-counts or telemetry.
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
+	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(1, 1), nil)
+
+	overCap := make([]string, MaxDevicesPerStatsResponse+1)
+	for i := range overCap {
+		overCap[i] = "d"
+	}
+	telemetry := &fakeTelemetryCollector{err: errors.New("should not be called")}
+	svc := NewService(store, nil, nil, &fakeDeviceQueryer{deviceIDs: overCap}, telemetry, newTx(), nil)
+	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 1, nil)
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
+		t.Fatalf("expected Internal over-cap error; got %v", err)
+	}
 }
 
 func TestGetBuildingStats_clearsOutOfBoundsRackPositions(t *testing.T) {

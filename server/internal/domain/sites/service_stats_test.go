@@ -171,6 +171,35 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	if !hasPaired || !hasAuthNeeded {
 		t.Errorf("expected PAIRED+AUTH_NEEDED filter; got %v", devices.lastFilter.PairingStatuses)
 	}
+	if devices.lastFilter.Limit != MaxDevicesPerSiteStatsRequest+1 {
+		t.Errorf("expected SQL-level Limit=cap+1 (%d); got %d", MaxDevicesPerSiteStatsRequest+1, devices.lastFilter.Limit)
+	}
+}
+
+func TestGetSiteStats_failsFastOverCap(t *testing.T) {
+	// When the SQL returns cap+1 identifiers we treat it as over-cap and
+	// bail without fanning out to the state/telemetry queries. The Limit
+	// in the filter is what kept the query bounded in the first place;
+	// the service just enforces the threshold.
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	overCap := make([]string, MaxDevicesPerSiteStatsRequest+1)
+	for i := range overCap {
+		overCap[i] = "d"
+	}
+	telemetry := &fakeTelemetryCollector{err: errors.New("should not be called")}
+	devices := &fakeDeviceQueryer{deviceIDs: overCap}
+
+	svc := NewService(store, buildingStore, devices, telemetry, &fakeTransactor{}, nil)
+	_, err := svc.GetSiteStats(context.Background(), testOrgID, 1)
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
+		t.Fatalf("expected Internal over-cap error; got %v", err)
+	}
 }
 
 func TestGetSiteStats_emptyDevicesShortCircuits(t *testing.T) {

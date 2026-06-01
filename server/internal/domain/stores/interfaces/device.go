@@ -71,6 +71,12 @@ type MinerFilter struct {
 	IncludeNoBuilding   bool                              // When true, include devices whose rack has building_id IS NULL. Does NOT include devices with no rack at all (see IncludeNoRack).
 	ZoneKeys            []ZoneKey                         // Filter by (building_id, zone) pairs. BuildingID == 0 wildcards across buildings. Excludes miners not in any rack.
 	IncludeNoRack       bool                              // When true, include devices with no rack membership at all. Distinct from IncludeNoBuilding.
+	// Limit, when > 0, caps the number of identifiers returned at the
+	// SQL level via `LIMIT N`. Used by the stats RPCs to fail-fast on
+	// oversize sites/buildings without first materializing the full
+	// identifier list. 0 (default) means no SQL-level limit; the caller
+	// gets every row matching the filter.
+	Limit int
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.

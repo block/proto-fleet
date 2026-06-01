@@ -655,12 +655,17 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// device.site_id == expectedSiteID returns an empty set the moment the
 	// move commits. Pairs with the post-read re-check below as belt-and-
 	// braces.
+	// Limit = cap + 1 lets us detect over-cap from one bounded SQL query
+	// rather than materializing the entire matching identifier set first.
+	// We never hold (or fan out to state/telemetry queries with) more
+	// than cap+1 rows even for a pathological building.
 	devFilter := &interfaces.MinerFilter{
 		BuildingIDs: []int64{buildingID},
 		PairingStatuses: []fm.PairingStatus{
 			fm.PairingStatus_PAIRING_STATUS_PAIRED,
 			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 		},
+		Limit: MaxDevicesPerStatsResponse + 1,
 	}
 	if expectedSiteID != nil {
 		devFilter.SiteIDs = []int64{*expectedSiteID}
@@ -671,10 +676,10 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	if err != nil {
 		return nil, err
 	}
-	stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by org fleet
 	if len(deviceIDs) > MaxDevicesPerStatsResponse {
-		return nil, fleeterror.NewInternalErrorf("building %d exceeded the %d device cap (%d devices)", buildingID, MaxDevicesPerStatsResponse, len(deviceIDs))
+		return nil, fleeterror.NewInternalErrorf("building %d exceeded the %d device cap", buildingID, MaxDevicesPerStatsResponse)
 	}
+	stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
 	stats.DeviceIdentifiers = deviceIDs
 
 	// State counts + telemetry only run when there's at least one

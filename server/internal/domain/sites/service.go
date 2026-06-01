@@ -553,18 +553,24 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
 	// counts AUTH_NEEDED devices the same way the miner list does — without
 	// this, the default PAIRED-only filter would silently undercount.
+	// Limit = cap + 1 lets us detect over-cap with a single bounded query
+	// rather than materializing the full identifier list before bailing.
+	// The cap-exceeded guard below trips when the SQL returns cap+1 rows;
+	// we never hold a slice larger than that even for an unboundedly-sized
+	// site.
 	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
 		SiteIDs: []int64{siteID},
 		PairingStatuses: []fm.PairingStatus{
 			fm.PairingStatus_PAIRING_STATUS_PAIRED,
 			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 		},
+		Limit: MaxDevicesPerSiteStatsRequest + 1,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if len(deviceIDs) > MaxDevicesPerSiteStatsRequest {
-		return nil, fleeterror.NewInternalErrorf("site %d exceeded the %d device cap (%d devices)", siteID, MaxDevicesPerSiteStatsRequest, len(deviceIDs))
+		return nil, fleeterror.NewInternalErrorf("site %d exceeded the %d device cap", siteID, MaxDevicesPerSiteStatsRequest)
 	}
 
 	stats := &models.SiteStats{

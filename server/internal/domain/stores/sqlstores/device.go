@@ -1308,7 +1308,14 @@ WHERE device.deleted_at IS NULL
     AND discovered_device.is_active = TRUE
     AND discovered_device.deleted_at IS NULL`)
 
-	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	args, argNum = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	// Limit bounds the result at the SQL level so callers using this for
+	// fail-fast over-cap detection (the stats RPCs) don't materialize the
+	// entire fleet just to discard most of it.
+	if fp.limit > 0 {
+		fmt.Fprintf(&sb, " LIMIT $%d", argNum)
+		args = append(args, fp.limit)
+	}
 	return sb.String(), args
 }
 
