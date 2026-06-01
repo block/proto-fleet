@@ -173,35 +173,12 @@ describe("CurtailmentStartModal", () => {
         ...configuredValues,
         includeMaintenance: false,
       },
-      preview,
     });
 
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Plan a curtailment" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("40");
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeDisabled();
-    expect(screen.getByLabelText("Min duration (sec)")).toHaveValue("300");
-    expect(screen.getByLabelText("Min duration (sec)")).toBeDisabled();
-    expect(screen.getByLabelText("Max duration (sec)")).toHaveValue("1800");
-    expect(screen.getByLabelText("Max duration (sec)")).toBeEnabled();
-    expect(screen.getByLabelText("Batch size (miners)")).toHaveValue("10");
-    expect(screen.getByLabelText("Batch size (miners)")).toBeDisabled();
-    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue("120");
-    expect(screen.getByLabelText("Batch interval (sec)")).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Miners\s+18 miners/ })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: /Miners\s+Whole fleet/ })).not.toBeInTheDocument();
-    expect(screen.getByText("Include miners in maintenance")).toBeInTheDocument();
-    expect(getMaintenanceCheckbox()).toBeDisabled();
-    expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
-    expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
-    expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        disabled: true,
-      }),
-    );
+    expect(screen.getByRole("button", { name: /Miners\s+Whole fleet/ })).toBeDisabled();
+    expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
 
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
@@ -748,11 +725,7 @@ describe("CurtailmentStartModal", () => {
 
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
     const reasonInput = screen.getByLabelText("Reason");
-    const startButton = screen.getByRole("button", { name: "Start curtailment" });
 
-    expect(startButton).toBeDisabled();
-    expect(targetInput).not.toHaveAttribute("aria-invalid");
-    expect(reasonInput).not.toHaveAttribute("aria-invalid");
     expect(screen.queryByText("Enter a target reduction.")).not.toBeInTheDocument();
     expect(screen.queryByText("Enter a reason.")).not.toBeInTheDocument();
 

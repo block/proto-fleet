@@ -445,6 +445,13 @@ function getApplyToTarget(
     };
   }
 
+  if (values.scopeType === "wholeOrg") {
+    return {
+      label: "Miners",
+      value: "Whole fleet",
+    };
+  }
+
   return {
     label: "Miners",
     value: formatCountLabel(values.deviceIdentifiers.length, "miner"),
@@ -706,7 +713,9 @@ function CurtailmentStartModalContent({
               </div>
             </Section>
 
-            <label className="flex cursor-pointer items-start gap-3 text-left">
+            <label
+              className={`flex items-start gap-3 text-left ${isEditMode ? "cursor-not-allowed" : "cursor-pointer"}`}
+            >
               <Checkbox
                 checked={values.includeMaintenance}
                 disabled={isEditMode}
