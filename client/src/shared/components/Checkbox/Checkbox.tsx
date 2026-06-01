@@ -1,4 +1,4 @@
-import { ChangeEvent } from "react";
+import { type ChangeEvent, type ReactElement } from "react";
 import clsx from "clsx";
 import { Checkmark, PartialCheckmark } from "@/shared/assets/icons";
 
@@ -10,7 +10,13 @@ type CheckboxProps = {
   disabled?: boolean;
 };
 
-const Checkbox = ({ onChange, checked, partiallyChecked = false, className = "", disabled = false }: CheckboxProps) => {
+function Checkbox({
+  onChange,
+  checked,
+  partiallyChecked = false,
+  className = "",
+  disabled = false,
+}: CheckboxProps): ReactElement {
   return (
     <div className={clsx(className, "relative h-[20px] w-[20px]")}>
       <input
@@ -18,29 +24,28 @@ const Checkbox = ({ onChange, checked, partiallyChecked = false, className = "",
         checked={checked}
         onChange={onChange}
         disabled={disabled}
-        className={clsx(
-          "peer h-full w-full appearance-none rounded-sm border checked:border-transparent checked:bg-core-accent-fill",
-          {
-            "cursor-pointer border-border-20": !disabled,
-            "cursor-not-allowed border-transparent bg-border-20": disabled,
-          },
-        )}
+        className={clsx("peer h-full w-full appearance-none rounded-sm border", {
+          "cursor-pointer border-border-20 checked:border-transparent checked:bg-core-accent-fill": !disabled,
+          "cursor-not-allowed border-transparent bg-border-20 checked:bg-border-20": disabled,
+        })}
       />
-      {!disabled ? (
-        <>
-          {partiallyChecked ? (
-            <PartialCheckmark
-              className={clsx(
-                "pointer-events-none absolute top-0 block cursor-pointer rounded-sm bg-core-primary-fill/40 text-surface-base",
-              )}
-            />
-          ) : (
-            <Checkmark className="pointer-events-none absolute top-0 hidden h-full w-full text-text-contrast peer-checked:block" />
-          )}
-        </>
-      ) : null}
+      {partiallyChecked ? (
+        <PartialCheckmark
+          className={clsx("pointer-events-none absolute top-0 block rounded-sm", {
+            "cursor-pointer bg-core-primary-fill/40 text-surface-base": !disabled,
+            "cursor-not-allowed bg-border-20 text-text-primary-50": disabled,
+          })}
+        />
+      ) : (
+        <Checkmark
+          className={clsx("pointer-events-none absolute top-0 hidden h-full w-full peer-checked:block", {
+            "text-text-contrast": !disabled,
+            "text-text-primary-50": disabled,
+          })}
+        />
+      )}
     </div>
   );
-};
+}
 
 export default Checkbox;

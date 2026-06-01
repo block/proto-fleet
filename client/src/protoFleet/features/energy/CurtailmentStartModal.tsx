@@ -10,6 +10,7 @@ import {
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
+  createCurtailmentPlanPreview,
   getUnsupportedDeviceSetPreviewError,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
@@ -81,7 +82,9 @@ interface FieldProps {
   id: string;
   label: string;
   value: string;
+  disabled?: boolean;
   units?: string;
+  inputMode?: "decimal" | "numeric";
   type?: "number" | "text";
   error?: string;
   onChange: (value: string) => void;
@@ -109,6 +112,11 @@ interface PreviewStateOptions {
   controlledPreview?: PreviewPaneProps;
   isEditMode: boolean;
   unsupportedDeviceSetPreviewError?: string;
+}
+
+interface ApplyToTarget {
+  label: string;
+  value: string;
 }
 
 type ParsedNumberField = { parsed?: number; error?: string };
@@ -282,8 +290,30 @@ function validateCurtailmentFormValues(
   return localErrors;
 }
 
-function Field({ id, label, value, units, type = "number", error, onChange }: FieldProps): ReactElement {
-  return <Input id={id} label={label} initValue={value} units={units} type={type} error={error} onChange={onChange} />;
+function Field({
+  id,
+  label,
+  value,
+  disabled = false,
+  units,
+  inputMode,
+  type = "text",
+  error,
+  onChange,
+}: FieldProps): ReactElement {
+  return (
+    <Input
+      id={id}
+      label={label}
+      initValue={value}
+      disabled={disabled}
+      units={units}
+      inputMode={inputMode}
+      type={type}
+      error={error}
+      onChange={onChange}
+    />
+  );
 }
 
 function Section({ title, subtext, children }: SectionProps): ReactElement {
@@ -385,6 +415,42 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   return values.deviceIdentifiers;
 }
 
+function formatCountLabel(count: number, singular: string): string {
+  return getTargetButtonLabel(count, singular);
+}
+
+function getApplyToTarget(
+  values: CurtailmentFormValues,
+  isEditMode: boolean,
+  selectedMinerCount?: number,
+): ApplyToTarget {
+  if (!isEditMode) {
+    return {
+      label: "Miners",
+      value: getTargetButtonLabel(getSelectedMinerIds(values).length, "miner"),
+    };
+  }
+
+  if (selectedMinerCount !== undefined) {
+    return {
+      label: "Miners",
+      value: formatCountLabel(selectedMinerCount, "miner"),
+    };
+  }
+
+  if (values.scopeType === "deviceSet") {
+    return {
+      label: "Device sets",
+      value: formatCountLabel(values.deviceSetIds.length, "device set"),
+    };
+  }
+
+  return {
+    label: "Miners",
+    value: formatCountLabel(values.deviceIdentifiers.length, "miner"),
+  };
+}
+
 function getPreviewState({
   apiPreview,
   controlledPreview,
@@ -392,7 +458,7 @@ function getPreviewState({
   unsupportedDeviceSetPreviewError,
 }: PreviewStateOptions): PreviewPaneProps {
   if (isEditMode) {
-    return { preview: undefined, previewError: undefined, isPreviewLoading: false };
+    return controlledPreview ?? { preview: undefined, previewError: undefined, isPreviewLoading: false };
   }
 
   if (unsupportedDeviceSetPreviewError) {
@@ -420,19 +486,40 @@ function CurtailmentStartModalContent({
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
   const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
-  const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
+  const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
+  const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
+    setEditedFields((current) => (current.has(key) ? current : new Set(current).add(key)));
     setValues((current) => ({ ...current, [key]: value }));
+  };
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
   const isEditMode = mode === "edit";
   const localErrors = useMemo(
     () => validateCurtailmentFormValues(values, mode, initialFormValues),
     [initialFormValues, mode, values],
   );
-  const effectiveErrors = { ...errors, ...localErrors };
+  const visibleLocalErrors = useMemo(() => {
+    const visibleErrors: CurtailmentFormErrors = {};
+
+    editedFields.forEach((field) => {
+      if (localErrors[field] !== undefined) {
+        visibleErrors[field] = localErrors[field];
+      }
+    });
+
+    return visibleErrors;
+  }, [editedFields, localErrors]);
+  const effectiveErrors = { ...errors, ...visibleLocalErrors };
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+  const controlledPreviewValue = preview
+    ? createCurtailmentPlanPreview(values, {
+        selectedMinerCount: preview.selectedMinerCount,
+        targetKw: preview.targetKw,
+        estimatedReductionKw: preview.estimatedReductionKw,
+      })
+    : undefined;
   const controlledPreview =
     preview !== undefined || previewError !== undefined
-      ? { preview, previewError, isPreviewLoading: false }
+      ? { preview: controlledPreviewValue, previewError, isPreviewLoading: false }
       : undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
@@ -453,12 +540,16 @@ function CurtailmentStartModalContent({
   const hasEditableChanges = !isEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = hasBlockingValidationError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
-  const previewPane = isEditMode ? null : <PreviewPane {...previewState} />;
-  const paneContainerClassName = isEditMode
+  const applyToTarget = getApplyToTarget(values, isEditMode, previewState.preview?.selectedMinerCount);
+  const shouldShowPreviewPane =
+    !isEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
+  const previewPane = shouldShowPreviewPane ? <PreviewPane {...previewState} /> : null;
+  const useSinglePaneLayout = isEditMode && previewPane === null;
+  const paneContainerClassName = useSinglePaneLayout
     ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
     : undefined;
-  const primaryPaneClassName = isEditMode ? "mx-auto w-full max-w-[720px] laptop:pl-0" : undefined;
-  const secondaryPaneClassName = isEditMode
+  const primaryPaneClassName = useSinglePaneLayout ? "mx-auto w-full max-w-[720px] laptop:pl-0" : undefined;
+  const secondaryPaneClassName = useSinglePaneLayout
     ? "!hidden"
     : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
 
@@ -546,110 +637,94 @@ function CurtailmentStartModalContent({
               onChange={(value) => updateValue("reason", value)}
             />
 
-            {isEditMode ? (
-              <Section title="Curtail behavior">
+            <Section
+              title="Curtail behavior"
+              subtext={isEditMode ? undefined : "Fleet will automatically curtail the least efficient miners first."}
+            >
+              <div className="grid gap-3">
                 <Field
-                  id="curtailment-max-duration"
-                  label="Max duration (sec)"
-                  value={values.maxDurationSec}
-                  error={effectiveErrors.maxDurationSec}
-                  onChange={(value) => updateValue("maxDurationSec", value)}
+                  id="curtailment-target-kw"
+                  label="Fixed target reduction (kW)"
+                  value={values.targetKw}
+                  disabled={isEditMode}
+                  inputMode="decimal"
+                  error={effectiveErrors.targetKw}
+                  onChange={(value) => updateValue("targetKw", value)}
                 />
-              </Section>
-            ) : (
-              <Section
-                title="Curtail behavior"
-                subtext="Fleet will automatically curtail the least efficient miners first."
-              >
-                <div className="grid gap-3">
+                <div className="grid gap-3 tablet:grid-cols-2">
                   <Field
-                    id="curtailment-target-kw"
-                    label="Fixed target reduction (kW)"
-                    value={values.targetKw}
-                    error={effectiveErrors.targetKw}
-                    onChange={(value) => updateValue("targetKw", value)}
+                    id="curtailment-min-duration"
+                    label="Min duration (sec)"
+                    value={values.minDurationSec}
+                    disabled={isEditMode}
+                    inputMode="numeric"
+                    error={effectiveErrors.minDurationSec}
+                    onChange={(value) => updateValue("minDurationSec", value)}
                   />
-                  <div className="grid gap-3 tablet:grid-cols-2">
-                    <Field
-                      id="curtailment-min-duration"
-                      label="Min duration (sec)"
-                      value={values.minDurationSec}
-                      error={effectiveErrors.minDurationSec}
-                      onChange={(value) => updateValue("minDurationSec", value)}
-                    />
-                    <Field
-                      id="curtailment-max-duration"
-                      label="Max duration (sec)"
-                      value={values.maxDurationSec}
-                      error={effectiveErrors.maxDurationSec}
-                      onChange={(value) => updateValue("maxDurationSec", value)}
-                    />
-                  </div>
+                  <Field
+                    id="curtailment-max-duration"
+                    label="Max duration (sec)"
+                    value={values.maxDurationSec}
+                    inputMode="numeric"
+                    error={effectiveErrors.maxDurationSec}
+                    onChange={(value) => updateValue("maxDurationSec", value)}
+                  />
                 </div>
-              </Section>
-            )}
+              </div>
+            </Section>
 
             <Section title="Restore behavior">
-              {isEditMode ? (
+              <div className="grid gap-3 tablet:grid-cols-2">
+                <Field
+                  id="curtailment-restore-batch-size"
+                  label="Batch size (miners)"
+                  value={values.restoreBatchSize}
+                  disabled={isEditMode}
+                  inputMode="numeric"
+                  error={effectiveErrors.restoreBatchSize}
+                  onChange={(value) => updateValue("restoreBatchSize", value)}
+                />
                 <Field
                   id="curtailment-restore-batch-interval"
                   label="Batch interval (sec)"
                   value={values.restoreIntervalSec}
+                  inputMode="numeric"
                   error={effectiveErrors.restoreIntervalSec}
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
-              ) : (
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <Field
-                    id="curtailment-restore-batch-size"
-                    label="Batch size (miners)"
-                    value={values.restoreBatchSize}
-                    error={effectiveErrors.restoreBatchSize}
-                    onChange={(value) => updateValue("restoreBatchSize", value)}
-                  />
-                  <Field
-                    id="curtailment-restore-batch-interval"
-                    label="Batch interval (sec)"
-                    value={values.restoreIntervalSec}
-                    error={effectiveErrors.restoreIntervalSec}
-                    onChange={(value) => updateValue("restoreIntervalSec", value)}
-                  />
-                </div>
-              )}
+              </div>
             </Section>
 
-            {isEditMode ? null : (
-              <>
-                <Section title="Apply to">
-                  <div className="grid">
-                    <TargetSelectButton
-                      label="Miners"
-                      value={getTargetButtonLabel(selectedMinerIds.length, "miner")}
-                      onClick={() => setShowMinerSelectionModal(true)}
-                    />
-                  </div>
-                </Section>
+            <Section title="Apply to">
+              <div className="grid">
+                <TargetSelectButton
+                  label={applyToTarget.label}
+                  value={applyToTarget.value}
+                  disabled={isEditMode}
+                  onClick={() => setShowMinerSelectionModal(true)}
+                />
+              </div>
+            </Section>
 
-                <label className="flex cursor-pointer items-start gap-3 text-left">
-                  <Checkbox
-                    checked={values.includeMaintenance}
-                    onChange={(event) => {
-                      if (event.currentTarget.checked) {
-                        setSubmitAfterMaintenanceConfirmation(false);
-                        setShowMaintenanceConfirmation(true);
-                        return;
-                      }
+            <label className="flex cursor-pointer items-start gap-3 text-left">
+              <Checkbox
+                checked={values.includeMaintenance}
+                disabled={isEditMode}
+                onChange={(event) => {
+                  if (event.currentTarget.checked) {
+                    setSubmitAfterMaintenanceConfirmation(false);
+                    setShowMaintenanceConfirmation(true);
+                    return;
+                  }
 
-                      setMaintenanceInclusionConfirmed(false);
-                      updateValue("includeMaintenance", false);
-                    }}
-                  />
-                  <span>
-                    <span className="block text-300 text-text-primary">Include miners in maintenance</span>
-                  </span>
-                </label>
-              </>
-            )}
+                  setMaintenanceInclusionConfirmed(false);
+                  updateValue("includeMaintenance", false);
+                }}
+              />
+              <span>
+                <span className="block text-300 text-text-primary">Include miners in maintenance</span>
+              </span>
+            </label>
           </section>
         }
         secondaryPane={previewPane}
