@@ -24,14 +24,17 @@ export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): Curtailm
 
   const selectedMiners = getCurtailmentEventSelectedMinerCount(event);
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
-  const displayState = getActiveCurtailmentDisplayState({
-    state,
-    selectedMiners,
-    estimatedReductionKw,
-    targetKw: getFixedKwTarget(event),
-    observedReductionKw: getCurtailmentEventObservedReductionKw(event, estimatedReductionKw),
-    rollups: getCurtailmentTargetRollups(event),
-  });
+  const displayState = getActiveCurtailmentDisplayState(
+    {
+      state,
+      selectedMiners,
+      estimatedReductionKw,
+      targetKw: getFixedKwTarget(event),
+      observedReductionKw: getCurtailmentEventObservedReductionKw(event, estimatedReductionKw),
+      rollups: getCurtailmentTargetRollups(event),
+    },
+    { dispatchStartedAsCurtailing: true },
+  );
 
   if (!isCurtailmentPillState(displayState)) {
     return null;

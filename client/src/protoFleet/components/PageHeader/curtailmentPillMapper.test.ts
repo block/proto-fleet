@@ -5,8 +5,6 @@ import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import {
   CurtailmentEventSchema,
   CurtailmentEventState,
-  CurtailmentMode,
-  CurtailmentPriority,
   CurtailmentTargetRollupSchema,
   FixedKwParamsSchema,
   ScopeWholeOrgSchema,
@@ -19,11 +17,8 @@ function targetRollup(values: { pending?: number; confirmed?: number; total?: nu
 
 function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): CurtailmentEvent {
   const event = create(CurtailmentEventSchema, {
-    eventUuid: "curt-1",
     reason: "Grid peak",
     state: CurtailmentEventState.PENDING,
-    mode: CurtailmentMode.FIXED_KW,
-    priority: CurtailmentPriority.NORMAL,
     scope: {
       case: "wholeOrg",
       value: create(ScopeWholeOrgSchema, {}),
@@ -56,15 +51,13 @@ describe("mapCurtailmentPillEvent", () => {
     );
   });
 
-  it("falls back when the event reason is blank", () => {
+  it("falls back for blank reasons and hides inactive terminal events", () => {
     expect(mapCurtailmentPillEvent(curtailmentEvent({ reason: "" }))).toEqual(
       expect.objectContaining({
         reason: "Curtailment",
       }),
     );
-  });
 
-  it("hides inactive terminal events", () => {
     expect(mapCurtailmentPillEvent(curtailmentEvent({ state: CurtailmentEventState.COMPLETED }))).toBeNull();
   });
 });

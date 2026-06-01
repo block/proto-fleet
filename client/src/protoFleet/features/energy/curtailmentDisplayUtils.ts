@@ -112,6 +112,10 @@ interface ActiveCurtailmentDisplayEvent {
   rollups: CurtailmentTargetRollup[];
 }
 
+interface ActiveCurtailmentDisplayOptions {
+  dispatchStartedAsCurtailing?: boolean;
+}
+
 export interface ActiveCurtailmentMinerCompliance {
   curtailedCount: number;
   restoreFailedCount: number;
@@ -358,13 +362,16 @@ function isRestoreIncompleteEventState(state: CurtailmentEventState): boolean {
   return state === "completedWithFailures";
 }
 
-export function getActiveCurtailmentDisplayState(event: ActiveCurtailmentDisplayEvent): ActiveCurtailmentDisplayState {
+export function getActiveCurtailmentDisplayState(
+  event: ActiveCurtailmentDisplayEvent,
+  options: ActiveCurtailmentDisplayOptions = {},
+): ActiveCurtailmentDisplayState {
   if (event.state === "restoring") {
     return "restoring";
   }
 
   if (event.state === "pending") {
-    return hasActiveCurtailmentDispatchStarted(event) ? "curtailing" : "pending";
+    return options.dispatchStartedAsCurtailing && hasActiveCurtailmentDispatchStarted(event) ? "curtailing" : "pending";
   }
 
   if (isRestoreIncompleteEventState(event.state)) {
