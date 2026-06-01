@@ -25,6 +25,17 @@ const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
+  createCurtailmentPlanPreview: (
+    values: CurtailmentFormValues,
+    source: { selectedMinerCount: number; targetKw?: number; estimatedReductionKw: number },
+  ): CurtailmentPlanPreview => ({
+    selectedMinerCount: source.selectedMinerCount,
+    targetKw: source.targetKw ?? Number(values.targetKw),
+    estimatedReductionKw: source.estimatedReductionKw,
+    curtailEstimate: "5 minutes - 30 minutes",
+    restoreEstimate: "~2 minutes",
+    scopeLabel: "across the fleet",
+  }),
   getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
     values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
       ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
@@ -87,6 +98,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "40",
+  minDurationSec: "300",
   maxDurationSec: "1800",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
@@ -153,7 +165,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
   });
 
-  it("renders edit mode with only updateable fields prefilled", async () => {
+  it("renders edit mode with the full plan visible and locked where fields are not updateable", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       mode: "edit",
@@ -161,26 +173,12 @@ describe("CurtailmentStartModal", () => {
         ...configuredValues,
         includeMaintenance: false,
       },
-      preview,
     });
 
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Plan a curtailment" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
-    expect(screen.getByLabelText("Max duration (sec)")).toHaveValue(1800);
-    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
-    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Batch size (miners)")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
-    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
-    expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
-    expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        disabled: true,
-      }),
-    );
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Miners\s+Whole fleet/ })).toBeDisabled();
+    expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
 
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
@@ -230,7 +228,7 @@ describe("CurtailmentStartModal", () => {
     );
 
     expect(screen.getByLabelText("Reason")).toHaveValue("Operator draft");
-    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue(120);
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue("120");
   });
 
   it("blocks max duration clears in edit mode", async () => {
@@ -606,19 +604,26 @@ describe("CurtailmentStartModal", () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: {
+        ...configuredValues,
         includeMaintenance: false,
         minDurationSec: "3600",
-        maxDurationSec: "300",
+        maxDurationSec: "7200",
       },
       errors: {
         maxDurationSec: "Server-side max duration error",
       },
     });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
+    const maxDurationInput = screen.getByLabelText("Max duration (sec)");
+
+    expect(screen.getByText("Server-side max duration error")).toBeInTheDocument();
+
+    await user.clear(maxDurationInput);
+    await user.type(maxDurationInput, "300");
 
     expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
     expect(screen.queryByText("Server-side max duration error")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(maxDurationInput).toHaveAttribute("aria-invalid", "true");
     expect(startButton).toBeDisabled();
 
     await user.click(startButton);
@@ -631,19 +636,26 @@ describe("CurtailmentStartModal", () => {
       initialValues: {
         ...configuredValues,
         includeMaintenance: false,
-        maxDurationSec: "604801",
-        restoreBatchSize: "-1",
-        restoreIntervalSec: "1.5",
       },
     });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
+    const maxDurationInput = screen.getByLabelText("Max duration (sec)");
+    const batchSizeInput = screen.getByLabelText("Batch size (miners)");
+    const batchIntervalInput = screen.getByLabelText("Batch interval (sec)");
+
+    await user.clear(maxDurationInput);
+    await user.type(maxDurationInput, "604801");
+    await user.clear(batchSizeInput);
+    await user.type(batchSizeInput, "10001");
+    await user.clear(batchIntervalInput);
+    await user.type(batchIntervalInput, "1.5");
 
     expect(screen.getByText("Enter max duration of 604,800 or less.")).toBeInTheDocument();
-    expect(screen.getByText("Enter batch size of 0 or more.")).toBeInTheDocument();
+    expect(screen.getByText("Enter batch size of 10,000 or less.")).toBeInTheDocument();
     expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Batch size (miners)")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Batch interval (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(maxDurationInput).toHaveAttribute("aria-invalid", "true");
+    expect(batchSizeInput).toHaveAttribute("aria-invalid", "true");
+    expect(batchIntervalInput).toHaveAttribute("aria-invalid", "true");
     expect(startButton).toBeDisabled();
 
     await user.click(startButton);
@@ -666,7 +678,7 @@ describe("CurtailmentStartModal", () => {
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
     await user.clear(targetInput);
     await user.type(targetInput, "99");
-    expect(targetInput).toHaveValue(99);
+    expect(targetInput).toHaveValue("99");
 
     rerender(
       <CurtailmentStartModal
@@ -686,7 +698,7 @@ describe("CurtailmentStartModal", () => {
     );
 
     const updatedTargetInput = screen.getByLabelText("Fixed target reduction (kW)");
-    expect(updatedTargetInput).toHaveValue(25);
+    expect(updatedTargetInput).toHaveValue("25");
     expect(screen.getByLabelText("Reason")).toHaveValue("Updated reason");
   });
 
@@ -707,14 +719,24 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("renders required start-field validation errors with accessible error state", () => {
+  it("keeps required start-field validation hidden until fields are edited", async () => {
+    const user = userEvent.setup();
     renderModal();
 
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
+    const reasonInput = screen.getByLabelText("Reason");
+
+    expect(screen.queryByText("Enter a target reduction.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Enter a reason.")).not.toBeInTheDocument();
+
+    await user.type(reasonInput, " ");
+    await user.type(targetInput, "5");
+    await user.clear(targetInput);
+
+    expect(reasonInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter a reason.")).toBeInTheDocument();
     expect(targetInput).toHaveAttribute("aria-invalid", "true");
     expect(targetInput).toHaveAttribute("aria-describedby", "curtailment-target-kw-error");
     expect(screen.getByText("Enter a target reduction.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Reason")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Enter a reason.")).toBeInTheDocument();
   });
 });
