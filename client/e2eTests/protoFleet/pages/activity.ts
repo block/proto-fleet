@@ -138,20 +138,31 @@ export class ActivityPage extends BasePage {
   }
 
   async validateActivityDetailError(text: string) {
-    await expect(this.page.getByTestId("activity-detail-error")).toContainText(text);
+    await expect(
+      this.page.getByTestId("activity-detail-batch-error").or(this.page.getByTestId("activity-detail-error")),
+    ).toContainText(text);
   }
 
   async getVisibleActivityRowCount() {
     return await this.page.getByTestId("list-row").count();
   }
 
-  async validateLoadMoreVisible() {
-    await expect(this.page.getByRole("button", { name: "Load more", exact: true })).toBeVisible();
+  async validateAnyActivityRowsVisible() {
+    await expect(this.page.getByTestId("list-row").first()).toBeVisible();
   }
 
-  async clickLoadMore() {
-    await this.page.getByRole("button", { name: "Load more", exact: true }).click();
-    await this.waitForActivityListToLoad();
+  async validateLoadMoreVisible() {
+    await expect(this.loadMoreButton()).toBeVisible();
+  }
+
+  async clickLoadMore(previousRowCount: number) {
+    await this.loadMoreButton().click();
+    await expect
+      .poll(async () => await this.getVisibleActivityRowCount(), {
+        timeout: DEFAULT_TIMEOUT,
+        intervals: [100, DEFAULT_INTERVAL],
+      })
+      .toBeGreaterThan(previousRowCount);
   }
 
   private latestActivityRow(): Locator {
@@ -165,7 +176,11 @@ export class ActivityPage extends BasePage {
   }
 
   private filterPillByLabel(label: string): Locator {
-    return this.page.locator("button").filter({ hasText: label });
+    return this.page.getByTestId("activity-filter-pills").getByRole("button", { name: label, exact: true });
+  }
+
+  private loadMoreButton(): Locator {
+    return this.page.getByTestId("activity-load-more-button");
   }
 
   private async selectDropdownFilter(title: string, optionLabel: string) {

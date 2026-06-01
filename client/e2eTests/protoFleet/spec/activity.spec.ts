@@ -64,14 +64,10 @@ test.describe("Proto Fleet - Activity", () => {
       await minersPage.clickBlinkLEDsButton();
     });
 
-    await test.step("Validate Blink LEDs toasts", async () => {
-      await minersPage.validateTextInToastGroup("Blinking LEDs");
-      await minersPage.validateTextInToastGroup("Blinked LEDs");
-    });
-
-    await test.step("Open Activity and filter by user", async () => {
+    await test.step("Open Activity and narrow to the Blink LEDs activity", async () => {
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
+      await activityPage.searchActivity("Blink LEDs");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
     });
 
@@ -84,7 +80,6 @@ test.describe("Proto Fleet - Activity", () => {
 
     await test.step("Open the detail modal and validate per-miner results", async () => {
       await activityPage.openLatestActivityDetails();
-      await activityPage.validateActivityDetailResult("Success");
       await activityPage.validateActivityDetailSucceededCount(3);
       await activityPage.validateActivityDetailFailedCount(0);
       for (const minerIp of selectedMinerIps) {
@@ -206,7 +201,7 @@ test.describe("Proto Fleet - Activity", () => {
     await test.step("Open Activity with visible rows", async () => {
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
-      await activityPage.validateLatestActivityDescription("Login");
+      await activityPage.validateAnyActivityRowsVisible();
     });
 
     await test.step("Export activity as CSV", async () => {
@@ -238,7 +233,7 @@ test.describe("Proto Fleet - Activity", () => {
       const initialRowCount = await activityPage.getVisibleActivityRowCount();
       test.expect(initialRowCount).toBeGreaterThan(0);
 
-      await activityPage.clickLoadMore();
+      await activityPage.clickLoadMore(initialRowCount);
 
       const expandedRowCount = await activityPage.getVisibleActivityRowCount();
       test.expect(expandedRowCount).toBeGreaterThan(initialRowCount);

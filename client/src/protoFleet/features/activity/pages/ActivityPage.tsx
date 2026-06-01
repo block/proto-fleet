@@ -147,7 +147,7 @@ const ActivityPage = () => {
             onUsersChange={setSelectedUsers}
           />
           {activeFilterPills.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div data-testid="activity-filter-pills" className="flex flex-wrap gap-2">
               {activeFilterPills.map((pill) => (
                 <Button
                   key={pill.key}
@@ -155,6 +155,7 @@ const ActivityPage = () => {
                   variant={variants.accent}
                   prefixIcon={<DismissTiny />}
                   onClick={pill.onRemove}
+                  testId={pill.key}
                 >
                   {pill.label}
                 </Button>
@@ -182,6 +183,7 @@ const ActivityPage = () => {
         {hasMore ? (
           <div className="flex justify-center py-6">
             <Button
+              testId="activity-load-more-button"
               variant={variants.secondary}
               size={sizes.compact}
               onClick={loadMore}

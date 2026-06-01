@@ -134,7 +134,7 @@ function BatchDeviceResults({
 
   if (!data) {
     return error ? (
-      <div data-testid="activity-detail-error" className="text-intent-critical flex items-center gap-2 text-200">
+      <div data-testid="activity-detail-batch-error" className="text-intent-critical flex items-center gap-2 text-200">
         <Alert width="w-3.5" />
         <span>{error}</span>
       </div>
