@@ -301,12 +301,12 @@ func (s *Service) PauseSchedule(ctx context.Context, scheduleID int64) (*pb.Sche
 	return paused, nil
 }
 
-// ResumeSchedule reactivates a paused schedule. authorizeAction, if
-// non-nil, runs inside the same transaction as the read and update so
-// the caller's authority is checked against the same row state that
-// gets resumed. Used to close a TOCTOU window where a separate
-// pre-flight authz read could authorize a different action than the
-// one finally resumed if an Update raced in between.
+// ResumeSchedule reactivates a paused schedule. authorizeAction runs
+// inside the same transaction as the read and update so the caller's
+// authority is checked against the same row state that gets resumed —
+// without it the per-action gate could authorize one action and then
+// resume a different one if an Update raced in between. Callers must
+// pass a non-nil callback.
 func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authorizeAction func(pb.ScheduleAction) error) (*pb.Schedule, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -319,10 +319,8 @@ func (s *Service) ResumeSchedule(ctx context.Context, scheduleID int64, authoriz
 			return nil, err
 		}
 
-		if authorizeAction != nil {
-			if err := authorizeAction(existing.Action); err != nil {
-				return nil, err
-			}
+		if err := authorizeAction(existing.Action); err != nil {
+			return nil, err
 		}
 
 		nextRun, err := ComputeNextRun(existing, s.now())
