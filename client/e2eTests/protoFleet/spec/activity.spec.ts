@@ -17,7 +17,7 @@ test.describe("Proto Fleet - Activity", () => {
 
   test.afterEach("CLEANUP: Delete schedules created during activity tests", async ({ browser }, testInfo) => {
     const isMobile = testInfo.project.use?.isMobile ?? false;
-    const viewport = testInfo.project.use?.viewport;
+    const viewport = testInfo.project.use?.viewport ?? undefined;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
 
     try {
@@ -216,7 +216,7 @@ test.describe("Proto Fleet - Activity", () => {
   });
 
   test("Activity load more appends older rows", async ({ activityPage, browser, commonSteps }, testInfo) => {
-    const viewport = testInfo.project.use?.viewport;
+    const viewport = testInfo.project.use?.viewport ?? undefined;
     const isMobile = testInfo.project.use?.isMobile ?? false;
 
     await commonSteps.loginAsAdmin();
