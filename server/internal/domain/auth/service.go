@@ -191,6 +191,16 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
 	}
 
+	// Effective permission keys for the caller, projected from every
+	// assignment the user holds in this org. The client uses these for
+	// show/hide gating; the server still enforces scope per-request via
+	// RequirePermission, so this projection is intentionally coarse
+	// (union across scopes).
+	eff, err := s.permResolver.LoadEffective(ctx, user.ID, orgs[0].ID)
+	if err != nil {
+		return nil, nil, fleeterror.NewInternalErrorf("error loading effective permissions: %v", err)
+	}
+
 	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
 
 	s.logActivity(ctx, activitymodels.Event{
@@ -213,6 +223,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
+			Permissions:            eff.FlatKeys(),
 		},
 	}, cookie, nil
 }
