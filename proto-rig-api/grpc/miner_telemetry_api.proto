@@ -1,0 +1,67 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: miner_telemetry_api.proto
+// Description: gRPC server-streaming API exposed by the on-rig
+//              telemetry-service. Streams OTLP metrics and OTLP logs
+//              aggregated from all services on the rig to an off-rig client
+//              (otlp-bridge). Each batch carries a prost-encoded OTLP request
+//              as opaque bytes so the bridge can pass it through to a
+//              Prometheus / OTel collector without transcoding.
+
+syntax = "proto3";
+
+package miner_telemetry_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------
+// MinerTelemetryApi service
+// ---------------------------------------------------------------------------
+
+service MinerTelemetryApi {
+  // Server-streaming. The server emits an immediate snapshot, then a fresh
+  // MetricsBatch on every NATS ingestion update for any matching service.
+  // service_names may filter the stream (empty = all services).
+  rpc StreamMetrics(StreamMetricsRequest) returns (stream MetricsBatch);
+
+  // Server-streaming. The server follows live log entries as they arrive on
+  // NATS. Logs emitted while no client is connected are not replayed.
+  rpc StreamLogs(StreamLogsRequest) returns (stream LogsBatch);
+}
+
+// ---------------------------------------------------------------------------
+// Metrics stream
+// ---------------------------------------------------------------------------
+
+message StreamMetricsRequest {
+  // Optional service-name filter. Empty list streams every service.
+  repeated string service_names = 1;
+}
+
+message MetricsBatch {
+  // Prost-encoded
+  // opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest.
+  // Treated as opaque bytes on the wire so the rpc crate does not need the
+  // OTLP message types compiled in.
+  bytes otlp_payload = 1;
+
+  // Server wall-clock time at which this batch was emitted.
+  google.protobuf.Timestamp emitted_at = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Logs stream
+// ---------------------------------------------------------------------------
+
+message StreamLogsRequest {
+  // Optional service-name filter. Empty list streams every service.
+  repeated string service_names = 1;
+}
+
+message LogsBatch {
+  // Prost-encoded
+  // opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest.
+  bytes otlp_payload = 1;
+}

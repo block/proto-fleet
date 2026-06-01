@@ -54,7 +54,7 @@ service MinerDebugApi {
     rpc SetRecoveryLimits(SetRecoveryLimitsMessage) returns (miner_common_api.ApiResultResponse);
 
     // Fan control
-    rpc SetFanSpeed(SetFanSpeedRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetFanSpeed(SetFanSpeedRequest) returns (SetFanSpeedResponse);
     rpc GetFanSpeed(miner_common_api.EmptyRequest) returns (GetFanSpeedResponse);
 
     // Temperature control
@@ -65,7 +65,6 @@ service MinerDebugApi {
     rpc GetMinerErrorStats(miner_common_api.EmptyRequest) returns (MinerErrorStats);
     rpc ResetMinerErrorStats(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
     rpc GetHashboardErrorStats(miner_common_api.EmptyRequest) returns (HashboardErrorStatsList);
-    rpc ResetHashboardErrorStats(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
     rpc GetPsuErrorStats(miner_common_api.EmptyRequest) returns (PsuErrorStatsList);
     rpc ResetPsuErrorStats(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
 
@@ -121,7 +120,6 @@ message HashboardErrorStats {
     uint32 hb_max_temp_count = 6;              // [HB] Count of hashboard exceeding max temp.
     uint32 hb_over_current_count = 7;          // [HB] Count of hashboard over current errors.
     uint32 hb_over_voltage_count = 8;          // [HB] Count of hashboard over voltage errors.
-    uint32 hb_power_lost_count = 9;            // [HB] Count of hashboard power lost errors.
     uint32 hb_under_voltage_count = 10;        // [HB] Count of hashboard under voltage errors.
     uint32 hb_usb_connection_lost_count = 11;  // [HB] Count of hashboard USB connection lost errors.
     bool is_connected = 12;                    // [HB] Has the hashboard reconnected since the last disconnect.
@@ -133,6 +131,13 @@ message PsuErrorStatsList {
 }
 
 message PsuErrorStats {
+    reserved 8, 9, 10, 13, 19;
+    reserved "fans_fault_count",
+             "input_fault_count",
+             "output_fault_count",
+             "no_input_voltage_fault_count",
+             "power_no_good_count";
+
     uint32 index = 1;
     uint32 bay_index = 2;
     uint32 over_temp_count = 3;
@@ -140,18 +145,13 @@ message PsuErrorStats {
     uint32 over_voltage_count = 5;
     uint32 under_voltage_count = 6;
     uint32 communication_error_count = 7;
-    uint32 fans_fault_count = 8;
-    uint32 input_fault_count = 9;
-    uint32 output_fault_count = 10;
     uint32 llc_fault_count = 11;
     uint32 pfc_fault_count = 12;
-    uint32 no_input_voltage_fault_count = 13;
     bool enabled = 14;
     uint32 input_over_voltage_count = 15;
     uint32 input_under_voltage_count = 16;
     uint32 input_over_current_count = 17;
     uint32 over_power_count = 18;
-    uint32 power_no_good_count = 19;
 }
 
 // --------------------
@@ -176,6 +176,11 @@ message MiningInitStats {
 // --------------------
 // Fan control messages
 // --------------------
+message SetFanSpeedResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated uint32 updated_fan_ids = 2; // Fan IDs whose speed was set successfully
+    repeated uint32 failed_fan_ids = 3;  // Fan IDs that failed to update
+}
 
 message GetFanSpeedResponse {
     miner_common_api.ApiResult result = 1;
@@ -288,6 +293,9 @@ message RecoveryLimitSetting {
 // This config structure is used in mcdd mining_control task to store/track the
 // recovery limits
 message RecoveryLimits {
+    reserved 13, 15, 18;
+    reserved "psu_fans_fault", "psu_output_fault", "psu_other";
+
     RecoveryLimitSetting asic_temp_and_voltage = 1;
     RecoveryLimitSetting hashboard_over_temp = 2;
     RecoveryLimitSetting hashboard_over_current = 3;
@@ -300,12 +308,9 @@ message RecoveryLimits {
     RecoveryLimitSetting psu_over_voltage = 10;
     RecoveryLimitSetting psu_under_voltage = 11;
     RecoveryLimitSetting psu_communication_error = 12;
-    RecoveryLimitSetting psu_fans_fault = 13;
     RecoveryLimitSetting psu_input_fault = 14;
-    RecoveryLimitSetting psu_output_fault = 15;
     RecoveryLimitSetting asic_communication_error = 16;
     RecoveryLimitSetting asic_over_temp = 17;
-    RecoveryLimitSetting psu_other = 18;  // Bucket for other PSU errors (e.g., transient MFR register issues)
     RecoveryLimitSetting psu_hardware_failure = 19;  // Hardware failures requiring shutdown (e.g., PFC/LLC circuit failures)
 }
 

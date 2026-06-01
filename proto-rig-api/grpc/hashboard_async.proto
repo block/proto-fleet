@@ -34,6 +34,21 @@ enum error_cause {
     UNKNOWN_ERROR = 99;
 }
 
+enum voltage_domain {
+    // Default, voltage domain VDD
+    VDD = 0;
+
+    // MC3 voltage domains, difference between the voltage sensors
+    VDD_VDDI3 = 1;
+    VDDI3_VDDI2 = 2;
+    VDDI2_VDDI1 = 3;
+    VDDI1 = 4;
+
+    // MC3 Cross domain voltage limits
+    VDD_VDDI1 = 5;
+    VDDI3_VSS = 6;
+}
+
 message asic_error_state {
     // The ID of the ASIC
     uint32 id = 1;
@@ -43,6 +58,10 @@ message asic_error_state {
 
     // At the time of the error, the temperature of the ASIC
     float temperature = 3;
+
+    // The voltage domain for the limit violation at time of error.
+    // Only valid for under/over voltage limit errors
+    voltage_domain voltage_domain = 4;
 }
 
 message hashboard_error {
@@ -93,8 +112,23 @@ message async_system_health {
     // The speed of fans in RPM
     uint32 fan = 11;
 
+    // The fan current in amps
+    float fan_current = 13;
+
+    // The fan current in watts, voltage is system voltage
+    float fan_power = 14;
+
+    // New diagnostic info available for fetching
+    bool coredump_available = 15;
+
+    // True if the disciplined clock is synchronised to server time.
+    bool time_synced = 16;
+
     // Optional: The cause of the error if the mining state is MINING_STATE_ERROR
     repeated hashboard_error errors = 99;
+
+    // Transient warnings (auto-clearing, sent once per occurrence)
+    repeated hashboard_error warnings = 100;
 }
 
 message async_mining_nonce {
@@ -127,8 +161,19 @@ message asic_status {
     // Pass rate of the ASIC in percent
     float pass_rate = 4;
 
-    // Hashrate of the ASIC in GH/s
+    // Hashrate of the ASIC in H/s
     float hash_rate = 5;
+}
+
+message asic_debug_status {
+    // Ulink ECC (MC3 only)
+    uint32 uecc0 = 1;
+    uint32 uecc1 = 2;
+    uint32 uecc2 = 3;
+
+    float vddi1 = 4;
+    float vddi2 = 5;
+    float vddi3 = 6;
 }
 
 message async_asic_health {
@@ -137,6 +182,22 @@ message async_asic_health {
 
     // Array of ASIC statuses
     repeated asic_status asics = 2;
+}
+
+message async_asic_debug_health {
+    // Monotonic counter of the number slots processed by the scheduler
+    uint32 slot_counter = 1;
+
+    // Array of ASIC statuses
+    repeated asic_debug_status asics = 2;
+}
+
+enum hashboard_async_message_type {
+    ASYNC_NONE = 0;
+    ASYNC_HEARTBEAT = 1;
+    ASYNC_SYSTEM_HEALTH = 2;
+    ASYNC_ASIC_HEALTH = 100;
+    ASYNC_MINING_NONCE = 101;
 }
 
 message hashboard_async {
@@ -150,6 +211,7 @@ message hashboard_async {
         // Mining
         async_asic_health async_asic_health = 100;
         async_mining_nonce async_mining_nonce = 101;
+        async_asic_debug_health async_asic_debug_health = 102;
     }
 
     // The timestamp of the message in milliseconds

@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package fwpb;
+
+option go_package = "pkg/proto;hashboard";
+
+message evb_power_on_cmd {
+    bool power_on = 1;
+}
+
+message evb_power_on_rsp {}
+
+message evb_packet_send_cmd {
+    bytes data = 1;
+    uint32 rx_len = 2;
+}
+
+message evb_packet_send_rsp {
+    bytes data = 1;
+}

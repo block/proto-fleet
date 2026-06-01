@@ -129,6 +129,7 @@ message UploadResponse {
 
 message SchedulePsuFirmwareUpdateRequest {
     bool force = 1;
+    map<uint32, string> psu_types = 2;  // Per-PSU type overrides: psu_id → type string. Absent = auto-detect.
 }
 
 message SchedulePsuFirmwareUpdateResponse {

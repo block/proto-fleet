@@ -27,6 +27,7 @@ import "miner_error_code.proto";
 import "miner_psu_api.proto";
 import "miner_fan_api.proto";
 import "hashboard_cmd.proto";
+import "miner_hb_api.proto";
 
 // ---------------------------------
 // Miner Data API service definition
@@ -95,19 +96,6 @@ enum CoolingMode {
     COOLING_MODE_OFF = 1;
     COOLING_MODE_AUTO = 2;
     COOLING_MODE_MANUAL = 3;
-}
-
-enum HashboardState {
-    HASHBOARD_STATE_UNKNOWN = 0;
-    HASHBOARD_STATE_OFF = 1;
-    HASHBOARD_STATE_READY_FOR_POWER_ON = 2;
-    HASHBOARD_STATE_POWERING_ON = 3;
-    HASHBOARD_STATE_ON = 4;
-    HASHBOARD_STATE_CALIBRATING = 5;
-    HASHBOARD_STATE_MINING = 6;
-    HASHBOARD_STATE_POWERING_OFF = 7;
-    HASHBOARD_STATE_ERROR = 8;
-    HASHBOARD_STATE_ERROR_WITH_CONNECTED = 9;
 }
 
 enum UnifiedMinerFieldType {
@@ -485,13 +473,12 @@ message HashboardStatusResponse {
 
     uint32 hashboard_id = 2;
     string serial_number = 3;
-    HashboardState state = 4;
+    miner_hb_api.HashboardServiceState state = 4;
     uint32 uptime_s = 5;
-    uint32 power_on_count = 6;
-    uint32 hardware_errors = 7;
+    uint32 hardware_errors = 6;
 
-    MiningStatistics mining_statistics = 10;
-    repeated AsicStatusResponse asics = 11;
+    MiningStatistics mining_statistics = 7;
+    repeated AsicStatusResponse asics = 8;
 
 }
 
@@ -502,6 +489,9 @@ message AsicMiningStatistics {
     double temperature_c = 4;
     double voltage_mv = 5;
     double frequency_mhz = 6;
+    double vddi3_mv = 21;
+    double vddi2_mv = 22;
+    double vddi1_mv = 23;
 }
 
 message AsicStatusRequest {

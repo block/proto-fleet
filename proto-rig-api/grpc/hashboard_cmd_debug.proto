@@ -107,7 +107,7 @@ message async_message_interval_cmd {
     uint32 interval = 1;
 
     // The message to change the interval on
-    hashboard_async message = 2;
+    hashboard_async_message_type message_type = 2;
 }
 
 message async_message_interval_rsp {}
