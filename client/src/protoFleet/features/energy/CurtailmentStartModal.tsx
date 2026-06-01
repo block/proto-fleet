@@ -78,18 +78,6 @@ interface CurtailmentStartModalProps {
   isSubmitting?: boolean;
 }
 
-interface FieldProps {
-  id: string;
-  label: string;
-  value: string;
-  disabled?: boolean;
-  units?: string;
-  inputMode?: "decimal" | "numeric";
-  type?: "number" | "text";
-  error?: string;
-  onChange: (value: string) => void;
-}
-
 interface SectionProps {
   title: string;
   subtext?: string;
@@ -288,32 +276,6 @@ function validateCurtailmentFormValues(
   }
 
   return localErrors;
-}
-
-function Field({
-  id,
-  label,
-  value,
-  disabled = false,
-  units,
-  inputMode,
-  type = "text",
-  error,
-  onChange,
-}: FieldProps): ReactElement {
-  return (
-    <Input
-      id={id}
-      label={label}
-      initValue={value}
-      disabled={disabled}
-      units={units}
-      inputMode={inputMode}
-      type={type}
-      error={error}
-      onChange={onChange}
-    />
-  );
 }
 
 function Section({ title, subtext, children }: SectionProps): ReactElement {
@@ -635,10 +597,10 @@ function CurtailmentStartModalContent({
         abovePanes={previewPane ? <div className="px-6 pb-6 laptop:hidden">{previewPane}</div> : null}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-            <Field
+            <Input
               id="curtailment-reason"
               label="Reason"
-              value={values.reason}
+              initValue={values.reason}
               type="text"
               error={effectiveErrors.reason}
               onChange={(value) => updateValue("reason", value)}
@@ -649,29 +611,29 @@ function CurtailmentStartModalContent({
               subtext={isEditMode ? undefined : "Fleet will automatically curtail the least efficient miners first."}
             >
               <div className="grid gap-3">
-                <Field
+                <Input
                   id="curtailment-target-kw"
                   label="Fixed target reduction (kW)"
-                  value={values.targetKw}
+                  initValue={values.targetKw}
                   disabled={isEditMode}
                   inputMode="decimal"
                   error={effectiveErrors.targetKw}
                   onChange={(value) => updateValue("targetKw", value)}
                 />
                 <div className="grid gap-3 tablet:grid-cols-2">
-                  <Field
+                  <Input
                     id="curtailment-min-duration"
                     label="Min duration (sec)"
-                    value={values.minDurationSec}
+                    initValue={values.minDurationSec}
                     disabled={isEditMode}
                     inputMode="numeric"
                     error={effectiveErrors.minDurationSec}
                     onChange={(value) => updateValue("minDurationSec", value)}
                   />
-                  <Field
+                  <Input
                     id="curtailment-max-duration"
                     label="Max duration (sec)"
-                    value={values.maxDurationSec}
+                    initValue={values.maxDurationSec}
                     inputMode="numeric"
                     error={effectiveErrors.maxDurationSec}
                     onChange={(value) => updateValue("maxDurationSec", value)}
@@ -682,19 +644,19 @@ function CurtailmentStartModalContent({
 
             <Section title="Restore behavior">
               <div className="grid gap-3 tablet:grid-cols-2">
-                <Field
+                <Input
                   id="curtailment-restore-batch-size"
                   label="Batch size (miners)"
-                  value={values.restoreBatchSize}
+                  initValue={values.restoreBatchSize}
                   disabled={isEditMode}
                   inputMode="numeric"
                   error={effectiveErrors.restoreBatchSize}
                   onChange={(value) => updateValue("restoreBatchSize", value)}
                 />
-                <Field
+                <Input
                   id="curtailment-restore-batch-interval"
                   label="Batch interval (sec)"
-                  value={values.restoreIntervalSec}
+                  initValue={values.restoreIntervalSec}
                   inputMode="numeric"
                   error={effectiveErrors.restoreIntervalSec}
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
