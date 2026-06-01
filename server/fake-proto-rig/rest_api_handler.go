@@ -456,8 +456,10 @@ type TelemetryResponse struct {
 
 // TelemetryConfig is the desired telemetry-service state for
 // PUT /api/v1/system/telemetry (matches OpenAPI TelemetryConfig).
+// Enabled is a pointer so an absent or null field (which the schema marks
+// required) is rejected rather than silently read as false.
 type TelemetryConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled *bool `json:"enabled"`
 }
 
 // TelemetryServiceStatus reports whether the telemetry-service is running
@@ -1786,8 +1788,14 @@ func (h *RESTApiHandler) handleTelemetryConfig(w http.ResponseWriter, r *http.Re
 			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 			return
 		}
-		h.state.SetTelemetryEnabled(cfg.Enabled)
-		h.writeJSON(w, http.StatusOK, telemetryServiceStatus(cfg.Enabled))
+		// enabled is required by the schema; reject {} or {"enabled": null}
+		// rather than letting a missing field silently stop the telemetry-service.
+		if cfg.Enabled == nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "enabled is required")
+			return
+		}
+		h.state.SetTelemetryEnabled(*cfg.Enabled)
+		h.writeJSON(w, http.StatusOK, telemetryServiceStatus(*cfg.Enabled))
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}

@@ -2101,15 +2101,31 @@ func TestTelemetryService_PUT_StopsServiceAndPersists(t *testing.T) {
 }
 
 func TestTelemetryService_PUT_InvalidBody_Returns400(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
+	// enabled is required by the schema, so a malformed body, an empty object,
+	// or an explicit null must be rejected without mutating telemetry state.
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"malformed JSON", `{not json`},
+		{"missing enabled", `{}`},
+		{"null enabled", `{"enabled": null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			h := NewRESTApiHandler(state)
 
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/telemetry", strings.NewReader(`{not json`))
-	h.handleTelemetryConfig(rr, req)
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/telemetry", strings.NewReader(tc.body))
+			h.handleTelemetryConfig(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+			}
+			if !state.IsTelemetryEnabled() {
+				t.Error("telemetry must stay enabled (default) when the request is rejected")
+			}
+		})
 	}
 }
 
