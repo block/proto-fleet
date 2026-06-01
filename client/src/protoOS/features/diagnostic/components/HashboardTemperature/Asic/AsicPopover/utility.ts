@@ -6,8 +6,8 @@ import { type MetricTimeSeries } from "@/protoOS/store";
 import { type TemperatureUnit } from "@/protoOS/store";
 import { ChartData } from "@/shared/components/LineChart/types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertMegahashSecToTerahashSec } from "@/shared/utils/utility";
-import { convertCtoF } from "@/shared/utils/utility";
+import { convertMegahashSecToTerahashSec } from "@/shared/utils/telemetryFormat";
+import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 export const convertTemperatureValues = (data: TemperatureResponseTemperaturedata["data"]) => {
   return data?.map((temperature) => ({

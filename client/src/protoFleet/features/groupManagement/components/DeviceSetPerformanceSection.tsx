@@ -14,7 +14,7 @@ import { FleetDuration } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/utility";
+import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/telemetryFormat";
 
 interface DeviceSetPerformanceSectionProps {
   duration: FleetDuration;

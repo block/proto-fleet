@@ -1,6 +1,6 @@
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { convertCtoF } from "@/shared/utils/utility";
+import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 interface TemperatureValueProps {
   value: number | undefined | null;

@@ -9,7 +9,7 @@ import { minimalMargin } from "@/shared/components/Popover/constants.ts";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { formatHashrateWithUnit } from "@/shared/utils/utility";
+import { formatHashrateWithUnit } from "@/shared/utils/telemetryFormat";
 
 // import { dangerTemp } from "../../constants";
 import { getRowLabel } from "@/shared/utils/utility";

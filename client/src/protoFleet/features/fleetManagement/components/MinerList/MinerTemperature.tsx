@@ -5,7 +5,7 @@ import { useTemperatureUnit } from "@/protoFleet/store";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertCtoF } from "@/shared/utils/utility";
+import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 type MinerTemperatureProps = {
   miner: MinerStateSnapshot;

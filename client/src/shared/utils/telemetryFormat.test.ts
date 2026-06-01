@@ -5,8 +5,10 @@ import {
   formatEfficiencyOrDash,
   formatHashrate,
   formatHashrateOrDash,
+  formatHashrateWithUnit,
   formatPowerMwOrDash,
   formatPowerUsedCapacity,
+  formatTempRange,
 } from "./telemetryFormat";
 
 describe("formatHashrate", () => {
@@ -82,5 +84,51 @@ describe("OrDash variants", () => {
     expect(formatHashrateOrDash(500)).toBe("500.0 TH/s");
     expect(formatEfficiencyOrDash(28.5)).toBe("28.5 J/TH");
     expect(formatPowerMwOrDash(12_345)).toBe("12.3 MW");
+  });
+});
+
+describe("formatHashrateWithUnit", () => {
+  it("returns TH/S for values <= 1000", () => {
+    expect(formatHashrateWithUnit(0)).toEqual({ value: 0, unit: "TH/S" });
+    expect(formatHashrateWithUnit(500)).toEqual({ value: 500, unit: "TH/S" });
+    expect(formatHashrateWithUnit(1000)).toEqual({ value: 1000, unit: "TH/S" });
+  });
+
+  it("returns PH/S for values > 1000", () => {
+    expect(formatHashrateWithUnit(1001)).toEqual({ value: 1.001, unit: "PH/S" });
+    expect(formatHashrateWithUnit(2000)).toEqual({ value: 2, unit: "PH/S" });
+    expect(formatHashrateWithUnit(5500)).toEqual({ value: 5.5, unit: "PH/S" });
+  });
+
+  it("handles undefined/null values", () => {
+    expect(formatHashrateWithUnit()).toEqual({ value: 0, unit: "TH/S" });
+  });
+
+  it("scales sub-TH/s into GH/S", () => {
+    expect(formatHashrateWithUnit(0.5)).toEqual({ value: 500, unit: "GH/S" });
+    expect(formatHashrateWithUnit(0.001)).toEqual({ value: 1, unit: "GH/S" });
+  });
+
+  it("scales > 1,000,000 TH/s into EH/S", () => {
+    expect(formatHashrateWithUnit(2_500_000)).toEqual({ value: 2.5, unit: "EH/S" });
+    // Strict `>` keeps 1,000,000 TH/s in PH/s rather than tipping into EH/s.
+    expect(formatHashrateWithUnit(1_000_000)).toEqual({ value: 1000, unit: "PH/S" });
+  });
+});
+
+describe("formatTempRange", () => {
+  it("formats Celsius range with one decimal", () => {
+    expect(formatTempRange(20.1, 65.5, "C")).toBe("20.1 °C – 65.5 °C");
+  });
+
+  it("formats Fahrenheit range by converting from Celsius", () => {
+    expect(formatTempRange(0, 100, "F")).toBe("32.0 °F – 212.0 °F");
+  });
+
+  it("uses correct degree sign (U+00B0) and en dash", () => {
+    const result = formatTempRange(30, 40, "C");
+    expect(result).toContain("°"); // U+00B0 degree sign
+    expect(result).toContain("–"); // en dash
+    expect(result).not.toContain("º"); // not U+00BA ordinal indicator
   });
 });

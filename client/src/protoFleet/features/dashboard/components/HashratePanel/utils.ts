@@ -1,7 +1,7 @@
 import { AggregationType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { normalizeHashrateToTHs } from "@/protoFleet/features/dashboard/utils/metricNormalization";
 import type { ChartData } from "@/shared/components/LineChart/types";
-import { TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/utility";
+import { TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/telemetryFormat";
 
 /**
  * Transform hashrate metrics from the API to chart data format
