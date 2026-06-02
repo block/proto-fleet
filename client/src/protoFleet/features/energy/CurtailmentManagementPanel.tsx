@@ -95,6 +95,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
+  const foregroundRefreshInFlightRef = useRef(false);
   const errorMessage = startError ?? updateError ?? stopError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
@@ -104,13 +105,17 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const activeEventState = activeEvent?.state;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
+    activeRefreshAbortControllerRef.current?.abort();
+    activeRefreshAbortControllerRef.current = null;
     refreshAbortControllerRef.current?.abort();
     const abortController = new AbortController();
     refreshAbortControllerRef.current = abortController;
+    foregroundRefreshInFlightRef.current = true;
 
     return operation(abortController.signal).finally(() => {
       if (refreshAbortControllerRef.current === abortController) {
         refreshAbortControllerRef.current = null;
+        foregroundRefreshInFlightRef.current = false;
       }
     });
   }, []);
@@ -127,6 +132,10 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     }
 
     const refreshActiveCurtailment = (): void => {
+      if (foregroundRefreshInFlightRef.current || refreshAbortControllerRef.current) {
+        return;
+      }
+
       activeRefreshAbortControllerRef.current?.abort();
       const abortController = new AbortController();
       activeRefreshAbortControllerRef.current = abortController;

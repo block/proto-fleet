@@ -176,18 +176,18 @@ describe("CurtailmentHistory", () => {
     expect(onStopActiveEvent).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the created time as the started detail when an event has not started", async () => {
+  it("uses the created time as the started detail for terminal events missing startedAt", async () => {
     const user = userEvent.setup();
-    const pendingEvent = {
+    const completedEvent = {
       ...mockCurtailmentHistoryEvents[0],
       id: "curt-created-started-detail",
-      reason: "Queued curtailment",
-      state: "pending" as const,
+      reason: "Completed curtailment",
+      state: "completed" as const,
       startedAt: "",
       createdAt: "2026-04-30T13:56:00-04:00",
     };
 
-    render(<CurtailmentHistory events={[pendingEvent]} activeEventId={pendingEvent.id} />);
+    render(<CurtailmentHistory events={[completedEvent]} />);
 
     await user.click(screen.getByTestId("curtailment-history-row-curt-created-started-detail"));
 

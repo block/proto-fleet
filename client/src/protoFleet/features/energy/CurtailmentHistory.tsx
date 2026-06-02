@@ -277,7 +277,7 @@ function CurtailmentSummaryModal({
   stopDisabled,
 }: CurtailmentSummaryModalProps): ReactElement {
   const createdAt = formatDateTime(event.createdAt);
-  const startedAt = formatDateTime(event.startedAt) ?? createdAt;
+  const startedAt = formatDateTime(event.startedAt) ?? (event.state === "pending" ? undefined : createdAt);
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const eventStateConfig = getHistoryEventStateConfig(event);

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -305,8 +305,9 @@ describe("CurtailmentManagementPanel", () => {
     mocks.refreshCurtailment.mockImplementation((options = {}) => {
       if (options.background && options.signal) {
         pollingSignals.push(options.signal);
+        return new Promise(() => {});
       }
-      return new Promise(() => {});
+      return Promise.resolve(emptySnapshot);
     });
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
@@ -334,6 +335,44 @@ describe("CurtailmentManagementPanel", () => {
       expect(pollingSignals).toHaveLength(2);
       expect(pollingSignals[0].aborted).toBe(true);
       expect(pollingSignals[1].aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets user-driven history navigation supersede active polling", async () => {
+    vi.useFakeTimers();
+    const pollingSignals: AbortSignal[] = [];
+    mocks.refreshCurtailment.mockImplementation((options = {}) => {
+      if (options.background && options.signal) {
+        pollingSignals.push(options.signal);
+        return new Promise(() => {});
+      }
+      return Promise.resolve(emptySnapshot);
+    });
+    mocks.goToHistoryPage.mockReturnValue(new Promise(() => {}));
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, state: "restoring" },
+        activeEventId: "curt-1",
+      }),
+    );
+
+    try {
+      render(<CurtailmentManagementPanel />);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(pollingSignals).toHaveLength(1);
+      expect(pollingSignals[0].aborted).toBe(false);
+
+      fireEvent.click(screen.getByRole("button", { name: "Load page 2" }));
+
+      expect(mocks.goToHistoryPage).toHaveBeenCalledWith(2, { signal: expect.any(AbortSignal) });
+      expect(pollingSignals[0].aborted).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(pollingSignals).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
