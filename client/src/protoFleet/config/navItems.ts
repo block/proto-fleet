@@ -34,9 +34,11 @@ export const primaryNavItems: NavItem[] = [
           path: "/sites",
           label: "Sites",
           icon: Site,
-          // Sites listing reads call ListSites/ListBuildings/GetBuilding,
-          // all server-gated on site:read.
-          requiredPermission: "site:read",
+          // SitesPage renders site CRUD with no view-only mode, so gate
+          // the nav on site:manage to match the page's capability
+          // rather than the list RPC's site:read. Same shape as the
+          // Pools and Schedules secondary-nav entries.
+          requiredPermission: "site:manage",
         },
       ]
     : []),
