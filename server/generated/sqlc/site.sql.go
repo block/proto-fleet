@@ -17,7 +17,6 @@ const createSite = `-- name: CreateSite :one
 INSERT INTO site (
     org_id,
     name,
-    description,
     location_city,
     location_state,
     power_capacity_mw,
@@ -35,17 +34,15 @@ INSERT INTO site (
     $6,
     $7,
     $8,
-    $9,
-    COALESCE($10::text, 'US'),
-    $11
+    COALESCE($9::text, 'US'),
+    $10
 )
-RETURNING id, org_id, name, description, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
+RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
 `
 
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
-	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	PowerCapacityMw sql.NullString
@@ -63,7 +60,6 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 	row := q.queryRow(ctx, q.createSiteStmt, createSite,
 		arg.OrgID,
 		arg.Name,
-		arg.Description,
 		arg.LocationCity,
 		arg.LocationState,
 		arg.PowerCapacityMw,
@@ -78,7 +74,6 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		&i.ID,
 		&i.OrgID,
 		&i.Name,
-		&i.Description,
 		&i.LocationCity,
 		&i.LocationState,
 		&i.PowerCapacityMw,
@@ -155,7 +150,7 @@ func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSit
 }
 
 const getSite = `-- name: GetSite :one
-SELECT id, org_id, name, description, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
 FROM site
 WHERE id = $1
   AND org_id = $2
@@ -174,7 +169,6 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 		&i.ID,
 		&i.OrgID,
 		&i.Name,
-		&i.Description,
 		&i.LocationCity,
 		&i.LocationState,
 		&i.PowerCapacityMw,
@@ -277,7 +271,7 @@ func (q *Queries) ListSiteNetworkConfigsForOverlap(ctx context.Context, arg List
 
 const listSites = `-- name: ListSites :many
 SELECT
-    s.id, s.org_id, s.name, s.description, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes,
+    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
     COALESCE(r.rack_count, 0)::bigint AS rack_count
@@ -316,7 +310,6 @@ type ListSitesRow struct {
 	ID              int64
 	OrgID           int64
 	Name            string
-	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	PowerCapacityMw sql.NullString
@@ -348,7 +341,6 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.ID,
 			&i.OrgID,
 			&i.Name,
-			&i.Description,
 			&i.LocationCity,
 			&i.LocationState,
 			&i.PowerCapacityMw,
@@ -765,24 +757,22 @@ func (q *Queries) UnassignRacksFromSite(ctx context.Context, arg UnassignRacksFr
 const updateSite = `-- name: UpdateSite :exec
 UPDATE site
 SET name              = $1,
-    description       = $2,
-    location_city     = $3,
-    location_state    = $4,
-    power_capacity_mw = $5,
-    network_config    = $6,
-    address           = $7,
-    postal_code       = $8,
-    country           = COALESCE($9::text, country),
-    notes             = $10,
+    location_city     = $2,
+    location_state    = $3,
+    power_capacity_mw = $4,
+    network_config    = $5,
+    address           = $6,
+    postal_code       = $7,
+    country           = COALESCE($8::text, country),
+    notes             = $9,
     updated_at        = CURRENT_TIMESTAMP
-WHERE id = $11
-  AND org_id = $12
+WHERE id = $10
+  AND org_id = $11
   AND deleted_at IS NULL
 `
 
 type UpdateSiteParams struct {
 	Name            string
-	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	PowerCapacityMw sql.NullString
@@ -798,7 +788,6 @@ type UpdateSiteParams struct {
 func (q *Queries) UpdateSite(ctx context.Context, arg UpdateSiteParams) error {
 	_, err := q.exec(ctx, q.updateSiteStmt, updateSite,
 		arg.Name,
-		arg.Description,
 		arg.LocationCity,
 		arg.LocationState,
 		arg.PowerCapacityMw,

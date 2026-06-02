@@ -12,7 +12,6 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 	return models.CreateSiteParams{
 		OrgID:           orgID,
 		Name:            req.GetName(),
-		Description:     req.GetDescription(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
@@ -29,7 +28,6 @@ func toUpdateSiteParams(req *pb.UpdateSiteRequest, orgID int64) models.UpdateSit
 		OrgID:           orgID,
 		ID:              req.GetId(),
 		Name:            req.GetName(),
-		Description:     req.GetDescription(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
@@ -74,7 +72,6 @@ func toProtoSite(site *models.Site) *pb.Site {
 	return &pb.Site{
 		Id:              site.ID,
 		Name:            site.Name,
-		Description:     site.Description,
 		LocationCity:    site.LocationCity,
 		LocationState:   site.LocationState,
 		Timezone:        sites.InferTimezone(site.Country, site.LocationState),

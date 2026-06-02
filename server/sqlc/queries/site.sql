@@ -5,7 +5,6 @@
 INSERT INTO site (
     org_id,
     name,
-    description,
     location_city,
     location_state,
     power_capacity_mw,
@@ -17,7 +16,6 @@ INSERT INTO site (
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('name'),
-    sqlc.narg('description'),
     sqlc.narg('location_city'),
     sqlc.narg('location_state'),
     sqlc.narg('power_capacity_mw'),
@@ -77,7 +75,6 @@ ORDER BY s.name;
 -- name: UpdateSite :exec
 UPDATE site
 SET name              = sqlc.arg('name'),
-    description       = sqlc.narg('description'),
     location_city     = sqlc.narg('location_city'),
     location_state    = sqlc.narg('location_state'),
     power_capacity_mw = sqlc.narg('power_capacity_mw'),

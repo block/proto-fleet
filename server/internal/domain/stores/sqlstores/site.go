@@ -27,7 +27,6 @@ func (s *SQLSiteStore) CreateSite(ctx context.Context, params models.CreateSiteP
 	row, err := s.GetQueries(ctx).CreateSite(ctx, sqlc.CreateSiteParams{
 		OrgID:           params.OrgID,
 		Name:            params.Name,
-		Description:     emptyToNullString(params.Description),
 		LocationCity:    emptyToNullString(params.LocationCity),
 		LocationState:   emptyToNullString(params.LocationState),
 		PowerCapacityMw: numericFromFloat(params.PowerCapacityMw),
@@ -71,7 +70,6 @@ func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.Sit
 				ID:              row.ID,
 				OrgID:           row.OrgID,
 				Name:            row.Name,
-				Description:     row.Description.String,
 				LocationCity:    row.LocationCity.String,
 				LocationState:   row.LocationState.String,
 				PowerCapacityMw: floatFromNumeric(row.PowerCapacityMw),
@@ -95,7 +93,6 @@ func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteP
 	q := s.GetQueries(ctx)
 	if err := q.UpdateSite(ctx, sqlc.UpdateSiteParams{
 		Name:            params.Name,
-		Description:     emptyToNullString(params.Description),
 		LocationCity:    emptyToNullString(params.LocationCity),
 		LocationState:   emptyToNullString(params.LocationState),
 		PowerCapacityMw: numericFromFloat(params.PowerCapacityMw),
@@ -322,7 +319,6 @@ func siteFromRow(row sqlc.Site) models.Site {
 		ID:              row.ID,
 		OrgID:           row.OrgID,
 		Name:            row.Name,
-		Description:     row.Description.String,
 		LocationCity:    row.LocationCity.String,
 		LocationState:   row.LocationState.String,
 		PowerCapacityMw: floatFromNumeric(row.PowerCapacityMw),

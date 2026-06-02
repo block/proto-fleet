@@ -147,7 +147,6 @@ const useSites = () => {
         const response = await sitesClient.createSite(
           {
             name: values.name,
-            description: "",
             locationCity: values.locationCity,
             locationState: values.locationState,
             powerCapacityMw: values.powerCapacityMw,
@@ -187,7 +186,6 @@ const useSites = () => {
           {
             id,
             name: values.name,
-            description: "",
             locationCity: values.locationCity,
             locationState: values.locationState,
             powerCapacityMw: values.powerCapacityMw,

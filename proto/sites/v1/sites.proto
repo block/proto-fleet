@@ -56,7 +56,8 @@ service SiteService {
 message Site {
     int64 id = 1;
     string name = 2;
-    string description = 3;
+    reserved 3;            // was: description — superseded by notes.
+    reserved "description";
     string location_city = 4;
     string location_state = 5;
     // timezone is server-derived from (country, location_state) on
@@ -107,7 +108,8 @@ message ListSitesResponse {
 
 message CreateSiteRequest {
     string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string description = 2 [(buf.validate.field).string.max_len = 4096];
+    reserved 2;            // was: description — superseded by notes.
+    reserved "description";
     string location_city = 3 [(buf.validate.field).string.max_len = 255];
     string location_state = 4 [(buf.validate.field).string.max_len = 255];
     reserved 5;            // was: timezone — derived from address.
@@ -143,7 +145,8 @@ message CreateSiteResponse {
 message UpdateSiteRequest {
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
     string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string description = 3 [(buf.validate.field).string.max_len = 4096];
+    reserved 3;            // was: description — superseded by notes.
+    reserved "description";
     string location_city = 4 [(buf.validate.field).string.max_len = 255];
     string location_state = 5 [(buf.validate.field).string.max_len = 255];
     reserved 6;            // was: timezone — derived from address.

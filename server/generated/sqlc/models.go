@@ -871,7 +871,6 @@ type Site struct {
 	ID              int64
 	OrgID           int64
 	Name            string
-	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	PowerCapacityMw sql.NullString

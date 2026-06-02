@@ -8,7 +8,6 @@ type Site struct {
 	ID              int64
 	OrgID           int64
 	Name            string
-	Description     string
 	LocationCity    string
 	LocationState   string
 	PowerCapacityMw float64
@@ -35,7 +34,6 @@ type SiteWithCounts struct {
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
-	Description     string
 	LocationCity    string
 	LocationState   string
 	PowerCapacityMw float64
@@ -51,7 +49,6 @@ type UpdateSiteParams struct {
 	OrgID           int64
 	ID              int64
 	Name            string
-	Description     string
 	LocationCity    string
 	LocationState   string
 	PowerCapacityMw float64
