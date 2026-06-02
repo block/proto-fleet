@@ -16,8 +16,8 @@ tokio-stream = "0.1"
 prost-types = "0.13"
 
 # asic-rs miner library
-asic-rs = "0.5.3"
-asic-rs-core = "0.5.3"
+asic-rs = "0.5.4"
+asic-rs-core = "0.5.4"
 measurements = "0.11"
 
 # config
