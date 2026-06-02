@@ -134,14 +134,14 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 }
 
 func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Event, error) {
-	active, err := d.svc.GetActive(ctx, src.OrganizationID)
+	// Stop only the event this source created; a nil or foreign active event
+	// is not this OFF→ON's to stop, so treat it as a benign no-op (the source
+	// still advances to ON).
+	active, err := d.ActiveSourceEvent(ctx, src)
 	if err != nil {
-		return nil, fmt.Errorf("mqttingest: GetActive on OFF→ON: %w", err)
+		return nil, err
 	}
-	// Stop only the event this source created. A nil active event, or one
-	// owned by a manual or cross-source curtailment, is not this OFF→ON's to
-	// stop — treat as a benign no-op so the source still advances to ON.
-	if active == nil || active.SourceActorID == nil || *active.SourceActorID != sourceActorIDFor(src) {
+	if active == nil {
 		return nil, ErrNoActiveEvent
 	}
 	stopReq := curtailment.StopRequest{
@@ -156,6 +156,20 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 		return nil, errors.New("mqttingest: curtailment service returned nil event on Stop")
 	}
 	return event, nil
+}
+
+// ActiveSourceEvent returns the non-terminal curtailment event this source
+// created, or nil when none exists or the active event belongs to another
+// actor (a manual or cross-source curtailment).
+func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*models.Event, error) {
+	active, err := d.svc.GetActive(ctx, src.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("mqttingest: GetActive: %w", err)
+	}
+	if active == nil || active.SourceActorID == nil || *active.SourceActorID != sourceActorIDFor(src) {
+		return nil, nil
+	}
+	return active, nil
 }
 
 // HasActiveEvent reports whether a non-terminal curtailment event exists

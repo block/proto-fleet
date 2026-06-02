@@ -392,3 +392,51 @@ func TestWorker_HandleMessage_EvictsStaleWinner_ThenProcessesFresh(t *testing.T)
 	_, primaryStillCached := w.lastObs[BrokerPrimary]
 	assert.False(t, primaryStillCached, "stale primary observation must be evicted from the cache")
 }
+
+// A non-OFF loaded state is reconciled to OFF when this source already has an
+// active curtailment event (recovery after a state-read or persist failure),
+// so a later ON stops it instead of being a cold-start no-op. A foreign or
+// absent active event leaves the loaded state untouched.
+func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
+	t.Parallel()
+
+	eventUUID := uuid.New()
+	mine := "mqtt:site-a" // workerSource() is "site-a"
+	foreign := "user:42"
+
+	cases := []struct {
+		name        string
+		persisted   *SourceState // nil → cold (GetSourceState returns NotFound)
+		active      *models.Event
+		wantTarget  Target
+		wantEventID string
+	}{
+		{"cold + own active event reconciles to OFF", nil, &models.Event{EventUUID: eventUUID, SourceActorID: &mine}, TargetOff, eventUUID.String()},
+		{"persisted ON + own active event reconciles to OFF", &SourceState{LastTarget: TargetOn}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine}, TargetOff, eventUUID.String()},
+		{"cold + no active event stays cold", nil, nil, TargetUnknown, ""},
+		{"cold + foreign active event stays cold", nil, &models.Event{EventUUID: uuid.New(), SourceActorID: &foreign}, TargetUnknown, ""},
+		{"persisted OFF left as-is", &SourceState{LastTarget: TargetOff}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine}, TargetOff, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := workerSource()
+			store := newFakeStore()
+			if tc.persisted != nil {
+				st := *tc.persisted
+				st.SourceConfigID = src.ID
+				store.state[src.ID] = st
+			}
+			svc := &fakeService{getActiveResult: tc.active}
+			w := newTestWorker(t, store, svc, src)
+
+			state := w.loadInitialState(context.Background())
+
+			assert.Equal(t, tc.wantTarget, state.LastTarget)
+			if tc.wantEventID != "" {
+				assert.Equal(t, tc.wantEventID, state.LastEdgeEventUUID)
+			}
+		})
+	}
+}

@@ -43,21 +43,7 @@ const observationChannelBuffer = 256
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
 
-	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
-	if err != nil {
-		if !errors.Is(err, ErrSourceStateNotFound) {
-			// A transient read error must not kill the worker — that takes
-			// the fail-safe watchdog down with it. Degrade to cold-start
-			// (the watchdog then fires OFF until a live message arrives).
-			w.cfg.Logger.Warn("mqttingest: get source state failed, starting cold",
-				slog.String("source", w.source.SourceName),
-				slog.Any("error", err))
-		}
-		// Cold-start. LastTarget must be the Unknown sentinel, not the
-		// TargetOff zero value, or the first OFF reads as a repeat and the
-		// curtail dispatch is skipped.
-		state = SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
-	}
+	state := w.loadInitialState(ctx)
 
 	messages := make(chan observation, observationChannelBuffer)
 
@@ -94,6 +80,43 @@ func (w *sourceWorker) run(ctx context.Context) {
 			state = w.handleWatchdog(ctx, state)
 		}
 	}
+}
+
+// loadInitialState reads the persisted state, degrading to cold-start on a
+// read error so a transient DB blip doesn't take the fail-safe watchdog down
+// with it. If the loaded target is non-OFF but this source already has an
+// active curtailment event — a prior OFF started one and the state read or a
+// post-Start persist failed — it reconciles to OFF, so a later ON stops that
+// event instead of being a cold-start no-op and a repeated OFF doesn't keep
+// hitting the one-non-terminal-event-per-org conflict.
+func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
+	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
+	if err != nil {
+		if !errors.Is(err, ErrSourceStateNotFound) {
+			w.cfg.Logger.Warn("mqttingest: get source state failed, starting cold",
+				slog.String("source", w.source.SourceName),
+				slog.Any("error", err))
+		}
+		// LastTarget must be the Unknown sentinel, not the TargetOff zero
+		// value, or the first OFF reads as a repeat and the curtail is skipped.
+		state = SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
+	}
+
+	if state.LastTarget != TargetOff {
+		switch active, aerr := w.cfg.Driver.ActiveSourceEvent(ctx, w.source); {
+		case aerr != nil:
+			w.cfg.Logger.Warn("mqttingest: active-event reconcile failed",
+				slog.String("source", w.source.SourceName),
+				slog.Any("error", aerr))
+		case active != nil:
+			state.LastTarget = TargetOff
+			state.LastEdgeEventUUID = active.EventUUID.String()
+			w.cfg.Logger.Info("mqttingest: reconciled to active curtailment",
+				slog.String("source", w.source.SourceName),
+				slog.String("event_uuid", state.LastEdgeEventUUID))
+		}
+	}
+	return state
 }
 
 func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {
