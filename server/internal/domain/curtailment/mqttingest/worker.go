@@ -170,15 +170,31 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	return state
 }
 
-// handleWatchdog synthesizes a WATCHDOG_OFF dispatch on staleness. After
-// a successful dispatch it records LastTarget=OFF, so later ticks are
-// Idle until a real message clears the stale condition.
+// handleWatchdog dispatches a WATCHDOG_OFF curtail when needed: on
+// staleness (no message within the threshold while not already OFF), or —
+// when the last signal was OFF — if the event was terminated out-of-band
+// and the source must be re-curtailed. After a successful dispatch it
+// records LastTarget=OFF.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	now := w.cfg.Clock()
-	decision := EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold)
-	if decision == WatchdogIdle {
+
+	if prior.LastTarget.IsOff() {
+		// OFF means the source must stay curtailed; re-curtail only if the
+		// event is gone (e.g. an admin terminate), not while it still holds.
+		active, err := w.cfg.Driver.HasActiveEvent(ctx, w.source.OrganizationID)
+		if err != nil {
+			w.cfg.Logger.Warn("mqttingest: watchdog active-event check failed",
+				slog.String("source", w.source.SourceName),
+				slog.Any("error", err))
+			return prior
+		}
+		if active {
+			return prior
+		}
+	} else if EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold) == WatchdogIdle {
 		return prior
 	}
+
 	canonical := CanonicalState{Target: TargetOff, ReceivedAt: now}
 	state, dispatched := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
 	if !dispatched {

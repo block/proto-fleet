@@ -156,6 +156,17 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	return event, nil
 }
 
+// HasActiveEvent reports whether a non-terminal curtailment event exists
+// for the org. The watchdog uses it to re-curtail an OFF source whose
+// event was terminated out-of-band.
+func (d *Driver) HasActiveEvent(ctx context.Context, orgID int64) (bool, error) {
+	active, err := d.svc.GetActive(ctx, orgID)
+	if err != nil {
+		return false, fmt.Errorf("mqttingest: GetActive: %w", err)
+	}
+	return active != nil, nil
+}
+
 // ErrNoActiveEvent is returned by Dispatch on OFF→ON when no
 // non-terminal event exists. Caller treats this as a benign no-op
 // (the subscriber's edge bookkeeping still moves to ON).

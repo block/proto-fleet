@@ -101,7 +101,7 @@ const (
 // EvaluateWatchdog decides whether staleness warrants synthesizing an OFF
 // edge. A zero lastReceivedAt means cold-start (no message ever received).
 func EvaluateWatchdog(lastReceivedAt time.Time, lastTarget Target, now time.Time, threshold time.Duration) WatchdogDecision {
-	// Already OFF — the curtailment event still holds; nothing to do.
+	// Already OFF — staleness alone does not warrant a new curtail.
 	if lastTarget.IsOff() {
 		return WatchdogIdle
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
 // newTestWorker wires a sourceWorker for direct-method exercise. The
@@ -241,4 +242,60 @@ func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker did not stop after cancel")
 	}
+}
+
+// A watchdog tick while OFF must NOT re-dispatch when the curtailment
+// event still holds.
+func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{getActiveResult: &models.Event{EventUUID: uuid.New()}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
+	next := w.handleWatchdog(context.Background(), prior)
+
+	assert.Equal(t, TargetOff, next.LastTarget)
+	assert.Empty(t, svc.startCalls, "active event still holds — no re-curtail")
+	require.Len(t, svc.getActiveCalls, 1)
+}
+
+// A watchdog tick while OFF must re-curtail when the event was terminated
+// out-of-band — the source must stay curtailed.
+func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	svc := &fakeService{getActiveResult: nil, startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
+	next := w.handleWatchdog(context.Background(), prior)
+
+	require.Len(t, svc.getActiveCalls, 1)
+	require.Equal(t, 1, svc.startCallsLen(), "event gone while OFF — must re-curtail")
+	assert.Equal(t, models.PriorityEmergency, svc.startCallAt(0).Priority)
+	assert.Equal(t, TargetOff, next.LastTarget)
+
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	assert.Equal(t, TargetOff, persisted.LastTarget)
+}
+
+// A failed active-event check while OFF must no-op (retry next tick), not
+// re-curtail blindly or advance state.
+func TestWorker_HandleWatchdog_Off_CheckError_NoOp(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{getActiveErr: errors.New("db down")}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
+	next := w.handleWatchdog(context.Background(), prior)
+
+	assert.Equal(t, TargetOff, next.LastTarget)
+	assert.Empty(t, svc.startCalls, "check failed — do not re-curtail blindly")
 }
