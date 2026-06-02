@@ -276,8 +276,10 @@ function CurtailmentSummaryModal({
   onStop,
   stopDisabled,
 }: CurtailmentSummaryModalProps): ReactElement {
-  const startedAt = formatDateTime(event.startedAt);
+  const createdAt = formatDateTime(event.createdAt);
   const endedAt = formatDateTime(event.endedAt);
+  // Ended events can lack startedAt from the backend; use createdAt so completed history never reads as unstarted.
+  const startedAt = formatDateTime(event.startedAt) ?? (endedAt ? createdAt : undefined);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const eventStateConfig = getHistoryEventStateConfig(event);
   const buttons: CurtailmentSummaryModalButton[] = [];
