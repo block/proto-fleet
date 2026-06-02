@@ -304,7 +304,7 @@ function getHistoryEventsWithActiveEvent(
   }
 
   const activeHistoryEvent = getActiveHistoryEvent(activeEvent, events);
-  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id)];
+  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id && !event.displayState)];
 }
 
 function upsertHistoryEvent(

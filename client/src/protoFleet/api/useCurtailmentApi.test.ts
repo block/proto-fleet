@@ -611,6 +611,49 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0].reason).toBe("Dispatch started");
   });
 
+  it("drops stale injected active history rows when the shared active event changes", async () => {
+    const pendingEvent = curtailmentEvent({
+      eventUuid: "curt-shared-a",
+      reason: "Queued dispatch",
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        dispatched: 1,
+        pending: 1,
+        total: 2,
+      }),
+    });
+    const activeEvent = curtailmentEvent({
+      eventUuid: "curt-shared-b",
+      reason: "Dispatch started",
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: pendingEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [pendingEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.historyEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-shared-a",
+        displayState: "curtailing",
+      }),
+    ]);
+
+    act(() => {
+      applyActiveCurtailmentEvent(activeEvent);
+    });
+
+    expect(result.current.activeEventId).toBe("curt-shared-b");
+    expect(result.current.historyEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-shared-b",
+      }),
+    ]);
+  });
+
   it("removes injected active history rows when shared active state stops matching filters", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-filtered-active",
