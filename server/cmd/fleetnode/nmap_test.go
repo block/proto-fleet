@@ -275,7 +275,7 @@ func TestBuildNmapOptions_LocalSubnetTarget_NoSubnetIsAgentIncapable(t *testing.
 	r := &RunCmd{
 		nmapPath:     "/usr/bin/nmap",
 		discoverer:   &stubDiscoverer{},
-		localSubnets: func() ([]string, error) { return nil, errNoLocalPrivateSubnet },
+		localSubnets: func() ([]string, error) { return nil, errNoLocalSubnet },
 	}
 	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
 
