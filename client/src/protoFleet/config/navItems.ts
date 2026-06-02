@@ -34,11 +34,14 @@ export const primaryNavItems: NavItem[] = [
           path: "/sites",
           label: "Sites",
           icon: Site,
-          // SitesPage renders site CRUD with no view-only mode, so gate
-          // the nav on site:manage to match the page's capability
-          // rather than the list RPC's site:read. Same shape as the
-          // Pools and Schedules secondary-nav entries.
-          requiredPermission: "site:manage",
+          // Gate on site:read so any role that can list sites can
+          // navigate to the overview. SitesPage renders the read view
+          // for everyone (ListSites + ListBuildings, both site:read);
+          // the "Add site" CTA and per-card edit/delete affordances
+          // gate on site:manage independently inside the page, so
+          // restricting the nav to site:manage would hide a useful
+          // surface from read-only roles for no security benefit.
+          requiredPermission: "site:read",
         },
       ]
     : []),

@@ -60,10 +60,12 @@ export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly strin
   [settingsActions.updateWorkerNames]: "miner:update_worker_names",
   [settingsActions.security]: "miner:update_password",
 
-  // Adding miners to a collection/group goes through
-  // DeviceCollectionService.AddDevicesToCollection, server-gated on
-  // rack:manage.
-  [groupActions.addToGroup]: "rack:manage",
+  // Add-to-group opens AddToGroupModal, which lists existing groups
+  // (DeviceSetService.ListDeviceSets / rack:read) before writing the
+  // membership (DeviceCollectionService.AddDevicesToCollection /
+  // rack:manage). Require both up front so a rack:manage-only role
+  // doesn't enter a flow that 403s on the first list request.
+  [groupActions.addToGroup]: ["rack:manage", "rack:read"],
 };
 
 // hasAllRequired returns true when every required key is present in
