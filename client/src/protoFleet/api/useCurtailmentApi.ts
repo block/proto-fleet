@@ -248,11 +248,12 @@ function reconcileActiveEventWithHistory(
   }
 
   const hasHistoryTargetSummary = Boolean(matchingHistoryEvent.targetRollup || matchingHistoryEvent.targets.length > 0);
-  const targets = matchingHistoryEvent.targets.length > 0
-    ? matchingHistoryEvent.targets
-    : hasHistoryTargetSummary
-      ? activeEvent.targets
-      : [];
+  const targets =
+    matchingHistoryEvent.targets.length > 0
+      ? matchingHistoryEvent.targets
+      : hasHistoryTargetSummary
+        ? activeEvent.targets
+        : [];
   return create(CurtailmentEventSchema, {
     ...activeEvent,
     state: matchingHistoryEvent.state,
@@ -453,20 +454,33 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, stateFilters, signal),
           ]);
           assertNotAborted(signal);
-          const activeSnapshot = activeRefresh ? activeRefresh.commit() : getActiveCurtailmentSnapshot();
+          const previewActiveSnapshot = activeRefresh ?? getActiveCurtailmentSnapshot();
+          const previewActiveEvent = reconcileActiveEventWithHistory(
+            previewActiveSnapshot.event,
+            historyPageResponse.events,
+          );
+          const previewSnapshot = createSnapshot(
+            previewActiveEvent,
+            historyPageResponse.events,
+            historyPage === 0 && shouldIncludeActiveEventInHistory(previewActiveEvent, stateFilters),
+          );
+          if (requestId !== latestRefreshRequestIdRef.current) {
+            return previewSnapshot;
+          }
+
+          const activeSnapshot = activeRefresh ? activeRefresh.commit() : previewActiveSnapshot;
           const activeEvent = reconcileActiveEventWithHistory(activeSnapshot.event, historyPageResponse.events);
           if (activeEvent !== activeSnapshot.event) {
             applyActiveCurtailmentEvent(activeEvent);
           }
-
-          const nextSnapshot = createSnapshot(
-            activeEvent,
-            historyPageResponse.events,
-            historyPage === 0 && shouldIncludeActiveEventInHistory(activeEvent, stateFilters),
-          );
-          if (requestId !== latestRefreshRequestIdRef.current) {
-            return nextSnapshot;
-          }
+          const nextSnapshot =
+            activeEvent === previewActiveEvent
+              ? previewSnapshot
+              : createSnapshot(
+                  activeEvent,
+                  historyPageResponse.events,
+                  historyPage === 0 && shouldIncludeActiveEventInHistory(activeEvent, stateFilters),
+                );
 
           const nextPageTokens = currentPagination.pageTokens.slice(0, historyPage + 1);
           nextPageTokens[historyPage] = pageToken || undefined;

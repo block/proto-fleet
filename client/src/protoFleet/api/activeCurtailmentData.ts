@@ -111,8 +111,7 @@ export function dismissActiveCurtailmentEvent(eventUuid?: string | null): Active
 
 function shouldPreserveTerminalActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
   return (
-    event.state === CurtailmentEventState.COMPLETED ||
-    event.state === CurtailmentEventState.COMPLETED_WITH_FAILURES
+    event.state === CurtailmentEventState.COMPLETED || event.state === CurtailmentEventState.COMPLETED_WITH_FAILURES
   );
 }
 

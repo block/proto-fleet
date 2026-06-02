@@ -494,6 +494,61 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-active", "curt-completed"]);
   });
 
+  it("does not apply active reconciliation from superseded history refreshes", async () => {
+    const activeEvent = curtailmentEvent({ eventUuid: "curt-superseded" });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-superseded",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        resolved: 2,
+        total: 2,
+      }),
+      targets: [],
+    });
+    let resolveSupersededHistory: (value: { events: CurtailmentEvent[]; nextPageToken: string }) => void = () =>
+      undefined;
+    mockListCurtailmentEvents
+      .mockReturnValueOnce(
+        new Promise<{ events: CurtailmentEvent[]; nextPageToken: string }>((resolve) => {
+          resolveSupersededHistory = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+    applyActiveCurtailmentEvent(activeEvent);
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    let supersededRefresh!: Promise<unknown>;
+    act(() => {
+      supersededRefresh = result.current.refreshCurtailment({ includeActive: false });
+    });
+    await act(async () => {
+      await result.current.refreshCurtailment({ includeActive: false });
+    });
+
+    expect(result.current.activeEvent?.state).toBe("active");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-superseded",
+        state: "active",
+      }),
+    );
+
+    resolveSupersededHistory({ events: [completedEvent], nextPageToken: "" });
+    await act(async () => {
+      await supersededRefresh;
+    });
+
+    expect(result.current.activeEvent?.state).toBe("active");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-superseded",
+        state: "active",
+      }),
+    );
+  });
+
   it("uses the shared active curtailment snapshot for active fields and current history", async () => {
     const pendingEvent = curtailmentEvent({
       eventUuid: "curt-shared",

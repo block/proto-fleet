@@ -90,10 +90,7 @@ describe("activeCurtailmentData", () => {
     const postMutationRefresh = fetchActiveCurtailmentData();
 
     resolveRefresh({ event: undefined });
-    const [preMutationSnapshot, postMutationSnapshot] = await Promise.all([
-      preMutationRefresh,
-      postMutationRefresh,
-    ]);
+    const [preMutationSnapshot, postMutationSnapshot] = await Promise.all([preMutationRefresh, postMutationRefresh]);
     preMutationSnapshot.commit();
     postMutationSnapshot.commit();
 
