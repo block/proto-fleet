@@ -167,10 +167,6 @@ function shouldPreserveTerminalActiveCurtailmentEvent(event: ProtoCurtailmentEve
   );
 }
 
-function shouldPreserveRestoringActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
-  return event.state === CurtailmentEventState.RESTORING;
-}
-
 function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentResponseSnapshot {
   if (event) {
     return { snapshot: { event } };
@@ -178,10 +174,6 @@ function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent)
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
   if (currentSnapshot.event && shouldPreserveTerminalActiveCurtailmentEvent(currentSnapshot.event)) {
-    return { snapshot: currentSnapshot };
-  }
-
-  if (currentSnapshot.event && shouldPreserveRestoringActiveCurtailmentEvent(currentSnapshot.event)) {
     return { snapshot: currentSnapshot };
   }
 

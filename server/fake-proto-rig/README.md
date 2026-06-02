@@ -39,8 +39,6 @@ docker run -p 8080:8080 fake-proto-rig
 | `HTTP_PORT` | Port to listen on | `8080` |
 | `SERIAL_NUMBER` | Device serial number | `PROTO-SIM-<uuid>` |
 | `MAC_ADDRESS` | Device MAC address | Generated from instance ID |
-| `BASE_POWER_W` | Miner-level power telemetry baseline in watts | `3400` |
-| `START_WITH_DEFAULT_POOL` | Seed one default mining pool at startup | `false` |
 
 ### Error Injection
 

@@ -299,8 +299,15 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.dismissTerminalCurtailment).toHaveBeenCalledOnce();
   });
 
-  it("polls active curtailments with a full history refresh so restoring can become restored", async () => {
+  it("polls active curtailments on the current history page so restoring can become restored", async () => {
     vi.useFakeTimers();
+    const pollingSignals: AbortSignal[] = [];
+    mocks.refreshCurtailment.mockImplementation((options = {}) => {
+      if (options.background && options.signal) {
+        pollingSignals.push(options.signal);
+      }
+      return new Promise(() => {});
+    });
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, state: "restoring" },
@@ -317,9 +324,16 @@ describe("CurtailmentManagementPanel", () => {
 
       expect(mocks.refreshCurtailment).toHaveBeenCalledWith({
         background: true,
-        historyPage: 0,
         signal: expect.any(AbortSignal),
       });
+      expect(pollingSignals).toHaveLength(1);
+      expect(pollingSignals[0].aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(pollingSignals).toHaveLength(2);
+      expect(pollingSignals[0].aborted).toBe(true);
+      expect(pollingSignals[1].aborted).toBe(false);
     } finally {
       vi.useRealTimers();
     }

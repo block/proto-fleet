@@ -175,33 +175,3 @@ func TestSetConfigLegacySleepModePersists(t *testing.T) {
 		t.Fatalf("expected RPC GHS 5s 0, got %v", got)
 	}
 }
-
-func TestRPCStatsIncludesChainPower(t *testing.T) {
-	state := &MinerState{
-		MinerType:       "Antminer S19",
-		HashRate:        110,
-		BitmainWorkMode: WorkModeNormal,
-	}
-
-	resp := generateStatsResponse(state)
-	if len(resp.Stats) != 2 {
-		t.Fatalf("expected 2 RPC stats entries, got %d", len(resp.Stats))
-	}
-	if got := resp.Stats[1]["chain_power"]; got != "3250 W" {
-		t.Fatalf("expected chain_power %q, got %#v", "3250 W", got)
-	}
-	if got, ok := resp.Stats[1]["GHS 5s"].(float64); !ok || got <= 0 {
-		t.Fatalf("expected positive GHS 5s, got %#v", resp.Stats[1]["GHS 5s"])
-	}
-
-	body, err := json.Marshal(resp)
-	if err != nil {
-		t.Fatalf("marshal RPC stats response: %v", err)
-	}
-	if !strings.Contains(string(body), `"STATUS"`) {
-		t.Fatalf("expected marshaled response to use STATUS key: %s", string(body))
-	}
-	if !strings.Contains(string(body), `"STATS"`) {
-		t.Fatalf("expected marshaled response to use STATS key: %s", string(body))
-	}
-}

@@ -50,7 +50,6 @@ const (
 	mockLastSharePool       = 0
 	mockDifficultyValue     = 18995326976
 	mockMessageID           = 1
-	mockChainPowerW         = 3250.0
 
 	// Conversion factor for TH/s to GH/s
 	thsToGhsConversionFactor = 1000
@@ -83,8 +82,6 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 		response = generatePoolsResponse(state)
 	case "devs":
 		response = generateDevsResponse(state)
-	case "stats":
-		response = generateStatsResponse(state)
 	default:
 		log.Printf("Unknown command: %s", request.Command)
 		response = map[string]string{"error": "unknown command"}
@@ -212,65 +209,6 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 				PoolRejectedPerc:   rejectedPercent,
 				PoolStalePerc:      mockDevicePercentage,
 				LastGetwork:        now,
-			},
-		},
-		ID: mockMessageID,
-	}
-}
-
-func generateStatsResponse(state *MinerState) StatsResponse {
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-
-	now := time.Now().Unix()
-	effectiveHashRate := state.effectiveHashRateLocked()
-	hashRateGHS := effectiveHashRate * thsToGhsConversionFactor
-	ghs5s := hashRateGHS - hashrate5sVariation
-	ghsav := hashRateGHS
-	ghs30m := hashRateGHS + hashrate30mVariation
-	powerW := mockChainPowerW
-	if state.HashRate > 0 {
-		powerW = mockChainPowerW * effectiveHashRate / state.HashRate
-	}
-	if hashRateGHS == 0 {
-		ghs5s = 0
-		ghsav = 0
-		ghs30m = 0
-		powerW = 0
-	}
-	if ghs5s < 0 {
-		ghs5s = 0
-	}
-
-	return StatsResponse{
-		Status: []StatusInfo{
-			{
-				Status:      "S",
-				When:        now,
-				Code:        statusCodeSummary,
-				Msg:         "CGMiner stats",
-				Description: "cgminer 1.0.0",
-			},
-		},
-		Stats: []map[string]any{
-			{
-				"STATS":   0,
-				"ID":      state.MinerType,
-				"Elapsed": DefaultElapsedTime,
-			},
-			{
-				"STATS":       1,
-				"ID":          "BTM_SOC0",
-				"Elapsed":     DefaultElapsedTime,
-				"GHS 5s":      ghs5s,
-				"GHS av":      ghsav,
-				"GHS 30m":     ghs30m,
-				"chain_power": fmt.Sprintf("%.0f W", powerW),
-				"fan_num":     4,
-				"fan1":        7000,
-				"fan2":        7050,
-				"fan3":        6980,
-				"fan4":        7020,
 			},
 		},
 		ID: mockMessageID,

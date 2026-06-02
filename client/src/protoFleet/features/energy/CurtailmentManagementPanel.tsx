@@ -94,6 +94,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
+  const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const errorMessage = startError ?? updateError ?? stopError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
@@ -125,14 +126,28 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
       return undefined;
     }
 
-    const abortController = new AbortController();
+    const refreshActiveCurtailment = (): void => {
+      activeRefreshAbortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      activeRefreshAbortControllerRef.current = abortController;
+
+      void refreshCurtailment({ background: true, signal: abortController.signal })
+        .catch(() => {})
+        .finally(() => {
+          if (activeRefreshAbortControllerRef.current === abortController) {
+            activeRefreshAbortControllerRef.current = null;
+          }
+        });
+    };
+
     const intervalId = window.setInterval(() => {
-      void refreshCurtailment({ background: true, historyPage: 0, signal: abortController.signal }).catch(() => {});
+      refreshActiveCurtailment();
     }, activeCurtailmentRefreshIntervalMs);
 
     return () => {
       window.clearInterval(intervalId);
-      abortController.abort();
+      activeRefreshAbortControllerRef.current?.abort();
+      activeRefreshAbortControllerRef.current = null;
     };
   }, [activeEventState, refreshCurtailment]);
 

@@ -303,9 +303,6 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "event_uuid", ev.EventUUID)
 		return
 	}
-	if r.enforceMaxDuration(ctx, ev, targets) {
-		return
-	}
 
 	// Liveness check; per-target race-closure happens in dispatchOneCurtail.
 	// DISPATCHING is included alongside PENDING because ticks are serial,
@@ -838,20 +835,19 @@ func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
-// enforceMaxDuration transitions a curtailment to restoring when the
-// max_duration_seconds cap elapses. Active events use started_at; pending
-// events use the first successful curtail dispatch so a target that never
-// confirms cannot hold already-dispatched miners indefinitely.
+// enforceMaxDuration transitions an active event to restoring when the
+// max_duration_seconds cap elapses since started_at. Returns true so the
+// caller skips further active-phase work this tick. AllowUnbounded events
+// and events without started_at short-circuit out.
 func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	if ev.AllowUnbounded || ev.MaxDurationSeconds == nil || *ev.MaxDurationSeconds <= 0 {
 		return false
 	}
-	startedAt := maxDurationStartedAt(ev, targets)
-	if startedAt == nil {
+	if ev.StartedAt == nil {
 		return false
 	}
 	maxDur := time.Duration(*ev.MaxDurationSeconds) * time.Second
-	elapsed := r.now().Sub(*startedAt)
+	elapsed := r.now().Sub(*ev.StartedAt)
 	if elapsed < maxDur {
 		return false
 	}
@@ -868,39 +864,6 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 		"max_duration_seconds", *ev.MaxDurationSeconds,
 		"elapsed_seconds", int64(elapsed.Seconds()))
 	return true
-}
-
-func maxDurationStartedAt(ev *models.Event, targets []*models.Target) *time.Time {
-	if ev.StartedAt != nil {
-		return ev.StartedAt
-	}
-	if ev.State != models.EventStatePending {
-		return nil
-	}
-	return firstCurtailDispatchAt(targets)
-}
-
-func firstCurtailDispatchAt(targets []*models.Target) *time.Time {
-	var startedAt *time.Time
-	for _, t := range targets {
-		if t.DesiredState != "" && t.DesiredState != models.DesiredStateCurtailed {
-			continue
-		}
-		switch t.State {
-		case models.TargetStateDispatched, models.TargetStateConfirmed, models.TargetStateDrifted:
-		case models.TargetStatePending, models.TargetStateDispatching,
-			models.TargetStateResolved, models.TargetStateReleased,
-			models.TargetStateRestoreFailed:
-			continue
-		}
-		if t.LastDispatchedAt == nil {
-			continue
-		}
-		if startedAt == nil || t.LastDispatchedAt.Before(*startedAt) {
-			startedAt = t.LastDispatchedAt
-		}
-	}
-	return startedAt
 }
 
 // observeRestoring drives a restoring event toward terminal. Per tick:

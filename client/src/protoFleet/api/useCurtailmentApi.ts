@@ -316,7 +316,12 @@ function reconcileActiveEventWithTerminalFallback(
     return reconciledActiveEvent;
   }
 
-  return reconcileTerminalRestoringEventWithHistory(fallbackEvent, historyEvents);
+  const terminalFallbackEvent = reconcileTerminalRestoringEventWithHistory(fallbackEvent, historyEvents);
+  if (terminalFallbackEvent) {
+    return terminalFallbackEvent;
+  }
+
+  return fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;
 }
 
 function shouldIncludeActiveEventInHistory(

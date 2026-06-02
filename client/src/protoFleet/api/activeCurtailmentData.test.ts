@@ -149,18 +149,15 @@ describe("activeCurtailmentData", () => {
     await expect(pendingRefresh).rejects.toBeInstanceOf(DOMException);
   });
 
-  it("preserves a restoring curtailment through empty active responses", async () => {
+  it("clears a restoring curtailment after an empty active response", async () => {
     applyActiveCurtailmentEvent(curtailmentEvent("restoring", CurtailmentEventState.RESTORING));
     mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
 
     await refreshActiveCurtailmentData();
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("restoring");
-
-    await refreshActiveCurtailmentData();
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("restoring");
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
-  it("does not let stale empty refreshes clear restoring preservation", async () => {
+  it("does not let stale empty refreshes clear a newer restoring event", async () => {
     let resolveStaleRefresh: (value: { event?: CurtailmentEvent }) => void = () => undefined;
     mockGetActiveCurtailment
       .mockReturnValueOnce(
@@ -177,11 +174,10 @@ describe("activeCurtailmentData", () => {
     const staleSnapshot = await staleRefresh;
     staleSnapshot.commit();
 
-    await refreshActiveCurtailmentData();
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("restoring");
 
     await refreshActiveCurtailmentData();
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("restoring");
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
   it.each([
