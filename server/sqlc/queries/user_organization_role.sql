@@ -59,10 +59,52 @@ WHERE role_id = $1
 ORDER BY user_id, organization_id;
 
 -- name: CountActiveAssignmentsForRole :one
+-- Counts live (user_organization_role, user) pairs. Filtering on
+-- u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
+-- guards: a role only assigned to deactivated users is not actually
+-- granting anything, so DeleteCustomRole should be allowed to clear
+-- it rather than block the admin on phantom assignments.
 SELECT COUNT(*)::BIGINT AS assignment_count
-FROM user_organization_role
-WHERE role_id = $1
-  AND deleted_at IS NULL;
+FROM user_organization_role uor
+JOIN "user" u ON u.id = uor.user_id
+WHERE uor.role_id = $1
+  AND uor.deleted_at IS NULL
+  AND u.deleted_at IS NULL;
+
+-- name: ListEffectivePermissionsForUserForUpdate :many
+-- Race-safety variant of ListEffectivePermissionsForUser. Same join
+-- shape, same row order, same narrowing semantics — but takes
+-- FOR UPDATE on user_organization_role so a concurrent UnassignRole
+-- or DeactivateUser blocks until this transaction commits.
+--
+-- Used by the role-management service's in-transaction parity recheck:
+-- the caller's assignment rows are locked from the moment we read
+-- them, so a demotion committing between the gate and the write
+-- cannot interleave under READ COMMITTED.
+--
+-- The FOR UPDATE clause names uor explicitly so the lock attaches only
+-- to the caller's assignment rows; the role/user/role_permission/
+-- permission joins remain advisory reads. The LEFT JOIN narrowing rule
+-- documented on the non-locking sibling still applies.
+SELECT
+    uor.id          AS assignment_id,
+    uor.role_id     AS role_id,
+    uor.scope_type  AS scope_type,
+    uor.scope_id    AS scope_id,
+    p.key           AS permission_key
+FROM user_organization_role uor
+JOIN role r              ON r.id = uor.role_id
+                        AND r.organization_id = uor.organization_id
+JOIN "user" u            ON u.id = uor.user_id
+LEFT JOIN role_permission rp ON rp.role_id = r.id
+LEFT JOIN permission p       ON p.id = rp.permission_id
+WHERE uor.user_id = $1
+  AND uor.organization_id = $2
+  AND uor.deleted_at IS NULL
+  AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
+ORDER BY uor.id, p.key NULLS FIRST
+FOR UPDATE OF uor;
 
 -- name: ListEffectivePermissionsForUser :many
 -- Single-query resolver source: one row per (assignment, permission)

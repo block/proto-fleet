@@ -211,11 +211,22 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 }
 
 // DeleteCustomRole soft-deletes a custom role. Refuses on any active
-// assignment so callers see a clear blocker (unassign first) instead
-// of the assignment quietly outliving its role row. Built-in roles are
-// rejected with PermissionDenied ("built-in roles cannot be deleted").
-func (s *Service) DeleteCustomRole(ctx context.Context, orgID, roleID int64) error {
+// assignment (live user + live assignment row) so callers see a clear
+// blocker (unassign first) instead of the assignment quietly outliving
+// its role row. Built-in roles are rejected with PermissionDenied
+// ("built-in roles cannot be deleted").
+//
+// callerID drives the in-transaction parity recheck via
+// authorizeCallerCanGrant: the middleware gate verifies role:manage
+// at request entry, but a caller demoted between the gate and the
+// write would otherwise still be able to commit the delete. The
+// recheck takes FOR UPDATE on the caller's assignment rows so a
+// concurrent UnassignRole blocks until this tx commits.
+func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID int64) error {
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, nil); err != nil {
+			return err
+		}
 		existing, err := getRoleInOrg(ctx, q, orgID, roleID)
 		if err != nil {
 			return err
@@ -238,19 +249,29 @@ func (s *Service) DeleteCustomRole(ctx context.Context, orgID, roleID int64) err
 }
 
 // authorizeCallerCanGrant runs privilege-parity inside the active
-// transaction. Loading the caller's effective set via LoadEffectiveTx
-// makes the check consistent with the write that follows: a concurrent
-// UnassignRole or DeactivateUser committing after the request entered
-// this transaction is not visible to the parity check, and any commit
-// that interleaves after the check sees its own snapshot — neither
-// path lets a demoted caller persist grants they no longer hold.
+// transaction with a FOR UPDATE lock on the caller's
+// user_organization_role rows. The lock serializes the parity recheck
+// against a concurrent UnassignRole / DeactivateUser: those mutations
+// block on the same rows until our tx commits, so a demotion either
+// applies before the recheck (and we fail closed) or applies after
+// our commit (and the role we wrote reflects permissions the caller
+// actually held at the moment of write). Without the lock, the same
+// query under READ COMMITTED would let a demotion commit between
+// SELECT and INSERT/UPDATE.
 //
 // The check is org-scope-only: site-scope grants do not let an admin
 // smuggle wider permissions into a custom role.
+//
+// Pass an empty normalizedKeys to use this as a bare "caller still
+// holds role:manage" recheck — that's how DeleteCustomRole defends
+// against the middleware gate's window being too wide.
 func authorizeCallerCanGrant(ctx context.Context, q *sqlc.Queries, callerID, orgID int64, normalizedKeys []string) error {
-	callerEff, err := LoadEffectiveTx(ctx, q, callerID, orgID)
+	callerEff, err := LoadEffectiveForUpdate(ctx, q, callerID, orgID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("authz: load caller permissions: %v", err)
+	}
+	if !callerEff.Has(PermRoleManage, ResourceContext{}) {
+		return fleeterror.NewForbiddenError("caller does not hold role:manage at org scope")
 	}
 	for _, k := range normalizedKeys {
 		if !callerEff.Has(k, ResourceContext{}) {

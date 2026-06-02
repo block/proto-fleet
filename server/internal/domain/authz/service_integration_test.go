@@ -123,12 +123,12 @@ func TestService_UpdateCustomRole_RejectsBuiltins(t *testing.T) {
 
 func TestService_DeleteCustomRole_RejectsBuiltins(t *testing.T) {
 	db := testutil.GetTestDB(t)
-	orgID, _ := setupOrgWithSuperAdmin(t, db)
+	orgID, callerID := setupOrgWithSuperAdmin(t, db)
 	svc := authz.NewService(db)
 
 	for _, key := range []string{"SUPER_ADMIN", "ADMIN", "FIELD_TECH"} {
 		builtinRoleID := getBuiltinRoleID(t, db, orgID, key)
-		err := svc.DeleteCustomRole(t.Context(), orgID, builtinRoleID)
+		err := svc.DeleteCustomRole(t.Context(), callerID, orgID, builtinRoleID)
 		require.Error(t, err, "built-in %s must reject delete", key)
 		require.Contains(t, err.Error(), "built-in roles cannot be deleted")
 	}
@@ -158,9 +158,47 @@ func TestService_DeleteCustomRole_RejectsRoleWithActiveAssignments(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	err = svc.DeleteCustomRole(ctx, orgID, view.ID)
+	err = svc.DeleteCustomRole(ctx, callerID, orgID, view.ID)
 	require.Error(t, err, "delete must refuse while assignments exist")
 	require.Contains(t, err.Error(), "active assignment")
+}
+
+// TestService_DeleteCustomRole_DeactivatedAssigneeDoesNotBlockDeletion
+// covers the live-user filter on CountActiveAssignmentsForRole — a
+// role only assigned to soft-deleted users is effectively unassigned,
+// so the admin can clean it up.
+func TestService_DeleteCustomRole_DeactivatedAssigneeDoesNotBlockDeletion(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID, callerID := setupOrgWithSuperAdmin(t, db)
+	svc := authz.NewService(db)
+
+	view, err := svc.CreateCustomRole(ctx, callerID, orgID,
+		"Old Operator", "",
+		[]string{authz.PermFleetRead, authz.PermMinerRead},
+	)
+	require.NoError(t, err)
+
+	otherUserID := insertTestUser(t, db)
+	q := sqlc.New(db)
+	_, err = q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         otherUserID,
+		OrganizationID: orgID,
+		RoleID:         view.ID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	})
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx,
+		`UPDATE "user" SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, otherUserID,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t,
+		svc.DeleteCustomRole(ctx, callerID, orgID, view.ID),
+		"deactivated assignees must not block role deletion",
+	)
 }
 
 func TestService_DeleteCustomRole_CrossOrgRoleIDMaskedAsInvalidArgument(t *testing.T) {
@@ -179,12 +217,9 @@ func TestService_DeleteCustomRole_CrossOrgRoleIDMaskedAsInvalidArgument(t *testi
 	// Caller in orgA attempts to delete a role belonging to orgB. Must
 	// surface as InvalidArgument (not NotFound or PermissionDenied) so
 	// existence isn't leaked across tenants.
-	err = svc.DeleteCustomRole(ctx, orgA, roleInB.ID)
+	err = svc.DeleteCustomRole(ctx, callerA, orgA, roleInB.ID)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid role_id")
-	// Sanity: callerA exists and is SUPER_ADMIN; this is purely the
-	// cross-org guard rejecting us, not auth.
-	_ = callerA
 }
 
 func TestService_ListRoles_BuiltinOrderAndCustomMemberCount(t *testing.T) {

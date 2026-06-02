@@ -639,6 +639,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
+	if q.listEffectivePermissionsForUserForUpdateStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForUpdate: %w", err)
+	}
 	if q.listExistingDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listExistingDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListExistingDeviceIdentifiers: %w", err)
 	}
@@ -2080,6 +2083,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
 		}
 	}
+	if q.listEffectivePermissionsForUserForUpdateStmt != nil {
+		if cerr := q.listEffectivePermissionsForUserForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEffectivePermissionsForUserForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.listExistingDeviceIdentifiersStmt != nil {
 		if cerr := q.listExistingDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listExistingDeviceIdentifiersStmt: %w", cerr)
@@ -3009,6 +3017,7 @@ type Queries struct {
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listEffectivePermissionsForUserStmt                 *sql.Stmt
+	listEffectivePermissionsForUserForUpdateStmt        *sql.Stmt
 	listExistingDeviceIdentifiersStmt                   *sql.Stmt
 	listFleetNodeDevicesStmt                            *sql.Stmt
 	listFleetNodesForOrganizationStmt                   *sql.Stmt
@@ -3357,6 +3366,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listEffectivePermissionsForUserStmt:                 q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForUpdateStmt:        q.listEffectivePermissionsForUserForUpdateStmt,
 		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
 		listFleetNodeDevicesStmt:                            q.listFleetNodeDevicesStmt,
 		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,

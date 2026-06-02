@@ -107,7 +107,7 @@ func (h *Handler) DeleteCustomRole(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	if err := h.svc.DeleteCustomRole(ctx, info.OrganizationID, roleID); err != nil {
+	if err := h.svc.DeleteCustomRole(ctx, info.UserID, info.OrganizationID, roleID); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCustomRoleResponse{}), nil
