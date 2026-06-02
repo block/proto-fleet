@@ -176,25 +176,25 @@ describe("CurtailmentHistory", () => {
     expect(onStopActiveEvent).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the created time as the started detail for terminal events missing startedAt", async () => {
+  it("preserves missing start times for terminal events that never started", async () => {
     const user = userEvent.setup();
-    const completedEvent = {
+    const cancelledEvent = {
       ...mockCurtailmentHistoryEvents[0],
       id: "curt-created-started-detail",
-      reason: "Completed curtailment",
-      state: "completed" as const,
+      reason: "Cancelled curtailment",
+      state: "cancelled" as const,
       startedAt: "",
       createdAt: "2026-04-30T13:56:00-04:00",
     };
 
-    render(<CurtailmentHistory events={[completedEvent]} />);
+    render(<CurtailmentHistory events={[cancelledEvent]} />);
 
     await user.click(screen.getByTestId("curtailment-history-row-curt-created-started-detail"));
 
     const modal = screen.getByTestId("modal");
     expect(within(modal).getByText("Started")).toBeInTheDocument();
-    expect(within(modal).getByText("Apr 30, 1:56 PM")).toBeInTheDocument();
-    expect(within(modal).queryByText("Not started yet")).not.toBeInTheDocument();
+    expect(within(modal).getByText("Not started yet")).toBeInTheDocument();
+    expect(within(modal).queryByText("Apr 30, 1:56 PM")).not.toBeInTheDocument();
     expect(within(modal).queryByText("Created")).not.toBeInTheDocument();
     expect(within(modal).queryByText("Created Apr 30, 1:56 PM")).not.toBeInTheDocument();
   });

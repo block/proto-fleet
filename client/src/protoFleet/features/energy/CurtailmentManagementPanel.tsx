@@ -132,11 +132,14 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     }
 
     const refreshActiveCurtailment = (): void => {
-      if (foregroundRefreshInFlightRef.current || refreshAbortControllerRef.current) {
+      if (
+        foregroundRefreshInFlightRef.current ||
+        refreshAbortControllerRef.current ||
+        activeRefreshAbortControllerRef.current
+      ) {
         return;
       }
 
-      activeRefreshAbortControllerRef.current?.abort();
       const abortController = new AbortController();
       activeRefreshAbortControllerRef.current = abortController;
 

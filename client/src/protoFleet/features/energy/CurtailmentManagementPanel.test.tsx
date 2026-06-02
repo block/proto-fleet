@@ -299,13 +299,16 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.dismissTerminalCurtailment).toHaveBeenCalledOnce();
   });
 
-  it("polls active curtailments on the current history page so restoring can become restored", async () => {
+  it("skips overlapping active curtailment polls while a background refresh is still in flight", async () => {
     vi.useFakeTimers();
     const pollingSignals: AbortSignal[] = [];
+    let resolvePollingRefresh: (value: typeof emptySnapshot) => void = () => undefined;
     mocks.refreshCurtailment.mockImplementation((options = {}) => {
       if (options.background && options.signal) {
         pollingSignals.push(options.signal);
-        return new Promise(() => {});
+        return new Promise((resolve) => {
+          resolvePollingRefresh = resolve;
+        });
       }
       return Promise.resolve(emptySnapshot);
     });
@@ -332,8 +335,15 @@ describe("CurtailmentManagementPanel", () => {
 
       await vi.advanceTimersByTimeAsync(3_000);
 
+      expect(pollingSignals).toHaveLength(1);
+      expect(pollingSignals[0].aborted).toBe(false);
+
+      resolvePollingRefresh(emptySnapshot);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3_000);
+
       expect(pollingSignals).toHaveLength(2);
-      expect(pollingSignals[0].aborted).toBe(true);
+      expect(pollingSignals[0].aborted).toBe(false);
       expect(pollingSignals[1].aborted).toBe(false);
     } finally {
       vi.useRealTimers();
