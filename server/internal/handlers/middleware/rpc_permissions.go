@@ -45,6 +45,13 @@ import (
 // glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
+	// Activity log — read-only audit trail. Export is the CSV variant of
+	// the same query; filter options is the lookup endpoint that drives
+	// the UI's filter panel. All three sit on activity:read.
+	activityv1connect.ActivityServiceListActivitiesProcedure:            authz.PermActivityRead,
+	activityv1connect.ActivityServiceExportActivitiesProcedure:          authz.PermActivityRead,
+	activityv1connect.ActivityServiceListActivityFilterOptionsProcedure: authz.PermActivityRead,
+
 	// API key management — gated by RequirePermission(PermAPIKeyManage).
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: authz.PermAPIKeyManage,
 	apikeyv1connect.ApiKeyServiceListApiKeysProcedure:  authz.PermAPIKeyManage,
@@ -251,13 +258,6 @@ var ProcedurePermissions = map[string]string{
 // "intentional pending entry" and "shipped without thinking about
 // authz." Reviewers should treat any growth here as a red flag.
 var ProceduresPendingMigration = map[string]string{
-	// Activity log reads — currently authenticated but ungated. Needs a
-	// new activity:read catalog key + ADMIN backfill migration; deferred
-	// from the new-gate slice.
-	activityv1connect.ActivityServiceListActivitiesProcedure:            "ungated; read-only activity log",
-	activityv1connect.ActivityServiceExportActivitiesProcedure:          "ungated; activity log CSV export",
-	activityv1connect.ActivityServiceListActivityFilterOptionsProcedure: "ungated; filter option lookup",
-
 	// Auth self-service and session procedures — caller acts on own
 	// session/identity, no separate role check needed.
 	authv1connect.AuthServiceGetUserAuditInfoProcedure:  "authenticated self-read, no role check",
