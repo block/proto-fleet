@@ -524,13 +524,11 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     async (
       activeEvent: ProtoCurtailmentEvent | undefined,
       historyEvents: ProtoCurtailmentEvent[],
-      stateFilters: CurtailmentEventState[],
       signal?: AbortSignal,
     ): Promise<ProtoCurtailmentEvent[]> => {
       if (
         !activeEvent ||
         activeEvent.state !== ProtoCurtailmentEventState.RESTORING ||
-        stateFilters.length === 0 ||
         historyEvents.some((historyEvent) => historyEvent.eventUuid === activeEvent.eventUuid)
       ) {
         return historyEvents;
@@ -577,7 +575,6 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           const reconciliationEvents = await getHistoryEventsForActiveReconciliation(
             reconciliationBaseEvent,
             historyPageResponse.events,
-            stateFilters,
             signal,
           );
           assertNotAborted(signal);

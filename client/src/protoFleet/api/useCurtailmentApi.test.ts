@@ -544,6 +544,64 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents).toEqual([]);
   });
 
+  it("reconciles restoring state from terminal history without resetting the current page", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-page-terminal",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const currentPageEvent = curtailmentEvent({
+      eventUuid: "curt-current-page",
+      state: CurtailmentEventState.COMPLETED,
+    });
+    const unrelatedTerminalEvent = curtailmentEvent({
+      eventUuid: "curt-unrelated-terminal",
+      state: CurtailmentEventState.COMPLETED,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-page-terminal",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockGetActiveCurtailment
+      .mockResolvedValueOnce({ event: restoringEvent })
+      .mockResolvedValueOnce({ event: restoringEvent })
+      .mockResolvedValueOnce({ event: undefined });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [restoringEvent], nextPageToken: "page-2" })
+      .mockResolvedValueOnce({ events: [currentPageEvent], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [unrelatedTerminalEvent], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [currentPageEvent], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+    await act(async () => {
+      await result.current.goToHistoryPage(1);
+    });
+
+    expect(result.current.historyCurrentPage).toBe(1);
+    expect(result.current.activeEvent?.state).toBe("restoring");
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ background: true });
+    });
+
+    expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual([
+      "",
+      "page-2",
+      "",
+      "page-2",
+      "",
+    ]);
+    expect(result.current.historyCurrentPage).toBe(1);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-current-page"]);
+    expect(result.current.activeEventId).toBe("curt-page-terminal");
+    expect(result.current.activeEvent?.state).toBe("completed");
+  });
+
   it("caps terminal reconciliation history paging when the active row is not found", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-missing-terminal",
@@ -950,6 +1008,7 @@ describe("useCurtailmentApi", () => {
     applyActiveCurtailmentEvent(restoringEvent);
     mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
     mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
       .mockResolvedValueOnce({ events: [], nextPageToken: "" })
       .mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" })
       .mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" });
