@@ -11,6 +11,7 @@ describe("primaryNavItems", () => {
     expect(energyItem).toMatchObject({
       path: "/energy",
       icon: LightningAlt,
+      requiredPermission: "curtailment:read",
     });
     expect(labels.indexOf("Energy")).toBe(labels.indexOf("Activity") - 1);
   });

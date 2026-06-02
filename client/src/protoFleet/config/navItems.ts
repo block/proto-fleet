@@ -64,6 +64,7 @@ export const primaryNavItems: NavItem[] = [
     path: "/energy",
     label: "Energy",
     icon: LightningAlt,
+    requiredPermission: "curtailment:read",
   },
   {
     path: "/activity",
