@@ -8,10 +8,8 @@ import "time"
 type EdgeDirection int
 
 const (
-	// EdgeNone means the observation does not produce a transition. The
-	// detector returns this for repeat states, debounced flips, and the
-	// initial-observation case where the publisher's first message
-	// matches the rehydrated state.
+	// EdgeNone means no transition: a repeat state, a debounced flip, or a
+	// first observation matching the rehydrated state.
 	EdgeNone EdgeDirection = iota
 	// EdgeOnToOff fires Service.Start on the source's contracted kW.
 	EdgeOnToOff
@@ -39,11 +37,8 @@ func (d EdgeDirection) String() string {
 	}
 }
 
-// PriorState captures the per-source persisted state the detector needs
-// to decide if an observation produces a transition. last_target=NIL
-// means cold-start: any first observation is treated as a transition
-// from the implied "unknown" baseline so the curtailment event is
-// stamped with a canonical edge timestamp.
+// PriorState is the persisted state the detector needs to decide whether
+// an observation is a transition. LastTarget=Unknown means cold-start.
 type PriorState struct {
 	// LastTarget is TargetUnknown when no message has been observed yet.
 	LastTarget Target
@@ -53,9 +48,8 @@ type PriorState struct {
 }
 
 // DebounceWindow is the minimum interval between opposite-direction
-// edges. A flip within this window is absorbed (treated as transient
-// publisher noise). 5 s sits well inside any reasonable response SLO
-// while absorbing per-second flapping.
+// edges; a flip within it is absorbed as transient noise. 5 s stays well
+// inside the response SLO.
 const DebounceWindow = 5 * time.Second
 
 // Decide returns the edge direction implied by an incoming canonical
@@ -77,9 +71,8 @@ func Decide(prior PriorState, canonical CanonicalState) EdgeDirection {
 		return EdgeOffToOn
 
 	default:
-		// Repeat-state (ON→ON, OFF→OFF) and cold-start ON→ON are not
-		// edges. Cold-start to ON specifically: there's no in-flight
-		// curtailment to stop, so no action.
+		// Repeat states and cold-start→ON are not edges (cold-start ON has
+		// no curtailment to stop).
 		return EdgeNone
 	}
 }
@@ -105,12 +98,8 @@ const (
 	WatchdogFire
 )
 
-// EvaluateWatchdog inspects per-source liveness and decides whether to
-// synthesize an OFF edge. `lastReceivedAt` is the timestamp of the most
-// recent observation from either broker; pass the zero value for
-// cold-start (no message ever received). `lastTarget` is the canonical
-// state. `now` is the current time; `threshold` is the source's
-// staleness threshold.
+// EvaluateWatchdog decides whether staleness warrants synthesizing an OFF
+// edge. A zero lastReceivedAt means cold-start (no message ever received).
 func EvaluateWatchdog(lastReceivedAt time.Time, lastTarget Target, now time.Time, threshold time.Duration) WatchdogDecision {
 	// Already OFF — the curtailment event still holds; nothing to do.
 	if lastTarget.IsOff() {

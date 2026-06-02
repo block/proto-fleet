@@ -10,11 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// sourceWorker owns the runtime for one MQTT source: two broker
-// clients, an in-memory observation cache for precedence dedup, the
-// edge-detector state, and the watchdog ticker. One goroutine per
-// worker — message handlers feed into a single channel that the
-// worker's main loop drains.
+// sourceWorker owns the runtime for one MQTT source: two broker clients,
+// an observation cache for precedence dedup, and the watchdog ticker. One
+// goroutine per worker; broker handlers feed a single channel its main
+// loop drains.
 type sourceWorker struct {
 	cfg           Config
 	source        SourceConfig
@@ -26,23 +25,19 @@ type sourceWorker struct {
 	lastObs map[BrokerRole]*Observation
 }
 
-// observation arrives via the broker handlers into the worker's
-// inbound channel. broker carries the host the message came from so
-// the worker can tag it with the right BrokerRole.
+// observation arrives from a broker handler into the worker's inbound
+// channel; broker is the source host, used to tag the BrokerRole.
 type observation struct {
 	broker     string
 	payload    []byte
 	receivedAt time.Time
 }
 
-// observationChannelBuffer bounds the per-source inbound message queue.
-// At the ~30 s publisher cadence across two brokers, dispatch normally
-// drains far faster than messages arrive; the buffer only needs to
-// absorb a transient slow Service.Start/Stop on an actual edge. When it
-// saturates, the just-arrived message is dropped with a Warn — the
-// publisher's repeated sends plus the staleness watchdog are the
-// backstop, so a dropped edge self-corrects on the next message rather
-// than sticking.
+// observationChannelBuffer bounds the per-source inbound queue. Dispatch
+// normally drains faster than the ~30 s publisher cadence; the buffer
+// absorbs a transient slow dispatch. On saturation the newest message is
+// dropped (Warn) — repeated publisher sends and the watchdog are the
+// backstop.
 const observationChannelBuffer = 256
 
 func (w *sourceWorker) run(ctx context.Context) {
@@ -51,18 +46,16 @@ func (w *sourceWorker) run(ctx context.Context) {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
 		if !errors.Is(err, ErrSourceStateNotFound) {
-			// A transient read error must not silently kill the worker —
-			// that would take the fail-safe watchdog down with it. Degrade
-			// to cold-start; the watchdog then fires OFF on its first tick
-			// (curtail-under-uncertainty) until a live message arrives.
+			// A transient read error must not kill the worker — that takes
+			// the fail-safe watchdog down with it. Degrade to cold-start
+			// (the watchdog then fires OFF until a live message arrives).
 			w.cfg.Logger.Warn("mqttingest: get source state failed, starting cold",
 				slog.String("source", w.source.SourceName),
 				slog.Any("error", err))
 		}
-		// Cold-start: no usable state row. Target's zero value collides
-		// with TargetOff, so the unknown sentinel must be set explicitly
-		// or the edge detector will treat the first OFF observation as a
-		// repeat and skip the curtail dispatch.
+		// Cold-start. LastTarget must be the Unknown sentinel, not the
+		// TargetOff zero value, or the first OFF reads as a repeat and the
+		// curtail dispatch is skipped.
 		state = SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
 	}
 
@@ -111,8 +104,7 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 		select {
 		case messages <- observation{broker: host, payload: payload, receivedAt: receivedAt}:
 		default:
-			// Channel full; surface loss as a Warn. Metric counter is a
-			// follow-on observability slice.
+			// Channel full; drop with a Warn (metric counter is follow-on).
 			w.cfg.Logger.Warn("mqttingest: message channel full, dropping",
 				slog.String("source", w.source.SourceName),
 				slog.String("broker", host))
@@ -120,12 +112,10 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 	})
 }
 
-// handleMessage decodes one inbound observation, updates the
-// per-broker cache, resolves canonical state via precedence, asks the
-// edge detector whether to dispatch, and persists state. Freshness
-// fields advance unconditionally on a successfully-decoded message;
-// LastTarget advances when the owed dispatch landed (or none was owed),
-// except on a debounced flip, which must leave LastTarget untouched.
+// handleMessage decodes an observation, resolves canonical state via
+// precedence, dispatches any implied edge, and persists state. Freshness
+// fields always advance on a decoded message; LastTarget advances only
+// when the owed dispatch landed — never on a debounced flip.
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
 	payload, err := DecodePayload(obs.payload, obs.receivedAt)
 	if err != nil {
@@ -159,20 +149,16 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
 
-	// Freshness columns reflect "we heard something" and advance on every
-	// successfully-decoded message, even when the dispatch failed.
+	// Freshness columns advance on every decoded message, even if dispatch failed.
 	state.LastTargetAt = canonical.PublishedAt
 	state.LastReceivedAt = canonical.ReceivedAt
 	state.LastReceivedBroker = canonical.Broker
 
-	// LastTarget is the settled state derived from the wire. A failed
-	// dispatch must not look like a successful transition, or the next
-	// identical observation is a no-op repeat and the site silently
-	// (un)curtails. A debounced flip (EdgeNone whose canonical target
-	// differs from a known prior target) must also leave LastTarget put,
-	// so a later genuine opposite edge still fires. Repeats and cold-start
-	// (no prior target) still advance — a no-op for repeats, and the
-	// first observed target for cold-start.
+	// LastTarget advances only when the owed dispatch landed: a failed
+	// dispatch must not read as a settled transition (the next identical
+	// observation would be a no-op repeat). A debounced flip (EdgeNone
+	// against a known, differing prior target) likewise must not advance,
+	// so a later genuine edge still fires; repeats and cold-start do.
 	debouncedFlip := direction == EdgeNone &&
 		canonical.Target != prior.LastTarget &&
 		prior.LastTarget != TargetUnknown
@@ -184,13 +170,9 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	return state
 }
 
-// handleWatchdog inspects staleness and synthesizes a WATCHDOG_OFF
-// dispatch when appropriate. After a successful dispatch the worker
-// records LastTarget=TargetOff and persists, so EvaluateWatchdog
-// returns Idle on subsequent ticks until a real message clears the
-// stale condition. The driver's synthetic external_reference quantizes
-// to the source's staleness threshold so a crash mid-window resumes
-// against the same idempotency key.
+// handleWatchdog synthesizes a WATCHDOG_OFF dispatch on staleness. After
+// a successful dispatch it records LastTarget=OFF, so later ticks are
+// Idle until a real message clears the stale condition.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	now := w.cfg.Clock()
 	decision := EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold)
@@ -200,9 +182,7 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	canonical := CanonicalState{Target: TargetOff, ReceivedAt: now}
 	state, dispatched := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
 	if !dispatched {
-		// Dispatch failed; do not advance LastTarget so the next tick
-		// retries against the same staleness window (the driver's
-		// quantized external_reference replays idempotently).
+		// Dispatch failed; leave LastTarget so the next tick retries.
 		return prior
 	}
 	state.LastTarget = TargetOff
@@ -210,11 +190,9 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	return state
 }
 
-// applyEdge dispatches the implied edge and returns (state, true) on
-// success or (prior, false) on dispatch failure. EdgeNone short-circuits
-// to (prior, true) since no dispatch was required. The boolean lets the
-// caller distinguish "no work owed" and "work owed and confirmed" from
-// "work owed but failed".
+// applyEdge dispatches the implied edge, returning (state, true) on
+// success (EdgeNone short-circuits to (prior, true) — no work owed) or
+// (prior, false) on dispatch failure.
 func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonical CanonicalState, direction EdgeDirection) (SourceState, bool) {
 	if direction == EdgeNone {
 		return prior, true
@@ -224,12 +202,10 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, edgeAt)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveEvent) {
-			// OFF→ON with no in-flight event to stop: the curtailment
-			// already ended by another path (max-duration, admin
-			// terminate, restore completion). The transition still
-			// happened, so advance the edge bookkeeping and report
-			// success — otherwise the caller never moves LastTarget to ON
-			// and every later ON message re-dispatches Stop in a loop.
+			// OFF→ON with no in-flight event to stop (curtailment already
+			// ended elsewhere): the transition still happened, so advance
+			// bookkeeping and report success — otherwise every later ON
+			// re-dispatches Stop in a loop.
 			state := prior
 			state.LastEdgeAt = edgeAt
 			return state, true

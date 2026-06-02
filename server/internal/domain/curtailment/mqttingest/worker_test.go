@@ -55,10 +55,8 @@ func workerSource() SourceConfig {
 	}
 }
 
-// TestWorker_HandleWatchdog_PersistsTargetOff is the regression test
-// for the earlier bug where handleWatchdog dispatched WATCHDOG_OFF but
-// never advanced LastTarget — so EvaluateWatchdog kept returning Fire
-// on every subsequent tick.
+// Regression: handleWatchdog dispatched WATCHDOG_OFF but never advanced
+// LastTarget, so EvaluateWatchdog kept firing every tick.
 func TestWorker_HandleWatchdog_PersistsTargetOff(t *testing.T) {
 	t.Parallel()
 
@@ -84,9 +82,7 @@ func TestWorker_HandleWatchdog_PersistsTargetOff(t *testing.T) {
 	assert.Equal(t, TargetOff, persisted.LastTarget, "persisted state must record OFF so next tick is idle")
 }
 
-// TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance proves the
-// state is left untouched when the curtailment service rejects the
-// Start; the next tick must retry against the same staleness window.
+// A failed watchdog Start leaves state untouched so the next tick retries.
 func TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance(t *testing.T) {
 	t.Parallel()
 
@@ -108,11 +104,8 @@ func TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSourceStateNotFound, "failed dispatch must not persist state")
 }
 
-// TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget covers the
-// other half of the gating fix: a failed Start must not advance
-// LastTarget to the canonical wire target, otherwise the next identical
-// observation would be treated as a no-op repeat and the site would
-// silently uncurtail.
+// A failed Start must not advance LastTarget, or the next identical
+// observation reads as a no-op repeat and the site silently uncurtails.
 func TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget(t *testing.T) {
 	t.Parallel()
 
@@ -139,10 +132,8 @@ func TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget(t *testing.T) {
 	assert.Equal(t, w.primaryHost, next.LastReceivedBroker)
 }
 
-// TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn is the
-// regression test for the wedge where an OFF→ON edge with no in-flight
-// event (ErrNoActiveEvent) was treated as a dispatch failure, so
-// LastTarget never moved to ON and every later ON re-attempted Stop.
+// Regression: an OFF→ON edge with no in-flight event (ErrNoActiveEvent)
+// must advance to ON, not wedge in OFF and re-attempt Stop every message.
 func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	t.Parallel()
 
@@ -171,10 +162,8 @@ func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	require.Len(t, svc.getActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
 }
 
-// TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance proves a flip
-// absorbed by the debounce window leaves LastTarget untouched, so a later
-// genuine opposite edge still fires instead of being swallowed as a
-// no-op repeat.
+// A flip absorbed by the debounce window must leave LastTarget untouched
+// so a later genuine opposite edge still fires.
 func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
 	t.Parallel()
 
@@ -204,10 +193,8 @@ func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
 	assert.Equal(t, now, next.LastReceivedAt, "freshness still advances")
 }
 
-// TestWorker_HandleMessage_ColdStartOn_AdvancesToOn guards against the
-// debounce fix over-suppressing: a cold-start ON (no prior target) is not
-// a flip and must record ON so the watchdog and later edges see the right
-// baseline.
+// Guards the debounce fix from over-suppressing: a cold-start ON (no prior
+// target) is not a flip and must record ON.
 func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
 	t.Parallel()
 
@@ -229,8 +216,7 @@ func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
 	assert.Empty(t, svc.stopCalls)
 }
 
-// TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires proves a
-// transient state-load error does not kill the worker: it degrades to
+// A transient state-load error must not kill the worker: it degrades to
 // cold-start and the watchdog still fires WATCHDOG_OFF (fail-safe).
 func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 	t.Parallel()

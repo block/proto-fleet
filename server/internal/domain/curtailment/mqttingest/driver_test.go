@@ -152,11 +152,8 @@ func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	assert.Equal(t, "site-a:watchdog:"+itoa(wantWindow), *start.ExternalReference)
 }
 
-// Back-to-back watchdog ticks inside one staleness window must produce
-// the same external_reference so the curtailment-service partial unique
-// index dedupes them as replays. Without quantization, a 1 s ticker
-// would generate a fresh reference every second and trigger a full
-// selector pass per tick.
+// Back-to-back watchdog ticks in one staleness window must share an
+// external_reference so the partial-unique index dedupes them as replays.
 func TestDriver_Dispatch_WatchdogOff_QuantizesWithinWindow(t *testing.T) {
 	t.Parallel()
 

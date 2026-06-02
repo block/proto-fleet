@@ -61,10 +61,8 @@ type Payload struct {
 // wire contract. The wrapped error carries the specific shape mismatch.
 var ErrMalformedPayload = errors.New("malformed MQTT payload")
 
-// timestampSanityWindow bounds the accepted publisher timestamp range
-// against the receiver's clock. A timestamp more than a day in either
-// direction is taken as evidence of a misconfigured publisher and the
-// message is rejected.
+// timestampSanityWindow rejects a publisher timestamp more than a day
+// from the receiver's clock (misconfigured publisher).
 const timestampSanityWindow = 24 * time.Hour
 
 // DecodePayload parses a JSON message body and validates it against the

@@ -7,11 +7,8 @@ import (
 )
 
 // BrokerRole identifies which of a source's two brokers an observation
-// came from. Precedence follows the wire contract's "lower IP wins"
-// rule: when both hosts parse as IP addresses, the numerically lower
-// address is primary. When a host is a DNS name (not a parseable IP),
-// the pair falls back to stable lexicographic ordering so behavior stays
-// deterministic and operator-visible.
+// came from. Precedence: the lower IP wins (per the wire contract); a
+// DNS-name host falls back to lexicographic ordering.
 type BrokerRole int
 
 const (
@@ -22,7 +19,7 @@ const (
 )
 
 // Observation is one decoded message tagged with its broker and the
-// fleet receive timestamp. Precedence dedup operates on Observations.
+// fleet receive timestamp.
 type Observation struct {
 	Broker     string
 	Role       BrokerRole
@@ -30,13 +27,10 @@ type Observation struct {
 	ReceivedAt time.Time
 }
 
-// ResolveBrokerRoles orders the two configured broker hosts by
-// precedence. When both hosts parse as IP addresses the numerically
-// lower address wins, per the wire contract's "lower IP wins" rule —
-// e.g. 10.0.0.3 beats 10.0.0.4, and 10.0.0.9 beats 10.0.0.10 (which a
-// plain string sort gets wrong). When either host is a DNS name, the
-// pair falls back to lexicographic ordering. Equal hosts (operator
-// misconfig caught by the DB CHECK) return ("", "", false).
+// ResolveBrokerRoles orders the two broker hosts by precedence: the lower
+// IP wins (10.0.0.9 beats 10.0.0.10 — a string sort would not), falling
+// back to lexicographic order for DNS names. Equal hosts return
+// ("", "", false).
 func ResolveBrokerRoles(hostA, hostB string) (primary, secondary string, ok bool) {
 	if hostA == hostB {
 		return "", "", false
@@ -65,17 +59,11 @@ type CanonicalState struct {
 }
 
 // CanonicalFromPair picks the canonical observation from up to two
-// per-broker latest-observations. The rules:
-//
-//   - If only one broker has data, that broker wins.
-//   - If both brokers have data and the secondary's last receive is
-//     within freshnessWindow of the primary's, primary wins.
-//   - If the primary's data is older than freshnessWindow relative to
-//     the secondary's, secondary is the live broker and wins.
-//
-// freshnessWindow is the threshold the caller picks (typically 2x the
-// publisher's expected tick). nil entries mean that broker has not
-// produced an observation yet.
+// per-broker observations: the primary (lower-IP) broker wins unless its
+// data is older than freshnessWindow relative to the secondary, in which
+// case the secondary is the live broker. A nil entry means that broker
+// has no observation yet; freshnessWindow is typically 2x the publisher
+// tick.
 func CanonicalFromPair(primary, secondary *Observation, freshnessWindow time.Duration) (CanonicalState, bool) {
 	switch {
 	case primary == nil && secondary == nil:

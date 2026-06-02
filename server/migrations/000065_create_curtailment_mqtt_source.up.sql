@@ -1,13 +1,11 @@
--- Per-source MQTT publisher config consumed by the curtailment mqtt-ingest
--- subscriber. One row per publisher (broker pair + topic + credentials +
--- contracted curtailment power + thresholds). Operator-managed; no CRUD RPC
--- yet, so initial rows are seeded via migration data or operator DML.
+-- Per-source MQTT publisher config for the curtailment mqtt-ingest
+-- subscriber: broker pair, topic, credentials, contracted power, thresholds.
+-- Operator-managed; no CRUD RPC yet (seed via migration data or DML).
 CREATE TABLE curtailment_mqtt_source_config (
     id                              BIGSERIAL    PRIMARY KEY,
     organization_id                 BIGINT       NOT NULL,
-    -- Service-account user the subscriber acts as. curtailment_event has a
-    -- NOT NULL FK to "user"; the subscriber runs without a human session,
-    -- so the operator provisions a service-account user per source.
+    -- Service-account user the subscriber acts as (curtailment_event has a
+    -- NOT NULL user FK; the subscriber has no human session).
     service_user_id                 BIGINT       NOT NULL,
     -- Stable internal label; surfaces in event.external_source.
     source_name                     VARCHAR(64)  NOT NULL,
@@ -58,10 +56,9 @@ CREATE TRIGGER update_curtailment_mqtt_source_config_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Per-source subscriber state. Singleton per source row; rehydrated on
--- fleetd start so edge detection survives process restarts. last_received_at
--- powers the watchdog query; last_edge_event_uuid lets OFF->ON resolve the
--- in-flight curtailment event for Service.Stop.
+-- Per-source subscriber state; rehydrated on fleetd start so edge detection
+-- survives restarts. last_received_at powers the watchdog; last_edge_event_uuid
+-- lets OFF->ON resolve the event for Service.Stop.
 CREATE TABLE curtailment_mqtt_source_state (
     source_config_id        BIGINT       PRIMARY KEY,
     -- 0, 100, or NULL when no message has been received yet.
@@ -74,10 +71,9 @@ CREATE TABLE curtailment_mqtt_source_state (
     last_received_broker    VARCHAR(255) NULL,
     -- Timestamp of the most recent ON<->OFF flip.
     last_edge_at            TIMESTAMPTZ  NULL,
-    -- Curtailment event created by the last ON->OFF (or WATCHDOG_OFF) edge,
-    -- stored for audit. Stop resolution currently uses Service.GetActive, not
-    -- this column; if multi-source-per-org lands the driver should pivot
-    -- to read here so cross-source events aren't accidentally stopped.
+    -- Curtailment event from the last ON->OFF/WATCHDOG_OFF edge (audit). Stop
+    -- currently resolves via Service.GetActive; if multi-source-per-org lands,
+    -- the driver should pivot to this column to avoid stopping cross-source events.
     last_edge_event_uuid    UUID         NULL,
     updated_at              TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

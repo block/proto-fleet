@@ -131,7 +131,5 @@ func TestTarget_Predicates(t *testing.T) {
 	assert.False(t, TargetUnknown.IsOn())
 }
 
-// itoa is a thin alias for the int64-formatting test helper used by
-// table-driven cases above. Kept as a named helper so the test bodies
-// read as "<source>:" + itoa(ts) rather than wrapping strconv inline.
+// itoa formats an int64 for the table-driven test bodies above.
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

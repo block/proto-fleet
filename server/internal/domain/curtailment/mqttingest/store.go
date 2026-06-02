@@ -10,10 +10,9 @@ import (
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 )
 
-// SourceConfig is the domain shape of a single MQTT source row.
-// Password is left in encrypted form here; the subscriber calls
-// DecryptPassword on the credentials struct when establishing a
-// broker connection so plaintext stays bounded to that scope.
+// SourceConfig is the domain shape of a single MQTT source row. The
+// password stays encrypted here; the subscriber decrypts it only when
+// connecting, so plaintext stays bounded to the worker.
 type SourceConfig struct {
 	ID                      int64
 	OrganizationID          int64
@@ -31,10 +30,8 @@ type SourceConfig struct {
 	Enabled                 bool
 }
 
-// SourceState is the domain shape of a single
-// curtailment_mqtt_source_state row. Nullable columns surface as
-// zero-value time.Time / Target so callers compare with .IsZero() or
-// the equivalent TargetUnknown sentinel.
+// SourceState is the domain shape of a curtailment_mqtt_source_state
+// row. Nullable columns surface as zero-value time.Time / TargetUnknown.
 type SourceState struct {
 	SourceConfigID     int64
 	LastTarget         Target

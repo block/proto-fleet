@@ -20,9 +20,8 @@ type curtailmentService interface {
 	GetActive(ctx context.Context, orgID int64) (*models.Event, error)
 }
 
-// EdgeOutcome reports the result of dispatching one edge. The
-// subscriber consumes this to update persisted state — specifically
-// last_edge_at and last_edge_event_uuid.
+// EdgeOutcome reports the result of dispatching one edge; the subscriber
+// uses it to update last_edge_at and last_edge_event_uuid.
 type EdgeOutcome struct {
 	// EventUUID is the curtailment event the edge created (ON→OFF and
 	// WATCHDOG_OFF) or stopped (OFF→ON). Zero for EdgeNone.
@@ -38,9 +37,8 @@ type Driver struct {
 	now func() time.Time
 }
 
-// NewDriver returns a driver wired to the given curtailment service.
-// `now` is the clock the driver stamps onto outgoing requests; pass
-// time.Now in production, an injected clock in tests.
+// NewDriver returns a driver wired to the given service. `now` is the
+// clock for stamping outcomes (time.Now in prod, injected in tests).
 func NewDriver(svc curtailmentService, now func() time.Time) *Driver {
 	if now == nil {
 		now = time.Now
@@ -124,9 +122,8 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 	if plan.ReplayEvent != nil {
 		return plan.ReplayEvent.EventUUID, nil
 	}
-	// Insufficient-load outcome: the selector decided there is no
-	// dispatchable load. Surface as an error so the subscriber doesn't
-	// commit an edge that didn't actually curtail anything.
+	// Insufficient load: surface as an error so the subscriber doesn't
+	// commit an edge that curtailed nothing.
 	if plan.InsufficientLoadDetail != nil {
 		return uuid.Nil, fmt.Errorf("mqttingest: curtailment service rejected Start (insufficient load): %+v", plan.InsufficientLoadDetail)
 	}
@@ -164,10 +161,8 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 // (the subscriber's edge bookkeeping still moves to ON).
 var ErrNoActiveEvent = errors.New("mqttingest: no active event to stop")
 
-// clampToInt32Seconds converts a duration to an int32 seconds value
-// with explicit upper-bound clamping. The curtailment service treats
-// MinCurtailedDurationSec as int32; an outsized source-config value
-// (operator typo) saturates rather than wrapping.
+// clampToInt32Seconds converts a duration to int32 seconds, saturating
+// rather than wrapping on an outsized (operator-typo) value.
 func clampToInt32Seconds(d time.Duration) int32 {
 	const maxInt32 = int64(1<<31 - 1)
 	secs := int64(d / time.Second)
@@ -180,17 +175,12 @@ func clampToInt32Seconds(d time.Duration) int32 {
 	return int32(secs)
 }
 
-// startExternalReference synthesizes the per-edge external_reference
-// the curtailment service uses for idempotency. The format preserves
-// the partial-unique index dedupe across broker-pair race and
-// fleetd restart-near-edge. Only called for ON->OFF and WATCHDOG_OFF.
-//
-// Watchdog references are quantized to the source's staleness threshold
-// so back-to-back ticks within the same stale episode produce the same
-// reference. Without this, a 1 s watchdog tick generates a fresh
-// external_reference every second; the partial-unique index would not
-// see them as replays and the curtailment service would run a full
-// selector pass each tick.
+// startExternalReference synthesizes the per-edge external_reference used
+// for the curtailment service's idempotency (partial-unique index).
+// Watchdog references are quantized to the staleness threshold so
+// back-to-back 1 s ticks in one stale episode share a reference and
+// replay, instead of triggering a fresh selector pass each tick. Only
+// called for ON->OFF and WATCHDOG_OFF.
 func startExternalReference(source string, direction EdgeDirection, edgeAt time.Time, stalenessThreshold time.Duration) string {
 	if direction == EdgeWatchdogOff {
 		thresholdSec := int64(stalenessThreshold / time.Second)
@@ -203,10 +193,9 @@ func startExternalReference(source string, direction EdgeDirection, edgeAt time.
 	return fmt.Sprintf("%s:%d", source, edgeAt.Unix())
 }
 
-// startReason builds the operator-facing reason text recorded on the
-// curtailment event. The two trigger modes (publisher OFF vs.
-// staleness watchdog) get distinct phrasing so audit-log readers can
-// distinguish at a glance. Only called for ON->OFF and WATCHDOG_OFF.
+// startReason builds the operator-facing reason recorded on the event,
+// with distinct phrasing for publisher-OFF vs. watchdog triggers. Only
+// called for ON->OFF and WATCHDOG_OFF.
 func startReason(source string, direction EdgeDirection, edgeAt time.Time) string {
 	if direction == EdgeWatchdogOff {
 		return fmt.Sprintf("MQTT watchdog — source %s, last message before %s", source, edgeAt.Format(time.RFC3339))

@@ -9,23 +9,16 @@ import (
 	"time"
 )
 
-// MQTTClient is the small interface the subscriber depends on. The
-// production binding lives in a separate adapter (mqtt_client.go,
-// follow-on commit) so tests can plug in a fake and the package does
-// not require an MQTT library to compile.
-//
-// Implementations must be safe to use from one goroutine; the
-// subscriber spins up one client per (source, broker) pair and never
-// shares it across goroutines.
+// MQTTClient is the interface the subscriber depends on; the production
+// (paho) binding is a separate adapter so tests can use a fake and the
+// package compiles without an MQTT library. One client per (source,
+// broker), never shared across goroutines.
 type MQTTClient interface {
-	// Connect establishes a session against the broker using the
-	// supplied credentials. Implementations should retry transient
-	// failures with backoff; Connect returns when either the session
-	// is established or ctx is canceled.
+	// Connect establishes a session, retrying transient failures with
+	// backoff; returns when connected or ctx is canceled.
 	Connect(ctx context.Context, host string, port int32, username, password string) error
-	// Subscribe registers a handler for the given topic at QoS 1.
-	// The handler is invoked from the client's read goroutine; it
-	// must not block the caller's pipeline.
+	// Subscribe registers a handler for the topic at QoS 1. The handler
+	// runs on the client's read goroutine and must not block.
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
 	// Disconnect tears down the session within shutdownDeadline.
 	Disconnect(shutdownDeadline time.Duration)
@@ -172,8 +165,7 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 					slog.String("source", src.SourceName),
 					slog.Any("panic", r))
 			}
-			// Always zero the password slice once the worker exits so
-			// plaintext credentials are bounded to the worker lifetime.
+			// Bound plaintext credentials to the worker lifetime.
 			w.password = ""
 		}()
 		w.run(ctx)

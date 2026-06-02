@@ -160,9 +160,8 @@ WHERE enabled = TRUE
 ORDER BY id
 `
 
-// Snapshot of enabled MQTT sources for the subscriber's startup pass. The
-// subscriber re-reads this on signal-handler refresh; row-level changes
-// (enable/disable a source) take effect on the next refresh tick.
+// Enabled MQTT sources, read once at subscriber startup. Enable/disable
+// takes effect on the next start (no hot reload).
 func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error) {
 	rows, err := q.query(ctx, q.listEnabledMQTTSourcesStmt, listEnabledMQTTSources)
 	if err != nil {
