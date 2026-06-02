@@ -4,6 +4,7 @@ import clsx from "clsx";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
   type ActiveCurtailmentDisplayState,
+  activeCurtailmentDisplayStateConfigs,
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
@@ -170,6 +171,15 @@ function formatDateTime(value?: string): string | undefined {
   return date ? dateTimeFormatter.format(date) : undefined;
 }
 
+function getHistoryEventStateConfig(event: CurtailmentHistoryEvent): {
+  label: string;
+  dotClassName: string;
+} {
+  return event.displayState
+    ? activeCurtailmentDisplayStateConfigs[event.displayState]
+    : curtailmentEventStateConfigs[event.state];
+}
+
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
   const endedAt = formatDateTime(event.endedAt);
   if (endedAt) {
@@ -191,7 +201,7 @@ function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
     return `Created ${createdAt}`;
   }
 
-  return event.state === "pending" ? "Waiting to start" : "Time unavailable";
+  return (event.displayState ?? event.state) === "pending" ? "Waiting to start" : "Time unavailable";
 }
 
 function getSortTime(event: CurtailmentHistoryEvent): number {
@@ -267,7 +277,7 @@ function CurtailmentSummaryModal({
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const createdAt = formatDateTime(event.createdAt);
-  const eventStateConfig = curtailmentEventStateConfigs[event.state];
+  const eventStateConfig = getHistoryEventStateConfig(event);
   const buttons: CurtailmentSummaryModalButton[] = [];
 
   if (onStop) {
@@ -326,7 +336,7 @@ function CurtailmentHistoryRow({
   stopDisabled,
 }: CurtailmentHistoryRowProps): ReactElement {
   const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventId);
-  const eventStateConfig = curtailmentEventStateConfigs[event.state];
+  const eventStateConfig = getHistoryEventStateConfig(event);
 
   const handleRowClick = (clickEvent: MouseEvent<HTMLTableRowElement>) => {
     if (shouldIgnoreRowActivation(clickEvent.target, clickEvent.currentTarget)) {
