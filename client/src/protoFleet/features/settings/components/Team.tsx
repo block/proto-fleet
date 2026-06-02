@@ -33,7 +33,15 @@ const colTitles: ColTitles<UserColumns> = {
 
 const Team = () => {
   const { listUsers, resetUserPassword, deactivateUser } = useUserManagement();
+  // SUPER_ADMIN-only by design today: CreateUser always assigns the
+  // ADMIN role, and the auth domain hierarchy check
+  // (authorizeCallerForNewUserWithRole) requires the caller to strictly
+  // dominate the new user's permission set, which only SUPER_ADMIN
+  // does. Once CreateUser accepts a role parameter and lets ADMINs
+  // create non-elevated users, migrate this to useHasPermission(...)
+  // against a key whose hierarchy semantics match the new RPC.
   const currentUserRole = useRole();
+  const canAddTeamMembers = currentUserRole === "SUPER_ADMIN";
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -165,8 +173,6 @@ const Team = () => {
       },
     });
   }, [deactivateUserData, deactivateUser, fetchUsers]);
-
-  const canAddTeamMembers = useMemo(() => currentUserRole === "SUPER_ADMIN", [currentUserRole]);
 
   const availableActions = useMemo(() => {
     if (!canAddTeamMembers) {

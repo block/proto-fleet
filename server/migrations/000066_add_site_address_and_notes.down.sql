@@ -1,0 +1,5 @@
+ALTER TABLE site
+    DROP COLUMN IF EXISTS notes,
+    DROP COLUMN IF EXISTS country,
+    DROP COLUMN IF EXISTS postal_code,
+    DROP COLUMN IF EXISTS address;

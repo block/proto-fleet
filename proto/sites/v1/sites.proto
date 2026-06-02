@@ -56,9 +56,14 @@ service SiteService {
 message Site {
     int64 id = 1;
     string name = 2;
-    string description = 3;
+    reserved 3;            // was: description — superseded by notes.
+    reserved "description";
     string location_city = 4;
     string location_state = 5;
+    // timezone is the operator-set IANA id when present, otherwise the
+    // server-inferred id from (country, location_state). Empty when
+    // neither resolves. Operators override the inference for
+    // sub-state edge cases (e.g. North Idaho is Pacific, not Mountain).
     string timezone = 6;
     // power_capacity_mw is 0 when unset; otherwise megawatts as a
     // floating-point number.
@@ -69,6 +74,17 @@ message Site {
 
     google.protobuf.Timestamp created_at = 9;
     google.protobuf.Timestamp updated_at = 10;
+
+    string address     = 11;
+    reserved 12;            // was: address_line2 — collapsed into address.
+    reserved "address_line2";
+    string postal_code = 13;
+    // ISO 3166-1 alpha-2 country code. Defaults to "US" at the DB
+    // level; clients can leave empty on create and the server uses the
+    // default.
+    string country     = 14;
+    // Free-form operator notes. No structure enforced.
+    string notes       = 15;
 }
 
 // SiteWithCounts pairs a Site with its attachment counts. Returned by
@@ -92,9 +108,13 @@ message ListSitesResponse {
 
 message CreateSiteRequest {
     string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string description = 2 [(buf.validate.field).string.max_len = 4096];
+    reserved 2;            // was: description — superseded by notes.
+    reserved "description";
     string location_city = 3 [(buf.validate.field).string.max_len = 255];
     string location_state = 4 [(buf.validate.field).string.max_len = 255];
+    // IANA timezone id. Empty falls back to server inference from
+    // (country, location_state); a non-empty value is stored verbatim
+    // and overrides inference on read.
     string timezone = 5 [(buf.validate.field).string.max_len = 64];
     // Megawatts; 0 = no capacity recorded.
     double power_capacity_mw = 6 [(buf.validate.field).double.gte = 0];
@@ -103,6 +123,15 @@ message CreateSiteRequest {
     // overlaps with InvalidArgument; cross-site overlaps surface as
     // a warning string in the response, not a block.
     string network_config = 7 [(buf.validate.field).string.max_bytes = 16384];
+
+    string address     = 8  [(buf.validate.field).string.max_len = 255];
+    reserved 9;            // was: address_line2 — collapsed into address.
+    reserved "address_line2";
+    string postal_code = 10 [(buf.validate.field).string.max_len = 32];
+    // ISO 3166-1 alpha-2. Empty falls back to the DB default ("US").
+    string country     = 11 [(buf.validate.field).string.max_len = 2];
+    // Free-form operator notes.
+    string notes       = 12 [(buf.validate.field).string.max_len = 4096];
 }
 
 message CreateSiteResponse {
@@ -118,12 +147,20 @@ message CreateSiteResponse {
 message UpdateSiteRequest {
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
     string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string description = 3 [(buf.validate.field).string.max_len = 4096];
+    reserved 3;            // was: description — superseded by notes.
+    reserved "description";
     string location_city = 4 [(buf.validate.field).string.max_len = 255];
     string location_state = 5 [(buf.validate.field).string.max_len = 255];
     string timezone = 6 [(buf.validate.field).string.max_len = 64];
     double power_capacity_mw = 7 [(buf.validate.field).double.gte = 0];
     string network_config = 8 [(buf.validate.field).string.max_bytes = 16384];
+
+    string address     = 9  [(buf.validate.field).string.max_len = 255];
+    reserved 10;            // was: address_line2 — collapsed into address.
+    reserved "address_line2";
+    string postal_code = 11 [(buf.validate.field).string.max_len = 32];
+    string country     = 12 [(buf.validate.field).string.max_len = 2];
+    string notes       = 13 [(buf.validate.field).string.max_len = 4096];
 }
 
 message UpdateSiteResponse {

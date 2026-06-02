@@ -14,6 +14,15 @@ export const useUsername = () => useFleetStore((state) => state.auth.username);
 
 export const useRole = () => useFleetStore((state) => state.auth.role);
 
+export const usePermissions = () => useFleetStore((state) => state.auth.permissions);
+
+// useHasPermission is the canonical UI gate for capability checks.
+// Returns true when the caller's session-loaded effective permissions
+// include the requested catalog key. The server enforces every gate
+// regardless; this selector is purely for show/hide decisions.
+export const useHasPermission = (key: string): boolean =>
+  useFleetStore((state) => state.auth.permissions.includes(key));
+
 export const useAuthLoading = () => useFleetStore((state) => state.auth.authLoading);
 
 export const useTemporaryPassword = () => useFleetStore((state) => state.auth.temporaryPassword);
@@ -29,6 +38,8 @@ export const useSetIsAuthenticated = () => useFleetStore((state) => state.auth.s
 export const useSetUsername = () => useFleetStore((state) => state.auth.setUsername);
 
 export const useSetRole = () => useFleetStore((state) => state.auth.setRole);
+
+export const useSetPermissions = () => useFleetStore((state) => state.auth.setPermissions);
 
 export const useSetAuthLoading = () => useFleetStore((state) => state.auth.setAuthLoading);
 

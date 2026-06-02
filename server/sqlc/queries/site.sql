@@ -5,21 +5,27 @@
 INSERT INTO site (
     org_id,
     name,
-    description,
     location_city,
     location_state,
     timezone,
     power_capacity_mw,
-    network_config
+    network_config,
+    address,
+    postal_code,
+    country,
+    notes
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('name'),
-    sqlc.narg('description'),
     sqlc.narg('location_city'),
     sqlc.narg('location_state'),
     sqlc.narg('timezone'),
     sqlc.narg('power_capacity_mw'),
-    sqlc.narg('network_config')
+    sqlc.narg('network_config'),
+    sqlc.narg('address'),
+    sqlc.narg('postal_code'),
+    COALESCE(sqlc.narg('country')::text, 'US'),
+    sqlc.narg('notes')
 )
 RETURNING *;
 
@@ -71,12 +77,15 @@ ORDER BY s.name;
 -- name: UpdateSite :exec
 UPDATE site
 SET name              = sqlc.arg('name'),
-    description       = sqlc.narg('description'),
     location_city     = sqlc.narg('location_city'),
     location_state    = sqlc.narg('location_state'),
     timezone          = sqlc.narg('timezone'),
     power_capacity_mw = sqlc.narg('power_capacity_mw'),
     network_config    = sqlc.narg('network_config'),
+    address           = sqlc.narg('address'),
+    postal_code       = sqlc.narg('postal_code'),
+    country           = COALESCE(sqlc.narg('country')::text, country),
+    notes             = sqlc.narg('notes'),
     updated_at        = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')

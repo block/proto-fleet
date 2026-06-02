@@ -1,11 +1,18 @@
 import { useCallback, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
-import { US_STATE_OPTIONS, US_TIMEZONE_OPTIONS } from "@/protoFleet/features/sites/constants";
+import {
+  CA_PROVINCE_OPTIONS,
+  COUNTRY_OPTIONS,
+  TIMEZONE_OPTIONS,
+  US_STATE_OPTIONS,
+} from "@/protoFleet/features/sites/constants";
+import { inferTimezone } from "@/protoFleet/features/sites/inferTimezone";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
+import Textarea from "@/shared/components/Textarea";
 
 // "createReturn" is the state when the operator clicks "Edit details" from
 // ManageSiteModal during the create flow — they're already mid-create, so the
@@ -20,11 +27,6 @@ interface SiteSettingsModalCommonProps {
   saving?: boolean;
 }
 
-// Discriminated by `mode` so the per-mode handler contract is type-enforced:
-// create needs onContinue; createReturn needs onContinue + onDeleteRequested
-// (Delete discards the pending create); edit needs onSave + onDeleteRequested
-// (Delete opens the cascade dialog). A misconfigured caller fails to compile
-// instead of silently no-opping the primary action.
 export type SiteSettingsModalProps = SiteSettingsModalCommonProps &
   (
     | { mode: "create"; onContinue: (values: SiteFormValues) => void }
@@ -40,10 +42,6 @@ export type SiteSettingsModalProps = SiteSettingsModalCommonProps &
       }
   );
 
-// Parse the capacity input. Accepts integers and decimals; treats blank as
-// 0 (the "unset" sentinel matched by the proto). Rejects negatives and
-// non-numeric input by returning null so the form can surface an inline
-// error rather than silently swallowing typos.
 const parseCapacity = (input: string): number | null => {
   const trimmed = input.trim();
   if (trimmed === "") return 0;
@@ -55,9 +53,13 @@ const parseCapacity = (input: string): number | null => {
 const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   const { open, initialValues, onDismiss, saving = false } = props;
   const [name, setName] = useState(initialValues.name);
+  const [address, setAddress] = useState(initialValues.address);
   const [city, setCity] = useState(initialValues.locationCity);
   const [state, setState] = useState(initialValues.locationState);
+  const [postalCode, setPostalCode] = useState(initialValues.postalCode);
+  const [country, setCountry] = useState(initialValues.country || "US");
   const [timezone, setTimezone] = useState(initialValues.timezone);
+  const [notes, setNotes] = useState(initialValues.notes);
   const [capacityText, setCapacityText] = useState(
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
   );
@@ -72,19 +74,21 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
     setCapacityError(null);
     return {
       name: name.trim(),
+      address: address.trim(),
       locationCity: city.trim(),
       locationState: state.trim(),
-      timezone: timezone.trim(),
+      postalCode: postalCode.trim(),
+      country: country || "US",
+      timezone: timezone,
       powerCapacityMw: capacity,
       networkConfig: initialValues.networkConfig,
+      notes: notes,
     };
-  }, [name, city, state, timezone, capacityText, initialValues.networkConfig]);
+  }, [name, address, city, state, postalCode, country, timezone, capacityText, notes, initialValues.networkConfig]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
     if (!values) return;
-    // Narrow on the props union so TS guarantees the right handler exists
-    // for the current mode.
     if (props.mode === "edit") {
       await props.onSave(values);
     } else {
@@ -95,11 +99,6 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   const nameValid = name.trim().length > 0;
   const primaryDisabled = !nameValid || saving;
 
-  // "create" gets a plain Cancel/Continue pair; the other two modes (edit and
-  // createReturn) share a Delete + Save shape because both are already editing
-  // a known-in-memory site row from the operator's perspective. Switching on
-  // props.mode (not the destructured `mode`) so TS narrows the discriminated
-  // union and onDeleteRequested is type-checked.
   const buttons =
     props.mode === "create"
       ? [
@@ -157,6 +156,32 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           autoFocus
           testId="site-settings-name-input"
         />
+        <Input
+          id="site-settings-address"
+          label="Address"
+          initValue={address}
+          onChange={(v) => setAddress(v)}
+          maxLength={255}
+          testId="site-settings-address-input"
+        />
+        <Select
+          id="site-settings-country"
+          label="Country"
+          options={COUNTRY_OPTIONS}
+          value={country}
+          onChange={(v) => {
+            if (v === country) return;
+            setCountry(v);
+            // State list is country-scoped — keeping a stale value (e.g.
+            // "IL" when switching US → CA) would persist a code that
+            // resolves to no timezone. The inferred timezone goes with
+            // the now-cleared state.
+            setState("");
+            setTimezone("");
+          }}
+          forceBelow
+          testId="site-settings-country-select"
+        />
         <div className="grid grid-cols-2 gap-4">
           <Input
             id="site-settings-city"
@@ -168,14 +193,38 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           />
           <Select
             id="site-settings-state"
-            label="State"
-            options={US_STATE_OPTIONS}
+            label={country === "CA" ? "Province" : "State"}
+            options={country === "CA" ? CA_PROVINCE_OPTIONS : US_STATE_OPTIONS}
             value={state}
-            onChange={setState}
+            onChange={(v) => {
+              setState(v);
+              // Auto-seed timezone with the inference for the new state
+              // so the operator sees the suggestion before save. They
+              // can still override below (e.g. N Idaho is Pacific, not
+              // the Mountain default).
+              setTimezone(inferTimezone(country, v));
+            }}
             forceBelow
             testId="site-settings-state-select"
           />
         </div>
+        <Input
+          id="site-settings-postal-code"
+          label="Postal code"
+          initValue={postalCode}
+          onChange={(v) => setPostalCode(v)}
+          maxLength={32}
+          testId="site-settings-postal-code-input"
+        />
+        <Select
+          id="site-settings-timezone"
+          label="Timezone"
+          options={TIMEZONE_OPTIONS}
+          value={timezone}
+          onChange={setTimezone}
+          forceBelow
+          testId="site-settings-timezone-select"
+        />
         <Input
           id="site-settings-capacity"
           label="Power capacity"
@@ -188,14 +237,14 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           error={capacityError ?? false}
           testId="site-settings-capacity-input"
         />
-        <Select
-          id="site-settings-timezone"
-          label="Timezone"
-          options={US_TIMEZONE_OPTIONS}
-          value={timezone}
-          onChange={setTimezone}
-          forceBelow
-          testId="site-settings-timezone-select"
+        <Textarea
+          id="site-settings-notes"
+          label="Notes"
+          initValue={notes}
+          onChange={(v) => setNotes(v)}
+          rows={4}
+          maxLength={4096}
+          testId="site-settings-notes-input"
         />
       </div>
     </Modal>

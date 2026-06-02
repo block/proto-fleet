@@ -7,14 +7,18 @@ export interface NavItem {
   path: string;
   label: string;
   icon?: (i: IconProps) => ReactNode;
-  allowedRoles?: string[];
+  // Catalog permission key the caller must hold to see this entry. Mirrors
+  // the server-side gate on the page's backing RPCs; consumers filter via
+  // useHasPermission. Entries without a requiredPermission are visible to
+  // every authenticated user.
+  requiredPermission?: string;
 }
 
 export interface SecondaryNavItem {
   path: string;
   label: string;
   parent: string;
-  allowedRoles?: string[];
+  requiredPermission?: string;
 }
 
 // Primary navigation items (shown in main nav menu)
@@ -30,10 +34,11 @@ export const primaryNavItems: NavItem[] = [
           path: "/sites",
           label: "Sites",
           icon: Site,
-          // Backing RPCs (ListSites, ListBuildings, GetBuilding) are
-          // admin-gated server-side. Mirror the gating client-side so
-          // VIEWER doesn't land on a page that's guaranteed to fail.
-          allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+          // SitesPage renders site CRUD with no view-only mode, so gate
+          // the nav on site:manage to match the page's capability
+          // rather than the list RPC's site:read. Same shape as the
+          // Pools and Schedules secondary-nav entries.
+          requiredPermission: "site:manage",
         },
       ]
     : []),
@@ -56,6 +61,9 @@ export const primaryNavItems: NavItem[] = [
     path: "/activity",
     label: "Activity",
     icon: Activity,
+    // ActivityService is still pending its activity:read catalog key
+    // (tracked separately). Once the server-side gating lands, gate
+    // this nav entry on activity:read to mirror the RPC gate.
   },
   {
     path: "/settings",
@@ -85,11 +93,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/mining-pools",
     label: "Pools",
     parent: "/settings",
-    // PoolsService is server-side gated on pool:read / pool:manage; only
-    // SUPER_ADMIN and ADMIN seed with those keys. Mirror the gate here so
-    // FIELD_TECH / custom roles don't land on a page that immediately
-    // hits PermissionDenied on every RPC.
-    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+    // The Pools settings page is a management surface (Add / Edit /
+    // Test / Delete with no read-only mode), so gate the nav on
+    // pool:manage to match the page's capability rather than pool:read.
+    // Read-only-pool custom roles get no useful UI here today.
+    requiredPermission: "pool:manage",
   },
   {
     path: "/settings/firmware",
@@ -100,17 +108,17 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/schedules",
     label: "Schedules",
     parent: "/settings",
-    // ScheduleService is server-side gated on schedule:read /
-    // schedule:manage; only SUPER_ADMIN and ADMIN seed with those keys.
-    // Mirror the gate so FIELD_TECH / custom roles don't see a nav entry
-    // that's guaranteed to fail.
-    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+    // The Schedules settings page is a management surface (Add, edit,
+    // pause, resume, delete, reorder; no view-only mode), so gate the
+    // nav on schedule:manage to match the page's capability rather
+    // than schedule:read.
+    requiredPermission: "schedule:manage",
   },
   {
     path: "/settings/api-keys",
     label: "API Keys",
     parent: "/settings",
-    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+    requiredPermission: "apikey:manage",
   },
   ...(MULTI_SITE_ENABLED
     ? [
@@ -118,11 +126,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
           path: "/settings/sites",
           label: "Sites",
           parent: "/settings",
-          // Site/building CRUD is admin-gated server-side; matching the
-          // role restriction on adjacent admin-only entries (API Keys,
-          // Server Logs) prevents VIEWER from landing on the page and
-          // hitting PermissionDenied on every RPC.
-          allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+          requiredPermission: "site:manage",
         },
       ]
     : []),
@@ -130,6 +134,6 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/server-logs",
     label: "Server Logs",
     parent: "/settings",
-    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+    requiredPermission: "serverlog:read",
   },
 ];

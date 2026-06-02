@@ -8,12 +8,15 @@ type Site struct {
 	ID              int64
 	OrgID           int64
 	Name            string
-	Description     string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
 	PowerCapacityMw float64
 	NetworkConfig   string
+	Address         string
+	PostalCode      string
+	Country         string
+	Notes           string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -32,12 +35,15 @@ type SiteWithCounts struct {
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
-	Description     string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
 	PowerCapacityMw float64
 	NetworkConfig   string
+	Address         string
+	PostalCode      string
+	Country         string
+	Notes           string
 }
 
 // UpdateSiteParams is the input shape for the Update flow.
@@ -45,12 +51,15 @@ type UpdateSiteParams struct {
 	OrgID           int64
 	ID              int64
 	Name            string
-	Description     string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
 	PowerCapacityMw float64
 	NetworkConfig   string
+	Address         string
+	PostalCode      string
+	Country         string
+	Notes           string
 }
 
 // DeleteSiteResult carries the cascade impact for the delete activity log.

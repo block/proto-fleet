@@ -55,18 +55,59 @@ export const US_STATE_OPTIONS = [
   { value: "WY", label: "Wyoming" },
 ];
 
-// Timezone options scoped to US zones the operator base actually uses today.
-// Values are IANA identifiers so they round-trip cleanly through the proto
-// `timezone` string; labels match the wording in master plan §J3.
-export const US_TIMEZONE_OPTIONS = [
-  { value: "America/New_York", label: "Eastern (ET)" },
-  { value: "America/Chicago", label: "Central (CT)" },
-  { value: "America/Denver", label: "Mountain (MT)" },
-  { value: "America/Los_Angeles", label: "Pacific (PT)" },
-  { value: "America/Phoenix", label: "Arizona (MST)" },
-  { value: "America/Anchorage", label: "Alaska (AKT)" },
-  { value: "Pacific/Honolulu", label: "Hawaii (HST)" },
-  { value: "America/Indiana/Indianapolis", label: "Indiana (ET)" },
-  { value: "America/Boise", label: "Boise (MT)" },
-  { value: "America/Detroit", label: "Detroit (ET)" },
+// Canadian province / territory two-letter codes. Matches the server's
+// caProvinceToTimezone lookup; both lists must stay in sync.
+export const CA_PROVINCE_OPTIONS = [
+  { value: "AB", label: "Alberta" },
+  { value: "BC", label: "British Columbia" },
+  { value: "MB", label: "Manitoba" },
+  { value: "NB", label: "New Brunswick" },
+  { value: "NL", label: "Newfoundland and Labrador" },
+  { value: "NS", label: "Nova Scotia" },
+  { value: "NT", label: "Northwest Territories" },
+  { value: "NU", label: "Nunavut" },
+  { value: "ON", label: "Ontario" },
+  { value: "PE", label: "Prince Edward Island" },
+  { value: "QC", label: "Quebec" },
+  { value: "SK", label: "Saskatchewan" },
+  { value: "YT", label: "Yukon" },
+];
+
+// Country options for the SiteSettingsModal country dropdown. Values
+// are ISO 3166-1 alpha-2 codes. Only countries with matching state /
+// timezone tables appear here.
+export const COUNTRY_OPTIONS = [
+  { value: "US", label: "United States" },
+  { value: "CA", label: "Canada" },
+];
+
+// IANA timezone options for the SiteSettingsModal timezone Select.
+// Superset of the ids returned by inferTimezone so operators can
+// override a minority-zone state (e.g. ID → America/Los_Angeles for
+// the panhandle). Labels lead with the offset so a manual override
+// is easy to verify.
+export const TIMEZONE_OPTIONS = [
+  // US
+  { value: "America/New_York", label: "Eastern Time — New York" },
+  { value: "America/Detroit", label: "Eastern Time — Detroit" },
+  { value: "America/Indiana/Indianapolis", label: "Eastern Time — Indianapolis" },
+  { value: "America/Chicago", label: "Central Time — Chicago" },
+  { value: "America/Denver", label: "Mountain Time — Denver" },
+  { value: "America/Boise", label: "Mountain Time — Boise" },
+  { value: "America/Phoenix", label: "Mountain Time (no DST) — Phoenix" },
+  { value: "America/Los_Angeles", label: "Pacific Time — Los Angeles" },
+  { value: "America/Anchorage", label: "Alaska Time — Anchorage" },
+  { value: "Pacific/Honolulu", label: "Hawaii Time — Honolulu" },
+  // CA
+  { value: "America/St_Johns", label: "Newfoundland Time — St. John's" },
+  { value: "America/Halifax", label: "Atlantic Time — Halifax" },
+  { value: "America/Moncton", label: "Atlantic Time — Moncton" },
+  { value: "America/Toronto", label: "Eastern Time — Toronto" },
+  { value: "America/Iqaluit", label: "Eastern Time — Iqaluit" },
+  { value: "America/Winnipeg", label: "Central Time — Winnipeg" },
+  { value: "America/Regina", label: "Central Time (no DST) — Regina" },
+  { value: "America/Edmonton", label: "Mountain Time — Edmonton" },
+  { value: "America/Yellowknife", label: "Mountain Time — Yellowknife" },
+  { value: "America/Vancouver", label: "Pacific Time — Vancouver" },
+  { value: "America/Whitehorse", label: "Yukon Time — Whitehorse" },
 ];

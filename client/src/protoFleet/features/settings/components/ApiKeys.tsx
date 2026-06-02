@@ -4,7 +4,7 @@ import { useApiKeys } from "@/protoFleet/api/useApiKeys";
 import type { ApiKeyItem } from "@/protoFleet/api/useApiKeys";
 import CreateApiKeyModal from "@/protoFleet/features/settings/components/CreateApiKeyModal";
 import RevokeApiKeyDialog from "@/protoFleet/features/settings/components/RevokeApiKeyDialog";
-import { useRole } from "@/protoFleet/store";
+import { useHasPermission } from "@/protoFleet/store";
 import { Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -28,14 +28,12 @@ const activeCols: ApiKeyColumns[] = ["name", "prefix", "createdAt", "expiresAt",
 
 const ApiKeys = () => {
   const { listApiKeys, revokeApiKey } = useApiKeys();
-  const currentUserRole = useRole();
+  const canManageApiKeys = useHasPermission("apikey:manage");
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [revokeKeyData, setRevokeKeyData] = useState<ApiKeyItem | null>(null);
   const [isRevoking, setIsRevoking] = useState(false);
-
-  const isAdmin = currentUserRole === "SUPER_ADMIN" || currentUserRole === "ADMIN";
 
   const fetchApiKeys = useCallback(() => {
     setIsLoading(true);
@@ -56,11 +54,11 @@ const ApiKeys = () => {
   }, [listApiKeys]);
 
   useEffect(() => {
-    if (isAdmin) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch when admin role resolves; setState inside async fetch is the external-sync pattern
+    if (canManageApiKeys) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch when permissions resolve; setState inside async fetch is the external-sync pattern
       fetchApiKeys();
     }
-  }, [fetchApiKeys, isAdmin]);
+  }, [fetchApiKeys, canManageApiKeys]);
 
   const handleCreateSuccess = useCallback(() => {
     fetchApiKeys();
@@ -143,8 +141,9 @@ const ApiKeys = () => {
     [],
   );
 
-  // Redirect non-admins away — placed after all hooks to satisfy rules-of-hooks
-  if (!isAdmin) {
+  // Redirect callers without apikey:manage away — placed after all
+  // hooks to satisfy rules-of-hooks.
+  if (!canManageApiKeys) {
     return <Navigate to="/settings/general" replace />;
   }
 

@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { useRole } from "@/protoFleet/store";
+import { usePermissions } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
@@ -25,8 +25,16 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogoutAction();
   const { bg } = usePageBackground();
-  const currentRole = useRole();
+  const permissions = usePermissions();
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
+  const hasPermission = useCallback(
+    (key: string | undefined) => key === undefined || permissions.includes(key),
+    [permissions],
+  );
+  const visibleItems = useMemo(
+    () => items.filter((item) => hasPermission(item.requiredPermission)),
+    [items, hasPermission],
+  );
   const [showSettingsHover, setShowSettingsHover] = useState(false);
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
@@ -97,7 +105,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         ) : null}
 
         <ul data-testid="navigation-menu" className="flex w-full flex-col items-start gap-1 px-3">
-          {items.map((item, idx) => {
+          {visibleItems.map((item) => {
             // Skip Settings item on mobile/tablet if it has secondary nav items - we'll render it separately with expand/collapse
             if (
               (isPhone || isTablet) &&
@@ -108,7 +116,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             }
 
             return item.path ? (
-              <li key={idx} className="w-full">
+              <li key={item.path} className="w-full">
                 <Link
                   to={item.path}
                   onClick={() => closeMenu?.()}
@@ -193,7 +201,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                   >
                     {secondaryNavItems
                       .filter((nav) => nav.parent === "/settings")
-                      .filter((nav) => !nav.allowedRoles || nav.allowedRoles.includes(currentRole))
+                      .filter((nav) => hasPermission(nav.requiredPermission))
                       .map((nav) => (
                         <li key={nav.path} className="w-full">
                           <Link

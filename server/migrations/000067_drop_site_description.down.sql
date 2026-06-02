@@ -1,0 +1,1 @@
+ALTER TABLE site ADD COLUMN IF NOT EXISTS description TEXT;
