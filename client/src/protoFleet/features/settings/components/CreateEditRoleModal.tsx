@@ -3,17 +3,15 @@ import clsx from "clsx";
 
 import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import {
-  lockedReadKeys,
   permissionGroups,
   withRequiredReads,
 } from "@/protoFleet/features/settings/utils/permissionCatalog";
-import { Alert, ChevronDown, Info, Lock } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import { Alert, ChevronDown } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Modal, { sizes } from "@/shared/components/Modal";
-import Textarea from "@/shared/components/Textarea";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 interface CreateEditRoleModalProps {
@@ -24,14 +22,9 @@ interface CreateEditRoleModalProps {
   onSuccess: () => void;
 }
 
-const friendlyKeyAction = (key: string): string => {
-  const action = (key.split(":")[1] ?? key).replace(/_/g, " ");
-  return action.charAt(0).toUpperCase() + action.slice(1);
-};
-
-// Groups start collapsed so the 12-group catalog reads as a compact list. When
-// editing, groups that already grant something open by default so current
-// access is visible at a glance.
+// Groups start collapsed so the catalog reads as a compact list. When editing,
+// groups that already grant something open by default so current access is
+// visible at a glance.
 const collapsedFor = (permissions: string[]): Set<string> => {
   const collapsed = new Set<string>();
   permissionGroups.forEach((group) => {
@@ -46,9 +39,7 @@ const allResources = permissionGroups.map((group) => group.resource);
 const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRoleModalProps) => {
   const isVisible = open ?? true;
   const isEdit = !!role;
-  const isBuiltin = !!role?.builtin;
-  // Built-in names are stable server-side; only custom roles can be renamed.
-  const nameLocked = isBuiltin;
+  const nameLocked = !!role?.builtin;
 
   // Form state is seeded from `role` via useState defaults. Callers
   // remount the modal (key={role?.roleId ?? "create"}) when switching
@@ -56,14 +47,11 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
   // happens exactly once per open and stale state can't leak.
   const { createRole, updateRole } = useRoleManagement();
   const [name, setName] = useState(role?.name ?? "");
-  const [description, setDescription] = useState(role?.description ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set(role?.permissions ?? []));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedFor(role?.permissions ?? []));
-
-  const locked = useMemo(() => lockedReadKeys(selected), [selected]);
 
   const toggleKey = useCallback((key: string, checked: boolean) => {
     setErrorMsg("");
@@ -71,18 +59,12 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       if (checked) {
         return new Set(withRequiredReads([...prev, key]));
       }
-      // Removing a key: drop it, then restore any reads still required by the
-      // actions that remain selected. A read another action still depends on is
-      // re-added here, so toggling a locked read off is a no-op (and the row is
-      // marked with a lock icon to signal that). Return the previous reference
-      // in that case so React doesn't schedule a no-op re-render.
+      // Removing a read key cascades: drop it plus any actions in the same
+      // resource that depended on it, then recompute required reads for
+      // whatever remains.
       const next = new Set(prev);
       next.delete(key);
-      const candidate = new Set(withRequiredReads(next));
-      if (candidate.size === prev.size && [...candidate].every((k) => prev.has(k))) {
-        return prev;
-      }
-      return candidate;
+      return new Set(withRequiredReads(next));
     });
   }, []);
 
@@ -140,13 +122,11 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     };
 
     if (isEdit && role) {
-      updateRole({ roleId: role.roleId, name: name.trim(), description, permissions, ...handlers });
+      updateRole({ roleId: role.roleId, name: name.trim(), description: "", permissions, ...handlers });
     } else {
-      createRole({ name: name.trim(), description, permissions, ...handlers });
+      createRole({ name: name.trim(), description: "", permissions, ...handlers });
     }
-  }, [name, description, selected, isEdit, role, createRole, updateRole, onSuccess, onDismiss]);
-
-  const selectedCount = selected.size;
+  }, [name, selected, isEdit, role, createRole, updateRole, onSuccess, onDismiss]);
 
   // Filter the catalog by the search query against group label, permission key,
   // and description. While a query is active the matching groups are forced
@@ -172,8 +152,8 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     <Modal
       open={isVisible}
       onDismiss={onDismiss}
-      size={sizes.large}
-      title={isEdit ? `Edit ${role?.name}` : "Create role"}
+      size={sizes.standard}
+      title={isEdit ? "Edit role" : "Create role"}
       description={
         isEdit
           ? "Adjust the permissions this role grants. Members keep the role; their access updates immediately."
@@ -191,17 +171,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     >
       {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
-      {isBuiltin ? (
-        <Callout
-          className="mb-6"
-          intent="information"
-          prefixIcon={<Info />}
-          title="Built-in role"
-          subtitle="This is a built-in role. You can adjust its permissions, but its name is fixed."
-        />
-      ) : null}
-
-      <div className="mb-6 flex flex-col gap-4">
+      <div className="mb-6">
         <Input
           id="role-name"
           label="Role name"
@@ -210,28 +180,18 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
           disabled={nameLocked}
           autoFocus={!isEdit}
         />
-        <Textarea
-          id="role-description"
-          label="Description"
-          initValue={description}
-          onChange={(value) => setDescription(value)}
-          rows={2}
-        />
       </div>
 
       <div className="mb-3 flex items-center justify-between gap-4">
-        <span className="text-heading-100 text-text-primary">Permissions</span>
+        <span className="text-emphasis-300 text-text-primary">Permissions</span>
         <div className="flex items-center gap-4">
           {!searching ? (
-            <button
-              type="button"
-              className="text-200 text-text-primary-50 hover:text-text-primary"
+            <Button
+              variant={variants.textOnly}
+              text={collapsed.size === 0 ? "Collapse all" : "Expand all"}
               onClick={() => setCollapsed((prev) => (prev.size === 0 ? new Set(allResources) : new Set()))}
-            >
-              {collapsed.size === 0 ? "Collapse all" : "Expand all"}
-            </button>
+            />
           ) : null}
-          <span className="text-200 text-text-primary-50">{selectedCount} selected</span>
         </div>
       </div>
 
@@ -242,16 +202,15 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
           initValue={query}
           onChange={(value) => setQuery(value)}
           dismiss
-          compact
         />
       </div>
 
       {renderedGroups.length === 0 ? (
-        <div className="rounded-xl border border-border-5 py-10 text-center text-200 text-text-primary-50">
-          No permissions match “{query.trim()}”.
+        <div className="py-10 text-center text-200 text-text-primary-50">
+          No permissions match "{query.trim()}".
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col divide-y divide-border-5 border-y border-border-5">
           {renderedGroups.map(({ group, entries }) => {
             const groupKeys = entries.map((entry) => entry.key);
             const selectedInGroup = groupKeys.filter((key) => selected.has(key));
@@ -260,8 +219,8 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
             const isOpen = searching || !collapsed.has(group.resource);
 
             return (
-              <section key={group.resource} className="overflow-hidden rounded-xl border border-border-5">
-                <div className="flex items-center gap-3 px-4 py-3">
+              <section key={group.resource}>
+                <div className="flex items-center gap-3 py-3">
                   <Checkbox
                     checked={allSelected}
                     partiallyChecked={someSelected}
@@ -274,49 +233,38 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
                     disabled={searching}
                     aria-expanded={isOpen}
                   >
+                    <span className="text-emphasis-300 text-text-primary">{group.label}</span>
                     <span className="flex items-center gap-2">
-                      <span className="text-heading-100 text-text-primary">{group.label}</span>
-                      <span className="text-200 text-text-primary-30">
+                      <span className="text-300 text-text-primary-50">
                         {selectedInGroup.length}/{groupKeys.length}
                       </span>
+                      {!searching ? (
+                        <ChevronDown
+                          className={clsx(
+                            "h-4 w-4 text-text-primary transition-transform duration-200",
+                            isOpen ? "rotate-180" : "",
+                          )}
+                        />
+                      ) : null}
                     </span>
-                    {!searching ? (
-                      <ChevronDown
-                        className={clsx(
-                          "h-4 w-4 text-text-primary-50 transition-transform duration-200",
-                          isOpen ? "rotate-180" : "",
-                        )}
-                      />
-                    ) : null}
                   </button>
                 </div>
 
                 {isOpen ? (
-                  <div className="flex flex-col divide-y divide-border-5 border-t border-border-5">
-                    {entries.map((entry) => {
+                  <div className="flex flex-col">
+                    {entries.map((entry, i) => {
                       const checked = selected.has(entry.key);
-                      const isLocked = checked && locked.has(entry.key);
+                      const isLast = i === entries.length - 1;
                       return (
                         <label
                           key={entry.key}
-                          className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-core-primary-2"
+                          className={clsx(
+                            "flex cursor-pointer items-center gap-3 py-2 pl-6 hover:bg-core-primary-2",
+                            isLast && "pb-3",
+                          )}
                         >
-                          <div className="pt-0.5">
-                            <Checkbox checked={checked} onChange={(e) => toggleKey(entry.key, e.target.checked)} />
-                          </div>
-                          <div className="flex min-w-0 flex-1 flex-col">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-300 text-text-primary">{friendlyKeyAction(entry.key)}</span>
-                              {isLocked ? (
-                                <span className="flex items-center gap-1 rounded-full bg-core-primary-5 px-2 py-0.5 text-200 text-text-primary-50">
-                                  <Lock className="h-3 w-3" />
-                                  Required
-                                </span>
-                              ) : null}
-                              <span className="font-mono text-200 text-text-primary-30">{entry.key}</span>
-                            </div>
-                            <span className="text-200 text-text-primary-50">{entry.description}</span>
-                          </div>
+                          <Checkbox checked={checked} onChange={(e) => toggleKey(entry.key, e.target.checked)} />
+                          <span className="text-300 text-text-primary">{entry.description}</span>
                         </label>
                       );
                     })}

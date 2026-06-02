@@ -25,38 +25,45 @@ export interface PermissionGroup {
   entries: CatalogEntry[];
 }
 
-// Display labels for each resource group, in the order the role builder
-// renders them. Mirrors authz.ResourceOrder on the server.
-const RESOURCE_LABELS: Record<string, string> = {
-  fleet: "Fleet",
+// UI display groups for the role builder. These consolidate the server's
+// per-resource grouping into fewer, more scannable buckets. The underlying
+// permission keys and the read-pairing logic are unchanged — only the
+// visual grouping differs.
+//
+// "fleet" is intentionally absent: fleet:read is a dependency floor
+// auto-selected by the read-pairing rule, not a standalone grant.
+
+/** Maps a catalog entry's `resource` field to a UI group key. */
+const RESOURCE_TO_GROUP: Record<string, string> = {
+  miner: "miner",
+  rack: "infrastructure",
+  site: "infrastructure",
+  curtailment: "curtailment",
+  pool: "pool",
+  schedule: "schedule",
+  fleetnode: "admin",
+  serverlog: "admin",
+  apikey: "admin",
+  user: "admin",
+  role: "admin",
+};
+
+const GROUP_LABELS: Record<string, string> = {
   miner: "Miners",
-  rack: "Racks",
-  site: "Sites & buildings",
-  serverlog: "Server logs",
+  infrastructure: "Sites, buildings & racks",
   curtailment: "Curtailment",
   pool: "Mining pools",
   schedule: "Schedules",
-  fleetnode: "Fleet nodes",
-  apikey: "API keys",
-  // Labeled "Team" to match the Settings → Team screen and nav; the underlying
-  // permission keys remain user:read / user:manage (mirroring catalog.go).
-  user: "Team",
-  role: "Roles",
+  admin: "Administration",
 };
 
-const RESOURCE_ORDER = [
-  "fleet",
+const GROUP_ORDER = [
   "miner",
-  "rack",
-  "site",
-  "serverlog",
+  "infrastructure",
   "curtailment",
   "pool",
   "schedule",
-  "fleetnode",
-  "apikey",
-  "user",
-  "role",
+  "admin",
 ];
 
 // The canonical catalog, in declaration order. Keep in lockstep with the
@@ -136,11 +143,11 @@ export const PERMISSION_CATALOG: CatalogEntry[] = [
 /** True for catalog keys whose action segment is "read". */
 export const isReadKey = (key: string): boolean => key.endsWith(":read");
 
-/** The catalog grouped by resource, in RESOURCE_ORDER, for the builder UI. */
-export const permissionGroups: PermissionGroup[] = RESOURCE_ORDER.flatMap((resource) => {
-  const entries = PERMISSION_CATALOG.filter((entry) => entry.resource === resource);
+/** The catalog grouped for the role builder UI. */
+export const permissionGroups: PermissionGroup[] = GROUP_ORDER.flatMap((group) => {
+  const entries = PERMISSION_CATALOG.filter((entry) => RESOURCE_TO_GROUP[entry.resource] === group);
   if (entries.length === 0) return [];
-  return [{ resource, label: RESOURCE_LABELS[resource] ?? resource, entries }];
+  return [{ resource: group, label: GROUP_LABELS[group] ?? group, entries }];
 });
 
 const READ_KEY_BY_RESOURCE = new Map<string, string>(
