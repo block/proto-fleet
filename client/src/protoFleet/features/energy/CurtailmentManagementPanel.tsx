@@ -22,6 +22,7 @@ import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface CurtailmentManagementPanelProps {
+  canManageCurtailment?: boolean;
   className?: string;
 }
 
@@ -63,7 +64,10 @@ function createActiveCurtailmentPreview(
   });
 }
 
-function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelProps): ReactElement {
+function CurtailmentManagementPanel({
+  canManageCurtailment = true,
+  className,
+}: CurtailmentManagementPanelProps): ReactElement {
   const {
     activeEvent,
     activeEventId,
@@ -174,7 +178,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   }, []);
 
   const openEditModal = useCallback(() => {
-    if (!activeEvent || !activeEventId || !activeEventFormValues) {
+    if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {
       return;
     }
 
@@ -184,7 +188,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
       preview: createActiveCurtailmentPreview(activeEvent, activeEventFormValues),
     });
     setModalMode("edit");
-  }, [activeEvent, activeEventFormValues, activeEventId]);
+  }, [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment]);
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
@@ -294,7 +298,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
             <ActiveCurtailmentStatus
               event={activeEvent}
               onDismissRestored={dismissTerminalCurtailment}
-              onRequestEdit={openEditModal}
+              onRequestEdit={canManageCurtailment ? openEditModal : undefined}
               onRequestRestore={() => openStopConfirmation("restore")}
               onRequestStop={() => openStopConfirmation("stopCurtailment")}
             />

@@ -44,9 +44,11 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
       <button type="button" onClick={onDismissRestored}>
         Dismiss restored
       </button>
-      <button type="button" onClick={onRequestEdit}>
-        Request edit
-      </button>
+      {onRequestEdit ? (
+        <button type="button" onClick={onRequestEdit}>
+          Request edit
+        </button>
+      ) : null}
       <button type="button" onClick={onRequestRestore}>
         Request restore
       </button>
@@ -412,6 +414,22 @@ describe("CurtailmentManagementPanel", () => {
       expect(mocks.updateCurtailment).toHaveBeenCalledWith("curt-1", mocks.submitValues, activeEventFormValues),
     );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
+  });
+
+  it("hides active curtailment management for read-only users", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+      }),
+    );
+
+    render(<CurtailmentManagementPanel canManageCurtailment={false} />);
+
+    expect(screen.getByTestId("active-curtailment-status")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plan curtailment" })).toBeInTheDocument();
   });
 
   it("keeps the edit baseline stable after active event refreshes", async () => {
