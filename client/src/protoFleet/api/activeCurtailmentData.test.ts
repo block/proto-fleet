@@ -21,8 +21,12 @@ const { mockGetActiveCurtailment } = vi.hoisted(() => ({
 }));
 vi.mock("@/protoFleet/api/clients", () => ({ curtailmentClient: { getActiveCurtailment: mockGetActiveCurtailment } }));
 
-function curtailmentEvent(eventUuid: string, state = CurtailmentEventState.ACTIVE): CurtailmentEvent {
-  return create(CurtailmentEventSchema, { eventUuid, state });
+function curtailmentEvent(
+  eventUuid: string,
+  state = CurtailmentEventState.ACTIVE,
+  overrides: { reason?: string } = {},
+): CurtailmentEvent {
+  return create(CurtailmentEventSchema, { eventUuid, state, ...overrides });
 }
 
 describe("activeCurtailmentData", () => {
@@ -95,6 +99,38 @@ describe("activeCurtailmentData", () => {
     postMutationSnapshot.commit();
 
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
+  });
+
+  it("preserves a mutation-backed event through one stale shared active refresh", async () => {
+    applyActiveCurtailmentEvent(curtailmentEvent("started-event"), { preserveAgainstStaleRefresh: true });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: undefined }).mockResolvedValueOnce({ event: undefined });
+
+    const firstRefresh = fetchActiveCurtailmentData();
+    const secondRefresh = fetchActiveCurtailmentData();
+    const [firstSnapshot, secondSnapshot] = await Promise.all([firstRefresh, secondRefresh]);
+    firstSnapshot.commit();
+    secondSnapshot.commit();
+
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
+  });
+
+  it("preserves mutation-backed fields through one stale same-event active refresh", async () => {
+    applyActiveCurtailmentEvent(
+      curtailmentEvent("updated-event", CurtailmentEventState.ACTIVE, { reason: "Updated" }),
+      {
+        preserveAgainstStaleRefresh: true,
+      },
+    );
+    mockGetActiveCurtailment.mockResolvedValueOnce({
+      event: curtailmentEvent("updated-event", CurtailmentEventState.ACTIVE, { reason: "Previous" }),
+    });
+
+    await refreshActiveCurtailmentData();
+
+    expect(getActiveCurtailmentSnapshot().event?.reason).toBe("Updated");
   });
 
   it("rejects a reset-aborted shared request as an AbortError", async () => {

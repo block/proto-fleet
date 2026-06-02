@@ -113,8 +113,6 @@ const initialCurtailmentSnapshot: CurtailmentSnapshot = {
   activeEventFormValues: null,
   historyEvents: [],
 };
-const defaultHistorySourceLabel = "Manual";
-
 const visibleActiveCurtailmentEventStates = new Set<CurtailmentEventState>([
   "pending",
   "active",
@@ -202,21 +200,18 @@ function getActiveHistoryEvent(
   const matchingHistoryEvent = historyEvents.find((event) => event.id === mappedActiveEvent.id);
 
   if (!matchingHistoryEvent) {
-    return markInjectedActiveHistoryEvent({
-      ...mappedActiveEvent,
-      sourceLabel: defaultHistorySourceLabel,
-    });
+    return markInjectedActiveHistoryEvent(mappedActiveEvent);
   }
 
   if (!mappedActiveEvent.displayState) {
     return matchingHistoryEvent;
   }
 
-  return markInjectedActiveHistoryEvent({
+  return {
     ...mappedActiveEvent,
     displayState: mappedActiveEvent.displayState,
     sourceLabel: matchingHistoryEvent.sourceLabel,
-  });
+  };
 }
 
 function createSnapshot(
@@ -391,7 +386,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (event: ProtoCurtailmentEvent) => {
       const state = mapCurtailmentEventState(event.state);
       const shouldShowActiveEvent = visibleActiveCurtailmentEventStates.has(state);
-      applyActiveCurtailmentEvent(shouldShowActiveEvent ? event : undefined);
+      applyActiveCurtailmentEvent(shouldShowActiveEvent ? event : undefined, {
+        preserveAgainstStaleRefresh: true,
+      });
       const nextActiveEvent = shouldShowActiveEvent ? mapActiveCurtailmentEvent(event) : null;
       const activeStatusFilters = historyStatusFiltersRef.current;
       const shouldUpdateHistoryPage =

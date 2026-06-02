@@ -277,7 +277,7 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent?.observedReductionKw).toBe(0);
   });
 
-  it("uses the active display state for the injected active history row", async () => {
+  it("uses the active display state for the active history row", async () => {
     const activeEvent = curtailmentEvent({
       state: CurtailmentEventState.PENDING,
       targetRollup: create(CurtailmentTargetRollupSchema, {
@@ -301,6 +301,7 @@ describe("useCurtailmentApi", () => {
         displayState: "curtailing",
       }),
     );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("injectedActive");
   });
 
   it("keeps server-scrubbed history metadata when injecting active display state", async () => {
@@ -335,12 +336,13 @@ describe("useCurtailmentApi", () => {
         sourceLabel: "Manual",
       }),
     );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("injectedActive");
   });
 
-  it("uses a scrubbed source label for injected active history rows without a server history match", async () => {
+  it("preserves the active source label for injected active history rows without a server history match", async () => {
     const activeEvent = curtailmentEvent({
       eventUuid: "curt-unmatched-source",
-      externalSource: "webhook-secret",
+      externalSource: "Demand response",
       state: CurtailmentEventState.COMPLETED,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
     });
@@ -356,7 +358,8 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
         id: "curt-unmatched-source",
-        sourceLabel: "Manual",
+        injectedActive: true,
+        sourceLabel: "Demand response",
       }),
     );
   });
@@ -657,7 +660,7 @@ describe("useCurtailmentApi", () => {
       reason: "Dispatch started",
     });
     mockGetActiveCurtailment.mockResolvedValueOnce({ event: pendingEvent });
-    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [pendingEvent], nextPageToken: "" });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
 
     const { result } = renderHook(() => useCurtailmentApi());
 
@@ -747,6 +750,50 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         id: "curt-real-history",
         reason: "Real history row",
+      }),
+    ]);
+  });
+
+  it("keeps server-backed active history rows when shared active state stops matching filters", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-server-backed",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 1,
+        resolved: 1,
+        total: 2,
+      }),
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-server-backed",
+      state: CurtailmentEventState.COMPLETED,
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: restoringEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [restoringEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["restoring"]);
+    });
+
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-server-backed",
+        displayState: "restoring",
+      }),
+    );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("injectedActive");
+
+    act(() => {
+      applyActiveCurtailmentEvent(completedEvent);
+    });
+
+    expect(result.current.historyStatusFilters).toEqual(["restoring"]);
+    expect(result.current.historyEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-server-backed",
+        state: "restoring",
       }),
     ]);
   });
