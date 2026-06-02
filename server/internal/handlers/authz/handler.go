@@ -15,6 +15,7 @@ package authz
 
 import (
 	"context"
+	"regexp"
 	"strconv"
 
 	"connectrpc.com/connect"
@@ -131,15 +132,42 @@ func roleViewToProto(v authzDomain.RoleView) *pb.Role {
 		Description:    v.Description,
 		PermissionKeys: v.PermissionKeys,
 		Builtin:        v.Builtin,
-		BuiltinKey:     v.BuiltinKey,
+		BuiltinKey:     builtinKeyToProto(v.BuiltinKey),
 		MemberCount:    v.MemberCount,
 		UpdatedAt:      timestamppb.New(v.UpdatedAt),
 	}
 }
 
+// builtinKeyToProto maps the seed identifier stored in role.builtin_key
+// (the canonical string form, kept stable across migrations) to the
+// wire enum. An unknown / empty value lands on UNSPECIFIED so older
+// custom rows missing the column read as "no built-in identity" rather
+// than aliasing to a real key.
+func builtinKeyToProto(key string) pb.BuiltinKey {
+	switch authzDomain.BuiltinKey(key) {
+	case authzDomain.BuiltinKeySuperAdmin:
+		return pb.BuiltinKey_BUILTIN_KEY_SUPER_ADMIN
+	case authzDomain.BuiltinKeyAdmin:
+		return pb.BuiltinKey_BUILTIN_KEY_ADMIN
+	case authzDomain.BuiltinKeyFieldTech:
+		return pb.BuiltinKey_BUILTIN_KEY_FIELD_TECH
+	default:
+		return pb.BuiltinKey_BUILTIN_KEY_UNSPECIFIED
+	}
+}
+
+// roleIDPattern locks parseRoleID to the canonical base-10 form. Without
+// it strconv.ParseInt would accept "+123" / leading whitespace / unicode
+// digits, all of which round-trip to a different string than the one we
+// emit in roleViewToProto.
+var roleIDPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
+
 func parseRoleID(s string) (int64, error) {
+	if !roleIDPattern.MatchString(s) {
+		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
 	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || id <= 0 {
+	if err != nil {
 		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
 	}
 	return id, nil

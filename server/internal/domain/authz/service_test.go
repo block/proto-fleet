@@ -1,3 +1,14 @@
+// Service-layer coverage in this file is intentionally limited to pure
+// functions: validation, dedup/sort, read-pairing, error mapping, and
+// the small null-string helper. The transactional rejection paths
+// (privilege-parity, built-in immutability, delete-with-active-
+// assignments, cross-org role-id probe) need a real Postgres because
+// *sqlc.Queries is a concrete generated struct with no test-friendly
+// interface, and the AGENTS.md rule against DB mocks where docker-
+// compose Postgres exists makes a fake handle the wrong tool. Those
+// branches are exercised by the integration suite when run against the
+// compose stack; if the integration coverage drifts, this comment is
+// the breadcrumb pointing at what's missing.
 package authz
 
 import (
@@ -6,6 +17,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -116,20 +128,41 @@ func TestValidateReadPairing(t *testing.T) {
 	})
 }
 
-func TestMapRoleInsertError(t *testing.T) {
+func TestMapRolePersistError(t *testing.T) {
 	cases := []struct {
 		name     string
 		input    error
 		wantCode connect.Code
 		wantSub  string
 	}{
-		{"duplicate name", errors.New(`pq: duplicate key value violates unique constraint "uq_role_org_custom_name"`), connect.CodeInvalidArgument, "already exists"},
-		{"reserved name", errors.New(`pq: new row violates check constraint "chk_role_custom_name_not_reserved"`), connect.CodeInvalidArgument, "reserved"},
-		{"unrelated", errors.New("connection refused"), connect.CodeInternal, "persist role"},
+		{
+			"duplicate name (typed pq)",
+			&pgconn.PgError{Code: "23505", ConstraintName: "uq_role_org_custom_name", Message: `duplicate key value violates unique constraint "uq_role_org_custom_name"`},
+			connect.CodeInvalidArgument,
+			"already exists",
+		},
+		{
+			"reserved name (typed pq)",
+			&pgconn.PgError{Code: "23514", ConstraintName: "chk_role_custom_name_not_reserved", Message: `new row violates check constraint "chk_role_custom_name_not_reserved"`},
+			connect.CodeInvalidArgument,
+			"reserved",
+		},
+		{
+			"unique violation on a different constraint falls through to Internal",
+			&pgconn.PgError{Code: "23505", ConstraintName: "some_other_unique_idx", Message: "different unique"},
+			connect.CodeInternal,
+			"persist role",
+		},
+		{
+			"plain non-pg error",
+			errors.New("connection refused"),
+			connect.CodeInternal,
+			"persist role",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := mapRoleInsertError(tc.input)
+			err := mapRolePersistError(tc.input)
 			var fleetErr fleeterror.FleetError
 			if !errors.As(err, &fleetErr) || fleetErr.GRPCCode != tc.wantCode {
 				t.Fatalf("want code %v, got %v (%v)", tc.wantCode, fleetErr.GRPCCode, err)
@@ -138,6 +171,15 @@ func TestMapRoleInsertError(t *testing.T) {
 				t.Fatalf("expected %q in %q", tc.wantSub, err.Error())
 			}
 		})
+	}
+}
+
+func TestNullStringIfNonEmpty(t *testing.T) {
+	if ns := nullStringIfNonEmpty(""); ns.Valid {
+		t.Fatalf("empty string should produce Valid=false, got %+v", ns)
+	}
+	if ns := nullStringIfNonEmpty("ops"); !ns.Valid || ns.String != "ops" {
+		t.Fatalf("non-empty should produce Valid=true with the same string, got %+v", ns)
 	}
 }
 

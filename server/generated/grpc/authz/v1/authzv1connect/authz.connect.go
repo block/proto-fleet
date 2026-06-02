@@ -73,9 +73,10 @@ type AuthzServiceClient interface {
 	CreateCustomRole(context.Context, *connect.Request[v1.CreateCustomRoleRequest]) (*connect.Response[v1.CreateCustomRoleResponse], error)
 	// UpdateCustomRole replaces the full attribute set on a custom role.
 	// Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
-	// BUILTIN_ROLE_IMMUTABLE in this iteration; built-in editing for
-	// ADMIN/FIELD_TECH lands in a follow-up alongside the audit and
-	// reconciler-compat work that pair has. Privilege-parity applies.
+	// BUILTIN_ROLE_IMMUTABLE — built-in editing requires additive-only
+	// reconciliation interlock with the boot reconciler and a separate
+	// audit affordance, neither of which is part of this surface today.
+	// Privilege-parity applies.
 	UpdateCustomRole(context.Context, *connect.Request[v1.UpdateCustomRoleRequest]) (*connect.Response[v1.UpdateCustomRoleResponse], error)
 	// DeleteCustomRole soft-deletes a custom role. Rejects when the role
 	// still has active assignments — callers must unassign first. Built-in
@@ -214,9 +215,10 @@ type AuthzServiceHandler interface {
 	CreateCustomRole(context.Context, *connect.Request[v1.CreateCustomRoleRequest]) (*connect.Response[v1.CreateCustomRoleResponse], error)
 	// UpdateCustomRole replaces the full attribute set on a custom role.
 	// Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
-	// BUILTIN_ROLE_IMMUTABLE in this iteration; built-in editing for
-	// ADMIN/FIELD_TECH lands in a follow-up alongside the audit and
-	// reconciler-compat work that pair has. Privilege-parity applies.
+	// BUILTIN_ROLE_IMMUTABLE — built-in editing requires additive-only
+	// reconciliation interlock with the boot reconciler and a separate
+	// audit affordance, neither of which is part of this surface today.
+	// Privilege-parity applies.
 	UpdateCustomRole(context.Context, *connect.Request[v1.UpdateCustomRoleRequest]) (*connect.Response[v1.UpdateCustomRoleResponse], error)
 	// DeleteCustomRole soft-deletes a custom role. Rejects when the role
 	// still has active assignments — callers must unassign first. Built-in

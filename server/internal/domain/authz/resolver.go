@@ -38,7 +38,18 @@ func NewPermissionResolver(conn *sql.DB) *PermissionResolver {
 // everything, which is the correct fail-closed default for a
 // freshly-deactivated user or a user who was never in this org.
 func (r *PermissionResolver) LoadEffective(ctx context.Context, userID, organizationID int64) (*EffectivePermissions, error) {
-	rows, err := sqlc.New(r.conn).ListEffectivePermissionsForUser(ctx, sqlc.ListEffectivePermissionsForUserParams{
+	return LoadEffectiveTx(ctx, sqlc.New(r.conn), userID, organizationID)
+}
+
+// LoadEffectiveTx runs the same query against a caller-supplied
+// *sqlc.Queries handle so callers that already hold a transaction can
+// re-load the effective set inside their own snapshot. The role-
+// management service uses this to re-check the caller's permissions
+// inside its mutation transactions, closing the TOCTOU window where a
+// concurrent UnassignRole could demote the caller between the
+// middleware gate and the role write.
+func LoadEffectiveTx(ctx context.Context, q *sqlc.Queries, userID, organizationID int64) (*EffectivePermissions, error) {
+	rows, err := q.ListEffectivePermissionsForUser(ctx, sqlc.ListEffectivePermissionsForUserParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
 	})

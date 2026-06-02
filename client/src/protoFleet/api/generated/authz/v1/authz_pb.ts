@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_authz_v1_authz: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRhdXRoei92MS9hdXRoei5wcm90bxIIYXV0aHoudjEiQAoKUGVybWlzc2lvbhILCgNrZXkYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSEAoIcmVzb3VyY2UYAyABKAkiTgoPUGVybWlzc2lvbkdyb3VwEhAKCHJlc291cmNlGAEgASgJEikKC3Blcm1pc3Npb25zGAIgAygLMhQuYXV0aHoudjEuUGVybWlzc2lvbiK/AQoEUm9sZRIPCgdyb2xlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSFwoPcGVybWlzc2lvbl9rZXlzGAQgAygJEg8KB2J1aWx0aW4YBSABKAgSEwoLYnVpbHRpbl9rZXkYBiABKAkSFAoMbWVtYmVyX2NvdW50GAcgASgFEi4KCnVwZGF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsIBCgpBc3NpZ25tZW50EhUKDWFzc2lnbm1lbnRfaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCRIPCgdyb2xlX2lkGAMgASgJEhEKCXJvbGVfbmFtZRgEIAEoCRInCgpzY29wZV90eXBlGAUgASgOMhMuYXV0aHoudjEuU2NvcGVUeXBlEg8KB3NpdGVfaWQYBiABKAMSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiGAoWTGlzdFBlcm1pc3Npb25zUmVxdWVzdCJEChdMaXN0UGVybWlzc2lvbnNSZXNwb25zZRIpCgtwZXJtaXNzaW9ucxgBIAMoCzIULmF1dGh6LnYxLlBlcm1pc3Npb24iEgoQTGlzdFJvbGVzUmVxdWVzdCIyChFMaXN0Um9sZXNSZXNwb25zZRIdCgVyb2xlcxgBIAMoCzIOLmF1dGh6LnYxLlJvbGUiVQoXQ3JlYXRlQ3VzdG9tUm9sZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIXCg9wZXJtaXNzaW9uX2tleXMYAyADKAkiOAoYQ3JlYXRlQ3VzdG9tUm9sZVJlc3BvbnNlEhwKBHJvbGUYASABKAsyDi5hdXRoei52MS5Sb2xlImYKF1VwZGF0ZUN1c3RvbVJvbGVSZXF1ZXN0Eg8KB3JvbGVfaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIXCg9wZXJtaXNzaW9uX2tleXMYBCADKAkiOAoYVXBkYXRlQ3VzdG9tUm9sZVJlc3BvbnNlEhwKBHJvbGUYASABKAsyDi5hdXRoei52MS5Sb2xlIioKF0RlbGV0ZUN1c3RvbVJvbGVSZXF1ZXN0Eg8KB3JvbGVfaWQYASABKAkiGgoYRGVsZXRlQ3VzdG9tUm9sZVJlc3BvbnNlIm8KEUFzc2lnblJvbGVSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAkSDwoHcm9sZV9pZBgCIAEoCRInCgpzY29wZV90eXBlGAMgASgOMhMuYXV0aHoudjEuU2NvcGVUeXBlEg8KB3NpdGVfaWQYBCABKAMiPgoSQXNzaWduUm9sZVJlc3BvbnNlEigKCmFzc2lnbm1lbnQYASABKAsyFC5hdXRoei52MS5Bc3NpZ25tZW50IiwKE1VuYXNzaWduUm9sZVJlcXVlc3QSFQoNYXNzaWdubWVudF9pZBgBIAEoCSIWChRVbmFzc2lnblJvbGVSZXNwb25zZSItChpMaXN0VXNlckFzc2lnbm1lbnRzUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgJIkgKG0xpc3RVc2VyQXNzaWdubWVudHNSZXNwb25zZRIpCgthc3NpZ25tZW50cxgBIAMoCzIULmF1dGh6LnYxLkFzc2lnbm1lbnQqUAoJU2NvcGVUeXBlEhoKFlNDT1BFX1RZUEVfVU5TUEVDSUZJRUQQABISCg5TQ09QRV9UWVBFX09SRxABEhMKD1NDT1BFX1RZUEVfU0lURRACMrkFCgxBdXRoelNlcnZpY2USVgoPTGlzdFBlcm1pc3Npb25zEiAuYXV0aHoudjEuTGlzdFBlcm1pc3Npb25zUmVxdWVzdBohLmF1dGh6LnYxLkxpc3RQZXJtaXNzaW9uc1Jlc3BvbnNlEkQKCUxpc3RSb2xlcxIaLmF1dGh6LnYxLkxpc3RSb2xlc1JlcXVlc3QaGy5hdXRoei52MS5MaXN0Um9sZXNSZXNwb25zZRJZChBDcmVhdGVDdXN0b21Sb2xlEiEuYXV0aHoudjEuQ3JlYXRlQ3VzdG9tUm9sZVJlcXVlc3QaIi5hdXRoei52MS5DcmVhdGVDdXN0b21Sb2xlUmVzcG9uc2USWQoQVXBkYXRlQ3VzdG9tUm9sZRIhLmF1dGh6LnYxLlVwZGF0ZUN1c3RvbVJvbGVSZXF1ZXN0GiIuYXV0aHoudjEuVXBkYXRlQ3VzdG9tUm9sZVJlc3BvbnNlElkKEERlbGV0ZUN1c3RvbVJvbGUSIS5hdXRoei52MS5EZWxldGVDdXN0b21Sb2xlUmVxdWVzdBoiLmF1dGh6LnYxLkRlbGV0ZUN1c3RvbVJvbGVSZXNwb25zZRJHCgpBc3NpZ25Sb2xlEhsuYXV0aHoudjEuQXNzaWduUm9sZVJlcXVlc3QaHC5hdXRoei52MS5Bc3NpZ25Sb2xlUmVzcG9uc2USTQoMVW5hc3NpZ25Sb2xlEh0uYXV0aHoudjEuVW5hc3NpZ25Sb2xlUmVxdWVzdBoeLmF1dGh6LnYxLlVuYXNzaWduUm9sZVJlc3BvbnNlEmIKE0xpc3RVc2VyQXNzaWdubWVudHMSJC5hdXRoei52MS5MaXN0VXNlckFzc2lnbm1lbnRzUmVxdWVzdBolLmF1dGh6LnYxLkxpc3RVc2VyQXNzaWdubWVudHNSZXNwb25zZUKgAQoMY29tLmF1dGh6LnYxQgpBdXRoelByb3RvUAFaQ2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGh6L3YxO2F1dGh6djGiAgNBWFiqAghBdXRoei5WMcoCCEF1dGh6XFYx4gIUQXV0aHpcVjFcR1BCTWV0YWRhdGHqAglBdXRoejo6VjFiBnByb3RvMw",
+    "ChRhdXRoei92MS9hdXRoei5wcm90bxIIYXV0aHoudjEiQAoKUGVybWlzc2lvbhILCgNrZXkYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSEAoIcmVzb3VyY2UYAyABKAkiTgoPUGVybWlzc2lvbkdyb3VwEhAKCHJlc291cmNlGAEgASgJEikKC3Blcm1pc3Npb25zGAIgAygLMhQuYXV0aHoudjEuUGVybWlzc2lvbiLVAQoEUm9sZRIPCgdyb2xlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSFwoPcGVybWlzc2lvbl9rZXlzGAQgAygJEg8KB2J1aWx0aW4YBSABKAgSKQoLYnVpbHRpbl9rZXkYBiABKA4yFC5hdXRoei52MS5CdWlsdGluS2V5EhQKDG1lbWJlcl9jb3VudBgHIAEoBRIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLTAQoKQXNzaWdubWVudBIVCg1hc3NpZ25tZW50X2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSDwoHcm9sZV9pZBgDIAEoCRIRCglyb2xlX25hbWUYBCABKAkSJwoKc2NvcGVfdHlwZRgFIAEoDjITLmF1dGh6LnYxLlNjb3BlVHlwZRIUCgdzaXRlX2lkGAYgASgDSACIAQESLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiGAoWTGlzdFBlcm1pc3Npb25zUmVxdWVzdCJEChdMaXN0UGVybWlzc2lvbnNSZXNwb25zZRIpCgtwZXJtaXNzaW9ucxgBIAMoCzIULmF1dGh6LnYxLlBlcm1pc3Npb24iEgoQTGlzdFJvbGVzUmVxdWVzdCIyChFMaXN0Um9sZXNSZXNwb25zZRIdCgVyb2xlcxgBIAMoCzIOLmF1dGh6LnYxLlJvbGUiVQoXQ3JlYXRlQ3VzdG9tUm9sZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIXCg9wZXJtaXNzaW9uX2tleXMYAyADKAkiOAoYQ3JlYXRlQ3VzdG9tUm9sZVJlc3BvbnNlEhwKBHJvbGUYASABKAsyDi5hdXRoei52MS5Sb2xlImYKF1VwZGF0ZUN1c3RvbVJvbGVSZXF1ZXN0Eg8KB3JvbGVfaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIXCg9wZXJtaXNzaW9uX2tleXMYBCADKAkiOAoYVXBkYXRlQ3VzdG9tUm9sZVJlc3BvbnNlEhwKBHJvbGUYASABKAsyDi5hdXRoei52MS5Sb2xlIioKF0RlbGV0ZUN1c3RvbVJvbGVSZXF1ZXN0Eg8KB3JvbGVfaWQYASABKAkiGgoYRGVsZXRlQ3VzdG9tUm9sZVJlc3BvbnNlIoABChFBc3NpZ25Sb2xlUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgJEg8KB3JvbGVfaWQYAiABKAkSJwoKc2NvcGVfdHlwZRgDIAEoDjITLmF1dGh6LnYxLlNjb3BlVHlwZRIUCgdzaXRlX2lkGAQgASgDSACIAQFCCgoIX3NpdGVfaWQiPgoSQXNzaWduUm9sZVJlc3BvbnNlEigKCmFzc2lnbm1lbnQYASABKAsyFC5hdXRoei52MS5Bc3NpZ25tZW50IiwKE1VuYXNzaWduUm9sZVJlcXVlc3QSFQoNYXNzaWdubWVudF9pZBgBIAEoCSIWChRVbmFzc2lnblJvbGVSZXNwb25zZSItChpMaXN0VXNlckFzc2lnbm1lbnRzUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgJIkgKG0xpc3RVc2VyQXNzaWdubWVudHNSZXNwb25zZRIpCgthc3NpZ25tZW50cxgBIAMoCzIULmF1dGh6LnYxLkFzc2lnbm1lbnQqeQoKQnVpbHRpbktleRIbChdCVUlMVElOX0tFWV9VTlNQRUNJRklFRBAAEhsKF0JVSUxUSU5fS0VZX1NVUEVSX0FETUlOEAESFQoRQlVJTFRJTl9LRVlfQURNSU4QAhIaChZCVUlMVElOX0tFWV9GSUVMRF9URUNIEAMqUAoJU2NvcGVUeXBlEhoKFlNDT1BFX1RZUEVfVU5TUEVDSUZJRUQQABISCg5TQ09QRV9UWVBFX09SRxABEhMKD1NDT1BFX1RZUEVfU0lURRACMrkFCgxBdXRoelNlcnZpY2USVgoPTGlzdFBlcm1pc3Npb25zEiAuYXV0aHoudjEuTGlzdFBlcm1pc3Npb25zUmVxdWVzdBohLmF1dGh6LnYxLkxpc3RQZXJtaXNzaW9uc1Jlc3BvbnNlEkQKCUxpc3RSb2xlcxIaLmF1dGh6LnYxLkxpc3RSb2xlc1JlcXVlc3QaGy5hdXRoei52MS5MaXN0Um9sZXNSZXNwb25zZRJZChBDcmVhdGVDdXN0b21Sb2xlEiEuYXV0aHoudjEuQ3JlYXRlQ3VzdG9tUm9sZVJlcXVlc3QaIi5hdXRoei52MS5DcmVhdGVDdXN0b21Sb2xlUmVzcG9uc2USWQoQVXBkYXRlQ3VzdG9tUm9sZRIhLmF1dGh6LnYxLlVwZGF0ZUN1c3RvbVJvbGVSZXF1ZXN0GiIuYXV0aHoudjEuVXBkYXRlQ3VzdG9tUm9sZVJlc3BvbnNlElkKEERlbGV0ZUN1c3RvbVJvbGUSIS5hdXRoei52MS5EZWxldGVDdXN0b21Sb2xlUmVxdWVzdBoiLmF1dGh6LnYxLkRlbGV0ZUN1c3RvbVJvbGVSZXNwb25zZRJHCgpBc3NpZ25Sb2xlEhsuYXV0aHoudjEuQXNzaWduUm9sZVJlcXVlc3QaHC5hdXRoei52MS5Bc3NpZ25Sb2xlUmVzcG9uc2USTQoMVW5hc3NpZ25Sb2xlEh0uYXV0aHoudjEuVW5hc3NpZ25Sb2xlUmVxdWVzdBoeLmF1dGh6LnYxLlVuYXNzaWduUm9sZVJlc3BvbnNlEmIKE0xpc3RVc2VyQXNzaWdubWVudHMSJC5hdXRoei52MS5MaXN0VXNlckFzc2lnbm1lbnRzUmVxdWVzdBolLmF1dGh6LnYxLkxpc3RVc2VyQXNzaWdubWVudHNSZXNwb25zZUKgAQoMY29tLmF1dGh6LnYxQgpBdXRoelByb3RvUAFaQ2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGh6L3YxO2F1dGh6djGiAgNBWFiqAghBdXRoei5WMcoCCEF1dGh6XFYx4gIUQXV0aHpcVjFcR1BCTWV0YWRhdGHqAglBdXRoejo6VjFiBnByb3RvMw",
     [file_google_protobuf_timestamp],
   );
 
@@ -117,11 +117,11 @@ export type Role = Message<"authz.v1.Role"> & {
   builtin: boolean;
 
   /**
-   * Set for built-in roles. One of "SUPER_ADMIN", "ADMIN", "FIELD_TECH".
+   * Set to a non-UNSPECIFIED value when builtin == true.
    *
-   * @generated from field: string builtin_key = 6;
+   * @generated from field: authz.v1.BuiltinKey builtin_key = 6;
    */
-  builtinKey: string;
+  builtinKey: BuiltinKey;
 
   /**
    * Number of active (non-deleted) assignments referencing this role.
@@ -175,11 +175,13 @@ export type Assignment = Message<"authz.v1.Assignment"> & {
   scopeType: ScopeType;
 
   /**
-   * Set only when scope_type == SCOPE_TYPE_SITE.
+   * Set only when scope_type == SCOPE_TYPE_SITE; absent otherwise so
+   * a future migration to non-zero-default site ids does not silently
+   * re-interpret unset as site 0.
    *
-   * @generated from field: int64 site_id = 6;
+   * @generated from field: optional int64 site_id = 6;
    */
-  siteId: bigint;
+  siteId?: bigint | undefined;
 
   /**
    * @generated from field: google.protobuf.Timestamp created_at = 7;
@@ -403,11 +405,13 @@ export type AssignRoleRequest = Message<"authz.v1.AssignRoleRequest"> & {
   scopeType: ScopeType;
 
   /**
-   * Required when scope_type == SCOPE_TYPE_SITE; ignored otherwise.
+   * Required when scope_type == SCOPE_TYPE_SITE; absent otherwise.
+   * optional so the wire can distinguish "site 0" (never valid) from
+   * "unset"; the server rejects either case at decode/validate time.
    *
-   * @generated from field: int64 site_id = 4;
+   * @generated from field: optional int64 site_id = 4;
    */
-  siteId: bigint;
+  siteId?: bigint | undefined;
 };
 
 /**
@@ -504,9 +508,43 @@ export const ListUserAssignmentsResponseSchema: GenMessage<ListUserAssignmentsRe
   messageDesc(file_authz_v1_authz, 19);
 
 /**
- * ScopeType narrows an assignment's reach. Building scope is deferred per
- * the v1 plan; see the catalog plan doc "Scope Boundaries → Deferred"
- * section.
+ * BuiltinKey is the stable identifier for a built-in role. The string form
+ * of these values is stored in role.builtin_key on the server; the enum
+ * lets clients exhaustiveness-check rendering without typo risk.
+ *
+ * @generated from enum authz.v1.BuiltinKey
+ */
+export enum BuiltinKey {
+  /**
+   * @generated from enum value: BUILTIN_KEY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: BUILTIN_KEY_SUPER_ADMIN = 1;
+   */
+  SUPER_ADMIN = 1,
+
+  /**
+   * @generated from enum value: BUILTIN_KEY_ADMIN = 2;
+   */
+  ADMIN = 2,
+
+  /**
+   * @generated from enum value: BUILTIN_KEY_FIELD_TECH = 3;
+   */
+  FIELD_TECH = 3,
+}
+
+/**
+ * Describes the enum authz.v1.BuiltinKey.
+ */
+export const BuiltinKeySchema: GenEnum<BuiltinKey> = /*@__PURE__*/ enumDesc(file_authz_v1_authz, 0);
+
+/**
+ * ScopeType narrows an assignment's reach. Building-level scoping is not
+ * part of the current model; if it lands, a SCOPE_TYPE_BUILDING entry
+ * joins this enum and the resolver gains a third containment level.
  *
  * @generated from enum authz.v1.ScopeType
  */
@@ -530,20 +568,21 @@ export enum ScopeType {
 /**
  * Describes the enum authz.v1.ScopeType.
  */
-export const ScopeTypeSchema: GenEnum<ScopeType> = /*@__PURE__*/ enumDesc(file_authz_v1_authz, 0);
+export const ScopeTypeSchema: GenEnum<ScopeType> = /*@__PURE__*/ enumDesc(file_authz_v1_authz, 1);
 
 /**
- * AuthzService exposes the role and assignment management surface for the
- * granular RBAC model. Reads (ListPermissions, ListRoles,
- * ListUserAssignments) power the admin UI's role builder and the Team
- * page; mutations (CreateCustomRole, UpdateCustomRole, DeleteCustomRole,
- * AssignRole, UnassignRole) drive role lifecycle and user-role assignment.
+ * AuthzService is the role + assignment management surface for granular
+ * RBAC. Reads (ListPermissions, ListRoles, ListUserAssignments) power
+ * the admin role builder and the Team page; mutations (CreateCustomRole,
+ * UpdateCustomRole, DeleteCustomRole, AssignRole, UnassignRole) drive
+ * role lifecycle and user-role assignment.
  *
- * This is the U8 stub from
- * docs/plans/2026-05-19-001-feat-granular-rbac-plan.md — the wire contract
- * lands here; method bodies return Unimplemented until follow-up PRs
- * implement each in turn. Consumers (e.g. Settings → Roles UI in PR #358)
- * can plan against the fixed shape immediately.
+ * Every method gates on role:manage and is session-only — a leaked
+ * api_key with role:manage would otherwise re-grant its own permissions
+ * indefinitely because api-key auth inherits the holding user's full
+ * effective set. Privilege parity (caller can only grant keys they
+ * themselves hold at org scope) bounds escalation; the session gate
+ * bounds persistence.
  *
  * @generated from service authz.v1.AuthzService
  */
@@ -586,9 +625,10 @@ export const AuthzService: GenService<{
   /**
    * UpdateCustomRole replaces the full attribute set on a custom role.
    * Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
-   * BUILTIN_ROLE_IMMUTABLE in this iteration; built-in editing for
-   * ADMIN/FIELD_TECH lands in a follow-up alongside the audit and
-   * reconciler-compat work that pair has. Privilege-parity applies.
+   * BUILTIN_ROLE_IMMUTABLE — built-in editing requires additive-only
+   * reconciliation interlock with the boot reconciler and a separate
+   * audit affordance, neither of which is part of this surface today.
+   * Privilege-parity applies.
    *
    * @generated from rpc authz.v1.AuthzService.UpdateCustomRole
    */
