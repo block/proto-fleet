@@ -84,7 +84,7 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 	reason := startReason(src.SourceName, direction, edgeAt)
 
 	externalSource := src.SourceName
-	sourceActorID := fmt.Sprintf("mqtt:%s", src.SourceName)
+	sourceActorID := sourceActorIDFor(src)
 
 	req := curtailment.StartRequest{
 		PreviewRequest: curtailment.PreviewRequest{
@@ -138,8 +138,10 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: GetActive on OFF→ON: %w", err)
 	}
-	if active == nil {
-		// Restorer-side state already final; treat as no-op success.
+	// Stop only the event this source created. A nil active event, or one
+	// owned by a manual or cross-source curtailment, is not this OFF→ON's to
+	// stop — treat as a benign no-op so the source still advances to ON.
+	if active == nil || active.SourceActorID == nil || *active.SourceActorID != sourceActorIDFor(src) {
 		return nil, ErrNoActiveEvent
 	}
 	stopReq := curtailment.StopRequest{
@@ -212,4 +214,11 @@ func startReason(source string, direction EdgeDirection, edgeAt time.Time) strin
 		return fmt.Sprintf("MQTT watchdog — source %s, last message before %s", source, edgeAt.Format(time.RFC3339))
 	}
 	return fmt.Sprintf("MQTT OFF target — source %s", source)
+}
+
+// sourceActorIDFor is the source_actor_id the driver stamps on every event it
+// starts; the OFF→ON path uses it to confirm an active event belongs to this
+// source before stopping it.
+func sourceActorIDFor(src SourceConfig) string {
+	return fmt.Sprintf("mqtt:%s", src.SourceName)
 }

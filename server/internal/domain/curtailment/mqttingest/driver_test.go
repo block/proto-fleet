@@ -221,8 +221,9 @@ func TestDriver_Dispatch_OffToOn(t *testing.T) {
 	t.Parallel()
 
 	activeUUID := uuid.New()
+	actorID := "mqtt:site-a" // this source's own event (sampleSource is "site-a")
 	svc := &fakeService{
-		getActiveResult: &models.Event{EventUUID: activeUUID},
+		getActiveResult: &models.Event{EventUUID: activeUUID, SourceActorID: &actorID},
 		stopResult:      &models.Event{EventUUID: activeUUID},
 	}
 	d := NewDriver(svc, nil)
@@ -253,6 +254,21 @@ func TestDriver_Dispatch_OffToOn_NoActiveEvent(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNoActiveEvent))
 	assert.Empty(t, svc.stopCalls)
+}
+
+// An active event owned by a different actor (a manual curtailment or another
+// source) must not be stopped by this source's OFF→ON edge.
+func TestDriver_Dispatch_OffToOn_ForeignEvent_NotStopped(t *testing.T) {
+	t.Parallel()
+
+	foreign := "user:42"
+	svc := &fakeService{getActiveResult: &models.Event{EventUUID: uuid.New(), SourceActorID: &foreign}}
+	d := NewDriver(svc, nil)
+
+	_, err := d.Dispatch(context.Background(), sampleSource(), EdgeOffToOn, time.Now())
+
+	require.ErrorIs(t, err, ErrNoActiveEvent)
+	assert.Empty(t, svc.stopCalls, "must not stop an event this source did not create")
 }
 
 func TestDriver_Dispatch_EdgeNoneIsNoOp(t *testing.T) {

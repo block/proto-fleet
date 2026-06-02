@@ -299,3 +299,30 @@ func TestWorker_HandleWatchdog_Off_CheckError_NoOp(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 	assert.Empty(t, svc.startCalls, "check failed — do not re-curtail blindly")
 }
+
+// On a message-driven edge the synthetic external_reference must use the
+// publisher's timestamp (stable across the dual-broker duplicate), not the
+// local receive time; LastEdgeAt (the debounce anchor) stays receive-time.
+func TestWorker_HandleMessage_OnToOff_ReferenceUsesPublishedAt(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	published := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	received := published.Add(7 * time.Second) // fleet received it later than published
+	body, err := json.Marshal(map[string]any{"target": 0, "timestamp": published.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOn}
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: body, receivedAt: received})
+
+	require.Equal(t, 1, svc.startCallsLen())
+	require.NotNil(t, svc.startCallAt(0).ExternalReference)
+	assert.Equal(t, "site-a:"+itoa(published.Unix()), *svc.startCallAt(0).ExternalReference,
+		"external_reference must use the publisher timestamp, not receive-time")
+	assert.Equal(t, received, next.LastEdgeAt, "debounce anchor stays receive-time")
+}

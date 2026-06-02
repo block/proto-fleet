@@ -214,8 +214,16 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 		return prior, true
 	}
 
-	edgeAt := canonical.ReceivedAt
-	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, edgeAt)
+	// The dispatch timestamp drives the synthetic external_reference: use the
+	// publisher's stamp (stable across the dual-broker duplicate and QoS-1
+	// redelivery) for message-driven edges; the watchdog edge has no stamp and
+	// falls back to receive-time. LastEdgeAt stays receive-time below — it is
+	// the debounce anchor and tracks local timing.
+	dispatchAt := canonical.ReceivedAt
+	if !canonical.PublishedAt.IsZero() {
+		dispatchAt = canonical.PublishedAt
+	}
+	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, dispatchAt)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveEvent) {
 			// OFF→ON with no in-flight event to stop (curtailment already
@@ -223,7 +231,7 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 			// bookkeeping and report success — otherwise every later ON
 			// re-dispatches Stop in a loop.
 			state := prior
-			state.LastEdgeAt = edgeAt
+			state.LastEdgeAt = canonical.ReceivedAt
 			return state, true
 		}
 		w.cfg.Logger.Error("mqttingest: edge dispatch failed",
@@ -234,7 +242,7 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	}
 
 	state := prior
-	state.LastEdgeAt = edgeAt
+	state.LastEdgeAt = canonical.ReceivedAt
 	if outcome.EventUUID != uuid.Nil {
 		state.LastEdgeEventUUID = outcome.EventUUID.String()
 	}

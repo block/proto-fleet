@@ -77,13 +77,13 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = time.Now
 	}
-	if cfg.WatchdogTickEvery == 0 {
+	if cfg.WatchdogTickEvery <= 0 {
 		cfg.WatchdogTickEvery = time.Second
 	}
-	if cfg.BrokerFreshness == 0 {
+	if cfg.BrokerFreshness <= 0 {
 		cfg.BrokerFreshness = 60 * time.Second
 	}
-	if cfg.ShutdownDeadline == 0 {
+	if cfg.ShutdownDeadline <= 0 {
 		cfg.ShutdownDeadline = 10 * time.Second
 	}
 	return &Subscriber{

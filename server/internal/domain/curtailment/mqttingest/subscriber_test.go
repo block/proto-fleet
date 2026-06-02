@@ -311,3 +311,24 @@ func assertEventually(t *testing.T, within time.Duration, cond func() bool) {
 		}
 	}
 }
+
+// Non-positive durations are treated as unset and defaulted, so a misconfigured
+// caller can't make time.NewTicker panic in the worker run loop.
+func TestNewSubscriber_NonPositiveDurationsDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Store:             newFakeStore(),
+		Driver:            NewDriver(&fakeService{}, nil),
+		NewClient:         func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor:         passthroughDecryptor{},
+		WatchdogTickEvery: -1 * time.Second,
+		BrokerFreshness:   -5 * time.Second,
+		ShutdownDeadline:  -1 * time.Second,
+	}
+	sub, err := NewSubscriber(cfg)
+	require.NoError(t, err)
+	assert.Greater(t, sub.cfg.WatchdogTickEvery, time.Duration(0))
+	assert.Greater(t, sub.cfg.BrokerFreshness, time.Duration(0))
+	assert.Greater(t, sub.cfg.ShutdownDeadline, time.Duration(0))
+}
