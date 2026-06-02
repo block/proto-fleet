@@ -229,7 +229,7 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent?.observedReductionKw).toBeCloseTo(2.07);
   });
 
-  it("shows the configured restore batch size instead of the effective batch size", async () => {
+  it("shows the effective restore batch size while preserving the configured form value", async () => {
     const activeEvent = curtailmentEvent({
       effectiveBatchSize: 10,
       restoreBatchSize: 1,
@@ -243,7 +243,7 @@ describe("useCurtailmentApi", () => {
       await result.current.refreshCurtailment();
     });
 
-    expect(result.current.activeEvent?.restoreBatchSize).toBe(1);
+    expect(result.current.activeEvent?.restoreBatchSize).toBe(10);
     expect(result.current.activeEventFormValues?.restoreBatchSize).toBe("1");
   });
 

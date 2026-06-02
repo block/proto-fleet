@@ -148,7 +148,7 @@ export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveC
     targetKw: getFixedKwTarget(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
-    restoreBatchSize: event.restoreBatchSize || event.effectiveBatchSize,
+    restoreBatchSize: event.effectiveBatchSize || event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
     rollups: getCurtailmentTargetRollups(event),
   };
