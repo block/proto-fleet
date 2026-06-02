@@ -99,21 +99,22 @@ describe("CurtailmentHistory", () => {
     expect(getRenderedRows()).toHaveLength(mockCurtailmentHistoryEvents.length);
   });
 
-  it("delegates controlled status filter changes without filtering the current page locally", async () => {
+  it("delegates controlled multi-status filter changes without filtering the current page locally", async () => {
     const user = userEvent.setup();
-    const onStatusFilterChange = vi.fn();
+    const onStatusFiltersChange = vi.fn();
     render(
       <CurtailmentHistory
         events={mockCurtailmentHistoryEvents.slice(0, 2)}
+        selectedStatusFilters={["completed"]}
         onPageChange={vi.fn()}
-        onStatusFilterChange={onStatusFilterChange}
+        onStatusFiltersChange={onStatusFiltersChange}
       />,
     );
 
     await user.click(screen.getByTestId("filter-dropdown-Status"));
-    await user.click(screen.getByTestId("filter-option-completed"));
+    await user.click(screen.getByTestId("filter-option-failed"));
 
-    expect(onStatusFilterChange).toHaveBeenCalledWith("completed");
+    expect(onStatusFiltersChange).toHaveBeenCalledWith(["completed", "failed"]);
     expect(screen.getByText("ERCOT ERS obligation")).toBeInTheDocument();
   });
 
@@ -173,6 +174,31 @@ describe("CurtailmentHistory", () => {
 
     expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeDisabled();
     expect(onStopActiveEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders injected active rows with their display state", async () => {
+    const user = userEvent.setup();
+    const curtailingPendingEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-display-state",
+      reason: "Dispatch underway",
+      state: "pending" as const,
+      displayState: "curtailing" as const,
+      startedAt: "",
+    };
+
+    render(<CurtailmentHistory events={[curtailingPendingEvent]} activeEventId={curtailingPendingEvent.id} />);
+
+    const activeRow = screen.getByTestId("curtailment-history-row-curt-display-state");
+    expect(within(activeRow).getByText("Curtailing")).toBeInTheDocument();
+    expect(within(activeRow).queryByText("Pending")).not.toBeInTheDocument();
+    expect(within(activeRow).getByText("Time unavailable")).toBeInTheDocument();
+
+    await user.click(activeRow);
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Curtailing")).toBeInTheDocument();
+    expect(within(modal).queryByText("Pending")).not.toBeInTheDocument();
   });
 
   it("opens row details from an empty actions cell", async () => {

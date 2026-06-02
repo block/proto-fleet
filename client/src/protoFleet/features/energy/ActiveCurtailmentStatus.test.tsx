@@ -297,8 +297,11 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("4 minutes")).toBeVisible();
   });
 
-  it("renders a completed-with-failures event as an incomplete restore", () => {
-    render(<ActiveCurtailmentStatus event={restoreIncompleteCurtailmentEvent} onDismissRestored={vi.fn()} />);
+  it("renders a completed-with-failures event as an incomplete restore", async () => {
+    const user = userEvent.setup();
+    const onDismissRestored = vi.fn();
+
+    render(<ActiveCurtailmentStatus event={restoreIncompleteCurtailmentEvent} onDismissRestored={onDismissRestored} />);
 
     expect(screen.getByText("Power restore")).toBeVisible();
     expect(screen.getByText("56.7 kW of 60.0 kW restored")).toBeVisible();
@@ -308,9 +311,12 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Not restored")).toBeVisible();
     expect(screen.queryByText("60.0 kW restored")).not.toBeInTheDocument();
     expectProgressValue("94");
-    expectActionButtonHidden("Dismiss");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
+
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(onDismissRestored).toHaveBeenCalledOnce();
   });
 
   it("renders failed and cancelled events without active controls", () => {

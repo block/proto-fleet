@@ -3,6 +3,8 @@ import clsx from "clsx";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
+  type ActiveCurtailmentDisplayState,
+  activeCurtailmentDisplayStateConfigs,
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
@@ -23,6 +25,8 @@ export interface CurtailmentHistoryEvent {
   id: string;
   reason: string;
   state: CurtailmentEventState;
+  displayState?: ActiveCurtailmentDisplayState;
+  injectedActive?: boolean;
   priority: CurtailmentPriority;
   scopeLabel: string;
   selectedMiners: number;
@@ -43,10 +47,12 @@ interface CurtailmentHistoryProps {
   hasNextPage?: boolean;
   hasPreviousPage?: boolean;
   selectedStatusFilter?: CurtailmentEventState;
+  selectedStatusFilters?: CurtailmentEventState[];
   className?: string;
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
   onPageChange?: (page: number) => void;
   onStatusFilterChange?: (filter?: CurtailmentEventState) => void;
+  onStatusFiltersChange?: (filters: CurtailmentEventState[]) => void;
   /**
    * Called from the detail modal for the active non-terminal event. The parent
    * owns opening the edit flow with the selected event's values.
@@ -168,6 +174,15 @@ function formatDateTime(value?: string): string | undefined {
   return date ? dateTimeFormatter.format(date) : undefined;
 }
 
+function getHistoryEventStateConfig(event: CurtailmentHistoryEvent): {
+  label: string;
+  dotClassName: string;
+} {
+  return event.displayState
+    ? activeCurtailmentDisplayStateConfigs[event.displayState]
+    : curtailmentEventStateConfigs[event.state];
+}
+
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
   const endedAt = formatDateTime(event.endedAt);
   if (endedAt) {
@@ -189,7 +204,7 @@ function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
     return `Created ${createdAt}`;
   }
 
-  return event.state === "pending" ? "Waiting to start" : "Time unavailable";
+  return (event.displayState ?? event.state) === "pending" ? "Waiting to start" : "Time unavailable";
 }
 
 function getSortTime(event: CurtailmentHistoryEvent): number {
@@ -265,7 +280,7 @@ function CurtailmentSummaryModal({
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const createdAt = formatDateTime(event.createdAt);
-  const eventStateConfig = curtailmentEventStateConfigs[event.state];
+  const eventStateConfig = getHistoryEventStateConfig(event);
   const buttons: CurtailmentSummaryModalButton[] = [];
 
   if (onStop) {
@@ -324,7 +339,7 @@ function CurtailmentHistoryRow({
   stopDisabled,
 }: CurtailmentHistoryRowProps): ReactElement {
   const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventId);
-  const eventStateConfig = curtailmentEventStateConfigs[event.state];
+  const eventStateConfig = getHistoryEventStateConfig(event);
 
   const handleRowClick = (clickEvent: MouseEvent<HTMLTableRowElement>) => {
     if (shouldIgnoreRowActivation(clickEvent.target, clickEvent.currentTarget)) {
@@ -412,10 +427,12 @@ function CurtailmentHistory({
   hasNextPage: controlledHasNextPage = false,
   hasPreviousPage: controlledHasPreviousPage,
   selectedStatusFilter,
+  selectedStatusFilters: controlledSelectedStatusFilters,
   className,
   onViewEvent,
   onPageChange,
   onStatusFilterChange,
+  onStatusFiltersChange,
   onManageActiveEvent,
   onStopActiveEvent,
 }: CurtailmentHistoryProps): ReactElement {
@@ -445,10 +462,15 @@ function CurtailmentHistory({
   );
   const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
   const usesControlledPagination = Boolean(onPageChange);
-  const usesServerStatusFilter = Boolean(onStatusFilterChange);
+  const usesServerStatusFilter = Boolean(onStatusFiltersChange || onStatusFilterChange);
   const selectedStatusFilters = useMemo(
-    () => (usesServerStatusFilter ? (selectedStatusFilter ? [selectedStatusFilter] : []) : localSelectedStatusFilters),
-    [localSelectedStatusFilters, selectedStatusFilter, usesServerStatusFilter],
+    () =>
+      usesServerStatusFilter
+        ? normalizeStatusFilters(
+            controlledSelectedStatusFilters ?? (selectedStatusFilter ? [selectedStatusFilter] : []),
+          )
+        : localSelectedStatusFilters,
+    [controlledSelectedStatusFilters, localSelectedStatusFilters, selectedStatusFilter, usesServerStatusFilter],
   );
   const hasActiveFilters = selectedStatusFilters.length > 0;
 
@@ -485,7 +507,12 @@ function CurtailmentHistory({
 
   const handleStatusFilterChange = (filters: string[]) => {
     const nextFilters = normalizeStatusFilters(filters);
-    if (usesServerStatusFilter) {
+    if (onStatusFiltersChange) {
+      onStatusFiltersChange(nextFilters);
+      return;
+    }
+
+    if (onStatusFilterChange) {
       onStatusFilterChange?.(nextFilters[nextFilters.length - 1]);
       return;
     }
