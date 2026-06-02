@@ -102,7 +102,6 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 	outcome, err := d.Dispatch(context.Background(), src, EdgeOnToOff, edgeAt)
 
 	require.NoError(t, err)
-	assert.Equal(t, EdgeOnToOff, outcome.Direction)
 	assert.Equal(t, newUUID, outcome.EventUUID)
 	assert.Equal(t, now, outcome.DispatchedAt)
 
@@ -144,7 +143,6 @@ func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	outcome, err := d.Dispatch(context.Background(), src, EdgeWatchdogOff, edgeAt)
 
 	require.NoError(t, err)
-	assert.Equal(t, EdgeWatchdogOff, outcome.Direction)
 	assert.Equal(t, newUUID, outcome.EventUUID)
 
 	require.Len(t, svc.startCalls, 1)
@@ -235,7 +233,6 @@ func TestDriver_Dispatch_OffToOn(t *testing.T) {
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOffToOn, time.Now())
 
 	require.NoError(t, err)
-	assert.Equal(t, EdgeOffToOn, outcome.Direction)
 	assert.Equal(t, activeUUID, outcome.EventUUID)
 
 	require.Len(t, svc.getActiveCalls, 1)
@@ -270,7 +267,6 @@ func TestDriver_Dispatch_EdgeNoneIsNoOp(t *testing.T) {
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeNone, time.Now())
 
 	require.NoError(t, err)
-	assert.Equal(t, EdgeNone, outcome.Direction)
 	assert.Equal(t, uuid.Nil, outcome.EventUUID)
 	assert.Empty(t, svc.startCalls)
 	assert.Empty(t, svc.stopCalls)

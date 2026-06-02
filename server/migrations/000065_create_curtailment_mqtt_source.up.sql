@@ -1,7 +1,7 @@
 -- Per-source MQTT publisher config consumed by the curtailment mqtt-ingest
 -- subscriber. One row per publisher (broker pair + topic + credentials +
--- contracted curtailment power + thresholds). Operator-managed; v2.0 has no
--- CRUD RPC, so initial rows are seeded via migration data or operator DML.
+-- contracted curtailment power + thresholds). Operator-managed; no CRUD RPC
+-- yet, so initial rows are seeded via migration data or operator DML.
 CREATE TABLE curtailment_mqtt_source_config (
     id                              BIGSERIAL    PRIMARY KEY,
     organization_id                 BIGINT       NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE curtailment_mqtt_source_config (
     broker_port                     INT          NOT NULL DEFAULT 1883,
     mqtt_username                   VARCHAR(255) NOT NULL,
     -- Encrypted via infrastructure/encrypt (base64-wrapped); rotation
-    -- is operator-driven for v2.0.
+    -- is operator-driven.
     mqtt_password_enc               TEXT         NOT NULL,
     -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges.
     -- Upper bound is a fat-finger sanity ceiling (1 GW per source).
@@ -75,7 +75,7 @@ CREATE TABLE curtailment_mqtt_source_state (
     -- Timestamp of the most recent ON<->OFF flip.
     last_edge_at            TIMESTAMPTZ  NULL,
     -- Curtailment event created by the last ON->OFF (or WATCHDOG_OFF) edge,
-    -- stored for audit. v2.0 Stop resolution uses Service.GetActive, not
+    -- stored for audit. Stop resolution currently uses Service.GetActive, not
     -- this column; if multi-source-per-org lands the driver should pivot
     -- to read here so cross-source events aren't accidentally stopped.
     last_edge_event_uuid    UUID         NULL,

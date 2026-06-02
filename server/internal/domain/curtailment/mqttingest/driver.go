@@ -24,7 +24,6 @@ type curtailmentService interface {
 // subscriber consumes this to update persisted state — specifically
 // last_edge_at and last_edge_event_uuid.
 type EdgeOutcome struct {
-	Direction EdgeDirection
 	// EventUUID is the curtailment event the edge created (ON→OFF and
 	// WATCHDOG_OFF) or stopped (OFF→ON). Zero for EdgeNone.
 	EventUUID uuid.UUID
@@ -55,7 +54,7 @@ func NewDriver(svc curtailmentService, now func() time.Time) *Driver {
 func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time) (EdgeOutcome, error) {
 	switch direction {
 	case EdgeNone:
-		return EdgeOutcome{Direction: EdgeNone}, nil
+		return EdgeOutcome{}, nil
 
 	case EdgeOnToOff, EdgeWatchdogOff:
 		eventUUID, err := d.dispatchStart(ctx, src, direction, edgeAt)
@@ -63,7 +62,6 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 			return EdgeOutcome{}, err
 		}
 		return EdgeOutcome{
-			Direction:    direction,
 			EventUUID:    eventUUID,
 			DispatchedAt: d.now().UTC(),
 		}, nil
@@ -74,7 +72,6 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 			return EdgeOutcome{}, err
 		}
 		return EdgeOutcome{
-			Direction:    EdgeOffToOn,
 			EventUUID:    event.EventUUID,
 			DispatchedAt: d.now().UTC(),
 		}, nil
@@ -156,6 +153,9 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: dispatch Stop: %w", err)
 	}
+	if event == nil {
+		return nil, errors.New("mqttingest: curtailment service returned nil event on Stop")
+	}
 	return event, nil
 }
 
@@ -181,8 +181,8 @@ func clampToInt32Seconds(d time.Duration) int32 {
 }
 
 // startExternalReference synthesizes the per-edge external_reference
-// the curtailment service uses for idempotency. Format keeps the v1
-// partial-unique index dedupe working across broker-pair race and
+// the curtailment service uses for idempotency. The format preserves
+// the partial-unique index dedupe across broker-pair race and
 // fleetd restart-near-edge. Only called for ON->OFF and WATCHDOG_OFF.
 //
 // Watchdog references are quantized to the source's staleness threshold

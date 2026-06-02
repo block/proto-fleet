@@ -114,7 +114,7 @@ type InsertMQTTSourceConfigParams struct {
 }
 
 // Used by tests and operator-supplied DML. Production source rows are
-// seeded via migration data until the CRUD RPC (v2.1) lands.
+// seeded via migration data until the CRUD RPC lands.
 func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
 	row := q.queryRow(ctx, q.insertMQTTSourceConfigStmt, insertMQTTSourceConfig,
 		arg.OrganizationID,

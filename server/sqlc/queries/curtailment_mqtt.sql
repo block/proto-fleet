@@ -65,7 +65,7 @@ ORDER BY c.id;
 
 -- name: InsertMQTTSourceConfig :one
 -- Used by tests and operator-supplied DML. Production source rows are
--- seeded via migration data until the CRUD RPC (v2.1) lands.
+-- seeded via migration data until the CRUD RPC lands.
 INSERT INTO curtailment_mqtt_source_config (
     organization_id,
     service_user_id,

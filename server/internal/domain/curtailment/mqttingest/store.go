@@ -2,6 +2,7 @@ package mqttingest
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -110,7 +111,7 @@ func (s *sqlcStore) ListEnabledSources(ctx context.Context) ([]SourceConfig, err
 func (s *sqlcStore) GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error) {
 	row, err := s.queries.GetMQTTSourceStateByID(ctx, sourceConfigID)
 	if err != nil {
-		if errors.Is(err, sqlNoRows()) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return SourceState{}, ErrSourceStateNotFound
 		}
 		return SourceState{}, fmt.Errorf("get mqtt source state: %w", err)

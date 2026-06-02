@@ -7,10 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// sqlNoRows returns the canonical sql.ErrNoRows. Wrapping is in store.go
-// where the typed sentinel is required to compare via errors.Is.
-func sqlNoRows() error { return sql.ErrNoRows }
-
 // nullInt16FromTarget marshals a Target into sql.NullInt16 for the
 // upsert path. Unknown is treated as no-write (null) to avoid
 // clobbering a previously-known value.

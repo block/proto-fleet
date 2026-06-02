@@ -102,7 +102,7 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 // Run reads the enabled-source list once, starts a worker per source,
 // and blocks until ctx is canceled. Sources added or disabled while
 // Run is in flight do not take effect until the next Run invocation.
-// A reconfigure-on-the-fly story belongs to v2.1.
+// Hot reconfiguration is not yet supported.
 func (s *Subscriber) Run(ctx context.Context) error {
 	sources, err := s.cfg.Store.ListEnabledSources(ctx)
 	if err != nil {
