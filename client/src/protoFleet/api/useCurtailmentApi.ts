@@ -561,12 +561,13 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       return (async () => {
         try {
+          const fallbackActiveEvent = getActiveCurtailmentSnapshot().event;
           const [activeRefresh, historyPageResponse] = await Promise.all([
             includeActive ? fetchActiveCurtailmentData({ signal }) : undefined,
             listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, stateFilters, signal),
           ]);
           assertNotAborted(signal);
-          const currentActiveEvent = getActiveCurtailmentSnapshot().event;
+          const currentActiveEvent = getActiveCurtailmentSnapshot().event ?? fallbackActiveEvent;
           const previewActiveSnapshot = activeRefresh ?? getActiveCurtailmentSnapshot();
           const reconciliationBaseEvent = getRestoringEventForTerminalReconciliation(
             previewActiveSnapshot.event,

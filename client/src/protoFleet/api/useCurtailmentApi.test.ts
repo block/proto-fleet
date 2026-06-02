@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
-import { applyActiveCurtailmentEvent, resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
+import {
+  applyActiveCurtailmentEvent,
+  refreshActiveCurtailmentData,
+  resetActiveCurtailmentData,
+} from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import {
   type CurtailmentEvent,
@@ -1126,6 +1130,57 @@ describe("useCurtailmentApi", () => {
       }),
     );
     expect(result.current.historyEvents[0]).not.toHaveProperty("displayState");
+  });
+
+  it("keeps restoring visible when a shared active-only poll clears the cache during history refresh", async () => {
+    let resolveHistory: (value: { events: CurtailmentEvent[]; nextPageToken: string }) => void = () => undefined;
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-shared-active-race",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 2,
+        total: 2,
+      }),
+    });
+    const stalePendingHistoryEvent = curtailmentEvent({
+      eventUuid: "curt-shared-active-race",
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        pending: 2,
+        total: 2,
+      }),
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
+    mockListCurtailmentEvents.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHistory = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useCurtailmentApi());
+    let refreshPromise: Promise<unknown> = Promise.resolve();
+
+    act(() => {
+      refreshPromise = result.current.refreshCurtailment();
+    });
+    await act(async () => {
+      await refreshActiveCurtailmentData();
+    });
+    await act(async () => {
+      resolveHistory({ events: [stalePendingHistoryEvent], nextPageToken: "" });
+      await refreshPromise;
+    });
+
+    expect(result.current.activeEventId).toBe("curt-shared-active-race");
+    expect(result.current.activeEvent?.state).toBe("restoring");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-shared-active-race",
+        state: "restoring",
+        displayState: "restoring",
+      }),
+    );
   });
 
   it("keeps an incomplete restore visible until it is dismissed", async () => {
