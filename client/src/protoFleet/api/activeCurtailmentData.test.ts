@@ -77,6 +77,29 @@ describe("activeCurtailmentData", () => {
     await expect(abortedRequest).resolves.toBeInstanceOf(DOMException);
   });
 
+  it("keeps a newer applied event when a later subscriber commits a stale shared refresh", async () => {
+    let resolveRefresh: (value: { event?: CurtailmentEvent }) => void = () => undefined;
+    mockGetActiveCurtailment.mockReturnValueOnce(
+      new Promise<{ event?: CurtailmentEvent }>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+
+    const preMutationRefresh = fetchActiveCurtailmentData();
+    applyActiveCurtailmentEvent(curtailmentEvent("started-event"));
+    const postMutationRefresh = fetchActiveCurtailmentData();
+
+    resolveRefresh({ event: undefined });
+    const [preMutationSnapshot, postMutationSnapshot] = await Promise.all([
+      preMutationRefresh,
+      postMutationRefresh,
+    ]);
+    preMutationSnapshot.commit();
+    postMutationSnapshot.commit();
+
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
+  });
+
   it("rejects a reset-aborted shared request as an AbortError", async () => {
     mockGetActiveCurtailment.mockImplementationOnce(
       (_request: unknown, options?: { signal?: AbortSignal }) =>

@@ -303,6 +303,40 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it("keeps server-scrubbed history metadata when injecting active display state", async () => {
+    const activeEvent = curtailmentEvent({
+      eventUuid: "curt-scrubbed-source",
+      externalSource: "webhook-secret",
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        dispatched: 1,
+        pending: 1,
+        total: 2,
+      }),
+    });
+    const historyEvent = curtailmentEvent({
+      eventUuid: "curt-scrubbed-source",
+      externalSource: "",
+      state: CurtailmentEventState.PENDING,
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [historyEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-scrubbed-source",
+        displayState: "curtailing",
+        sourceLabel: "Manual",
+      }),
+    );
+  });
+
   it("loads only the first history page and paginates on demand", async () => {
     mockListCurtailmentEvents
       .mockResolvedValueOnce({
@@ -630,6 +664,44 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEventId).toBeNull();
     expect(result.current.activeEvent).toBeNull();
+  });
+
+  it("does not preserve stale restoring rollups when terminal history is trimmed", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-trimmed-restore",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 1,
+        resolved: 1,
+        total: 2,
+      }),
+    });
+    const trimmedTerminalEvent = curtailmentEvent({
+      eventUuid: "curt-trimmed-restore",
+      state: CurtailmentEventState.COMPLETED_WITH_FAILURES,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      targetRollup: undefined,
+      targets: [],
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [trimmedTerminalEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ includeActive: false });
+    });
+
+    expect(result.current.activeEventId).toBe("curt-trimmed-restore");
+    expect(result.current.activeEvent?.state).toBe("completedWithFailures");
+    expect(result.current.activeEvent?.rollups).toEqual([]);
+    expect(result.current.activeEvent?.remainingPowerKw).toBeUndefined();
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-trimmed-restore",
+        state: "completedWithFailures",
+      }),
+    );
   });
 
   it("clears an active snapshot when history reports a failed terminal event", async () => {

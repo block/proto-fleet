@@ -27,6 +27,12 @@ interface InFlightActiveCurtailmentRequest {
   promise: Promise<ActiveCurtailmentSnapshot>;
   settled: boolean;
   subscribers: number;
+  writeVersion: number;
+}
+
+interface ActiveCurtailmentRequestSnapshot {
+  snapshot: ActiveCurtailmentSnapshot;
+  writeVersion: number;
 }
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined };
@@ -149,6 +155,7 @@ function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest
     abortController,
     settled: false,
     subscribers: 0,
+    writeVersion: getNextWriteVersion(),
     promise: curtailmentClient
       .getActiveCurtailment(createMessage(GetActiveCurtailmentRequestSchema, {}), { signal: abortController.signal })
       .then((response) => getActiveCurtailmentSnapshotFromResponse(response.event))
@@ -181,7 +188,7 @@ function releaseActiveCurtailmentRequestSubscriber(request: InFlightActiveCurtai
   }
 }
 
-async function requestActiveCurtailmentSnapshot(signal?: AbortSignal): Promise<ActiveCurtailmentSnapshot> {
+async function requestActiveCurtailmentSnapshot(signal?: AbortSignal): Promise<ActiveCurtailmentRequestSnapshot> {
   assertNotAborted(signal);
 
   const request = getInFlightActiveCurtailmentRequest();
@@ -202,7 +209,7 @@ async function requestActiveCurtailmentSnapshot(signal?: AbortSignal): Promise<A
   try {
     const snapshot = await request.promise;
     assertNotAborted(signal);
-    return snapshot;
+    return { snapshot, writeVersion: request.writeVersion };
   } finally {
     signal?.removeEventListener("abort", handleAbort);
     releaseSubscriber();
@@ -213,8 +220,7 @@ export async function fetchActiveCurtailmentData({
   signal,
 }: RefreshActiveCurtailmentOptions = {}): Promise<PendingActiveCurtailmentRefresh> {
   assertNotAborted(signal);
-  const writeVersion = getNextWriteVersion();
-  const snapshot = await requestActiveCurtailmentSnapshot(signal);
+  const { snapshot, writeVersion } = await requestActiveCurtailmentSnapshot(signal);
   return {
     ...snapshot,
     commit: () => setActiveCurtailmentSnapshot(snapshot, writeVersion),

@@ -186,6 +186,28 @@ function getActiveSnapshotFields(
   };
 }
 
+function getActiveHistoryEvent(
+  activeEvent: ProtoCurtailmentEvent,
+  historyEvents: CurtailmentHistoryEvent[],
+): CurtailmentHistoryEvent {
+  const mappedActiveEvent = mapActiveCurtailmentHistoryEvent(activeEvent);
+  const matchingHistoryEvent = historyEvents.find((event) => event.id === mappedActiveEvent.id);
+
+  if (!matchingHistoryEvent) {
+    return mappedActiveEvent;
+  }
+
+  if (!mappedActiveEvent.displayState) {
+    return matchingHistoryEvent;
+  }
+
+  return {
+    ...mappedActiveEvent,
+    displayState: mappedActiveEvent.displayState,
+    sourceLabel: matchingHistoryEvent.sourceLabel,
+  };
+}
+
 function createSnapshot(
   activeEvent: ProtoCurtailmentEvent | undefined,
   historyEvents: ProtoCurtailmentEvent[],
@@ -194,7 +216,7 @@ function createSnapshot(
   const nextHistoryEvents = historyEvents.map(mapCurtailmentHistoryEvent);
 
   if (includeActiveInHistory && activeEvent) {
-    const activeHistoryEvent = mapActiveCurtailmentHistoryEvent(activeEvent);
+    const activeHistoryEvent = getActiveHistoryEvent(activeEvent, nextHistoryEvents);
     return {
       ...getActiveSnapshotFields(activeEvent),
       historyEvents: [activeHistoryEvent, ...nextHistoryEvents.filter((event) => event.id !== activeHistoryEvent.id)],
@@ -225,12 +247,19 @@ function reconcileActiveEventWithHistory(
     return activeEvent;
   }
 
+  const hasHistoryTargetSummary = Boolean(matchingHistoryEvent.targetRollup || matchingHistoryEvent.targets.length > 0);
+  const targets = matchingHistoryEvent.targets.length > 0
+    ? matchingHistoryEvent.targets
+    : hasHistoryTargetSummary
+      ? activeEvent.targets
+      : [];
   return create(CurtailmentEventSchema, {
     ...activeEvent,
     state: matchingHistoryEvent.state,
     endedAt: matchingHistoryEvent.endedAt ?? activeEvent.endedAt,
     updatedAt: matchingHistoryEvent.updatedAt ?? activeEvent.updatedAt,
-    targetRollup: matchingHistoryEvent.targetRollup ?? activeEvent.targetRollup,
+    targetRollup: matchingHistoryEvent.targetRollup,
+    targets,
   });
 }
 
@@ -269,8 +298,8 @@ function getHistoryEventsWithActiveEvent(
     return removeInjectedActiveHistoryEvent(events, activeEvent);
   }
 
-  const mappedActiveEvent = mapActiveCurtailmentHistoryEvent(activeEvent);
-  return [mappedActiveEvent, ...events.filter((event) => event.id !== mappedActiveEvent.id)];
+  const activeHistoryEvent = getActiveHistoryEvent(activeEvent, events);
+  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id)];
 }
 
 function upsertHistoryEvent(
