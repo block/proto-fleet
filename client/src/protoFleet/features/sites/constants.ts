@@ -80,3 +80,34 @@ export const COUNTRY_OPTIONS = [
   { value: "US", label: "United States" },
   { value: "CA", label: "Canada" },
 ];
+
+// IANA timezone options for the SiteSettingsModal timezone Select.
+// Superset of the ids returned by inferTimezone so operators can
+// override a minority-zone state (e.g. ID → America/Los_Angeles for
+// the panhandle). Labels lead with the offset so a manual override
+// is easy to verify.
+export const TIMEZONE_OPTIONS = [
+  // US
+  { value: "America/New_York", label: "Eastern Time — New York" },
+  { value: "America/Detroit", label: "Eastern Time — Detroit" },
+  { value: "America/Indiana/Indianapolis", label: "Eastern Time — Indianapolis" },
+  { value: "America/Chicago", label: "Central Time — Chicago" },
+  { value: "America/Denver", label: "Mountain Time — Denver" },
+  { value: "America/Boise", label: "Mountain Time — Boise" },
+  { value: "America/Phoenix", label: "Mountain Time (no DST) — Phoenix" },
+  { value: "America/Los_Angeles", label: "Pacific Time — Los Angeles" },
+  { value: "America/Anchorage", label: "Alaska Time — Anchorage" },
+  { value: "Pacific/Honolulu", label: "Hawaii Time — Honolulu" },
+  // CA
+  { value: "America/St_Johns", label: "Newfoundland Time — St. John's" },
+  { value: "America/Halifax", label: "Atlantic Time — Halifax" },
+  { value: "America/Moncton", label: "Atlantic Time — Moncton" },
+  { value: "America/Toronto", label: "Eastern Time — Toronto" },
+  { value: "America/Iqaluit", label: "Eastern Time — Iqaluit" },
+  { value: "America/Winnipeg", label: "Central Time — Winnipeg" },
+  { value: "America/Regina", label: "Central Time (no DST) — Regina" },
+  { value: "America/Edmonton", label: "Mountain Time — Edmonton" },
+  { value: "America/Yellowknife", label: "Mountain Time — Yellowknife" },
+  { value: "America/Vancouver", label: "Pacific Time — Vancouver" },
+  { value: "America/Whitehorse", label: "Yukon Time — Whitehorse" },
+];

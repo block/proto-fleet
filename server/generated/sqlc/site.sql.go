@@ -19,6 +19,7 @@ INSERT INTO site (
     name,
     location_city,
     location_state,
+    timezone,
     power_capacity_mw,
     network_config,
     address,
@@ -34,10 +35,11 @@ INSERT INTO site (
     $6,
     $7,
     $8,
-    COALESCE($9::text, 'US'),
-    $10
+    $9,
+    COALESCE($10::text, 'US'),
+    $11
 )
-RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
+RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone
 `
 
 type CreateSiteParams struct {
@@ -45,6 +47,7 @@ type CreateSiteParams struct {
 	Name            string
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
+	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
 	Address         sql.NullString
@@ -62,6 +65,7 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		arg.Name,
 		arg.LocationCity,
 		arg.LocationState,
+		arg.Timezone,
 		arg.PowerCapacityMw,
 		arg.NetworkConfig,
 		arg.Address,
@@ -85,6 +89,7 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		&i.PostalCode,
 		&i.Country,
 		&i.Notes,
+		&i.Timezone,
 	)
 	return i, err
 }
@@ -150,7 +155,7 @@ func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSit
 }
 
 const getSite = `-- name: GetSite :one
-SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone
 FROM site
 WHERE id = $1
   AND org_id = $2
@@ -180,6 +185,7 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 		&i.PostalCode,
 		&i.Country,
 		&i.Notes,
+		&i.Timezone,
 	)
 	return i, err
 }
@@ -271,7 +277,7 @@ func (q *Queries) ListSiteNetworkConfigsForOverlap(ctx context.Context, arg List
 
 const listSites = `-- name: ListSites :many
 SELECT
-    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes,
+    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
     COALESCE(r.rack_count, 0)::bigint AS rack_count
@@ -321,6 +327,7 @@ type ListSitesRow struct {
 	PostalCode      sql.NullString
 	Country         string
 	Notes           sql.NullString
+	Timezone        sql.NullString
 	DeviceCount     int64
 	BuildingCount   int64
 	RackCount       int64
@@ -352,6 +359,7 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.PostalCode,
 			&i.Country,
 			&i.Notes,
+			&i.Timezone,
 			&i.DeviceCount,
 			&i.BuildingCount,
 			&i.RackCount,
@@ -759,15 +767,16 @@ UPDATE site
 SET name              = $1,
     location_city     = $2,
     location_state    = $3,
-    power_capacity_mw = $4,
-    network_config    = $5,
-    address           = $6,
-    postal_code       = $7,
-    country           = COALESCE($8::text, country),
-    notes             = $9,
+    timezone          = $4,
+    power_capacity_mw = $5,
+    network_config    = $6,
+    address           = $7,
+    postal_code       = $8,
+    country           = COALESCE($9::text, country),
+    notes             = $10,
     updated_at        = CURRENT_TIMESTAMP
-WHERE id = $10
-  AND org_id = $11
+WHERE id = $11
+  AND org_id = $12
   AND deleted_at IS NULL
 `
 
@@ -775,6 +784,7 @@ type UpdateSiteParams struct {
 	Name            string
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
+	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
 	Address         sql.NullString
@@ -790,6 +800,7 @@ func (q *Queries) UpdateSite(ctx context.Context, arg UpdateSiteParams) error {
 		arg.Name,
 		arg.LocationCity,
 		arg.LocationState,
+		arg.Timezone,
 		arg.PowerCapacityMw,
 		arg.NetworkConfig,
 		arg.Address,

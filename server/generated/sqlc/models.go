@@ -882,6 +882,7 @@ type Site struct {
 	PostalCode      sql.NullString
 	Country         string
 	Notes           sql.NullString
+	Timezone        sql.NullString
 }
 
 type User struct {

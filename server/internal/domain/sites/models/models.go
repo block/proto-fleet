@@ -10,6 +10,7 @@ type Site struct {
 	Name            string
 	LocationCity    string
 	LocationState   string
+	Timezone        string
 	PowerCapacityMw float64
 	NetworkConfig   string
 	Address         string
@@ -36,6 +37,7 @@ type CreateSiteParams struct {
 	Name            string
 	LocationCity    string
 	LocationState   string
+	Timezone        string
 	PowerCapacityMw float64
 	NetworkConfig   string
 	Address         string
@@ -51,6 +53,7 @@ type UpdateSiteParams struct {
 	Name            string
 	LocationCity    string
 	LocationState   string
+	Timezone        string
 	PowerCapacityMw float64
 	NetworkConfig   string
 	Address         string

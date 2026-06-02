@@ -60,6 +60,8 @@ describe("SiteSettingsModal — create mode", () => {
       locationState: "IL",
       postalCode: "60601",
       country: "US",
+      // Picking Illinois auto-seeds the timezone from inferTimezone.
+      timezone: "America/Chicago",
       powerCapacityMw: 12.5,
       networkConfig: "",
       notes: "rack row A1",

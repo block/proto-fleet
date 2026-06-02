@@ -43,6 +43,10 @@ export interface SiteFormValues {
   locationState: string;
   postalCode: string;
   country: string;
+  // IANA timezone id. Form seeds this from inferTimezone(country, state)
+  // when the operator changes state, but they can override for sub-state
+  // edges (e.g. N Idaho is Pacific, not Mountain).
+  timezone: string;
   powerCapacityMw: number;
   networkConfig: string;
   notes: string;
@@ -55,6 +59,7 @@ export const emptySiteFormValues = (): SiteFormValues => ({
   locationState: "",
   postalCode: "",
   country: "US",
+  timezone: "",
   powerCapacityMw: 0,
   networkConfig: "",
   notes: "",
@@ -67,6 +72,7 @@ export const siteFormValuesFromSite = (site: Site): SiteFormValues => ({
   locationState: site.locationState,
   postalCode: site.postalCode,
   country: site.country || "US",
+  timezone: site.timezone,
   powerCapacityMw: site.powerCapacityMw,
   networkConfig: site.networkConfig,
   notes: site.notes,
@@ -149,6 +155,7 @@ const useSites = () => {
             name: values.name,
             locationCity: values.locationCity,
             locationState: values.locationState,
+            timezone: values.timezone,
             powerCapacityMw: values.powerCapacityMw,
             networkConfig: values.networkConfig,
             address: values.address,
@@ -188,6 +195,7 @@ const useSites = () => {
             name: values.name,
             locationCity: values.locationCity,
             locationState: values.locationState,
+            timezone: values.timezone,
             powerCapacityMw: values.powerCapacityMw,
             networkConfig: values.networkConfig,
             address: values.address,

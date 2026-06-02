@@ -1,7 +1,13 @@
 import { useCallback, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
-import { CA_PROVINCE_OPTIONS, COUNTRY_OPTIONS, US_STATE_OPTIONS } from "@/protoFleet/features/sites/constants";
+import {
+  CA_PROVINCE_OPTIONS,
+  COUNTRY_OPTIONS,
+  TIMEZONE_OPTIONS,
+  US_STATE_OPTIONS,
+} from "@/protoFleet/features/sites/constants";
+import { inferTimezone } from "@/protoFleet/features/sites/inferTimezone";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -52,6 +58,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   const [state, setState] = useState(initialValues.locationState);
   const [postalCode, setPostalCode] = useState(initialValues.postalCode);
   const [country, setCountry] = useState(initialValues.country || "US");
+  const [timezone, setTimezone] = useState(initialValues.timezone);
   const [notes, setNotes] = useState(initialValues.notes);
   const [capacityText, setCapacityText] = useState(
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
@@ -72,11 +79,12 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
       locationState: state.trim(),
       postalCode: postalCode.trim(),
       country: country || "US",
+      timezone: timezone,
       powerCapacityMw: capacity,
       networkConfig: initialValues.networkConfig,
       notes: notes,
     };
-  }, [name, address, city, state, postalCode, country, capacityText, notes, initialValues.networkConfig]);
+  }, [name, address, city, state, postalCode, country, timezone, capacityText, notes, initialValues.networkConfig]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
@@ -166,10 +174,10 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             setCountry(v);
             // State list is country-scoped — keeping a stale value (e.g.
             // "IL" when switching US → CA) would persist a code that
-            // resolves to no timezone. Skip the clear when the country
-            // didn't change so re-selecting the current option doesn't
-            // wipe a valid state.
+            // resolves to no timezone. The inferred timezone goes with
+            // the now-cleared state.
             setState("");
+            setTimezone("");
           }}
           forceBelow
           testId="site-settings-country-select"
@@ -188,7 +196,14 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             label={country === "CA" ? "Province" : "State"}
             options={country === "CA" ? CA_PROVINCE_OPTIONS : US_STATE_OPTIONS}
             value={state}
-            onChange={setState}
+            onChange={(v) => {
+              setState(v);
+              // Auto-seed timezone with the inference for the new state
+              // so the operator sees the suggestion before save. They
+              // can still override below (e.g. N Idaho is Pacific, not
+              // the Mountain default).
+              setTimezone(inferTimezone(country, v));
+            }}
             forceBelow
             testId="site-settings-state-select"
           />
@@ -200,6 +215,15 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           onChange={(v) => setPostalCode(v)}
           maxLength={32}
           testId="site-settings-postal-code-input"
+        />
+        <Select
+          id="site-settings-timezone"
+          label="Timezone"
+          options={TIMEZONE_OPTIONS}
+          value={timezone}
+          onChange={setTimezone}
+          forceBelow
+          testId="site-settings-timezone-select"
         />
         <Input
           id="site-settings-capacity"

@@ -14,6 +14,7 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 		Name:            req.GetName(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
+		Timezone:        req.GetTimezone(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
 		NetworkConfig:   req.GetNetworkConfig(),
 		Address:         req.GetAddress(),
@@ -30,6 +31,7 @@ func toUpdateSiteParams(req *pb.UpdateSiteRequest, orgID int64) models.UpdateSit
 		Name:            req.GetName(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
+		Timezone:        req.GetTimezone(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
 		NetworkConfig:   req.GetNetworkConfig(),
 		Address:         req.GetAddress(),
@@ -65,6 +67,17 @@ func toAssignBuildingParams(req *pb.AssignBuildingToSiteRequest, orgID int64) mo
 	}
 }
 
+// resolveTimezone returns the operator-stored timezone when set,
+// falling back to (country, location_state) inference. The override
+// lets operators correct sub-state edge cases (N Idaho, El Paso TX,
+// W Kentucky) without us maintaining a county-level table.
+func resolveTimezone(site *models.Site) string {
+	if site.Timezone != "" {
+		return site.Timezone
+	}
+	return sites.InferTimezone(site.Country, site.LocationState)
+}
+
 func toProtoSite(site *models.Site) *pb.Site {
 	if site == nil {
 		return nil
@@ -74,7 +87,7 @@ func toProtoSite(site *models.Site) *pb.Site {
 		Name:            site.Name,
 		LocationCity:    site.LocationCity,
 		LocationState:   site.LocationState,
-		Timezone:        sites.InferTimezone(site.Country, site.LocationState),
+		Timezone:        resolveTimezone(site),
 		PowerCapacityMw: site.PowerCapacityMw,
 		NetworkConfig:   site.NetworkConfig,
 		Address:         site.Address,

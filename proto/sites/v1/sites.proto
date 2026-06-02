@@ -60,10 +60,10 @@ message Site {
     reserved "description";
     string location_city = 4;
     string location_state = 5;
-    // timezone is server-derived from (country, location_state) on
-    // every response — not stored. Empty when the address doesn't
-    // resolve to a known IANA id. Read-only; not accepted on
-    // Create/Update.
+    // timezone is the operator-set IANA id when present, otherwise the
+    // server-inferred id from (country, location_state). Empty when
+    // neither resolves. Operators override the inference for
+    // sub-state edge cases (e.g. North Idaho is Pacific, not Mountain).
     string timezone = 6;
     // power_capacity_mw is 0 when unset; otherwise megawatts as a
     // floating-point number.
@@ -112,8 +112,10 @@ message CreateSiteRequest {
     reserved "description";
     string location_city = 3 [(buf.validate.field).string.max_len = 255];
     string location_state = 4 [(buf.validate.field).string.max_len = 255];
-    reserved 5;            // was: timezone — derived from address.
-    reserved "timezone";
+    // IANA timezone id. Empty falls back to server inference from
+    // (country, location_state); a non-empty value is stored verbatim
+    // and overrides inference on read.
+    string timezone = 5 [(buf.validate.field).string.max_len = 64];
     // Megawatts; 0 = no capacity recorded.
     double power_capacity_mw = 6 [(buf.validate.field).double.gte = 0];
     // Newline-separated CIDR/IP entries. Server canonicalizes,
@@ -149,8 +151,7 @@ message UpdateSiteRequest {
     reserved "description";
     string location_city = 4 [(buf.validate.field).string.max_len = 255];
     string location_state = 5 [(buf.validate.field).string.max_len = 255];
-    reserved 6;            // was: timezone — derived from address.
-    reserved "timezone";
+    string timezone = 6 [(buf.validate.field).string.max_len = 64];
     double power_capacity_mw = 7 [(buf.validate.field).double.gte = 0];
     string network_config = 8 [(buf.validate.field).string.max_bytes = 16384];
 

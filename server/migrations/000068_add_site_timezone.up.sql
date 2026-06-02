@@ -1,0 +1,1 @@
+ALTER TABLE site ADD COLUMN timezone TEXT;
