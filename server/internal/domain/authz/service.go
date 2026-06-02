@@ -265,7 +265,13 @@ func validateReadPairing(keys []string) error {
 		if k == readKey {
 			continue
 		}
-		if !have[readKey] {
+		// Some resources (role, apikey) are manage-only — the catalog
+		// has no :read partner because their surfaces live under
+		// route-guarded Settings, not a list view a viewer-only role
+		// would navigate to. Skip the pair check when the partner does
+		// not exist in the catalog at all; pair-when-exists is the
+		// invariant, not pair-everything.
+		if _, ok := Lookup(readKey); ok && !have[readKey] {
 			return fleeterror.NewInvalidArgumentErrorf("%s requires %s in the same role", k, readKey)
 		}
 		if fleetReadFloorResources[entry.Resource] && !have[PermFleetRead] {

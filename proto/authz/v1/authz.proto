@@ -30,9 +30,11 @@ service AuthzService {
     // check enforced server-side).
     rpc CreateCustomRole(CreateCustomRoleRequest) returns (CreateCustomRoleResponse);
 
-    // UpdateCustomRole replaces the full attribute set on a role. Built-in
-    // ADMIN and FIELD_TECH are editable through this RPC; SUPER_ADMIN is
-    // not. Privilege-parity applies.
+    // UpdateCustomRole replaces the full attribute set on a custom role.
+    // Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
+    // BUILTIN_ROLE_IMMUTABLE in this iteration; built-in editing for
+    // ADMIN/FIELD_TECH lands in a follow-up alongside the audit and
+    // reconciler-compat work that pair has. Privilege-parity applies.
     rpc UpdateCustomRole(UpdateCustomRoleRequest) returns (UpdateCustomRoleResponse);
 
     // DeleteCustomRole soft-deletes a custom role. Rejects when the role

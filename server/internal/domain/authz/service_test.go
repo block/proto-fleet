@@ -99,12 +99,19 @@ func TestValidateReadPairing(t *testing.T) {
 			t.Fatalf("unexpected: %v", err)
 		}
 	})
-	t.Run("role:manage does not require role:read (no such key)", func(t *testing.T) {
-		// role:manage's resource is "role" and there is no role:read entry
-		// in the catalog. validateReadPairing must not fabricate one — it
-		// would block every Roles UI save.
-		if err := validateReadPairing([]string{PermRoleManage}); err == nil {
-			t.Skip("validateReadPairing requires same-resource :read; the role resource has none")
+	t.Run("manage-only resources skip the pair check", func(t *testing.T) {
+		// role:manage and apikey:manage have no :read partner in the
+		// catalog. validateReadPairing must skip the pair check for
+		// them; otherwise the Roles UI cannot save any role that grants
+		// either permission.
+		if err := validateReadPairing([]string{PermRoleManage}); err != nil {
+			t.Fatalf("role:manage should not require role:read: %v", err)
+		}
+		if err := validateReadPairing([]string{PermAPIKeyManage}); err != nil {
+			t.Fatalf("apikey:manage should not require apikey:read: %v", err)
+		}
+		if err := validateReadPairing([]string{PermRoleManage, PermAPIKeyManage}); err != nil {
+			t.Fatalf("combined manage-only permissions should not require partners: %v", err)
 		}
 	})
 }

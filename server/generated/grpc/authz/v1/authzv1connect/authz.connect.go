@@ -71,9 +71,11 @@ type AuthzServiceClient interface {
 	// hold every permission they grant the new role (privilege-parity
 	// check enforced server-side).
 	CreateCustomRole(context.Context, *connect.Request[v1.CreateCustomRoleRequest]) (*connect.Response[v1.CreateCustomRoleResponse], error)
-	// UpdateCustomRole replaces the full attribute set on a role. Built-in
-	// ADMIN and FIELD_TECH are editable through this RPC; SUPER_ADMIN is
-	// not. Privilege-parity applies.
+	// UpdateCustomRole replaces the full attribute set on a custom role.
+	// Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
+	// BUILTIN_ROLE_IMMUTABLE in this iteration; built-in editing for
+	// ADMIN/FIELD_TECH lands in a follow-up alongside the audit and
+	// reconciler-compat work that pair has. Privilege-parity applies.
 	UpdateCustomRole(context.Context, *connect.Request[v1.UpdateCustomRoleRequest]) (*connect.Response[v1.UpdateCustomRoleResponse], error)
 	// DeleteCustomRole soft-deletes a custom role. Rejects when the role
 	// still has active assignments — callers must unassign first. Built-in
@@ -210,9 +212,11 @@ type AuthzServiceHandler interface {
 	// hold every permission they grant the new role (privilege-parity
 	// check enforced server-side).
 	CreateCustomRole(context.Context, *connect.Request[v1.CreateCustomRoleRequest]) (*connect.Response[v1.CreateCustomRoleResponse], error)
-	// UpdateCustomRole replaces the full attribute set on a role. Built-in
-	// ADMIN and FIELD_TECH are editable through this RPC; SUPER_ADMIN is
-	// not. Privilege-parity applies.
+	// UpdateCustomRole replaces the full attribute set on a custom role.
+	// Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
+	// BUILTIN_ROLE_IMMUTABLE in this iteration; built-in editing for
+	// ADMIN/FIELD_TECH lands in a follow-up alongside the audit and
+	// reconciler-compat work that pair has. Privilege-parity applies.
 	UpdateCustomRole(context.Context, *connect.Request[v1.UpdateCustomRoleRequest]) (*connect.Response[v1.UpdateCustomRoleResponse], error)
 	// DeleteCustomRole soft-deletes a custom role. Rejects when the role
 	// still has active assignments — callers must unassign first. Built-in
