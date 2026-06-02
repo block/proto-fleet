@@ -1,4 +1,4 @@
--- Reverses 000065_seed_activity_read_permission.up.sql by removing
+-- Reverses 000069_seed_activity_read_permission.up.sql by removing
 -- activity:read from every role that holds it and then deleting the
 -- permission row itself. Rolling back the data migration cleanly is
 -- impossible without provenance tracking; the rollback path is rare/
