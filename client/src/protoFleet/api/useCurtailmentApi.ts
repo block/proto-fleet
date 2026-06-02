@@ -187,6 +187,13 @@ function getActiveSnapshotFields(
   };
 }
 
+function markInjectedActiveHistoryEvent(event: CurtailmentHistoryEvent): CurtailmentHistoryEvent {
+  return {
+    ...event,
+    injectedActive: true,
+  };
+}
+
 function getActiveHistoryEvent(
   activeEvent: ProtoCurtailmentEvent,
   historyEvents: CurtailmentHistoryEvent[],
@@ -195,21 +202,21 @@ function getActiveHistoryEvent(
   const matchingHistoryEvent = historyEvents.find((event) => event.id === mappedActiveEvent.id);
 
   if (!matchingHistoryEvent) {
-    return {
+    return markInjectedActiveHistoryEvent({
       ...mappedActiveEvent,
       sourceLabel: defaultHistorySourceLabel,
-    };
+    });
   }
 
   if (!mappedActiveEvent.displayState) {
     return matchingHistoryEvent;
   }
 
-  return {
+  return markInjectedActiveHistoryEvent({
     ...mappedActiveEvent,
     displayState: mappedActiveEvent.displayState,
     sourceLabel: matchingHistoryEvent.sourceLabel,
-  };
+  });
 }
 
 function createSnapshot(
@@ -278,15 +285,8 @@ function shouldIncludeActiveEventInHistory(
   );
 }
 
-function removeInjectedActiveHistoryEvent(
-  events: CurtailmentHistoryEvent[],
-  activeEvent?: ProtoCurtailmentEvent,
-): CurtailmentHistoryEvent[] {
-  if (!activeEvent) {
-    return events.filter((event) => !event.displayState);
-  }
-
-  return events.filter((event) => event.id !== activeEvent.eventUuid);
+function removeInjectedActiveHistoryEvent(events: CurtailmentHistoryEvent[]): CurtailmentHistoryEvent[] {
+  return events.filter((event) => !event.injectedActive);
 }
 
 function getHistoryEventsWithActiveEvent(
@@ -300,11 +300,11 @@ function getHistoryEventsWithActiveEvent(
   }
 
   if (!activeEvent || !shouldIncludeActiveEventInHistory(activeEvent, stateFilters)) {
-    return removeInjectedActiveHistoryEvent(events, activeEvent);
+    return removeInjectedActiveHistoryEvent(events);
   }
 
   const activeHistoryEvent = getActiveHistoryEvent(activeEvent, events);
-  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id && !event.displayState)];
+  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id && !event.injectedActive)];
 }
 
 function upsertHistoryEvent(

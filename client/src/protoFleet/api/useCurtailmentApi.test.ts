@@ -683,6 +683,44 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents).toEqual([]);
   });
 
+  it("keeps real history rows when removing stale injected active rows from filtered history", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-injected",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const realHistoryEvent = curtailmentEvent({
+      eventUuid: "curt-real-history",
+      reason: "Real history row",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const filteredActiveEvent = curtailmentEvent({
+      eventUuid: "curt-real-history",
+      state: CurtailmentEventState.PENDING,
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: restoringEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [realHistoryEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["restoring"]);
+    });
+
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-injected", "curt-real-history"]);
+
+    act(() => {
+      applyActiveCurtailmentEvent(filteredActiveEvent);
+    });
+
+    expect(result.current.historyStatusFilters).toEqual(["restoring"]);
+    expect(result.current.historyEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-real-history",
+        reason: "Real history row",
+      }),
+    ]);
+  });
+
   it("keeps a restored curtailment visible until it is dismissed", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-restored",

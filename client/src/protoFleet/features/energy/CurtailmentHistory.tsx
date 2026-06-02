@@ -26,6 +26,7 @@ export interface CurtailmentHistoryEvent {
   reason: string;
   state: CurtailmentEventState;
   displayState?: ActiveCurtailmentDisplayState;
+  injectedActive?: boolean;
   priority: CurtailmentPriority;
   scopeLabel: string;
   selectedMiners: number;
