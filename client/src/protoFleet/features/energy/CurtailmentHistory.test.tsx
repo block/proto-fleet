@@ -99,21 +99,22 @@ describe("CurtailmentHistory", () => {
     expect(getRenderedRows()).toHaveLength(mockCurtailmentHistoryEvents.length);
   });
 
-  it("delegates controlled status filter changes without filtering the current page locally", async () => {
+  it("delegates controlled multi-status filter changes without filtering the current page locally", async () => {
     const user = userEvent.setup();
-    const onStatusFilterChange = vi.fn();
+    const onStatusFiltersChange = vi.fn();
     render(
       <CurtailmentHistory
         events={mockCurtailmentHistoryEvents.slice(0, 2)}
+        selectedStatusFilters={["completed"]}
         onPageChange={vi.fn()}
-        onStatusFilterChange={onStatusFilterChange}
+        onStatusFiltersChange={onStatusFiltersChange}
       />,
     );
 
     await user.click(screen.getByTestId("filter-dropdown-Status"));
-    await user.click(screen.getByTestId("filter-option-completed"));
+    await user.click(screen.getByTestId("filter-option-failed"));
 
-    expect(onStatusFilterChange).toHaveBeenCalledWith("completed");
+    expect(onStatusFiltersChange).toHaveBeenCalledWith(["completed", "failed"]);
     expect(screen.getByText("ERCOT ERS obligation")).toBeInTheDocument();
   });
 

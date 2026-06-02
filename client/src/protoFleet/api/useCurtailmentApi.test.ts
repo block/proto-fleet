@@ -498,6 +498,35 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0].reason).toBe("Dispatch started");
   });
 
+  it("removes injected active history rows when shared active state stops matching filters", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-filtered-active",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-filtered-active",
+      state: CurtailmentEventState.COMPLETED,
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: restoringEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["restoring"]);
+    });
+
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-filtered-active"]);
+
+    act(() => {
+      applyActiveCurtailmentEvent(completedEvent);
+    });
+
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.historyStatusFilters).toEqual(["restoring"]);
+    expect(result.current.historyEvents).toEqual([]);
+  });
+
   it("keeps a restored curtailment visible until it is dismissed", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-restored",

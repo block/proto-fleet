@@ -62,10 +62,10 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     historyHasNextPage,
     historyHasPreviousPage,
     historyPageSize,
-    historyStatusFilter,
+    historyStatusFilters,
     refreshCurtailment,
     goToHistoryPage,
-    setHistoryStatusFilter,
+    setHistoryStatusFilters,
     startCurtailment,
     dismissTerminalCurtailment,
     updateCurtailment,
@@ -177,11 +177,11 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     [goToHistoryPage, runAbortableRefresh],
   );
 
-  const handleHistoryStatusFilterChange = useCallback(
-    (stateFilter?: CurtailmentEventState) => {
-      void runAbortableRefresh((signal) => setHistoryStatusFilter(stateFilter, { signal })).catch(() => {});
+  const handleHistoryStatusFiltersChange = useCallback(
+    (stateFilters: CurtailmentEventState[]) => {
+      void runAbortableRefresh((signal) => setHistoryStatusFilters(stateFilters, { signal })).catch(() => {});
     },
-    [runAbortableRefresh, setHistoryStatusFilter],
+    [runAbortableRefresh, setHistoryStatusFilters],
   );
 
   const handleConfirmStop = useCallback(() => {
@@ -240,9 +240,9 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
             currentPage={historyCurrentPage}
             hasNextPage={historyHasNextPage}
             hasPreviousPage={historyHasPreviousPage}
-            selectedStatusFilter={historyStatusFilter}
+            selectedStatusFilters={historyStatusFilters}
             onPageChange={handleHistoryPageChange}
-            onStatusFilterChange={handleHistoryStatusFilterChange}
+            onStatusFiltersChange={handleHistoryStatusFiltersChange}
             onStopActiveEvent={handleHistoryStop}
           />
         </>

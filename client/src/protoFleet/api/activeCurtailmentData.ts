@@ -103,12 +103,15 @@ export function dismissActiveCurtailmentEvent(eventUuid?: string | null): Active
   return setActiveCurtailmentSnapshot(initialSnapshot);
 }
 
-function shouldPreserveCurrentActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+function shouldPreserveTerminalActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
   return (
-    event.state === CurtailmentEventState.RESTORING ||
     event.state === CurtailmentEventState.COMPLETED ||
     event.state === CurtailmentEventState.COMPLETED_WITH_FAILURES
   );
+}
+
+function shouldPreserveRestoringActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+  return event.state === CurtailmentEventState.RESTORING;
 }
 
 function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentSnapshot {
@@ -118,9 +121,14 @@ function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent)
   }
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
+  if (currentSnapshot.event && shouldPreserveTerminalActiveCurtailmentEvent(currentSnapshot.event)) {
+    emptyActiveRefreshCount = 0;
+    return currentSnapshot;
+  }
+
   if (
     currentSnapshot.event &&
-    shouldPreserveCurrentActiveCurtailmentEvent(currentSnapshot.event) &&
+    shouldPreserveRestoringActiveCurtailmentEvent(currentSnapshot.event) &&
     emptyActiveRefreshCount < preservedEmptyActiveRefreshLimit
   ) {
     emptyActiveRefreshCount += 1;

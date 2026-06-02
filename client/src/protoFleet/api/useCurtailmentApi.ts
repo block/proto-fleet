@@ -244,14 +244,29 @@ function shouldIncludeActiveEventInHistory(
   );
 }
 
+function removeInjectedActiveHistoryEvent(
+  events: CurtailmentHistoryEvent[],
+  activeEvent?: ProtoCurtailmentEvent,
+): CurtailmentHistoryEvent[] {
+  if (!activeEvent) {
+    return events.filter((event) => !event.displayState);
+  }
+
+  return events.filter((event) => event.id !== activeEvent.eventUuid);
+}
+
 function getHistoryEventsWithActiveEvent(
   events: CurtailmentHistoryEvent[],
   activeEvent: ProtoCurtailmentEvent | undefined,
   stateFilters: readonly CurtailmentEventState[],
   currentPage: number,
 ): CurtailmentHistoryEvent[] {
-  if (currentPage !== 0 || !activeEvent || !shouldIncludeActiveEventInHistory(activeEvent, stateFilters)) {
+  if (currentPage !== 0) {
     return events;
+  }
+
+  if (!activeEvent || !shouldIncludeActiveEventInHistory(activeEvent, stateFilters)) {
+    return removeInjectedActiveHistoryEvent(events, activeEvent);
   }
 
   const mappedActiveEvent = mapActiveCurtailmentHistoryEvent(activeEvent);

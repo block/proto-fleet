@@ -93,18 +93,32 @@ describe("activeCurtailmentData", () => {
     await expect(pendingRefresh).rejects.toBeInstanceOf(DOMException);
   });
 
+  it("preserves a restoring curtailment for one empty active response", async () => {
+    applyActiveCurtailmentEvent(curtailmentEvent("restoring", CurtailmentEventState.RESTORING));
+    mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("restoring");
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
+  });
+
   it.each([
-    ["restoring", CurtailmentEventState.RESTORING],
     ["restored", CurtailmentEventState.COMPLETED],
     ["incomplete restore", CurtailmentEventState.COMPLETED_WITH_FAILURES],
-  ])("preserves a %s curtailment for one empty active response", async (eventUuid, state) => {
+  ])("preserves a %s curtailment through empty active responses until dismissal", async (eventUuid, state) => {
     applyActiveCurtailmentEvent(curtailmentEvent(eventUuid, state));
     mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
 
     await refreshActiveCurtailmentData();
+    await refreshActiveCurtailmentData();
+
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(eventUuid);
 
+    dismissActiveCurtailmentEvent(eventUuid);
     await refreshActiveCurtailmentData();
+
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 });

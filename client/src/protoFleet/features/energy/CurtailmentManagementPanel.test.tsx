@@ -61,9 +61,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     hasNextPage,
     hasPreviousPage,
     pageSize,
-    selectedStatusFilter,
+    selectedStatusFilters,
     onPageChange,
-    onStatusFilterChange,
+    onStatusFiltersChange,
     onStopActiveEvent,
   }: {
     currentPage?: number;
@@ -71,9 +71,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     hasNextPage?: boolean;
     hasPreviousPage?: boolean;
     pageSize?: number;
-    selectedStatusFilter?: string;
+    selectedStatusFilters?: string[];
     onPageChange?: (page: number) => void;
-    onStatusFilterChange?: (filter?: string) => void;
+    onStatusFiltersChange?: (filters: string[]) => void;
     onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
   }) => (
     <div data-testid="curtailment-history">
@@ -81,13 +81,13 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
       <div data-testid="history-page-size">{pageSize}</div>
       <div data-testid="history-has-next">{String(hasNextPage)}</div>
       <div data-testid="history-has-previous">{String(hasPreviousPage)}</div>
-      <div data-testid="history-status-filter">{selectedStatusFilter ?? ""}</div>
+      <div data-testid="history-status-filter">{selectedStatusFilters?.join(",") ?? ""}</div>
       <div data-testid="history-events">{events.map((event) => event.id).join(",")}</div>
       <button type="button" onClick={() => onPageChange?.(2)}>
         Load page 2
       </button>
-      <button type="button" onClick={() => onStatusFilterChange?.("completed")}>
-        Filter completed
+      <button type="button" onClick={() => onStatusFiltersChange?.(["completed", "failed"])}>
+        Filter completed and failed
       </button>
       <button type="button" disabled={events.length === 0} onClick={() => onStopActiveEvent?.(events[0])}>
         Stop history event
@@ -181,6 +181,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.refreshCurtailment.mockResolvedValue(emptySnapshot);
     mocks.goToHistoryPage.mockResolvedValue(emptySnapshot);
     mocks.setHistoryStatusFilter.mockResolvedValue(emptySnapshot);
+    mocks.setHistoryStatusFilters.mockResolvedValue(emptySnapshot);
     mocks.startCurtailment.mockResolvedValue({});
     mocks.stopCurtailment.mockResolvedValue({});
     mocks.updateCurtailment.mockResolvedValue({});
@@ -387,16 +388,18 @@ describe("CurtailmentManagementPanel", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         historyEvents: [historyEvent],
-        historyStatusFilter: "active",
+        historyStatusFilters: ["active", "restoring"],
       }),
     );
 
     render(<CurtailmentManagementPanel />);
 
-    expect(screen.getByTestId("history-status-filter")).toHaveTextContent("active");
+    expect(screen.getByTestId("history-status-filter")).toHaveTextContent("active,restoring");
 
-    await user.click(screen.getByRole("button", { name: "Filter completed" }));
+    await user.click(screen.getByRole("button", { name: "Filter completed and failed" }));
 
-    expect(mocks.setHistoryStatusFilter).toHaveBeenCalledWith("completed", { signal: expect.any(AbortSignal) });
+    expect(mocks.setHistoryStatusFilters).toHaveBeenCalledWith(["completed", "failed"], {
+      signal: expect.any(AbortSignal),
+    });
   });
 });

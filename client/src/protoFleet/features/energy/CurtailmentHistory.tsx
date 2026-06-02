@@ -46,10 +46,12 @@ interface CurtailmentHistoryProps {
   hasNextPage?: boolean;
   hasPreviousPage?: boolean;
   selectedStatusFilter?: CurtailmentEventState;
+  selectedStatusFilters?: CurtailmentEventState[];
   className?: string;
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
   onPageChange?: (page: number) => void;
   onStatusFilterChange?: (filter?: CurtailmentEventState) => void;
+  onStatusFiltersChange?: (filters: CurtailmentEventState[]) => void;
   /**
    * Called from the detail modal for the active non-terminal event. The parent
    * owns opening the edit flow with the selected event's values.
@@ -424,10 +426,12 @@ function CurtailmentHistory({
   hasNextPage: controlledHasNextPage = false,
   hasPreviousPage: controlledHasPreviousPage,
   selectedStatusFilter,
+  selectedStatusFilters: controlledSelectedStatusFilters,
   className,
   onViewEvent,
   onPageChange,
   onStatusFilterChange,
+  onStatusFiltersChange,
   onManageActiveEvent,
   onStopActiveEvent,
 }: CurtailmentHistoryProps): ReactElement {
@@ -457,10 +461,15 @@ function CurtailmentHistory({
   );
   const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
   const usesControlledPagination = Boolean(onPageChange);
-  const usesServerStatusFilter = Boolean(onStatusFilterChange);
+  const usesServerStatusFilter = Boolean(onStatusFiltersChange || onStatusFilterChange);
   const selectedStatusFilters = useMemo(
-    () => (usesServerStatusFilter ? (selectedStatusFilter ? [selectedStatusFilter] : []) : localSelectedStatusFilters),
-    [localSelectedStatusFilters, selectedStatusFilter, usesServerStatusFilter],
+    () =>
+      usesServerStatusFilter
+        ? normalizeStatusFilters(
+            controlledSelectedStatusFilters ?? (selectedStatusFilter ? [selectedStatusFilter] : []),
+          )
+        : localSelectedStatusFilters,
+    [controlledSelectedStatusFilters, localSelectedStatusFilters, selectedStatusFilter, usesServerStatusFilter],
   );
   const hasActiveFilters = selectedStatusFilters.length > 0;
 
@@ -497,7 +506,12 @@ function CurtailmentHistory({
 
   const handleStatusFilterChange = (filters: string[]) => {
     const nextFilters = normalizeStatusFilters(filters);
-    if (usesServerStatusFilter) {
+    if (onStatusFiltersChange) {
+      onStatusFiltersChange(nextFilters);
+      return;
+    }
+
+    if (onStatusFilterChange) {
       onStatusFilterChange?.(nextFilters[nextFilters.length - 1]);
       return;
     }
