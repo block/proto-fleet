@@ -59,22 +59,26 @@ func TestService_CreateCustomRole_PrivilegeParityRejectsBeyondCaller(t *testing.
 	ctx := t.Context()
 	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
-	fieldTechUserID := insertTestUser(t, db)
-	fieldTechRoleID := getBuiltinRoleID(t, db, orgID, "FIELD_TECH")
+	callerID := insertTestUser(t, db)
 
+	// Caller holds role:manage (so the role:manage gate passes) plus the
+	// read keys required by the read-pairing validator, but explicitly NOT
+	// miner:reboot — so the per-permission parity check is what rejects.
+	callerRoleID := createCustomRoleWithPermissions(t, db, orgID, "Parity Test Caller",
+		[]string{authz.PermRoleManage, authz.PermFleetRead, authz.PermMinerRead},
+	)
 	q := sqlc.New(db)
 	_, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
-		UserID:         fieldTechUserID,
+		UserID:         callerID,
 		OrganizationID: orgID,
-		RoleID:         fieldTechRoleID,
+		RoleID:         callerRoleID,
 		ScopeType:      "org",
 		ScopeID:        sql.NullInt64{},
 	})
 	require.NoError(t, err)
 
 	svc := authz.NewService(db)
-	// FIELD_TECH does not hold miner:reboot — the parity check must reject.
-	_, err = svc.CreateCustomRole(ctx, fieldTechUserID, orgID,
+	_, err = svc.CreateCustomRole(ctx, callerID, orgID,
 		"Reboot Plus", "",
 		[]string{authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerReboot},
 	)
@@ -264,4 +268,31 @@ func TestService_ListRoles_BuiltinOrderAndCustomMemberCount(t *testing.T) {
 		[]string{authz.PermFleetRead, authz.PermSiteRead},
 		roles[3].PermissionKeys,
 	)
+}
+
+// createCustomRoleWithPermissions inserts a custom role directly via
+// sqlc, bypassing Service.CreateCustomRole's caller-authorization
+// check. Use when a test needs a caller with a precise permission set
+// that no built-in provides — e.g. role:manage without miner:reboot to
+// isolate the per-key parity branch from the role:manage gate.
+func createCustomRoleWithPermissions(t *testing.T, dbConn *sql.DB, orgID int64, name string, keys []string) int64 {
+	t.Helper()
+	ctx := t.Context()
+	q := sqlc.New(dbConn)
+	role, err := q.CreateCustomRole(ctx, sqlc.CreateCustomRoleParams{
+		Name:           name,
+		Description:    sql.NullString{},
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+	})
+	require.NoError(t, err)
+	perms, err := q.GetPermissionsByKeys(ctx, keys)
+	require.NoError(t, err)
+	require.Len(t, perms, len(keys), "missing permission rows for one of: %v", keys)
+	for _, p := range perms {
+		require.NoError(t, q.AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{
+			RoleID:       role.ID,
+			PermissionID: p.ID,
+		}))
+	}
+	return role.ID
 }
