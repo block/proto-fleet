@@ -4,6 +4,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
+	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 )
 
@@ -11,12 +12,15 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 	return models.CreateSiteParams{
 		OrgID:           orgID,
 		Name:            req.GetName(),
-		Description:     req.GetDescription(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
 		Timezone:        req.GetTimezone(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
 		NetworkConfig:   req.GetNetworkConfig(),
+		Address:         req.GetAddress(),
+		PostalCode:      req.GetPostalCode(),
+		Country:         req.GetCountry(),
+		Notes:           req.GetNotes(),
 	}
 }
 
@@ -25,12 +29,15 @@ func toUpdateSiteParams(req *pb.UpdateSiteRequest, orgID int64) models.UpdateSit
 		OrgID:           orgID,
 		ID:              req.GetId(),
 		Name:            req.GetName(),
-		Description:     req.GetDescription(),
 		LocationCity:    req.GetLocationCity(),
 		LocationState:   req.GetLocationState(),
 		Timezone:        req.GetTimezone(),
 		PowerCapacityMw: req.GetPowerCapacityMw(),
 		NetworkConfig:   req.GetNetworkConfig(),
+		Address:         req.GetAddress(),
+		PostalCode:      req.GetPostalCode(),
+		Country:         req.GetCountry(),
+		Notes:           req.GetNotes(),
 	}
 }
 
@@ -60,6 +67,17 @@ func toAssignBuildingParams(req *pb.AssignBuildingToSiteRequest, orgID int64) mo
 	}
 }
 
+// resolveTimezone returns the operator-stored timezone when set,
+// falling back to (country, location_state) inference. The override
+// lets operators correct sub-state edge cases (N Idaho, El Paso TX,
+// W Kentucky) without us maintaining a county-level table.
+func resolveTimezone(site *models.Site) string {
+	if site.Timezone != "" {
+		return site.Timezone
+	}
+	return sites.InferTimezone(site.Country, site.LocationState)
+}
+
 func toProtoSite(site *models.Site) *pb.Site {
 	if site == nil {
 		return nil
@@ -67,12 +85,15 @@ func toProtoSite(site *models.Site) *pb.Site {
 	return &pb.Site{
 		Id:              site.ID,
 		Name:            site.Name,
-		Description:     site.Description,
 		LocationCity:    site.LocationCity,
 		LocationState:   site.LocationState,
-		Timezone:        site.Timezone,
+		Timezone:        resolveTimezone(site),
 		PowerCapacityMw: site.PowerCapacityMw,
 		NetworkConfig:   site.NetworkConfig,
+		Address:         site.Address,
+		PostalCode:      site.PostalCode,
+		Country:         site.Country,
+		Notes:           site.Notes,
 		CreatedAt:       timestamppb.New(site.CreatedAt),
 		UpdatedAt:       timestamppb.New(site.UpdatedAt),
 	}

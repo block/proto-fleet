@@ -871,15 +871,18 @@ type Site struct {
 	ID              int64
 	OrgID           int64
 	Name            string
-	Description     sql.NullString
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
-	Timezone        sql.NullString
 	PowerCapacityMw sql.NullString
 	NetworkConfig   sql.NullString
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       sql.NullTime
+	Address         sql.NullString
+	PostalCode      sql.NullString
+	Country         string
+	Notes           sql.NullString
+	Timezone        sql.NullString
 }
 
 type User struct {
