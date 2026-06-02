@@ -1,4 +1,4 @@
-package admin
+package discovery
 
 import (
 	"net/netip"
@@ -25,8 +25,21 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 			return inPort(port) && inIP(ip)
 		}
 	case *pairingpb.DiscoverRequest_Nmap:
-		inTarget := nmapTargetMatcher(m.Nmap.GetTarget())
 		inPort := portMatcher(m.Nmap.GetPorts())
+		// The LocalSubnetTarget sentinel lets the agent pick its own subnet, so
+		// the server can't predict the IPs. Degrade the IP scope to the
+		// private-only invariant (RFC1918/RFC4193) that validateReport
+		// independently enforces; port scoping is still applied.
+		if m.Nmap.GetTarget() == nmaptarget.LocalSubnetTarget {
+			return func(ip, port string) bool {
+				if !inPort(port) {
+					return false
+				}
+				a, ok := parseScopeAddr(ip)
+				return ok && a.IsPrivate()
+			}
+		}
+		inTarget := nmapTargetMatcher(m.Nmap.GetTarget())
 		return func(ip, port string) bool {
 			return inPort(port) && inTarget(ip)
 		}

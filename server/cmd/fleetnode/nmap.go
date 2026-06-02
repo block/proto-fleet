@@ -107,6 +107,19 @@ func validateNmapBinary(path string) (string, error) {
 
 func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRequest, ports []string) ([]nmap.Option, error) {
 	target := strings.TrimSpace(req.GetTarget())
+
+	// The LocalSubnetTarget sentinel means the server couldn't know the node's
+	// network, so the agent enumerates its own private IPv4 subnet(s) and scans
+	// those (IPv4 only, same as the manual path's IPv6-CIDR rejection). Matched
+	// exactly, before any hostname resolution.
+	if target == nmaptarget.LocalSubnetTarget {
+		subnets, err := r.detectLocalSubnets()
+		if err != nil {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no connected private IPv4 subnet for local-subnet scan: %s", err)
+		}
+		return append(baseNmapOptions(r.nmapPath, ports), nmap.WithTargets(subnets...)), nil
+	}
+
 	if err := validateNmapTarget(target); err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}
@@ -114,9 +127,18 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}
-	opts := []nmap.Option{
-		nmap.WithBinaryPath(r.nmapPath),
-		nmap.WithTargets(resolved),
+	opts := append(baseNmapOptions(r.nmapPath, ports), nmap.WithTargets(resolved))
+	if useIPv6 {
+		opts = append(opts, nmap.WithIPv6Scanning())
+	}
+	return opts, nil
+}
+
+// baseNmapOptions are the timing/safety options shared by targeted and
+// auto-local-subnet scans; callers append the target(s) (and -6 if needed).
+func baseNmapOptions(binaryPath string, ports []string) []nmap.Option {
+	return []nmap.Option{
+		nmap.WithBinaryPath(binaryPath),
 		nmap.WithPorts(strings.Join(ports, ",")),
 		nmap.WithUnique(),
 		nmap.WithDisabledDNSResolution(),
@@ -125,10 +147,6 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 		nmap.WithHostTimeout(nmapHostTimeout),
 		nmap.WithMinRTTTimeout(nmapMinRTT),
 	}
-	if useIPv6 {
-		opts = append(opts, nmap.WithIPv6Scanning())
-	}
-	return opts, nil
 }
 
 // Mirrors pairing-service validateNmapTargets so agent and server feed

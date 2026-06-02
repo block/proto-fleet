@@ -19,8 +19,8 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -557,9 +557,9 @@ func TestDiscoverOnFleetNode_TimesOutWhenAgentNeverResponds(t *testing.T) {
 	// Arrange: register an agent stream but never publish batch or ack.
 	// Override DiscoverCommandTimeout to a short window so the test
 	// terminates quickly.
-	prev := admin.DiscoverCommandTimeout
-	admin.DiscoverCommandTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { admin.DiscoverCommandTimeout = prev })
+	prev := discovery.DiscoverCommandTimeout
+	discovery.DiscoverCommandTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { discovery.DiscoverCommandTimeout = prev })
 
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-timeout")

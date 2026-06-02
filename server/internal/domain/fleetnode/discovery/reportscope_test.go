@@ -1,4 +1,4 @@
-package admin
+package discovery
 
 import (
 	"testing"
@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 )
 
 func ipListReq(ips, ports []string) *pairingpb.DiscoverRequest {
@@ -18,6 +19,12 @@ func ipListReq(ips, ports []string) *pairingpb.DiscoverRequest {
 func nmapReq(target string, ports []string) *pairingpb.DiscoverRequest {
 	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
 		Nmap: &pairingpb.NmapModeRequest{Target: target, Ports: ports},
+	}}
+}
+
+func autoNmapReq(ports []string) *pairingpb.DiscoverRequest {
+	return &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
+		Nmap: &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: ports},
 	}}
 }
 
@@ -49,6 +56,10 @@ func TestBuildReportScope(t *testing.T) {
 		{"nmap literal mismatch", nmapReq("192.168.1.10", []string{"80"}), "192.168.1.11", "80", false},
 		{"nmap hostname leaves ip unconstrained", nmapReq("miner.lan", []string{"80"}), "10.1.2.3", "80", true},
 		{"nmap hostname still enforces ports", nmapReq("miner.lan", []string{"80"}), "10.1.2.3", "22", false},
+		{"auto accepts private ip on in-scope port", autoNmapReq([]string{"80"}), "192.168.5.9", "80", true},
+		{"auto rejects public ip", autoNmapReq([]string{"80"}), "8.8.8.8", "80", false},
+		{"auto rejects out-of-scope port", autoNmapReq([]string{"80"}), "192.168.5.9", "22", false},
+		{"auto empty ports allows any private ip and port", autoNmapReq(nil), "10.2.3.4", "31337", true},
 	}
 
 	for _, tc := range tests {
@@ -145,6 +156,29 @@ func TestNormalizeDiscoverRequest_RejectsPublicNmapTarget(t *testing.T) {
 			assert.Contains(t, err.Error(), "private")
 		})
 	}
+}
+
+func TestNormalizeDiscoverRequest_AutoLocalSubnet_Accepts(t *testing.T) {
+	// Arrange: auto mode with no target and valid ports.
+	req := autoNmapReq([]string{"80", "4028"})
+
+	// Act
+	_, err := normalizeDiscoverRequest(req)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestNormalizeDiscoverRequest_AutoLocalSubnet_RejectsInvalidPort(t *testing.T) {
+	// Arrange
+	req := autoNmapReq([]string{"80/tcp"})
+
+	// Act
+	_, err := normalizeDiscoverRequest(req)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid port")
 }
 
 func TestNmapTargetIsPrivate(t *testing.T) {

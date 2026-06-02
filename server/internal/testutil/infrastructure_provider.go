@@ -54,7 +54,8 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	authHandler := auth.NewHandler(serviceProvider.AuthService)
 	mux.Handle(authv1connect.NewAuthServiceHandler(authHandler, interceptorsOption))
 
-	pairingHandler := pairing.NewHandler(serviceProvider.PairingService)
+	// nil discovery service: no fleet node fan-out in this test harness.
+	pairingHandler := pairing.NewHandler(serviceProvider.PairingService, nil)
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairingHandler, interceptorsOption))
 
 	onboardingHandler := onboarding.NewHandler(serviceProvider.AuthService, serviceProvider.OnboardingService)

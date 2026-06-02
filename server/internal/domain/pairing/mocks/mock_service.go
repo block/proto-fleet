@@ -166,3 +166,41 @@ func (mr *MockCapabilitiesProviderMockRecorder) GetMinerCapabilitiesForDevice(ct
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerCapabilitiesForDevice", reflect.TypeOf((*MockCapabilitiesProvider)(nil).GetMinerCapabilitiesForDevice), ctx, device)
 }
+
+// MockFleetNodeAssigner is a mock of FleetNodeAssigner interface.
+type MockFleetNodeAssigner struct {
+	ctrl     *gomock.Controller
+	recorder *MockFleetNodeAssignerMockRecorder
+	isgomock struct{}
+}
+
+// MockFleetNodeAssignerMockRecorder is the mock recorder for MockFleetNodeAssigner.
+type MockFleetNodeAssignerMockRecorder struct {
+	mock *MockFleetNodeAssigner
+}
+
+// NewMockFleetNodeAssigner creates a new mock instance.
+func NewMockFleetNodeAssigner(ctrl *gomock.Controller) *MockFleetNodeAssigner {
+	mock := &MockFleetNodeAssigner{ctrl: ctrl}
+	mock.recorder = &MockFleetNodeAssignerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockFleetNodeAssigner) EXPECT() *MockFleetNodeAssignerMockRecorder {
+	return m.recorder
+}
+
+// PairDevice mocks base method.
+func (m *MockFleetNodeAssigner) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PairDevice", ctx, fleetNodeID, deviceID, orgID, assignedBy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PairDevice indicates an expected call of PairDevice.
+func (mr *MockFleetNodeAssignerMockRecorder) PairDevice(ctx, fleetNodeID, deviceID, orgID, assignedBy any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PairDevice", reflect.TypeOf((*MockFleetNodeAssigner)(nil).PairDevice), ctx, fleetNodeID, deviceID, orgID, assignedBy)
+}
