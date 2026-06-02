@@ -2,16 +2,20 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from "rea
 import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
-import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import ActiveCurtailmentStatus, {
+  type ActiveCurtailmentEvent,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentStartModal, {
+  type CurtailmentPlanPreview,
   type CurtailmentStartModalMode,
   type CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import { createCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -29,6 +33,7 @@ interface PendingStopConfirmation {
 interface EditCurtailmentSession {
   eventId: string;
   initialValues: CurtailmentSubmitValues;
+  preview: CurtailmentPlanPreview;
 }
 
 interface CurtailmentMessageProps {
@@ -42,6 +47,17 @@ function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement 
       <span className="text-emphasis-300">{message}</span>
     </div>
   );
+}
+
+function createActiveCurtailmentPreview(
+  event: ActiveCurtailmentEvent,
+  values: CurtailmentSubmitValues,
+): CurtailmentPlanPreview {
+  return createCurtailmentPlanPreview(values, {
+    selectedMinerCount: event.selectedMiners,
+    targetKw: event.targetKw,
+    estimatedReductionKw: event.estimatedReductionKw,
+  });
 }
 
 function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelProps): ReactElement {
@@ -111,13 +127,17 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   }, []);
 
   const openEditModal = useCallback(() => {
-    if (!activeEventId || !activeEventFormValues) {
+    if (!activeEvent || !activeEventId || !activeEventFormValues) {
       return;
     }
 
-    setEditSession({ eventId: activeEventId, initialValues: activeEventFormValues });
+    setEditSession({
+      eventId: activeEventId,
+      initialValues: activeEventFormValues,
+      preview: createActiveCurtailmentPreview(activeEvent, activeEventFormValues),
+    });
     setModalMode("edit");
-  }, [activeEventFormValues, activeEventId]);
+  }, [activeEvent, activeEventFormValues, activeEventId]);
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
@@ -253,6 +273,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           open
           mode={modalMode}
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
+          preview={isEditingCurtailment ? editSession?.preview : undefined}
           onDismiss={closeModal}
           onSubmit={handleModalSubmit}
           onStopCurtailment={isEditingCurtailment ? handleEditStopCurtailment : undefined}

@@ -388,7 +388,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
-    expect(screen.getAllByText("5 minutes - 30 minutes")).toHaveLength(2);
+    expect(screen.getAllByText("5 minutes - 30 minutes duration, ~2 minutes to restore")).toHaveLength(2);
   });
 
   it("blocks submission while the API preview reports a blocking error", async () => {
@@ -417,6 +417,7 @@ describe("CurtailmentStartModal", () => {
 
     renderModal({ initialValues: configuredValues });
 
+    expect(screen.getAllByText("Curtailment target reduction")).toHaveLength(2);
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
     expect(screen.queryByLabelText("Loading curtailment preview")).not.toBeInTheDocument();
     expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
@@ -425,16 +426,14 @@ describe("CurtailmentStartModal", () => {
   it("renders preview and preview error states", () => {
     const { rerender } = renderModal({ initialValues: configuredValues, preview });
 
+    expect(screen.getAllByText("Curtailment target reduction")).toHaveLength(2);
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
-    expect(screen.getAllByText("Target reduction")).toHaveLength(2);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
     expect(screen.queryByText("Estimated time to restore ~2 minutes")).not.toBeInTheDocument();
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
-    expect(secondaryPane.getByText("Curtailment duration")).toBeInTheDocument();
-    expect(secondaryPane.getByText("5 minutes - 30 minutes")).toBeInTheDocument();
-    expect(secondaryPane.getByText("Time to restore")).toBeInTheDocument();
-    expect(secondaryPane.getAllByText("~2 minutes")).toHaveLength(1);
+    expect(secondaryPane.getByText("Curtailment target reduction")).toBeInTheDocument();
+    expect(secondaryPane.getByText("5 minutes - 30 minutes duration, ~2 minutes to restore")).toBeInTheDocument();
 
     rerender(
       <CurtailmentStartModal

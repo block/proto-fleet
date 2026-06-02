@@ -36,19 +36,16 @@ interface InFlightActiveCurtailmentRequest {
 
 interface ActiveCurtailmentRequestSnapshot {
   snapshot: ActiveCurtailmentSnapshot;
-  preservesRestoringEmptyResponse: boolean;
   writeVersion: number;
 }
 
 interface ActiveCurtailmentResponseSnapshot {
   snapshot: ActiveCurtailmentSnapshot;
-  preservesRestoringEmptyResponse: boolean;
 }
 
 interface SetActiveCurtailmentSnapshotOptions {
   fromActiveRefresh?: boolean;
   preserveAgainstStaleRefresh?: boolean;
-  preservesRestoringEmptyResponse?: boolean;
 }
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined };
@@ -59,11 +56,9 @@ let nextWriteVersion = 0;
 let appliedWriteVersion = 0;
 let inFlightActiveCurtailmentRequest: InFlightActiveCurtailmentRequest | null = null;
 let dismissedEventUuid: string | null = null;
-let emptyActiveRefreshCount = 0;
 let mutationBackedEventUuid: string | null = null;
 let preservedMutationBackedRefreshWriteVersions = new Set<number>();
 
-const preservedEmptyActiveRefreshLimit = 1;
 const preservedMutationBackedActiveRefreshLimit = 1;
 
 function getNextWriteVersion(): number {
@@ -111,11 +106,7 @@ function clearMutationBackedPreservation(): void {
 function setActiveCurtailmentSnapshot(
   snapshot: ActiveCurtailmentSnapshot,
   writeVersion = getNextWriteVersion(),
-  {
-    fromActiveRefresh = false,
-    preserveAgainstStaleRefresh = false,
-    preservesRestoringEmptyResponse = false,
-  }: SetActiveCurtailmentSnapshotOptions = {},
+  { fromActiveRefresh = false, preserveAgainstStaleRefresh = false }: SetActiveCurtailmentSnapshotOptions = {},
 ): ActiveCurtailmentSnapshot {
   if (writeVersion < appliedWriteVersion) {
     return getActiveCurtailmentSnapshot();
@@ -139,8 +130,6 @@ function setActiveCurtailmentSnapshot(
   } else if (fromActiveRefresh || !snapshot.event || snapshot.event.eventUuid !== mutationBackedEventUuid) {
     clearMutationBackedPreservation();
   }
-
-  emptyActiveRefreshCount = preservesRestoringEmptyResponse && snapshot.event ? emptyActiveRefreshCount + 1 : 0;
 
   appliedWriteVersion = writeVersion;
   if (areActiveCurtailmentSnapshotsEqual(currentSnapshot, snapshot)) {
@@ -184,23 +173,19 @@ function shouldPreserveRestoringActiveCurtailmentEvent(event: ProtoCurtailmentEv
 
 function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentResponseSnapshot {
   if (event) {
-    return { snapshot: { event }, preservesRestoringEmptyResponse: false };
+    return { snapshot: { event } };
   }
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
   if (currentSnapshot.event && shouldPreserveTerminalActiveCurtailmentEvent(currentSnapshot.event)) {
-    return { snapshot: currentSnapshot, preservesRestoringEmptyResponse: false };
+    return { snapshot: currentSnapshot };
   }
 
-  if (
-    currentSnapshot.event &&
-    shouldPreserveRestoringActiveCurtailmentEvent(currentSnapshot.event) &&
-    emptyActiveRefreshCount < preservedEmptyActiveRefreshLimit
-  ) {
-    return { snapshot: currentSnapshot, preservesRestoringEmptyResponse: true };
+  if (currentSnapshot.event && shouldPreserveRestoringActiveCurtailmentEvent(currentSnapshot.event)) {
+    return { snapshot: currentSnapshot };
   }
 
-  return { snapshot: initialSnapshot, preservesRestoringEmptyResponse: false };
+  return { snapshot: initialSnapshot };
 }
 
 function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest {
@@ -265,9 +250,9 @@ async function requestActiveCurtailmentSnapshot(signal?: AbortSignal): Promise<A
   signal?.addEventListener("abort", handleAbort, { once: true });
 
   try {
-    const { snapshot, preservesRestoringEmptyResponse } = await request.promise;
+    const { snapshot } = await request.promise;
     assertNotAborted(signal);
-    return { snapshot, preservesRestoringEmptyResponse, writeVersion: request.writeVersion };
+    return { snapshot, writeVersion: request.writeVersion };
   } finally {
     signal?.removeEventListener("abort", handleAbort);
     releaseSubscriber();
@@ -278,13 +263,12 @@ export async function fetchActiveCurtailmentData({
   signal,
 }: RefreshActiveCurtailmentOptions = {}): Promise<PendingActiveCurtailmentRefresh> {
   assertNotAborted(signal);
-  const { snapshot, preservesRestoringEmptyResponse, writeVersion } = await requestActiveCurtailmentSnapshot(signal);
+  const { snapshot, writeVersion } = await requestActiveCurtailmentSnapshot(signal);
   return {
     ...snapshot,
     commit: () =>
       setActiveCurtailmentSnapshot(snapshot, writeVersion, {
         fromActiveRefresh: true,
-        preservesRestoringEmptyResponse,
       }),
   };
 }
@@ -300,7 +284,6 @@ export function resetActiveCurtailmentData(): void {
   inFlightActiveCurtailmentRequest?.abortController.abort();
   inFlightActiveCurtailmentRequest = null;
   dismissedEventUuid = null;
-  emptyActiveRefreshCount = 0;
   clearMutationBackedPreservation();
   appliedWriteVersion = getNextWriteVersion();
   useActiveCurtailmentDataStore.setState(initialSnapshot, true);

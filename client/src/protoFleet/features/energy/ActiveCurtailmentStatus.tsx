@@ -2,9 +2,11 @@ import { type ReactElement, type ReactNode } from "react";
 import clsx from "clsx";
 
 import {
+  type ActiveCurtailmentDisplayState,
   type CurtailmentEventState,
   formatCurtailmentKw as formatKw,
   formatCurtailmentMinerCount as formatMinerCount,
+  getActiveCurtailmentDisplayState,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
@@ -58,28 +60,6 @@ interface ActiveCurtailmentActionButtonsProps {
   onRequestStop?: () => void;
 }
 
-interface ActiveCurtailmentProgressBarProps {
-  primaryClassName: string;
-  primaryProgressPercent: number;
-  secondaryClassName: string;
-  secondaryProgressPercent: number;
-  showSecondaryProgress: boolean;
-}
-
-interface DotProps {
-  className: string;
-}
-
-interface ProgressLegendItemProps {
-  dotClassName: string;
-  label: string;
-}
-
-interface ProgressSegmentProps {
-  className: string;
-  percent: number;
-}
-
 interface SectionHeaderProps {
   title: string;
   children?: ReactNode;
@@ -98,21 +78,9 @@ interface MinerCompliance {
   totalCount: number;
 }
 
-type ActiveCurtailmentDisplayState =
-  | "cancelled"
-  | "curtailing"
-  | "curtailed"
-  | "failed"
-  | "pending"
-  | "restoring"
-  | "restored"
-  | "restoreIncomplete";
-
 interface FormatActivePowerValueArgs {
   isRestored: boolean;
-  isRestoreFlow: boolean;
-  observedReductionKw: number;
-  restoredKw: number;
+  isRestoreIncomplete: boolean;
   targetKw: number;
 }
 
@@ -137,19 +105,11 @@ interface StatusIconArgs {
 
 interface ActiveCurtailmentDisplayFlags {
   isCurtailmentComplete: boolean;
-  isPending: boolean;
   isRestored: boolean;
   isRestoreIncomplete: boolean;
   isRestoring: boolean;
   isRestoreFlow: boolean;
   isTerminalFailure: boolean;
-}
-
-interface ActiveCurtailmentLegend {
-  primaryDotClassName: string;
-  primaryLabel: string;
-  secondaryDotClassName: string;
-  secondaryLabel: string;
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -186,10 +146,6 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
-
-function Dot({ className }: DotProps): ReactElement {
-  return <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
-}
 
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
@@ -254,14 +210,6 @@ function formatEstimatedCompletion(remainingSeconds: number, currentTime = new D
     : formatDateTimeValue(estimatedCompletionDate);
 }
 
-function getProgressPercent(value: number, total: number): number {
-  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) {
-    return 0;
-  }
-
-  return Math.min(Math.max((value / total) * 100, 0), 100);
-}
-
 function getRollupCount(event: ActiveCurtailmentEvent, states: CurtailmentTargetState[]): number {
   return event.rollups.reduce((total, rollup) => {
     if (!states.includes(rollup.state)) {
@@ -287,71 +235,28 @@ function getMinerCompliance(event: ActiveCurtailmentEvent): MinerCompliance {
   };
 }
 
-function isRestoredEventState(state: CurtailmentEventState): boolean {
-  return state === "completed";
-}
-
-function isRestoreIncompleteEventState(state: CurtailmentEventState): boolean {
-  return state === "completedWithFailures";
-}
-
-function getActiveCurtailmentDisplayState(
-  event: ActiveCurtailmentEvent,
-  powerShedPercent: number,
-  curtailedPercent: number,
-): ActiveCurtailmentDisplayState {
-  if (event.state === "restoring") {
-    return "restoring";
-  }
-
-  if (event.state === "pending") {
-    return "pending";
-  }
-
-  if (isRestoreIncompleteEventState(event.state)) {
-    return "restoreIncomplete";
-  }
-
-  if (isRestoredEventState(event.state)) {
-    return "restored";
-  }
-
-  if (event.state === "cancelled") {
-    return "cancelled";
-  }
-
-  if (event.state === "failed") {
-    return "failed";
-  }
-
-  return powerShedPercent >= 100 || curtailedPercent >= 100 ? "curtailed" : "curtailing";
-}
-
-function getRestoredPercent(event: ActiveCurtailmentEvent, restoredCount: number, totalCount: number): number {
-  if (isRestoredEventState(event.state)) {
-    return 100;
-  }
-
-  return getProgressPercent(restoredCount, totalCount);
-}
-
-function formatActivePowerValue({
-  isRestored,
-  isRestoreFlow,
-  observedReductionKw,
-  restoredKw,
-  targetKw,
-}: FormatActivePowerValueArgs): string {
+function formatActivePowerValue({ isRestored, isRestoreIncomplete, targetKw }: FormatActivePowerValueArgs): string {
   if (isRestored) {
     return `${formatKw(targetKw)} restored`;
   }
 
-  if (isRestoreFlow) {
-    return `${formatKw(restoredKw)} of ${formatKw(targetKw)} restored`;
+  if (isRestoreIncomplete) {
+    return `${formatKw(targetKw)} restore requested`;
   }
 
-  const cappedObservedReductionKw = Math.min(Math.max(observedReductionKw, 0), targetKw);
-  return `${formatKw(cappedObservedReductionKw)} of ${formatKw(targetKw)}`;
+  return formatKw(targetKw);
+}
+
+function getPowerLabel(displayFlags: ActiveCurtailmentDisplayFlags): string {
+  if (displayFlags.isRestored) {
+    return "Power restored";
+  }
+
+  if (displayFlags.isRestoreFlow) {
+    return "Power to restore";
+  }
+
+  return "Power to shed";
 }
 
 function formatDurationLong(totalSeconds: number): string {
@@ -422,7 +327,6 @@ function formatRestoreTimeValue({
 }
 
 function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCurtailmentDisplayFlags {
-  const isPending = displayState === "pending";
   const isRestored = displayState === "restored";
   const isRestoreIncomplete = displayState === "restoreIncomplete";
   const isRestoring = displayState === "restoring";
@@ -430,7 +334,6 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
 
   return {
     isCurtailmentComplete: displayState === "curtailed",
-    isPending,
     isRestored,
     isRestoreIncomplete,
     isRestoring,
@@ -439,48 +342,10 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
   };
 }
 
-function getProgressLegend(displayFlags: ActiveCurtailmentDisplayFlags): ActiveCurtailmentLegend {
-  if (displayFlags.isRestoreFlow) {
-    return {
-      primaryDotClassName: "bg-intent-success-fill",
-      primaryLabel: "Restored",
-      secondaryDotClassName: displayFlags.isRestoreIncomplete ? "bg-intent-critical-fill" : "bg-core-primary-fill",
-      secondaryLabel: displayFlags.isRestoreIncomplete ? "Not restored" : "Curtailed",
-    };
-  }
-
-  return {
-    primaryDotClassName: "bg-core-primary-fill",
-    primaryLabel: "Curtailed",
-    secondaryDotClassName: "bg-core-accent-fill",
-    secondaryLabel: displayFlags.isPending ? "Pending" : "Curtailing",
-  };
-}
-
-function shouldShowSecondaryProgress(displayFlags: ActiveCurtailmentDisplayFlags): boolean {
-  if (displayFlags.isTerminalFailure) {
-    return false;
-  }
-
-  if (displayFlags.isRestoreFlow) {
-    return !displayFlags.isRestored;
-  }
-
-  return !displayFlags.isCurtailmentComplete;
-}
-
 function formatRestoreProfile(
   event: Pick<ActiveCurtailmentEvent, "restoreBatchSize" | "restoreBatchIntervalSec">,
 ): string {
   return `${formatMinerCount(event.restoreBatchSize)} every ${event.restoreBatchIntervalSec.toLocaleString()}s`;
-}
-
-function formatRemainingPower(remainingPowerKw?: number): string {
-  if (remainingPowerKw === undefined) {
-    return "Unavailable";
-  }
-
-  return `${formatKw(remainingPowerKw)} remaining`;
 }
 
 function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): string {
@@ -566,49 +431,6 @@ function getActiveCurtailmentStatusIcon({
   return <ProgressCircular indeterminate className="text-core-primary-fill" />;
 }
 
-function ProgressSegment({ className, percent }: ProgressSegmentProps): ReactElement {
-  return (
-    <div
-      className={clsx("rounded-full transition-[flex-basis,width] duration-700 ease-out", className)}
-      style={{ flexBasis: `${percent}%` }}
-    />
-  );
-}
-
-function ActiveCurtailmentProgressBar({
-  primaryClassName,
-  primaryProgressPercent,
-  secondaryClassName,
-  secondaryProgressPercent,
-  showSecondaryProgress,
-}: ActiveCurtailmentProgressBarProps): ReactElement {
-  return (
-    <div
-      aria-label="Active curtailment progress"
-      aria-valuemax={100}
-      aria-valuemin={0}
-      aria-valuenow={Math.round(primaryProgressPercent)}
-      className="flex h-3 w-full gap-1 overflow-hidden rounded-full"
-      data-testid="active-curtailment-progress"
-      role="progressbar"
-    >
-      <ProgressSegment className={primaryClassName} percent={primaryProgressPercent} />
-      {showSecondaryProgress ? (
-        <ProgressSegment className={secondaryClassName} percent={secondaryProgressPercent} />
-      ) : null}
-    </div>
-  );
-}
-
-function ProgressLegendItem({ dotClassName, label }: ProgressLegendItemProps): ReactElement {
-  return (
-    <span className="flex items-center gap-2">
-      <Dot className={clsx("h-3 w-3", dotClassName)} />
-      {label}
-    </span>
-  );
-}
-
 export default function ActiveCurtailmentStatus({
   event,
   className,
@@ -617,16 +439,10 @@ export default function ActiveCurtailmentStatus({
   onRequestRestore,
   onRequestStop,
 }: ActiveCurtailmentStatusProps): ReactElement {
-  const observedReductionKw = event.state === "pending" ? 0 : event.observedReductionKw;
   const targetKw = getTargetKw(event);
-  const powerShedPercent = getProgressPercent(observedReductionKw, targetKw);
   const compliance = getMinerCompliance(event);
-  const curtailedPercent = getProgressPercent(compliance.curtailedCount, compliance.totalCount);
-  const restoredPercent = getRestoredPercent(event, compliance.restoredCount, compliance.totalCount);
-  const displayState = getActiveCurtailmentDisplayState(event, powerShedPercent, curtailedPercent);
+  const displayState = getActiveCurtailmentDisplayState(event, { dispatchStartedAsCurtailing: true });
   const displayFlags = getDisplayFlags(displayState);
-  const legend = getProgressLegend(displayFlags);
-  const restoredKw = displayFlags.isRestored ? targetKw : (targetKw * restoredPercent) / 100;
   const remainingRestoreSeconds = getRestoreRemainingSeconds(
     event,
     compliance.restoredCount,
@@ -639,17 +455,13 @@ export default function ActiveCurtailmentStatus({
     restoreBatchSize: event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
   });
-  const powerLabel = displayFlags.isRestoreFlow ? "Power restore" : "Power shed";
+  const powerLabel = getPowerLabel(displayFlags);
   const powerValue = formatActivePowerValue({
     isRestored: displayFlags.isRestored,
-    isRestoreFlow: displayFlags.isRestoreFlow,
-    observedReductionKw,
-    restoredKw,
+    isRestoreIncomplete: displayFlags.isRestoreIncomplete,
     targetKw,
   });
   const dispatchStatus = displayStateLabels[displayState];
-  const minerStatus =
-    compliance.totalCount > 0 ? `${Math.round(curtailedPercent).toLocaleString()}% curtailed` : "No miners selected";
   const isTerminalRestoreFlow = displayFlags.isRestored || displayFlags.isRestoreIncomplete;
   const restoreTimeLabel = isTerminalRestoreFlow ? "Time to restore" : "Estimated time to restore";
   const restoreTimeValue = formatRestoreTimeValue({
@@ -661,12 +473,6 @@ export default function ActiveCurtailmentStatus({
   const restoreCompletionValue =
     displayFlags.isRestored || event.endedAt ? formatDateTime(event.endedAt) : estimatedCompletion;
   const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
-  const restoreProgressPercent = displayFlags.isRestored ? 100 : restoredPercent;
-  const curtailProgressPercent = displayFlags.isCurtailmentComplete ? 100 : curtailedPercent;
-  const primaryProgressPercent = displayFlags.isRestoreFlow ? restoreProgressPercent : curtailProgressPercent;
-  const activePhaseProgressPercent = displayFlags.isRestoreFlow ? restoredPercent : curtailedPercent;
-  const secondaryProgressPercent = Math.max(100 - activePhaseProgressPercent, 0);
-  const showSecondaryProgress = shouldShowSecondaryProgress(displayFlags);
   const statusIcon = getActiveCurtailmentStatusIcon({
     isTerminalFailure: displayFlags.isTerminalFailure,
     isRestored: displayFlags.isRestored,
@@ -693,14 +499,14 @@ export default function ActiveCurtailmentStatus({
 
         <div className="grid gap-3 tablet:pr-32">
           <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">{statusIcon}</div>
-          <div>
-            <div className="text-heading-50 text-text-primary-70">{powerLabel}</div>
-            <div className="text-heading-300 text-text-primary">{powerValue}</div>
+          <div data-testid="active-curtailment-primary-lockup">
+            <div className="text-heading-50 text-text-primary-70">Dispatch status</div>
+            <div className="text-heading-300 text-text-primary">{dispatchStatus}</div>
           </div>
         </div>
 
         <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-          <StatBlock label="Dispatch status" value={dispatchStatus} />
+          <StatBlock label={powerLabel} value={powerValue} />
           {displayFlags.isRestoreFlow ? (
             <>
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
@@ -714,26 +520,9 @@ export default function ActiveCurtailmentStatus({
           ) : (
             <>
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
-              <StatBlock label="Miner status" value={minerStatus} />
-              <StatBlock label="Current load" value={formatRemainingPower(event.remainingPowerKw)} />
+              <StatBlock label="Restore" value={formatRestoreProfile(event)} />
             </>
           )}
-        </div>
-
-        <div className="mt-8 grid gap-3">
-          <ActiveCurtailmentProgressBar
-            primaryClassName={legend.primaryDotClassName}
-            primaryProgressPercent={primaryProgressPercent}
-            secondaryClassName={legend.secondaryDotClassName}
-            secondaryProgressPercent={secondaryProgressPercent}
-            showSecondaryProgress={showSecondaryProgress}
-          />
-          <div className="flex flex-wrap gap-x-6 gap-y-2 text-200 text-text-primary-70">
-            <ProgressLegendItem dotClassName={legend.primaryDotClassName} label={legend.primaryLabel} />
-            {showSecondaryProgress ? (
-              <ProgressLegendItem dotClassName={legend.secondaryDotClassName} label={legend.secondaryLabel} />
-            ) : null}
-          </div>
         </div>
       </div>
     </section>

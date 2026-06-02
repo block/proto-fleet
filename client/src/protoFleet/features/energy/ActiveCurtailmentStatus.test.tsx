@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -15,8 +15,15 @@ function expectActionButtonHidden(name: string): void {
   expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
 }
 
-function expectProgressValue(value: string): void {
-  expect(screen.getByTestId("active-curtailment-progress")).toHaveAttribute("aria-valuenow", value);
+function expectProgressHidden(): void {
+  expect(screen.queryByTestId("active-curtailment-progress")).not.toBeInTheDocument();
+}
+
+function expectPrimaryLockup(value: string): void {
+  const lockup = within(screen.getByTestId("active-curtailment-primary-lockup"));
+
+  expect(lockup.getByText("Dispatch status")).toBeVisible();
+  expect(lockup.getByText(value)).toBeVisible();
 }
 
 function formatExpectedDateTime(value: string): string {
@@ -37,11 +44,12 @@ describe("ActiveCurtailmentStatus", () => {
 
     expect(screen.getByText("Active curtailment")).toBeInTheDocument();
     expect(screen.getByText("ERCOT ERS obligation (Applies to Rockdale, TX)")).toBeVisible();
-    expect(screen.getByText("Power shed")).toBeVisible();
-    expect(screen.getByText("59.4 kW of 60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Curtailing");
+    expect(screen.getByText("Power to shed")).toBeVisible();
+    expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
-    expect(screen.getByText("89% curtailed")).toBeVisible();
-    expectProgressValue("89");
+    expect(screen.getByText("10 miners every 120s")).toBeVisible();
+    expectProgressHidden();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore");
 
@@ -66,15 +74,37 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.getByText("0.0 kW of 60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Pending");
+    expect(screen.getByText("Power to shed")).toBeVisible();
+    expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Pending")[0]).toBeVisible();
     expect(screen.queryByText("Curtailing")).not.toBeInTheDocument();
-    expectProgressValue("0");
+    expectProgressHidden();
     expectActionButtonHidden("Restore");
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
 
     expect(onRequestStop).toHaveBeenCalledOnce();
+  });
+
+  it("renders pending events as curtailing once dispatch has started", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          observedReductionKw: 0,
+          rollups: [
+            { state: "dispatched", count: 1 },
+            { state: "pending", count: curtailingCurtailmentEvent.selectedMiners - 1 },
+          ],
+          state: "pending",
+        }}
+      />,
+    );
+
+    expectPrimaryLockup("Curtailing");
+    expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
   });
 
   it("calls the manage handler when edit is available", async () => {
@@ -114,9 +144,11 @@ describe("ActiveCurtailmentStatus", () => {
 
     render(<ActiveCurtailmentStatus event={curtailedCurtailmentEvent} onRequestRestore={onRequestRestore} />);
 
-    expect(screen.getByText("60.0 kW of 60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Curtailed");
+    expect(screen.getByText("Power to shed")).toBeVisible();
+    expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailed")[0]).toBeVisible();
-    expectProgressValue("100");
+    expectProgressHidden();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
 
@@ -128,13 +160,14 @@ describe("ActiveCurtailmentStatus", () => {
   it("renders a restoring event without stop, restore, or manage actions", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} />);
 
-    expect(screen.getByText("Power restore")).toBeVisible();
-    expect(screen.getByText("26.7 kW of 60.0 kW restored")).toBeVisible();
+    expectPrimaryLockup("Restoring");
+    expect(screen.getByText("Power to restore")).toBeVisible();
+    expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getByText("Restoring")).toBeVisible();
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
     expect(screen.getByText("Estimated time to restore")).toBeVisible();
     expect(screen.getByText("Immediate")).toBeVisible();
-    expectProgressValue("44");
+    expectProgressHidden();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
@@ -154,8 +187,9 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.getByText("33.3 kW of 60.0 kW restored")).toBeVisible();
-    expectProgressValue("56");
+    expect(screen.getByText("Power to restore")).toBeVisible();
+    expect(screen.getByText("60.0 kW")).toBeVisible();
+    expectProgressHidden();
   });
 
   it("estimates restoring completion from the current time", () => {
@@ -201,7 +235,7 @@ describe("ActiveCurtailmentStatus", () => {
       );
 
       expect(screen.getByText(formatExpectedDateTime("2026-05-01T10:02:00-04:00"))).toBeVisible();
-      expectProgressValue("40");
+      expectProgressHidden();
     } finally {
       vi.useRealTimers();
     }
@@ -260,12 +294,13 @@ describe("ActiveCurtailmentStatus", () => {
 
     render(<ActiveCurtailmentStatus event={restoredCurtailmentEvent} onDismissRestored={onDismissRestored} />);
 
-    expect(screen.getByText("Power restore")).toBeVisible();
+    expectPrimaryLockup("Restored");
+    expect(screen.getByText("Power restored")).toBeVisible();
     expect(screen.getByText("60.0 kW restored")).toBeVisible();
     expect(screen.getAllByText("Restored")[0]).toBeVisible();
     expect(screen.getByText("Time to restore")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
-    expectProgressValue("100");
+    expectProgressHidden();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
@@ -303,14 +338,14 @@ describe("ActiveCurtailmentStatus", () => {
 
     render(<ActiveCurtailmentStatus event={restoreIncompleteCurtailmentEvent} onDismissRestored={onDismissRestored} />);
 
-    expect(screen.getByText("Power restore")).toBeVisible();
-    expect(screen.getByText("56.7 kW of 60.0 kW restored")).toBeVisible();
+    expectPrimaryLockup("Restore incomplete");
+    expect(screen.getByText("Power to restore")).toBeVisible();
+    expect(screen.getByText("60.0 kW restore requested")).toBeVisible();
     expect(screen.getByText("Restore incomplete")).toBeVisible();
     expect(screen.getByText("Failed to restore")).toBeVisible();
     expect(screen.getByText("1 miner")).toBeVisible();
-    expect(screen.getByText("Not restored")).toBeVisible();
     expect(screen.queryByText("60.0 kW restored")).not.toBeInTheDocument();
-    expectProgressValue("94");
+    expectProgressHidden();
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
 

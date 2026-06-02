@@ -298,7 +298,7 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
   const reductionPercentage = max > 0 ? clampPercentage((value / max) * 100) : 0;
 
   return (
-    <div className="flex h-3 w-full gap-1 overflow-hidden">
+    <div className="flex h-4 w-full gap-2 overflow-hidden">
       <div className="rounded-full bg-core-accent-fill" style={{ width: `${reductionPercentage}%` }} />
       <div className="min-w-0 flex-1 rounded-full bg-core-primary-20" />
     </div>
@@ -339,14 +339,10 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
 
   return (
     <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
-      <div className="flex w-full max-w-[520px] flex-col gap-10">
-        <div className="text-heading-300 text-text-primary">
-          Curtail {preview.selectedMinerCount} miners {preview.scopeLabel} immediately
-        </div>
-
-        <div className="grid gap-3">
-          <div>
-            <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
+      <div className="flex w-full max-w-[620px] flex-col gap-4">
+        <div className="grid gap-6">
+          <div className="grid gap-1">
+            <div className="text-heading-300 text-text-primary">Curtailment target reduction</div>
             <div className="text-heading-300 text-text-primary">
               {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
             </div>
@@ -354,14 +350,12 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
           <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
         </div>
 
-        <div className="grid gap-6">
-          <div>
-            <div className="text-emphasis-200 text-text-primary-70">Curtailment duration</div>
-            <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
+        <div className="grid gap-2">
+          <div className="text-heading-100 text-text-primary">
+            Curtail {preview.selectedMinerCount} miners {preview.scopeLabel} immediately
           </div>
-          <div>
-            <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
-            <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
+          <div className="text-heading-100 text-text-primary-50">
+            {preview.curtailEstimate} duration, {preview.restoreEstimate} to restore
           </div>
         </div>
       </div>

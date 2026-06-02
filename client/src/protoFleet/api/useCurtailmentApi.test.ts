@@ -928,6 +928,147 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent).toBeNull();
   });
 
+  it("keeps a restored curtailment visible when terminal history arrives after active goes empty", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-delayed-terminal-history",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 2,
+        total: 2,
+      }),
+    });
+    const restoredEvent = curtailmentEvent({
+      eventUuid: "curt-delayed-terminal-history",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        resolved: 2,
+        total: 2,
+      }),
+      targets: [],
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-delayed-terminal-history");
+    expect(result.current.activeEvent?.state).toBe("restoring");
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-delayed-terminal-history");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.activeEvent?.endedAt).toBe("2026-05-01T13:00:00.000Z");
+    expect(result.current.activeEvent?.rollups).toEqual([{ state: "resolved", count: 2 }]);
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-delayed-terminal-history",
+        state: "completed",
+      }),
+    );
+
+    act(() => {
+      result.current.dismissTerminalCurtailment();
+    });
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
+  });
+
+  it("keeps restoring visible while active is empty and history is stale", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-stale-pending-history",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 2,
+        total: 2,
+      }),
+    });
+    const stalePendingHistoryEvent = curtailmentEvent({
+      eventUuid: "curt-stale-pending-history",
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        pending: 2,
+        total: 2,
+      }),
+    });
+    const restoredEvent = curtailmentEvent({
+      eventUuid: "curt-stale-pending-history",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        resolved: 2,
+        total: 2,
+      }),
+      targets: [],
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [stalePendingHistoryEvent], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [stalePendingHistoryEvent], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-stale-pending-history");
+    expect(result.current.activeEvent?.state).toBe("restoring");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-stale-pending-history",
+        state: "restoring",
+        displayState: "restoring",
+      }),
+    );
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-stale-pending-history");
+    expect(result.current.activeEvent?.state).toBe("restoring");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-stale-pending-history",
+        state: "restoring",
+        displayState: "restoring",
+      }),
+    );
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-stale-pending-history");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-stale-pending-history",
+        state: "completed",
+      }),
+    );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("displayState");
+  });
+
   it("keeps an incomplete restore visible until it is dismissed", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-restore-incomplete",

@@ -6,7 +6,10 @@ import type { UseCurtailmentApiResult } from "@/protoFleet/api/useCurtailmentApi
 import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentManagementPanel from "@/protoFleet/features/energy/CurtailmentManagementPanel";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type {
+  CurtailmentPlanPreview,
+  CurtailmentSubmitValues,
+} from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
   dismissTerminalCurtailment: vi.fn(),
@@ -102,14 +105,21 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     mode,
     onStopCurtailment,
     onSubmit,
+    preview,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
     onStopCurtailment?: () => void;
     onSubmit: (values: CurtailmentSubmitValues) => void;
+    preview?: CurtailmentPlanPreview;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "Plan curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
+      <div data-testid="modal-preview">
+        {preview
+          ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
+          : ""}
+      </div>
       <button type="button" onClick={() => onSubmit(mocks.submitValues as CurtailmentSubmitValues)}>
         Submit {mode === "edit" ? "edit" : "plan"}
       </button>
@@ -132,8 +142,30 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStopConfirmationDialog", () => 
   ),
 }));
 
-const activeEvent = { reason: "Grid peak" } as ActiveCurtailmentEvent;
-const activeEventFormValues = { reason: "Grid peak", targetKw: "5" } as CurtailmentSubmitValues;
+const activeEvent = {
+  reason: "Grid peak",
+  selectedMiners: 2,
+  targetKw: 5,
+  estimatedReductionKw: 6.2,
+} as ActiveCurtailmentEvent;
+const activeEventFormValues = {
+  reason: "Grid peak",
+  scopeType: "wholeOrg",
+  scopeId: "whole-org",
+  deviceSetIds: [],
+  deviceIdentifiers: [],
+  responseProfileId: "customPlan",
+  curtailmentMode: "fixedKwReduction",
+  minerSelectionStrategy: "leastEfficientFirst",
+  targetKw: "5",
+  toleranceKw: "",
+  priority: "normal",
+  minDurationSec: "60",
+  maxDurationSec: "300",
+  restoreBatchSize: "1",
+  restoreIntervalSec: "60",
+  includeMaintenance: true,
+} satisfies CurtailmentSubmitValues;
 const historyEvent = { id: "curt-1" } as CurtailmentHistoryEvent;
 
 const emptySnapshot = {
@@ -282,6 +314,7 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Grid peak");
+    expect(screen.getByTestId("modal-preview")).toHaveTextContent("2 miners, 5 kW target, 6.2 kW estimated");
 
     await user.click(screen.getByRole("button", { name: "Submit edit" }));
 
