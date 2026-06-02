@@ -684,6 +684,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
 	}
+	if q.listRolesWithDetailsForOrgStmt, err = db.PrepareContext(ctx, listRolesWithDetailsForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolesWithDetailsForOrg: %w", err)
+	}
 	if q.listScheduleIDStatusesStmt, err = db.PrepareContext(ctx, listScheduleIDStatuses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListScheduleIDStatuses: %w", err)
 	}
@@ -2152,6 +2155,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
 		}
 	}
+	if q.listRolesWithDetailsForOrgStmt != nil {
+		if cerr := q.listRolesWithDetailsForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolesWithDetailsForOrgStmt: %w", cerr)
+		}
+	}
 	if q.listScheduleIDStatusesStmt != nil {
 		if cerr := q.listScheduleIDStatusesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listScheduleIDStatusesStmt: %w", cerr)
@@ -3016,6 +3024,7 @@ type Queries struct {
 	listRecentlyResolvedCurtailedDevicesByOrgStmt       *sql.Stmt
 	listRolePermissionKeysStmt                          *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
+	listRolesWithDetailsForOrgStmt                      *sql.Stmt
 	listScheduleIDStatusesStmt                          *sql.Stmt
 	listSchedulesStmt                                   *sql.Stmt
 	listSiteNetworkConfigsForOverlapStmt                *sql.Stmt
@@ -3363,6 +3372,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:       q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRolePermissionKeysStmt:                          q.listRolePermissionKeysStmt,
 		listRolesStmt:                                       q.listRolesStmt,
+		listRolesWithDetailsForOrgStmt:                      q.listRolesWithDetailsForOrgStmt,
 		listScheduleIDStatusesStmt:                          q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                   q.listSchedulesStmt,
 		listSiteNetworkConfigsForOverlapStmt:                q.listSiteNetworkConfigsForOverlapStmt,

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package authz.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
 // AuthzService is the role + assignment management surface for granular
@@ -33,7 +34,7 @@ service AuthzService {
 
     // UpdateCustomRole replaces the full attribute set on a custom role.
     // Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
-    // BUILTIN_ROLE_IMMUTABLE — built-in editing requires additive-only
+    // PermissionDenied — built-in editing requires additive-only
     // reconciliation interlock with the boot reconciler and a separate
     // audit affordance, neither of which is part of this surface today.
     // Privilege-parity applies.
@@ -156,9 +157,20 @@ message ListRolesResponse {
 // --- CreateCustomRole --------------------------------------------------------
 
 message CreateCustomRoleRequest {
-    string name = 1;
-    string description = 2;
-    repeated string permission_keys = 3;
+    // Role display name. The DB column is VARCHAR(255); the wire cap
+    // here is the same so a buf.validate failure surfaces before the
+    // request reaches the handler. The handler additionally rejects
+    // empty/whitespace names with InvalidArgument.
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    // Free-form description, capped to keep a single role row bounded.
+    string description = 2 [(buf.validate.field).string.max_len = 1024];
+    // Permission keys. The catalog has ~40 entries today; an explicit
+    // upper bound prevents an authenticated caller from forcing huge
+    // dedup/lookup work, and matches the resource:action key shape.
+    repeated string permission_keys = 3 [(buf.validate.field).repeated = {
+        max_items: 100,
+        items: {string: {min_len: 3, max_len: 64, pattern: "^[a-z]+:[a-z_]+$"}}
+    }];
 }
 
 message CreateCustomRoleResponse {
@@ -168,10 +180,15 @@ message CreateCustomRoleResponse {
 // --- UpdateCustomRole --------------------------------------------------------
 
 message UpdateCustomRoleRequest {
-    string role_id = 1;
-    string name = 2;
-    string description = 3;
-    repeated string permission_keys = 4;
+    // Base-10 string form of the role's int64 id; handler tightens to
+    // ^[1-9][0-9]*$ but the wire bound rejects giant strings up front.
+    string role_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 3 [(buf.validate.field).string.max_len = 1024];
+    repeated string permission_keys = 4 [(buf.validate.field).repeated = {
+        max_items: 100,
+        items: {string: {min_len: 3, max_len: 64, pattern: "^[a-z]+:[a-z_]+$"}}
+    }];
 }
 
 message UpdateCustomRoleResponse {
@@ -181,7 +198,7 @@ message UpdateCustomRoleResponse {
 // --- DeleteCustomRole --------------------------------------------------------
 
 message DeleteCustomRoleRequest {
-    string role_id = 1;
+    string role_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
 }
 
 message DeleteCustomRoleResponse {}
@@ -189,13 +206,14 @@ message DeleteCustomRoleResponse {}
 // --- AssignRole / UnassignRole ----------------------------------------------
 
 message AssignRoleRequest {
-    string user_id = 1;
-    string role_id = 2;
-    ScopeType scope_type = 3;
+    // External UUID of the target user (auth.UserInfo.user_id shape).
+    string user_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+    string role_id = 2 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+    ScopeType scope_type = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // Required when scope_type == SCOPE_TYPE_SITE; absent otherwise.
     // optional so the wire can distinguish "site 0" (never valid) from
     // "unset"; the server rejects either case at decode/validate time.
-    optional int64 site_id = 4;
+    optional int64 site_id = 4 [(buf.validate.field).int64.gt = 0];
 }
 
 message AssignRoleResponse {
@@ -203,7 +221,7 @@ message AssignRoleResponse {
 }
 
 message UnassignRoleRequest {
-    string assignment_id = 1;
+    string assignment_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
 }
 
 message UnassignRoleResponse {}
@@ -211,7 +229,7 @@ message UnassignRoleResponse {}
 // --- ListUserAssignments ----------------------------------------------------
 
 message ListUserAssignmentsRequest {
-    string user_id = 1;
+    string user_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
 }
 
 message ListUserAssignmentsResponse {

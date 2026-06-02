@@ -16,13 +16,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
-// maxRoleNameLength bounds the role.name column. The DB enforces a
-// length CHECK; this constant gives us a cheap pre-flight rejection
-// so we surface InvalidArgument instead of an Internal error from a
-// constraint violation.
-const maxRoleNameLength = 64
+// maxRoleNameLength matches the role.name column's VARCHAR(255) schema
+// definition. The pre-flight check just gives a clean InvalidArgument
+// instead of a Postgres constraint violation; the wire validation
+// (buf.validate on CreateCustomRoleRequest.name) is the primary cap
+// for callers, and a tighter UI-facing limit belongs in the client.
+const maxRoleNameLength = 255
 
-// PostgreSQL SQLSTATE codes used by mapRoleInsertError. unique_violation
+// PostgreSQL SQLSTATE codes used by mapRolePersistError. unique_violation
 // is the partial unique index on (org, lower(name)); check_violation is
 // the reserved-names CHECK. Matching on the code first, then the
 // constraint name, keeps the mapper stable across migrations that
@@ -65,34 +66,67 @@ type RoleView struct {
 // stable display order: built-ins first (SUPER_ADMIN, ADMIN, FIELD_TECH
 // per the seed), then custom roles by name. Each entry carries its
 // permission keys and live assignment count so the admin UI can render
-// the full table from a single response.
+// the full table from a single DB round-trip — the previous
+// per-role hydrate-and-count pattern was O(roles * 2 queries) on a
+// listing hit by every role-management page open.
 func (s *Service) ListRoles(ctx context.Context, orgID int64) ([]RoleView, error) {
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]RoleView, error) {
-		builtins, err := q.ListBuiltinRolesForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("authz: list builtin roles: %v", err)
+	rows, err := sqlc.New(s.conn).ListRolesWithDetailsForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("authz: list roles: %v", err)
+	}
+	out := make([]RoleView, 0, len(rows))
+	for _, r := range applyBuiltinDisplayOrder(rows) {
+		out = append(out, roleDetailRowToView(r))
+	}
+	return out, nil
+}
+
+// applyBuiltinDisplayOrder rebases the SQL ordering so SUPER_ADMIN
+// sorts before ADMIN before FIELD_TECH. The query orders built-ins by
+// builtin_key (alphabetical: ADMIN, FIELD_TECH, SUPER_ADMIN) so that
+// the resolver pins down a deterministic comparison; the UI expects
+// the seed-declaration order, which lives in Go.
+func applyBuiltinDisplayOrder(rows []sqlc.ListRolesWithDetailsForOrgRow) []sqlc.ListRolesWithDetailsForOrgRow {
+	priority := map[string]int{
+		string(BuiltinKeySuperAdmin): 0,
+		string(BuiltinKeyAdmin):      1,
+		string(BuiltinKeyFieldTech):  2,
+	}
+	out := make([]sqlc.ListRolesWithDetailsForOrgRow, len(rows))
+	copy(out, rows)
+	sort.SliceStable(out, func(i, j int) bool {
+		ai, aIsBuiltin := priority[out[i].BuiltinKey.String], out[i].IsBuiltin
+		bj, bIsBuiltin := priority[out[j].BuiltinKey.String], out[j].IsBuiltin
+		if aIsBuiltin != bIsBuiltin {
+			return aIsBuiltin
 		}
-		custom, err := q.ListCustomRolesForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("authz: list custom roles: %v", err)
+		if aIsBuiltin {
+			return ai < bj
 		}
-		out := make([]RoleView, 0, len(builtins)+len(custom))
-		for _, r := range orderBuiltins(builtins) {
-			view, err := hydrateRole(ctx, q, r)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, view)
-		}
-		for _, r := range custom {
-			view, err := hydrateRole(ctx, q, r)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, view)
-		}
-		return out, nil
+		return false // preserve SQL ORDER BY name for custom rows
 	})
+	return out
+}
+
+func roleDetailRowToView(r sqlc.ListRolesWithDetailsForOrgRow) RoleView {
+	desc := ""
+	if r.Description.Valid {
+		desc = r.Description.String
+	}
+	builtinKey := ""
+	if r.BuiltinKey.Valid {
+		builtinKey = r.BuiltinKey.String
+	}
+	return RoleView{
+		ID:             r.ID,
+		Name:           r.Name,
+		Description:    desc,
+		PermissionKeys: r.PermissionKeys,
+		Builtin:        r.IsBuiltin,
+		BuiltinKey:     builtinKey,
+		MemberCount:    int32(r.MemberCount), //nolint:gosec // G115: assignment count bounded by user_organization_role rowcount per role; far below MaxInt32
+		UpdatedAt:      r.UpdatedAt,
+	}
 }
 
 // CreateCustomRole inserts a custom role with the requested permission
@@ -130,9 +164,10 @@ func (s *Service) CreateCustomRole(ctx context.Context, callerID, orgID int64, n
 }
 
 // UpdateCustomRole replaces the name, description, and permission set
-// of a custom role in one transaction. Built-in roles are rejected with
-// BUILTIN_ROLE_IMMUTABLE so callers get a clear reason rather than a
-// silent no-op from the is_builtin = FALSE guard on UpdateCustomRoleName.
+// of a custom role in one transaction. Built-in roles are rejected
+// with PermissionDenied ("built-in roles cannot be modified through
+// this RPC") so callers get a clear reason rather than a silent no-op
+// from the is_builtin = FALSE guard on UpdateCustomRoleName.
 func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID int64, name, description string, permissionKeys []string) (RoleView, error) {
 	trimmedName := strings.TrimSpace(name)
 	if err := validateRoleName(trimmedName); err != nil {
@@ -176,9 +211,9 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 }
 
 // DeleteCustomRole soft-deletes a custom role. Refuses on any active
-// assignment so callers see a clear blocker (unassign first) instead of
-// the assignment quietly outliving its role row. Built-in roles are
-// rejected with BUILTIN_ROLE_IMMUTABLE.
+// assignment so callers see a clear blocker (unassign first) instead
+// of the assignment quietly outliving its role row. Built-in roles are
+// rejected with PermissionDenied ("built-in roles cannot be deleted").
 func (s *Service) DeleteCustomRole(ctx context.Context, orgID, roleID int64) error {
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		existing, err := getRoleInOrg(ctx, q, orgID, roleID)
@@ -387,24 +422,6 @@ func getRoleInOrg(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sq
 		return sqlc.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
 	}
 	return role, nil
-}
-
-// orderBuiltins sorts built-in roles by their fixed display order
-// (SUPER_ADMIN, ADMIN, FIELD_TECH). The DB returns them ordered by
-// builtin_key, which is alphabetical (ADMIN, FIELD_TECH, SUPER_ADMIN) —
-// the admin UI expects SUPER_ADMIN at the top.
-func orderBuiltins(rows []sqlc.Role) []sqlc.Role {
-	priority := map[string]int{
-		string(BuiltinKeySuperAdmin): 0,
-		string(BuiltinKeyAdmin):      1,
-		string(BuiltinKeyFieldTech):  2,
-	}
-	out := make([]sqlc.Role, len(rows))
-	copy(out, rows)
-	sort.SliceStable(out, func(i, j int) bool {
-		return priority[out[i].BuiltinKey.String] < priority[out[j].BuiltinKey.String]
-	})
-	return out
 }
 
 // nullStringIfNonEmpty wraps a *post-trim* string so a description of

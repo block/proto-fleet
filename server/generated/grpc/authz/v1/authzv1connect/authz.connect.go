@@ -73,7 +73,7 @@ type AuthzServiceClient interface {
 	CreateCustomRole(context.Context, *connect.Request[v1.CreateCustomRoleRequest]) (*connect.Response[v1.CreateCustomRoleResponse], error)
 	// UpdateCustomRole replaces the full attribute set on a custom role.
 	// Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
-	// BUILTIN_ROLE_IMMUTABLE — built-in editing requires additive-only
+	// PermissionDenied — built-in editing requires additive-only
 	// reconciliation interlock with the boot reconciler and a separate
 	// audit affordance, neither of which is part of this surface today.
 	// Privilege-parity applies.
@@ -215,7 +215,7 @@ type AuthzServiceHandler interface {
 	CreateCustomRole(context.Context, *connect.Request[v1.CreateCustomRoleRequest]) (*connect.Response[v1.CreateCustomRoleResponse], error)
 	// UpdateCustomRole replaces the full attribute set on a custom role.
 	// Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
-	// BUILTIN_ROLE_IMMUTABLE — built-in editing requires additive-only
+	// PermissionDenied — built-in editing requires additive-only
 	// reconciliation interlock with the boot reconciler and a separate
 	// audit affordance, neither of which is part of this surface today.
 	// Privilege-parity applies.

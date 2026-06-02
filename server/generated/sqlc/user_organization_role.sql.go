@@ -277,12 +277,14 @@ SELECT
 FROM user_organization_role uor
 JOIN role r              ON r.id = uor.role_id
                         AND r.organization_id = uor.organization_id
+JOIN "user" u            ON u.id = uor.user_id
 LEFT JOIN role_permission rp ON rp.role_id = r.id
 LEFT JOIN permission p       ON p.id = rp.permission_id
 WHERE uor.user_id = $1
   AND uor.organization_id = $2
   AND uor.deleted_at IS NULL
   AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
 ORDER BY uor.id, p.key NULLS FIRST
 `
 
@@ -310,6 +312,13 @@ type ListEffectivePermissionsForUserRow struct {
 // bySite[siteID] for that site, narrowing would collapse, and the
 // caller's org-scope grant would silently apply at the site the
 // empty role was meant to lock down.
+//
+// The JOIN on "user" with u.deleted_at IS NULL is the revocation
+// backstop: a deactivated user's next request reads an empty
+// EffectivePermissions and denies everything, and a mutation-
+// transaction recheck via LoadEffectiveTx refuses to commit grants
+// against a caller whose row has been soft-deleted mid-tx. Same
+// liveness rule the last-SUPER_ADMIN guards below already enforce.
 //
 // The resolver walks this slice to evaluate Has(key, ResourceContext)
 // with the plan's narrowing rule: site-scope assignment overrides the

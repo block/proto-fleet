@@ -1,14 +1,8 @@
-// Service-layer coverage in this file is intentionally limited to pure
-// functions: validation, dedup/sort, read-pairing, error mapping, and
-// the small null-string helper. The transactional rejection paths
-// (privilege-parity, built-in immutability, delete-with-active-
-// assignments, cross-org role-id probe) need a real Postgres because
-// *sqlc.Queries is a concrete generated struct with no test-friendly
-// interface, and the AGENTS.md rule against DB mocks where docker-
-// compose Postgres exists makes a fake handle the wrong tool. Those
-// branches are exercised by the integration suite when run against the
-// compose stack; if the integration coverage drifts, this comment is
-// the breadcrumb pointing at what's missing.
+// Pure-function coverage for the validation, dedup, read-pairing, and
+// error-mapping helpers. Transactional behavior (privilege-parity,
+// built-in immutability, delete-with-assignments, cross-org guard,
+// deactivated-caller revocation) lives in service_integration_test.go
+// against a real Postgres via testutil.GetTestDB.
 package authz
 
 import (
