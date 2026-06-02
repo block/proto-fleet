@@ -28,8 +28,10 @@ CREATE TABLE curtailment_mqtt_source_config (
     created_at                      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
+    -- RESTRICT (not CASCADE): an org delete must not silently drop a source's
+    -- encrypted broker credentials; detach the sources first.
     CONSTRAINT fk_curtailment_mqtt_source_config_org FOREIGN KEY (organization_id)
-        REFERENCES organization(id) ON DELETE CASCADE,
+        REFERENCES organization(id) ON DELETE RESTRICT,
     CONSTRAINT fk_curtailment_mqtt_source_config_service_user FOREIGN KEY (service_user_id)
         REFERENCES "user"(id) ON DELETE RESTRICT,
     CONSTRAINT uq_curtailment_mqtt_source_config_org_name UNIQUE (organization_id, source_name),
