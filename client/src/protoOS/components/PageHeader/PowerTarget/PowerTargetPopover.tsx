@@ -9,7 +9,7 @@ import Popover from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SelectRowList from "@/shared/components/SelectRowList";
 import { positions, selectTypes } from "@/shared/constants";
-import { convertWtoKW } from "@/shared/utils/utility";
+import { convertWtoKW } from "@/shared/utils/telemetryFormat";
 
 export type PowerTargetPopoverProps = {
   onDismiss: () => void;

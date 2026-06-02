@@ -16,24 +16,26 @@ enum SubPsuId {
 }
 
 enum PsuErrorCode {
+    reserved 5, 6, 7, 8, 9, 11, 12, 14, 16, 17, 19, 21;
+    reserved "PSU_ERROR_CODE_FANS",
+             "PSU_ERROR_CODE_INPUT",
+             "PSU_ERROR_CODE_OUTPUT_FAILURE",
+             "PSU_ERROR_CODE_POWER_NO_GOOD",
+             "PSU_ERROR_CODE_NO_INPUT_VOLTAGE",
+             "PSU_ERROR_CODE_SW_SET_OUTPUT_VOLTAGE_FAIL";
+
     PSU_ERROR_CODE_UNSPECIFIED = 0;
     PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE = 1;     // [PMBUS] (PMBUS_STATUS_VOUT)           Output voltage exceeds safe threshold
     PSU_ERROR_CODE_OUTPUT_OVER_CURRENT = 2;     // [PMBUS] (PMBUS_STATUS_IOUT)           Output current exceeds safe threshold
     PSU_ERROR_CODE_OVER_TEMPERATURE = 3;        // [PMBUS] (PMBUS_STATUS_TEMPERATURE)    PSU temperature exceeds safe threshold
     PSU_ERROR_CODE_OUTPUT_UNDER_VOLTAGE = 4;    // [PMBUS] (PMBUS_STATUS_VOUT)           Output voltage below minimum threshold
-    PSU_ERROR_CODE_FANS = 5;                    // [PMBUS] (PMBUS_STATUS_FANS_1_2)       PSU fan fault detected
-    PSU_ERROR_CODE_INPUT = 6;                   // [PMBUS] (PMBUS_STATUS_INPUT)          Input-side fault (generic)
     PSU_ERROR_CODE_OUTPUT_OVER_POWER = 10;      // [PMBUS] (PMBUS_STATUS_IOUT:POUT)     Output power exceeds rated capacity
-    PSU_ERROR_CODE_OUTPUT_FAILURE = 11;         // [PMBUS] (PMBUS_STATUS_VOUT)           Output stage failure
     PSU_ERROR_CODE_COMM_LOST = 13;              // [PMBUS] (PMBUS_STATUS_CML)            Communication with PSU lost (I2C/PMBus)
     PSU_ERROR_CODE_UNDER_TEMPERATURE = 15;      // [PMBUS] (PMBUS_STATUS_TEMPERATURE)    PSU temperature below minimum threshold
-    PSU_ERROR_CODE_POWER_NO_GOOD = 17;          // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  One of two internal PSU modules is not functioning properly (Chicony-specific)
     PSU_ERROR_CODE_PFC_FAILURE = 18;            // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure (Chicony-specific)
-    PSU_ERROR_CODE_NO_INPUT_VOLTAGE = 19;       // [PMBUS] (PMBUS_STATUS_INPUT)          No input AC/DC voltage detected
 
     // Software detected errors
     PSU_ERROR_CODE_SW_ENABLE_FAIL = 20;              // Failed to enable PSU output (includes voltage settle timeout)
-    PSU_ERROR_CODE_SW_SET_OUTPUT_VOLTAGE_FAIL = 21;  // Failed to set output voltage
     PSU_ERROR_CODE_FIRMWARE_MISMATCH = 22;           // PSU firmware version mismatch detected
 
     // Input-side faults
@@ -268,6 +270,7 @@ message PsuControl {
   // Firmware update command - triggers update from /etc/psu-firmware
   message FwUpdate {
     bool force = 1;
+    string psu_type = 2;  // Optional PSU type override (e.g. "boco_bs502a17"). Empty = auto-detect.
   }
 
   oneof cmd {

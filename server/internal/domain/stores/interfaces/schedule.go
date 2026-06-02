@@ -28,6 +28,11 @@ type ScheduleWithOrg struct {
 // ScheduleStore handles schedule CRUD and status transitions.
 type ScheduleStore interface {
 	GetSchedule(ctx context.Context, orgID, scheduleID int64) (*pb.Schedule, error)
+	// GetScheduleForUpdate is GetSchedule with FOR UPDATE; callers must
+	// be inside a transaction. Used by ResumeSchedule so the per-action
+	// authorization check is bound to the row state that the resume
+	// update mutates.
+	GetScheduleForUpdate(ctx context.Context, orgID, scheduleID int64) (*pb.Schedule, error)
 	ListSchedules(ctx context.Context, orgID int64, status, action string) ([]*pb.Schedule, error)
 	CreateSchedule(ctx context.Context, orgID int64, schedule *pb.Schedule) (int64, error)
 	UpdateSchedule(ctx context.Context, orgID int64, schedule *pb.Schedule) (int64, error)

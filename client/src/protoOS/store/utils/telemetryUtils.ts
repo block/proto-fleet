@@ -1,6 +1,11 @@
 import type { Measurement, MetricUnit } from "../types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertCtoF, convertFtoC, convertGigahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/utility";
+import {
+  convertCtoF,
+  convertFtoC,
+  convertGigahashSecToTerahashSec,
+  convertWtoKW,
+} from "@/shared/utils/telemetryFormat";
 
 /**
  * Convert units intelligently based on unit type detection

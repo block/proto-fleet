@@ -2,51 +2,30 @@ syntax = "proto3";
 
 package miner_hb_api;
 
-import "hashboard.proto";
 import "hashboard_async.proto";
 import "hashboard_cmd.proto";
 
 option go_package = "pkg/proto;miner_rpc";
 
-// HB Error code offset start at  0x40000;
 enum HbErrorCode {
     HB_ERROR_CODE_COMMUNICATION = 0;
-    HB_ERROR_CODE_INVALID_PARAM = 1;
-    HB_ERROR_CODE_MINING = 2;
-    HB_ERROR_CODE_NOT_READY = 3;
-    HB_ERROR_CODE_HASHBOARD_IN_ERROR_STATE = 4;
-    HB_ERROR_CODE_PARAM_NOT_IMPLEMENTED = 5;
-    HB_ERROR_CODE_SEND_STATS = 6;
-    HB_ERROR_CODE_SEND_WORK = 7;
-    HB_ERROR_CODE_SET_PARAM_FAILURE = 8;
-    HB_ERROR_CODE_STATE_TIMEOUT = 9;
-    HB_ERROR_CODE_INVALID_HASHBOARD_TYPE = 10;
-    HB_ERROR_CODE_COMMS_ALIVE = 11;
-    HB_ERROR_CODE_HARDWARE_LIMIT_TRIP = 12;
-    HB_ERROR_CODE_OVER_HEAT = 13;
-    HB_ERROR_CODE_TASK_COMMUNICATION_ERROR = 14;
-    HB_ERROR_CODE_UNKNOWN = 15;
-    HB_ERROR_CODE_COMMAND_TIMEOUT = 16;
-    HB_ERROR_CODE_USB_DEVICE_CREATION_ERROR = 17;
-    HB_ERROR_CODE_MISSING_COMM_CHANNEL = 18;
-    HB_ERROR_CODE_INVALID_METADATA_RESPONSE = 19;
-    HB_ERROR_CODE_INVALID_ADD_WORK_RESPONSE = 20;
-    HB_ERROR_CODE_COMM_TASKS_NOT_INITIALIZED = 21;
-    HB_ERROR_CODE_POWER_ON_TIMEOUT = 22;
-    HB_ERROR_CODE_OVER_CURRENT = 23;
-    HB_ERROR_CODE_POWER_LOST = 24;
-    HB_ERROR_CODE_USB_CONNECTION_LOST = 25;
-    HB_ERROR_CODE_ASIC_OVER_HEAT = 26;
-    HB_ERROR_CODE_ASIC_UNDER_VOLTAGE = 27;
-    HB_ERROR_CODE_ASIC_OVER_VOLTAGE = 28;
-    HB_ERROR_CODE_ASIC_ECC = 29;
-    HB_ERROR_CODE_ASIC_ENUMERATION = 30;
-    HB_ERROR_CODE_ASIC_NOT_HASHING = 31;
-    HB_ERROR_CODE_ASIC_UNDER_HEAT = 32;
-    HB_ERROR_CODE_OVER_VOLTAGE = 33;
-    HB_ERROR_CODE_UNDER_VOLTAGE = 34;
-    HB_ERROR_CODE_RECOVERY_IN_PROGRESS = 35;
-    HB_ERROR_CODE_CONNECT_FAILED = 36;
+    HB_ERROR_CODE_HASHBOARD_IN_ERROR_STATE = 1;
+    HB_ERROR_CODE_INVALID_HASHBOARD_TYPE = 2;
+    HB_ERROR_CODE_OVER_HEAT = 3;
+    HB_ERROR_CODE_UNKNOWN = 4;
+    HB_ERROR_CODE_POWER_ON_TIMEOUT = 5;
+    HB_ERROR_CODE_OVER_CURRENT = 6;
+    HB_ERROR_CODE_USB_CONNECTION_LOST = 7;
+    HB_ERROR_CODE_ASIC_OVER_HEAT = 8;
+    HB_ERROR_CODE_ASIC_UNDER_VOLTAGE = 9;
+    HB_ERROR_CODE_ASIC_OVER_VOLTAGE = 10;
+    HB_ERROR_CODE_ASIC_ECC = 11;
+    HB_ERROR_CODE_ASIC_ENUMERATION = 12;
+    HB_ERROR_CODE_ASIC_NOT_HASHING = 13;
+    HB_ERROR_CODE_ASIC_UNDER_HEAT = 14;
+    HB_ERROR_CODE_OVER_VOLTAGE = 15;
+    HB_ERROR_CODE_UNDER_VOLTAGE = 16;
+    HB_ERROR_CODE_USB_CONNECTION_ERROR = 17;
 }
 
 message HbError {
@@ -100,6 +79,12 @@ message PowerRange {
     uint32 max_watts = 2;
 }
 
+message MaxAvgMinTemps {
+    float max_c = 1;
+    float avg_c = 2;
+    float min_c = 3;
+}
+
 // hashboard.<slot>.status — published every 1s
 message HashboardPerformanceState {
     uint32 power_target_watts = 1;
@@ -110,29 +95,15 @@ message HashboardPerformanceState {
     bool sent = 5;
 }
 
-// Recovery counter snapshot for a single error code.
-message RecoveryState {
-    HbErrorCode error_code = 1;
-    uint32 current_try_count = 2; // attempts so far in the current window
-    uint32 max_try_count     = 3; // limit before the board is disabled
-}
-
 message HashboardStatus {
     HashboardServiceState state = 1;
-    uint32 up_time_ms = 2;
-    // Snapshot of all active recovery counters (non-zero within the rolling window).
-    repeated RecoveryState recovery_states = 3;
-    uint32 work_id = 4;
-    uint64 difficulty = 5;
-    HashboardPerformanceState performance_state = 6;
-    // Firmware mining FSM state; updated from AsyncSystemHealth.
-    fwpb.mining_state board_mining_state = 7;
-    // Last error code recorded before the most recent Init transition; absent if no error has occurred.
-    optional int32 last_error_code = 8;
+    uint32 work_id = 2;
+    uint64 difficulty = 3;
+    HashboardPerformanceState performance_state = 4;
     // Accumulated seconds spent in the Mining state; pauses when not mining.
-    uint32 mining_uptime_s = 9;
-    // Number of times this hashboard has transitioned into the Mining state.
-    uint32 power_on_count = 10;
+    uint32 mining_uptime_s = 5;
+    // Latched mining intent from the most recent StartMining/StopMining control command.
+    bool mining_enabled = 6;
 }
 
 // hashboard.<slot>.share — published on nonce received
@@ -170,6 +141,10 @@ message HashboardOperatingStats {
 // hashboard.<slot>.data.asic — published on ASIC stats update
 message AsicOperatingStats {
     repeated fwpb.asic_status asic_stats = 1;
+}
+
+message AsicDebugStats {
+  repeated fwpb.asic_debug_status asic_debug_stats = 1;
 }
 
 // fan.<fan_id>.data — published periodically with current fan state
@@ -245,12 +220,19 @@ message FanControl {
 // =============================================================================
 
 message InjectHashboardError {
-    repeated uint32 error_codes = 1;
+    // Firmware error causes to inject into simulated AsyncSystemHealth messages.
+    repeated fwpb.error_cause error_codes = 1;
+    // If false, errors are one-shot and consumed by the next health message.
+    // If true, errors persist until cleared with clear_injections.
+    bool persistent = 2;
 }
+
+message ClearHashboardInjections {}
 
 message HashboardSimControl {
     oneof cmd {
         InjectHashboardError inject_error = 1;
+        ClearHashboardInjections clear_injections = 2;
     }
 }
 

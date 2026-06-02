@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -123,5 +124,89 @@ func (h *Handler) AssignRackToBuilding(ctx context.Context, req *connect.Request
 	}
 	return connect.NewResponse(&pb.AssignRackToBuildingResponse{
 		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
+	}), nil
+}
+
+func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.GetBuildingStatsRequest]) (*connect.Response[pb.GetBuildingStatsResponse], error) {
+	// GetBuildingStats returns telemetry rollups + per-rack health +
+	// device_identifiers, so it layers three permissions: site:read for
+	// the building-existence surface, fleet:read for the aggregate
+	// telemetry, and miner:read because device_identifiers is a miner-
+	// inventory surface (the FE uses it to scope downstream telemetry +
+	// component-error fetches).
+	//
+	// Resolve building → site_id BEFORE authz so site-scoped roles get
+	// narrowed checks against the building's site. Without this, a user
+	// with a site-A-narrowed grant evaluated against ResourceContext{}
+	// would be treated as org-scoped and could read stats for buildings
+	// in other sites. Org-scoped grants still satisfy the narrower
+	// ResourceContext, so this only tightens — it never broadens.
+	//
+	// Pre-authz GetBuilding does leak existence to same-org callers that
+	// later fail the site-scoped check (timing channel). Acceptable
+	// trade-off: same pattern as miner:read → miner:site resolution.
+	// Cross-org callers still see NotFound because GetBuilding is
+	// org-scoped via session.OrganizationID.
+	sess, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	building, err := h.service.GetBuilding(ctx, sess.OrganizationID, req.Msg.GetBuildingId())
+	if err != nil {
+		return nil, err
+	}
+	// Unassigned buildings (SiteID == nil) carry an empty ResourceContext,
+	// so only org-scoped grants pass — site-scoped operators legitimately
+	// can't see buildings outside their site, including the unassigned
+	// pool.
+	rc := authz.ResourceContext{SiteID: building.SiteID}
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, rc)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, rc); err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, rc); err != nil {
+		return nil, err
+	}
+	// Pass the building's site as we saw it at authz time. The service
+	// re-reads the building and rejects with NotFound if a concurrent
+	// AssignBuildingToSite moved it — otherwise a site-scoped caller
+	// could end up with telemetry for a site they're not authorized for.
+	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId(), building.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	rackHealth := make([]*pb.BuildingRackHealth, 0, len(out.RackHealth))
+	for _, r := range out.RackHealth {
+		rackHealth = append(rackHealth, &pb.BuildingRackHealth{
+			RackId:          r.RackID,
+			RackLabel:       r.RackLabel,
+			AisleIndex:      r.AisleIndex,
+			PositionInAisle: r.PositionInAisle,
+			HashingCount:    r.HashingCount,
+			BrokenCount:     r.BrokenCount,
+			OfflineCount:    r.OfflineCount,
+			SleepingCount:   r.SleepingCount,
+		})
+	}
+	return connect.NewResponse(&pb.GetBuildingStatsResponse{
+		BuildingId:               out.BuildingID,
+		RackCount:                out.RackCount,
+		DeviceCount:              out.DeviceCount,
+		ReportingCount:           out.ReportingCount,
+		HashrateReportingCount:   out.HashrateReportingCount,
+		EfficiencyReportingCount: out.EfficiencyReportingCount,
+		PowerReportingCount:      out.PowerReportingCount,
+		TotalHashrateThs:         out.TotalHashrateThs,
+		AvgEfficiencyJth:         out.AvgEfficiencyJth,
+		TotalPowerKw:             out.TotalPowerKw,
+		HashingCount:             out.HashingCount,
+		BrokenCount:              out.BrokenCount,
+		OfflineCount:             out.OfflineCount,
+		SleepingCount:            out.SleepingCount,
+		RackHealth:               rackHealth,
+		DeviceIdentifiers:        out.DeviceIdentifiers,
 	}), nil
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import SiteModals from "../components/SiteModals";
 import SiteOverviewSection from "../components/SiteOverviewSection";
@@ -10,9 +10,11 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 // `/sites` operational overview. Phase 1a renders the scaffolding — header,
 // per-site sections with placeholder metrics + FPO BuildingCards, and the
@@ -26,49 +28,74 @@ const SitesPage = () => {
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
 
+  // sitesLoaded / buildingsLoaded distinguish initial-load failures from
+  // poll failures. On init we want the empty-state path (sites=[]) so the
+  // operator sees "no sites yet" / retry CTA. Once we've successfully
+  // loaded at least once, poll-error paths must preserve the last-good
+  // list so a transient hiccup doesn't blank the screen — they show an
+  // inline error toast instead.
+  const sitesLoadedRef = useRef(false);
+  const buildingsLoadedRef = useRef(false);
+
   // Track sites + sitesError separately so transient failures (network,
   // PermissionDenied for non-admins) don't collapse into "no sites yet"
   // and mislead the operator into thinking the org has no sites.
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesError(null);
-      },
-      onError: (msg) => {
-        setSitesError(msg);
-        setSites([]);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
-
-  useEffect(() => fetchSites(), [fetchSites]);
+  //
+  // Returns the inflight promise so usePoll schedules the next tick from
+  // response completion (not request start) — otherwise slow responses
+  // can overlap and a late older response can clobber newer state.
+  const fetchSites = useCallback(
+    () =>
+      listSites({
+        onSuccess: (rows) => {
+          setSites(rows);
+          setSitesError(null);
+          sitesLoadedRef.current = true;
+        },
+        onError: (msg) => {
+          setSitesError(msg);
+          // Only clear the list on the *initial* failure so the empty-state
+          // / retry surface renders. Once we've shown real data, keep it
+          // visible across transient poll failures.
+          if (!sitesLoadedRef.current) {
+            setSites([]);
+          }
+        },
+      }),
+    [listSites],
+  );
 
   // One ListBuildings call at the page level, then we bucket the rows by
   // siteId client-side so each SiteOverviewSection can render synchronously
   // from props. Avoids the N+1 per-section ListBuildings concurrency that
   // the earlier scaffold had. Track buildingsError separately so failures
   // don't collapse every site into "No buildings in this site yet."
-  const fetchBuildings = useCallback(() => {
-    const controller = new AbortController();
-    void listAllBuildings({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setBuildings(rows);
-        setBuildingsError(null);
-      },
-      onError: (msg) => {
-        setBuildingsError(msg);
-        setBuildings([]);
-      },
-    });
-    return () => controller.abort();
-  }, [listAllBuildings]);
+  // Promise returned for the same poll-lifecycle reason as fetchSites above.
+  const fetchBuildings = useCallback(
+    () =>
+      listAllBuildings({
+        onSuccess: (rows) => {
+          setBuildings(rows);
+          setBuildingsError(null);
+          buildingsLoadedRef.current = true;
+        },
+        onError: (msg) => {
+          setBuildingsError(msg);
+          if (!buildingsLoadedRef.current) {
+            setBuildings([]);
+          }
+        },
+      }),
+    [listAllBuildings],
+  );
 
-  useEffect(() => fetchBuildings(), [fetchBuildings]);
+  // Poll both sites + buildings on the same cadence as the per-card stats
+  // (POLL_INTERVAL_MS) so building cards stay in sync when racks are added
+  // or removed without forcing a manual refresh. The shared usePoll
+  // scheduler dedups concurrent fetches and runs an initial fetch on mount,
+  // replacing the earlier one-shot useEffect.
+  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  usePoll({ fetchData: fetchBuildings, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
 
@@ -104,16 +131,20 @@ const SitesPage = () => {
   if (sites === undefined) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6">
-        <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+        <SitesPageHeader headline="Sites" />
         <div className="text-300 text-text-primary-70">Loading…</div>
       </div>
     );
   }
 
-  if (sitesError) {
+  // Full-page error path: only when we have *no* last-good data to show.
+  // Once we've rendered real sites at least once, a transient poll error
+  // surfaces as the inline banner inside the main layout below — blanking
+  // the screen on every hiccup makes the polled view jittery.
+  if (sitesError && !sitesLoadedRef.current) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page-error">
-        <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+        <SitesPageHeader headline="Sites" />
         <div
           className="flex flex-col items-start gap-3 rounded-xl border border-border-5 p-6"
           data-testid="sites-page-error-card"
@@ -140,11 +171,25 @@ const SitesPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page">
-      <SitesPageHeader
-        headline="Sites"
-        subheadline="Manage your sites, buildings, and rack infrastructure."
-        onAddSite={showAddSite ? modals.openCreate : undefined}
-      />
+      <SitesPageHeader headline="Sites" onAddSite={showAddSite ? modals.openCreate : undefined} />
+      {sitesError ? (
+        // Post-init sites failure: keep the last-good list rendered below
+        // and surface the failure as an inline retry banner so the
+        // operator sees both the data and the issue at once.
+        <div
+          className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+          data-testid="sites-page-sites-error"
+        >
+          <span className="text-300 text-text-primary-70">Couldn&apos;t refresh sites: {sitesError}</span>
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Retry"
+            onClick={fetchSites}
+            testId="sites-page-sites-retry"
+          />
+        </div>
+      ) : null}
       {sites.length === 0 ? (
         <SitesEmptyState onAddSite={modals.openCreate} />
       ) : activeSite.kind === "unassigned" ? (
@@ -157,7 +202,7 @@ const SitesPage = () => {
           No sites match the current selection.
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-12">
           {buildingsError ? (
             <div
               className="flex items-center justify-between rounded-xl border border-border-5 p-4"

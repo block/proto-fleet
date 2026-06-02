@@ -1,6 +1,6 @@
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { separateByCommas } from "@/shared/utils/stringUtils";
-import { formatHashrateWithUnit } from "@/shared/utils/utility";
+import { formatHashrateWithUnit } from "@/shared/utils/telemetryFormat";
 
 interface HashRateValueProps {
   value: number | undefined | null;

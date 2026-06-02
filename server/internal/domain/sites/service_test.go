@@ -109,7 +109,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	tx := &fakeTransactor{}
 	// activitySvc is nil; the service's logActivity is nil-safe. Production
 	// wires a real *activity.Service from main.go.
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	gomock.InOrder(
 		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
@@ -141,7 +141,7 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	// LockSiteForWrite succeeds (row exists at start of tx) but the
 	// final SoftDeleteSite affects 0 rows because nothing matched the
@@ -170,7 +170,7 @@ func TestReassignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			store := mocks.NewMockSiteStore(ctrl)
 			tx := tf.make()
-			svc := NewService(store, tx, nil)
+			svc := NewService(store, nil, nil, nil, tx, nil)
 
 			identifiers := []string{"d1", "d2"}
 			target := int64(20)
@@ -219,7 +219,7 @@ func TestReassignDevicesToSite_reportsMissingDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1", "d-missing"}
 	target := int64(20)
@@ -250,7 +250,7 @@ func TestReassignDevicesToSite_writesOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1", "d2"}
 	target := int64(20)
@@ -285,7 +285,7 @@ func TestReassignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1"}
 
@@ -310,7 +310,7 @@ func TestReassignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *tes
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1"}
 	target := int64(42)
@@ -341,7 +341,7 @@ func TestAssignBuildingToSite_cascadeOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	target := int64(20)
 	// The TOCTOU fix moved the site-alive check inside the tx and
@@ -372,7 +372,7 @@ func TestAssignBuildingToSite_notFoundWhenBuildingMissing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	target := int64(20)
 	// Both calls now live inside the tx after the TOCTOU fix. With the
@@ -397,7 +397,7 @@ func TestCreateSite_invalidNetworkConfigBlocksWrite(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 	// CreateSite must NOT be called when network_config validation fails.
 
 	_, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
@@ -414,7 +414,7 @@ func TestCreateSite_canonicalizesAndPersists(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(0)).Return(nil, nil)
 	store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
@@ -442,7 +442,7 @@ func TestCreateSite_crossSiteOverlapSurfacesAsWarning(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(0)).Return([]models.SiteNetworkConfigEntry{
 		{ID: 99, Name: "siteB", NetworkConfig: "10.0.0.0/22"},
@@ -466,7 +466,7 @@ func TestUpdateSite_canonicalizesAndPersists(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(11)).Return(nil, nil)
 	store.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
@@ -495,7 +495,7 @@ func TestUpdateSite_excludesSelfFromOverlapWarnings(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(11)).Return(nil, nil)
 	store.EXPECT().UpdateSite(gomock.Any(), gomock.Any()).Return(&models.Site{ID: 11}, nil)
@@ -518,7 +518,7 @@ func TestUpdateSite_overlapWithDifferentSiteSurfacesWarning(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(11)).Return([]models.SiteNetworkConfigEntry{
 		{ID: 99, Name: "siteB", NetworkConfig: "10.0.0.0/22"},
@@ -543,7 +543,7 @@ func TestUpdateSite_invalidNetworkConfigBlocksWrite(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	svc := NewService(store, nil, nil, nil, tx, nil)
 	// UpdateSite must NOT be called when validation fails.
 
 	_, err := svc.UpdateSite(context.Background(), models.UpdateSiteParams{

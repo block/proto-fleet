@@ -2,25 +2,48 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
+import BuildingMetricsRow from "../components/BuildingMetricsRow";
 import BuildingModals from "../components/BuildingModals";
 import BuildingPageHeader from "../components/BuildingPageHeader";
 import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { parseBigIntId } from "@/protoFleet/api/sites";
+import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
+import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
+import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { useDuration, useSetDuration } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
+import { useStickyState } from "@/shared/hooks/useStickyState";
 
-// `/buildings/:id` page shell. The header + action buttons are real; the
-// metrics row, diagnostics section, and performance section are placeholders
-// pending #264. Building data comes from the GetBuilding RPC keyed by the
-// URL `:id` segment — no parent site_id required.
+// Same measurement / aggregation slate the rack-overview page uses, so the
+// performance charts render identically across both surfaces.
+const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
+  MeasurementType.HASHRATE,
+  MeasurementType.POWER,
+  MeasurementType.TEMPERATURE,
+  MeasurementType.EFFICIENCY,
+  MeasurementType.UPTIME,
+];
+
+const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
+
+// `/buildings/:id` page shell. Mirrors RackOverviewPage: header, metric row,
+// diagnostics (rack-health module FPO + component health), and performance
+// charts. The diagnostics rack grid stays FPO pending #264; everything else
+// is wired against GetBuildingStats + the same telemetry hooks the rack
+// page uses.
 //
 // Response state distinguishes three outcomes so the UI can render each
 // honestly: NotFound (server confirmed the id doesn't exist), error (any
-// other failure — permission denied, network, 5xx), and success. Lumping
-// all failures into "not found" would mask real outages.
+// other failure — permission denied, network, 5xx), and success.
 type FetchOutcome =
   | { status: "found"; building: Building }
   | { status: "notFound" }
@@ -38,15 +61,8 @@ const BuildingPage = () => {
   // response against the newer URL while the new request is in flight.
   const [response, setResponse] = useState<{ id: bigint; outcome: FetchOutcome } | undefined>(undefined);
   // Parallel-fetched rack count keyed by buildingId so it can't race a
-  // navigation. Used to populate the cascade-delete dialog's count copy;
-  // falls back to 0n when the count fetch hasn't resolved yet (dialog
-  // then uses the generic "Are you sure?" copy — never undercount).
+  // navigation. Used to populate the cascade-delete dialog's count copy.
   const [rackCountResponse, setRackCountResponse] = useState<{ id: bigint; count: bigint } | undefined>(undefined);
-
-  // Hold the latest in-flight AbortController in a ref so retries (and rapid
-  // re-mounts) abort the previous request before issuing a new one. Without
-  // this, two retry clicks would race and the later result could be
-  // overwritten by the earlier one resolving last.
   const inflightControllerRef = useRef<AbortController | null>(null);
   const racksInflightRef = useRef<AbortController | null>(null);
 
@@ -67,10 +83,6 @@ const BuildingPage = () => {
         onError: (message) => setResponse({ id: targetId, outcome: { status: "error", message } }),
       });
 
-      // Parallel rack-count fetch so the cascade-delete dialog has the
-      // live count without waiting for the user to open the manage
-      // modal. Errors here are silent — the dialog falls back to the
-      // generic copy when the count is unknown, which is acceptable.
       const racksController = new AbortController();
       racksInflightRef.current = racksController;
       void listBuildingRacks({
@@ -78,8 +90,8 @@ const BuildingPage = () => {
         signal: racksController.signal,
         onSuccess: (racks) => setRackCountResponse({ id: targetId, count: BigInt(racks.length) }),
         onError: () => {
-          // Leave rackCountResponse stale on error; cascade dialog
-          // falls back to "Are you sure?" rather than block the page.
+          // Leave rackCountResponse stale on error; cascade dialog falls
+          // back to "Are you sure?" rather than blocking the page.
         },
       });
     },
@@ -91,10 +103,6 @@ const BuildingPage = () => {
     fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
 
-  // Mount BuildingModals at the page level so the manage flow can stack
-  // BuildingSettingsModal on top without re-rendering the page shell. The
-  // delete-from-manage rule (per plan PR 3) redirects to /sites — the
-  // manage modal's anchor is the now-deleted building so we can't stay.
   const buildingModals = useBuildingModals({
     refetchBuildings: () => {
       if (buildingId !== null) fetchBuilding(buildingId);
@@ -102,10 +110,6 @@ const BuildingPage = () => {
     onDeleteFromManage: () => navigate("/sites"),
   });
 
-  // Unmount cleanup aborts whatever's currently in flight — including
-  // retry-spawned controllers that didn't come from the effect above.
-  // Without this, clicking Retry then navigating away leaks a request
-  // whose onSuccess/onError still fires setResponse on the unmounted page.
   useEffect(() => {
     return () => {
       inflightControllerRef.current?.abort();
@@ -114,6 +118,63 @@ const BuildingPage = () => {
       racksInflightRef.current = null;
     };
   }, []);
+
+  // Server-rolled metrics for the header strip. The response now carries
+  // device_identifiers, so telemetry + component-error consumers can scope
+  // themselves directly without a second ListMinerStateSnapshots paginate.
+  const {
+    stats,
+    error: statsError,
+    hasLoaded: statsHasLoaded,
+    refetch: refetchStats,
+  } = useBuildingStats({
+    buildingId: buildingId ?? 0n,
+    enabled: buildingId !== null,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
+  // `undefined` while stats are loading (skeletons); `string[]` once the
+  // response lands. Empty array = building genuinely has no members
+  // (telemetry hooks then short-circuit to "no data").
+  const memberDeviceIds: string[] | null = stats ? stats.deviceIdentifiers : null;
+
+  const duration = useDuration();
+  const setDuration = useSetDuration();
+  const { refs } = useStickyState();
+
+  // Component errors scoped to the building's devices. While stats are
+  // still loading (memberDeviceIds === null) we pass enabled=false so the
+  // hook holds an undefined-count state — otherwise it would race to an
+  // empty-scope fetch and render "No issues" before the real scope ever
+  // arrives, hiding genuine component failures during the brief
+  // GetBuildingStats outage or initial load.
+  const componentErrorsOptions = useMemo(
+    () => ({
+      deviceIdentifiers: memberDeviceIds ?? [],
+      enabled: memberDeviceIds !== null,
+      pollIntervalMs: POLL_INTERVAL_MS,
+    }),
+    [memberDeviceIds],
+  );
+  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
+
+  const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
+  const telemetryOptions = useMemo(
+    () => ({
+      deviceIds: memberDeviceIds ?? [],
+      measurementTypes: ALL_MEASUREMENT_TYPES,
+      aggregations: ALL_AGGREGATION_TYPES,
+      duration,
+      enabled: telemetryEnabled,
+      pollIntervalMs: POLL_INTERVAL_MS,
+    }),
+    [memberDeviceIds, duration, telemetryEnabled],
+  );
+  const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
+  // For empty buildings, surface a defined-but-empty metrics array so the
+  // performance section renders "No data" instead of an indefinite
+  // skeleton.
+  const isEmptyBuilding = memberDeviceIds !== null && memberDeviceIds.length === 0;
+  const metrics = isEmptyBuilding ? [] : telemetryData?.metrics;
 
   const effectiveOutcome: FetchOutcome | "loading" | "invalid" =
     buildingId === null ? "invalid" : response && response.id === buildingId ? response.outcome : "loading";
@@ -159,32 +220,145 @@ const BuildingPage = () => {
   }
 
   const effectiveBuilding = effectiveOutcome.building;
-
   const label = effectiveBuilding.name || "(unnamed building)";
   const idForHeader = effectiveBuilding.id.toString();
+  const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
+
+  // Edit/Delete require the rack count to render an accurate cascade
+  // warning ("deleting this building will unassign N racks"). Prefer the
+  // precise count from the parallel ListBuildingRacks call when it
+  // landed, but never gate the Edit button on it — a transient
+  // listBuildingRacks failure would otherwise leave Edit permanently
+  // disabled with no recovery path. Falls back to the polled
+  // stats.rackCount (live, refreshes with the page) and finally to 0
+  // (cascade dialog renders a generic warning).
+  const racksFromList =
+    rackCountResponse !== undefined && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : null;
+  const fallbackRackCount = racksFromList ?? (stats ? BigInt(stats.rackCount) : 0n);
+  const handleEditBuilding = () => {
+    buildingModals.openManage(
+      create(BuildingWithCountsSchema, {
+        building: effectiveBuilding,
+        rackCount: fallbackRackCount,
+      }),
+    );
+  };
 
   return (
-    <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page">
-      <BuildingPageHeader
-        label={label}
-        buildingId={idForHeader}
-        // Synthesize a BuildingWithCounts row for the modal hook,
-        // populating rack_count from the parallel listBuildingRacks
-        // fetch when it's resolved against the same building id. Falls
-        // back to 0n when the count fetch is still in flight or
-        // errored — the cascade dialog then shows the generic
-        // "Are you sure?" copy, never an under-count.
-        onEditBuilding={() => {
-          const liveCount =
-            rackCountResponse && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : 0n;
-          buildingModals.openManage(
-            create(BuildingWithCountsSchema, { building: effectiveBuilding, rackCount: liveCount }),
-          );
-        }}
-      />
-      <PlaceholderBlock label="Metrics row (Hashrate, Power, Efficiency, Miners online) — #264" className="h-20" />
-      <PlaceholderBlock label="Diagnostics (rack grid + health) — #264" className="h-64" />
-      <PlaceholderBlock label="Performance — #264" className="h-64" />
+    <div className="h-full" data-testid="building-page">
+      <div className="flex flex-col">
+        <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
+          <BuildingPageHeader label={label} buildingId={idForHeader} onEditBuilding={handleEditBuilding} />
+        </div>
+
+        {/* Stats fetch failure on initial load — surface it inline so the
+            metrics row, diagnostics, and performance section don't sit
+            indefinitely in skeleton state with no recovery affordance. */}
+        {statsError && !statsHasLoaded ? (
+          <div className="px-6 pt-6 laptop:px-10 laptop:pt-10">
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
+              data-testid="building-page-stats-error"
+            >
+              <span>Couldn&apos;t load building metrics: {statsError}</span>
+              <button
+                type="button"
+                onClick={() => refetchStats()}
+                className="shrink-0 underline hover:opacity-80"
+                data-testid="building-page-stats-retry"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Metrics row */}
+        <section className="px-6 pt-6 laptop:px-10 laptop:pt-10">
+          <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} />
+        </section>
+
+        {/* Diagnostics: rack-health module (FPO) + component health */}
+        <section className="p-6 laptop:p-10">
+          <div className="flex flex-col gap-1">
+            <PlaceholderBlock label="Rack health module — #264" className="h-64" />
+            <FleetErrors
+              controlBoardErrors={controlBoardErrors}
+              fanErrors={fanErrors}
+              hashboardErrors={hashboardErrors}
+              psuErrors={psuErrors}
+              extraFilterParams={buildingFilterParam}
+            />
+          </div>
+        </section>
+
+        {/* Performance section — identical wiring to RackOverviewPage */}
+        <section className="pb-6">
+          <div ref={refs.vertical.start} />
+          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+              <div className="text-heading-200 text-text-primary">Performance</div>
+              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-core-primary-fill)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span>Building</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-core-primary-50)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray="1 6"
+                      strokeOpacity="0.5"
+                    />
+                  </svg>
+                  <span>Max</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-intent-critical-fill)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray="1 6"
+                      strokeOpacity="0.5"
+                    />
+                  </svg>
+                  <span>Min</span>
+                </div>
+              </div>
+              <div className="flex items-center">
+                <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 laptop:px-10">
+            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+          </div>
+          {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
+          <div ref={refs.vertical.end} />
+        </section>
+      </div>
       <BuildingModals modals={buildingModals} />
     </div>
   );

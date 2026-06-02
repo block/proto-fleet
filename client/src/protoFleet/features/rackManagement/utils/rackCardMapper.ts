@@ -6,8 +6,7 @@ import {
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { SlotStatus } from "@/protoFleet/features/rackManagement/components/RackCard/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { formatTempRange } from "@/shared/utils/utility";
+import { formatEfficiency, formatHashrate, formatPowerKwOrDash, formatTempRange } from "@/shared/utils/telemetryFormat";
 
 export const SLOT_STATUS_MAP: Record<SlotDeviceStatus, SlotStatus> = {
   [SlotDeviceStatus.UNSPECIFIED]: "empty",
@@ -52,10 +51,16 @@ export function mapSlotStatuses(slotStatuses: RackSlotStatus[], rows: number, co
 }
 
 export function formatRackCardStats(stats: DeviceSetStats, temperatureUnit: TemperatureUnit) {
+  // Hashrate / efficiency / power format through the shared telemetry
+  // helpers so rack cards inherit the same auto-scaling unit ladder
+  // (GH/TH/PH/EH) and decimal precision the /sites + /buildings cards
+  // use. Each metric is gated by its per-field reporting count: 0 ->
+  // `undefined`, which the card renders as a skeleton.
   return {
-    hashrate: stats.hashrateReportingCount > 0 ? `${getDisplayValue(stats.totalHashrateThs)} TH/s` : undefined,
-    efficiency: stats.efficiencyReportingCount > 0 ? `${getDisplayValue(stats.avgEfficiencyJth)} J/TH` : undefined,
-    power: stats.powerReportingCount > 0 ? `${getDisplayValue(stats.totalPowerKw)} kW` : undefined,
+    hashrate: stats.hashrateReportingCount > 0 ? (formatHashrate(stats.totalHashrateThs) ?? undefined) : undefined,
+    efficiency:
+      stats.efficiencyReportingCount > 0 ? (formatEfficiency(stats.avgEfficiencyJth) ?? undefined) : undefined,
+    power: stats.powerReportingCount > 0 ? formatPowerKwOrDash(stats.totalPowerKw) : undefined,
     temperature:
       stats.temperatureReportingCount > 0
         ? formatTempRange(stats.minTemperatureC, stats.maxTemperatureC, temperatureUnit)

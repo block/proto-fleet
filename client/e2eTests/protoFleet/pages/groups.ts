@@ -274,6 +274,14 @@ export class GroupsPage extends BasePage {
     await this.validateTitleInModal("Manage power");
   }
 
+  async clickGroupOverviewAssignPools() {
+    await this.page.getByTestId("mining-pool-popover-button").click();
+  }
+
+  async clickGroupOverviewManageSecurity() {
+    await this.page.getByTestId("security-popover-button").click();
+  }
+
   async clickRebootGroupButton() {
     await this.page.getByTestId("reboot-popover-button").click();
   }

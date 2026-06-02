@@ -4,10 +4,24 @@ package fwpb;
 
 option go_package = "pkg/proto;hashboard";
 
+import "hashboard_async.proto";
+
 enum serial_type {
     SERIAL_UNSPECIFIED = 0;
     SERIAL_PCBA = 1;  // PCB Assembly Serial Number (After SMT)
     DEPRECATED = 2;   // Previously SERIAL_ASSEMBLY
+}
+
+message bist_reading {
+    uint32 domain = 1;
+    float asic_vdd = 2;
+    float vddio = 3;
+    float vddh = 4;
+}
+
+message mfgtest_read_bist_cmd {}
+message mfgtest_read_bist_rsp {
+    repeated bist_reading bist = 1;
 }
 
 message mfgtest_serial_write_cmd {
@@ -78,3 +92,15 @@ message dfu_write_secure_id_cmd {
 }
 
 message dfu_write_secure_id_rsp {}
+
+// TODO: Temporary hack for MTE
+message mfgtest_mc3_quick_test_cmd {}
+message mfgtest_mc3_quick_test_rsp {
+    bool success = 1;
+}
+
+message mfgtest_mc3_get_asic_data_cmd {}
+message mfgtest_mc3_get_asic_data_rsp {
+    repeated asic_status asics = 1;
+    repeated asic_debug_status asics_debug = 2;
+}

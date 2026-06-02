@@ -41,7 +41,9 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
-	svc := sites.NewService(siteStore, tx, nil)
+	// GetSiteStats isn't exercised by these tests; pass nil for the
+	// stats-only dependencies and rely on the service's nil-guard.
+	svc := sites.NewService(siteStore, nil, nil, nil, tx, nil)
 	return &testHarness{
 		handler:   NewHandler(svc),
 		siteStore: siteStore,

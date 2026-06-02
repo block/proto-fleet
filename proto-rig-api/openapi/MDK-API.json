@@ -10,7 +10,7 @@
       "name": "MIT",
       "url": "https://opensource.org/license/mit"
     },
-    "version": "1.8.0"
+    "version": "1.8.1"
   },
   "servers": [
     {
@@ -1988,7 +1988,7 @@
         "tags": [
           "PSUs"
         ],
-        "description": "Triggers a PSU firmware update. Publishes a firmware update command to each connected PSU via NATS. Use the `force` parameter to allow re-flashing the same firmware version.",
+        "description": "Triggers a PSU firmware update. Publishes a firmware update command to each connected PSU via NATS. Use the `force` query parameter to allow re-flashing the same firmware version. Use `psu_types` in the request body to override auto-detected PSU types per slot.",
         "operationId": "PostUpdatePsu",
         "parameters": [
           {
@@ -2002,6 +2002,34 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "psu_types": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "enum": [
+                        "chicony_s24",
+                        "boco_bs402a17",
+                        "boco_bs502a17"
+                      ]
+                    },
+                    "description": "Per-PSU type overrides. Keys are PSU slot IDs (1-3). Omitted slots use auto-detection.",
+                    "example": {
+                      "1": "boco_bs502a17",
+                      "2": "boco_bs402a17"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "The PSU firmware update has been requested.",
@@ -2639,7 +2667,7 @@
         "tags": [
           "System"
         ],
-        "description": "Get the current system telemetry enabled status.",
+        "description": "Get whether telemetry-service is currently running.",
         "operationId": "GetSystemTelemetryEnabled",
         "responses": {
           "200": {
@@ -2667,7 +2695,7 @@
             }
           },
           "500": {
-            "description": "Internal server error while reading telemetry configuration.",
+            "description": "Internal server error while reading telemetry-service state.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2682,10 +2710,10 @@
         "tags": [
           "System"
         ],
-        "description": "Configure system telemetry enabled settings.",
+        "description": "Start or stop telemetry-service.",
         "operationId": "SetSystemTelemetryEnabled",
         "requestBody": {
-          "description": "Telemetry configuration settings for data collection",
+          "description": "Desired telemetry-service state",
           "content": {
             "application/json": {
               "schema": {
@@ -2700,7 +2728,7 @@
         },
         "responses": {
           "200": {
-            "description": "The telemetry configuration has been successfully updated.",
+            "description": "The telemetry-service state has been successfully updated.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2708,7 +2736,7 @@
                 },
                 "example": {
                   "enabled": true,
-                  "message": "Enabling telemetry"
+                  "message": "Telemetry is enabled"
                 }
               }
             }
@@ -2717,7 +2745,7 @@
             "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error while setting telemetry configuration.",
+            "description": "Internal server error while setting telemetry-service state.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4389,7 +4417,8 @@
               "B3a",
               "B3b",
               "B3bSim",
-              "B4",
+              "B4_128",
+              "B4_192",
               "B4Sim"
             ]
           },
@@ -5004,18 +5033,18 @@
           },
           "default_password_active": {
             "type": "boolean",
-            "description": "True when the miner is in secure mode and the factory default password is still active. Clients should prompt for a password change, and most authenticated endpoints are 403-gated until changed.",
+            "description": "True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.",
             "example": false
           }
         }
       },
       "TelemetryConfig": {
         "type": "object",
-        "description": "Configuration for telemetry data collection",
+        "description": "Desired telemetry-service state",
         "properties": {
           "enabled": {
             "type": "boolean",
-            "description": "Enable or disable telemetry",
+            "description": "Whether telemetry-service should be running",
             "example": true
           }
         },
@@ -5025,11 +5054,11 @@
       },
       "TelemetryResponse": {
         "type": "object",
-        "description": "Response containing telemetry status information",
+        "description": "Response containing telemetry-service status information",
         "properties": {
           "enabled": {
             "type": "boolean",
-            "description": "Whether telemetry is currently enabled",
+            "description": "Whether telemetry-service is currently running",
             "example": true
           },
           "message": {

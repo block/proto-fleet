@@ -2,7 +2,6 @@ package pairing
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -53,11 +53,6 @@ const (
 	gatewayAddressLastOctet = 1   // Gateway address last octet (.1)
 	firstHostAddressOffset  = 2   // First usable host address offset
 	localhostFirstOctet     = 127 // Localhost IP range first octet (127.x.x.x)
-
-	// IP address bit masks
-	ipv4LocalhostMask   = 0xFF000000 // Mask for checking IPv4 address class
-	ipv4LocalhostPrefix = 0x7F000000 // IPv4 localhost prefix (127.0.0.0/8)
-	ipv4LastOctetMask   = 0xFF       // Mask for extracting last octet
 
 	// Discovery timeout constants
 	defaultNmapTimeoutSeconds     = 600              // Overall timeout for nmap discovery operation (10 minutes)
@@ -99,28 +94,6 @@ func shouldSkipNetworkOrGatewayAddress(ip net.IP) bool {
 	// Check last octet for network (.0) or gateway (.1) addresses
 	lastOctet := ip[3]
 	return lastOctet == networkAddressLastOctet || lastOctet == gatewayAddressLastOctet
-}
-
-// adjustIPRangeStartForNetworkAddresses adjusts an IPv4 address (as uint32) to skip
-// network (.0) and gateway (.1) addresses, except for localhost (127.x.x.x).
-// Returns the adjusted IP address as uint32.
-func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
-	// Check if this is localhost (127.x.x.x)
-	isLocalhost := (ipAddr & ipv4LocalhostMask) == ipv4LocalhostPrefix
-	if isLocalhost {
-		return ipAddr // Don't adjust localhost addresses
-	}
-
-	lastOctet := ipAddr & ipv4LastOctetMask
-	switch lastOctet {
-	case networkAddressLastOctet:
-		// Network address (.0), skip to .2
-		return ipAddr + firstHostAddressOffset
-	case gatewayAddressLastOctet:
-		// Gateway address (.1), skip to .2
-		return ipAddr + 1
-	}
-	return ipAddr
 }
 
 func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.DiscoverResponse {
@@ -237,23 +210,6 @@ func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier))
 // pairing adds can evict stale model/firmware lists. Pass nil to disable.
 func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
-}
-
-// Helper function to convert IP string to uint32 for range comparison
-func ipToUint32(ip string) (uint32, error) {
-	addr := net.ParseIP(ip)
-	ipv4 := addr.To4()
-	if ipv4 == nil {
-		return 0, fleeterror.NewInternalErrorf("not a valid IPv4 address: '%v'", ip)
-	}
-	return binary.BigEndian.Uint32(ipv4), nil
-}
-
-// Helper function to convert uint32 to IP string
-func uint32ToIP(n uint32) string {
-	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
-	return ip.String()
 }
 
 type NetworkInfo struct {
@@ -706,17 +662,16 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 // DiscoverWithIPRange discovers devices using an IPv4 IP range.
 // IPv6 is not supported for range-based discovery; use mDNS or IP list for IPv6 devices.
 func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequest) (<-chan *pb.DiscoverResponse, error) {
-	startIP, err := ipToUint32(r.StartIp)
+	startAddr, err := netutil.ParseIPv4(r.StartIp)
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing start ip: %v", err)
 	}
-	endIP, err := ipToUint32(r.EndIp)
+	endAddr, err := netutil.ParseIPv4(r.EndIp)
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing end ip: %v", err)
 	}
-
-	// Skip network address (.0) and gateway (.1) to avoid discovery issues
-	startIP = adjustIPRangeStartForNetworkAddresses(startIP)
+	startIP := netutil.AdjustIPv4RangeStart(netutil.IPv4ToUint32(startAddr))
+	endIP := netutil.IPv4ToUint32(endAddr)
 
 	ports, err := s.resolveDiscoveryPorts(ctx, r.Ports)
 	if err != nil {
@@ -754,7 +709,7 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 					defer func() { <-semaphore }()
 
 					s.discoverAllPortsForIP(timeoutCtx, ipAddr, ports, rawResultChan)
-				}(uint32ToIP(ip))
+				}(netutil.Uint32ToIPv4(ip))
 			}
 		}
 
@@ -801,54 +756,12 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					// Reject scoped IPv6 literals (%zone) — the connection
-					// stack does not propagate interface scope.
-					if strings.Contains(ipAddr, "%") {
-						slog.Debug("rejecting scoped IPv6 address", "input", ipAddr)
+					normalized, err := netutil.NormalizeIPListEntry(timeoutCtx, ipAddr, net.DefaultResolver)
+					if err != nil {
+						slog.Debug("skipping ipList entry", "input", ipAddr, "err", err)
 						return
 					}
-					if parsedIP := net.ParseIP(ipAddr); parsedIP != nil {
-						// Reject link-local IPv6 — requires interface scope for
-						// TCP connections, consistent with mDNS and hostname paths.
-						if parsedIP.To4() == nil && parsedIP.IsLinkLocalUnicast() {
-							slog.Debug("rejecting link-local IPv6 address", "input", ipAddr)
-							return
-						}
-						// Normalize to canonical form so dedupe and storage
-						// treat equivalent spellings (e.g. 2001:0DB8::1 vs
-						// 2001:db8::1) as the same address.
-						ipAddr = parsedIP.String()
-					} else {
-						var resolver net.Resolver
-						addrs, err := resolver.LookupIPAddr(timeoutCtx, ipAddr)
-						if err != nil {
-							slog.Debug("hostname resolution failed, skipping entry", "input", ipAddr, "error", err)
-							return
-						}
-						var resolvedIPv4, resolvedIPv6 string
-						for _, addr := range addrs {
-							if addr.IP.To4() != nil {
-								resolvedIPv4 = addr.IP.String()
-								break // IPv4 is preferred; no need to look further
-							} else if resolvedIPv6 == "" && !addr.IP.IsLinkLocalUnicast() {
-								// Skip link-local IPv6 (fe80::) because net.IP.String()
-								// does not preserve the interface scope (%eth0) required
-								// for TCP connections.
-								resolvedIPv6 = addr.IP.String()
-							}
-						}
-						resolved := resolvedIPv4
-						if resolved == "" {
-							resolved = resolvedIPv6
-						}
-						if resolved == "" {
-							slog.Debug("hostname resolved but no address found, skipping entry", "input", ipAddr)
-							return
-						}
-						ipAddr = resolved
-					}
-
-					s.discoverAllPortsForIP(timeoutCtx, ipAddr, ports, rawResultChan)
+					s.discoverAllPortsForIP(timeoutCtx, normalized, ports, rawResultChan)
 				}(ip)
 			}
 		}

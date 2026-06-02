@@ -32,6 +32,8 @@ type RunCmd struct {
 	signals       []os.Signal                                                              `kong:"-"`
 	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 	discoverer    discoverer                                                               `kong:"-"`
+	nmapPath      string                                                                   `kong:"-"`
+	resolver      ipResolver                                                               `kong:"-"`
 
 	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 }
@@ -70,7 +72,7 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	ctx, stop := signal.NotifyContext(r.parentCtx, r.signals...)
 	defer stop()
 
-	// Resolve binary-adjacent plugins before touching disk state so
+	// Resolve binary-adjacent plugins/nmap before touching disk state so
 	// misconfiguration fails fast.
 	exeDir := executableDir()
 	var resolvedPluginsDir string
@@ -81,7 +83,6 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 		}
 		resolvedPluginsDir = resolved
 	}
-
 	path := fleetnodebootstrap.StatePath(c.StateDir)
 	st, exists, err := fleetnodebootstrap.LoadState(path)
 	if err != nil {
@@ -95,6 +96,7 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(logOutput, nil))
+	r.nmapPath = resolveNmapPath(exeDir, logger)
 	switch {
 	case resolvedPluginsDir != "":
 		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
@@ -160,6 +162,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, logger *slog.Logger)
 		"fleet_node_id", st.FleetNodeID,
 		"server_url", st.ServerURL,
 		"heartbeat_interval", r.HeartbeatInterval.String(),
+		"control_loop_enabled", r.discoverer != nil,
 		"session_expires_at", st.SessionExpiresAt.Format(time.RFC3339),
 	)
 
@@ -167,7 +170,35 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, logger *slog.Logger)
 		return err
 	}
 
-	if err := r.runHeartbeatLoop(ctx, client, st, path, logger); err != nil {
+	loopCtx, cancelLoops := context.WithCancel(ctx)
+	defer cancelLoops()
+
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := r.runHeartbeatLoop(loopCtx, client, st, path, logger); err != nil {
+			errCh <- err
+			cancelLoops()
+		}
+	}()
+
+	if r.discoverer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := r.runControlLoop(loopCtx, client, st, logger); err != nil {
+				errCh <- err
+				cancelLoops()
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
 		return err
 	}
 	logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)

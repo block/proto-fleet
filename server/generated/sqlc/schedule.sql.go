@@ -350,6 +350,78 @@ func (q *Queries) GetScheduleByIDForProcessor(ctx context.Context, id int64) (Sc
 	return i, err
 }
 
+const getScheduleForUpdate = `-- name: GetScheduleForUpdate :one
+SELECT s.id, s.org_id, s.name, s.action, s.action_config, s.schedule_type, s.recurrence, s.start_date, s.start_time, s.end_time, s.end_date, s.timezone, s.status, s.priority, s.created_by, s.created_at, s.updated_at, s.deleted_at, s.last_run_at, s.next_run_at, u.username AS created_by_username
+FROM schedule s
+LEFT JOIN "user" u ON u.id = s.created_by
+WHERE s.org_id = $1
+  AND s.id = $2
+  AND s.deleted_at IS NULL
+FOR UPDATE OF s
+`
+
+type GetScheduleForUpdateParams struct {
+	OrgID int64
+	ID    int64
+}
+
+type GetScheduleForUpdateRow struct {
+	ID                int64
+	OrgID             int64
+	Name              string
+	Action            string
+	ActionConfig      json.RawMessage
+	ScheduleType      string
+	Recurrence        pqtype.NullRawMessage
+	StartDate         time.Time
+	StartTime         string
+	EndTime           sql.NullString
+	EndDate           sql.NullTime
+	Timezone          string
+	Status            string
+	Priority          int32
+	CreatedBy         int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         sql.NullTime
+	LastRunAt         sql.NullTime
+	NextRunAt         sql.NullTime
+	CreatedByUsername sql.NullString
+}
+
+// GetScheduleForUpdate is the row-locking variant used by ResumeSchedule
+// so the per-action authorization check inside the transaction is bound
+// to the row state that the resume UPDATE will mutate. A concurrent
+// UpdateSchedule on the same row blocks until this transaction commits.
+func (q *Queries) GetScheduleForUpdate(ctx context.Context, arg GetScheduleForUpdateParams) (GetScheduleForUpdateRow, error) {
+	row := q.queryRow(ctx, q.getScheduleForUpdateStmt, getScheduleForUpdate, arg.OrgID, arg.ID)
+	var i GetScheduleForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.Action,
+		&i.ActionConfig,
+		&i.ScheduleType,
+		&i.Recurrence,
+		&i.StartDate,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EndDate,
+		&i.Timezone,
+		&i.Status,
+		&i.Priority,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.LastRunAt,
+		&i.NextRunAt,
+		&i.CreatedByUsername,
+	)
+	return i, err
+}
+
 const getScheduleTargets = `-- name: GetScheduleTargets :many
 SELECT st.id, st.schedule_id, st.target_type, st.target_id
 FROM schedule_target st

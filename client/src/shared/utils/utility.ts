@@ -1,5 +1,4 @@
-import type { TemperatureUnit } from "@/shared/features/preferences";
-import { getDisplayValue, padLeft } from "@/shared/utils/stringUtils";
+import { padLeft } from "@/shared/utils/stringUtils";
 
 export const deepClone = (obj: any) => {
   const stringify = JSON.stringify(obj, (_, value) => (typeof value === "bigint" ? Number(value) : value));
@@ -44,40 +43,9 @@ export const getRandomFloat = (min: number, max: number, precision: number = 100
   );
 };
 
-export const convertMegahashSecToTerahashSec = (value?: number | null) => (value ?? 0) / 1000000;
-export const convertGigahashSecToTerahashSec = (value?: number | null) => (value ?? 0) / 1000;
-export const convertWtoKW = (value?: number | null) => (value ?? 0) / 1000;
-
-// Hashrate unit conversion constants
-export const TH_TO_PH_THRESHOLD = 1000;
-export const TH_TO_PH_DIVISOR = 1000;
-
-export const formatHashrateWithUnit = (value: number = 0) => {
-  if (value > TH_TO_PH_THRESHOLD) {
-    return {
-      value: value / TH_TO_PH_DIVISOR,
-      unit: "PH/S",
-    };
-  }
-  return {
-    value: value,
-    unit: "TH/S",
-  };
-};
-
-export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
-export const convertFtoC = (value: number = 0) => ((value - 32) * 5) / 9;
-
-export const formatTempRange = (minC: number, maxC: number, temperatureUnit: TemperatureUnit): string => {
-  const min = temperatureUnit === "F" ? convertCtoF(minC) : minC;
-  const max = temperatureUnit === "F" ? convertCtoF(maxC) : maxC;
-  return `${getDisplayValue(min)} °${temperatureUnit} – ${getDisplayValue(max)} °${temperatureUnit}`;
-};
-
-export const getAsicTempValue = (avgAsicTemp: number | undefined, isFahrenheit: boolean) => {
-  if (!avgAsicTemp) return "N/A"; // TODO: why not return undefined, so we can show skeleton, also 0 cound be falsey
-  return isFahrenheit ? convertCtoF(avgAsicTemp) : avgAsicTemp;
-};
+// Telemetry conversions + formatters (formatHashrateWithUnit, convertCtoF,
+// formatTempRange, etc.) live in @/shared/utils/telemetryFormat. Import
+// from there for telemetry display; this file keeps non-telemetry helpers.
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 

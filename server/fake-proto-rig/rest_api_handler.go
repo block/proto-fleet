@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -451,6 +452,21 @@ type TelemetryResponse struct {
 	Miner      *MinerTelemetry      `json:"miner,omitempty"`
 	Hashboards []HashboardTelemetry `json:"hashboards,omitempty"`
 	PSUs       []PSUTelemetry       `json:"psus,omitempty"`
+}
+
+// TelemetryConfig is the desired telemetry-service state for
+// PUT /api/v1/system/telemetry (matches OpenAPI TelemetryConfig).
+// Enabled is a pointer so an absent or null field (which the schema marks
+// required) is rejected rather than silently read as false.
+type TelemetryConfig struct {
+	Enabled *bool `json:"enabled"`
+}
+
+// TelemetryServiceStatus reports whether the telemetry-service is running
+// (matches OpenAPI TelemetryResponse, returned by GET/PUT system/telemetry).
+type TelemetryServiceStatus struct {
+	Enabled bool   `json:"enabled"`
+	Message string `json:"message"`
 }
 
 // MetricValue represents a metric with value and unit
@@ -1765,12 +1781,33 @@ func (h *RESTApiHandler) handleTag(w http.ResponseWriter, r *http.Request) {
 func (h *RESTApiHandler) handleTelemetryConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		h.writeJSON(w, http.StatusOK, map[string]bool{"enabled": true})
+		h.writeJSON(w, http.StatusOK, telemetryServiceStatus(h.state.IsTelemetryEnabled()))
 	case http.MethodPut:
-		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Telemetry configuration updated"})
+		var cfg TelemetryConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		// enabled is required by the schema; reject {} or {"enabled": null}
+		// rather than letting a missing field silently stop the telemetry-service.
+		if cfg.Enabled == nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "enabled is required")
+			return
+		}
+		h.state.SetTelemetryEnabled(*cfg.Enabled)
+		h.writeJSON(w, http.StatusOK, telemetryServiceStatus(*cfg.Enabled))
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}
+}
+
+// telemetryServiceStatus builds the OpenAPI TelemetryResponse for a given state.
+func telemetryServiceStatus(enabled bool) TelemetryServiceStatus {
+	msg := "Telemetry is disabled"
+	if enabled {
+		msg = "Telemetry is enabled"
+	}
+	return TelemetryServiceStatus{Enabled: enabled, Message: msg}
 }
 
 // Mining handlers
@@ -1995,7 +2032,7 @@ func (h *RESTApiHandler) handleHardware(w http.ResponseWriter, r *http.Request) 
 			ChipID:       "BM1370",
 			ASICCount:    defaultASICCount,
 			MiningASIC:   "BZM",
-			Board:        "B4",
+			Board:        "B4_128",
 		})
 	}
 
@@ -2093,7 +2130,7 @@ func (h *RESTApiHandler) handleHashboards(w http.ResponseWriter, r *http.Request
 			ChipID:       "BM1370",
 			ASICCount:    defaultASICCount,
 			MiningASIC:   "BZM",
-			Board:        "B4",
+			Board:        "B4_128",
 		})
 	}
 
@@ -2321,12 +2358,51 @@ func (h *RESTApiHandler) handlePowerSupplies(w http.ResponseWriter, r *http.Requ
 	h.writeJSON(w, http.StatusOK, PowerSuppliesResponse{PSUs: psus})
 }
 
+// PowerSuppliesUpdateRequest is the optional body for the PSU firmware update.
+// psu_types overrides auto-detected PSU types per slot (matches OpenAPI psu_types).
+type PowerSuppliesUpdateRequest struct {
+	PSUTypes map[string]string `json:"psu_types,omitempty"`
+}
+
+// validPSUTypes are the PSU type identifiers accepted by psu_types overrides.
+var validPSUTypes = map[string]bool{
+	"chicony_s24":   true,
+	"boco_bs402a17": true,
+	"boco_bs502a17": true,
+}
+
 func (h *RESTApiHandler) handlePowerSuppliesUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "PSU firmware update started"})
+
+	// The request body is optional; an empty body means auto-detect every PSU.
+	var req PowerSuppliesUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	// Validate per-slot overrides: keys are PSU slot IDs (1-3), values are known PSU types.
+	for slot, psuType := range req.PSUTypes {
+		if id, err := strconv.Atoi(slot); err != nil || id < 1 || id > 3 {
+			h.writeError(w, http.StatusUnprocessableEntity, "INVALID_PSU_SLOT",
+				fmt.Sprintf("psu_types key %q must be a slot ID between 1 and 3", slot))
+			return
+		}
+		if !validPSUTypes[psuType] {
+			h.writeError(w, http.StatusUnprocessableEntity, "INVALID_PSU_TYPE",
+				fmt.Sprintf("unknown PSU type %q for slot %s", psuType, slot))
+			return
+		}
+	}
+
+	msg := "PSU firmware update started"
+	if n := len(req.PSUTypes); n > 0 {
+		msg = fmt.Sprintf("PSU firmware update started with %d PSU type override(s)", n)
+	}
+	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: msg})
 }
 
 // Cooling handlers

@@ -1,6 +1,7 @@
 import {
   ChangeEvent,
   Fragment,
+  InputHTMLAttributes,
   KeyboardEvent,
   ReactNode,
   RefObject,
@@ -30,6 +31,7 @@ interface InputProps {
   id: string;
   initValue?: string | number;
   inputRef?: RefObject<HTMLInputElement>;
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
   keyboardShortcuts?: string[];
   label: string;
   maxLength?: number;
@@ -65,6 +67,7 @@ const Input = ({
   id,
   initValue = "",
   inputRef,
+  inputMode,
   keyboardShortcuts,
   label,
   maxLength,
@@ -189,6 +192,7 @@ const Input = ({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           maxLength={maxLength}
+          inputMode={inputMode}
           // Use "new-password" to prevent browser autofill on all fields.
           // Chrome ignores autocomplete="off" for password fields as a "security feature".
           // MDN recommends "new-password" which tells browsers this is NOT a login form.

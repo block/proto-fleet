@@ -1115,6 +1115,101 @@ func (q *Queries) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGrou
 	return items, nil
 }
 
+const getMinerStateCountsByDeviceIDs = `-- name: GetMinerStateCountsByDeviceIDs :one
+
+SELECT
+    -- Offline
+    COALESCE(SUM(CASE
+        WHEN ds.status = 'OFFLINE'
+             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+        THEN 1
+        ELSE 0
+    END), 0)::int AS offline_count,
+
+    -- Sleeping
+    COALESCE(SUM(CASE
+        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+        THEN 1
+        ELSE 0
+    END), 0)::int AS sleeping_count,
+
+    -- Broken
+    COALESCE(SUM(CASE
+        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+                  OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR open_errors.device_id IS NOT NULL)
+        THEN 1
+        ELSE 0
+    END), 0)::int AS broken_count,
+
+    -- Hashing
+    COALESCE(SUM(CASE
+        WHEN ds.status = 'ACTIVE'
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND open_errors.device_id IS NULL
+        THEN 1
+        ELSE 0
+    END), 0)::int AS hashing_count
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE errors.org_id = $1
+      AND errors.closed_at IS NULL
+      AND errors.severity IN (1, 2, 3, 4)
+) open_errors ON d.id = open_errors.device_id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+`
+
+type GetMinerStateCountsByDeviceIDsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetMinerStateCountsByDeviceIDsRow struct {
+	OfflineCount  int32
+	SleepingCount int32
+	BrokenCount   int32
+	HashingCount  int32
+}
+
+// GetDeviceIdentifiersByOrgWithFilter is implemented as a dynamic query in
+// sqlstores/device.go to reuse appendFilterSQL and ensure semantic parity with
+// the list view's "needs attention" filter logic (ERROR status includes devices
+// with open actionable errors).
+// Sums fleet-health buckets across a flat device-identifier list. Same
+// bucket priority rules as CountMinersByState (mutually exclusive
+// offline/sleeping/broken/hashing) but with no device_set_membership
+// join, so site-direct (un-racked) devices are included. Used by
+// GetSiteStats + GetBuildingStats for the per-state rollup.
+//
+// `errors.severity IN (1, 2, 3, 4)` matches the actionable-severity
+// list defined in device_query_fragments.go (1=CRITICAL through
+// 4=INFO; excludes UNSPECIFIED=0).
+func (q *Queries) GetMinerStateCountsByDeviceIDs(ctx context.Context, arg GetMinerStateCountsByDeviceIDsParams) (GetMinerStateCountsByDeviceIDsRow, error) {
+	row := q.queryRow(ctx, q.getMinerStateCountsByDeviceIDsStmt, getMinerStateCountsByDeviceIDs, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	var i GetMinerStateCountsByDeviceIDsRow
+	err := row.Scan(
+		&i.OfflineCount,
+		&i.SleepingCount,
+		&i.BrokenCount,
+		&i.HashingCount,
+	)
+	return i, err
+}
+
 const getOfflineDevices = `-- name: GetOfflineDevices :many
 SELECT
     d.id,

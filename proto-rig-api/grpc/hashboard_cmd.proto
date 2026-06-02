@@ -7,6 +7,7 @@ option go_package = "pkg/proto;hashboard";
 import "hashboard.proto";
 import "hashboard_cmd_debug.proto";
 import "hashboard_cmd_mfgtest.proto";
+import "hashboard_cmd_evb.proto";
 
 message reset_cmd {}
 
@@ -54,8 +55,11 @@ enum hardware_revision {
     HARDWARE_REV_B3B_MP = 34;
 
     // B4
+    HARDWARE_REV_B4_192_PROTO_0 = 40;
     HARDWARE_REV_B4_192_PROTO_1 = 41;
     HARDWARE_REV_B4_128_PROTO_1 = 42;
+    HARDWARE_REV_B4_192_PROTO_2 = 43;
+    HARDWARE_REV_B4_128_PROTO_2 = 44;
 }
 
 // A command used by the mobile client to ask the hw device for its metadata.
@@ -76,7 +80,8 @@ message asic_metadata {
     uint32 die_y = 4;
     uint32 binning_version = 5;
     uint32 binning = 6;
-    bool valid = 7;  // True if there was an error trying to decode this metadata
+    bool valid = 7;     // True if there was an error trying to decode this metadata
+    uint64 grwvpl = 8;  // Manufacturer Part Number
 }
 
 message mining_asic_metadata_get_cmd {}
@@ -136,12 +141,13 @@ message diagnostics_capabilities {
 
 // Operational limits - defines safe operating thresholds.
 message operational_limits {
-    float voltage_min = 1;     // Minimum input voltage (V).
-    float voltage_max = 2;     // Maximum input voltage (V).
-    float current_max = 3;     // Maximum input current (A).
-    float board_temp_max = 4;  // Maximum board temperature (C).
-    float asic_temp_max = 5;   // Maximum ASIC temperature (C).
-    float asic_temp_min = 6;   // Minimum ASIC temperature (C).
+    float voltage_min = 1;      // Minimum input voltage (V).
+    float voltage_max = 2;      // Maximum input voltage (V).
+    float current_max = 3;      // Maximum input current (A).
+    float board_temp_max = 4;   // Maximum board temperature (C).
+    float asic_temp_max = 5;    // Maximum ASIC temperature (C).
+    float asic_temp_min = 6;    // Minimum ASIC temperature (C).
+    float voltage_initial = 7;  // Initial/starting input voltage (V).
 }
 
 // Capabilities API - response containing all hashboard capabilities.
@@ -208,6 +214,7 @@ message mining_difficulty_set_rsp {}
 message mining_performance_mode_set_cmd {
     mining_performance_mode mode = 1;
     float power_target_watts = 2;
+    mining_performance_pll_algorithm pll_algorithm = 3;
 }
 
 message mining_performance_mode_set_rsp {}
@@ -258,6 +265,31 @@ message dfu_unlock_cmd {
 }
 
 message dfu_unlock_rsp {}
+
+enum diagnostic_data_status {
+    DIAGNOSTIC_DATA_STATUS_UNSPECIFIED = 0;
+    DIAGNOSTIC_DATA_STATUS_DATA = 1;
+    DIAGNOSTIC_DATA_STATUS_NO_DATA = 2;
+}
+
+message diagnostic_data_status_cmd {}
+
+message diagnostic_data_status_rsp {
+    bool data_available = 1;
+    uint32 unexpected_reboot_count = 2;
+    mcu_reset_reason last_reboot_reason = 3;
+}
+
+message diagnostic_data_read_cmd {}
+
+message diagnostic_data_read_rsp {
+    diagnostic_data_status data_status = 1;
+    bytes data = 2;
+}
+
+message diagnostic_data_abort_cmd {}
+
+message diagnostic_data_abort_rsp {}
 
 // ASIC type enumeration.
 enum asic_type {
@@ -326,6 +358,9 @@ message hashboard_cmd {
         reset_cmd reset_cmd = 4;
         fan_speed_set_cmd fan_speed_set_cmd = 5;
         capabilities_cmd capabilities_cmd = 6;
+        diagnostic_data_status_cmd diagnostic_data_status_cmd = 7;
+        diagnostic_data_read_cmd diagnostic_data_read_cmd = 8;
+        diagnostic_data_abort_cmd diagnostic_data_abort_cmd = 9;
 
         // Mining
         mining_asic_metadata_get_cmd mining_asic_metadata_get_cmd = 10;
@@ -335,6 +370,7 @@ message hashboard_cmd {
         mining_performance_mode_set_cmd mining_performance_mode_set_cmd = 14;
 
         // Mfgtest
+        mfgtest_read_bist_cmd mfgtest_read_bist_cmd = 29;
         mfgtest_serial_write_cmd mfgtest_serial_write_cmd = 30;
         mfgtest_serial_read_cmd mfgtest_serial_read_cmd = 31;
         mfgtest_store_binning_cmd mfgtest_store_binning_cmd = 32;
@@ -346,6 +382,9 @@ message hashboard_cmd {
         mfgtest_stack_status_cmd mfgtest_stack_status_cmd = 38;
         dfu_write_secure_id_cmd dfu_write_secure_id_cmd = 39;
         mfgtest_asic_debug_cmd mfgtest_asic_debug_cmd = 40;
+        // TODO: Temporary hack for MTE
+        mfgtest_mc3_quick_test_cmd mfgtest_mc3_quick_test_cmd = 27;
+        mfgtest_mc3_get_asic_data_cmd mfgtest_mc3_get_asic_data_cmd = 28;
 
         // Debug
         echo_cmd echo_cmd = 41;
@@ -358,6 +397,10 @@ message hashboard_cmd {
         asic_freq_set_cmd asic_freq_set_cmd = 48;
         async_message_interval_cmd async_message_interval_cmd = 49;
         asic_freq_gain_set_cmd asic_freq_gain_set_cmd = 50;
+
+        // EVB
+        evb_power_on_cmd evb_power_on_cmd = 60;
+        evb_packet_send_cmd evb_packet_send_cmd = 61;
 
         // DFU
         dfu_status_cmd dfu_status_cmd = 100;
@@ -388,6 +431,9 @@ message hashboard_rsp {
         reset_rsp reset_rsp = 4;  // This is only sent if the reset fails
         fan_speed_set_rsp fan_speed_set_rsp = 5;
         capabilities_rsp capabilities_rsp = 6;
+        diagnostic_data_status_rsp diagnostic_data_status_rsp = 7;
+        diagnostic_data_read_rsp diagnostic_data_read_rsp = 8;
+        diagnostic_data_abort_rsp diagnostic_data_abort_rsp = 9;
 
         // Mining
         mining_asic_metadata_get_rsp mining_asic_metadata_get_rsp = 10;
@@ -397,6 +443,7 @@ message hashboard_rsp {
         mining_performance_mode_set_rsp mining_performance_mode_set_rsp = 14;
 
         // Mfgtest
+        mfgtest_read_bist_rsp mfgtest_read_bist_rsp = 29;
         mfgtest_serial_write_rsp mfgtest_serial_write_rsp = 30;
         mfgtest_serial_read_rsp mfgtest_serial_read_rsp = 31;
         mfgtest_store_binning_rsp mfgtest_store_binning_rsp = 32;
@@ -408,6 +455,9 @@ message hashboard_rsp {
         mfgtest_stack_status_rsp mfgtest_stack_status_rsp = 38;
         dfu_write_secure_id_rsp dfu_write_secure_id_rsp = 39;
         mfgtest_asic_debug_rsp mfgtest_asic_debug_rsp = 40;
+        // TODO: Temporary hack for MTE
+        mfgtest_mc3_quick_test_rsp mfgtest_mc3_quick_test_rsp = 27;
+        mfgtest_mc3_get_asic_data_rsp mfgtest_mc3_get_asic_data_rsp = 28;
 
         // Debug
         echo_rsp echo_rsp = 41;
@@ -420,6 +470,10 @@ message hashboard_rsp {
         asic_freq_set_rsp asic_freq_set_rsp = 48;
         async_message_interval_rsp async_message_interval_rsp = 49;
         asic_freq_gain_set_rsp asic_freq_gain_set_rsp = 50;
+
+        // EVB
+        evb_power_on_rsp evb_power_on_rsp = 60;
+        evb_packet_send_rsp evb_packet_send_rsp = 61;
 
         // DFU
         dfu_status_rsp dfu_status_rsp = 100;

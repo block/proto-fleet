@@ -1,7 +1,7 @@
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/generatedApi";
 import { Duration } from "@/shared/components/DurationSelector";
 import { getDateFromEpoch } from "@/shared/utils/datetime";
-import { convertMegahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/utility";
+import { convertMegahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/telemetryFormat";
 
 export const conversionFns = {
   hashrate: convertMegahashSecToTerahashSec,

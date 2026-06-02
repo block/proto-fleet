@@ -53,7 +53,7 @@ const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = 
 
 const activeCurtailmentEvent: CurtailmentPillEvent = {
   reason: "Grid peak call",
-  state: "active",
+  state: "curtailing",
   scopeLabel: "Whole fleet",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,

@@ -109,7 +109,11 @@ message DiscoveredDeviceReport {
             expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
         }
     ];
-    string url_scheme       = 4 [(buf.validate.field).string = {in: ["http", "https"]}];
+    // No {in: [...]} restriction here: plugins may report non-http schemes
+    // (e.g., the virtual driver uses "virtual") and the pairing.Device proto
+    // accepts any string, so the gateway should not be stricter than the
+    // source schema. max_len keeps the field bounded.
+    string url_scheme       = 4 [(buf.validate.field).string.max_len = 32];
     string driver_name      = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
     string model            = 6 [(buf.validate.field).string.max_len = 255];
     string manufacturer     = 7 [(buf.validate.field).string.max_len = 255];
@@ -118,6 +122,10 @@ message DiscoveredDeviceReport {
 
 message ReportDiscoveredDevicesResponse {
     int64 accepted_count = 1;
+    // Reports the server refused to persist because the device is already
+    // paired with a different fleet_node. Operators see these as "the
+    // agent reported something it doesn't own."
+    int64 rejected_count = 2;
 }
 
 message ControlStreamRequest {
@@ -153,4 +161,27 @@ message ControlAck {
     string command_id    = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
     bool   succeeded     = 2;
     string error_message = 3 [(buf.validate.field).string.max_len = 4096];
+    AckCode code         = 4;
+}
+
+// AckCode is the structured outcome class for a ControlCommand. error_message
+// carries the precise human-readable reason. Codes route on consumer-visible
+// distinctions only (e.g., retry on different node for AGENT_INCAPABLE;
+// surface partial results for PARTIAL).
+enum AckCode {
+    ACK_CODE_UNSPECIFIED     = 0;
+    ACK_CODE_OK              = 1;
+    // PARTIAL: scan completed partially after commandTimeout; reports already uploaded.
+    ACK_CODE_PARTIAL         = 2;
+    // BAD_REQUEST: malformed payload, missing/invalid mode, invalid targets/ports, limits exceeded.
+    ACK_CODE_BAD_REQUEST     = 3;
+    // AGENT_INCAPABLE: this agent cannot execute the requested mode (mdns, nmap missing). Retry on a different node.
+    ACK_CODE_AGENT_INCAPABLE = 4;
+    // SCAN_FAILED: scanning machinery errored (nmap subprocess, etc.).
+    ACK_CODE_SCAN_FAILED     = 5;
+    // REPORT_FAILED: scan finished, report upload to the server failed.
+    ACK_CODE_REPORT_FAILED   = 6;
+    ACK_CODE_INTERNAL        = 7;
+    // BUSY: agent already has a command in flight; safe to retry shortly.
+    ACK_CODE_BUSY            = 8;
 }

@@ -7,7 +7,7 @@ import CompositionBar, { type Segment } from "@/shared/components/CompositionBar
 import { type ColConfig } from "@/shared/components/List/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { formatTempRange } from "@/shared/utils/utility";
+import { formatTempRange } from "@/shared/utils/telemetryFormat";
 
 const INACTIVE_PLACEHOLDER = "—";
 

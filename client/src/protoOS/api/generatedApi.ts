@@ -630,7 +630,7 @@ export interface HashboardInfo {
   /** @example "1.0" */
   api_version?: string;
   /** @example "B3a" */
-  board?: "CpuSimulated" | "B2" | "B3a" | "B3b" | "B3bSim" | "B4" | "B4Sim";
+  board?: "CpuSimulated" | "B2" | "B3a" | "B3b" | "B3bSim" | "B4_128" | "B4_192" | "B4Sim";
   /** Firmware version and build information */
   bootloader?: FWInfo;
   /** @example "ABC123" */
@@ -1636,7 +1636,7 @@ export interface SystemInfoSysteminfo {
 /** System status information including onboarding and password setup */
 export interface SystemStatuses {
   /**
-   * True when the miner is in secure mode and the factory default password is still active. Clients should prompt for a password change, and most authenticated endpoints are 403-gated until changed.
+   * True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.
    * @example false
    */
   default_password_active?: boolean;
@@ -1646,10 +1646,10 @@ export interface SystemStatuses {
   password_set?: boolean;
 }
 
-/** Configuration for telemetry data collection */
+/** Desired telemetry-service state */
 export interface TelemetryConfig {
   /**
-   * Enable or disable telemetry
+   * Whether telemetry-service should be running
    * @example true
    */
   enabled: boolean;
@@ -1677,10 +1677,10 @@ export interface TelemetryData {
   timestamp: string;
 }
 
-/** Response containing telemetry status information */
+/** Response containing telemetry-service status information */
 export interface TelemetryResponse {
   /**
-   * Whether telemetry is currently enabled
+   * Whether telemetry-service is currently running
    * @example true
    */
   enabled: boolean;
@@ -2237,7 +2237,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.8.0
+ * @version 1.8.1
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl http://127.0.0.1:8080
  * @contact <mining.support@block.xyz>
@@ -2606,7 +2606,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/system/locate
      * @secure
      */
-    locateSystem: (query: LocateSystemParams, params: RequestParams = {}) =>
+    locateSystem: (query: LocateSystemParams = {}, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/locate`,
         method: "POST",
@@ -2624,7 +2624,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/logs
      * @secure
      */
-    getSystemLogs: (query: GetSystemLogsParams, params: RequestParams = {}) =>
+    getSystemLogs: (query: GetSystemLogsParams = {}, params: RequestParams = {}) =>
       this.request<LogsResponse, MessageResponse>({
         path: `/api/v1/system/logs`,
         method: "GET",
@@ -2836,7 +2836,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/hashrate
      * @secure
      */
-    getMinerHashrate: (query: GetMinerHashrateParams, params: RequestParams = {}) =>
+    getMinerHashrate: (query: GetMinerHashrateParams = {}, params: RequestParams = {}) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate`,
         method: "GET",
@@ -2890,7 +2890,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/temperature
      * @secure
      */
-    getMinerTemperature: (query: GetMinerTemperatureParams, params: RequestParams = {}) =>
+    getMinerTemperature: (query: GetMinerTemperatureParams = {}, params: RequestParams = {}) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature`,
         method: "GET",
@@ -2944,7 +2944,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/power
      * @secure
      */
-    getMinerPower: (query: GetMinerPowerParams, params: RequestParams = {}) =>
+    getMinerPower: (query: GetMinerPowerParams = {}, params: RequestParams = {}) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power`,
         method: "GET",
@@ -3006,19 +3006,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Triggers a PSU firmware update. Publishes a firmware update command to each connected PSU via NATS. Use the `force` parameter to allow re-flashing the same firmware version.
+     * @description Triggers a PSU firmware update. Publishes a firmware update command to each connected PSU via NATS. Use the `force` query parameter to allow re-flashing the same firmware version. Use `psu_types` in the request body to override auto-detected PSU types per slot.
      *
      * @tags PSUs
      * @name PostUpdatePsu
      * @request POST:/api/v1/power-supplies/update
      * @secure
      */
-    postUpdatePsu: (query: PostUpdatePsuParams, params: RequestParams = {}) =>
+    postUpdatePsu: (
+      query: PostUpdatePsuParams = {},
+      data?: {
+        /**
+         * Per-PSU type overrides. Keys are PSU slot IDs (1-3). Omitted slots use auto-detection.
+         * @example {"1":"boco_bs502a17","2":"boco_bs402a17"}
+         */
+        psu_types?: Record<string, "chicony_s24" | "boco_bs402a17" | "boco_bs502a17">;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/power-supplies/update`,
         method: "POST",
         query: query,
+        body: data,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -3049,7 +3061,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/efficiency
      * @secure
      */
-    getMinerEfficiency: (query: GetMinerEfficiencyParams, params: RequestParams = {}) =>
+    getMinerEfficiency: (query: GetMinerEfficiencyParams = {}, params: RequestParams = {}) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency`,
         method: "GET",
@@ -3215,7 +3227,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get the current system telemetry enabled status.
+     * @description Get whether telemetry-service is currently running.
      *
      * @tags System
      * @name GetSystemTelemetryEnabled
@@ -3230,7 +3242,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Configure system telemetry enabled settings.
+     * @description Start or stop telemetry-service.
      *
      * @tags System
      * @name SetSystemTelemetryEnabled
@@ -3276,7 +3288,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/telemetry
      * @secure
      */
-    getCurrentTelemetry: (query: GetCurrentTelemetryParams, params: RequestParams = {}) =>
+    getCurrentTelemetry: (query: GetCurrentTelemetryParams = {}, params: RequestParams = {}) =>
       this.request<TelemetryData, MessageResponse>({
         path: `/api/v1/telemetry`,
         method: "GET",

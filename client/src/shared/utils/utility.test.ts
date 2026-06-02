@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { copyToClipboard, debounce, deepClone, formatHashrateWithUnit, formatTempRange, getRowLabel } from "./utility";
+import { copyToClipboard, debounce, deepClone, getRowLabel } from "./utility";
 
 describe("deepClone", () => {
   test("should create a deep copy of an object", () => {
@@ -114,44 +114,6 @@ describe("getRowLabel", () => {
     expect(getRowLabel(7)).toBe("H");
     expect(getRowLabel(8)).toBe("I");
     expect(getRowLabel(9)).toBe("J");
-  });
-});
-
-describe("formatHashrateWithUnit", () => {
-  test("should return TH/S for values <= 1000", () => {
-    expect(formatHashrateWithUnit(0)).toEqual({ value: 0, unit: "TH/S" });
-    expect(formatHashrateWithUnit(500)).toEqual({ value: 500, unit: "TH/S" });
-    expect(formatHashrateWithUnit(1000)).toEqual({ value: 1000, unit: "TH/S" });
-  });
-
-  test("should return PH/S for values > 1000", () => {
-    expect(formatHashrateWithUnit(1001)).toEqual({
-      value: 1.001,
-      unit: "PH/S",
-    });
-    expect(formatHashrateWithUnit(2000)).toEqual({ value: 2, unit: "PH/S" });
-    expect(formatHashrateWithUnit(5500)).toEqual({ value: 5.5, unit: "PH/S" });
-  });
-
-  test("should handle undefined/null values", () => {
-    expect(formatHashrateWithUnit()).toEqual({ value: 0, unit: "TH/S" });
-  });
-});
-
-describe("formatTempRange", () => {
-  test("formats Celsius range with one decimal", () => {
-    expect(formatTempRange(20.1, 65.5, "C")).toBe("20.1 °C – 65.5 °C");
-  });
-
-  test("formats Fahrenheit range by converting from Celsius", () => {
-    expect(formatTempRange(0, 100, "F")).toBe("32.0 °F – 212.0 °F");
-  });
-
-  test("uses correct degree sign (U+00B0) and en dash", () => {
-    const result = formatTempRange(30, 40, "C");
-    expect(result).toContain("°"); // U+00B0 degree sign
-    expect(result).toContain("–"); // en dash
-    expect(result).not.toContain("º"); // not U+00BA ordinal indicator
   });
 });
 

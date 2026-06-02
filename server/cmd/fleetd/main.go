@@ -71,6 +71,7 @@ import (
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
@@ -217,6 +218,8 @@ func start(config *Config) error {
 	fleetNodeEnrollmentSvc := fleetnodeenrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
 	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
+	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
+	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -436,8 +439,8 @@ func start(config *Config) error {
 		curtailmentDomain.WithAuditLogger(activitySvc),
 	)
 
-	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
-	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, transactor, activitySvc)
+	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, deviceStore, telemetryService, transactor, activitySvc)
+	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)
@@ -526,8 +529,8 @@ func start(config *Config) error {
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
-	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc), li))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(fleetNodeEnrollmentSvc), li))
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
