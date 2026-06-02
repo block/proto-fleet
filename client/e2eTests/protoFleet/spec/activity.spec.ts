@@ -78,6 +78,7 @@ test.describe("Proto Fleet - Activity", () => {
 
     await test.step("Open the detail modal and validate per-miner results", async () => {
       await activityPage.openCompletedActivityDetails("Blink LEDs", "3 miners");
+      await activityPage.waitForCompletedActivityDetails(3, 0, 3);
       await activityPage.validateActivityDetailSucceededCount(3);
       await activityPage.validateActivityDetailFailedCount(0);
       for (const minerIp of selectedMinerIps) {

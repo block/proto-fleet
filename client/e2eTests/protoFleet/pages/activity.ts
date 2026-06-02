@@ -96,16 +96,19 @@ export class ActivityPage extends BasePage {
   }
 
   async validateCompletedActivityRowVisible(description: string, scopeText: string) {
+    await this.waitForCompletedActivityRow(description, scopeText);
     await expect(this.completedActivityRowByDescriptionAndScope(description, scopeText)).toBeVisible();
   }
 
   async validateCompletedActivityRowUser(description: string, scopeText: string, username: string) {
+    await this.waitForCompletedActivityRow(description, scopeText);
     await expect(this.completedActivityRowByDescriptionAndScope(description, scopeText).getByTestId("user")).toHaveText(
       username,
     );
   }
 
   async validateCompletedActivityRowNotMarkedFailed(description: string, scopeText: string) {
+    await this.waitForCompletedActivityRow(description, scopeText);
     await expect(
       this.completedActivityRowByDescriptionAndScope(description, scopeText).getByTestId(
         "activity-row-failed-indicator",
@@ -147,6 +150,7 @@ export class ActivityPage extends BasePage {
   }
 
   async openCompletedActivityDetails(description: string, scopeText: string) {
+    await this.waitForCompletedActivityRow(description, scopeText);
     await this.completedActivityRowByDescriptionAndScope(description, scopeText).click();
     await this.validateTitleInModal("Actions");
   }
@@ -170,6 +174,35 @@ export class ActivityPage extends BasePage {
     await expect(this.page.getByTestId("activity-detail-failed")).toContainText(
       `${count} ${count === 1 ? "miner" : "miners"}`,
     );
+  }
+
+  async waitForCompletedActivityDetails(succeededCount: number, failedCount: number, resultRowCount: number) {
+    const expectedState = JSON.stringify({
+      succeeded: `${succeededCount} ${succeededCount === 1 ? "miner" : "miners"}`,
+      failed: `${failedCount} ${failedCount === 1 ? "miner" : "miners"}`,
+      resultRows: resultRowCount,
+    });
+
+    await expect
+      .poll(
+        async () =>
+          JSON.stringify({
+            succeeded: await this.page
+              .getByTestId("activity-detail-succeeded")
+              .textContent()
+              .then((text) => text?.replace(/^Succeeded/, "")),
+            failed: await this.page
+              .getByTestId("activity-detail-failed")
+              .textContent()
+              .then((text) => text?.replace(/^Failed/, "")),
+            resultRows: await this.page.getByTestId("activity-detail-device-result-row").count(),
+          }),
+        {
+          timeout: DEFAULT_TIMEOUT,
+          intervals: [100, DEFAULT_INTERVAL],
+        },
+      )
+      .toBe(expectedState);
   }
 
   async validateActivityDetailMinerResultVisible(minerIdentifier: string, status: "Success" | "Failed") {
@@ -234,6 +267,15 @@ export class ActivityPage extends BasePage {
       })
       .filter({ hasText: "succeeded" })
       .first();
+  }
+
+  private async waitForCompletedActivityRow(description: string, scopeText: string) {
+    await expect
+      .poll(async () => await this.completedActivityRowByDescriptionAndScope(description, scopeText).count(), {
+        timeout: DEFAULT_TIMEOUT,
+        intervals: [100, DEFAULT_INTERVAL],
+      })
+      .toBeGreaterThan(0);
   }
 
   private filterPillByLabel(label: string): Locator {
