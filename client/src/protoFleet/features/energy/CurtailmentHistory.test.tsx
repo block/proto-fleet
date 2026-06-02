@@ -5,6 +5,13 @@ import userEvent from "@testing-library/user-event";
 import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
 import { mockCurtailmentHistoryEvents } from "@/protoFleet/features/energy/CurtailmentHistory.fixtures";
 
+const testDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 function getRenderedRows(): HTMLElement[] {
   return screen.queryAllByTestId(/^curtailment-history-row-/);
 }
@@ -187,6 +194,7 @@ describe("CurtailmentHistory", () => {
       createdAt: "2026-04-30T13:56:00-04:00",
       endedAt: "2026-04-30T14:12:00-04:00",
     };
+    const expectedCreatedAt = testDateTimeFormatter.format(new Date(completedEvent.createdAt));
 
     render(<CurtailmentHistory events={[completedEvent]} />);
 
@@ -194,10 +202,10 @@ describe("CurtailmentHistory", () => {
 
     const modal = screen.getByTestId("modal");
     expect(within(modal).getByText("Started")).toBeInTheDocument();
-    expect(within(modal).getByText("Apr 30, 1:56 PM")).toBeInTheDocument();
+    expect(within(modal).getByText(expectedCreatedAt)).toBeInTheDocument();
     expect(within(modal).queryByText("Not started yet")).not.toBeInTheDocument();
     expect(within(modal).queryByText("Created")).not.toBeInTheDocument();
-    expect(within(modal).queryByText("Created Apr 30, 1:56 PM")).not.toBeInTheDocument();
+    expect(within(modal).queryByText(`Created ${expectedCreatedAt}`)).not.toBeInTheDocument();
   });
 
   it("renders injected active rows with their display state", async () => {
