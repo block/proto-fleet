@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -297,14 +298,18 @@ func validateAndNormalizeKeys(keys []string) ([]string, error) {
 }
 
 // validateRoleName rejects empty/whitespace names and names that would
-// blow past the column length. Reserved names (SUPER_ADMIN / ADMIN /
-// FIELD_TECH) are caught by the DB CHECK chk_role_custom_name_not_reserved
-// and surface as an InvalidArgument via mapRolePersistError.
+// blow past the column length. The cap is character-counted (runes)
+// to match Postgres VARCHAR(255) and protovalidate's string.max_len,
+// both of which count Unicode codepoints — len() would count bytes
+// and falsely reject valid multi-byte names (emoji, CJK). Reserved
+// names (SUPER_ADMIN / ADMIN / FIELD_TECH) are caught by the DB CHECK
+// chk_role_custom_name_not_reserved and surface as an InvalidArgument
+// via mapRolePersistError.
 func validateRoleName(name string) error {
 	if name == "" {
 		return fleeterror.NewInvalidArgumentError("name is required")
 	}
-	if len(name) > maxRoleNameLength {
+	if utf8.RuneCountInString(name) > maxRoleNameLength {
 		return fleeterror.NewInvalidArgumentErrorf("name must be at most %d characters", maxRoleNameLength)
 	}
 	return nil

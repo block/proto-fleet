@@ -25,8 +25,16 @@ func TestValidateRoleName(t *testing.T) {
 		{"valid", "Operator", 0},
 		{"valid with spaces", "Site Operator", 0},
 		{"empty", "", connect.CodeInvalidArgument},
-		{"too long", strings.Repeat("x", maxRoleNameLength+1), connect.CodeInvalidArgument},
-		{"max length boundary", strings.Repeat("x", maxRoleNameLength), 0},
+		{"too long ascii", strings.Repeat("x", maxRoleNameLength+1), connect.CodeInvalidArgument},
+		{"max length boundary ascii", strings.Repeat("x", maxRoleNameLength), 0},
+		// Multi-byte names: the cap is character-counted, not byte-counted.
+		// 130 CJK chars (each 3 bytes in UTF-8) is 390 bytes — would fail
+		// a len()-based check but fits the 255-character schema and the
+		// protovalidate string.max_len rune-based wire bound.
+		{"130 CJK characters within rune cap", strings.Repeat("中", 130), 0},
+		{"100 emoji within rune cap", strings.Repeat("😀", 100), 0},
+		{"max length boundary unicode", strings.Repeat("中", maxRoleNameLength), 0},
+		{"over rune cap rejected", strings.Repeat("中", maxRoleNameLength+1), connect.CodeInvalidArgument},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
