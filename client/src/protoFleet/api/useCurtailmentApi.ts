@@ -127,6 +127,13 @@ const historyTerminalCurtailmentEventStates = new Set<CurtailmentEventState>([
   "cancelled",
   "failed",
 ]);
+const activeReconciliationHistoryPageLimit = 3;
+const activeReconciliationHistoryStateFilters: CurtailmentEventState[] = [
+  "completed",
+  "completedWithFailures",
+  "cancelled",
+  "failed",
+];
 
 function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtailmentEventState {
   switch (stateFilter) {
@@ -435,12 +442,18 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   );
 
   const findCurtailmentEventInHistory = useCallback(
-    async (eventUuid: string, signal?: AbortSignal): Promise<ProtoCurtailmentEvent | undefined> => {
+    async (
+      eventUuid: string,
+      stateFilters: CurtailmentEventState[],
+      pageLimit: number,
+      signal?: AbortSignal,
+    ): Promise<ProtoCurtailmentEvent | undefined> => {
       let pageToken = "";
       const knownPageTokens: (string | undefined)[] = [undefined];
+      let pageCount = 0;
 
-      while (true) {
-        const page = await listCurtailmentEventsPage(pageToken, knownPageTokens, [], signal);
+      while (pageCount < pageLimit) {
+        const page = await listCurtailmentEventsPage(pageToken, knownPageTokens, stateFilters, signal);
         const matchingEvent = page.events.find((event) => event.eventUuid === eventUuid);
         if (matchingEvent) {
           return matchingEvent;
@@ -452,7 +465,10 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
         pageToken = page.nextPageToken;
         knownPageTokens.push(pageToken);
+        pageCount += 1;
       }
+
+      return undefined;
     },
     [listCurtailmentEventsPage],
   );
@@ -466,13 +482,19 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     ): Promise<ProtoCurtailmentEvent[]> => {
       if (
         !activeEvent ||
+        activeEvent.state !== ProtoCurtailmentEventState.RESTORING ||
         stateFilters.length === 0 ||
         historyEvents.some((historyEvent) => historyEvent.eventUuid === activeEvent.eventUuid)
       ) {
         return historyEvents;
       }
 
-      const matchingEvent = await findCurtailmentEventInHistory(activeEvent.eventUuid, signal);
+      const matchingEvent = await findCurtailmentEventInHistory(
+        activeEvent.eventUuid,
+        activeReconciliationHistoryStateFilters,
+        activeReconciliationHistoryPageLimit,
+        signal,
+      );
       return matchingEvent ? [matchingEvent] : historyEvents;
     },
     [findCurtailmentEventInHistory],

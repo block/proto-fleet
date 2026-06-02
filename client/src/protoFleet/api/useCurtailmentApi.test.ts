@@ -498,6 +498,7 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEventId).toBe("curt-active");
     expect(result.current.historyStatusFilters).toEqual(["completed"]);
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(1);
   });
 
   it("reconciles terminal active state when current history filters exclude terminal rows", async () => {
@@ -528,13 +529,47 @@ describe("useCurtailmentApi", () => {
     });
 
     expect(mockListCurtailmentEvents.mock.calls[0][0].stateFilters).toEqual([CurtailmentEventState.RESTORING]);
-    expect(mockListCurtailmentEvents.mock.calls[1][0].stateFilters).toEqual([]);
-    expect(mockListCurtailmentEvents.mock.calls[2][0].stateFilters).toEqual([]);
+    const terminalStateFilters = [
+      CurtailmentEventState.COMPLETED,
+      CurtailmentEventState.COMPLETED_WITH_FAILURES,
+      CurtailmentEventState.CANCELLED,
+      CurtailmentEventState.FAILED,
+    ];
+    expect(mockListCurtailmentEvents.mock.calls[1][0].stateFilters).toEqual(terminalStateFilters);
+    expect(mockListCurtailmentEvents.mock.calls[2][0].stateFilters).toEqual(terminalStateFilters);
     expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual(["", "", "page-2"]);
     expect(result.current.activeEventId).toBe("curt-filtered-terminal");
     expect(result.current.activeEvent?.state).toBe("completed");
     expect(result.current.historyStatusFilters).toEqual(["restoring"]);
     expect(result.current.historyEvents).toEqual([]);
+  });
+
+  it("caps terminal reconciliation history paging when the active row is not found", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-missing-terminal",
+      state: CurtailmentEventState.RESTORING,
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: undefined });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [curtailmentEvent({ eventUuid: "curt-terminal-1" })], nextPageToken: "page-2" })
+      .mockResolvedValueOnce({ events: [curtailmentEvent({ eventUuid: "curt-terminal-2" })], nextPageToken: "page-3" })
+      .mockResolvedValueOnce({ events: [curtailmentEvent({ eventUuid: "curt-terminal-3" })], nextPageToken: "page-4" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["restoring"]);
+    });
+
+    expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual([
+      "",
+      "",
+      "page-2",
+      "page-3",
+    ]);
+    expect(result.current.activeEvent?.state).toBe("restoring");
   });
 
   it("refreshes history without refetching active curtailment when requested", async () => {
