@@ -34,6 +34,7 @@ export const importSettingsGeneral = () => import("@/protoFleet/features/setting
 export const importSettingsAuth = () => import("@/protoFleet/features/settings/components/Auth");
 export const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
 export const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
+export const importSettingsRoles = () => import("@/protoFleet/features/settings/components/Roles");
 export const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
 export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
@@ -63,6 +64,7 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsAuth,
   importSettingsMiningPools,
   importSettingsTeam,
+  importSettingsRoles,
   importSettingsFirmware,
   importSettingsSchedules,
   importSettingsApiKeys,

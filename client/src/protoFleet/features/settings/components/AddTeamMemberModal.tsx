@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
@@ -7,6 +8,7 @@ import Callout from "@/shared/components/Callout";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
+import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
 
@@ -21,11 +23,35 @@ type ModalStep = "enterUsername" | "displayPassword";
 const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalProps) => {
   const isVisible = open ?? true;
   const { createUser } = useUserManagement();
+  const { listRoles } = useRoleManagement();
   const [step, setStep] = useState<ModalStep>("enterUsername");
   const [username, setUsername] = useState("");
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [roles, setRoles] = useState<RoleItem[]>([]);
+  const [roleId, setRoleId] = useState("");
+
+  // Load assignable roles when the modal opens. The Owner role is excluded —
+  // ownership transfer is a separate, deliberate flow, not a member default.
+  useEffect(() => {
+    if (!isVisible) return;
+    listRoles({
+      onSuccess: (roleList) => {
+        const assignable = roleList.filter((role) => role.builtinKey !== "SUPER_ADMIN");
+        setRoles(assignable);
+        // Default to the least-privileged built-in (Field Tech) when present.
+        const defaultRole = assignable.find((role) => role.builtinKey === "FIELD_TECH") ?? assignable[0];
+        setRoleId((current) => current || defaultRole?.roleId || "");
+      },
+      onError: (error) => pushToast({ message: error || "Failed to load roles", status: STATUSES.error }),
+    });
+  }, [isVisible, listRoles]);
+
+  const roleOptions = useMemo(
+    () => roles.map((role) => ({ value: role.roleId, label: role.name, description: role.description })),
+    [roles],
+  );
 
   // Reset form state when modal closes
   const [prevVisible, setPrevVisible] = useState(isVisible);
@@ -37,6 +63,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       setTemporaryPassword("");
       setIsSubmitting(false);
       setErrorMsg("");
+      setRoleId("");
     }
   }
 
@@ -51,6 +78,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
 
     createUser({
       username: username.trim(),
+      roleId: roleId || undefined,
       onSuccess: (_userId, _username, tempPassword) => {
         setTemporaryPassword(tempPassword);
         setStep("displayPassword");
@@ -66,7 +94,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
         setIsSubmitting(false);
       },
     });
-  }, [username, createUser]);
+  }, [username, roleId, createUser]);
 
   const handleCopyPassword = useCallback(() => {
     copyToClipboard(temporaryPassword)
@@ -107,22 +135,42 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
         divider={false}
       >
         <div className="mb-6">
-          Add a member by entering their username. Fleet generates a temporary password for you to share so they can log
-          in and set a new one.
+          Add a member by entering their username and choosing a role. Fleet generates a temporary password for you to
+          share so they can log in and set a new one.
         </div>
 
         {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
-        <Input
-          id="username"
-          label="Username"
-          initValue={username}
-          onChange={(value) => {
-            setUsername(value);
-            setErrorMsg("");
-          }}
-          autoFocus
-        />
+        <div className="flex flex-col gap-4">
+          <Input
+            id="username"
+            label="Username"
+            initValue={username}
+            onChange={(value) => {
+              setUsername(value);
+              setErrorMsg("");
+            }}
+            autoFocus
+          />
+
+          <div className="flex flex-col gap-2">
+            <Select
+              id="role"
+              label="Role"
+              options={roleOptions}
+              value={roleId}
+              onChange={(value) => {
+                setRoleId(value);
+                setErrorMsg("");
+              }}
+              // Open downward so the modal footer doesn't clip the listbox.
+              forceBelow
+            />
+            <span className="text-200 text-text-primary-50">
+              The role sets what this member can see and do. Manage roles in Settings → Roles.
+            </span>
+          </div>
+        </div>
       </Modal>
     );
   }

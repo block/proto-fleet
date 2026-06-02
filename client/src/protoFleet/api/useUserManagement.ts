@@ -11,6 +11,12 @@ import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateUserProps {
   username: CreateUserRequest["username"];
+  // roleId is the role to assign on creation. Optional so existing callers
+  // keep working; when omitted the server applies its default (FIELD_TECH).
+  // TODO(rbac): CreateUserRequest has no role_id field yet. Add
+  // `string role_id = 2;` to proto/auth/v1/auth.proto, run `just gen`, then
+  // forward it in the authClient.createUser call below.
+  roleId?: string;
   onSuccess?: (userId: string, username: string, tempPassword: string) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -49,7 +55,11 @@ const useUserManagement = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createUser = useCallback(
-    async ({ username, onSuccess, onError, onFinally }: CreateUserProps) => {
+    async ({ username, roleId, onSuccess, onError, onFinally }: CreateUserProps) => {
+      // TODO(rbac): forward roleId once CreateUserRequest gains a role_id field
+      // (see the note on CreateUserProps). Referenced here so the
+      // accepted-but-not-yet-wired parameter doesn't trip the unused check.
+      void roleId;
       await authClient
         .createUser({ username })
         .then((response) => {
