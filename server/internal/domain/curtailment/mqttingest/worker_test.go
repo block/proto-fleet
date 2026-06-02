@@ -326,3 +326,34 @@ func TestWorker_HandleMessage_OnToOff_ReferenceUsesPublishedAt(t *testing.T) {
 		"external_reference must use the publisher timestamp, not receive-time")
 	assert.Equal(t, received, next.LastEdgeAt, "debounce anchor stays receive-time")
 }
+
+// A stale/out-of-order payload (publisher timestamp older than the last one
+// acted on) must be ignored, not allowed to Stop the active curtailment.
+func TestWorker_HandleMessage_StalePayload_Ignored(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	processedAt := now.Add(-10 * time.Second) // publisher ts of the OFF we already acted on
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOff,
+		LastTargetAt:   processedAt,
+		LastEdgeAt:     now.Add(-1 * time.Minute), // well outside the 5s debounce window
+	}
+
+	// A stale ON published before the OFF we already acted on, delivered now.
+	staleTS := processedAt.Add(-30 * time.Second)
+	body, err := json.Marshal(map[string]any{"target": 100, "timestamp": staleTS.Unix()})
+	require.NoError(t, err)
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: body, receivedAt: now})
+
+	assert.Empty(t, svc.stopCalls, "a stale ON must not Stop the active curtailment")
+	assert.Equal(t, TargetOff, next.LastTarget, "state stays OFF")
+	assert.Equal(t, processedAt, next.LastTargetAt, "stale payload must not advance the processed timestamp")
+}

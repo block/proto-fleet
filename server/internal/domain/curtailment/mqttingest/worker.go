@@ -143,6 +143,19 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		return prior
 	}
 
+	// Ignore stale/out-of-order payloads: a broker can redeliver (QoS 1) or
+	// replay a payload published before the one we last acted on. Feeding it to
+	// the edge detector would let a late ON stop a curtailment the newer OFF
+	// established, even though the publisher's current state is OFF. Order
+	// against LastTargetAt (the last processed publisher timestamp).
+	if !prior.LastTargetAt.IsZero() && canonical.PublishedAt.Before(prior.LastTargetAt) {
+		w.cfg.Logger.Warn("mqttingest: ignoring stale payload",
+			slog.String("source", w.source.SourceName),
+			slog.Time("published_at", canonical.PublishedAt),
+			slog.Time("last_processed_at", prior.LastTargetAt))
+		return prior
+	}
+
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
