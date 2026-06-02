@@ -144,6 +144,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStopConfirmationDialog", () => 
 
 const activeEvent = {
   reason: "Grid peak",
+  state: "active",
   selectedMiners: 2,
   targetKw: 5,
   estimatedReductionKw: 6.2,
@@ -286,7 +287,7 @@ describe("CurtailmentManagementPanel", () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
-        activeEvent,
+        activeEvent: { ...activeEvent, state: "completed" },
         activeEventId: "curt-1",
       }),
     );
@@ -296,6 +297,32 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Dismiss restored" }));
 
     expect(mocks.dismissTerminalCurtailment).toHaveBeenCalledOnce();
+  });
+
+  it("polls active curtailments with a full history refresh so restoring can become restored", async () => {
+    vi.useFakeTimers();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, state: "restoring" },
+        activeEventId: "curt-1",
+      }),
+    );
+
+    try {
+      render(<CurtailmentManagementPanel />);
+
+      expect(mocks.refreshCurtailment).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(mocks.refreshCurtailment).toHaveBeenCalledWith({
+        background: true,
+        historyPage: 0,
+        signal: expect.any(AbortSignal),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("opens active curtailment management and submits updates", async () => {

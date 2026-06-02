@@ -176,6 +176,29 @@ describe("CurtailmentHistory", () => {
     expect(onStopActiveEvent).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the created time as the started detail when an event has not started", async () => {
+    const user = userEvent.setup();
+    const pendingEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-created-started-detail",
+      reason: "Queued curtailment",
+      state: "pending" as const,
+      startedAt: "",
+      createdAt: "2026-04-30T13:56:00-04:00",
+    };
+
+    render(<CurtailmentHistory events={[pendingEvent]} activeEventId={pendingEvent.id} />);
+
+    await user.click(screen.getByTestId("curtailment-history-row-curt-created-started-detail"));
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Started")).toBeInTheDocument();
+    expect(within(modal).getByText("Apr 30, 1:56 PM")).toBeInTheDocument();
+    expect(within(modal).queryByText("Not started yet")).not.toBeInTheDocument();
+    expect(within(modal).queryByText("Created")).not.toBeInTheDocument();
+    expect(within(modal).queryByText("Created Apr 30, 1:56 PM")).not.toBeInTheDocument();
+  });
+
   it("renders injected active rows with their display state", async () => {
     const user = userEvent.setup();
     const curtailingPendingEvent = {

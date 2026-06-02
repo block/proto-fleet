@@ -167,6 +167,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
     expect(screen.getByText("Estimated time to restore")).toBeVisible();
     expect(screen.getByText("Immediate")).toBeVisible();
+    expect(screen.queryByText("Estimated completion")).not.toBeInTheDocument();
     expectProgressHidden();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
@@ -262,7 +263,7 @@ describe("ActiveCurtailmentStatus", () => {
 
       expect(screen.getByText("Estimated time to restore")).toBeVisible();
       expect(screen.getByText("Immediate")).toBeVisible();
-      expect(screen.getByText(formatExpectedDateTime("2026-05-01T10:00:00-04:00"))).toBeVisible();
+      expect(screen.queryByText("Estimated completion")).not.toBeInTheDocument();
       expect(screen.queryByText(formatExpectedDateTime("2026-05-01T10:02:00-04:00"))).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -285,7 +286,8 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.getByText("Time unavailable")).toBeVisible();
+    expect(screen.queryByText("Estimated completion")).not.toBeInTheDocument();
+    expect(screen.queryByText("Time unavailable")).not.toBeInTheDocument();
   });
 
   it("renders a restored event with dismiss available", async () => {

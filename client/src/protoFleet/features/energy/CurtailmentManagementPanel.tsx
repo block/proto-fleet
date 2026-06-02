@@ -40,6 +40,9 @@ interface CurtailmentMessageProps {
   message: string;
 }
 
+const activeCurtailmentRefreshIntervalMs = 3_000;
+const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
+
 function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement {
   return (
     <div className="flex items-center gap-3 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
@@ -97,6 +100,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
+  const activeEventState = activeEvent?.state;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     refreshAbortControllerRef.current?.abort();
@@ -115,6 +119,22 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
 
     return () => refreshAbortControllerRef.current?.abort();
   }, [refreshCurtailment, runAbortableRefresh]);
+
+  useEffect(() => {
+    if (!activeEventState || !nonTerminalActiveEventStates.has(activeEventState)) {
+      return undefined;
+    }
+
+    const abortController = new AbortController();
+    const intervalId = window.setInterval(() => {
+      void refreshCurtailment({ background: true, historyPage: 0, signal: abortController.signal }).catch(() => {});
+    }, activeCurtailmentRefreshIntervalMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+      abortController.abort();
+    };
+  }, [activeEventState, refreshCurtailment]);
 
   const closeModal = useCallback(() => {
     setModalMode(null);

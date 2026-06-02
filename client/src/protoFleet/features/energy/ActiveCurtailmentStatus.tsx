@@ -472,6 +472,10 @@ export default function ActiveCurtailmentStatus({
   const restoreCompletionLabel = displayFlags.isRestored ? "Completed" : "Estimated completion";
   const restoreCompletionValue =
     displayFlags.isRestored || event.endedAt ? formatDateTime(event.endedAt) : estimatedCompletion;
+  const shouldRenderRestoreCompletion =
+    displayFlags.isRestored ||
+    Boolean(event.endedAt) ||
+    (remainingRestoreSeconds > 0 && estimatedCompletion !== unavailableTimeLabel);
   const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
   const statusIcon = getActiveCurtailmentStatusIcon({
     isTerminalFailure: displayFlags.isTerminalFailure,
@@ -513,9 +517,9 @@ export default function ActiveCurtailmentStatus({
               <StatBlock label={restoreTimeLabel} value={restoreTimeValue} />
               {displayFlags.isRestoreIncomplete ? (
                 <StatBlock label="Failed to restore" value={restoreFailureValue} />
-              ) : (
+              ) : shouldRenderRestoreCompletion ? (
                 <StatBlock label={restoreCompletionLabel} value={restoreCompletionValue} />
-              )}
+              ) : null}
             </>
           ) : (
             <>
