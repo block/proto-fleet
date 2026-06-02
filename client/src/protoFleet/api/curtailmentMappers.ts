@@ -6,10 +6,13 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
+  getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
+  getCurtailmentEventObservedReductionKw,
   getCurtailmentEventScopeLabel,
   getCurtailmentEventSelectedMinerCount,
   getCurtailmentTargetRollups,
+  isActiveCurtailmentEventState,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
@@ -116,24 +119,17 @@ function getSourceLabel(event: ProtoCurtailmentEvent): string {
 
 function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductionKw: number): ObservedPowerSummary {
   let observedPowerTotalW = 0;
-  let observedReductionTotalW = 0;
   let hasObservedPower = false;
-  let hasObservedReduction = false;
 
-  for (const { baselinePowerW, observedPowerW } of event.targets) {
+  for (const { observedPowerW } of event.targets) {
     if (observedPowerW !== undefined) {
       hasObservedPower = true;
       observedPowerTotalW += observedPowerW;
     }
-
-    if (baselinePowerW !== undefined && observedPowerW !== undefined) {
-      hasObservedReduction = true;
-      observedReductionTotalW += Math.max(baselinePowerW - observedPowerW, 0);
-    }
   }
 
   return {
-    observedReductionKw: hasObservedReduction ? observedReductionTotalW / wattsPerKilowatt : estimatedReductionKw,
+    observedReductionKw: getCurtailmentEventObservedReductionKw(event, estimatedReductionKw),
     remainingPowerKw: hasObservedPower ? observedPowerTotalW / wattsPerKilowatt : undefined,
   };
 }
@@ -152,7 +148,7 @@ export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveC
     targetKw: getFixedKwTarget(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
-    restoreBatchSize: event.effectiveBatchSize || event.restoreBatchSize,
+    restoreBatchSize: event.restoreBatchSize || event.effectiveBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
     rollups: getCurtailmentTargetRollups(event),
   };
@@ -173,5 +169,20 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
     endedAt: timestampToIsoString(event.endedAt),
     scheduledAt: timestampToIsoString(event.scheduledStartAt),
     createdAt: timestampToIsoString(event.createdAt),
+  };
+}
+
+export function mapActiveCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
+  const historyEvent = mapCurtailmentHistoryEvent(event);
+
+  if (!isActiveCurtailmentEventState(historyEvent.state)) {
+    return historyEvent;
+  }
+
+  return {
+    ...historyEvent,
+    displayState: getActiveCurtailmentDisplayState(mapActiveCurtailmentEvent(event), {
+      dispatchStartedAsCurtailing: true,
+    }),
   };
 }

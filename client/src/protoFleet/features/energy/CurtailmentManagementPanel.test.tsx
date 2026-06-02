@@ -9,9 +9,11 @@ import CurtailmentManagementPanel from "@/protoFleet/features/energy/Curtailment
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
+  dismissTerminalCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
   refreshCurtailment: vi.fn(),
   setHistoryStatusFilter: vi.fn(),
+  setHistoryStatusFilters: vi.fn(),
   startCurtailment: vi.fn(),
   stopCurtailment: vi.fn(),
   submitValues: { reason: "Grid peak" },
@@ -154,10 +156,14 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     historyHasNextPage: false,
     historyHasPreviousPage: false,
     historyPageSize: 50,
+    historyStatusFilters: [],
     refreshCurtailment: mocks.refreshCurtailment as UseCurtailmentApiResult["refreshCurtailment"],
     goToHistoryPage: mocks.goToHistoryPage as UseCurtailmentApiResult["goToHistoryPage"],
     setHistoryStatusFilter: mocks.setHistoryStatusFilter as UseCurtailmentApiResult["setHistoryStatusFilter"],
+    setHistoryStatusFilters: mocks.setHistoryStatusFilters as UseCurtailmentApiResult["setHistoryStatusFilters"],
     startCurtailment: mocks.startCurtailment as UseCurtailmentApiResult["startCurtailment"],
+    dismissTerminalCurtailment:
+      mocks.dismissTerminalCurtailment as UseCurtailmentApiResult["dismissTerminalCurtailment"],
     updateCurtailment: mocks.updateCurtailment as UseCurtailmentApiResult["updateCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
     ...overrides,

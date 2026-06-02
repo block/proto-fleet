@@ -3,6 +3,7 @@ import clsx from "clsx";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
+  type ActiveCurtailmentDisplayState,
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
@@ -23,6 +24,7 @@ export interface CurtailmentHistoryEvent {
   id: string;
   reason: string;
   state: CurtailmentEventState;
+  displayState?: ActiveCurtailmentDisplayState;
   priority: CurtailmentPriority;
   scopeLabel: string;
   selectedMiners: number;

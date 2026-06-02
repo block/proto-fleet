@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
+import { applyActiveCurtailmentEvent, resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import {
   type CurtailmentEvent,
@@ -127,6 +128,7 @@ function curtailmentEvent(overrides: Partial<CurtailmentEvent> = {}): Curtailmen
 
 describe("useCurtailmentApi", () => {
   beforeEach(() => {
+    resetActiveCurtailmentData();
     vi.clearAllMocks();
     mockHandleAuthErrors.mockImplementation(({ onError }: { error: unknown; onError?: (error: unknown) => void }) =>
       onError?.(new Error("auth error")),
@@ -184,6 +186,119 @@ describe("useCurtailmentApi", () => {
         priority: "emergency",
         sourceLabel: "Manual",
         startedAt: "2026-05-01T12:00:00.000Z",
+      }),
+    );
+  });
+
+  it("estimates observed reduction from confirmed targets when telemetry is absent", async () => {
+    const activeEvent = curtailmentEvent({
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        dispatched: 1,
+        confirmed: 1,
+        pending: 1,
+        total: 3,
+      }),
+      targets: [
+        create(CurtailmentTargetSchema, {
+          state: CurtailmentTargetState.DISPATCHED,
+          baselinePowerW: 3000,
+        }),
+        create(CurtailmentTargetSchema, {
+          state: CurtailmentTargetState.CONFIRMED,
+          baselinePowerW: 3000,
+        }),
+        create(CurtailmentTargetSchema, {
+          state: CurtailmentTargetState.PENDING,
+          baselinePowerW: 3000,
+        }),
+      ],
+      decisionSnapshot: {
+        estimated_reduction_kw: 6.2,
+        selected_count: 3,
+      },
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.observedReductionKw).toBeCloseTo(2.07);
+  });
+
+  it("shows the configured restore batch size instead of the effective batch size", async () => {
+    const activeEvent = curtailmentEvent({
+      effectiveBatchSize: 10,
+      restoreBatchSize: 1,
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.restoreBatchSize).toBe(1);
+    expect(result.current.activeEventFormValues?.restoreBatchSize).toBe("1");
+  });
+
+  it("maps all-pending events without telemetry to zero observed reduction", async () => {
+    const activeEvent = curtailmentEvent({
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        pending: 2,
+        total: 2,
+      }),
+      targets: [
+        create(CurtailmentTargetSchema, {
+          state: CurtailmentTargetState.PENDING,
+          baselinePowerW: 3000,
+        }),
+        create(CurtailmentTargetSchema, {
+          state: CurtailmentTargetState.PENDING,
+          baselinePowerW: 3000,
+        }),
+      ],
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.observedReductionKw).toBe(0);
+  });
+
+  it("uses the active display state for the injected active history row", async () => {
+    const activeEvent = curtailmentEvent({
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        dispatched: 1,
+        pending: 1,
+        total: 2,
+      }),
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        state: "pending",
+        displayState: "curtailing",
       }),
     );
   });
@@ -257,7 +372,7 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyHasNextPage).toBe(false);
   });
 
-  it("sends the server history status filter and resets pagination", async () => {
+  it("sends server history status filters and resets pagination", async () => {
     mockListCurtailmentEvents
       .mockResolvedValueOnce({
         events: [curtailmentEvent({ eventUuid: "curt-page-1" })],
@@ -288,7 +403,7 @@ describe("useCurtailmentApi", () => {
     });
 
     await act(async () => {
-      await result.current.setHistoryStatusFilter("completed");
+      await result.current.setHistoryStatusFilters(["completed", "failed"]);
     });
 
     expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(3);
@@ -296,11 +411,11 @@ describe("useCurtailmentApi", () => {
     expect(mockListCurtailmentEvents.mock.calls[2][0]).toEqual(
       expect.objectContaining({
         pageSize: 50,
-        stateFilter: CurtailmentEventState.COMPLETED,
+        stateFilters: [CurtailmentEventState.COMPLETED, CurtailmentEventState.FAILED],
       }),
     );
     expect(result.current.historyCurrentPage).toBe(0);
-    expect(result.current.historyStatusFilter).toBe("completed");
+    expect(result.current.historyStatusFilters).toEqual(["completed", "failed"]);
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
   });
 
@@ -316,12 +431,164 @@ describe("useCurtailmentApi", () => {
     const { result } = renderHook(() => useCurtailmentApi());
 
     await act(async () => {
-      await result.current.setHistoryStatusFilter("completed");
+      await result.current.setHistoryStatusFilters(["completed"]);
     });
 
     expect(result.current.activeEventId).toBe("curt-active");
-    expect(result.current.historyStatusFilter).toBe("completed");
+    expect(result.current.historyStatusFilters).toEqual(["completed"]);
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
+  });
+
+  it("refreshes history without refetching active curtailment when requested", async () => {
+    const activeEvent = curtailmentEvent({ eventUuid: "curt-active" });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-completed",
+      state: CurtailmentEventState.COMPLETED,
+    });
+    applyActiveCurtailmentEvent(activeEvent);
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ includeActive: false });
+    });
+
+    expect(mockGetActiveCurtailment).not.toHaveBeenCalled();
+    expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(1);
+    expect(result.current.activeEventId).toBe("curt-active");
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-active", "curt-completed"]);
+  });
+
+  it("uses the shared active curtailment snapshot for active fields and current history", async () => {
+    const pendingEvent = curtailmentEvent({
+      eventUuid: "curt-shared",
+      reason: "Queued dispatch",
+      state: CurtailmentEventState.PENDING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        pending: 2,
+        total: 2,
+      }),
+    });
+    const activeEvent = curtailmentEvent({
+      eventUuid: "curt-shared",
+      reason: "Dispatch started",
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 2,
+        total: 2,
+      }),
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: pendingEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [pendingEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.reason).toBe("Queued dispatch");
+    expect(result.current.historyEvents[0].reason).toBe("Queued dispatch");
+
+    act(() => {
+      applyActiveCurtailmentEvent(activeEvent);
+    });
+
+    expect(result.current.activeEvent?.reason).toBe("Dispatch started");
+    expect(result.current.historyEvents[0].reason).toBe("Dispatch started");
+  });
+
+  it("keeps a restored curtailment visible until it is dismissed", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-restored",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 1,
+        resolved: 1,
+        total: 2,
+      }),
+    });
+    const restoredEvent = curtailmentEvent({
+      eventUuid: "curt-restored",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        resolved: 2,
+        total: 2,
+      }),
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ includeActive: false });
+    });
+
+    expect(result.current.activeEventId).toBe("curt-restored");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-restored",
+        state: "completed",
+      }),
+    );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("displayState");
+
+    act(() => {
+      result.current.dismissTerminalCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
+  });
+
+  it("keeps an incomplete restore visible until it is dismissed", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-restore-incomplete",
+      state: CurtailmentEventState.RESTORING,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 1,
+        resolved: 1,
+        total: 2,
+      }),
+    });
+    const restoreIncompleteEvent = curtailmentEvent({
+      eventUuid: "curt-restore-incomplete",
+      state: CurtailmentEventState.COMPLETED_WITH_FAILURES,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        resolved: 1,
+        restoreFailed: 1,
+        total: 2,
+      }),
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [restoreIncompleteEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ includeActive: false });
+    });
+
+    expect(result.current.activeEventId).toBe("curt-restore-incomplete");
+    expect(result.current.activeEvent?.state).toBe("completedWithFailures");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-restore-incomplete",
+        state: "completedWithFailures",
+      }),
+    );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("displayState");
+
+    act(() => {
+      result.current.dismissTerminalCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
   });
 
   it("keeps non-first history pages stable when mutation refresh fails", async () => {
@@ -358,7 +625,7 @@ describe("useCurtailmentApi", () => {
     expect(result.current.loadError).toBe("refresh failed");
   });
 
-  it("passes refresh abort signals to curtailment requests", async () => {
+  it("passes refresh abort signals to history requests and uses a shared active request signal", async () => {
     const abortController = new AbortController();
 
     const { result } = renderHook(() => useCurtailmentApi());
@@ -367,7 +634,7 @@ describe("useCurtailmentApi", () => {
       await result.current.refreshCurtailment({ signal: abortController.signal });
     });
 
-    expect(mockGetActiveCurtailment.mock.calls[0][1]).toEqual({ signal: abortController.signal });
+    expect(mockGetActiveCurtailment.mock.calls[0][1]).toEqual({ signal: expect.any(AbortSignal) });
     expect(mockListCurtailmentEvents.mock.calls[0][1]).toEqual({ signal: abortController.signal });
   });
 
