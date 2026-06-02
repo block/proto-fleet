@@ -21,6 +21,11 @@ export class ActivityPage extends BasePage {
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100, DEFAULT_INTERVAL] });
   }
 
+  async openActivityPageDirectly() {
+    await this.page.goto("/activity");
+    await this.waitForActivityListToLoad();
+  }
+
   async searchActivity(searchText: string) {
     const input = this.page.locator("#activity-search");
     await input.fill(searchText);
@@ -116,6 +121,11 @@ export class ActivityPage extends BasePage {
     ).toHaveCount(0);
   }
 
+  async validateFailedActivityRowVisible(description: string, username: string) {
+    await this.waitForFailedActivityRow(description, username);
+    await expect(this.failedActivityRowByDescriptionAndUser(description, username)).toBeVisible();
+  }
+
   async validateActivityDescriptionNotVisible(description: string) {
     await expect(this.activityRowByDescription(description)).toHaveCount(0);
   }
@@ -152,6 +162,12 @@ export class ActivityPage extends BasePage {
   async openCompletedActivityDetails(description: string, scopeText: string) {
     await this.waitForCompletedActivityRow(description, scopeText);
     await this.completedActivityRowByDescriptionAndScope(description, scopeText).click();
+    await this.validateTitleInModal("Actions");
+  }
+
+  async openFailedActivityDetails(description: string, username: string) {
+    await this.waitForFailedActivityRow(description, username);
+    await this.failedActivityRowByDescriptionAndUser(description, username).click();
     await this.validateTitleInModal("Actions");
   }
 
@@ -272,6 +288,26 @@ export class ActivityPage extends BasePage {
   private async waitForCompletedActivityRow(description: string, scopeText: string) {
     await expect
       .poll(async () => await this.completedActivityRowByDescriptionAndScope(description, scopeText).count(), {
+        timeout: DEFAULT_TIMEOUT,
+        intervals: [100, DEFAULT_INTERVAL],
+      })
+      .toBeGreaterThan(0);
+  }
+
+  private failedActivityRowByDescriptionAndUser(description: string, username: string): Locator {
+    return this.activityRowByDescription(description)
+      .filter({
+        has: this.page.getByTestId("user").getByText(username, { exact: true }),
+      })
+      .filter({
+        has: this.page.getByTestId("activity-row-failed-indicator"),
+      })
+      .first();
+  }
+
+  private async waitForFailedActivityRow(description: string, username: string) {
+    await expect
+      .poll(async () => await this.failedActivityRowByDescriptionAndUser(description, username).count(), {
         timeout: DEFAULT_TIMEOUT,
         intervals: [100, DEFAULT_INTERVAL],
       })

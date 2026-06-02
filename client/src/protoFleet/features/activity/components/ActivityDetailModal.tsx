@@ -8,7 +8,7 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
-import { getActivityBatchId } from "@/protoFleet/features/activity/utils/getActivityBatchId";
+import { getActivityDetailBatchId } from "@/protoFleet/features/activity/utils/getActivityBatchId";
 import { Alert, Info } from "@/shared/assets/icons";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -37,7 +37,7 @@ function SummaryRow({ label, children, className }: { label: string; children: R
 }
 
 const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => {
-  const batchId = entry ? getActivityBatchId(entry) : undefined;
+  const batchId = entry ? getActivityDetailBatchId(entry) : undefined;
   const { fetch, getResult } = useCommandBatchDeviceResults({
     activeBatchId: batchId,
     pollIntervalMs: POLL_INTERVAL_MS,

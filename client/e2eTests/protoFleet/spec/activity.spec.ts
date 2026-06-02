@@ -221,8 +221,7 @@ test.describe("Proto Fleet - Activity", () => {
     });
 
     await test.step("Open Activity and filter to admin logins", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
+      await activityPage.openActivityPageDirectly();
       await activityPage.selectTypeFilter("Login");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
       await activityPage.validateLoadMoreVisible();
@@ -286,16 +285,14 @@ test.describe("Proto Fleet - Activity Login", () => {
     });
 
     await test.step("Filter Activity to the failed login row", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
+      await activityPage.openActivityPageDirectly();
       await activityPage.searchActivity("Login failed");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityDescription("Login failed");
-      await activityPage.validateLatestActivityMarkedFailed();
+      await activityPage.validateFailedActivityRowVisible("Login failed", testConfig.users.admin.username);
     });
 
     await test.step("Open the failed activity details and validate the error", async () => {
-      await activityPage.openLatestActivityDetails();
+      await activityPage.openFailedActivityDetails("Login failed", testConfig.users.admin.username);
       await activityPage.validateActivityDetailResult("Failure");
       await activityPage.validateActivityDetailError("invalid credentials");
       await activityPage.closeActivityDetails();

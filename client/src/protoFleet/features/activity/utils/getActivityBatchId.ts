@@ -1,6 +1,10 @@
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 
-export const getActivityBatchId = (entry: Pick<ActivityEntry, "batchId" | "metadata">): string | undefined => {
+export const getActivityBatchId = (entry: Pick<ActivityEntry, "batchId">): string | undefined => {
+  return entry.batchId || undefined;
+};
+
+export const getActivityDetailBatchId = (entry: Pick<ActivityEntry, "batchId" | "metadata">): string | undefined => {
   if (entry.batchId) {
     return entry.batchId;
   }
