@@ -39,7 +39,7 @@ func TestSelectLocalPrivateSubnets_Typical24(t *testing.T) {
 
 func TestSelectLocalPrivateSubnets_OversizedMaskNarrowedTo22(t *testing.T) {
 	// Arrange: a /8-masked NIC must narrow to /22 around its own host address so
-	// the auto scan stays within the manual-path host ceiling.
+	// the local-subnet scan stays within the manual-path host ceiling.
 	ifaces := []net.Interface{{Name: "eth0", Flags: net.FlagUp | net.FlagRunning}}
 	addrs := stubAddrs(map[string][]net.Addr{"eth0": {hostIPNet("10.1.2.3/8")}})
 

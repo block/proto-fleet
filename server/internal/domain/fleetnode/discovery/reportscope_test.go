@@ -158,8 +158,8 @@ func TestNormalizeDiscoverRequest_RejectsPublicNmapTarget(t *testing.T) {
 	}
 }
 
-func TestNormalizeDiscoverRequest_AutoLocalSubnet_Accepts(t *testing.T) {
-	// Arrange: auto mode with no target and valid ports.
+func TestNormalizeDiscoverRequest_LocalSubnetTarget_Accepts(t *testing.T) {
+	// Arrange: the local-subnet sentinel target with valid ports.
 	req := autoNmapReq([]string{"80", "4028"})
 
 	// Act
@@ -169,7 +169,7 @@ func TestNormalizeDiscoverRequest_AutoLocalSubnet_Accepts(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNormalizeDiscoverRequest_AutoLocalSubnet_RejectsInvalidPort(t *testing.T) {
+func TestNormalizeDiscoverRequest_LocalSubnetTarget_RejectsInvalidPort(t *testing.T) {
 	// Arrange
 	req := autoNmapReq([]string{"80/tcp"})
 

@@ -34,7 +34,7 @@ type RunCmd struct {
 	discoverer    discoverer                                                               `kong:"-"`
 	nmapPath      string                                                                   `kong:"-"`
 	resolver      ipResolver                                                               `kong:"-"`
-	localSubnets  func() ([]string, error)                                                 `kong:"-"` // test seam for auto_local_subnet detection
+	localSubnets  func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 
 	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 }

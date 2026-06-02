@@ -135,7 +135,7 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 }
 
 // baseNmapOptions are the timing/safety options shared by targeted and
-// auto-local-subnet scans; callers append the target(s) (and -6 if needed).
+// local-subnet scans; callers append the target(s) (and -6 if needed).
 func baseNmapOptions(binaryPath string, ports []string) []nmap.Option {
 	return []nmap.Option{
 		nmap.WithBinaryPath(binaryPath),
