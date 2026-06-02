@@ -2,10 +2,64 @@ syntax = "proto3";
 
 package authz.v1;
 
+import "google/protobuf/timestamp.proto";
+
+// AuthzService exposes the role and assignment management surface for the
+// granular RBAC model. Reads (ListPermissions, ListRoles,
+// ListUserAssignments) power the admin UI's role builder and the Team
+// page; mutations (CreateCustomRole, UpdateCustomRole, DeleteCustomRole,
+// AssignRole, UnassignRole) drive role lifecycle and user-role assignment.
+//
+// This is the U8 stub from
+// docs/plans/2026-05-19-001-feat-granular-rbac-plan.md — the wire contract
+// lands here; method bodies return Unimplemented until follow-up PRs
+// implement each in turn. Consumers (e.g. Settings → Roles UI in PR #358)
+// can plan against the fixed shape immediately.
+service AuthzService {
+    // ListPermissions returns the full catalog as a flat list. The client
+    // groups by resource for display; see the resource field on Permission.
+    rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
+
+    // ListRoles returns built-in (SUPER_ADMIN, ADMIN, FIELD_TECH) and custom
+    // roles scoped to the caller's organization. Built-ins are always
+    // present; the SUPER_ADMIN entry is immutable.
+    rpc ListRoles(ListRolesRequest) returns (ListRolesResponse);
+
+    // CreateCustomRole adds a new role to the organization. The caller must
+    // hold every permission they grant the new role (privilege-parity
+    // check enforced server-side).
+    rpc CreateCustomRole(CreateCustomRoleRequest) returns (CreateCustomRoleResponse);
+
+    // UpdateCustomRole replaces the full attribute set on a role. Built-in
+    // ADMIN and FIELD_TECH are editable through this RPC; SUPER_ADMIN is
+    // not. Privilege-parity applies.
+    rpc UpdateCustomRole(UpdateCustomRoleRequest) returns (UpdateCustomRoleResponse);
+
+    // DeleteCustomRole soft-deletes a custom role. Rejects when the role
+    // still has active assignments — callers must unassign first. Built-in
+    // roles cannot be deleted.
+    rpc DeleteCustomRole(DeleteCustomRoleRequest) returns (DeleteCustomRoleResponse);
+
+    // AssignRole creates a (user, role, scope) assignment. SiteId is set
+    // only when scope_type is SCOPE_TYPE_SITE. Privilege-parity applies:
+    // the caller cannot assign a role granting more permissions than they
+    // hold at the assignment's scope.
+    rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+
+    // UnassignRole soft-deletes an assignment row by id.
+    rpc UnassignRole(UnassignRoleRequest) returns (UnassignRoleResponse);
+
+    // ListUserAssignments returns every active assignment for a given
+    // user in the caller's organization. Used by the Team page to render
+    // each member's role(s) and by future audit affordances.
+    rpc ListUserAssignments(ListUserAssignmentsRequest) returns (ListUserAssignmentsResponse);
+}
+
 // Permission is a single resource:action grant in the catalog. The catalog is
 // a server-side code constant defined in
-// server/internal/domain/authz/catalog.go; this message is the wire shape used
-// by the future AuthzService RPCs and by the UserInfo permission field.
+// server/internal/domain/authz/catalog.go; this message is the wire shape
+// returned by AuthzService.ListPermissions and projected into
+// UserInfo.permissions.
 message Permission {
     // Stable key, e.g. "miner:reboot". Matches the regex ^[a-z]+:[a-z_]+$.
     string key = 1;
@@ -22,4 +76,126 @@ message Permission {
 message PermissionGroup {
     string resource = 1;
     repeated Permission permissions = 2;
+}
+
+// Role is a (name, description, permission set) bundle that can be assigned
+// to users at a given scope. Built-in roles (SUPER_ADMIN / ADMIN /
+// FIELD_TECH) are seeded per-organization; custom roles are operator-
+// created via CreateCustomRole.
+message Role {
+    string role_id = 1;
+    string name = 2;
+    string description = 3;
+    // Catalog permission keys this role grants.
+    repeated string permission_keys = 4;
+    bool builtin = 5;
+    // Set for built-in roles. One of "SUPER_ADMIN", "ADMIN", "FIELD_TECH".
+    string builtin_key = 6;
+    // Number of active (non-deleted) assignments referencing this role.
+    int32 member_count = 7;
+    google.protobuf.Timestamp updated_at = 8;
+}
+
+// ScopeType narrows an assignment's reach. Building scope is deferred per
+// the v1 plan; see the catalog plan doc "Scope Boundaries → Deferred"
+// section.
+enum ScopeType {
+    SCOPE_TYPE_UNSPECIFIED = 0;
+    SCOPE_TYPE_ORG = 1;
+    SCOPE_TYPE_SITE = 2;
+}
+
+// Assignment is one (user, role, scope) row. site_id is set only when
+// scope_type == SCOPE_TYPE_SITE.
+message Assignment {
+    string assignment_id = 1;
+    string user_id = 2;
+    string role_id = 3;
+    string role_name = 4;
+    ScopeType scope_type = 5;
+    // Set only when scope_type == SCOPE_TYPE_SITE.
+    int64 site_id = 6;
+    google.protobuf.Timestamp created_at = 7;
+}
+
+// --- ListPermissions ---------------------------------------------------------
+
+message ListPermissionsRequest {}
+
+message ListPermissionsResponse {
+    // Flat list in catalog-declaration order. Clients group by resource via
+    // the resource field on each entry; that order matches the server's
+    // authz.ResourceOrder so the admin UI renders deterministically.
+    repeated Permission permissions = 1;
+}
+
+// --- ListRoles ---------------------------------------------------------------
+
+message ListRolesRequest {}
+
+message ListRolesResponse {
+    repeated Role roles = 1;
+}
+
+// --- CreateCustomRole --------------------------------------------------------
+
+message CreateCustomRoleRequest {
+    string name = 1;
+    string description = 2;
+    repeated string permission_keys = 3;
+}
+
+message CreateCustomRoleResponse {
+    Role role = 1;
+}
+
+// --- UpdateCustomRole --------------------------------------------------------
+
+message UpdateCustomRoleRequest {
+    string role_id = 1;
+    string name = 2;
+    string description = 3;
+    repeated string permission_keys = 4;
+}
+
+message UpdateCustomRoleResponse {
+    Role role = 1;
+}
+
+// --- DeleteCustomRole --------------------------------------------------------
+
+message DeleteCustomRoleRequest {
+    string role_id = 1;
+}
+
+message DeleteCustomRoleResponse {}
+
+// --- AssignRole / UnassignRole ----------------------------------------------
+
+message AssignRoleRequest {
+    string user_id = 1;
+    string role_id = 2;
+    ScopeType scope_type = 3;
+    // Required when scope_type == SCOPE_TYPE_SITE; ignored otherwise.
+    int64 site_id = 4;
+}
+
+message AssignRoleResponse {
+    Assignment assignment = 1;
+}
+
+message UnassignRoleRequest {
+    string assignment_id = 1;
+}
+
+message UnassignRoleResponse {}
+
+// --- ListUserAssignments ----------------------------------------------------
+
+message ListUserAssignmentsRequest {
+    string user_id = 1;
+}
+
+message ListUserAssignmentsResponse {
+    repeated Assignment assignments = 1;
 }

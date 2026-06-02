@@ -4,6 +4,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
@@ -56,6 +57,18 @@ var ProcedurePermissions = map[string]string{
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: authz.PermAPIKeyManage,
 	apikeyv1connect.ApiKeyServiceListApiKeysProcedure:  authz.PermAPIKeyManage,
 	apikeyv1connect.ApiKeyServiceRevokeApiKeyProcedure: authz.PermAPIKeyManage,
+
+	// AuthzService — role management. Every implemented RPC is gated
+	// by role:manage. ListPermissions returns the catalog (no PII / no
+	// org data) but is gated all the same because the catalog picker
+	// is only useful inside the role editor, which itself requires
+	// role:manage; widening this surface adds no UX and gives away
+	// less than zero.
+	authzv1connect.AuthzServiceListPermissionsProcedure:  authz.PermRoleManage,
+	authzv1connect.AuthzServiceListRolesProcedure:        authz.PermRoleManage,
+	authzv1connect.AuthzServiceCreateCustomRoleProcedure: authz.PermRoleManage,
+	authzv1connect.AuthzServiceUpdateCustomRoleProcedure: authz.PermRoleManage,
+	authzv1connect.AuthzServiceDeleteCustomRoleProcedure: authz.PermRoleManage,
 
 	// Auth user management — gated at the handler layer via
 	// RequirePermission. ListUsers previously had no role check at all;
@@ -273,4 +286,12 @@ var ProceduresPendingMigration = map[string]string{
 	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set or AllowUnbounded; otherwise any authenticated user can start",
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
+
+	// AuthzService — assignment trio is not implemented yet. The Roles
+	// management surface (Settings → Roles) does not need these; they
+	// land alongside the Team-page assignment flow in a follow-up. The
+	// other five RPCs are gated in ProcedurePermissions above.
+	authzv1connect.AuthzServiceAssignRoleProcedure:          "UNIMPLEMENTED: lands with Team-page assignment flow",
+	authzv1connect.AuthzServiceUnassignRoleProcedure:        "UNIMPLEMENTED: lands with Team-page assignment flow",
+	authzv1connect.AuthzServiceListUserAssignmentsProcedure: "UNIMPLEMENTED: lands with Team-page assignment flow",
 }
