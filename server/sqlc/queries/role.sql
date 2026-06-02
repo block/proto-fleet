@@ -151,8 +151,10 @@ SELECT
     (
         SELECT COUNT(*)
         FROM user_organization_role uor
+        JOIN "user" u ON u.id = uor.user_id
         WHERE uor.role_id = r.id
           AND uor.deleted_at IS NULL
+          AND u.deleted_at IS NULL
     )::BIGINT AS member_count
 FROM role r
 WHERE r.organization_id = $1

@@ -378,7 +378,7 @@ WHERE uor.user_id = $1
   AND r.deleted_at IS NULL
   AND u.deleted_at IS NULL
 ORDER BY uor.id, p.key NULLS FIRST
-FOR UPDATE OF uor
+FOR UPDATE OF uor, u, r
 `
 
 type ListEffectivePermissionsForUserForUpdateParams struct {
@@ -396,18 +396,27 @@ type ListEffectivePermissionsForUserForUpdateRow struct {
 
 // Race-safety variant of ListEffectivePermissionsForUser. Same join
 // shape, same row order, same narrowing semantics — but takes
-// FOR UPDATE on user_organization_role so a concurrent UnassignRole
-// or DeactivateUser blocks until this transaction commits.
+// FOR UPDATE on every row whose mutation can revoke the caller's
+// effective permissions: the assignment row (uor), the caller's user
+// row (u), and the caller's role row (r). Concurrent:
 //
-// Used by the role-management service's in-transaction parity recheck:
-// the caller's assignment rows are locked from the moment we read
-// them, so a demotion committing between the gate and the write
-// cannot interleave under READ COMMITTED.
+//   - UnassignRole / DeleteCustomRole (target = caller's role)
+//     blocks on uor / r
+//   - DeactivateUser (caller)
+//     blocks on u
+//   - UpdateCustomRole (target = caller's role, edits role_permission)
+//     blocks on r — getRoleInOrg's read inside the mutation tx then
+//     sees our lock and waits, so the role_permission delete/insert
+//     can't interleave between our recheck and our commit
 //
-// The FOR UPDATE clause names uor explicitly so the lock attaches only
-// to the caller's assignment rows; the role/user/role_permission/
-// permission joins remain advisory reads. The LEFT JOIN narrowing rule
-// documented on the non-locking sibling still applies.
+// The LEFT JOIN sides (role_permission, permission) cannot participate
+// in FOR UPDATE because they may have no matching row for a
+// zero-permission assignment. We accept that role_permission edits
+// via paths other than UpdateCustomRole (none exist today) would race
+// this check; the practical lock graph through the existing surfaces
+// is closed.
+//
+// The non-locking sibling's LEFT JOIN narrowing rule still applies.
 func (q *Queries) ListEffectivePermissionsForUserForUpdate(ctx context.Context, arg ListEffectivePermissionsForUserForUpdateParams) ([]ListEffectivePermissionsForUserForUpdateRow, error) {
 	rows, err := q.query(ctx, q.listEffectivePermissionsForUserForUpdateStmt, listEffectivePermissionsForUserForUpdate, arg.UserID, arg.OrganizationID)
 	if err != nil {
