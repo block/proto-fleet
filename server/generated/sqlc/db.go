@@ -198,6 +198,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
 	}
+	if q.deviceHasActiveCloudPairingStmt, err = db.PrepareContext(ctx, deviceHasActiveCloudPairing); err != nil {
+		return nil, fmt.Errorf("error preparing query DeviceHasActiveCloudPairing: %w", err)
+	}
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
@@ -888,6 +891,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.sweepExpiredFleetNodeSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredFleetNodeSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredFleetNodeSessions: %w", err)
 	}
+	if q.transferDiscoveredDeviceAttributionStmt, err = db.PrepareContext(ctx, transferDiscoveredDeviceAttribution); err != nil {
+		return nil, fmt.Errorf("error preparing query TransferDiscoveredDeviceAttribution: %w", err)
+	}
 	if q.unassignDeviceSitesByRackStmt, err = db.PrepareContext(ctx, unassignDeviceSitesByRack); err != nil {
 		return nil, fmt.Errorf("error preparing query UnassignDeviceSitesByRack: %w", err)
 	}
@@ -1352,6 +1358,11 @@ func (q *Queries) Close() error {
 	if q.deleteScheduleTargetsStmt != nil {
 		if cerr := q.deleteScheduleTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deviceHasActiveCloudPairingStmt != nil {
+		if cerr := q.deviceHasActiveCloudPairingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deviceHasActiveCloudPairingStmt: %w", cerr)
 		}
 	}
 	if q.deviceSetBelongsToOrgStmt != nil {
@@ -2504,6 +2515,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing sweepExpiredFleetNodeSessionsStmt: %w", cerr)
 		}
 	}
+	if q.transferDiscoveredDeviceAttributionStmt != nil {
+		if cerr := q.transferDiscoveredDeviceAttributionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing transferDiscoveredDeviceAttributionStmt: %w", cerr)
+		}
+	}
 	if q.unassignDeviceSitesByRackStmt != nil {
 		if cerr := q.unassignDeviceSitesByRackStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing unassignDeviceSitesByRackStmt: %w", cerr)
@@ -2886,6 +2902,7 @@ type Queries struct {
 	deletePairingsForFleetNodeStmt                      *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
 	deleteScheduleTargetsStmt                           *sql.Stmt
+	deviceHasActiveCloudPairingStmt                     *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                      *sql.Stmt
 	findDeviceSiteConflictsStmt                         *sql.Stmt
@@ -3116,6 +3133,7 @@ type Queries struct {
 	sweepExpiredEnrollmentsStmt                         *sql.Stmt
 	sweepExpiredFleetNodeAuthChallengesStmt             *sql.Stmt
 	sweepExpiredFleetNodeSessionsStmt                   *sql.Stmt
+	transferDiscoveredDeviceAttributionStmt             *sql.Stmt
 	unassignDeviceSitesByRackStmt                       *sql.Stmt
 	unassignDevicesFromSiteStmt                         *sql.Stmt
 	unassignRacksFromBuildingStmt                       *sql.Stmt
@@ -3237,6 +3255,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePairingsForFleetNodeStmt:                      q.deletePairingsForFleetNodeStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
+		deviceHasActiveCloudPairingStmt:                     q.deviceHasActiveCloudPairingStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
 		ensureCurtailmentOrgConfigStmt:                      q.ensureCurtailmentOrgConfigStmt,
 		findDeviceSiteConflictsStmt:                         q.findDeviceSiteConflictsStmt,
@@ -3467,6 +3486,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		sweepExpiredEnrollmentsStmt:                         q.sweepExpiredEnrollmentsStmt,
 		sweepExpiredFleetNodeAuthChallengesStmt:             q.sweepExpiredFleetNodeAuthChallengesStmt,
 		sweepExpiredFleetNodeSessionsStmt:                   q.sweepExpiredFleetNodeSessionsStmt,
+		transferDiscoveredDeviceAttributionStmt:             q.transferDiscoveredDeviceAttributionStmt,
 		unassignDeviceSitesByRackStmt:                       q.unassignDeviceSitesByRackStmt,
 		unassignDevicesFromSiteStmt:                         q.unassignDevicesFromSiteStmt,
 		unassignRacksFromBuildingStmt:                       q.unassignRacksFromBuildingStmt,

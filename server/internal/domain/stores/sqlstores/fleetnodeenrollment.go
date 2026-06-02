@@ -8,10 +8,10 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 )
 
-var _ fleetnodeenrollment.Store = &SQLFleetNodeEnrollmentStore{}
+var _ enrollment.Store = &SQLFleetNodeEnrollmentStore{}
 
 type SQLFleetNodeEnrollmentStore struct {
 	SQLConnectionManager
@@ -25,7 +25,7 @@ func (s *SQLFleetNodeEnrollmentStore) q(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
-func (s *SQLFleetNodeEnrollmentStore) CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time) (*fleetnodeenrollment.PendingEnrollment, error) {
+func (s *SQLFleetNodeEnrollmentStore) CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time) (*enrollment.PendingEnrollment, error) {
 	row, err := s.q(ctx).CreatePendingEnrollment(ctx, sqlc.CreatePendingEnrollmentParams{
 		CodeHash:  codeHash,
 		OrgID:     orgID,
@@ -38,7 +38,7 @@ func (s *SQLFleetNodeEnrollmentStore) CreatePendingEnrollment(ctx context.Contex
 	return rowToPending(row), nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (*fleetnodeenrollment.PendingEnrollment, error) {
+func (s *SQLFleetNodeEnrollmentStore) GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (*enrollment.PendingEnrollment, error) {
 	row, err := s.q(ctx).GetPendingEnrollmentByCodeHash(ctx, codeHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -49,7 +49,7 @@ func (s *SQLFleetNodeEnrollmentStore) GetPendingEnrollmentByCodeHash(ctx context
 	return rowToPending(row), nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) GetPendingEnrollmentByFleetNode(ctx context.Context, fleetNodeID, orgID int64) (*fleetnodeenrollment.PendingEnrollment, error) {
+func (s *SQLFleetNodeEnrollmentStore) GetPendingEnrollmentByFleetNode(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.PendingEnrollment, error) {
 	row, err := s.q(ctx).GetPendingEnrollmentByFleetNode(ctx, sqlc.GetPendingEnrollmentByFleetNodeParams{
 		FleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
 		OrgID:       orgID,
@@ -97,7 +97,7 @@ func (s *SQLFleetNodeEnrollmentStore) SweepExpiredEnrollments(ctx context.Contex
 	return s.q(ctx).SweepExpiredEnrollments(ctx, now)
 }
 
-func (s *SQLFleetNodeEnrollmentStore) CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, minerSigningPubkey []byte) (*fleetnodeenrollment.FleetNode, error) {
+func (s *SQLFleetNodeEnrollmentStore) CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, minerSigningPubkey []byte) (*enrollment.FleetNode, error) {
 	row, err := s.q(ctx).CreateFleetNode(ctx, sqlc.CreateFleetNodeParams{
 		OrgID:              orgID,
 		Name:               name,
@@ -110,7 +110,7 @@ func (s *SQLFleetNodeEnrollmentStore) CreateFleetNode(ctx context.Context, orgID
 	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.MinerSigningPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*fleetnodeenrollment.FleetNode, error) {
+func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.FleetNode, error) {
 	row, err := s.q(ctx).GetFleetNodeByID(ctx, sqlc.GetFleetNodeByIDParams{ID: fleetNodeID, OrgID: orgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -121,7 +121,7 @@ func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByID(ctx context.Context, flee
 	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.MinerSigningPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*fleetnodeenrollment.FleetNode, error) {
+func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.FleetNode, error) {
 	row, err := s.q(ctx).LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: fleetNodeID, OrgID: orgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -132,7 +132,7 @@ func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeByID(ctx context.Context, fle
 	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.MinerSigningPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByIDUnscoped(ctx context.Context, fleetNodeID int64) (*fleetnodeenrollment.FleetNode, error) {
+func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByIDUnscoped(ctx context.Context, fleetNodeID int64) (*enrollment.FleetNode, error) {
 	row, err := s.q(ctx).GetFleetNodeByIDUnscoped(ctx, fleetNodeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -143,22 +143,22 @@ func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByIDUnscoped(ctx context.Conte
 	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.MinerSigningPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]fleetnodeenrollment.FleetNodeListing, error) {
+func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]enrollment.FleetNodeListing, error) {
 	rows, err := s.q(ctx).ListFleetNodesForOrganization(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]fleetnodeenrollment.FleetNodeListing, 0, len(rows))
+	out := make([]enrollment.FleetNodeListing, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fleetnodeenrollment.FleetNodeListing{
+		out = append(out, enrollment.FleetNodeListing{
 			FleetNode:               *rowToFleetNode(r.ID, r.OrgID, r.Name, r.IdentityPubkey, r.MinerSigningPubkey, r.EnrollmentStatus, r.LastSeenAt, r.CreatedAt, r.UpdatedAt),
-			PendingEnrollmentStatus: fleetnodeenrollment.Status(r.PendingEnrollmentStatus),
+			PendingEnrollmentStatus: enrollment.Status(r.PendingEnrollmentStatus),
 		})
 	}
 	return out, nil
 }
 
-func (s *SQLFleetNodeEnrollmentStore) SetFleetNodeEnrollmentStatus(ctx context.Context, status fleetnodeenrollment.FleetNodeStatus, fleetNodeID, orgID int64) (int64, error) {
+func (s *SQLFleetNodeEnrollmentStore) SetFleetNodeEnrollmentStatus(ctx context.Context, status enrollment.FleetNodeStatus, fleetNodeID, orgID int64) (int64, error) {
 	return s.q(ctx).SetFleetNodeEnrollmentStatus(ctx, sqlc.SetFleetNodeEnrollmentStatusParams{
 		EnrollmentStatus: string(status),
 		ID:               fleetNodeID,
@@ -193,28 +193,28 @@ func (s *SQLFleetNodeEnrollmentStore) DeletePairingsForFleetNode(ctx context.Con
 	})
 }
 
-func rowToPending(row sqlc.PendingEnrollment) *fleetnodeenrollment.PendingEnrollment {
-	return &fleetnodeenrollment.PendingEnrollment{
+func rowToPending(row sqlc.PendingEnrollment) *enrollment.PendingEnrollment {
+	return &enrollment.PendingEnrollment{
 		ID:          row.ID,
 		CodeHash:    row.CodeHash,
 		OrgID:       row.OrgID,
 		CreatedBy:   row.CreatedBy,
 		FleetNodeID: nullInt64ToPtr(row.FleetNodeID),
-		Status:      fleetnodeenrollment.Status(row.Status),
+		Status:      enrollment.Status(row.Status),
 		ExpiresAt:   row.ExpiresAt,
 		ConsumedAt:  nullTimeToPtr(row.ConsumedAt),
 		CreatedAt:   row.CreatedAt,
 	}
 }
 
-func rowToFleetNode(id, orgID int64, name string, identityPubkey, minerSigningPubkey []byte, status string, lastSeenAt sql.NullTime, createdAt, updatedAt time.Time) *fleetnodeenrollment.FleetNode {
-	return &fleetnodeenrollment.FleetNode{
+func rowToFleetNode(id, orgID int64, name string, identityPubkey, minerSigningPubkey []byte, status string, lastSeenAt sql.NullTime, createdAt, updatedAt time.Time) *enrollment.FleetNode {
+	return &enrollment.FleetNode{
 		ID:                 id,
 		OrgID:              orgID,
 		Name:               name,
 		IdentityPubkey:     identityPubkey,
 		MinerSigningPubkey: minerSigningPubkey,
-		EnrollmentStatus:   fleetnodeenrollment.FleetNodeStatus(status),
+		EnrollmentStatus:   enrollment.FleetNodeStatus(status),
 		LastSeenAt:         nullTimeToPtr(lastSeenAt),
 		CreatedAt:          createdAt,
 		UpdatedAt:          updatedAt,

@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -40,8 +41,9 @@ const (
 	concurrentDiscoveryLimit = 254
 
 	// MaxPortsPerIP caps per-IP parallel port fan-out to prevent resource exhaustion from
-	// caller-supplied port lists.
-	MaxPortsPerIP = 10
+	// caller-supplied port lists. Sourced from discoverylimits so the cloud and
+	// fleet-node discovery paths share one value.
+	MaxPortsPerIP = discoverylimits.MaxPortsPerIP
 
 	// globalProbeLimit caps total concurrent TCP dials across all IPs and ports. Each dial
 	// holds an OS file descriptor for its duration; 512 leaves headroom for DB connections
@@ -1199,6 +1201,16 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			OrgID:            info.OrganizationID,
 		})
 		if ddErr == nil {
+			// Cloud pairing dials the IP via plugin RPC; remote-origin
+			// rows must route through PairDeviceToFleetNode instead.
+			if dd.DiscoveredByFleetNodeID != nil {
+				slog.Warn("refusing to pair remote-fleet-node-reported device via cloud pairing; use PairDeviceToFleetNode",
+					"device_identifier", id,
+					"fleet_node_id", *dd.DiscoveredByFleetNodeID,
+				)
+				failedIDs = append(failedIDs, id)
+				continue
+			}
 			endpoint := dd.IpAddress + ":" + dd.Port
 			if _, ok := seenEndpoints[endpoint]; ok {
 				slog.Warn("skipping duplicate physical device (same IP:port) in PairDevices request",

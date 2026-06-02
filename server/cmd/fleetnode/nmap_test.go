@@ -108,6 +108,12 @@ func TestValidateNmapTarget(t *testing.T) {
 		{name: "ipv6 with brackets", input: "[2001:db8::1]", wantErr: true},
 		{name: "ipv4 range upper bound too high", input: "10.0.0.1-300", wantErr: true},
 		{name: "ipv4 range bad head", input: "10.0.0.999-50", wantErr: true},
+		// nmap reads "A.B.C.D-N" as last-octet D..N. A descending range
+		// (N below the head's last octet) must be rejected; otherwise it
+		// passes the grammar and later disables IP scope enforcement.
+		{name: "ipv4 range descending", input: "192.168.1.50-10", wantErr: true},
+		{name: "ipv4 range ascending", input: "192.168.1.10-50", wantErr: false},
+		{name: "ipv4 range single endpoint", input: "192.168.1.50-50", wantErr: false},
 		{name: "shell metacharacter semicolon", input: "10.0.0.1;rm", wantErr: true},
 		{name: "shell metacharacter ampersand", input: "10.0.0.1&touch", wantErr: true},
 		{name: "leading whitespace", input: " 10.0.0.1", wantErr: true},

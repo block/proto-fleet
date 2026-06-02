@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 func TestEnrollCmd_HappyPath(t *testing.T) {
@@ -43,7 +43,7 @@ func TestEnrollCmd_HappyPath(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	loaded, exists, err := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, exists, err := bootstrap.LoadState(bootstrap.StatePath(dir))
 	require.NoError(t, err)
 	require.True(t, exists)
 	assert.Equal(t, int64(77), loaded.FleetNodeID)
@@ -83,7 +83,7 @@ func TestEnrollCmd_PersistsStateImmediatelyAfterRegister(t *testing.T) {
 
 	// Assert
 	require.Error(t, err, "second prompt has no input; enroll should fail at the api_key read")
-	loaded, exists, err := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, exists, err := bootstrap.LoadState(bootstrap.StatePath(dir))
 	require.NoError(t, err)
 	require.True(t, exists, "state must persist immediately after Register so a Ctrl-C during paste does not orphan the fleet node")
 	assert.Equal(t, int64(55), loaded.FleetNodeID)
@@ -120,10 +120,10 @@ func TestEnrollCmd_PreservesPartialStateOnBeginAuthRejection(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
+	assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "revoked api_key, identity_pubkey mismatch")
 	assert.NotContains(t, err.Error(), "invalid api_key", "the server-side message must not leak through; the CLI gives generic guidance for all Unauthenticated causes")
-	loaded, exists, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, exists, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
 	require.True(t, exists)
 	assert.Equal(t, int64(99), loaded.FleetNodeID)
 	assert.Empty(t, loaded.APIKey, "api_key must not persist when CompleteEnrollment failed")
@@ -148,7 +148,7 @@ func TestEnrollCmd_RejectsEmptyEnrollmentCode(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty enrollment code")
-	_, exists, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	_, exists, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
 	assert.False(t, exists, "state must not be created when the enrollment code is empty")
 }
 
@@ -215,7 +215,7 @@ func TestEnrollCmd_RejectsExistingStateWithoutForce(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{FleetNodeID: 42}))
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{FleetNodeID: 42}))
 	cmd := &EnrollCmd{
 		ServerURL:              "http://127.0.0.1:1",
 		Name:                   "node-x",
@@ -236,7 +236,7 @@ func TestEnrollCmd_PrintsForceWarningWhenStateIsPopulated(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{FleetNodeID: 42}))
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{FleetNodeID: 42}))
 	fake := &fakeFleetNodeGateway{
 		registerError: connect.NewError(connect.CodeFailedPrecondition, errors.New("name in use")),
 	}

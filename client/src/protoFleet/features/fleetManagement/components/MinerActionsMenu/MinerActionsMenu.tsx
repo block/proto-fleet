@@ -3,6 +3,7 @@ import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionP
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { type BulkAction } from "../BulkActions/types";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
+import { usePermittedActions } from "./actionPermissions";
 import AddToGroupModal from "./AddToGroupModal";
 import BulkRenameModal from "./BulkRenameModal";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
@@ -215,9 +216,14 @@ const MinerActionsMenu = ({
     return [...actions, renameAction];
   }, [handleBulkWorkerNamesOpen, onActionStart, popoverActions]);
 
+  // Hide actions whose backing RPC the caller can't invoke. The server
+  // still enforces every gate; this filter is UX so the menu doesn't
+  // surface options that 403 on click.
+  const permittedActions = usePermittedActions(actionsWithBulkRename);
+
   const visibleActions = useMemo(() => {
-    if (!selectionIncludesUnauthenticatedMiner) return actionsWithBulkRename;
-    return actionsWithBulkRename.map((action) =>
+    if (!selectionIncludesUnauthenticatedMiner) return permittedActions;
+    return permittedActions.map((action) =>
       action.action === deviceActions.unpair
         ? action
         : {
@@ -226,7 +232,7 @@ const MinerActionsMenu = ({
             disabledReason: "Selection includes miners that need authentication.",
           },
     );
-  }, [actionsWithBulkRename, selectionIncludesUnauthenticatedMiner]);
+  }, [permittedActions, selectionIncludesUnauthenticatedMiner]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {

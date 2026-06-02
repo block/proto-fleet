@@ -72,10 +72,12 @@ describe("useSchedulePillData", () => {
     expect(refreshSchedules).not.toHaveBeenCalled();
   });
 
-  it("does not poll for sessions without schedule:read", async () => {
-    // ListSchedules is server-side gated on schedule:read; without a
-    // permission-side guard the hook would generate PermissionDenied
-    // every poll interval for sessions whose role lacks the key.
+  it("does not poll for sessions without schedule:manage", async () => {
+    // The hook gates polling on schedule:manage (see useSchedulePillData.ts):
+    // the pill is a "schedules-in-flight" affordance that only acts on
+    // editable schedules, so :read sessions get no header surface and
+    // skipping the 30s poll loop avoids PermissionDenied every tick for
+    // sessions without :manage.
     vi.mocked(useHasPermission).mockReturnValue(false);
 
     renderHook(() => useSchedulePillData());

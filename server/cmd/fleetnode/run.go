@@ -16,7 +16,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 const (
@@ -57,7 +57,7 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 	}
 	if r.clientFactory == nil {
 		r.clientFactory = func(url string, src func() string) (gatewayClient, error) {
-			return fleetnodebootstrap.NewAuthenticatedGatewayClient(url, src)
+			return bootstrap.NewAuthenticatedGatewayClient(url, src)
 		}
 	}
 	if len(r.signals) == 0 {
@@ -83,8 +83,8 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 		}
 		resolvedPluginsDir = resolved
 	}
-	path := fleetnodebootstrap.StatePath(c.StateDir)
-	st, exists, err := fleetnodebootstrap.LoadState(path)
+	path := bootstrap.StatePath(c.StateDir)
+	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
 		return err
 	}
@@ -106,26 +106,18 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
 	}
 
-	// Reap + spawn plugins inside the lock so a contending agent's reaper
-	// can't kill our children before we finish startup.
+	// runLocked reloads state under the lock and bootstraps plugins from it, so a
+	// concurrent enroll/refresh that rewrites state.yaml while we wait for the lock
+	// can't leave the discoverer scoped to a stale fleet_node_id.
 	logger.Info("acquiring state lock", "state_dir", c.StateDir)
-	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
-		if resolvedPluginsDir != "" {
-			reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
-			disc, cleanup, bootstrapErr := newPluginDiscoverer(ctx, resolvedPluginsDir)
-			if bootstrapErr != nil {
-				return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
-			}
-			defer cleanup()
-			r.discoverer = disc
-		}
-		return r.runLocked(ctx, c, logger)
+	return bootstrap.WithStateLock(c.StateDir, func() error {
+		return r.runLocked(ctx, c, resolvedPluginsDir, logger)
 	})
 }
 
-func (r *RunCmd) runLocked(ctx context.Context, c *Context, logger *slog.Logger) error {
-	path := fleetnodebootstrap.StatePath(c.StateDir)
-	st, exists, err := fleetnodebootstrap.LoadState(path)
+func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir string, logger *slog.Logger) error {
+	path := bootstrap.StatePath(c.StateDir)
+	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
 		return err
 	}
@@ -135,14 +127,28 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, logger *slog.Logger)
 	// Re-validate on every entry so a tampered state.yaml can't redirect
 	// bearer heartbeats to a plaintext non-loopback URL while the cached
 	// session_token is still fresh.
-	if err := fleetnodebootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
+	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return err
+	}
+
+	// Reap + spawn inside the lock, from the state loaded under it, so the
+	// synthesized auto: identifiers hash with the fleet_node_id the gateway
+	// attributes reports to, and a contending agent's reaper can't kill our
+	// children mid-startup.
+	if resolvedPluginsDir != "" {
+		reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
+		disc, cleanup, bootstrapErr := newPluginDiscoverer(ctx, resolvedPluginsDir, st.FleetNodeID)
+		if bootstrapErr != nil {
+			return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
+		}
+		defer cleanup()
+		r.discoverer = disc
 	}
 
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
-			if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
-				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI and retry; local credentials are preserved", fleetnodebootstrap.ErrBeginAuthRejected)
+			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
+				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI and retry; local credentials are preserved", bootstrap.ErrBeginAuthRejected)
 			}
 			return fmt.Errorf("initial session refresh: %w", err)
 		}
@@ -205,7 +211,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, logger *slog.Logger)
 	return nil
 }
 
-func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
+func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
 	ticker := time.NewTicker(r.HeartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -220,7 +226,7 @@ func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st 
 	}
 }
 
-func (r *RunCmd) sessionNeedsRefresh(st *fleetnodebootstrap.State) bool {
+func (r *RunCmd) sessionNeedsRefresh(st *bootstrap.State) bool {
 	if st.SessionToken == "" {
 		return true
 	}
@@ -230,12 +236,12 @@ func (r *RunCmd) sessionNeedsRefresh(st *fleetnodebootstrap.State) bool {
 	return st.SessionExpiresAt.Sub(r.now()) < sessionRefreshLeeway
 }
 
-func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
+func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path string, logger *slog.Logger) error {
 	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
 	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
 	// stall the control loop's token reads.
 	next := *st
-	if err := fleetnodebootstrap.Refresh(ctx, &next); err != nil {
+	if err := bootstrap.Refresh(ctx, &next); err != nil {
 		return err
 	}
 	r.stateMu.Lock()
@@ -245,7 +251,7 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.Stat
 	// tokenSource goroutine that the control loop will add later.
 	snapshot := *st
 	r.stateMu.Unlock()
-	if err := fleetnodebootstrap.SaveState(path, &snapshot); err != nil {
+	if err := bootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
 	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
@@ -255,11 +261,11 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.Stat
 // tick runs one heartbeat cycle. A non-nil return is a permanent condition
 // (revoked credential / deleted fleet_node) that requires re-enrollment;
 // transient errors return nil so the next tick retries.
-func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
+func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
-			if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
-				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", fleetnodebootstrap.ErrBeginAuthRejected)
+			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
+				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected)
 			}
 			logger.Error("session refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", err)
 			return nil
@@ -281,8 +287,8 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebo
 
 	logger.Warn("heartbeat rejected as Unauthenticated; refreshing session and retrying", "fleet_node_id", st.FleetNodeID, "err", err)
 	if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
-		if errors.Is(refreshErr, fleetnodebootstrap.ErrBeginAuthRejected) {
-			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", fleetnodebootstrap.ErrBeginAuthRejected)
+		if errors.Is(refreshErr, bootstrap.ErrBeginAuthRejected) {
+			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected)
 		}
 		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
 		return nil

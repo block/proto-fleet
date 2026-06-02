@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 func TestRefreshCmd_HappyPath(t *testing.T) {
@@ -21,7 +21,7 @@ func TestRefreshCmd_HappyPath(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	pub, priv, err := fleetnodebootstrap.GenerateKeypair()
+	pub, priv, err := bootstrap.GenerateKeypair()
 	require.NoError(t, err)
 	expiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
 	fake := &fakeFleetNodeGateway{
@@ -32,7 +32,7 @@ func TestRefreshCmd_HappyPath(t *testing.T) {
 		sessionExpiresAt: expiresAt,
 	}
 	srv := newFakeServer(t, fake)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -49,7 +49,7 @@ func TestRefreshCmd_HappyPath(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	loaded, _, err := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, _, err := bootstrap.LoadState(bootstrap.StatePath(dir))
 	require.NoError(t, err)
 	assert.Equal(t, "session-after-refresh", loaded.SessionToken)
 	assert.Equal(t, fake.expectedAPIKey, loaded.APIKey)
@@ -63,7 +63,7 @@ func TestRefreshCmd_PromptsForApiKeyAndPersistsOnSuccess(t *testing.T) {
 	// interrupted enroll). Refresh prompts for the api_key on stdin and
 	// persists it only after a successful handshake.
 	dir := t.TempDir()
-	pub, priv, err := fleetnodebootstrap.GenerateKeypair()
+	pub, priv, err := bootstrap.GenerateKeypair()
 	require.NoError(t, err)
 	const pastedAPIKey = "fleet_pasted_after_recovery" //nolint:gosec // test fixture, not a real credential
 	fake := &fakeFleetNodeGateway{
@@ -74,7 +74,7 @@ func TestRefreshCmd_PromptsForApiKeyAndPersistsOnSuccess(t *testing.T) {
 		sessionExpiresAt: time.Now().Add(24 * time.Hour).UTC(),
 	}
 	srv := newFakeServer(t, fake)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            100,
@@ -89,7 +89,7 @@ func TestRefreshCmd_PromptsForApiKeyAndPersistsOnSuccess(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	loaded, _, err := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, _, err := bootstrap.LoadState(bootstrap.StatePath(dir))
 	require.NoError(t, err)
 	assert.Equal(t, pastedAPIKey, loaded.APIKey)
 	assert.Equal(t, "session-recovered", loaded.SessionToken)
@@ -100,7 +100,7 @@ func TestRefreshCmd_RejectsEmptyApiKeyAtPrompt(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:             "https://fleet.example.com",
 		FleetNodeID:           1,
 		IdentityFingerprint:   "0000000000000000",
@@ -125,7 +125,7 @@ func TestRefreshCmd_PreservesStateOnBeginAuthRejection(t *testing.T) {
 	// can re-run after the server-side cause is resolved without
 	// re-enrolling. (PR #187 commit 3184f04 #3.)
 	dir := t.TempDir()
-	pub, priv, err := fleetnodebootstrap.GenerateKeypair()
+	pub, priv, err := bootstrap.GenerateKeypair()
 	require.NoError(t, err)
 	fake := &fakeFleetNodeGateway{
 		expectedAPIKey: "the-only-key-the-server-will-accept",
@@ -133,7 +133,7 @@ func TestRefreshCmd_PreservesStateOnBeginAuthRejection(t *testing.T) {
 		challenge:      bytes.Repeat([]byte{0x77}, 32),
 	}
 	srv := newFakeServer(t, fake)
-	initial := &fleetnodebootstrap.State{
+	initial := &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            7,
@@ -142,7 +142,7 @@ func TestRefreshCmd_PreservesStateOnBeginAuthRejection(t *testing.T) {
 		IdentityPublicKeyHex:   hex.EncodeToString(pub),
 		APIKey:                 "stored-but-revoked-server-side",
 	}
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), initial))
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), initial))
 	cmd := RefreshCmd{}
 
 	// Act
@@ -150,10 +150,10 @@ func TestRefreshCmd_PreservesStateOnBeginAuthRejection(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
+	assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "Local credentials are preserved")
 	assert.NotContains(t, err.Error(), "invalid api_key", "the server-side message must not leak through; the CLI gives generic guidance for all Unauthenticated causes")
-	loaded, _, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, _, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
 	assert.Equal(t, initial.APIKey, loaded.APIKey)
 	assert.Equal(t, initial.IdentityPrivateKeyHex, loaded.IdentityPrivateKeyHex)
 	assert.Equal(t, int64(7), loaded.FleetNodeID)
@@ -168,7 +168,7 @@ func TestRefreshCmd_DoesNotPersistWrongPastedApiKey(t *testing.T) {
 	// silently retry the bad key, leaving the operator with no CLI path to
 	// replace it. (Codex PR #221 finding: refresh.go:48.)
 	dir := t.TempDir()
-	pub, priv, err := fleetnodebootstrap.GenerateKeypair()
+	pub, priv, err := bootstrap.GenerateKeypair()
 	require.NoError(t, err)
 	fake := &fakeFleetNodeGateway{
 		expectedAPIKey: "the-correct-key",
@@ -176,7 +176,7 @@ func TestRefreshCmd_DoesNotPersistWrongPastedApiKey(t *testing.T) {
 		challenge:      bytes.Repeat([]byte{0x88}, 32),
 	}
 	srv := newFakeServer(t, fake)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            123,
@@ -191,8 +191,8 @@ func TestRefreshCmd_DoesNotPersistWrongPastedApiKey(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
-	loaded, _, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
+	loaded, _, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
 	assert.Empty(t, loaded.APIKey, "wrong api_key must not be persisted; the next refresh must prompt again")
 	assert.Equal(t, int64(123), loaded.FleetNodeID, "keys + fleet_node_id are preserved so the operator can retry")
 }

@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 type EnrollCmd struct {
@@ -22,17 +22,17 @@ func (e *EnrollCmd) Run(c *Context) error {
 }
 
 func (e *EnrollCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) error {
-	if err := fleetnodebootstrap.ValidateServerURL(e.ServerURL, e.AllowInsecureTransport); err != nil {
+	if err := bootstrap.ValidateServerURL(e.ServerURL, e.AllowInsecureTransport); err != nil {
 		return err
 	}
-	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
+	return bootstrap.WithStateLock(c.StateDir, func() error {
 		return e.runLocked(c, stdin, stdout, stderr)
 	})
 }
 
 func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Writer) error {
-	path := fleetnodebootstrap.StatePath(c.StateDir)
-	st, exists, err := fleetnodebootstrap.LoadState(path)
+	path := bootstrap.StatePath(c.StateDir)
+	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
 		return err
 	}
@@ -62,14 +62,14 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		return errors.New("empty enrollment code")
 	}
 
-	result, err := fleetnodebootstrap.Register(context.Background(), fleetnodebootstrap.RegisterParams{
+	result, err := bootstrap.Register(context.Background(), bootstrap.RegisterParams{
 		ServerURL:              e.ServerURL,
 		Name:                   name,
 		Code:                   code,
 		AllowInsecureTransport: e.AllowInsecureTransport,
 	})
 	if err != nil {
-		if errors.Is(err, fleetnodebootstrap.ErrRegisterRejected) {
+		if errors.Is(err, bootstrap.ErrRegisterRejected) {
 			return fmt.Errorf("register rejected by server: %w\n  recovery: revoke the prior fleet node in the operator UI (then re-run with --force), or pass --name=<unique-value> to register as a new fleet node. If the enrollment code was already used, typo'd, or expired, request a fresh one from the operator UI", err)
 		}
 		return fmt.Errorf("register: %w", err)
@@ -79,7 +79,7 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 	// Persist before the api_key prompt so a Ctrl-C cannot orphan the
 	// server-side fleet_node row; the operator can complete the enrollment
 	// by running `fleetnode refresh` and entering the api_key when prompted.
-	if err := fleetnodebootstrap.SaveState(path, state); err != nil {
+	if err := bootstrap.SaveState(path, state); err != nil {
 		return fmt.Errorf(
 			"save state after Register: %w\n"+
 				"  recovery: a fleet_node row was created server-side "+
@@ -102,13 +102,13 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		return errors.New("empty api_key")
 	}
 
-	if err := fleetnodebootstrap.CompleteEnrollment(context.Background(), state, apiKey); err != nil {
-		if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
-			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI, then retry with `fleetnode refresh`; local credentials are preserved", fleetnodebootstrap.ErrBeginAuthRejected)
+	if err := bootstrap.CompleteEnrollment(context.Background(), state, apiKey); err != nil {
+		if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
+			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI, then retry with `fleetnode refresh`; local credentials are preserved", bootstrap.ErrBeginAuthRejected)
 		}
 		return fmt.Errorf("complete enrollment: %w", err)
 	}
-	if err := fleetnodebootstrap.SaveState(path, state); err != nil {
+	if err := bootstrap.SaveState(path, state); err != nil {
 		return fmt.Errorf(
 			"save state after CompleteEnrollment: %w\n"+
 				"  recovery: enrollment succeeded server-side "+

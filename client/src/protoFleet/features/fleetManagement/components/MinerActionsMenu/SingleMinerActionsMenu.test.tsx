@@ -98,6 +98,14 @@ vi.mock("./useMinerActions", () => ({
   useMinerActions: mockUseMinerActions,
 }));
 
+// Pass through the permission filter so rendering tests don't need to
+// seed the auth store with every miner permission key. The filter
+// behavior itself is exercised against the real store in component
+// tests that mount through the full path.
+vi.mock("./actionPermissions", () => ({
+  usePermittedActions: <T,>(actions: T[]): T[] => actions,
+}));
+
 vi.mock("@/protoFleet/api/useUpdateWorkerNames", () => ({
   default: mockUseUpdateWorkerNames,
 }));

@@ -18,6 +18,7 @@ WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
 `
 
 func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
@@ -39,6 +40,7 @@ WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
     AND (
         -- If cursor provided, filter by it, otherwise return all
         COALESCE($3, 0) = 0
@@ -74,6 +76,8 @@ type GetActiveUnpairedDiscoveredDevicesRow struct {
 	DeletedAt         sql.NullTime
 }
 
+// Excludes remote-fleet-node-reported rows: server-local pairing
+// dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
 func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error) {
 	rows, err := q.query(ctx, q.getActiveUnpairedDiscoveredDevicesStmt, getActiveUnpairedDiscoveredDevices, arg.OrgID, arg.Limit, arg.CursorID)
 	if err != nil {
@@ -116,7 +120,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id
 FROM discovered_device
 WHERE device_identifier = $1
     AND org_id = $2
@@ -151,12 +155,13 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.DeletedAt,
 		&i.DriverName,
 		&i.IpAddressInet,
+		&i.DiscoveredByFleetNodeID,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id
 FROM discovered_device
 WHERE id = $1
     AND org_id = $2
@@ -191,12 +196,13 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.DeletedAt,
 		&i.DriverName,
 		&i.IpAddressInet,
+		&i.DiscoveredByFleetNodeID,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id
 FROM discovered_device
 WHERE org_id = $1
     AND ip_address = $2
@@ -233,6 +239,7 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.DeletedAt,
 		&i.DriverName,
 		&i.IpAddressInet,
+		&i.DiscoveredByFleetNodeID,
 	)
 	return i, err
 }

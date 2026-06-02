@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
-import { Activity, Fleet, Groups, Home, IconProps, Racks, Settings, Site } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Racks, Settings, Site } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -34,11 +34,14 @@ export const primaryNavItems: NavItem[] = [
           path: "/sites",
           label: "Sites",
           icon: Site,
-          // SitesPage renders site CRUD with no view-only mode, so gate
-          // the nav on site:manage to match the page's capability
-          // rather than the list RPC's site:read. Same shape as the
-          // Pools and Schedules secondary-nav entries.
-          requiredPermission: "site:manage",
+          // Gate on site:read so any role that can list sites can
+          // navigate to the overview. SitesPage renders the read view
+          // for everyone (ListSites + ListBuildings, both site:read);
+          // the "Add site" CTA and per-card edit/delete affordances
+          // gate on site:manage independently inside the page, so
+          // restricting the nav to site:manage would hide a useful
+          // surface from read-only roles for no security benefit.
+          requiredPermission: "site:read",
         },
       ]
     : []),
@@ -58,12 +61,17 @@ export const primaryNavItems: NavItem[] = [
     icon: Groups,
   },
   {
+    path: "/energy",
+    label: "Energy",
+    icon: LightningAlt,
+    requiredPermission: "curtailment:read",
+  },
+  {
     path: "/activity",
     label: "Activity",
     icon: Activity,
-    // ActivityService is still pending its activity:read catalog key
-    // (tracked separately). Once the server-side gating lands, gate
-    // this nav entry on activity:read to mirror the RPC gate.
+    // ActivityService is server-gated on activity:read (PR #347).
+    requiredPermission: "activity:read",
   },
   {
     path: "/settings",

@@ -2,22 +2,27 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from "rea
 import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
-import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import ActiveCurtailmentStatus, {
+  type ActiveCurtailmentEvent,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentStartModal, {
+  type CurtailmentPlanPreview,
   type CurtailmentStartModalMode,
   type CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import { createCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface CurtailmentManagementPanelProps {
+  canManageCurtailment?: boolean;
   className?: string;
 }
 
@@ -29,11 +34,15 @@ interface PendingStopConfirmation {
 interface EditCurtailmentSession {
   eventId: string;
   initialValues: CurtailmentSubmitValues;
+  preview: CurtailmentPlanPreview;
 }
 
 interface CurtailmentMessageProps {
   message: string;
 }
+
+const activeCurtailmentRefreshIntervalMs = 3_000;
+const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
 
 function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement {
   return (
@@ -44,7 +53,21 @@ function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement 
   );
 }
 
-function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelProps): ReactElement {
+function createActiveCurtailmentPreview(
+  event: ActiveCurtailmentEvent,
+  values: CurtailmentSubmitValues,
+): CurtailmentPlanPreview {
+  return createCurtailmentPlanPreview(values, {
+    selectedMinerCount: event.selectedMiners,
+    targetKw: event.targetKw,
+    estimatedReductionKw: event.estimatedReductionKw,
+  });
+}
+
+function CurtailmentManagementPanel({
+  canManageCurtailment = true,
+  className,
+}: CurtailmentManagementPanelProps): ReactElement {
   const {
     activeEvent,
     activeEventId,
@@ -62,11 +85,12 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     historyHasNextPage,
     historyHasPreviousPage,
     historyPageSize,
-    historyStatusFilter,
+    historyStatusFilters,
     refreshCurtailment,
     goToHistoryPage,
-    setHistoryStatusFilter,
+    setHistoryStatusFilters,
     startCurtailment,
+    dismissTerminalCurtailment,
     updateCurtailment,
     stopCurtailment,
   } = useCurtailmentApi();
@@ -74,21 +98,28 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
+  const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
+  const foregroundRefreshInFlightRef = useRef(false);
   const errorMessage = startError ?? updateError ?? stopError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
+  const activeEventState = activeEvent?.state;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
+    activeRefreshAbortControllerRef.current?.abort();
+    activeRefreshAbortControllerRef.current = null;
     refreshAbortControllerRef.current?.abort();
     const abortController = new AbortController();
     refreshAbortControllerRef.current = abortController;
+    foregroundRefreshInFlightRef.current = true;
 
     return operation(abortController.signal).finally(() => {
       if (refreshAbortControllerRef.current === abortController) {
         refreshAbortControllerRef.current = null;
+        foregroundRefreshInFlightRef.current = false;
       }
     });
   }, []);
@@ -98,6 +129,43 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
 
     return () => refreshAbortControllerRef.current?.abort();
   }, [refreshCurtailment, runAbortableRefresh]);
+
+  useEffect(() => {
+    if (!activeEventState || !nonTerminalActiveEventStates.has(activeEventState)) {
+      return undefined;
+    }
+
+    const refreshActiveCurtailment = (): void => {
+      if (
+        foregroundRefreshInFlightRef.current ||
+        refreshAbortControllerRef.current ||
+        activeRefreshAbortControllerRef.current
+      ) {
+        return;
+      }
+
+      const abortController = new AbortController();
+      activeRefreshAbortControllerRef.current = abortController;
+
+      void refreshCurtailment({ background: true, signal: abortController.signal })
+        .catch(() => {})
+        .finally(() => {
+          if (activeRefreshAbortControllerRef.current === abortController) {
+            activeRefreshAbortControllerRef.current = null;
+          }
+        });
+    };
+
+    const intervalId = window.setInterval(() => {
+      refreshActiveCurtailment();
+    }, activeCurtailmentRefreshIntervalMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+      activeRefreshAbortControllerRef.current?.abort();
+      activeRefreshAbortControllerRef.current = null;
+    };
+  }, [activeEventState, refreshCurtailment]);
 
   const closeModal = useCallback(() => {
     setModalMode(null);
@@ -110,13 +178,17 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
   }, []);
 
   const openEditModal = useCallback(() => {
-    if (!activeEventId || !activeEventFormValues) {
+    if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {
       return;
     }
 
-    setEditSession({ eventId: activeEventId, initialValues: activeEventFormValues });
+    setEditSession({
+      eventId: activeEventId,
+      initialValues: activeEventFormValues,
+      preview: createActiveCurtailmentPreview(activeEvent, activeEventFormValues),
+    });
     setModalMode("edit");
-  }, [activeEventFormValues, activeEventId]);
+  }, [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment]);
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
@@ -176,11 +248,11 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     [goToHistoryPage, runAbortableRefresh],
   );
 
-  const handleHistoryStatusFilterChange = useCallback(
-    (stateFilter?: CurtailmentEventState) => {
-      void runAbortableRefresh((signal) => setHistoryStatusFilter(stateFilter, { signal })).catch(() => {});
+  const handleHistoryStatusFiltersChange = useCallback(
+    (stateFilters: CurtailmentEventState[]) => {
+      void runAbortableRefresh((signal) => setHistoryStatusFilters(stateFilters, { signal })).catch(() => {});
     },
-    [runAbortableRefresh, setHistoryStatusFilter],
+    [runAbortableRefresh, setHistoryStatusFilters],
   );
 
   const handleConfirmStop = useCallback(() => {
@@ -225,7 +297,8 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           {activeEvent ? (
             <ActiveCurtailmentStatus
               event={activeEvent}
-              onRequestEdit={openEditModal}
+              onDismissRestored={dismissTerminalCurtailment}
+              onRequestEdit={canManageCurtailment ? openEditModal : undefined}
               onRequestRestore={() => openStopConfirmation("restore")}
               onRequestStop={() => openStopConfirmation("stopCurtailment")}
             />
@@ -238,9 +311,9 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
             currentPage={historyCurrentPage}
             hasNextPage={historyHasNextPage}
             hasPreviousPage={historyHasPreviousPage}
-            selectedStatusFilter={historyStatusFilter}
+            selectedStatusFilters={historyStatusFilters}
             onPageChange={handleHistoryPageChange}
-            onStatusFilterChange={handleHistoryStatusFilterChange}
+            onStatusFiltersChange={handleHistoryStatusFiltersChange}
             onStopActiveEvent={handleHistoryStop}
           />
         </>
@@ -251,6 +324,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           open
           mode={modalMode}
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
+          preview={isEditingCurtailment ? editSession?.preview : undefined}
           onDismiss={closeModal}
           onSubmit={handleModalSubmit}
           onStopCurtailment={isEditingCurtailment ? handleEditStopCurtailment : undefined}

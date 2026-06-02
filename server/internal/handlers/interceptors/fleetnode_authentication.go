@@ -9,18 +9,18 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 )
 
 type FleetNodeAuthInterceptor struct {
-	auth         *fleetnodeauth.Service
+	auth         *auth.Service
 	procedureSet map[string]struct{}
 }
 
 var _ connect.Interceptor = &FleetNodeAuthInterceptor{}
 
-func NewFleetNodeAuthInterceptor(auth *fleetnodeauth.Service, procedures []string) *FleetNodeAuthInterceptor {
+func NewFleetNodeAuthInterceptor(auth *auth.Service, procedures []string) *FleetNodeAuthInterceptor {
 	set := make(map[string]struct{}, len(procedures))
 	for _, p := range procedures {
 		set[p] = struct{}{}
@@ -77,10 +77,10 @@ func (i *FleetNodeAuthInterceptor) authenticate(ctx context.Context, authHeader 
 		slog.Error("fleet node auth: session lookup failed", "error", err)
 		return ctx, fleeterror.NewInternalError("fleet node authentication failed")
 	}
-	return authn.SetInfo(ctx, &fleetnodeauth.Subject{
+	return authn.SetInfo(ctx, &auth.Subject{
 		FleetNodeID:         resolved.FleetNodeID,
 		OrgID:               resolved.OrgID,
 		Name:                resolved.Name,
-		IdentityFingerprint: fleetnodeenrollment.IdentityFingerprint(resolved.IdentityPubkey),
+		IdentityFingerprint: enrollment.IdentityFingerprint(resolved.IdentityPubkey),
 	}), nil
 }

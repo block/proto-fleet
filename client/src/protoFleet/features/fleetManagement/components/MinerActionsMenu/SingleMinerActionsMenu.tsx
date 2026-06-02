@@ -4,6 +4,7 @@ import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
+import { usePermittedActions } from "./actionPermissions";
 import AddToGroupModal from "./AddToGroupModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import CoolingModeModal from "./CoolingModeModal";
@@ -353,12 +354,15 @@ const SingleMinerActionsMenu = ({
     return viewMinerAction ? [viewMinerAction, ...actions, renameAction] : [...actions, renameAction];
   }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, minerUrl, popoverActions]);
 
+  // Hide actions whose backing RPC the caller can't invoke. viewMiner
+  // has no RPC and stays visible regardless of permissions; the server
+  // still enforces every gate.
+  const permittedActions = usePermittedActions(actionsWithSingleNameFlows);
+
   const visibleActions = useMemo(
     () =>
-      needsAuthentication
-        ? actionsWithSingleNameFlows.filter((a) => unauthenticatedActions.has(a.action))
-        : actionsWithSingleNameFlows,
-    [actionsWithSingleNameFlows, needsAuthentication],
+      needsAuthentication ? permittedActions.filter((a) => unauthenticatedActions.has(a.action)) : permittedActions,
+    [permittedActions, needsAuthentication],
   );
 
   const [isOpen, setIsOpen] = useState(false);

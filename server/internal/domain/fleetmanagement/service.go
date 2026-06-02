@@ -76,7 +76,13 @@ func bracketIPv6Host(host string) string {
 // will use the default port for the scheme (80 for http, 443 for https). This matches the
 // behavior of GetWebViewURL().
 func constructWebViewURL(scheme, ipAddress string) string {
-	if ipAddress == "" || scheme == "" {
+	if ipAddress == "" {
+		return ""
+	}
+	// Only http/https are browser-openable. Other (and untrusted, agent-reported)
+	// schemes are stored for routing but must not become clickable UI links — a
+	// scheme like "javascript:alert(1)//" would otherwise be an XSS vector.
+	if scheme != "http" && scheme != "https" {
 		return ""
 	}
 	return fmt.Sprintf("%s://%s", scheme, bracketIPv6Host(ipAddress))

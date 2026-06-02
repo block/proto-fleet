@@ -2301,6 +2301,124 @@ func TestPairDevices_DeduplicatesAliasIdentifiersByIPPort(t *testing.T) {
 	assert.Equal(t, device2Identifier, resp.FailedDeviceIds[0], "second (alias) identifier should be the failed one")
 }
 
+// Cloud pairing dials the device's IP directly via plugin RPC, so it must
+// refuse any discovered_device a fleet node reported (those endpoints are only
+// reachable through the node, via PairDeviceToFleetNode). The guard appends the
+// fleet-node-attributed id to the failed list and skips it without writing a
+// device_pairing row. A normal device in the same request still pairs.
+func TestPairDevices_RefusesFleetNodeDiscoveredDevices(t *testing.T) {
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
+
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	tokenService := testContext.ServiceProvider.TokenService
+	pluginService := testContext.ServiceProvider.PluginService
+
+	// A normal cloud-discovered device that should pair, plus one attributed to
+	// a fleet node that must be refused.
+	cloudIdentifier := "cloud-discovered-001"
+	fleetNodeIdentifier := "fleet-node-discovered-001"
+
+	_, err := discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: cloudIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: cloudIdentifier,
+			IpAddress:        "10.0.2.10",
+			Port:             "8080",
+			UrlScheme:        "http",
+			DriverName:       "proto",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	_, err = discoveredDeviceStore.Save(ctx, discoverymodels.DeviceOrgIdentifier{
+		DeviceIdentifier: fleetNodeIdentifier,
+		OrgID:            adminUser.OrganizationID,
+	}, &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: fleetNodeIdentifier,
+			IpAddress:        "192.168.1.50",
+			Port:             "8080",
+			UrlScheme:        "http",
+			DriverName:       "proto",
+		},
+		OrgID:    adminUser.OrganizationID,
+		IsActive: true,
+	})
+	require.NoError(t, err)
+
+	// Save doesn't set fleet-node attribution (only the gateway report path
+	// does), so create a fleet node and stamp the column directly.
+	var fleetNodeID int64
+	require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx,
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
+		 VALUES ($1, 'pairing-guard-node', $2, $3, 'CONFIRMED') RETURNING id`,
+		adminUser.OrganizationID, []byte("guard-pubkey"), []byte("guard-signing")).Scan(&fleetNodeID))
+	_, err = testContext.ServiceProvider.DB.ExecContext(ctx,
+		`UPDATE discovered_device SET discovered_by_fleet_node_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
+		fleetNodeID, adminUser.OrganizationID, fleetNodeIdentifier)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	// PairDevice must run exactly once: the fleet-node-attributed device is
+	// filtered out by the guard before any pairing attempt.
+	mockPairer := pairingMocks.NewMockPairer(ctrl)
+	mockPairer.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		Times(1)
+	mockPairer.EXPECT().
+		GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("not implemented")).
+		AnyTimes()
+
+	mockListener := pairingMocks.NewMockListener(ctrl)
+	mockListener.EXPECT().AddDevices(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+
+	pairingService := pairing.NewService(
+		discoveredDeviceStore,
+		deviceStore,
+		transactor,
+		tokenService,
+		&MockDiscoverer{},
+		pluginService,
+		mockListener,
+		mockPairer,
+	)
+
+	// Act
+	resp, err := pairingService.PairDevices(ctx, createPairRequest([]string{cloudIdentifier, fleetNodeIdentifier}))
+
+	// Assert: the fleet-node device is reported as failed and never promoted to
+	// a device/device_pairing row; only the cloud device pairs.
+	require.NoError(t, err)
+	assert.Equal(t, []string{fleetNodeIdentifier}, resp.FailedDeviceIds,
+		"the fleet-node-discovered device must be the only failed id")
+
+	_, lookupErr := sqlc.New(testContext.ServiceProvider.DB).GetDeviceIDByDeviceIdentifier(ctx, fleetNodeIdentifier)
+	require.Error(t, lookupErr, "refused fleet-node device must not be promoted to a device row")
+
+	// No device_pairing row may exist for the refused fleet-node device. The
+	// join through device anchors the assertion to this identifier specifically.
+	var pairingRows int
+	require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM device_pairing dp
+		 JOIN device d ON dp.device_id = d.id
+		 WHERE d.device_identifier = $1 AND d.org_id = $2`,
+		fleetNodeIdentifier, adminUser.OrganizationID).Scan(&pairingRows))
+	assert.Equal(t, 0, pairingRows, "refused fleet-node device must have no device_pairing row")
+}
+
 func TestPairDevices_IncludeDevices_EmptyList(t *testing.T) {
 	t.Run("returns error for empty device list", func(t *testing.T) {
 		// Arrange

@@ -6,10 +6,10 @@ import (
 	"errors"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 )
 
-var _ fleetnodepairing.Store = &SQLFleetNodePairingStore{}
+var _ pairing.Store = &SQLFleetNodePairingStore{}
 
 type SQLFleetNodePairingStore struct {
 	SQLConnectionManager
@@ -32,6 +32,21 @@ func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fl
 	})
 }
 
+func (s *SQLFleetNodePairingStore) TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error) {
+	return s.q(ctx).TransferDiscoveredDeviceAttribution(ctx, sqlc.TransferDiscoveredDeviceAttributionParams{
+		FleetNodeID: fleetNodeID,
+		DeviceID:    deviceID,
+		OrgID:       orgID,
+	})
+}
+
+func (s *SQLFleetNodePairingStore) DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error) {
+	return s.q(ctx).DeviceHasActiveCloudPairing(ctx, sqlc.DeviceHasActiveCloudPairingParams{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+	})
+}
+
 func (s *SQLFleetNodePairingStore) UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error) {
 	return s.q(ctx).UnpairDevice(ctx, sqlc.UnpairDeviceParams{
 		DeviceID: deviceID,
@@ -39,7 +54,7 @@ func (s *SQLFleetNodePairingStore) UnpairDevice(ctx context.Context, deviceID, o
 	})
 }
 
-func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]fleetnodepairing.FleetNodeDevice, error) {
+func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]pairing.FleetNodeDevice, error) {
 	rows, err := s.q(ctx).ListFleetNodeDevices(ctx, sqlc.ListFleetNodeDevicesParams{
 		OrgID:       orgID,
 		FleetNodeID: ptrToNullInt64(fleetNodeID),
@@ -47,9 +62,9 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	if err != nil {
 		return nil, err
 	}
-	out := make([]fleetnodepairing.FleetNodeDevice, 0, len(rows))
+	out := make([]pairing.FleetNodeDevice, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, fleetnodepairing.FleetNodeDevice{
+		out = append(out, pairing.FleetNodeDevice{
 			FleetNodeID:      r.FleetNodeID,
 			DeviceID:         r.DeviceID,
 			DeviceIdentifier: r.DeviceIdentifier,
@@ -61,18 +76,18 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	return out, nil
 }
 
-func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report fleetnodepairing.DiscoveredDeviceReport) (int64, error) {
+func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (int64, error) {
 	return s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
-		OrgID:            orgID,
-		DeviceIdentifier: report.DeviceIdentifier,
-		IpAddress:        report.IPAddress,
-		Port:             report.Port,
-		UrlScheme:        report.URLScheme,
-		DriverName:       report.DriverName,
-		Model:            emptyToNullString(report.Model),
-		Manufacturer:     emptyToNullString(report.Manufacturer),
-		FirmwareVersion:  emptyToNullString(report.FirmwareVersion),
-		FleetNodeID:      fleetNodeID,
+		OrgID:                   orgID,
+		DeviceIdentifier:        report.DeviceIdentifier,
+		IpAddress:               report.IPAddress,
+		Port:                    report.Port,
+		UrlScheme:               report.URLScheme,
+		DriverName:              report.DriverName,
+		Model:                   emptyToNullString(report.Model),
+		Manufacturer:            emptyToNullString(report.Manufacturer),
+		FirmwareVersion:         emptyToNullString(report.FirmwareVersion),
+		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
 	})
 }
 

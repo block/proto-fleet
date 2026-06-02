@@ -20,7 +20,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 type stubGatewayClient struct {
@@ -71,11 +71,11 @@ func (s *stubGatewayClient) snapshot() (int, []string) {
 	return s.calls, out
 }
 
-func freshState(t *testing.T, dir string, sessionExpiresAt time.Time) *fleetnodebootstrap.State {
+func freshState(t *testing.T, dir string, sessionExpiresAt time.Time) *bootstrap.State {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	st := &fleetnodebootstrap.State{
+	st := &bootstrap.State{
 		ServerURL:              "http://127.0.0.1:0",
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -86,7 +86,7 @@ func freshState(t *testing.T, dir string, sessionExpiresAt time.Time) *fleetnode
 		SessionToken:           "session-1",
 		SessionExpiresAt:       sessionExpiresAt,
 	}
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), st))
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), st))
 	return st
 }
 
@@ -141,7 +141,7 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	fake.identityPub = pubKey
-	st := &fleetnodebootstrap.State{
+	st := &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -152,7 +152,7 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 		SessionToken:           "session-stale",
 		SessionExpiresAt:       time.Now().Add(30 * time.Minute),
 	}
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), st))
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), st))
 
 	parent, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -171,7 +171,7 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	}
 
 	// Assert
-	loaded, _, err := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, _, err := bootstrap.LoadState(bootstrap.StatePath(dir))
 	require.NoError(t, err)
 	assert.Equal(t, "session-rotated", loaded.SessionToken, "near-expiry session must be refreshed before first heartbeat")
 	assert.Equal(t, 1, fake.heartbeatCount(), "exactly one heartbeat before shutdown")
@@ -193,7 +193,7 @@ func TestRunCmd_RefreshesOnUnauthenticatedResponse(t *testing.T) {
 		expectedSessionToken: "session-2",
 	}
 	srv := newFakeServer(t, fake)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -228,7 +228,7 @@ func TestRunCmd_RefreshesOnUnauthenticatedResponse(t *testing.T) {
 	}
 
 	// Assert
-	loaded, _, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	loaded, _, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
 	assert.Equal(t, "session-2", loaded.SessionToken, "Unauthenticated rejection must trigger a refresh that persists the new token")
 }
 
@@ -258,7 +258,7 @@ func TestRunCmd_FailsWhenApiKeyIsMissing(t *testing.T) {
 	dir := t.TempDir()
 	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              "http://127.0.0.1:1",
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -291,7 +291,7 @@ func TestRunCmd_BailsOutWhenInitialRefreshHitsBeginAuthRejected(t *testing.T) {
 		sessionExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 	srv := newFakeServer(t, fake)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -308,7 +308,7 @@ func TestRunCmd_BailsOutWhenInitialRefreshHitsBeginAuthRejected(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
+	assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "local credentials are preserved")
 }
 
@@ -321,7 +321,7 @@ func TestRunCmd_ValidatesServerURLBeforeBuildingClient(t *testing.T) {
 	dir := t.TempDir()
 	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              "http://fleet.example.com",
 		AllowInsecureTransport: false,
 		FleetNodeID:            42,
@@ -398,7 +398,7 @@ func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
 		expectedSessionToken: "different-from-state",
 	}
 	srv := newFakeServer(t, fake)
-	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
 		FleetNodeID:            42,
@@ -419,7 +419,7 @@ func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
 	select {
 	case err := <-done:
 		require.Error(t, err)
-		assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
+		assert.ErrorIs(t, err, bootstrap.ErrBeginAuthRejected)
 		assert.Contains(t, err.Error(), "Exiting")
 	case <-time.After(3 * time.Second):
 		t.Fatal("daemon did not exit within 3s after tick refresh hit ErrBeginAuthRejected")

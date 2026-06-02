@@ -24,7 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -39,7 +39,7 @@ func discoverIPList(ips, ports []string) *pairingpb.DiscoverRequest {
 // Drives runControlLoop until one ack lands, then cancels.
 func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 	t.Helper()
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 	client := newControlClient(t, fake)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -305,7 +305,7 @@ func TestControlLoop_PartialResultsSurviveScanDeadline(t *testing.T) {
 		},
 	}
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
@@ -366,7 +366,7 @@ func (s *delayingStubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []stri
 func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
-	state := &fleetnodebootstrap.State{FleetNodeID: 11}
+	state := &bootstrap.State{FleetNodeID: 11}
 
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{rejectWithCode: connect.CodeNotFound})
@@ -386,7 +386,7 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
-	state := &fleetnodebootstrap.State{FleetNodeID: 12}
+	state := &bootstrap.State{FleetNodeID: 12}
 
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{rejectWithCode: connect.CodeUnimplemented})
@@ -405,7 +405,7 @@ func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
-	state := &fleetnodebootstrap.State{FleetNodeID: 9}
+	state := &bootstrap.State{FleetNodeID: 9}
 
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{closeAfterAccepted: true})
@@ -622,33 +622,63 @@ func mustMarshal(t *testing.T, m proto.Message) []byte {
 func TestSynthesizeIdentifier(t *testing.T) {
 	t.Parallel()
 
+	dev := func(mac, serial, driver, model string) *discoverymodels.DiscoveredDevice {
+		return &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{
+			MacAddress: mac, SerialNumber: serial, DriverName: driver, Model: model,
+		}}
+	}
+
 	cases := []struct {
-		name       string
-		mac        string
-		serial     string
-		prefix     string
-		prefixOnly bool
+		name string
+		dev  *discoverymodels.DiscoveredDevice
+		want string
 	}{
-		{name: "mac wins", mac: "aa:bb:cc:dd:ee:ff", serial: "SN1", prefix: "mac:aa:bb:cc:dd:ee:ff"},
-		{name: "serial when no mac", serial: "SN1", prefix: "serial:SN1"},
-		{name: "auto when neither", prefix: "auto:", prefixOnly: true},
+		{name: "mac wins", dev: dev("aa:bb:cc:dd:ee:ff", "SN1", "antminer", "S19"), want: "mac:aa:bb:cc:dd:ee:ff"},
+		{name: "serial when no mac", dev: dev("", "SN1", "antminer", "S19"), want: "serial:SN1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Act
-			got := synthesizeIdentifier(tc.mac, tc.serial)
+			// Act: mac/serial wins regardless of the fleet node id.
+			got := synthesizeIdentifier(tc.dev, "10.0.0.1", "80", 1)
 
 			// Assert
-			if tc.prefixOnly {
-				assert.True(t, len(got) > len(tc.prefix), "auto:* must include a non-empty id, got %q", got)
-				assert.Equal(t, tc.prefix, got[:len(tc.prefix)])
-				return
-			}
-			assert.Equal(t, tc.prefix, got)
+			assert.Equal(t, tc.want, got)
 		})
 	}
+
+	t.Run("auto fallback keys on the probed endpoint, not the plugin's", func(t *testing.T) {
+		t.Parallel()
+		// Driver left mac/serial blank: identity comes from the trusted probed
+		// endpoint passed in, so devices at different endpoints stay distinct.
+		blank := dev("", "", "antminer", "S19")
+
+		// Act
+		first := synthesizeIdentifier(blank, "10.0.0.7", "4028", 1)
+		second := synthesizeIdentifier(blank, "10.0.0.7", "4028", 1)
+
+		// Assert
+		assert.True(t, strings.HasPrefix(first, "auto:"), "auto:* prefix, got %q", first)
+		assert.Equal(t, first, second, "same device + endpoint + node must re-key identically across scans")
+		assert.NotEqual(t, first, synthesizeIdentifier(blank, "10.0.0.8", "4028", 1), "a different probed endpoint must differ")
+	})
+
+	t.Run("auto fallback is scoped per fleet node", func(t *testing.T) {
+		t.Parallel()
+		// Two nodes on overlapping RFC1918 space probe the same endpoint for
+		// distinct miners; the synthesized auto: key must differ by node so the
+		// server's upsert guard doesn't silently drop the second node's device.
+		blank := dev("", "", "antminer", "S19")
+
+		// Act
+		node1 := synthesizeIdentifier(blank, "192.168.1.20", "80", 1)
+		node2 := synthesizeIdentifier(blank, "192.168.1.20", "80", 2)
+
+		// Assert
+		assert.NotEqual(t, node1, node2, "same endpoint on different fleet nodes must yield distinct auto: ids")
+		assert.Equal(t, node1, synthesizeIdentifier(blank, "192.168.1.20", "80", 1), "a given fleet node id must be deterministic")
+	})
 }
 
 func TestReportFromDiscovered(t *testing.T) {
@@ -701,8 +731,8 @@ func TestReportFromDiscovered(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Act
-			got := reportFromDiscovered(tc.dev)
+			// Act: ip/port are the trusted probed endpoint.
+			got := reportFromDiscovered(tc.dev, "10.0.0.5", "4028", 1)
 
 			// Assert
 			assert.True(t, proto.Equal(got, tc.want), "got=%v want=%v", got, tc.want)
@@ -775,7 +805,7 @@ func TestControlLoop_LongCommandDoesNotBlockNextReceiveAndSerializes(t *testing.
 	// enqueue cmd-B while cmd-A runs; worker drains them in arrival order.
 	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	fake.queueWithID("cmd-A", mustMarshal(t, &pairingpb.DiscoverRequest{
@@ -834,7 +864,7 @@ func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
 	// Arrange: probe blocks until ctx cancellation.
 	disc := newBlockingDiscoverer("10.0.0.99")
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	fake.queueWithID("cmd-stuck", mustMarshal(t, &pairingpb.DiscoverRequest{
@@ -951,7 +981,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 		stuckIPs: map[string]bool{"10.0.0.2": true},
 	}
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	fake.queueWithID("scan-1", mustMarshal(t, &pairingpb.DiscoverRequest{
@@ -1064,7 +1094,7 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	// moment (after observing the probe started).
 	disc := newBlockingDiscoverer("10.0.0.42")
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	streamClose := make(chan struct{})
 	fake := &controlFakeGateway{}
@@ -1104,7 +1134,7 @@ func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
 	// drained cmd-A before the receive loop got that far.)
 	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D", "cmd-E"} {
@@ -1148,7 +1178,7 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 		"10.0.0.1|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	payload := mustMarshal(t, &pairingpb.DiscoverRequest{
@@ -1187,7 +1217,7 @@ func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 		"10.0.0.2|4028": {DeviceIdentifier: "auto:b", IpAddress: "10.0.0.2", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
 	cmd := &RunCmd{discoverer: disc}
-	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
 	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D"} {

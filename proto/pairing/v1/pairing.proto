@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package pairing.v1;
 
+import "buf/validate/validate.proto";
 import "capabilities/v1/capabilities.proto";
 import "minercommand/v1/command.proto";
 
@@ -75,7 +76,7 @@ message NmapModeRequest {
   // Optional ports to scan. When omitted, the server derives canonical scan ports
   // from loaded plugin metadata. If provided, these ports fully override the
   // server-derived defaults.
-  repeated string ports = 2;
+  repeated string ports = 2 [(buf.validate.field).repeated.max_items = 256];
 }
 
 // Configuration for IP range-based device discovery
@@ -89,18 +90,18 @@ message IPRangeModeRequest {
   // Optional ports to check on each IP address. When omitted, the server derives
   // canonical scan ports from loaded plugin metadata. If provided, these ports
   // fully override the server-derived defaults.
-  repeated string ports = 3;
+  repeated string ports = 3 [(buf.validate.field).repeated.max_items = 256];
 }
 
 // Configuration for discovering devices from a specific list of IP addresses
 message IPListModeRequest {
   // List of IP addresses (IPv4, IPv6, or hostnames) to check
-  repeated string ip_addresses = 1;
+  repeated string ip_addresses = 1 [(buf.validate.field).repeated.max_items = 4096];
 
   // Optional ports to check on each IP address. When omitted, the server derives
   // canonical scan ports from loaded plugin metadata. If provided, these ports
   // fully override the server-derived defaults.
-  repeated string ports = 2;
+  repeated string ports = 2 [(buf.validate.field).repeated.max_items = 256];
 }
 
 // Request message for device discovery, supporting multiple discovery modes

@@ -6,10 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestConstructWebViewURL pins the snapshot.Url semantics: scheme preserved,
-// host bracketed for IPv6, and port intentionally omitted so browsers fall back
-// to the default for the scheme. This is the contract for both paired and
-// unpaired device rows in ListMinerStateSnapshots.
+// TestConstructWebViewURL pins the snapshot.Url semantics: only http/https are
+// emitted as clickable links (other/untrusted schemes yield ""), host bracketed
+// for IPv6, and port intentionally omitted so browsers fall back to the default
+// for the scheme. This is the contract for both paired and unpaired device rows
+// in ListMinerStateSnapshots.
 func TestConstructWebViewURL(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -50,6 +51,18 @@ func TestConstructWebViewURL(t *testing.T) {
 		{
 			name:      "Empty scheme yields empty URL",
 			scheme:    "",
+			ipAddress: "192.168.1.100",
+			expected:  "",
+		},
+		{
+			name:      "Non-web scheme yields empty URL",
+			scheme:    "stratum+tcp",
+			ipAddress: "192.168.1.100",
+			expected:  "",
+		},
+		{
+			name:      "javascript scheme is never made clickable",
+			scheme:    "javascript:alert(1)//",
 			ipAddress: "192.168.1.100",
 			expected:  "",
 		},

@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 type RefreshCmd struct{}
@@ -21,20 +21,20 @@ func (r *RefreshCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) 
 	// LoadState is pure; check existence before taking the state lock so
 	// `fleetnode refresh` on a never-enrolled host does not create
 	// ~/.local/state/fleetnode/state.lock as a side effect.
-	path := fleetnodebootstrap.StatePath(c.StateDir)
-	if _, exists, err := fleetnodebootstrap.LoadState(path); err != nil {
+	path := bootstrap.StatePath(c.StateDir)
+	if _, exists, err := bootstrap.LoadState(path); err != nil {
 		return err
 	} else if !exists {
 		return fmt.Errorf("no state at %s; run `fleetnode enroll` first", path)
 	}
-	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
+	return bootstrap.WithStateLock(c.StateDir, func() error {
 		return r.runLocked(c, stdin, stdout, stderr)
 	})
 }
 
 func (r *RefreshCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Writer) error {
-	path := fleetnodebootstrap.StatePath(c.StateDir)
-	st, exists, err := fleetnodebootstrap.LoadState(path)
+	path := bootstrap.StatePath(c.StateDir)
+	st, exists, err := bootstrap.LoadState(path)
 	if err != nil {
 		return err
 	}
@@ -61,13 +61,13 @@ func (r *RefreshCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wr
 		st.APIKey = apiKey
 	}
 
-	if err := fleetnodebootstrap.Refresh(context.Background(), st); err != nil {
-		if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
-			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Local credentials are preserved; verify the api_key matches the one minted in the UI and retry", fleetnodebootstrap.ErrBeginAuthRejected)
+	if err := bootstrap.Refresh(context.Background(), st); err != nil {
+		if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
+			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Local credentials are preserved; verify the api_key matches the one minted in the UI and retry", bootstrap.ErrBeginAuthRejected)
 		}
 		return fmt.Errorf("refresh: %w", err)
 	}
-	if err := fleetnodebootstrap.SaveState(path, st); err != nil {
+	if err := bootstrap.SaveState(path, st); err != nil {
 		return err
 	}
 	if !st.SessionExpiresAt.IsZero() {

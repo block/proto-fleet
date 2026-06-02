@@ -153,9 +153,8 @@ var ProcedurePermissions = map[string]string{
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            authz.PermMinerDelete,
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      authz.PermMinerExportCSV,
 
-	// FleetNodeAdminService — read for the list endpoints, manage for
-	// everything that mutates fleet-node state. DiscoverOnFleetNode is
-	// still pending until the ControlStream surface lands.
+	// FleetNodeAdminService — fully migrated. Read for the list endpoints,
+	// manage for everything that mutates fleet-node state or triggers a scan.
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      authz.PermFleetnodeManage,
@@ -163,6 +162,7 @@ var ProcedurePermissions = map[string]string{
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:   authz.PermFleetnodeManage,
 
 	// ForemanImportService — bulk miner import flow. Gated on
 	// miner:pair, the same key as the per-miner pairing endpoints —
@@ -273,8 +273,4 @@ var ProceduresPendingMigration = map[string]string{
 	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set or AllowUnbounded; otherwise any authenticated user can start",
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
-
-	// FleetNodeAdminService — DiscoverOnFleetNode remains a stub until
-	// the ControlStream surface lands.
-	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
 }

@@ -16,7 +16,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
-	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -59,7 +59,7 @@ func (f *fakeFleetNodeGateway) Register(_ context.Context, req *connect.Request[
 	return connect.NewResponse(&pb.RegisterResponse{
 		FleetNodeId:         f.fleetNodeID,
 		EnrollmentStatus:    pb.EnrollmentStatus_ENROLLMENT_STATUS_PENDING,
-		IdentityFingerprint: fleetnodebootstrap.IdentityFingerprint(req.Msg.GetIdentityPubkey()),
+		IdentityFingerprint: bootstrap.IdentityFingerprint(req.Msg.GetIdentityPubkey()),
 	}), nil
 }
 
