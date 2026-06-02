@@ -337,6 +337,30 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it("uses a scrubbed source label for injected active history rows without a server history match", async () => {
+    const activeEvent = curtailmentEvent({
+      eventUuid: "curt-unmatched-source",
+      externalSource: "webhook-secret",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-unmatched-source",
+        sourceLabel: "Manual",
+      }),
+    );
+  });
+
   it("loads only the first history page and paginates on demand", async () => {
     mockListCurtailmentEvents
       .mockResolvedValueOnce({

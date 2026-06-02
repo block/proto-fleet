@@ -113,6 +113,7 @@ const initialCurtailmentSnapshot: CurtailmentSnapshot = {
   activeEventFormValues: null,
   historyEvents: [],
 };
+const defaultHistorySourceLabel = "Manual";
 
 const visibleActiveCurtailmentEventStates = new Set<CurtailmentEventState>([
   "pending",
@@ -194,7 +195,10 @@ function getActiveHistoryEvent(
   const matchingHistoryEvent = historyEvents.find((event) => event.id === mappedActiveEvent.id);
 
   if (!matchingHistoryEvent) {
-    return mappedActiveEvent;
+    return {
+      ...mappedActiveEvent,
+      sourceLabel: defaultHistorySourceLabel,
+    };
   }
 
   if (!mappedActiveEvent.displayState) {
