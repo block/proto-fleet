@@ -162,10 +162,13 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           options={COUNTRY_OPTIONS}
           value={country}
           onChange={(v) => {
+            if (v === country) return;
             setCountry(v);
             // State list is country-scoped — keeping a stale value (e.g.
             // "IL" when switching US → CA) would persist a code that
-            // resolves to no timezone.
+            // resolves to no timezone. Skip the clear when the country
+            // didn't change so re-selecting the current option doesn't
+            // wipe a valid state.
             setState("");
           }}
           forceBelow
