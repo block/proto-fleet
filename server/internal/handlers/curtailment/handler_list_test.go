@@ -198,9 +198,26 @@ func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {
 	assert.Empty(t, ev.IdempotencyKey)
 }
 
-// TestHandler_ListCurtailmentEvents_StateFilterForwards: the proto enum
-// filter maps to the canonical string sentinel the store expects.
-func TestHandler_ListCurtailmentEvents_StateFilterForwards(t *testing.T) {
+// TestHandler_ListCurtailmentEvents_StateFiltersForward: proto enum filters
+// map to the canonical string sentinels the store expects.
+func TestHandler_ListCurtailmentEvents_StateFiltersForward(t *testing.T) {
+	t.Parallel()
+	store := &listStubStore{}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{
+		StateFilters: []pb.CurtailmentEventState{
+			pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING,
+			pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED,
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, []models.EventState{models.EventStateRestoring, models.EventStateCompleted}, store.lastParams.StateFilters)
+}
+
+// TestHandler_ListCurtailmentEvents_LegacyStateFilterForwards: old clients
+// using the singular filter still get the same store-level filter set.
+func TestHandler_ListCurtailmentEvents_LegacyStateFilterForwards(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{}
 	h := NewHandler(domainCurtailment.NewService(store))
@@ -209,7 +226,7 @@ func TestHandler_ListCurtailmentEvents_StateFilterForwards(t *testing.T) {
 		StateFilter: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING,
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, models.EventStateRestoring, store.lastParams.StateFilter)
+	assert.Equal(t, []models.EventState{models.EventStateRestoring}, store.lastParams.StateFilters)
 }
 
 // TestHandler_ListCurtailmentEvents_UnspecifiedFilterMeansAll: the
@@ -224,7 +241,7 @@ func TestHandler_ListCurtailmentEvents_UnspecifiedFilterMeansAll(t *testing.T) {
 		StateFilter: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED,
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, models.EventState(""), store.lastParams.StateFilter)
+	assert.Empty(t, store.lastParams.StateFilters)
 }
 
 // TestHandler_ListCurtailmentEvents_RejectsMissingSession: missing

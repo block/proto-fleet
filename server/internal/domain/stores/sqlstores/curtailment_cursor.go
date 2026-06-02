@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
+	"slices"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -13,9 +14,36 @@ import (
 // It is bound to the org and state filter that issued it so callers cannot
 // silently skip rows by reusing a token across different list queries.
 type curtailmentEventCursor struct {
-	ID          int64             `json:"id"`
-	OrgID       int64             `json:"org_id"`
-	StateFilter models.EventState `json:"state_filter,omitempty"`
+	ID int64 `json:"id"`
+
+	OrgID int64 `json:"org_id"`
+
+	// StateFilter is retained for pre-state_filters page tokens. New tokens
+	// use StateFilters so a cursor is bound to the complete filter set.
+	StateFilter  models.EventState   `json:"state_filter,omitempty"`
+	StateFilters []models.EventState `json:"state_filters,omitempty"`
+}
+
+func normalizeCurtailmentEventStateFilters(filters []models.EventState) []models.EventState {
+	out := make([]models.EventState, 0, len(filters))
+	for _, filter := range filters {
+		if filter != "" && !slices.Contains(out, filter) {
+			out = append(out, filter)
+		}
+	}
+	return out
+}
+
+func curtailmentEventStateFiltersEqual(left, right []models.EventState) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for _, filter := range left {
+		if !slices.Contains(right, filter) {
+			return false
+		}
+	}
+	return true
 }
 
 func encodeCurtailmentEventCursor(c *curtailmentEventCursor) string {
@@ -60,5 +88,9 @@ func decodeCurtailmentEventCursor(encoded string) (*curtailmentEventCursor, erro
 		// instead of surfacing InvalidArgument on the next page request.
 		return nil, nil
 	}
+	if len(cursor.StateFilters) == 0 && cursor.StateFilter != "" {
+		cursor.StateFilters = []models.EventState{cursor.StateFilter}
+	}
+	cursor.StateFilters = normalizeCurtailmentEventStateFilters(cursor.StateFilters)
 	return &cursor, nil
 }

@@ -247,6 +247,7 @@ const (
 )
 
 func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	stateFilters := normalizeCurtailmentEventStateFilters(params.StateFilters)
 	cursor, err := decodeCurtailmentEventCursor(params.PageToken)
 	if err != nil {
 		return nil, "", err
@@ -262,16 +263,16 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 
 	var cursorID int64
 	if cursor != nil {
-		if cursor.OrgID != params.OrgID || cursor.StateFilter != params.StateFilter {
-			return nil, "", fleeterror.NewInvalidArgumentError("page_token does not match org_id or state_filter")
+		if cursor.OrgID != params.OrgID || !curtailmentEventStateFiltersEqual(cursor.StateFilters, stateFilters) {
+			return nil, "", fleeterror.NewInvalidArgumentError("page_token does not match org_id or state_filters")
 		}
 		cursorID = cursor.ID
 	}
 
 	rows, err := s.GetQueries(ctx).ListCurtailmentEventsForOrg(ctx, sqlc.ListCurtailmentEventsForOrgParams{
-		OrgID:       params.OrgID,
-		CursorID:    cursorID,
-		StateFilter: string(params.StateFilter),
+		OrgID:        params.OrgID,
+		CursorID:     cursorID,
+		StateFilters: eventStateFilterStrings(stateFilters),
 		// Over-fetch by one so the caller knows whether another page remains.
 		RowLimit: int64(pageSize) + 1,
 	})
@@ -284,9 +285,9 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 		// Trim the over-fetched row; cursor points at the last id.
 		rows = rows[:pageSize]
 		nextToken = encodeCurtailmentEventCursor(&curtailmentEventCursor{
-			ID:          rows[len(rows)-1].ID,
-			OrgID:       params.OrgID,
-			StateFilter: params.StateFilter,
+			ID:           rows[len(rows)-1].ID,
+			OrgID:        params.OrgID,
+			StateFilters: stateFilters,
 		})
 	}
 
@@ -299,6 +300,18 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 		out[i] = convertEventRow(sqlc.CurtailmentEvent(row))
 	}
 	return out, nextToken, nil
+}
+
+func eventStateFilterStrings(filters []models.EventState) []string {
+	if len(filters) == 0 {
+		return []string{}
+	}
+
+	out := make([]string, len(filters))
+	for i, filter := range filters {
+		out[i] = string(filter)
+	}
+	return out
 }
 
 func (s *SQLCurtailmentStore) UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {

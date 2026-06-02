@@ -19,11 +19,11 @@ import (
 // string field with a real credential.
 const listTestCursorFixture = "opaque-cursor"
 
-// TestService_ListEvents_HappyPathForwardsCursorAndStateFilter pins the
-// service → store hand-off: org gets attached, state filter forwards
+// TestService_ListEvents_HappyPathForwardsCursorAndStateFilters pins the
+// service → store hand-off: org gets attached, state filters forward
 // verbatim, and the next-page token round-trips back to the caller when
 // rows exceed page_size.
-func TestService_ListEvents_HappyPathForwardsCursorAndStateFilter(t *testing.T) {
+func TestService_ListEvents_HappyPathForwardsCursorAndStateFilters(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -36,15 +36,15 @@ func TestService_ListEvents_HappyPathForwardsCursorAndStateFilter(t *testing.T) 
 	svc := NewService(store)
 
 	events, next, err := svc.ListEvents(t.Context(), ListEventsRequest{
-		OrgID:       orgID,
-		PageSize:    2,
-		StateFilter: models.EventStateCompleted,
+		OrgID:        orgID,
+		PageSize:     2,
+		StateFilters: []models.EventState{models.EventStateCompleted},
 	})
 	require.NoError(t, err)
 	assert.Len(t, events, 2, "page_size honored")
 	assert.NotEmpty(t, next, "next-page token returned when more rows remain")
 	assert.Equal(t, orgID, store.lastListEventsParams.OrgID)
-	assert.Equal(t, models.EventStateCompleted, store.lastListEventsParams.StateFilter)
+	assert.Equal(t, []models.EventState{models.EventStateCompleted}, store.lastListEventsParams.StateFilters)
 }
 
 // TestService_ListEvents_RejectsMissingOrg pins the orgID guard. Cross-
@@ -91,16 +91,16 @@ func TestService_ListEvents_StoreReceivesParams(t *testing.T) {
 	svc := NewService(store)
 
 	_, _, err := svc.ListEvents(t.Context(), ListEventsRequest{
-		OrgID:       42,
-		PageSize:    20,
-		PageToken:   listTestCursorFixture,
-		StateFilter: models.EventStateRestoring,
+		OrgID:        42,
+		PageSize:     20,
+		PageToken:    listTestCursorFixture,
+		StateFilters: []models.EventState{models.EventStateRestoring, models.EventStateCompleted},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, interfaces.ListEventsParams{
-		OrgID:       42,
-		PageSize:    20,
-		PageToken:   listTestCursorFixture,
-		StateFilter: models.EventStateRestoring,
+		OrgID:        42,
+		PageSize:     20,
+		PageToken:    listTestCursorFixture,
+		StateFilters: []models.EventState{models.EventStateRestoring, models.EventStateCompleted},
 	}, store.lastListEventsParams)
 }

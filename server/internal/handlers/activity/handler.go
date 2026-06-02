@@ -18,8 +18,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 var _ activityv1connect.ActivityServiceHandler = &Handler{}
@@ -36,7 +37,7 @@ func (h *Handler) ListActivities(
 	ctx context.Context,
 	req *connect.Request[pb.ListActivitiesRequest],
 ) (*connect.Response[pb.ListActivitiesResponse], error) {
-	info, err := getSessionInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermActivityRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func (h *Handler) ExportActivities(
 	req *connect.Request[pb.ExportActivitiesRequest],
 	stream *connect.ServerStream[pb.ExportActivitiesResponse],
 ) error {
-	info, err := getSessionInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermActivityRead, authz.ResourceContext{})
 	if err != nil {
 		return err
 	}
@@ -143,7 +144,7 @@ func (h *Handler) ListActivityFilterOptions(
 	ctx context.Context,
 	_ *connect.Request[pb.ListActivityFilterOptionsRequest],
 ) (*connect.Response[pb.ListActivityFilterOptionsResponse], error) {
-	info, err := getSessionInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermActivityRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -190,16 +191,6 @@ func contextError(ctx context.Context) fleeterror.FleetError {
 		return fleeterror.NewPlainError("deadline exceeded", connect.CodeDeadlineExceeded)
 	}
 	return fleeterror.NewCanceledError()
-}
-
-// --- session helper ---
-
-func getSessionInfo(ctx context.Context) (*session.Info, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
-	}
-	return info, nil
 }
 
 // --- filter mapping ---

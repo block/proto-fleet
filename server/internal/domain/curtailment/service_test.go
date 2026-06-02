@@ -265,17 +265,23 @@ func (f *fakeStore) ListEvents(_ context.Context, params interfaces.ListEventsPa
 	if f.listEventsErr != nil {
 		return nil, "", f.listEventsErr
 	}
-	// Filter on org_id + optional state; cursor + page-size handling is
+	// Filter on org_id + optional states; cursor + page-size handling is
 	// faithful to the SQL impl: cursor is the last id from the previous
 	// page, page_size <= 0 falls back to the default. The fake's "history"
 	// slice is ordered newest-first by the test author.
+	stateFilters := make(map[models.EventState]struct{}, len(params.StateFilters))
+	for _, filter := range params.StateFilters {
+		stateFilters[filter] = struct{}{}
+	}
 	filtered := make([]*models.Event, 0, len(f.eventsHistory))
 	for _, ev := range f.eventsHistory {
 		if ev.OrgID != params.OrgID {
 			continue
 		}
-		if params.StateFilter != "" && ev.State != params.StateFilter {
-			continue
+		if len(stateFilters) > 0 {
+			if _, ok := stateFilters[ev.State]; !ok {
+				continue
+			}
 		}
 		filtered = append(filtered, ev)
 	}
