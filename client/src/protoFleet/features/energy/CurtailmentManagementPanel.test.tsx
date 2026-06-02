@@ -27,15 +27,20 @@ vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
 
 vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
   default: ({
+    onDismissRestored,
     onRequestEdit,
     onRequestRestore,
     onRequestStop,
   }: {
+    onDismissRestored?: () => void;
     onRequestEdit?: () => void;
     onRequestRestore?: () => void;
     onRequestStop?: () => void;
   }) => (
     <div data-testid="active-curtailment-status">
+      <button type="button" onClick={onDismissRestored}>
+        Dismiss restored
+      </button>
       <button type="button" onClick={onRequestEdit}>
         Request edit
       </button>
@@ -242,6 +247,22 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Stop history event" }));
 
     expect(mocks.stopCurtailment).toHaveBeenLastCalledWith("curt-1");
+  });
+
+  it("dismisses terminal active curtailments from the active status card", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Dismiss restored" }));
+
+    expect(mocks.dismissTerminalCurtailment).toHaveBeenCalledOnce();
   });
 
   it("opens active curtailment management and submits updates", async () => {

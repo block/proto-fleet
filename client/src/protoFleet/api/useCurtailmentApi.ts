@@ -17,6 +17,7 @@ import {
   mapCurtailmentHistoryEvent,
 } from "@/protoFleet/api/curtailmentMappers";
 import {
+  CurtailmentEventSchema,
   ListCurtailmentEventsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentEventState as ProtoCurtailmentEventState,
@@ -121,6 +122,13 @@ const visibleActiveCurtailmentEventStates = new Set<CurtailmentEventState>([
   "completedWithFailures",
 ]);
 
+const historyTerminalCurtailmentEventStates = new Set<CurtailmentEventState>([
+  "completed",
+  "completedWithFailures",
+  "cancelled",
+  "failed",
+]);
+
 function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtailmentEventState {
   switch (stateFilter) {
     case "pending":
@@ -199,7 +207,7 @@ function createSnapshot(
   };
 }
 
-function getActiveEventFromHistory(
+function reconcileActiveEventWithHistory(
   activeEvent: ProtoCurtailmentEvent | undefined,
   historyEvents: ProtoCurtailmentEvent[],
 ): ProtoCurtailmentEvent | undefined {
@@ -208,10 +216,22 @@ function getActiveEventFromHistory(
   }
 
   const matchingHistoryEvent = historyEvents.find((event) => event.eventUuid === activeEvent.eventUuid);
-  return matchingHistoryEvent &&
-    visibleActiveCurtailmentEventStates.has(mapCurtailmentEventState(matchingHistoryEvent.state))
-    ? matchingHistoryEvent
-    : activeEvent;
+  if (!matchingHistoryEvent) {
+    return activeEvent;
+  }
+
+  const historyState = mapCurtailmentEventState(matchingHistoryEvent.state);
+  if (!historyTerminalCurtailmentEventStates.has(historyState)) {
+    return activeEvent;
+  }
+
+  return create(CurtailmentEventSchema, {
+    ...activeEvent,
+    state: matchingHistoryEvent.state,
+    endedAt: matchingHistoryEvent.endedAt ?? activeEvent.endedAt,
+    updatedAt: matchingHistoryEvent.updatedAt ?? activeEvent.updatedAt,
+    targetRollup: matchingHistoryEvent.targetRollup ?? activeEvent.targetRollup,
+  });
 }
 
 function shouldIncludeActiveEventInHistory(
@@ -390,7 +410,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           ]);
           assertNotAborted(signal);
           const activeSnapshot = activeRefresh ? activeRefresh.commit() : getActiveCurtailmentSnapshot();
-          const activeEvent = getActiveEventFromHistory(activeSnapshot.event, historyPageResponse.events);
+          const activeEvent = reconcileActiveEventWithHistory(activeSnapshot.event, historyPageResponse.events);
           if (activeEvent !== activeSnapshot.event) {
             applyActiveCurtailmentEvent(activeEvent);
           }

@@ -512,10 +512,12 @@ describe("useCurtailmentApi", () => {
       eventUuid: "curt-restored",
       state: CurtailmentEventState.COMPLETED,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
+      decisionSnapshot: undefined,
       targetRollup: create(CurtailmentTargetRollupSchema, {
         resolved: 2,
         total: 2,
       }),
+      targets: [],
     });
     applyActiveCurtailmentEvent(restoringEvent);
     mockListCurtailmentEvents.mockResolvedValueOnce({ events: [restoredEvent], nextPageToken: "" });
@@ -528,6 +530,9 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEventId).toBe("curt-restored");
     expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.activeEvent?.endedAt).toBe("2026-05-01T13:00:00.000Z");
+    expect(result.current.activeEvent?.remainingPowerKw).toBe(1);
+    expect(result.current.activeEvent?.rollups).toEqual([{ state: "resolved", count: 2 }]);
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
         id: "curt-restored",
@@ -558,11 +563,13 @@ describe("useCurtailmentApi", () => {
       eventUuid: "curt-restore-incomplete",
       state: CurtailmentEventState.COMPLETED_WITH_FAILURES,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
+      decisionSnapshot: undefined,
       targetRollup: create(CurtailmentTargetRollupSchema, {
         resolved: 1,
         restoreFailed: 1,
         total: 2,
       }),
+      targets: [],
     });
     applyActiveCurtailmentEvent(restoringEvent);
     mockListCurtailmentEvents.mockResolvedValueOnce({ events: [restoreIncompleteEvent], nextPageToken: "" });
@@ -575,6 +582,11 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEventId).toBe("curt-restore-incomplete");
     expect(result.current.activeEvent?.state).toBe("completedWithFailures");
+    expect(result.current.activeEvent?.remainingPowerKw).toBe(1);
+    expect(result.current.activeEvent?.rollups).toEqual([
+      { state: "resolved", count: 1 },
+      { state: "restoreFailed", count: 1 },
+    ]);
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
         id: "curt-restore-incomplete",
@@ -589,6 +601,37 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEventId).toBeNull();
     expect(result.current.activeEvent).toBeNull();
+  });
+
+  it("clears an active snapshot when history reports a failed terminal event", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-failed",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const failedEvent = curtailmentEvent({
+      eventUuid: "curt-failed",
+      state: CurtailmentEventState.FAILED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      decisionSnapshot: undefined,
+      targets: [],
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [failedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment({ includeActive: false });
+    });
+
+    expect(result.current.activeEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-failed",
+        state: "failed",
+      }),
+    );
   });
 
   it("keeps non-first history pages stable when mutation refresh fails", async () => {

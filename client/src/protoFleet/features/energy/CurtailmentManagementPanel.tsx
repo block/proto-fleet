@@ -67,6 +67,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
     goToHistoryPage,
     setHistoryStatusFilter,
     startCurtailment,
+    dismissTerminalCurtailment,
     updateCurtailment,
     stopCurtailment,
   } = useCurtailmentApi();
@@ -225,6 +226,7 @@ function CurtailmentManagementPanel({ className }: CurtailmentManagementPanelPro
           {activeEvent ? (
             <ActiveCurtailmentStatus
               event={activeEvent}
+              onDismissRestored={dismissTerminalCurtailment}
               onRequestEdit={openEditModal}
               onRequestRestore={() => openStopConfirmation("restore")}
               onRequestStop={() => openStopConfirmation("stopCurtailment")}

@@ -495,12 +495,12 @@ function getActiveCurtailmentActionButton({
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
   switch (displayState) {
     case "restored":
+    case "restoreIncomplete":
       return onDismissRestored ? (
         <Button variant={variants.secondary} size={sizes.compact} text="Dismiss" onClick={onDismissRestored} />
       ) : null;
     case "cancelled":
     case "failed":
-    case "restoreIncomplete":
       return null;
     case "curtailed":
       return onRequestRestore ? (
