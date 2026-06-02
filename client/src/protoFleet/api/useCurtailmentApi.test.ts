@@ -510,10 +510,15 @@ describe("useCurtailmentApi", () => {
       state: CurtailmentEventState.COMPLETED,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
     });
+    const newerHistoryEvent = curtailmentEvent({
+      eventUuid: "curt-newer-history",
+      state: CurtailmentEventState.COMPLETED,
+    });
     applyActiveCurtailmentEvent(restoringEvent);
     mockGetActiveCurtailment.mockResolvedValueOnce({ event: undefined });
     mockListCurtailmentEvents
       .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [newerHistoryEvent], nextPageToken: "page-2" })
       .mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
 
     const { result } = renderHook(() => useCurtailmentApi());
@@ -524,6 +529,8 @@ describe("useCurtailmentApi", () => {
 
     expect(mockListCurtailmentEvents.mock.calls[0][0].stateFilters).toEqual([CurtailmentEventState.RESTORING]);
     expect(mockListCurtailmentEvents.mock.calls[1][0].stateFilters).toEqual([]);
+    expect(mockListCurtailmentEvents.mock.calls[2][0].stateFilters).toEqual([]);
+    expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.pageToken)).toEqual(["", "", "page-2"]);
     expect(result.current.activeEventId).toBe("curt-filtered-terminal");
     expect(result.current.activeEvent?.state).toBe("completed");
     expect(result.current.historyStatusFilters).toEqual(["restoring"]);
