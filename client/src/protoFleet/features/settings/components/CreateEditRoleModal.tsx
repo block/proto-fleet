@@ -50,6 +50,10 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
   // Built-in names are stable server-side; only custom roles can be renamed.
   const nameLocked = isBuiltin;
 
+  // Form state is seeded from `role` via useState defaults. Callers
+  // remount the modal (key={role?.roleId ?? "create"}) when switching
+  // between create/edit or between two different roles, so the seed
+  // happens exactly once per open and stale state can't leak.
   const { createRole, updateRole } = useRoleManagement();
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
@@ -58,22 +62,6 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
   const [errorMsg, setErrorMsg] = useState("");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedFor(role?.permissions ?? []));
-
-  // Re-seed form state whenever the modal opens or the target role changes.
-  const [prevKey, setPrevKey] = useState<string | null>(null);
-  const openKey = isVisible ? (role?.roleId ?? "new") : null;
-  if (prevKey !== openKey) {
-    setPrevKey(openKey);
-    if (isVisible) {
-      setName(role?.name ?? "");
-      setDescription(role?.description ?? "");
-      setSelected(new Set(role?.permissions ?? []));
-      setIsSubmitting(false);
-      setErrorMsg("");
-      setQuery("");
-      setCollapsed(collapsedFor(role?.permissions ?? []));
-    }
-  }
 
   const locked = useMemo(() => lockedReadKeys(selected), [selected]);
 
@@ -86,10 +74,15 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       // Removing a key: drop it, then restore any reads still required by the
       // actions that remain selected. A read another action still depends on is
       // re-added here, so toggling a locked read off is a no-op (and the row is
-      // marked with a lock icon to signal that).
+      // marked with a lock icon to signal that). Return the previous reference
+      // in that case so React doesn't schedule a no-op re-render.
       const next = new Set(prev);
       next.delete(key);
-      return new Set(withRequiredReads(next));
+      const candidate = new Set(withRequiredReads(next));
+      if (candidate.size === prev.size && [...candidate].every((k) => prev.has(k))) {
+        return prev;
+      }
+      return candidate;
     });
   }, []);
 
@@ -210,7 +203,6 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
 
       <div className="mb-6 flex flex-col gap-4">
         <Input
-          key={`name-${openKey}`}
           id="role-name"
           label="Role name"
           initValue={name}
@@ -219,7 +211,6 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
           autoFocus={!isEdit}
         />
         <Textarea
-          key={`desc-${openKey}`}
           id="role-description"
           label="Description"
           initValue={description}
@@ -246,7 +237,6 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
 
       <div className="mb-3">
         <Input
-          key={`search-${openKey}`}
           id="permission-search"
           label="Search permissions"
           initValue={query}

@@ -20,6 +20,9 @@ import { PERMISSION_CATALOG } from "@/protoFleet/features/settings/utils/permiss
 // Until then this hook serves an in-memory catalog-derived dataset so the role
 // builder and Team flow are fully exercisable end to end in the client.
 
+/** Stable identifier code uses for a built-in role. Mirrors authz.BuiltinKey on the server. */
+export type BuiltinRoleKey = "SUPER_ADMIN" | "ADMIN" | "FIELD_TECH";
+
 export interface RoleItem {
   roleId: string;
   name: string;
@@ -29,43 +32,39 @@ export interface RoleItem {
   permissions: string[];
   /** Built-in roles are seeded server-side; SUPER_ADMIN is immutable. */
   builtin: boolean;
-  /** Stable key for built-ins: "SUPER_ADMIN" | "ADMIN" | "FIELD_TECH". */
-  builtinKey?: string;
+  builtinKey?: BuiltinRoleKey;
   /** Number of active members currently assigned this role. */
   memberCount: number;
   updatedAt: Date | null;
 }
 
-interface ListRolesProps {
-  onSuccess?: (roles: RoleItem[]) => void;
+interface RoleCallbacks {
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
 
-interface CreateRoleProps {
+interface ListRolesProps extends RoleCallbacks {
+  onSuccess?: (roles: RoleItem[]) => void;
+}
+
+interface CreateRoleProps extends RoleCallbacks {
   name: string;
   description: string;
   permissions: string[];
   onSuccess?: (role: RoleItem) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
 }
 
-interface UpdateRoleProps {
+interface UpdateRoleProps extends RoleCallbacks {
   roleId: string;
   name: string;
   description: string;
   permissions: string[];
   onSuccess?: (role: RoleItem) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
 }
 
-interface DeleteRoleProps {
+interface DeleteRoleProps extends RoleCallbacks {
   roleId: string;
   onSuccess?: () => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
 }
 
 // --- Placeholder dataset (remove once AuthzService is wired) -----------------

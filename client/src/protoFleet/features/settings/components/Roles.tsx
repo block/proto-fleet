@@ -49,15 +49,16 @@ const Roles = () => {
     }
   }, [fetchRoles, canManageRoles]);
 
-  const handleCreateSuccess = useCallback(() => {
+  const handleEditorSuccess = useCallback(() => {
     fetchRoles();
     setShowCreateModal(false);
-  }, [fetchRoles]);
-
-  const handleEditSuccess = useCallback(() => {
-    fetchRoles();
     setEditRole(null);
   }, [fetchRoles]);
+
+  const handleEditorDismiss = useCallback(() => {
+    setShowCreateModal(false);
+    setEditRole(null);
+  }, []);
 
   const handleDeleteConfirm = useCallback(() => {
     if (!deleteRoleData) return;
@@ -183,15 +184,11 @@ const Roles = () => {
       )}
 
       <CreateEditRoleModal
-        open={showCreateModal}
-        onDismiss={() => setShowCreateModal(false)}
-        onSuccess={handleCreateSuccess}
-      />
-      <CreateEditRoleModal
-        open={!!editRole}
+        key={editRole?.roleId ?? "create"}
+        open={showCreateModal || !!editRole}
         role={editRole}
-        onDismiss={() => setEditRole(null)}
-        onSuccess={handleEditSuccess}
+        onDismiss={handleEditorDismiss}
+        onSuccess={handleEditorSuccess}
       />
       <DeleteRoleDialog
         open={!!deleteRoleData}
