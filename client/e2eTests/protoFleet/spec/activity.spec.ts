@@ -1,6 +1,5 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
-import { recordFailedAdminLogin, seedAdminLoginActivities } from "../helpers/activityHelper";
 import { CommonSteps } from "../helpers/commonSteps";
 import { generateRandomText } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
@@ -10,44 +9,64 @@ import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 const SCHEDULE_PREFIX = "activity_schedule_e2e";
 const LOGIN_EVENTS_FOR_PAGINATION = 55;
 
-test.describe("Proto Fleet - Activity", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/");
-  });
+async function loginAsAdmin(authPage: AuthPage) {
+  await authPage.inputUsername(testConfig.users.admin.username);
+  await authPage.inputPassword(testConfig.users.admin.password);
+  await authPage.clickLogin();
+  await authPage.validateLoggedIn();
+}
 
+async function logoutAndLoginAsAdmin(authPage: AuthPage) {
+  await authPage.logout();
+  await authPage.validateRedirectedToAuth();
+  await loginAsAdmin(authPage);
+}
+
+async function attemptFailedAdminLogin(authPage: AuthPage) {
+  await authPage.inputUsername(testConfig.users.admin.username);
+  await authPage.inputPassword(`${testConfig.users.admin.password}-wrong`);
+  await authPage.clickLogin();
+  await authPage.validateInvalidCredentials();
+}
+
+test.describe("Proto Fleet - Activity", () => {
   test.afterEach("CLEANUP: Delete schedules created during activity tests", async ({ browser }, testInfo) => {
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport ?? undefined;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
 
     try {
-      const page = await context.newPage();
-      await page.goto("/");
+      await test.step("Open a cleanup session for schedules", async () => {
+        const page = await context.newPage();
+        await page.goto("/");
 
-      const authPage = new AuthPage(page, isMobile);
-      const minersPage = new MinersPage(page, isMobile);
-      const settingsSchedulesPage = new SettingsSchedulesPage(page, isMobile);
-      const commonSteps = new CommonSteps(authPage, minersPage);
+        const authPage = new AuthPage(page, isMobile);
+        const minersPage = new MinersPage(page, isMobile);
+        const settingsSchedulesPage = new SettingsSchedulesPage(page, isMobile);
+        const commonSteps = new CommonSteps(authPage, minersPage);
 
-      await commonSteps.loginAsAdmin();
-      await settingsSchedulesPage.navigateToSchedulesSettings();
-      await settingsSchedulesPage.deleteSchedulesByPrefix(SCHEDULE_PREFIX);
+        await commonSteps.loginAsAdmin();
+        await settingsSchedulesPage.navigateToSchedulesSettings();
+        await settingsSchedulesPage.deleteSchedulesByPrefix(SCHEDULE_PREFIX);
+      });
     } finally {
       await context.close();
     }
   });
 
   test("Blink LEDs activity opens detail modal and shows per-miner results", async ({
+    page,
     activityPage,
     commonSteps,
     minersPage,
   }) => {
     let selectedMinerIps: string[] = [];
 
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
+    await test.step("Log in, open Miners, and trigger Blink LEDs for three authenticated miners", async () => {
+      await page.goto("/");
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
 
-    await test.step("Select three authenticated miners and trigger Blink LEDs", async () => {
       selectedMinerIps = [
         await minersPage.getAuthenticatedMinerIpAddressByIndex(0),
         await minersPage.getAuthenticatedMinerIpAddressByIndex(1),
@@ -89,15 +108,16 @@ test.describe("Proto Fleet - Activity", () => {
   });
 
   test("Search, no-results, and clear-filters work for schedule activity", async ({
+    page,
     activityPage,
     commonSteps,
     settingsSchedulesPage,
   }) => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
-    await commonSteps.loginAsAdmin();
-
-    await test.step("Open schedules settings", async () => {
+    await test.step("Log in and open schedules settings", async () => {
+      await page.goto("/");
+      await commonSteps.loginAsAdmin();
       await settingsSchedulesPage.navigateToSchedulesSettings();
       await settingsSchedulesPage.validateSchedulesPageOpened();
     });
@@ -146,15 +166,16 @@ test.describe("Proto Fleet - Activity", () => {
   });
 
   test("Activity filter pills can be removed individually", async ({
+    page,
     activityPage,
     commonSteps,
     settingsSchedulesPage,
   }) => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
-    await commonSteps.loginAsAdmin();
-
-    await test.step("Create a uniquely named schedule for Activity filtering", async () => {
+    await test.step("Log in and create a uniquely named schedule for Activity filtering", async () => {
+      await page.goto("/");
+      await commonSteps.loginAsAdmin();
       await settingsSchedulesPage.navigateToSchedulesSettings();
       await settingsSchedulesPage.validateSchedulesPageOpened();
       await settingsSchedulesPage.clickAddSchedule();
@@ -194,10 +215,10 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Activity export starts a CSV download", async ({ activityPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
-
-    await test.step("Open Activity with visible rows", async () => {
+  test("Activity export starts a CSV download", async ({ page, activityPage, commonSteps }) => {
+    await test.step("Log in and open Activity with visible rows", async () => {
+      await page.goto("/");
+      await commonSteps.loginAsAdmin();
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
       await activityPage.validateAnyActivityRowsVisible();
@@ -209,15 +230,13 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Activity load more appends older rows", async ({ activityPage, browser, commonSteps }, testInfo) => {
-    const viewport = testInfo.project.use?.viewport ?? undefined;
-    const isMobile = testInfo.project.use?.isMobile ?? false;
-
-    await commonSteps.loginAsAdmin();
-    await seedAdminLoginActivities(browser, {
-      count: LOGIN_EVENTS_FOR_PAGINATION,
-      isMobile,
-      viewport,
+  test("Activity load more appends older rows", async ({ page, activityPage, authPage, commonSteps }) => {
+    await test.step("Log in and create enough recent login activity in one session", async () => {
+      await page.goto("/");
+      await commonSteps.loginAsAdmin();
+      for (let i = 0; i < LOGIN_EVENTS_FOR_PAGINATION; i++) {
+        await logoutAndLoginAsAdmin(authPage);
+      }
     });
 
     await test.step("Open Activity and filter to admin logins", async () => {
@@ -237,51 +256,32 @@ test.describe("Proto Fleet - Activity", () => {
       test.expect(expandedRowCount).toBeGreaterThan(initialRowCount);
     });
   });
-});
 
-test.describe("Proto Fleet - Activity Login", () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
-
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/");
-  });
-
-  test("Login activity is visible for the signed-in admin", async ({ authPage, activityPage }) => {
-    await test.step("Log in as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
+  test("Failed and successful admin logins appear in Activity as expected", async ({
+    page,
+    authPage,
+    activityPage,
+  }) => {
+    await test.step("Open Fleet and log in as admin", async () => {
+      await page.goto("/");
+      await loginAsAdmin(authPage);
     });
 
-    await test.step("Open Activity and filter to login events", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
+    await test.step("Check the current successful login activity", async () => {
+      await activityPage.openActivityPageDirectly();
       await activityPage.selectTypeFilter("Login");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
-    });
-
-    await test.step("Validate the latest login row", async () => {
       await activityPage.validateLatestActivityDescription("Login");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityNotMarkedFailed();
     });
-  });
 
-  test("Failed activity row is marked failed and opens correct details", async ({
-    activityPage,
-    authPage,
-    browser,
-  }, testInfo) => {
-    const viewport = testInfo.project.use?.viewport ?? undefined;
-    const isMobile = testInfo.project.use?.isMobile ?? false;
-
-    await test.step("Record a failed admin login, then sign in successfully", async () => {
-      await recordFailedAdminLogin(browser, { isMobile, viewport });
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
+    await test.step("Log out, attempt a failed login, then sign in successfully again", async () => {
+      await authPage.logout();
+      await authPage.validateRedirectedToAuth();
+      await attemptFailedAdminLogin(authPage);
+      await page.goto("/auth");
+      await loginAsAdmin(authPage);
     });
 
     await test.step("Filter Activity to the failed login row", async () => {
@@ -296,6 +296,15 @@ test.describe("Proto Fleet - Activity Login", () => {
       await activityPage.validateActivityDetailResult("Failure");
       await activityPage.validateActivityDetailError("invalid credentials");
       await activityPage.closeActivityDetails();
+    });
+
+    await test.step("Verify the successful login activity is still visible", async () => {
+      await activityPage.openActivityPageDirectly();
+      await activityPage.selectTypeFilter("Login");
+      await activityPage.selectUserFilter(testConfig.users.admin.username);
+      await activityPage.validateLatestActivityDescription("Login");
+      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
+      await activityPage.validateLatestActivityNotMarkedFailed();
     });
   });
 });

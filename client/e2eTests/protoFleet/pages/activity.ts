@@ -72,10 +72,6 @@ export class ActivityPage extends BasePage {
     await expect(this.latestActivityRow().getByTestId("scope")).toContainText(scopeText);
   }
 
-  async validateLatestActivityMarkedFailed() {
-    await expect(this.latestActivityRow().getByTestId("activity-row-failed-indicator")).toBeVisible();
-  }
-
   async validateLatestActivityNotMarkedFailed() {
     await expect(this.latestActivityRow().getByTestId("activity-row-failed-indicator")).toHaveCount(0);
   }
@@ -147,11 +143,6 @@ export class ActivityPage extends BasePage {
     const downloadPromise = this.page.waitForEvent("download");
     await this.page.getByRole("button", { name: "Export CSV", exact: true }).click();
     return await downloadPromise;
-  }
-
-  async openLatestActivityDetails() {
-    await this.latestActivityRow().click();
-    await this.validateTitleInModal("Actions");
   }
 
   async openActivityDetails(description: string, scopeText: string) {
