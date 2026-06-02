@@ -5,6 +5,7 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type Site } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -89,14 +90,7 @@ const ManageSiteModal = ({
   const displayBuildings: BuildingWithCounts[] | undefined = shouldFetchBuildings ? buildings : [];
 
   const previewTitle = (site?.name || draft.name || "Untitled site").trim();
-  const previewLocation = useMemo(() => {
-    const cityState = [draft.locationCity, draft.locationState]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(", ");
-    const parts = [draft.address, cityState, draft.postalCode].map((s) => s.trim()).filter(Boolean);
-    return parts.length > 0 ? parts.join(" • ") : "—";
-  }, [draft.address, draft.locationCity, draft.locationState, draft.postalCode]);
+  const previewLocation = useMemo(() => formatSiteAddress(draft) || "—", [draft]);
   const previewCapacity = draft.powerCapacityMw > 0 ? `${draft.powerCapacityMw} MW` : "—";
   const buildingCount = displayBuildings?.length ?? 0;
 

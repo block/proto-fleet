@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 
 interface SitesAllTableProps {
   sites: SiteWithCounts[];
@@ -35,9 +36,7 @@ const SitesAllTable = ({ sites }: SitesAllTableProps) => {
       </div>
       {ordered.map((entry) => {
         const id = (entry.site?.id ?? 0n).toString();
-        const cityState = [entry.site?.locationCity, entry.site?.locationState].filter(Boolean).join(", ");
-        const locationParts = [entry.site?.address, cityState, entry.site?.postalCode].filter(Boolean);
-        const location = locationParts.length > 0 ? locationParts.join(" • ") : "—";
+        const location = formatSiteAddress(entry.site ?? {}) || "—";
         const powerCapacity = entry.site?.powerCapacityMw ? `${entry.site.powerCapacityMw} MW` : "—";
         return (
           <button

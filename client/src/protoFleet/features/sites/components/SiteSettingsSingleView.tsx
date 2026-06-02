@@ -4,6 +4,7 @@ import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { ChevronDown, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -83,10 +84,7 @@ const SiteSettingsSingleView = ({
   const buildings = buildingsResponse && buildingsResponse.siteId === siteId ? buildingsResponse.rows : undefined;
   const displayBuildings = siteId === 0n ? [] : buildings;
 
-  const cityState = [site.site?.locationCity, site.site?.locationState].filter(Boolean).join(", ");
-  const addressLine = [site.site?.address, cityState, site.site?.postalCode, site.site?.country]
-    .filter(Boolean)
-    .join(" • ");
+  const addressLine = formatSiteAddress(site.site ?? {}, { includeCountry: true });
   const powerCapacity = site.site?.powerCapacityMw ? `${site.site.powerCapacityMw} MW` : "—";
   const timezone = site.site?.timezone || "—";
   const notes = site.site?.notes ?? "";
