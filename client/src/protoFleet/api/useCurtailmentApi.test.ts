@@ -686,6 +686,43 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0].reason).toBe("Dispatch started");
   });
 
+  it("replaces cached non-terminal history rows when the shared active event becomes terminal", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-terminal-shared",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-terminal-shared",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: restoringEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [restoringEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.historyEvents[0].state).toBe("restoring");
+
+    act(() => {
+      applyActiveCurtailmentEvent(completedEvent);
+    });
+
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-terminal-shared",
+        state: "completed",
+        endedAt: "2026-05-01T13:00:00.000Z",
+      }),
+    );
+    expect(result.current.historyEvents[0]).not.toHaveProperty("displayState");
+    expect(result.current.historyEvents[0]).not.toHaveProperty("injectedActive");
+  });
+
   it("drops stale injected active history rows when the shared active event changes", async () => {
     const pendingEvent = curtailmentEvent({
       eventUuid: "curt-shared-a",

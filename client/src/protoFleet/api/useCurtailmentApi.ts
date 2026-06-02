@@ -210,13 +210,12 @@ function getActiveHistoryEvent(
     return markInjectedActiveHistoryEvent(mappedActiveEvent);
   }
 
-  if (!mappedActiveEvent.displayState) {
+  if (!mappedActiveEvent.displayState && mappedActiveEvent.state === matchingHistoryEvent.state) {
     return matchingHistoryEvent;
   }
 
   return {
     ...mappedActiveEvent,
-    displayState: mappedActiveEvent.displayState,
     sourceLabel: matchingHistoryEvent.sourceLabel,
   };
 }
