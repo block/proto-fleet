@@ -497,6 +497,36 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-completed"]);
   });
 
+  it("reconciles terminal active state when current history filters exclude terminal rows", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-filtered-terminal",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-filtered-terminal",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: undefined });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["restoring"]);
+    });
+
+    expect(mockListCurtailmentEvents.mock.calls[0][0].stateFilters).toEqual([CurtailmentEventState.RESTORING]);
+    expect(mockListCurtailmentEvents.mock.calls[1][0].stateFilters).toEqual([]);
+    expect(result.current.activeEventId).toBe("curt-filtered-terminal");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.historyStatusFilters).toEqual(["restoring"]);
+    expect(result.current.historyEvents).toEqual([]);
+  });
+
   it("refreshes history without refetching active curtailment when requested", async () => {
     const activeEvent = curtailmentEvent({ eventUuid: "curt-active" });
     const completedEvent = curtailmentEvent({

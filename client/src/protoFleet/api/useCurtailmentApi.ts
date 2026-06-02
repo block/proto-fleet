@@ -459,10 +459,14 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           ]);
           assertNotAborted(signal);
           const previewActiveSnapshot = activeRefresh ?? getActiveCurtailmentSnapshot();
-          const previewActiveEvent = reconcileActiveEventWithHistory(
-            previewActiveSnapshot.event,
-            historyPageResponse.events,
-          );
+          const reconciliationEvents =
+            previewActiveSnapshot.event &&
+            stateFilters.length > 0 &&
+            !historyPageResponse.events.some((event) => event.eventUuid === previewActiveSnapshot.event?.eventUuid)
+              ? (await listCurtailmentEventsPage("", [undefined], [], signal)).events
+              : historyPageResponse.events;
+          assertNotAborted(signal);
+          const previewActiveEvent = reconcileActiveEventWithHistory(previewActiveSnapshot.event, reconciliationEvents);
           const previewSnapshot = createSnapshot(
             previewActiveEvent,
             historyPageResponse.events,
@@ -473,7 +477,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           }
 
           const activeSnapshot = activeRefresh ? activeRefresh.commit() : previewActiveSnapshot;
-          const activeEvent = reconcileActiveEventWithHistory(activeSnapshot.event, historyPageResponse.events);
+          const activeEvent = reconcileActiveEventWithHistory(activeSnapshot.event, reconciliationEvents);
           if (activeEvent !== activeSnapshot.event) {
             applyActiveCurtailmentEvent(activeEvent);
           }
