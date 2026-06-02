@@ -307,6 +307,35 @@ func TestResolveNmapTargets_DoesNotExpandIPv6Targets(t *testing.T) {
 	require.Equal(t, []string{"fd00::/64"}, targets)
 }
 
+func TestIsLocalSubnetScan(t *testing.T) {
+	// Arrange
+	svc := &Service{
+		localNetworkInfo: func(context.Context) (*NetworkInfo, error) {
+			return &NetworkInfo{NetworkInfo: networking.NetworkInfo{Subnet: "192.168.1.0/24"}}, nil
+		},
+	}
+	ctx := t.Context()
+
+	// Act + Assert: the host's own subnet (canonical or with host bits) is the auto scan.
+	require.True(t, svc.IsLocalSubnetScan(ctx, "192.168.1.0/24"))
+	require.True(t, svc.IsLocalSubnetScan(ctx, "192.168.1.50/24"))
+	// A different/explicit target (manual scan) or the fan-out sentinel is not.
+	require.False(t, svc.IsLocalSubnetScan(ctx, "10.0.0.0/24"))
+	require.False(t, svc.IsLocalSubnetScan(ctx, "fleetnode-local-subnet"))
+}
+
+func TestIsLocalSubnetScan_NoLocalNetworkIsFalse(t *testing.T) {
+	// Arrange: cloud-mode host with no local subnet.
+	svc := &Service{
+		localNetworkInfo: func(context.Context) (*NetworkInfo, error) {
+			return nil, errors.New("no local network")
+		},
+	}
+
+	// Act + Assert
+	require.False(t, svc.IsLocalSubnetScan(t.Context(), "192.168.1.0/24"))
+}
+
 func TestValidateNmapTargets(t *testing.T) {
 	noopLookup := func(context.Context, string) ([]net.IPAddr, error) {
 		return nil, errors.New("no DNS")

@@ -30,10 +30,10 @@ var (
 const MinIPv4PrefixBits = 22
 
 // LocalSubnetTarget is a reserved nmap target value meaning "the fleet node
-// should scan the private (RFC1918/RFC4193) IPv4 subnet(s) of its own
-// interfaces." The cloud fan-out sets it because it cannot know each node's
-// local network. It is matched exactly (before any hostname resolution); the
-// dashed, namespaced name keeps it from colliding with a real hostname.
+// should scan the private (RFC1918) IPv4 subnet(s) of its own interfaces." The
+// cloud fan-out sets it because it cannot know each node's local network. It is
+// matched exactly (before any hostname resolution); the dashed, namespaced name
+// keeps it from colliding with a real hostname.
 const LocalSubnetTarget = "fleetnode-local-subnet"
 
 // IsIPv4Range reports whether s is an "A.B.C.D-N" nmap range.

@@ -176,17 +176,6 @@ type Service struct {
 	probeSemaphore        chan struct{}
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
-	fleetNodeAssigner     FleetNodeAssigner
-}
-
-// FleetNodeAssigner records operator-confirmed ownership of a fleet-node-discovered
-// device. The cloud Pair flow routes remote-origin devices (discovered_device rows
-// with discovered_by_fleet_node_id set) here instead of dialing them: per RFC 0001
-// the owning node dials and credentials the miner, so this is a metadata-only
-// assignment. *fleetnode/pairing.Service satisfies this. Optional; when nil, cloud
-// pairing refuses remote-origin devices (the pre-fan-out behavior).
-type FleetNodeAssigner interface {
-	PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error
 }
 
 func NewService(
@@ -225,13 +214,6 @@ func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
 }
 
-// WithFleetNodeAssigner wires the collaborator that records ownership of
-// fleet-node-discovered devices so Pair can include them. Pass nil to keep the
-// default behavior of refusing remote-origin devices.
-func (s *Service) WithFleetNodeAssigner(a FleetNodeAssigner) {
-	s.fleetNodeAssigner = a
-}
-
 type NetworkInfo struct {
 	networking.NetworkInfo
 }
@@ -249,6 +231,20 @@ func (s *Service) GetLocalNetworkInfo(ctx context.Context) (*NetworkInfo, error)
 		return s.localNetworkInfo(ctx)
 	}
 	return defaultLocalNetworkInfo(ctx)
+}
+
+// IsLocalSubnetScan reports whether target is the cloud host's own local subnet,
+// i.e. the automatic "Scan your network" action rather than an operator-typed
+// target. Fleet-node fan-out is gated on this (the same signal that triggers
+// known-subnet auto-expansion) so a manual/explicit cloud scan doesn't also
+// sweep every connected node's LAN. False when the host has no local subnet.
+func (s *Service) IsLocalSubnetScan(ctx context.Context, target string) bool {
+	info, err := s.GetLocalNetworkInfo(ctx)
+	if err != nil {
+		return false
+	}
+	_, ok := maskBitsForLocalSubnetTarget(target, info.Subnet)
+	return ok
 }
 
 func canonicalCIDR(cidr string) (canonical string, maskBits int, isIPv4 bool, ok bool) {
@@ -1199,7 +1195,6 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	failedIDs := make([]string, 0, len(deviceIdentifiers))
 
 	credentials := r.Credentials
-	assignedBy := info.UserID
 
 	// Deduplicate to prevent concurrent pairDevice calls against the same physical device.
 	// We check both exact identifier strings and IP+port because different identifiers can
@@ -1220,43 +1215,14 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			OrgID:            info.OrganizationID,
 		})
 		if ddErr == nil {
-			// Cloud pairing dials the IP via plugin RPC, so a remote-origin row
-			// can't take that path. With a fleet-node assigner wired, route it to
-			// the operator-confirmed ownership assignment (metadata only — the
-			// owning node dials and credentials the miner per RFC 0001), so the
-			// operator can pair fleet-node-discovered miners alongside direct ones
-			// in a single request. Without an assigner, refuse as before.
+			// Cloud pairing dials the IP via plugin RPC; remote-origin
+			// rows must route through PairDeviceToFleetNode instead.
 			if dd.DiscoveredByFleetNodeID != nil {
-				if s.fleetNodeAssigner == nil {
-					slog.Warn("refusing to pair remote-fleet-node-reported device via cloud pairing; use PairDeviceToFleetNode",
-						"device_identifier", id,
-						"fleet_node_id", *dd.DiscoveredByFleetNodeID,
-					)
-					failedIDs = append(failedIDs, id)
-					continue
-				}
-				dbID, idErr := s.discoveredDeviceStore.GetDatabaseID(ctx, discoverymodels.DeviceOrgIdentifier{
-					DeviceIdentifier: id,
-					OrgID:            info.OrganizationID,
-				})
-				if idErr != nil {
-					slog.Error("failed to resolve discovered device id for fleet-node assignment",
-						"device_identifier", id, "error", idErr)
-					failedIDs = append(failedIDs, id)
-					continue
-				}
-				if assignErr := s.fleetNodeAssigner.PairDevice(ctx, *dd.DiscoveredByFleetNodeID, dbID, info.OrganizationID, &assignedBy); assignErr != nil {
-					slog.Warn("failed to assign fleet-node-discovered device to its node",
-						"device_identifier", id,
-						"fleet_node_id", *dd.DiscoveredByFleetNodeID,
-						"error", assignErr,
-					)
-					failedIDs = append(failedIDs, id)
-					continue
-				}
-				// Assignment is metadata only: no plugin dial, credentials,
-				// handle invalidation, or telemetry scheduling here.
-				successfulIDs = append(successfulIDs, models.DeviceIdentifier(id))
+				slog.Warn("refusing to pair remote-fleet-node-reported device via cloud pairing; use PairDeviceToFleetNode",
+					"device_identifier", id,
+					"fleet_node_id", *dd.DiscoveredByFleetNodeID,
+				)
+				failedIDs = append(failedIDs, id)
 				continue
 			}
 			endpoint := dd.IpAddress + ":" + dd.Port

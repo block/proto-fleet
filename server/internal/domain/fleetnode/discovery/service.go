@@ -145,7 +145,9 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("discovery command timed out after %s", DiscoverCommandTimeout))
 			}
-			return fleeterror.NewInternalErrorf("operator stream cancelled: %v", ctx.Err())
+			// Caller (operator or fan-out) cancelled; report it as such rather
+			// than a server-side Internal failure.
+			return fleeterror.NewCanceledError()
 		case ev := <-events:
 			if terminal, err := handleEvent(ev); terminal {
 				return err

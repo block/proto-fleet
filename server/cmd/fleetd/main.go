@@ -371,9 +371,6 @@ func start(config *Config) error {
 	)
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
-	// Route fleet-node-discovered devices through ownership assignment so the
-	// cloud Pair flow can pair them alongside directly-discovered miners.
-	pairingSvc.WithFleetNodeAssigner(fleetNodePairingSvc)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(

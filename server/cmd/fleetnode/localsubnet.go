@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 )
 
 // autoSubnetMinPrefixBits caps a detected subnet at /22 (<=1024 hosts) — the
@@ -17,6 +19,12 @@ const autoSubnetMinPrefixBits = 22
 // maxAutoSubnets caps how many distinct subnets one command scans, so a
 // multi-homed host with many interfaces can't fan one command into a huge sweep.
 const maxAutoSubnets = 8
+
+// maxAutoScanHosts bounds the TOTAL addresses across all detected subnets to the
+// same per-command ceiling the manual path enforces (discoverylimits.MaxScanTargets),
+// so a multi-homed node can't turn one command into an 8x-oversized sweep. A
+// single /22 already consumes the whole budget.
+const maxAutoScanHosts = discoverylimits.MaxScanTargets
 
 // errNoLocalPrivateSubnet means no connected, non-virtual interface had a private
 // IPv4 address — the agent has nothing to scan. Surfaces as AGENT_INCAPABLE so a
@@ -56,6 +64,7 @@ func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 func selectLocalPrivateSubnets(ifaces []net.Interface, addrsOf func(*net.Interface) ([]net.Addr, error)) ([]string, error) {
 	seen := make(map[string]struct{})
 	out := make([]string, 0, maxAutoSubnets)
+	hostBudget := maxAutoScanHosts
 	for i := range ifaces {
 		iface := ifaces[i]
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagRunning == 0 {
@@ -92,9 +101,16 @@ func selectLocalPrivateSubnets(ifaces []net.Interface, addrsOf func(*net.Interfa
 			if _, dup := seen[cidr]; dup {
 				continue
 			}
+			// Skip a subnet that wouldn't fit the remaining host budget so the
+			// total swept address space never exceeds maxAutoScanHosts.
+			hosts := 1 << (addr.BitLen() - ones)
+			if hosts > hostBudget {
+				continue
+			}
 			seen[cidr] = struct{}{}
 			out = append(out, cidr)
-			if len(out) >= maxAutoSubnets {
+			hostBudget -= hosts
+			if len(out) >= maxAutoSubnets || hostBudget <= 0 {
 				return out, nil
 			}
 		}

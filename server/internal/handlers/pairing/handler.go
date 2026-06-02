@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 
@@ -134,8 +135,11 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		}
 	}()
 
-	// Fleet node fan-out (nmap only).
-	if _, ok := r.Msg.Mode.(*pb.DiscoverRequest_Nmap); ok && h.discovery != nil {
+	// Fleet node fan-out, gated to the automatic "Scan your network" action: an
+	// nmap request whose target is the cloud's own local subnet. A manual/explicit
+	// nmap target (a user-typed subnet/IP) must NOT also sweep every node's LAN.
+	if _, ok := r.Msg.Mode.(*pb.DiscoverRequest_Nmap); ok && h.discovery != nil &&
+		h.pairingSvc.IsLocalSubnetScan(streamCtx, r.Msg.GetNmap().GetTarget()) {
 		nodeIDs, listErr := h.discovery.ConfirmedConnectedNodeIDs(streamCtx, info.OrganizationID)
 		if listErr != nil {
 			// Fan-out is best-effort; a lookup failure must never break the
@@ -151,8 +155,10 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 				go func(nodeID int64) {
 					defer wg.Done()
 					runErr := h.discovery.RunOnNode(streamCtx, nodeID, autoReq, send)
-					if runErr != nil {
-						// One node failing must not fail the whole scan.
+					// One node failing must not fail the whole scan. Stay quiet
+					// when streamCtx is already cancelled (operator disconnected) —
+					// that's expected, not a node fault.
+					if runErr != nil && streamCtx.Err() == nil {
 						slog.Warn("fleet node discovery failed during cloud fan-out",
 							"fleet_node_id", nodeID, "error", runErr)
 					}
@@ -162,7 +168,18 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	}
 
 	wg.Wait()
-	return sendErr
+	if sendErr != nil {
+		return sendErr
+	}
+	// A client cancel/deadline drains the sources without a Send error; surface
+	// it as canceled/deadline rather than a successful completion.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return connect.NewError(connect.CodeDeadlineExceeded, ctxErr)
+		}
+		return fleeterror.NewCanceledError()
+	}
+	return nil
 }
 
 // Pair implements pairingv1connect.PairingServiceHandler.

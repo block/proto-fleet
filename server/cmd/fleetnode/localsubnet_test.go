@@ -106,11 +106,11 @@ func TestSelectLocalPrivateSubnets_DedupesSameSubnetAcrossNICs(t *testing.T) {
 	assert.Equal(t, []string{"192.168.1.0/24"}, got)
 }
 
-func TestSelectLocalPrivateSubnets_CapsResultCount(t *testing.T) {
-	// Arrange: more distinct private subnets than the cap allows.
-	ifaces := make([]net.Interface, 0, maxAutoSubnets+2)
+func TestSelectLocalPrivateSubnets_CapsTotalHostBudget(t *testing.T) {
+	// Arrange: ten /24s (256 hosts each); the host budget admits only floor(1024/256).
+	ifaces := make([]net.Interface, 0, 10)
 	byName := make(map[string][]net.Addr)
-	for i := range maxAutoSubnets + 2 {
+	for i := range 10 {
 		name := fmt.Sprintf("eth%d", i)
 		ifaces = append(ifaces, net.Interface{Name: name, Flags: net.FlagUp | net.FlagRunning})
 		byName[name] = []net.Addr{hostIPNet(fmt.Sprintf("192.168.%d.5/24", i))}
@@ -119,9 +119,33 @@ func TestSelectLocalPrivateSubnets_CapsResultCount(t *testing.T) {
 	// Act
 	got, err := selectLocalPrivateSubnets(ifaces, stubAddrs(byName))
 
+	// Assert: total swept addresses stay within the per-command budget.
+	require.NoError(t, err)
+	total := 0
+	for _, c := range got {
+		total += 1 << (32 - netip.MustParsePrefix(c).Bits())
+	}
+	assert.LessOrEqual(t, total, maxAutoScanHosts)
+	assert.Len(t, got, maxAutoScanHosts/256)
+}
+
+func TestSelectLocalPrivateSubnets_SingleWideSubnetConsumesBudget(t *testing.T) {
+	// Arrange: a /22 (1024 hosts) exhausts the budget, so a second subnet is dropped.
+	ifaces := []net.Interface{
+		{Name: "eth0", Flags: net.FlagUp | net.FlagRunning},
+		{Name: "eth1", Flags: net.FlagUp | net.FlagRunning},
+	}
+	addrs := stubAddrs(map[string][]net.Addr{
+		"eth0": {hostIPNet("10.1.0.5/22")},
+		"eth1": {hostIPNet("192.168.9.5/24")},
+	})
+
+	// Act
+	got, err := selectLocalPrivateSubnets(ifaces, addrs)
+
 	// Assert
 	require.NoError(t, err)
-	assert.Len(t, got, maxAutoSubnets)
+	assert.Equal(t, []string{"10.1.0.0/22"}, got)
 }
 
 func TestSelectLocalPrivateSubnets_IgnoresIPv6ULA(t *testing.T) {
