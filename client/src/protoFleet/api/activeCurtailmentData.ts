@@ -24,7 +24,7 @@ export interface PendingActiveCurtailmentRefresh extends ActiveCurtailmentSnapsh
 
 interface InFlightActiveCurtailmentRequest {
   abortController: AbortController;
-  promise: Promise<ActiveCurtailmentSnapshot>;
+  promise: Promise<ActiveCurtailmentResponseSnapshot>;
   settled: boolean;
   subscribers: number;
   writeVersion: number;
@@ -32,7 +32,17 @@ interface InFlightActiveCurtailmentRequest {
 
 interface ActiveCurtailmentRequestSnapshot {
   snapshot: ActiveCurtailmentSnapshot;
+  preservesRestoringEmptyResponse: boolean;
   writeVersion: number;
+}
+
+interface ActiveCurtailmentResponseSnapshot {
+  snapshot: ActiveCurtailmentSnapshot;
+  preservesRestoringEmptyResponse: boolean;
+}
+
+interface SetActiveCurtailmentSnapshotOptions {
+  preservesRestoringEmptyResponse?: boolean;
 }
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined };
@@ -66,6 +76,7 @@ function areActiveCurtailmentSnapshotsEqual(
 function setActiveCurtailmentSnapshot(
   snapshot: ActiveCurtailmentSnapshot,
   writeVersion = getNextWriteVersion(),
+  { preservesRestoringEmptyResponse = false }: SetActiveCurtailmentSnapshotOptions = {},
 ): ActiveCurtailmentSnapshot {
   if (writeVersion < appliedWriteVersion) {
     return getActiveCurtailmentSnapshot();
@@ -77,9 +88,7 @@ function setActiveCurtailmentSnapshot(
     dismissedEventUuid = null;
   }
 
-  if (!snapshot.event) {
-    emptyActiveRefreshCount = 0;
-  }
+  emptyActiveRefreshCount = preservesRestoringEmptyResponse && snapshot.event ? emptyActiveRefreshCount + 1 : 0;
 
   appliedWriteVersion = writeVersion;
   const currentSnapshot = getActiveCurtailmentSnapshot();
@@ -119,16 +128,14 @@ function shouldPreserveRestoringActiveCurtailmentEvent(event: ProtoCurtailmentEv
   return event.state === CurtailmentEventState.RESTORING;
 }
 
-function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentSnapshot {
+function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentResponseSnapshot {
   if (event) {
-    emptyActiveRefreshCount = 0;
-    return { event };
+    return { snapshot: { event }, preservesRestoringEmptyResponse: false };
   }
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
   if (currentSnapshot.event && shouldPreserveTerminalActiveCurtailmentEvent(currentSnapshot.event)) {
-    emptyActiveRefreshCount = 0;
-    return currentSnapshot;
+    return { snapshot: currentSnapshot, preservesRestoringEmptyResponse: false };
   }
 
   if (
@@ -136,12 +143,10 @@ function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent)
     shouldPreserveRestoringActiveCurtailmentEvent(currentSnapshot.event) &&
     emptyActiveRefreshCount < preservedEmptyActiveRefreshLimit
   ) {
-    emptyActiveRefreshCount += 1;
-    return currentSnapshot;
+    return { snapshot: currentSnapshot, preservesRestoringEmptyResponse: true };
   }
 
-  emptyActiveRefreshCount = 0;
-  return initialSnapshot;
+  return { snapshot: initialSnapshot, preservesRestoringEmptyResponse: false };
 }
 
 function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest {
@@ -206,9 +211,9 @@ async function requestActiveCurtailmentSnapshot(signal?: AbortSignal): Promise<A
   signal?.addEventListener("abort", handleAbort, { once: true });
 
   try {
-    const snapshot = await request.promise;
+    const { snapshot, preservesRestoringEmptyResponse } = await request.promise;
     assertNotAborted(signal);
-    return { snapshot, writeVersion: request.writeVersion };
+    return { snapshot, preservesRestoringEmptyResponse, writeVersion: request.writeVersion };
   } finally {
     signal?.removeEventListener("abort", handleAbort);
     releaseSubscriber();
@@ -219,10 +224,10 @@ export async function fetchActiveCurtailmentData({
   signal,
 }: RefreshActiveCurtailmentOptions = {}): Promise<PendingActiveCurtailmentRefresh> {
   assertNotAborted(signal);
-  const { snapshot, writeVersion } = await requestActiveCurtailmentSnapshot(signal);
+  const { snapshot, preservesRestoringEmptyResponse, writeVersion } = await requestActiveCurtailmentSnapshot(signal);
   return {
     ...snapshot,
-    commit: () => setActiveCurtailmentSnapshot(snapshot, writeVersion),
+    commit: () => setActiveCurtailmentSnapshot(snapshot, writeVersion, { preservesRestoringEmptyResponse }),
   };
 }
 

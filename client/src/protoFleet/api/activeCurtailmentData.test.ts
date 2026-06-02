@@ -124,6 +124,30 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
+  it("does not let stale empty refreshes consume the restoring preservation window", async () => {
+    let resolveStaleRefresh: (value: { event?: CurtailmentEvent }) => void = () => undefined;
+    mockGetActiveCurtailment
+      .mockReturnValueOnce(
+        new Promise<{ event?: CurtailmentEvent }>((resolve) => {
+          resolveStaleRefresh = resolve;
+        }),
+      )
+      .mockResolvedValue({ event: undefined });
+
+    const staleRefresh = fetchActiveCurtailmentData();
+    applyActiveCurtailmentEvent(curtailmentEvent("restoring", CurtailmentEventState.RESTORING));
+    resolveStaleRefresh({ event: undefined });
+
+    const staleSnapshot = await staleRefresh;
+    staleSnapshot.commit();
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("restoring");
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
+  });
+
   it.each([
     ["restored", CurtailmentEventState.COMPLETED],
     ["incomplete restore", CurtailmentEventState.COMPLETED_WITH_FAILURES],
