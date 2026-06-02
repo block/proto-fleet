@@ -139,20 +139,26 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	w.mu.Unlock()
 
 	canonical, canonicalOK := CanonicalFromPair(primaryObs, secondaryObs, w.cfg.BrokerFreshness)
-	if !canonicalOK {
-		return prior
-	}
 
-	// Ignore stale/out-of-order payloads: a broker can redeliver (QoS 1) or
-	// replay a payload published before the one we last acted on. Feeding it to
-	// the edge detector would let a late ON stop a curtailment the newer OFF
-	// established, even though the publisher's current state is OFF. Order
-	// against LastTargetAt (the last processed publisher timestamp).
-	if !prior.LastTargetAt.IsZero() && canonical.PublishedAt.Before(prior.LastTargetAt) {
-		w.cfg.Logger.Warn("mqttingest: ignoring stale payload",
+	// Skip stale/out-of-order payloads (QoS-1 redelivery, reconnect backlog,
+	// reorder): they must not drive edge detection, or a late ON would stop a
+	// curtailment the newer OFF established. When the precedence winner is
+	// stale, evict it from the per-broker cache so it stops masking the other
+	// broker's current data, then re-resolve against the survivor.
+	for canonicalOK && !prior.LastTargetAt.IsZero() && canonical.PublishedAt.Before(prior.LastTargetAt) {
+		w.cfg.Logger.Warn("mqttingest: evicting stale payload",
 			slog.String("source", w.source.SourceName),
+			slog.String("broker", canonical.Broker),
 			slog.Time("published_at", canonical.PublishedAt),
 			slog.Time("last_processed_at", prior.LastTargetAt))
+		w.mu.Lock()
+		delete(w.lastObs, w.brokerRole(canonical.Broker))
+		primaryObs = w.lastObs[BrokerPrimary]
+		secondaryObs = w.lastObs[BrokerSecondary]
+		w.mu.Unlock()
+		canonical, canonicalOK = CanonicalFromPair(primaryObs, secondaryObs, w.cfg.BrokerFreshness)
+	}
+	if !canonicalOK {
 		return prior
 	}
 

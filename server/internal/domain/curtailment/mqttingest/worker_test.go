@@ -357,3 +357,38 @@ func TestWorker_HandleMessage_StalePayload_Ignored(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget, "state stays OFF")
 	assert.Equal(t, processedAt, next.LastTargetAt, "stale payload must not advance the processed timestamp")
 }
+
+// A stale observation that wins precedence by receive-time must be evicted so
+// it stops masking the other broker's current data; the fresh OFF is acted on
+// immediately rather than after the freshness window.
+func TestWorker_HandleMessage_EvictsStaleWinner_ThenProcessesFresh(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	t0 := now.Add(-20 * time.Second) // last processed; source is ON
+	// Primary has a stale ON cached with a recent receive time, so it wins
+	// precedence by receive-time but is stale by publisher time.
+	w.lastObs[BrokerPrimary] = &Observation{
+		Broker:     w.primaryHost,
+		Role:       BrokerPrimary,
+		Payload:    Payload{Target: TargetOn, PublishedAt: t0.Add(-30 * time.Second)},
+		ReceivedAt: now,
+	}
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOn, LastTargetAt: t0}
+
+	// Secondary delivers the current OFF.
+	body, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.secondaryHost, payload: body, receivedAt: now})
+
+	require.Equal(t, 1, svc.startCallsLen(), "stale primary must be evicted so the current OFF curtails immediately")
+	assert.Equal(t, TargetOff, next.LastTarget)
+	_, primaryStillCached := w.lastObs[BrokerPrimary]
+	assert.False(t, primaryStillCached, "stale primary observation must be evicted from the cache")
+}
