@@ -20,9 +20,10 @@ import (
 // write surface. Tests preload sources and inspect state after the
 // subscriber drains.
 type fakeStore struct {
-	mu      sync.Mutex
-	sources []SourceConfig
-	state   map[int64]SourceState
+	mu          sync.Mutex
+	sources     []SourceConfig
+	state       map[int64]SourceState
+	getStateErr error
 }
 
 func newFakeStore(sources ...SourceConfig) *fakeStore {
@@ -40,6 +41,9 @@ func (f *fakeStore) ListEnabledSources(_ context.Context) ([]SourceConfig, error
 func (f *fakeStore) GetSourceState(_ context.Context, id int64) (SourceState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.getStateErr != nil {
+		return SourceState{}, f.getStateErr
+	}
 	s, ok := f.state[id]
 	if !ok {
 		return SourceState{}, ErrSourceStateNotFound

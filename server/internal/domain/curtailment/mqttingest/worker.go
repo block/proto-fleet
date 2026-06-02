@@ -35,25 +35,38 @@ type observation struct {
 	receivedAt time.Time
 }
 
+// observationChannelBuffer bounds the per-source inbound message queue.
+// At the ~30 s publisher cadence across two brokers, dispatch normally
+// drains far faster than messages arrive; the buffer only needs to
+// absorb a transient slow Service.Start/Stop on an actual edge. When it
+// saturates, the just-arrived message is dropped with a Warn — the
+// publisher's repeated sends plus the staleness watchdog are the
+// backstop, so a dropped edge self-corrects on the next message rather
+// than sticking.
+const observationChannelBuffer = 256
+
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
 
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
 		if !errors.Is(err, ErrSourceStateNotFound) {
-			w.cfg.Logger.Error("mqttingest: get source state failed",
+			// A transient read error must not silently kill the worker —
+			// that would take the fail-safe watchdog down with it. Degrade
+			// to cold-start; the watchdog then fires OFF on its first tick
+			// (curtail-under-uncertainty) until a live message arrives.
+			w.cfg.Logger.Warn("mqttingest: get source state failed, starting cold",
 				slog.String("source", w.source.SourceName),
 				slog.Any("error", err))
-			return
 		}
-		// Cold-start: no state row yet. Target's zero value collides
-		// with TargetOff, so the unknown sentinel must be set
-		// explicitly or the edge detector will treat the first OFF
-		// observation as a repeat and skip the curtail dispatch.
+		// Cold-start: no usable state row. Target's zero value collides
+		// with TargetOff, so the unknown sentinel must be set explicitly
+		// or the edge detector will treat the first OFF observation as a
+		// repeat and skip the curtail dispatch.
 		state = SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
 	}
 
-	messages := make(chan observation, 16)
+	messages := make(chan observation, observationChannelBuffer)
 
 	primaryClient := w.cfg.NewClient()
 	secondaryClient := w.cfg.NewClient()
@@ -111,8 +124,8 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 // per-broker cache, resolves canonical state via precedence, asks the
 // edge detector whether to dispatch, and persists state. Freshness
 // fields advance unconditionally on a successfully-decoded message;
-// LastTarget only advances when applyEdge confirms the dispatch
-// (EdgeNone counts as confirmed since no dispatch was needed).
+// LastTarget advances when the owed dispatch landed (or none was owed),
+// except on a debounced flip, which must leave LastTarget untouched.
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
 	payload, err := DecodePayload(obs.payload, obs.receivedAt)
 	if err != nil {
@@ -152,12 +165,18 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	state.LastReceivedAt = canonical.ReceivedAt
 	state.LastReceivedBroker = canonical.Broker
 
-	// LastTarget is the canonical state derived from the wire; it only
-	// advances when the dispatch we owed for the implied transition
-	// landed. A failed dispatch must not look like a successful
-	// transition or the next OFF observation is a no-op repeat and the
-	// site silently uncurtails.
-	if dispatched {
+	// LastTarget is the settled state derived from the wire. A failed
+	// dispatch must not look like a successful transition, or the next
+	// identical observation is a no-op repeat and the site silently
+	// (un)curtails. A debounced flip (EdgeNone whose canonical target
+	// differs from a known prior target) must also leave LastTarget put,
+	// so a later genuine opposite edge still fires. Repeats and cold-start
+	// (no prior target) still advance — a no-op for repeats, and the
+	// first observed target for cold-start.
+	debouncedFlip := direction == EdgeNone &&
+		canonical.Target != prior.LastTarget &&
+		prior.LastTarget != TargetUnknown
+	if dispatched && !debouncedFlip {
 		state.LastTarget = canonical.Target
 	}
 
@@ -204,6 +223,17 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	edgeAt := canonical.ReceivedAt
 	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, edgeAt)
 	if err != nil {
+		if errors.Is(err, ErrNoActiveEvent) {
+			// OFF→ON with no in-flight event to stop: the curtailment
+			// already ended by another path (max-duration, admin
+			// terminate, restore completion). The transition still
+			// happened, so advance the edge bookkeeping and report
+			// success — otherwise the caller never moves LastTarget to ON
+			// and every later ON message re-dispatches Stop in a loop.
+			state := prior
+			state.LastEdgeAt = edgeAt
+			return state, true
+		}
 		w.cfg.Logger.Error("mqttingest: edge dispatch failed",
 			slog.String("source", w.source.SourceName),
 			slog.String("direction", direction.String()),

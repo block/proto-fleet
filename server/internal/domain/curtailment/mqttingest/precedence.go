@@ -1,15 +1,17 @@
 package mqttingest
 
 import (
+	"net/netip"
 	"sort"
 	"time"
 )
 
 // BrokerRole identifies which of a source's two brokers an observation
-// came from. Precedence is resolved by host string ordering — the
-// lexicographically lower host wins, which matches the wire contract's
-// "lower IP wins" rule when broker hosts are dotted-quad IPs. Hostname
-// configurations get a stable but operator-visible ordering.
+// came from. Precedence follows the wire contract's "lower IP wins"
+// rule: when both hosts parse as IP addresses, the numerically lower
+// address is primary. When a host is a DNS name (not a parseable IP),
+// the pair falls back to stable lexicographic ordering so behavior stays
+// deterministic and operator-visible.
 type BrokerRole int
 
 const (
@@ -29,12 +31,23 @@ type Observation struct {
 }
 
 // ResolveBrokerRoles orders the two configured broker hosts by
-// precedence. The lower-string-comparison host wins; the other is the
-// hot fallback. Equal strings (operator misconfig caught by the DB
-// CHECK) return ("", "", false).
+// precedence. When both hosts parse as IP addresses the numerically
+// lower address wins, per the wire contract's "lower IP wins" rule —
+// e.g. 10.0.0.3 beats 10.0.0.4, and 10.0.0.9 beats 10.0.0.10 (which a
+// plain string sort gets wrong). When either host is a DNS name, the
+// pair falls back to lexicographic ordering. Equal hosts (operator
+// misconfig caught by the DB CHECK) return ("", "", false).
 func ResolveBrokerRoles(hostA, hostB string) (primary, secondary string, ok bool) {
 	if hostA == hostB {
 		return "", "", false
+	}
+	addrA, errA := netip.ParseAddr(hostA)
+	addrB, errB := netip.ParseAddr(hostB)
+	if errA == nil && errB == nil {
+		if addrA.Compare(addrB) <= 0 {
+			return hostA, hostB, true
+		}
+		return hostB, hostA, true
 	}
 	hosts := []string{hostA, hostB}
 	sort.Strings(hosts)

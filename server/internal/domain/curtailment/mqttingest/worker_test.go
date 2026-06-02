@@ -138,3 +138,121 @@ func TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget(t *testing.T) {
 		"freshness must still advance — we heard a message, the dispatch is what failed")
 	assert.Equal(t, w.primaryHost, next.LastReceivedBroker)
 }
+
+// TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn is the
+// regression test for the wedge where an OFF→ON edge with no in-flight
+// event (ErrNoActiveEvent) was treated as a dispatch failure, so
+// LastTarget never moved to ON and every later ON re-attempted Stop.
+func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{getActiveResult: nil} // no active event → ErrNoActiveEvent
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now})
+
+	assert.Equal(t, TargetOn, next.LastTarget,
+		"OFF→ON with no active event must advance to ON, not wedge in OFF")
+	assert.Empty(t, svc.stopCalls, "no Stop when there is no active event to stop")
+	require.Len(t, svc.getActiveCalls, 1)
+
+	// A follow-up ON is now a plain repeat — it must not retry the dispatch.
+	next = w.handleMessage(context.Background(), next,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now.Add(time.Second)})
+	assert.Equal(t, TargetOn, next.LastTarget)
+	require.Len(t, svc.getActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
+}
+
+// TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance proves a flip
+// absorbed by the debounce window leaves LastTarget untouched, so a later
+// genuine opposite edge still fires instead of being swallowed as a
+// no-op repeat.
+func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	// Curtailed (OFF) with a very recent edge so the OFF→ON flip lands
+	// inside DebounceWindow (5 s).
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOff,
+		LastEdgeAt:     now.Add(-1 * time.Second),
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now})
+
+	assert.Equal(t, TargetOff, next.LastTarget,
+		"a debounced OFF→ON flip must leave LastTarget at OFF")
+	assert.Empty(t, svc.startCalls)
+	assert.Empty(t, svc.stopCalls)
+	assert.Equal(t, now, next.LastReceivedAt, "freshness still advances")
+}
+
+// TestWorker_HandleMessage_ColdStartOn_AdvancesToOn guards against the
+// debounce fix over-suppressing: a cold-start ON (no prior target) is not
+// a flip and must record ON so the watchdog and later edges see the right
+// baseline.
+func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now})
+
+	assert.Equal(t, TargetOn, next.LastTarget, "cold-start ON must advance LastTarget to ON")
+	assert.Empty(t, svc.startCalls)
+	assert.Empty(t, svc.stopCalls)
+}
+
+// TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires proves a
+// transient state-load error does not kill the worker: it degrades to
+// cold-start and the watchdog still fires WATCHDOG_OFF (fail-safe).
+func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.getStateErr = errors.New("transient db error")
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond // fire quickly
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	assertEventually(t, 2*time.Second, func() bool { return svc.startCallsLen() >= 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}

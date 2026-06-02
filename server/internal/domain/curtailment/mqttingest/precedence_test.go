@@ -19,7 +19,10 @@ func TestResolveBrokerRoles(t *testing.T) {
 	}{
 		{"IP-ordered ascending", "10.155.0.3", "10.155.0.4", "10.155.0.3", "10.155.0.4", true},
 		{"IP-ordered reverse", "10.155.0.4", "10.155.0.3", "10.155.0.3", "10.155.0.4", true},
+		{"IP ordered by value not lexicographically", "10.155.0.10", "10.155.0.9", "10.155.0.9", "10.155.0.10", true},
+		{"IP reverse multi-digit octet", "10.155.0.9", "10.155.0.10", "10.155.0.9", "10.155.0.10", true},
 		{"hostname ordered", "broker-a.example", "broker-b.example", "broker-a.example", "broker-b.example", true},
+		{"IP and hostname falls back to string order", "10.0.0.1", "zzz.example", "10.0.0.1", "zzz.example", true},
 		{"equal hosts rejected", "10.155.0.3", "10.155.0.3", "", "", false},
 	}
 
