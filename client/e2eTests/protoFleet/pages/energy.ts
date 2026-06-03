@@ -46,11 +46,30 @@ export class EnergyPage extends BasePage {
     await modal.locator("#curtailment-restore-batch-interval").fill(restoreBatchIntervalSec);
   }
 
-  async waitForPreview() {
+  async waitForPreview(targetKw: string) {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
+    const targetInput = modal.locator("#curtailment-target-kw");
+    const previewTarget = modal.getByText("Curtailment target reduction").first();
+    const previewSummary = modal.getByText(/Curtail \d+ miners .* immediately/).first();
+    const deadline = Date.now() + DEFAULT_TIMEOUT * 2;
 
-    await expect(modal.getByText("Curtailment target reduction").first()).toBeVisible();
-    await expect(modal.getByText(/Curtail \d+ miners .* immediately/).first()).toBeVisible();
+    do {
+      if (await previewTarget.isVisible().catch(() => false)) {
+        await expect(previewSummary).toBeVisible();
+        return;
+      }
+
+      const previewResponse = this.page
+        .waitForResponse(/PreviewCurtailmentPlan/, { timeout: DEFAULT_INTERVAL * 4 })
+        .catch(() => undefined);
+      await targetInput.fill("");
+      await targetInput.fill(targetKw);
+      await previewResponse;
+      await delay(DEFAULT_INTERVAL);
+    } while (Date.now() < deadline);
+
+    await expect(previewTarget).toBeVisible();
+    await expect(previewSummary).toBeVisible();
   }
 
   async startCurtailment() {
@@ -161,7 +180,10 @@ export class EnergyPage extends BasePage {
   }
 
   private activeCurtailmentSection(reason: string): Locator {
-    return this.page.locator("section").filter({ hasText: "Active curtailment" }).filter({ hasText: reason });
+    return this.page
+      .locator("section")
+      .filter({ has: this.page.getByTestId("active-curtailment-primary-lockup") })
+      .filter({ hasText: reason });
   }
 
   private activeCurtailmentStopButton(reason: string): Locator {

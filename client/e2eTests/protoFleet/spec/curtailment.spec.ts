@@ -40,8 +40,8 @@ test.describe("Proto Fleet - Curtailment", () => {
         await energyPage.validateEnergyPageOpened();
       });
 
-      const startRequestPromise = page.waitForRequest(/StartCurtailment/);
-      const startResponsePromise = page.waitForResponse(/StartCurtailment/);
+      let startRequestPromise!: ReturnType<typeof page.waitForRequest>;
+      let startResponsePromise!: ReturnType<typeof page.waitForResponse>;
 
       await test.step("Start a whole-fleet curtailment", async () => {
         await energyPage.openCurtailmentPlanner();
@@ -50,8 +50,10 @@ test.describe("Proto Fleet - Curtailment", () => {
           targetKw,
           restoreBatchIntervalSec,
         });
-        await energyPage.waitForPreview();
+        await energyPage.waitForPreview(targetKw);
         startedCurtailment = { reason: curtailmentReason };
+        startRequestPromise = page.waitForRequest(/StartCurtailment/);
+        startResponsePromise = page.waitForResponse(/StartCurtailment/);
         await energyPage.startCurtailment();
       });
 
