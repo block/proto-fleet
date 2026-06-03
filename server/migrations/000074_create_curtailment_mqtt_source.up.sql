@@ -21,6 +21,12 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges.
     -- Upper bound is a fat-finger sanity ceiling (1 GW per source).
     contracted_curtailment_kw       INT          NOT NULL,
+    -- Curtailment scope this source targets: 'whole_org' (all org devices) or
+    -- 'device_list' (scope_device_identifiers below). device_sets is not yet
+    -- supported by the curtailment core.
+    scope_type                      TEXT         NOT NULL DEFAULT 'whole_org',
+    -- Device identifiers for scope_type='device_list'; NULL for 'whole_org'.
+    scope_device_identifiers        TEXT[]       NULL,
     -- Seconds of broker silence before the watchdog fires WATCHDOG_OFF.
     -- NULL → default applied in code.
     staleness_threshold_sec         INT          NULL,
@@ -49,7 +55,14 @@ CREATE TABLE curtailment_mqtt_source_config (
     CONSTRAINT ck_curtailment_mqtt_source_config_hold_nonneg
         CHECK (min_curtailed_duration_sec IS NULL OR min_curtailed_duration_sec >= 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_brokers_distinct
-        CHECK (broker_primary_host <> broker_secondary_host)
+        CHECK (broker_primary_host <> broker_secondary_host),
+    -- whole_org carries no device list; device_list requires a non-empty one.
+    CONSTRAINT ck_curtailment_mqtt_source_config_scope CHECK (
+        (scope_type = 'whole_org' AND scope_device_identifiers IS NULL)
+        OR
+        (scope_type = 'device_list' AND scope_device_identifiers IS NOT NULL
+            AND cardinality(scope_device_identifiers) > 0)
+    )
 );
 
 CREATE INDEX idx_curtailment_mqtt_source_config_enabled
@@ -76,9 +89,9 @@ CREATE TABLE curtailment_mqtt_source_state (
     last_received_broker    VARCHAR(255) NULL,
     -- Timestamp of the most recent ON<->OFF flip.
     last_edge_at            TIMESTAMPTZ  NULL,
-    -- Curtailment event from the last ON->OFF/WATCHDOG_OFF edge (audit). Stop
-    -- currently resolves via Service.GetActive; if multi-source-per-org lands,
-    -- the driver should pivot to this column to avoid stopping cross-source events.
+    -- Curtailment event from the last ON->OFF/WATCHDOG_OFF edge (audit).
+    -- OFF->ON resolves this source's event via Service.ListActive matched on
+    -- source_actor_id, so cross-source events are never stopped by this source.
     last_edge_event_uuid    UUID         NULL,
     updated_at              TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

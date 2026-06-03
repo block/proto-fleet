@@ -456,6 +456,8 @@ type CurtailmentMqttSourceConfig struct {
 	MqttUsername            string
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw int32
+	ScopeType               string
+	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
 	MinCurtailedDurationSec sql.NullInt32
 	Enabled                 bool

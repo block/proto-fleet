@@ -10,10 +10,11 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const getMQTTSourceConfigByID = `-- name: GetMQTTSourceConfigByID :one
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE id = $1
 `
@@ -33,6 +34,8 @@ func (q *Queries) GetMQTTSourceConfigByID(ctx context.Context, id int64) (Curtai
 		&i.MqttUsername,
 		&i.MqttPasswordEnc,
 		&i.ContractedCurtailmentKw,
+		&i.ScopeType,
+		pq.Array(&i.ScopeDeviceIdentifiers),
 		&i.StalenessThresholdSec,
 		&i.MinCurtailedDurationSec,
 		&i.Enabled,
@@ -76,6 +79,8 @@ INSERT INTO curtailment_mqtt_source_config (
     mqtt_username,
     mqtt_password_enc,
     contracted_curtailment_kw,
+    scope_type,
+    scope_device_identifiers,
     staleness_threshold_sec,
     min_curtailed_duration_sec,
     enabled
@@ -92,9 +97,11 @@ INSERT INTO curtailment_mqtt_source_config (
     $10,
     $11,
     $12,
-    $13
+    $13,
+    $14,
+    $15
 )
-RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 `
 
 type InsertMQTTSourceConfigParams struct {
@@ -108,6 +115,8 @@ type InsertMQTTSourceConfigParams struct {
 	MqttUsername            string
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw int32
+	ScopeType               string
+	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
 	MinCurtailedDurationSec sql.NullInt32
 	Enabled                 bool
@@ -127,6 +136,8 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		arg.MqttUsername,
 		arg.MqttPasswordEnc,
 		arg.ContractedCurtailmentKw,
+		arg.ScopeType,
+		pq.Array(arg.ScopeDeviceIdentifiers),
 		arg.StalenessThresholdSec,
 		arg.MinCurtailedDurationSec,
 		arg.Enabled,
@@ -144,6 +155,8 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		&i.MqttUsername,
 		&i.MqttPasswordEnc,
 		&i.ContractedCurtailmentKw,
+		&i.ScopeType,
+		pq.Array(&i.ScopeDeviceIdentifiers),
 		&i.StalenessThresholdSec,
 		&i.MinCurtailedDurationSec,
 		&i.Enabled,
@@ -154,7 +167,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 }
 
 const listEnabledMQTTSources = `-- name: ListEnabledMQTTSources :many
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE enabled = TRUE
 ORDER BY id
@@ -183,6 +196,8 @@ func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqtt
 			&i.MqttUsername,
 			&i.MqttPasswordEnc,
 			&i.ContractedCurtailmentKw,
+			&i.ScopeType,
+			pq.Array(&i.ScopeDeviceIdentifiers),
 			&i.StalenessThresholdSec,
 			&i.MinCurtailedDurationSec,
 			&i.Enabled,

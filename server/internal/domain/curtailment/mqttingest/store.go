@@ -25,9 +25,14 @@ type SourceConfig struct {
 	MQTTUsername            string
 	MQTTPasswordEncrypted   string
 	ContractedCurtailmentKw int32
-	StalenessThreshold      time.Duration
-	MinCurtailedDuration    time.Duration
-	Enabled                 bool
+	// ScopeType is 'whole_org' or 'device_list'; ScopeDeviceIdentifiers holds
+	// the devices for 'device_list' (empty for 'whole_org'). The driver builds
+	// the curtailment Scope from these.
+	ScopeType              string
+	ScopeDeviceIdentifiers []string
+	StalenessThreshold     time.Duration
+	MinCurtailedDuration   time.Duration
+	Enabled                bool
 }
 
 // SourceState is the domain shape of a curtailment_mqtt_source_state
@@ -186,6 +191,8 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 		MQTTUsername:            r.MqttUsername,
 		MQTTPasswordEncrypted:   r.MqttPasswordEnc,
 		ContractedCurtailmentKw: r.ContractedCurtailmentKw,
+		ScopeType:               r.ScopeType,
+		ScopeDeviceIdentifiers:  r.ScopeDeviceIdentifiers,
 		StalenessThreshold:      time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
 		MinCurtailedDuration:    time.Duration(int32OrDefault(r.MinCurtailedDurationSec, defaultMinCurtailedDurationSec)) * time.Second,
 		Enabled:                 r.Enabled,

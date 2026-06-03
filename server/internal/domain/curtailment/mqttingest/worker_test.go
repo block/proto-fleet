@@ -140,7 +140,7 @@ func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	svc := &fakeService{getActiveResult: nil} // no active event → ErrNoActiveEvent
+	svc := &fakeService{listActiveResult: nil} // no active event → ErrNoActiveEvent
 	w := newTestWorker(t, store, svc, workerSource())
 
 	now := time.Now().UTC()
@@ -155,13 +155,13 @@ func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	assert.Equal(t, TargetOn, next.LastTarget,
 		"OFF→ON with no active event must advance to ON, not wedge in OFF")
 	assert.Empty(t, svc.stopCalls, "no Stop when there is no active event to stop")
-	require.Len(t, svc.getActiveCalls, 1)
+	require.Len(t, svc.listActiveCalls, 1)
 
 	// A follow-up ON is now a plain repeat — it must not retry the dispatch.
 	next = w.handleMessage(context.Background(), next,
 		observation{broker: w.primaryHost, payload: onBody, receivedAt: now.Add(time.Second)})
 	assert.Equal(t, TargetOn, next.LastTarget)
-	require.Len(t, svc.getActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
+	require.Len(t, svc.listActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
 }
 
 // A flip absorbed by the debounce window must leave LastTarget untouched
@@ -251,15 +251,16 @@ func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	svc := &fakeService{getActiveResult: &models.Event{EventUUID: uuid.New()}}
+	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
+	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID}}}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
 	next := w.handleWatchdog(context.Background(), prior)
 
 	assert.Equal(t, TargetOff, next.LastTarget)
-	assert.Empty(t, svc.startCalls, "active event still holds — no re-curtail")
-	require.Len(t, svc.getActiveCalls, 1)
+	assert.Empty(t, svc.startCalls, "this source's event still holds — no re-curtail")
+	require.Len(t, svc.listActiveCalls, 1)
 }
 
 // A watchdog tick while OFF must re-curtail when the event was terminated
@@ -269,13 +270,13 @@ func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
 
 	store := newFakeStore()
 	newUUID := uuid.New()
-	svc := &fakeService{getActiveResult: nil, startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	svc := &fakeService{listActiveResult: nil, startResult: &curtailment.Plan{EventUUID: &newUUID}}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
 	next := w.handleWatchdog(context.Background(), prior)
 
-	require.Len(t, svc.getActiveCalls, 1)
+	require.Len(t, svc.listActiveCalls, 1)
 	require.Equal(t, 1, svc.startCallsLen(), "event gone while OFF — must re-curtail")
 	assert.Equal(t, models.PriorityEmergency, svc.startCallAt(0).Priority)
 	assert.Equal(t, TargetOff, next.LastTarget)
@@ -291,7 +292,7 @@ func TestWorker_HandleWatchdog_Off_CheckError_NoOp(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	svc := &fakeService{getActiveErr: errors.New("db down")}
+	svc := &fakeService{listActiveErr: errors.New("db down")}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
@@ -429,7 +430,11 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 				st.SourceConfigID = src.ID
 				store.state[src.ID] = st
 			}
-			svc := &fakeService{getActiveResult: tc.active}
+			var listActive []*models.Event
+			if tc.active != nil {
+				listActive = []*models.Event{tc.active}
+			}
+			svc := &fakeService{listActiveResult: listActive}
 			w := newTestWorker(t, store, svc, src)
 
 			state := w.loadInitialState(context.Background())
@@ -442,13 +447,14 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 	}
 }
 
-// An OFF whose Start hits the org-level already-exists guard records OFF, so
-// the watchdog maintains fail-safe curtailment once that other event ends.
-func TestWorker_HandleMessage_OnToOff_AlreadyExists_RecordsOff(t *testing.T) {
+// An OFF whose Start hits a device-overlap AlreadyExists (a concurrent event
+// already curtails one of this scope's devices) is a retryable failure, not a
+// satisfied OFF: LastTarget must not advance so the next message/tick retries.
+func TestWorker_HandleMessage_OnToOff_AlreadyExists_DoesNotRecordOff(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	svc := &fakeService{startErr: fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already exists for this organization")}
+	svc := &fakeService{startErr: fleeterror.NewAlreadyExistsError("a selected device is already in a non-terminal curtailment")}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	now := time.Now().UTC()
@@ -459,8 +465,8 @@ func TestWorker_HandleMessage_OnToOff_AlreadyExists_RecordsOff(t *testing.T) {
 	next := w.handleMessage(context.Background(), prior,
 		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
 
-	assert.Equal(t, TargetOff, next.LastTarget,
-		"an OFF satisfied by an existing org event must record OFF for the watchdog fail-safe")
+	assert.Equal(t, TargetOn, next.LastTarget,
+		"a device-overlap AlreadyExists is a retryable failure — LastTarget must not advance to OFF")
 }
 
 // A broker whose Connect blocks must not stall the other broker's

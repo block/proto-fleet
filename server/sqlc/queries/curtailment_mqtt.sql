@@ -76,6 +76,8 @@ INSERT INTO curtailment_mqtt_source_config (
     mqtt_username,
     mqtt_password_enc,
     contracted_curtailment_kw,
+    scope_type,
+    scope_device_identifiers,
     staleness_threshold_sec,
     min_curtailed_duration_sec,
     enabled
@@ -90,6 +92,8 @@ INSERT INTO curtailment_mqtt_source_config (
     sqlc.arg('mqtt_username'),
     sqlc.arg('mqtt_password_enc'),
     sqlc.arg('contracted_curtailment_kw'),
+    sqlc.arg('scope_type'),
+    sqlc.narg('scope_device_identifiers'),
     sqlc.narg('staleness_threshold_sec'),
     sqlc.narg('min_curtailed_duration_sec'),
     sqlc.arg('enabled')

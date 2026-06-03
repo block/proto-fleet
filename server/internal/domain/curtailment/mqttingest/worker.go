@@ -233,16 +233,18 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	now := w.cfg.Clock()
 
 	if prior.LastTarget.IsOff() {
-		// OFF means the source must stay curtailed; re-curtail only if the
-		// event is gone (e.g. an admin terminate), not while it still holds.
-		active, err := w.cfg.Driver.HasActiveEvent(ctx, w.source.OrganizationID)
+		// OFF means this source must stay curtailed; re-curtail only if this
+		// source's own event is gone (admin terminate, or its restore
+		// completed), not while it still holds. Another source's event doesn't
+		// satisfy this source — each curtails its own scope.
+		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
 		if err != nil {
 			w.cfg.Logger.Warn("mqttingest: watchdog active-event check failed",
 				slog.String("source", w.source.SourceName),
 				slog.Any("error", err))
 			return prior
 		}
-		if active {
+		if active != nil {
 			return prior
 		}
 	} else if EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold) == WatchdogIdle {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // curtailmentService is the subset of curtailment.Service the driver
@@ -18,7 +17,11 @@ import (
 type curtailmentService interface {
 	Start(ctx context.Context, req curtailment.StartRequest) (*curtailment.Plan, error)
 	Stop(ctx context.Context, req curtailment.StopRequest) (*models.Event, error)
-	GetActive(ctx context.Context, orgID int64) (*models.Event, error)
+	// ListActive returns all non-terminal events for the org. The driver
+	// matches source_actor_id to find this source's event among concurrent
+	// per-scope events (GetActive returns only the most-recent, which can be
+	// another source's).
+	ListActive(ctx context.Context, orgID int64) ([]*models.Event, error)
 }
 
 // EdgeOutcome reports the result of dispatching one edge; the subscriber
@@ -81,6 +84,11 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 }
 
 func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time) (uuid.UUID, error) {
+	scope, err := scopeForSource(src)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
 	externalRef := startExternalReference(src.SourceName, direction, edgeAt, src.StalenessThreshold)
 	reason := startReason(src.SourceName, direction, edgeAt)
 
@@ -89,10 +97,8 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 
 	req := curtailment.StartRequest{
 		PreviewRequest: curtailment.PreviewRequest{
-			OrgID: src.OrganizationID,
-			Scope: curtailment.Scope{
-				Type: models.ScopeTypeWholeOrg,
-			},
+			OrgID:       src.OrganizationID,
+			Scope:       scope,
 			Mode:        models.ModeFixedKw,
 			Strategy:    models.StrategyLeastEfficientFirst,
 			Level:       models.LevelFull,
@@ -113,14 +119,9 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 
 	plan, err := d.svc.Start(ctx, req)
 	if err != nil {
-		if fleeterror.IsAlreadyExistsError(err) {
-			// The org already has a non-terminal event (a manual action or
-			// another source). Whole-org scope means this source is already
-			// curtailed, so treat OFF as satisfied — advance to OFF without
-			// claiming an event of our own. The watchdog re-curtails once
-			// that event ends.
-			return uuid.Nil, nil
-		}
+		// Errors (including a device-overlap AlreadyExists race) propagate so
+		// the worker logs and retries on the next message or watchdog tick.
+		// Idempotent re-deliveries are not errors — they return plan.ReplayEvent.
 		return uuid.Nil, fmt.Errorf("mqttingest: dispatch Start: %w", err)
 	}
 	if plan == nil {
@@ -171,25 +172,20 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 // created, or nil when none exists or the active event belongs to another
 // actor (a manual or cross-source curtailment).
 func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*models.Event, error) {
-	active, err := d.svc.GetActive(ctx, src.OrganizationID)
+	events, err := d.svc.ListActive(ctx, src.OrganizationID)
 	if err != nil {
-		return nil, fmt.Errorf("mqttingest: GetActive: %w", err)
+		return nil, fmt.Errorf("mqttingest: ListActive: %w", err)
 	}
-	if active == nil || active.SourceActorID == nil || *active.SourceActorID != sourceActorIDFor(src) {
-		return nil, nil
+	// Multiple events can be active per org (one per disjoint scope); match
+	// source_actor_id so this source's event is found even when it isn't the
+	// most-recent.
+	want := sourceActorIDFor(src)
+	for _, ev := range events {
+		if ev != nil && ev.SourceActorID != nil && *ev.SourceActorID == want {
+			return ev, nil
+		}
 	}
-	return active, nil
-}
-
-// HasActiveEvent reports whether a non-terminal curtailment event exists
-// for the org. The watchdog uses it to re-curtail an OFF source whose
-// event was terminated out-of-band.
-func (d *Driver) HasActiveEvent(ctx context.Context, orgID int64) (bool, error) {
-	active, err := d.svc.GetActive(ctx, orgID)
-	if err != nil {
-		return false, fmt.Errorf("mqttingest: GetActive: %w", err)
-	}
-	return active != nil, nil
+	return nil, nil
 }
 
 // ErrNoActiveEvent is returned by Dispatch on OFF→ON when no
@@ -244,4 +240,24 @@ func startReason(source string, direction EdgeDirection, edgeAt time.Time) strin
 // source before stopping it.
 func sourceActorIDFor(src SourceConfig) string {
 	return fmt.Sprintf("mqtt:%s", src.SourceName)
+}
+
+// scopeForSource builds the curtailment Scope from the source config. Supports
+// whole_org and device_list; device_sets is rejected (the curtailment core
+// returns Unimplemented for it).
+func scopeForSource(src SourceConfig) (curtailment.Scope, error) {
+	switch src.ScopeType {
+	case string(models.ScopeTypeWholeOrg), "":
+		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
+	case string(models.ScopeTypeDeviceList):
+		if len(src.ScopeDeviceIdentifiers) == 0 {
+			return curtailment.Scope{}, fmt.Errorf("mqttingest: device_list scope for source %q has no device identifiers", src.SourceName)
+		}
+		return curtailment.Scope{
+			Type:              models.ScopeTypeDeviceList,
+			DeviceIdentifiers: src.ScopeDeviceIdentifiers,
+		}, nil
+	default:
+		return curtailment.Scope{}, fmt.Errorf("mqttingest: unsupported scope type %q for source %q", src.ScopeType, src.SourceName)
+	}
 }

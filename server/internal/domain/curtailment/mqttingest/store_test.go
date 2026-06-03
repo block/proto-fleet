@@ -42,3 +42,17 @@ func TestSourceConfigFromRow_SetColumnsOverrideDefaults(t *testing.T) {
 	assert.Equal(t, 120*time.Second, cfg.StalenessThreshold)
 	assert.Equal(t, 300*time.Second, cfg.MinCurtailedDuration)
 }
+
+// scope_type + scope_device_identifiers round-trip through the loader so the
+// driver can build the curtailment Scope.
+func TestSourceConfigFromRow_CarriesScope(t *testing.T) {
+	t.Parallel()
+
+	cfg := sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig{
+		ScopeType:              "device_list",
+		ScopeDeviceIdentifiers: []string{"miner-1", "miner-2"},
+	})
+
+	assert.Equal(t, "device_list", cfg.ScopeType)
+	assert.Equal(t, []string{"miner-1", "miner-2"}, cfg.ScopeDeviceIdentifiers)
+}
