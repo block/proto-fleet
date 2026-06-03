@@ -23,22 +23,17 @@ import (
 type Handler struct {
 	pairingSvc *pairing.Service
 	// discovery fans the "Scan your network" nmap action out to connected fleet
-	// nodes so their LAN-local miners surface alongside the cloud's own scan.
-	// Optional; nil disables fan-out (cloud-only discovery).
+	// nodes; nil disables fan-out (cloud-only discovery).
 	discovery *discovery.Service
 }
 
-// maxConcurrentFleetNodeScans bounds how many fleet nodes one fan-out scans at
-// once, so a large fleet can't spawn an unbounded number of in-flight
-// ControlStream commands (each held until its ack or the per-node timeout). It
-// sits comfortably above typical fleet sizes; only the pathological case binds.
+// maxConcurrentFleetNodeScans bounds in-flight per-node commands so a large fleet
+// can't spawn an unbounded number of ControlStream slots. Above typical fleet sizes.
 const maxConcurrentFleetNodeScans = 32
 
-// fleetNodeFanOutTimeout caps how long the fleet-node fan-out can extend the
-// Discover stream. RunOnNode's 12m timeout is the dedicated single-node budget;
-// for the opportunistic fan-out a tighter ceiling keeps a wedged node from making
-// the operator wait minutes past the cloud scan. A LAN subnet scan finishes well
-// within this.
+// fleetNodeFanOutTimeout caps how long the opportunistic fan-out can extend the
+// Discover stream — tighter than RunOnNode's 12m budget so one wedged node can't
+// make the operator wait minutes past the cloud scan.
 const fleetNodeFanOutTimeout = 5 * time.Minute
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
@@ -51,14 +46,9 @@ func NewHandler(pairingSvc *pairing.Service, discoverySvc *discovery.Service) *H
 	}
 }
 
-// Discover implements pairingv1connect.PairingServiceHandler.
-//
-// Beyond the cloud's own network scan, an nmap ("Scan your network") request
-// also fans out to every CONFIRMED + connected fleet node, which scan their own
-// local subnets and report back. All sources merge into this single response
-// stream so the operator pairs LAN-local and cloud-local miners together with no
-// client change. Manual modes (ipList/ipRange/mdns) target the cloud's own
-// network only.
+// Discover implements pairingv1connect.PairingServiceHandler. An nmap "Scan your
+// network" request also fans out to every CONFIRMED + connected fleet node and
+// merges their LAN-local results into this stream; other modes are cloud-only.
 func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRequest], s *connect.ServerStream[pb.DiscoverResponse]) error {
 	info, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{})
 	if err != nil {
@@ -113,10 +103,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		}
 	}()
 
-	// Fleet node fan-out, only for the automatic "Scan your network" action — an
-	// nmap target equal to the cloud's own local subnet (reported by
-	// DiscoverWithNmap). A manual/explicit nmap target must NOT sweep every node's
-	// LAN.
+	// Fan out only for the automatic "Scan your network" action (nmap target ==
+	// the cloud's own local subnet), never a manual/explicit target.
 	if isLocalSubnetNmap && h.discovery != nil {
 		nodeIDs, listErr := h.discovery.ConfirmedConnectedNodeIDs(streamCtx, info.OrganizationID)
 		if listErr != nil {
@@ -146,9 +134,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 						return
 					}
 					runErr := h.discovery.RunOnNode(fanOutCtx, nodeID, autoReq, fwd.forward)
-					// One node failing (or hitting the fan-out budget) must not
-					// fail the scan; it's expected on disconnect/budget, so stay
-					// quiet once fanOutCtx is done.
+					// One node failing must not fail the scan, and is expected
+					// once fanOutCtx is done (disconnect/budget) — stay quiet then.
 					if runErr != nil && fanOutCtx.Err() == nil {
 						slog.Warn("fleet node discovery failed during cloud fan-out",
 							"fleet_node_id", nodeID, "error", runErr)
@@ -162,9 +149,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	if err := fwd.failure(); err != nil {
 		return err
 	}
-	// A client cancel/deadline drains the sources without a Send error; surface
-	// it as canceled/deadline rather than a successful completion. (The fan-out
-	// budget firing is not a client error — it returns whatever streamed.)
+	// A client cancel/deadline drains the sources without a Send error; report it
+	// rather than success. (A fan-out-budget expiry is not a client error.)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
 			return connect.NewError(connect.CodeDeadlineExceeded, ctxErr)
