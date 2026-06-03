@@ -27,6 +27,12 @@ type Handler struct {
 	discovery *discovery.Service
 }
 
+// maxConcurrentFleetNodeScans bounds how many fleet nodes one fan-out scans at
+// once, so a large fleet can't spawn an unbounded number of in-flight
+// ControlStream commands (each held until its ack or the per-node timeout). It
+// sits comfortably above typical fleet sizes; only the pathological case binds.
+const maxConcurrentFleetNodeScans = 32
+
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
 // NewHandler creates a new instance of Handler
@@ -75,19 +81,19 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		if len(resp.GetDevices()) > 0 {
 			deduped := make([]*pb.Device, 0, len(resp.GetDevices()))
 			for _, d := range resp.GetDevices() {
-				key := d.GetDeviceIdentifier()
-				if key != "" {
-					if _, dup := seen[key]; dup {
-						continue
-					}
-					seen[key] = struct{}{}
+				key := pairing.DeviceDedupKey(d)
+				if _, dup := seen[key]; dup {
+					continue
 				}
+				seen[key] = struct{}{}
 				deduped = append(deduped, d)
 			}
 			if len(deduped) == 0 && resp.GetError() == "" {
 				return nil // whole batch was duplicates; nothing to forward
 			}
-			out = &pb.DiscoverResponse{Devices: deduped, Error: resp.GetError()}
+			if len(deduped) < len(resp.GetDevices()) {
+				out = &pb.DiscoverResponse{Devices: deduped, Error: resp.GetError()}
+			}
 		}
 		if sErr := s.Send(out); sErr != nil {
 			sendErr = sErr
@@ -98,12 +104,14 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	}
 
 	var resultChan <-chan *pb.DiscoverResponse
+	var isNmap bool
 	switch r.Msg.Mode.(type) {
 	case *pb.DiscoverRequest_IpList:
 		resultChan, err = h.pairingSvc.DiscoverWithIPList(streamCtx, r.Msg.GetIpList())
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_Nmap:
+		isNmap = true
 		resultChan, err = h.pairingSvc.DiscoverWithNmap(streamCtx, r.Msg.GetNmap())
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(streamCtx, r.Msg.GetMdns())
@@ -138,7 +146,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	// Fleet node fan-out, gated to the automatic "Scan your network" action: an
 	// nmap request whose target is the cloud's own local subnet. A manual/explicit
 	// nmap target (a user-typed subnet/IP) must NOT also sweep every node's LAN.
-	if _, ok := r.Msg.Mode.(*pb.DiscoverRequest_Nmap); ok && h.discovery != nil &&
+	if isNmap && h.discovery != nil &&
 		h.pairingSvc.IsLocalSubnetScan(streamCtx, r.Msg.GetNmap().GetTarget()) {
 		nodeIDs, listErr := h.discovery.ConfirmedConnectedNodeIDs(streamCtx, info.OrganizationID)
 		if listErr != nil {
@@ -150,10 +158,19 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 				Target: nmaptarget.LocalSubnetTarget,
 				Ports:  r.Msg.GetNmap().GetPorts(),
 			}}}
+			sem := make(chan struct{}, maxConcurrentFleetNodeScans)
 			for _, nodeID := range nodeIDs {
 				wg.Add(1)
 				go func(nodeID int64) {
 					defer wg.Done()
+					// Cap concurrent in-flight node commands; exit early if the
+					// operator disconnected while we were queued behind the cap.
+					select {
+					case sem <- struct{}{}:
+						defer func() { <-sem }()
+					case <-streamCtx.Done():
+						return
+					}
 					runErr := h.discovery.RunOnNode(streamCtx, nodeID, autoReq, send)
 					// One node failing must not fail the whole scan. Stay quiet
 					// when streamCtx is already cancelled (operator disconnected) —

@@ -154,8 +154,8 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 }
 
 // DiscoverOnFleetNode runs discovery on a single CONFIRMED node and streams the
-// node's device batches back to the operator. The dispatch/drain loop lives in
-// the discovery service so the cloud "Find miners" fan-out can reuse it.
+// node's device batches back to the operator. See discovery.RunOnNode for the
+// dispatch/drain loop.
 func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[pb.DiscoverOnFleetNodeRequest], stream *connect.ServerStream[pb.DiscoverOnFleetNodeResponse]) error {
 	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
 	if err != nil {

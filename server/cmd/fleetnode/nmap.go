@@ -31,12 +31,11 @@ var errNoLocalSubnet = errors.New("no local IPv4 subnet found")
 // detectLocalSubnets returns the subnet(s) the agent scans for a local-subnet
 // nmap command (the nmaptarget.LocalSubnetTarget sentinel).
 //
-// For parity with combined mode it reuses the server's own primary-interface
-// detection (networking.GetLocalNetworkInfo) — the same logic the cloud Discover
-// path scans. This is intentionally less robust than per-NIC private filtering
-// (it picks one interface, doesn't skip virtual/container NICs, and doesn't
-// narrow or cap the mask); hardening is a follow-up. The localSubnets seam lets
-// tests inject canned CIDRs.
+// It reuses the same primary-interface detection the cloud Discover path uses
+// (networking.GetLocalNetworkInfo). That is intentionally less robust than
+// per-NIC private filtering — it picks one interface, doesn't skip
+// virtual/container NICs, and doesn't narrow or cap the mask; hardening is a
+// follow-up. The localSubnets seam lets tests inject canned CIDRs.
 func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 	if r.localSubnets != nil {
 		return r.localSubnets()

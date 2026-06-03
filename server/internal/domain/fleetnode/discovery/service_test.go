@@ -2,7 +2,9 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -15,10 +17,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 )
 
-type stubLister struct{ nodes []enrollment.FleetNodeListing }
+type stubLister struct {
+	nodes []enrollment.FleetNodeListing
+	err   error
+}
 
 func (s stubLister) ListFleetNodes(context.Context, int64) ([]enrollment.FleetNodeListing, error) {
-	return s.nodes, nil
+	return s.nodes, s.err
 }
 
 func collectBatches(dst *[]*pairingpb.Device) func(*pairingpb.DiscoverResponse) error {
@@ -133,4 +138,62 @@ func TestConfirmedConnectedNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
 	// Assert: only the confirmed AND connected node.
 	require.NoError(t, err)
 	assert.Equal(t, []int64{1}, got)
+}
+
+func TestRunOnNode_OnBatchErrorIsTerminal(t *testing.T) {
+	// Arrange: the agent emits a batch; the caller's onBatch reports its stream gone.
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	const nodeID = int64(11)
+	stream := reg.Register(nodeID)
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		reg.PublishBatch(nodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "auto:x", IpAddress: "10.0.0.5", Port: "4028"}},
+		})
+	}()
+	sentinel := errors.New("operator stream gone")
+
+	// Act
+	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.5"}, []string{"4028"}), func(*pairingpb.DiscoverResponse) error {
+		return sentinel
+	})
+
+	// Assert: an onBatch error terminates RunOnNode with that error.
+	require.ErrorIs(t, err, sentinel)
+}
+
+func TestRunOnNode_TimesOutWhenAgentNeverAcks(t *testing.T) {
+	// Arrange: shrink the command timeout, drain the command, but never ack.
+	prev := DiscoverCommandTimeout
+	DiscoverCommandTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { DiscoverCommandTimeout = prev })
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	const nodeID = int64(12)
+	stream := reg.Register(nodeID)
+	defer stream.Unregister()
+	go func() { <-stream.Outgoing }()
+
+	// Act
+	err := svc.RunOnNode(context.Background(), nodeID, ipListReq([]string{"10.0.0.5"}, nil), func(*pairingpb.DiscoverResponse) error { return nil })
+
+	// Assert
+	require.Error(t, err)
+	var ce *connect.Error
+	require.True(t, errors.As(err, &ce))
+	assert.Equal(t, connect.CodeDeadlineExceeded, ce.Code())
+}
+
+func TestConfirmedConnectedNodeIDs_PropagatesListError(t *testing.T) {
+	// Arrange: the enrollment lookup fails.
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{err: errors.New("db unavailable")})
+
+	// Act
+	_, err := svc.ConfirmedConnectedNodeIDs(context.Background(), 1)
+
+	// Assert: the error propagates (fan-out treats it as best-effort upstream).
+	require.Error(t, err)
 }

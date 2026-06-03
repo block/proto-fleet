@@ -98,6 +98,17 @@ func shouldSkipNetworkOrGatewayAddress(ip net.IP) bool {
 	return lastOctet == networkAddressLastOctet || lastOctet == gatewayAddressLastOctet
 }
 
+// DeviceDedupKey is the identity used to dedupe discovered devices: the
+// device_identifier, or "ip:port" when the plugin hasn't resolved one yet.
+// Exported so the Discover handler's cross-source dedup stays in lockstep with
+// dedupeDiscoverResponses instead of re-deriving the key.
+func DeviceDedupKey(d *pb.Device) string {
+	if id := d.GetDeviceIdentifier(); id != "" {
+		return id
+	}
+	return d.GetIpAddress() + ":" + d.GetPort()
+}
+
 func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.DiscoverResponse {
 	resultChan := make(chan *pb.DiscoverResponse)
 
@@ -117,10 +128,7 @@ func dedupeDiscoverResponses(source <-chan *pb.DiscoverResponse) <-chan *pb.Disc
 					continue
 				}
 
-				identity := device.DeviceIdentifier
-				if identity == "" {
-					identity = fmt.Sprintf("%s:%s", device.IpAddress, device.Port)
-				}
+				identity := DeviceDedupKey(device)
 
 				if _, alreadySeen := seenDevices[identity]; alreadySeen {
 					continue
