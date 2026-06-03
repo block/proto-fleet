@@ -13,9 +13,9 @@ service CurtailmentService {
         returns (PreviewCurtailmentPlanResponse);
 
     // Start an event, persist targets, and dispatch initial Curtail
-    // commands. AlreadyExists on the one-non-terminal-event-per-org
-    // constraint carries the existing identity as
-    // `(event_uuid=<uuid>, state="<state>")` for recovery.
+    // commands. Multiple events can be active per org when they target
+    // disjoint device scopes; AlreadyExists means a selected device is
+    // already in a non-terminal curtailment (retry against the remainder).
     rpc StartCurtailment(StartCurtailmentRequest)
         returns (StartCurtailmentResponse);
 
@@ -28,9 +28,14 @@ service CurtailmentService {
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
-    // Get the current pending, active, or restoring event.
+    // Get the most-recent pending, active, or restoring event.
     rpc GetActiveCurtailment(GetActiveCurtailmentRequest)
         returns (GetActiveCurtailmentResponse);
+
+    // List every active (pending/active/restoring) event for the org.
+    // Multiple can be active at once when scoped to disjoint device sets.
+    rpc ListActiveCurtailments(ListActiveCurtailmentsRequest)
+        returns (ListActiveCurtailmentsResponse);
 
     // List historical events with cursor pagination.
     rpc ListCurtailmentEvents(ListCurtailmentEventsRequest)
@@ -520,8 +525,22 @@ message StopCurtailmentResponse {
 message GetActiveCurtailmentRequest {}
 
 message GetActiveCurtailmentResponse {
-    // Empty when no event is pending, active, or restoring.
+    // The most-recent pending/active/restoring event, or empty when none.
+    // Multiple events can be active per org (one per disjoint device scope);
+    // use ListActiveCurtailments to enumerate them all.
     optional CurtailmentEvent event = 1;
+}
+
+// ListActiveCurtailments returns every non-terminal event for the caller's
+// org. Multiple can be active when they target disjoint device scopes (e.g.
+// one per site). Each event carries its metadata, scope, and mode params but
+// omits per-device targets and the decision snapshot; use GetActiveCurtailment
+// for full per-target detail.
+message ListActiveCurtailmentsRequest {}
+
+message ListActiveCurtailmentsResponse {
+    // Most-recent first. Empty when nothing is pending, active, or restoring.
+    repeated CurtailmentEvent events = 1;
 }
 
 // ListCurtailmentEvents returns historical events. Each event omits

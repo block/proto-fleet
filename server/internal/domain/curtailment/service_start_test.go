@@ -6,14 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -674,11 +672,11 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 	}
 }
 
-// TestService_Start_NonTerminalOverlapReturnsAlreadyExists pins the unique
-// partial-index race: another Start beat us between the selector check and
-// the insert, so the per-org constraint rejected our row. Service surfaces
-// AlreadyExists with the existing event's uuid + state.
-func TestService_Start_NonTerminalOverlapReturnsAlreadyExists(t *testing.T) {
+// TestService_Start_DeviceOverlapReturnsAlreadyExists pins the device-exclusivity
+// race: a concurrent Start curtailed one of our selected devices between the
+// selector pass and the target insert, so the per-device unique index rejected
+// our row. Service surfaces AlreadyExists prompting the caller to retry.
+func TestService_Start_DeviceOverlapReturnsAlreadyExists(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -686,44 +684,11 @@ func TestService_Start_NonTerminalOverlapReturnsAlreadyExists(t *testing.T) {
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("a", 6000, 100, 40),
 	}
-	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
-	existingUUID := uuid.New()
-	store.activeEvent = &models.Event{
-		ID:        99,
-		EventUUID: existingUUID,
-		OrgID:     orgID,
-		State:     models.EventStateActive,
-	}
+	store.insertEventErr = fleeterror.NewAlreadyExistsError("one or more selected devices are already in a non-terminal curtailment; retry")
 	svc := NewService(store)
 	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
 	require.Error(t, err)
 	assert.Nil(t, plan)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
-	assert.Contains(t, err.Error(), existingUUID.String())
-	assert.Contains(t, err.Error(), string(models.EventStateActive))
-}
-
-// TestService_Start_NonTerminalOverlapWithGetActiveErrorReturnsBareAlreadyExists
-// pins the sub-branch where the unique-violation handling falls back to a
-// stripped AlreadyExists when GetActiveEvent itself fails. The caller still
-// gets AlreadyExists (the constraint is the load-bearing signal); the absence
-// of the existing event identity is the documented best-effort behavior.
-func TestService_Start_NonTerminalOverlapWithGetActiveErrorReturnsBareAlreadyExists(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("a", 6000, 100, 40),
-	}
-	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
-	store.activeEventErr = errors.New("simulated GetActiveEvent failure")
-	svc := NewService(store)
-	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
-	require.Error(t, err)
-	assert.Nil(t, plan)
-	assert.True(t, fleeterror.IsAlreadyExistsError(err),
-		"unique-violation must still surface as AlreadyExists even when the identity lookup fails")
-	assert.NotContains(t, err.Error(), "event_uuid=",
-		"identity substring is omitted when GetActiveEvent fails")
+	assert.Contains(t, err.Error(), "already in a non-terminal curtailment")
 }

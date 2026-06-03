@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type BulkAction } from "../BulkActions/types";
 import { ACTION_PERMISSIONS, usePermittedActions } from "./actionPermissions";
-import { deviceActions, settingsActions, type SupportedAction } from "./constants";
+import { deviceActions, performanceActions, settingsActions, type SupportedAction } from "./constants";
 
 vi.mock("@/protoFleet/store", () => ({
   usePermissions: vi.fn(),
@@ -98,6 +98,7 @@ describe("ACTION_PERMISSIONS", () => {
     expect(ACTION_PERMISSIONS[deviceActions.unpair]).toBe("miner:delete");
     expect(ACTION_PERMISSIONS[deviceActions.firmwareUpdate]).toBe("miner:firmware_update");
     expect(ACTION_PERMISSIONS[deviceActions.downloadLogs]).toBe("miner:download_logs");
+    expect(ACTION_PERMISSIONS[performanceActions.curtail]).toBe("curtailment:manage");
     expect(ACTION_PERMISSIONS[settingsActions.miningPool]).toEqual(["miner:update_pools", "pool:read"]);
   });
 });

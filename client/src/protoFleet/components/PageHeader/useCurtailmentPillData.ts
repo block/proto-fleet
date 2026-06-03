@@ -9,7 +9,7 @@ import {
 } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import { isAbortError } from "@/protoFleet/api/requestErrors";
-import { useAuthErrors } from "@/protoFleet/store";
+import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 
 export interface UseCurtailmentPillDataResult {
   activeEvent: CurtailmentPillEvent | null;
@@ -20,10 +20,11 @@ const activeCurtailmentPollIntervalMs = 3_000;
 
 export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
+  const canReadCurtailment = useHasPermission("curtailment:read");
   const activeCurtailmentEvent = useActiveCurtailmentEvent();
   const activeEvent = useMemo<CurtailmentPillEvent | null>(
-    () => mapCurtailmentPillEvent(activeCurtailmentEvent),
-    [activeCurtailmentEvent],
+    () => (canReadCurtailment ? mapCurtailmentPillEvent(activeCurtailmentEvent) : null),
+    [activeCurtailmentEvent, canReadCurtailment],
   );
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const pendingFreshRefreshRef = useRef(false);
@@ -73,6 +74,10 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   );
 
   useEffect(() => {
+    if (!canReadCurtailment) {
+      return undefined;
+    }
+
     const abortController = new AbortController();
 
     const refresh = (): void => {
@@ -90,9 +95,13 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
       window.removeEventListener(CURTAILMENT_CHANGED_EVENT, refreshAfterCurtailmentChange);
       abortController.abort();
     };
-  }, [refreshActiveCurtailment]);
+  }, [canReadCurtailment, refreshActiveCurtailment]);
 
   useEffect(() => {
+    if (!canReadCurtailment) {
+      return undefined;
+    }
+
     const abortController = new AbortController();
     const intervalId = window.setInterval(() => {
       void refreshActiveCurtailment(abortController.signal);
@@ -102,7 +111,7 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
       window.clearInterval(intervalId);
       abortController.abort();
     };
-  }, [pollIntervalMs, refreshActiveCurtailment]);
+  }, [canReadCurtailment, pollIntervalMs, refreshActiveCurtailment]);
 
   return { activeEvent };
 }

@@ -49,3 +49,6 @@ server/docker-compose.plugins.yaml
 
 # Internal review artifacts (per-PR findings written by tooling); not for public repo.
 docs/reviews/
+
+# Ephemeral branded spec written by proto-rig-api/openapi/build-docs.sh
+proto-rig-api/openapi/.MDK-API.branded.json

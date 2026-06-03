@@ -59,10 +59,61 @@ WHERE role_id = $1
 ORDER BY user_id, organization_id;
 
 -- name: CountActiveAssignmentsForRole :one
+-- Counts live (user_organization_role, user) pairs. Filtering on
+-- u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
+-- guards: a role only assigned to deactivated users is not actually
+-- granting anything, so DeleteCustomRole should be allowed to clear
+-- it rather than block the admin on phantom assignments.
 SELECT COUNT(*)::BIGINT AS assignment_count
-FROM user_organization_role
-WHERE role_id = $1
-  AND deleted_at IS NULL;
+FROM user_organization_role uor
+JOIN "user" u ON u.id = uor.user_id
+WHERE uor.role_id = $1
+  AND uor.deleted_at IS NULL
+  AND u.deleted_at IS NULL;
+
+-- name: ListEffectivePermissionsForUserForUpdate :many
+-- Race-safety variant of ListEffectivePermissionsForUser. Same join
+-- shape, same row order, same narrowing semantics — but takes
+-- FOR UPDATE on every row whose mutation can revoke the caller's
+-- effective permissions: the assignment row (uor), the caller's user
+-- row (u), and the caller's role row (r). Concurrent:
+--
+--   - UnassignRole / DeleteCustomRole (target = caller's role)
+--       blocks on uor / r
+--   - DeactivateUser (caller)
+--       blocks on u
+--   - UpdateCustomRole (target = caller's role, edits role_permission)
+--       blocks on r — getRoleInOrg's read inside the mutation tx then
+--       sees our lock and waits, so the role_permission delete/insert
+--       can't interleave between our recheck and our commit
+--
+-- The LEFT JOIN sides (role_permission, permission) cannot participate
+-- in FOR UPDATE because they may have no matching row for a
+-- zero-permission assignment. We accept that role_permission edits
+-- via paths other than UpdateCustomRole (none exist today) would race
+-- this check; the practical lock graph through the existing surfaces
+-- is closed.
+--
+-- The non-locking sibling's LEFT JOIN narrowing rule still applies.
+SELECT
+    uor.id          AS assignment_id,
+    uor.role_id     AS role_id,
+    uor.scope_type  AS scope_type,
+    uor.scope_id    AS scope_id,
+    p.key           AS permission_key
+FROM user_organization_role uor
+JOIN role r              ON r.id = uor.role_id
+                        AND r.organization_id = uor.organization_id
+JOIN "user" u            ON u.id = uor.user_id
+LEFT JOIN role_permission rp ON rp.role_id = r.id
+LEFT JOIN permission p       ON p.id = rp.permission_id
+WHERE uor.user_id = $1
+  AND uor.organization_id = $2
+  AND uor.deleted_at IS NULL
+  AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
+ORDER BY uor.id, p.key NULLS FIRST
+FOR UPDATE OF uor, u, r;
 
 -- name: ListEffectivePermissionsForUser :many
 -- Single-query resolver source: one row per (assignment, permission)
@@ -77,6 +128,13 @@ WHERE role_id = $1
 -- caller's org-scope grant would silently apply at the site the
 -- empty role was meant to lock down.
 --
+-- The JOIN on "user" with u.deleted_at IS NULL is the revocation
+-- backstop: a deactivated user's next request reads an empty
+-- EffectivePermissions and denies everything, and a mutation-
+-- transaction recheck via LoadEffectiveTx refuses to commit grants
+-- against a caller whose row has been soft-deleted mid-tx. Same
+-- liveness rule the last-SUPER_ADMIN guards below already enforce.
+--
 -- The resolver walks this slice to evaluate Has(key, ResourceContext)
 -- with the plan's narrowing rule: site-scope assignment overrides the
 -- org grant at that site; site-scope absence falls back to org-scope.
@@ -89,12 +147,14 @@ SELECT
 FROM user_organization_role uor
 JOIN role r              ON r.id = uor.role_id
                         AND r.organization_id = uor.organization_id
+JOIN "user" u            ON u.id = uor.user_id
 LEFT JOIN role_permission rp ON rp.role_id = r.id
 LEFT JOIN permission p       ON p.id = rp.permission_id
 WHERE uor.user_id = $1
   AND uor.organization_id = $2
   AND uor.deleted_at IS NULL
   AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
 ORDER BY uor.id, p.key NULLS FIRST;
 
 -- name: CountOrgScopeSuperAdminsExcludingAssignment :one

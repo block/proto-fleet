@@ -86,8 +86,8 @@ type PoolData struct {
 	URL              string `json:"url"`
 	User             string `json:"user"`
 	Status           string `json:"status"`
-	AcceptedShares   int64  `json:"accepted_shares"`
-	RejectedShares   int64  `json:"rejected_shares"`
+	AcceptedShares   int64  `json:"accepted"`
+	RejectedShares   int64  `json:"rejected"`
 	Difficulty       string `json:"difficulty"`
 	Enabled          bool   `json:"enabled"`
 	ConnectionStatus string `json:"connection_status"`
@@ -428,8 +428,8 @@ type NetworkInfo struct {
 // NetworkInfoInner contains inner network info
 type NetworkInfoInner struct {
 	Hostname   string `json:"hostname"`
-	MACAddress string `json:"mac_address"`
-	IPAddress  string `json:"ip_address"`
+	MACAddress string `json:"mac"`
+	IPAddress  string `json:"ip"`
 	Netmask    string `json:"netmask"`
 	Gateway    string `json:"gateway"`
 	DHCP       bool   `json:"dhcp"`

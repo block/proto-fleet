@@ -313,13 +313,13 @@ SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
 LIMIT 1
 `
 
-// Org-scoped recovery path for pending/active/restoring events. At most one
-// row matches per org under uq_curtailment_event_one_non_terminal_per_org;
-// LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
-// partial unique index without a sort step.
+// Most-recent non-terminal event for the org (several can coexist, one per
+// disjoint device scope). Ordered by effective time — created_at for pending
+// events so a fresh pending isn't buried behind older active ones — id tiebreak.
 func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
 	var i CurtailmentEvent
@@ -760,6 +760,75 @@ func (q *Queries) ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int
 	return items, nil
 }
 
+const listActiveCurtailmentEvents = `-- name: ListActiveCurtailmentEvents :many
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND state IN ('pending', 'active', 'restoring')
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
+`
+
+// Org-scoped list of every non-terminal event. Multiple can be active when
+// they target disjoint device scopes (e.g. per-site curtailment). Most-recent
+// first by effective time (started_at, or created_at for pending), id tiebreak.
+func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) ([]CurtailmentEvent, error) {
+	rows, err := q.query(ctx, q.listActiveCurtailmentEventsStmt, listActiveCurtailmentEvents, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentEvent
+	for rows.Next() {
+		var i CurtailmentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventUuid,
+			&i.OrgID,
+			&i.State,
+			&i.Mode,
+			&i.Strategy,
+			&i.Level,
+			&i.Priority,
+			&i.LoopType,
+			&i.ScopeType,
+			&i.ScopeJsonb,
+			&i.ModeParamsJsonb,
+			&i.RestoreBatchSize,
+			&i.RestoreBatchIntervalSec,
+			&i.EffectiveBatchSize,
+			&i.MinCurtailedDurationSec,
+			&i.MaxDurationSeconds,
+			&i.AllowUnbounded,
+			&i.IncludeMaintenance,
+			&i.ForceIncludeMaintenance,
+			&i.DecisionSnapshotJsonb,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.ExternalSource,
+			&i.ExternalReference,
+			&i.IdempotencyKey,
+			&i.SupersedesEventID,
+			&i.Reason,
+			&i.ScheduledStartAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCurtailmentCandidatesByOrg = `-- name: ListCurtailmentCandidatesByOrg :many
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
@@ -1152,8 +1221,10 @@ FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = $1
     AND ct.state IN ('resolved', 'restore_failed')
-    AND ce.ended_at IS NOT NULL
-    AND ce.ended_at >= CURRENT_TIMESTAMP - ($2::int * INTERVAL '1 second')
+    AND (
+        ce.state IN ('pending', 'active', 'restoring')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - ($2::int * INTERVAL '1 second')
+    )
 `
 
 type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
@@ -1161,8 +1232,10 @@ type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
 	CooldownSec int32
 }
 
-// Targets that hit a terminal state within `cooldown_sec`. Selector
-// excludes these unless priority=EMERGENCY (Go-side bypass).
+// Restored/failed targets the selector excludes (unless priority=EMERGENCY,
+// Go-side bypass): a target restored mid-stagger stays protected while its
+// event is still non-terminal (the old org-level singleton enforced this
+// implicitly), then for `cooldown_sec` after the event ends.
 func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByOrgParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listRecentlyResolvedCurtailedDevicesByOrgStmt, listRecentlyResolvedCurtailedDevicesByOrg, arg.OrgID, arg.CooldownSec)
 	if err != nil {

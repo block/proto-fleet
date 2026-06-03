@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
@@ -64,6 +65,7 @@ var registeredServices = []struct {
 	{activityv1connect.ActivityServiceName, reflect.TypeOf((*activityv1connect.ActivityServiceHandler)(nil)).Elem()},
 	{apikeyv1connect.ApiKeyServiceName, reflect.TypeOf((*apikeyv1connect.ApiKeyServiceHandler)(nil)).Elem()},
 	{authv1connect.AuthServiceName, reflect.TypeOf((*authv1connect.AuthServiceHandler)(nil)).Elem()},
+	{authzv1connect.AuthzServiceName, reflect.TypeOf((*authzv1connect.AuthzServiceHandler)(nil)).Elem()},
 	{buildingsv1connect.BuildingServiceName, reflect.TypeOf((*buildingsv1connect.BuildingServiceHandler)(nil)).Elem()},
 	{collectionv1connect.DeviceCollectionServiceName, reflect.TypeOf((*collectionv1connect.DeviceCollectionServiceHandler)(nil)).Elem()},
 	{curtailmentv1connect.CurtailmentServiceName, reflect.TypeOf((*curtailmentv1connect.CurtailmentServiceHandler)(nil)).Elem()},

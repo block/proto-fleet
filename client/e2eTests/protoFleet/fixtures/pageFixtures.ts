@@ -7,6 +7,7 @@ import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
 import { LoginModalComponent } from "../pages/components/loginModal";
 import { EditPoolPage } from "../pages/editPool";
+import { EnergyPage } from "../pages/energy";
 import { GroupsPage } from "../pages/groups";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
@@ -38,6 +39,7 @@ type PageFixtures = {
   settingsTeamPage: SettingsTeamPage;
   settingsPoolsPage: SettingsPoolsPage;
   editPoolPage: EditPoolPage;
+  energyPage: EnergyPage;
   newPoolModal: NewPoolModalPage;
   loginModal: LoginModalComponent;
   commonSteps: CommonSteps;
@@ -91,6 +93,9 @@ export const test = base.extend<PageFixtures>({
   },
   editPoolPage: async ({ page, isMobile }, use) => {
     await use(new EditPoolPage(page, isMobile));
+  },
+  energyPage: async ({ page, isMobile }, use) => {
+    await use(new EnergyPage(page, isMobile));
   },
   newPoolModal: async ({ page, isMobile }, use) => {
     await use(new NewPoolModalPage(page, isMobile));

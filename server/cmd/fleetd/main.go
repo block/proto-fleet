@@ -40,6 +40,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
@@ -87,6 +88,7 @@ import (
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
+	authzHandler "github.com/block/proto-fleet/server/internal/handlers/authz"
 	buildingsHandler "github.com/block/proto-fleet/server/internal/handlers/buildings"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
@@ -540,6 +542,7 @@ func start(config *Config) error {
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
+	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
 	if config.HTTP.PprofAddr != "" {

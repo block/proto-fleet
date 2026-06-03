@@ -88,6 +88,10 @@ func (s *startStubStore) GetActiveEvent(context.Context, int64) (*models.Event, 
 	panic("GetActiveEvent not exercised by handler Start tests")
 }
 
+func (s *startStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
+	panic("ListActiveEvents not exercised by handler Start tests")
+}
+
 func (s *startStubStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
 	panic("ListEvents not exercised by Start handler tests")
 }

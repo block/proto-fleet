@@ -10,10 +10,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
-// ErrCurtailmentNonTerminalEventExists is returned by InsertEventWithTargets
-// when the per-org partial unique index rejects the insert.
-var ErrCurtailmentNonTerminalEventExists = errors.New("non-terminal curtailment event already exists for this organization")
-
 // ErrCurtailmentReplayRaceLoss is returned by InsertEventWithTargets when
 // a concurrent first-time Start sharing the same idempotency_key or
 // (external_source, external_reference) won the partial-unique-index race.
@@ -103,7 +99,15 @@ type CurtailmentStore interface {
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
+
+	// GetActiveEvent returns the most-recent non-terminal event for the org,
+	// or nil. Multiple non-terminal events can coexist (one per disjoint
+	// device scope); ListActiveEvents returns all of them.
 	GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error)
+
+	// ListActiveEvents returns every non-terminal event for the org,
+	// most-recent first.
+	ListActiveEvents(ctx context.Context, orgID int64) ([]*models.Event, error)
 
 	// GetEventByIdempotencyKey returns the event a prior Start persisted
 	// against (org_id, idempotency_key), or nil when no row matches.

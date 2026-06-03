@@ -225,30 +225,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
-		if errors.Is(err, interfaces.ErrCurtailmentNonTerminalEventExists) {
-			// Duplicate Start requests can lose on the org-level partial
-			// unique index before Postgres reports the idempotency/external
-			// reference index. Retry replay lookup first so valid duplicate
-			// requests still get the persisted winner.
-			if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr == nil && existing != nil {
-				return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
-			} else if replayErr != nil {
-				return nil, replayErr
-			}
-			// Race: another Start beat us between the selector check and
-			// the insert. Surface the existing event's identity so the
-			// caller can act on it.
-			existing, getErr := s.store.GetActiveEvent(ctx, req.OrgID)
-			if getErr != nil || existing == nil {
-				return nil, fleeterror.NewAlreadyExistsError(
-					"a non-terminal curtailment event already exists for this organization",
-				)
-			}
-			return nil, fleeterror.NewAlreadyExistsErrorf(
-				"a non-terminal curtailment event already exists for this organization (event_uuid=%s, state=%q)",
-				existing.EventUUID, existing.State,
-			)
-		}
 		// Webhook-replay race: re-issue the lookup so the loser falls
 		// into the same replay path as a deliberate retry.
 		if errors.Is(err, interfaces.ErrCurtailmentReplayRaceLoss) {
@@ -278,6 +254,16 @@ func (s *Service) GetActive(ctx context.Context, orgID int64) (*models.Event, er
 		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
 	return s.store.GetActiveEvent(ctx, orgID)
+}
+
+// ListActive returns every non-terminal event for the org, most-recent first.
+// Multiple can be active when they target disjoint device scopes (e.g. one per
+// site); GetActive returns only the most-recent.
+func (s *Service) ListActive(ctx context.Context, orgID int64) ([]*models.Event, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	return s.store.ListActiveEvents(ctx, orgID)
 }
 
 // ListEventsRequest is the service-level shape of a ListCurtailmentEvents

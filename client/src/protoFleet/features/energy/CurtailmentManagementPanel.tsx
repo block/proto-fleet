@@ -192,13 +192,13 @@ function CurtailmentManagementPanel({
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
-      if (!eventId) {
+      if (!canManageCurtailment || !eventId) {
         return;
       }
 
       setPendingStopConfirmation({ action, eventId });
     },
-    [activeEventId],
+    [activeEventId, canManageCurtailment],
   );
 
   const handleStartSubmit = useCallback(
@@ -256,14 +256,14 @@ function CurtailmentManagementPanel({
   );
 
   const handleConfirmStop = useCallback(() => {
-    if (!pendingStopConfirmation) {
+    if (!canManageCurtailment || !pendingStopConfirmation) {
       return;
     }
 
     void stopCurtailment(pendingStopConfirmation.eventId)
       .then(() => setPendingStopConfirmation(null))
       .catch(() => {});
-  }, [pendingStopConfirmation, stopCurtailment]);
+  }, [canManageCurtailment, pendingStopConfirmation, stopCurtailment]);
 
   const handleEditStopCurtailment = useCallback(() => {
     const editEventId = editSession?.eventId ?? activeEventId;
@@ -276,14 +276,16 @@ function CurtailmentManagementPanel({
     <section className={clsx("grid gap-6", className)}>
       <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
         <Header title="Curtailment" titleSize="text-heading-300" />
-        <Button
-          variant={variants.primary}
-          size={sizes.base}
-          text="Plan curtailment"
-          onClick={openCreateModal}
-          disabled={isStarting || isUpdating}
-          className="phone:w-full"
-        />
+        {canManageCurtailment ? (
+          <Button
+            variant={variants.primary}
+            size={sizes.base}
+            text="Plan curtailment"
+            onClick={openCreateModal}
+            disabled={isStarting || isUpdating}
+            className="phone:w-full"
+          />
+        ) : null}
       </div>
 
       {errorMessage ? <CurtailmentMessage message={errorMessage} /> : null}
@@ -299,8 +301,8 @@ function CurtailmentManagementPanel({
               event={activeEvent}
               onDismissRestored={dismissTerminalCurtailment}
               onRequestEdit={canManageCurtailment ? openEditModal : undefined}
-              onRequestRestore={() => openStopConfirmation("restore")}
-              onRequestStop={() => openStopConfirmation("stopCurtailment")}
+              onRequestRestore={canManageCurtailment ? () => openStopConfirmation("restore") : undefined}
+              onRequestStop={canManageCurtailment ? () => openStopConfirmation("stopCurtailment") : undefined}
             />
           ) : null}
 
@@ -314,7 +316,7 @@ function CurtailmentManagementPanel({
             selectedStatusFilters={historyStatusFilters}
             onPageChange={handleHistoryPageChange}
             onStatusFiltersChange={handleHistoryStatusFiltersChange}
-            onStopActiveEvent={handleHistoryStop}
+            onStopActiveEvent={canManageCurtailment ? handleHistoryStop : undefined}
           />
         </>
       )}

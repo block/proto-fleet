@@ -600,6 +600,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailedDevicesByOrg: %w", err)
 	}
+	if q.listActiveCurtailmentEventsStmt, err = db.PrepareContext(ctx, listActiveCurtailmentEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentEvents: %w", err)
+	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
 	}
@@ -647,6 +650,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
+	}
+	if q.listEffectivePermissionsForUserForUpdateStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForUpdate: %w", err)
 	}
 	if q.listEnabledMQTTSourcesStmt, err = db.PrepareContext(ctx, listEnabledMQTTSources); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEnabledMQTTSources: %w", err)
@@ -698,6 +704,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
+	}
+	if q.listRolesWithDetailsForOrgStmt, err = db.PrepareContext(ctx, listRolesWithDetailsForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolesWithDetailsForOrg: %w", err)
 	}
 	if q.listScheduleIDStatusesStmt, err = db.PrepareContext(ctx, listScheduleIDStatuses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListScheduleIDStatuses: %w", err)
@@ -2030,6 +2039,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailedDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listActiveCurtailmentEventsStmt != nil {
+		if cerr := q.listActiveCurtailmentEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveCurtailmentEventsStmt: %w", cerr)
+		}
+	}
 	if q.listActiveOrganizationIDsStmt != nil {
 		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
@@ -2108,6 +2122,11 @@ func (q *Queries) Close() error {
 	if q.listEffectivePermissionsForUserStmt != nil {
 		if cerr := q.listEffectivePermissionsForUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
+		}
+	}
+	if q.listEffectivePermissionsForUserForUpdateStmt != nil {
+		if cerr := q.listEffectivePermissionsForUserForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEffectivePermissionsForUserForUpdateStmt: %w", cerr)
 		}
 	}
 	if q.listEnabledMQTTSourcesStmt != nil {
@@ -2193,6 +2212,11 @@ func (q *Queries) Close() error {
 	if q.listRolesStmt != nil {
 		if cerr := q.listRolesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
+		}
+	}
+	if q.listRolesWithDetailsForOrgStmt != nil {
+		if cerr := q.listRolesWithDetailsForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolesWithDetailsForOrgStmt: %w", cerr)
 		}
 	}
 	if q.listScheduleIDStatusesStmt != nil {
@@ -3036,6 +3060,7 @@ type Queries struct {
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                 *sql.Stmt
+	listActiveCurtailmentEventsStmt                     *sql.Stmt
 	listActiveOrganizationIDsStmt                       *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
@@ -3052,6 +3077,7 @@ type Queries struct {
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listEffectivePermissionsForUserStmt                 *sql.Stmt
+	listEffectivePermissionsForUserForUpdateStmt        *sql.Stmt
 	listEnabledMQTTSourcesStmt                          *sql.Stmt
 	listExistingDeviceIdentifiersStmt                   *sql.Stmt
 	listFleetNodeDevicesStmt                            *sql.Stmt
@@ -3069,6 +3095,7 @@ type Queries struct {
 	listRecentlyResolvedCurtailedDevicesByOrgStmt       *sql.Stmt
 	listRolePermissionKeysStmt                          *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
+	listRolesWithDetailsForOrgStmt                      *sql.Stmt
 	listScheduleIDStatusesStmt                          *sql.Stmt
 	listSchedulesStmt                                   *sql.Stmt
 	listSiteNetworkConfigsForOverlapStmt                *sql.Stmt
@@ -3389,6 +3416,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActiveCurtailedDevicesByOrgStmt:                 q.listActiveCurtailedDevicesByOrgStmt,
+		listActiveCurtailmentEventsStmt:                     q.listActiveCurtailmentEventsStmt,
 		listActiveOrganizationIDsStmt:                       q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
@@ -3405,6 +3433,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listEffectivePermissionsForUserStmt:                 q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForUpdateStmt:        q.listEffectivePermissionsForUserForUpdateStmt,
 		listEnabledMQTTSourcesStmt:                          q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
 		listFleetNodeDevicesStmt:                            q.listFleetNodeDevicesStmt,
@@ -3422,6 +3451,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:       q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRolePermissionKeysStmt:                          q.listRolePermissionKeysStmt,
 		listRolesStmt:                                       q.listRolesStmt,
+		listRolesWithDetailsForOrgStmt:                      q.listRolesWithDetailsForOrgStmt,
 		listScheduleIDStatusesStmt:                          q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                   q.listSchedulesStmt,
 		listSiteNetworkConfigsForOverlapStmt:                q.listSiteNetworkConfigsForOverlapStmt,

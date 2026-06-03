@@ -25,7 +25,7 @@ const pgErrCodeForeignKeyViolation = "23503"
 
 // Partial-unique-index names used to map a unique-violation into a typed
 // sentinel (replay path or AlreadyExists) instead of leaking Internal.
-const nonTerminalEventPerOrgUniqueIndex = "uq_curtailment_event_one_non_terminal_per_org"
+const deviceNonTerminalUniqueIndex = "uq_curtailment_target_one_non_terminal_per_device"
 
 const (
 	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
@@ -144,8 +144,6 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation {
 				switch pgErr.ConstraintName {
-				case nonTerminalEventPerOrgUniqueIndex:
-					return nil, interfaces.ErrCurtailmentNonTerminalEventExists
 				case idempotencyKeyUniqueIndex, externalReferenceUniqueIndex:
 					// Replay path: caller re-issues the matching lookup.
 					return nil, interfaces.ErrCurtailmentReplayRaceLoss
@@ -169,6 +167,17 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			TargetsJsonb:       payload,
 		})
 		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation &&
+				pgErr.ConstraintName == deviceNonTerminalUniqueIndex {
+				// The device-exclusivity index rejected a target: another
+				// non-terminal event already curtails one of these devices
+				// (selector/insert race). Return a FleetError directly —
+				// WithTransaction converts plain sentinels to Internal.
+				return nil, fleeterror.NewAlreadyExistsError(
+					"one or more selected devices are already in a non-terminal curtailment; retry",
+				)
+			}
 			return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
 		}
 		if inserted != int64(len(targets)) {
@@ -210,6 +219,18 @@ func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (
 		return nil, fleeterror.NewInternalErrorf("failed to get active curtailment event for org %d: %v", orgID, err)
 	}
 	return convertEventRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) ListActiveEvents(ctx context.Context, orgID int64) ([]*models.Event, error) {
+	rows, err := s.GetQueries(ctx).ListActiveCurtailmentEvents(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list active curtailment events for org %d: %v", orgID, err)
+	}
+	events := make([]*models.Event, len(rows))
+	for i, row := range rows {
+		events[i] = convertEventRow(row)
+	}
+	return events, nil
 }
 
 func (s *SQLCurtailmentStore) GetEventByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.Event, error) {

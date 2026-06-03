@@ -2,10 +2,69 @@ syntax = "proto3";
 
 package authz.v1;
 
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// AuthzService is the role + assignment management surface for granular
+// RBAC. Reads (ListPermissions, ListRoles, ListUserAssignments) power
+// the admin role builder and the Team page; mutations (CreateCustomRole,
+// UpdateCustomRole, DeleteCustomRole, AssignRole, UnassignRole) drive
+// role lifecycle and user-role assignment.
+//
+// Every method gates on role:manage and is session-only — a leaked
+// api_key with role:manage would otherwise re-grant its own permissions
+// indefinitely because api-key auth inherits the holding user's full
+// effective set. Privilege parity (caller can only grant keys they
+// themselves hold at org scope) bounds escalation; the session gate
+// bounds persistence.
+service AuthzService {
+    // ListPermissions returns the full catalog as a flat list. The client
+    // groups by resource for display; see the resource field on Permission.
+    rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
+
+    // ListRoles returns built-in (SUPER_ADMIN, ADMIN, FIELD_TECH) and custom
+    // roles scoped to the caller's organization. Built-ins are always
+    // present; the SUPER_ADMIN entry is immutable.
+    rpc ListRoles(ListRolesRequest) returns (ListRolesResponse);
+
+    // CreateCustomRole adds a new role to the organization. The caller must
+    // hold every permission they grant the new role (privilege-parity
+    // check enforced server-side).
+    rpc CreateCustomRole(CreateCustomRoleRequest) returns (CreateCustomRoleResponse);
+
+    // UpdateCustomRole replaces the full attribute set on a custom role.
+    // Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
+    // PermissionDenied — built-in editing requires additive-only
+    // reconciliation interlock with the boot reconciler and a separate
+    // audit affordance, neither of which is part of this surface today.
+    // Privilege-parity applies.
+    rpc UpdateCustomRole(UpdateCustomRoleRequest) returns (UpdateCustomRoleResponse);
+
+    // DeleteCustomRole soft-deletes a custom role. Rejects when the role
+    // still has active assignments — callers must unassign first. Built-in
+    // roles cannot be deleted.
+    rpc DeleteCustomRole(DeleteCustomRoleRequest) returns (DeleteCustomRoleResponse);
+
+    // AssignRole creates a (user, role, scope) assignment. SiteId is set
+    // only when scope_type is SCOPE_TYPE_SITE. Privilege-parity applies:
+    // the caller cannot assign a role granting more permissions than they
+    // hold at the assignment's scope.
+    rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+
+    // UnassignRole soft-deletes an assignment row by id.
+    rpc UnassignRole(UnassignRoleRequest) returns (UnassignRoleResponse);
+
+    // ListUserAssignments returns every active assignment for a given
+    // user in the caller's organization. Used by the Team page to render
+    // each member's role(s) and by future audit affordances.
+    rpc ListUserAssignments(ListUserAssignmentsRequest) returns (ListUserAssignmentsResponse);
+}
+
 // Permission is a single resource:action grant in the catalog. The catalog is
 // a server-side code constant defined in
-// server/internal/domain/authz/catalog.go; this message is the wire shape used
-// by the future AuthzService RPCs and by the UserInfo permission field.
+// server/internal/domain/authz/catalog.go; this message is the wire shape
+// returned by AuthzService.ListPermissions and projected into
+// UserInfo.permissions.
 message Permission {
     // Stable key, e.g. "miner:reboot". Matches the regex ^[a-z]+:[a-z_]+$.
     string key = 1;
@@ -22,4 +81,157 @@ message Permission {
 message PermissionGroup {
     string resource = 1;
     repeated Permission permissions = 2;
+}
+
+// BuiltinKey is the stable identifier for a built-in role. The string form
+// of these values is stored in role.builtin_key on the server; the enum
+// lets clients exhaustiveness-check rendering without typo risk.
+enum BuiltinKey {
+    BUILTIN_KEY_UNSPECIFIED = 0;
+    BUILTIN_KEY_SUPER_ADMIN = 1;
+    BUILTIN_KEY_ADMIN = 2;
+    BUILTIN_KEY_FIELD_TECH = 3;
+}
+
+// Role is a (name, description, permission set) bundle that can be assigned
+// to users at a given scope. Built-in roles (SUPER_ADMIN / ADMIN /
+// FIELD_TECH) are seeded per-organization; custom roles are operator-
+// created via CreateCustomRole.
+message Role {
+    string role_id = 1;
+    string name = 2;
+    string description = 3;
+    // Catalog permission keys this role grants.
+    repeated string permission_keys = 4;
+    bool builtin = 5;
+    // Set to a non-UNSPECIFIED value when builtin == true.
+    BuiltinKey builtin_key = 6;
+    // Number of active (non-deleted) assignments referencing this role.
+    int32 member_count = 7;
+    google.protobuf.Timestamp updated_at = 8;
+}
+
+// ScopeType narrows an assignment's reach. Building-level scoping is not
+// part of the current model; if it lands, a SCOPE_TYPE_BUILDING entry
+// joins this enum and the resolver gains a third containment level.
+enum ScopeType {
+    SCOPE_TYPE_UNSPECIFIED = 0;
+    SCOPE_TYPE_ORG = 1;
+    SCOPE_TYPE_SITE = 2;
+}
+
+// Assignment is one (user, role, scope) row. site_id is set only when
+// scope_type == SCOPE_TYPE_SITE.
+message Assignment {
+    string assignment_id = 1;
+    string user_id = 2;
+    string role_id = 3;
+    string role_name = 4;
+    ScopeType scope_type = 5;
+    // Set only when scope_type == SCOPE_TYPE_SITE; absent otherwise so
+    // a future migration to non-zero-default site ids does not silently
+    // re-interpret unset as site 0.
+    optional int64 site_id = 6;
+    google.protobuf.Timestamp created_at = 7;
+}
+
+// --- ListPermissions ---------------------------------------------------------
+
+message ListPermissionsRequest {}
+
+message ListPermissionsResponse {
+    // Flat list in catalog-declaration order. Clients group by resource via
+    // the resource field on each entry; that order matches the server's
+    // authz.ResourceOrder so the admin UI renders deterministically.
+    repeated Permission permissions = 1;
+}
+
+// --- ListRoles ---------------------------------------------------------------
+
+message ListRolesRequest {}
+
+message ListRolesResponse {
+    repeated Role roles = 1;
+}
+
+// --- CreateCustomRole --------------------------------------------------------
+
+message CreateCustomRoleRequest {
+    // Role display name. The DB column is VARCHAR(255); the wire cap
+    // here is the same so a buf.validate failure surfaces before the
+    // request reaches the handler. The handler additionally rejects
+    // empty/whitespace names with InvalidArgument.
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    // Free-form description, capped to keep a single role row bounded.
+    string description = 2 [(buf.validate.field).string.max_len = 1024];
+    // Permission keys. The catalog has ~40 entries today; an explicit
+    // upper bound prevents an authenticated caller from forcing huge
+    // dedup/lookup work, and matches the resource:action key shape.
+    repeated string permission_keys = 3 [(buf.validate.field).repeated = {
+        max_items: 100,
+        items: {string: {min_len: 3, max_len: 64, pattern: "^[a-z]+:[a-z_]+$"}}
+    }];
+}
+
+message CreateCustomRoleResponse {
+    Role role = 1;
+}
+
+// --- UpdateCustomRole --------------------------------------------------------
+
+message UpdateCustomRoleRequest {
+    // Base-10 string form of the role's int64 id; handler tightens to
+    // ^[1-9][0-9]*$ but the wire bound rejects giant strings up front.
+    string role_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 3 [(buf.validate.field).string.max_len = 1024];
+    repeated string permission_keys = 4 [(buf.validate.field).repeated = {
+        max_items: 100,
+        items: {string: {min_len: 3, max_len: 64, pattern: "^[a-z]+:[a-z_]+$"}}
+    }];
+}
+
+message UpdateCustomRoleResponse {
+    Role role = 1;
+}
+
+// --- DeleteCustomRole --------------------------------------------------------
+
+message DeleteCustomRoleRequest {
+    string role_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+}
+
+message DeleteCustomRoleResponse {}
+
+// --- AssignRole / UnassignRole ----------------------------------------------
+
+message AssignRoleRequest {
+    // External UUID of the target user (auth.UserInfo.user_id shape).
+    string user_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+    string role_id = 2 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+    ScopeType scope_type = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    // Required when scope_type == SCOPE_TYPE_SITE; absent otherwise.
+    // optional so the wire can distinguish "site 0" (never valid) from
+    // "unset"; the server rejects either case at decode/validate time.
+    optional int64 site_id = 4 [(buf.validate.field).int64.gt = 0];
+}
+
+message AssignRoleResponse {
+    Assignment assignment = 1;
+}
+
+message UnassignRoleRequest {
+    string assignment_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+}
+
+message UnassignRoleResponse {}
+
+// --- ListUserAssignments ----------------------------------------------------
+
+message ListUserAssignmentsRequest {
+    string user_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+
+message ListUserAssignmentsResponse {
+    repeated Assignment assignments = 1;
 }

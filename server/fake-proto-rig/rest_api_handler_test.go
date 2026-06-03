@@ -734,6 +734,51 @@ func TestNetworkRoute_GET_DuringReboot_Returns503(t *testing.T) {
 	}
 }
 
+func TestNetworkRoute_GET_UsesSpecFieldNames(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.IPAddress = "192.168.2.50"
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/network", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	// Assert raw wire keys against the MDK spec (NetworkInfo_networkinfo): mac/ip,
+	// not mac_address/ip_address. Decoding into the typed struct would hide a
+	// json-tag regression, so inspect the raw object keys.
+	var envelope struct {
+		NetworkInfo map[string]json.RawMessage `json:"network-info"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+	}
+
+	for _, legacy := range []string{"mac_address", "ip_address"} {
+		if _, ok := envelope.NetworkInfo[legacy]; ok {
+			t.Fatalf("network-info still emits legacy key %q; body=%s", legacy, rr.Body.String())
+		}
+	}
+
+	if got, ok := envelope.NetworkInfo["mac"]; !ok {
+		t.Fatalf("network-info missing %q key; body=%s", "mac", rr.Body.String())
+	} else if string(got) != `"00:11:22:33:44:55"` {
+		t.Fatalf("expected mac %q, got %s", "00:11:22:33:44:55", got)
+	}
+
+	if got, ok := envelope.NetworkInfo["ip"]; !ok {
+		t.Fatalf("network-info missing %q key; body=%s", "ip", rr.Body.String())
+	} else if string(got) != `"192.168.2.50"` {
+		t.Fatalf("expected ip %q, got %s", "192.168.2.50", got)
+	}
+}
+
 func TestTestPoolConnectionRoute_RequiresBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetAccessToken("test-token")
@@ -829,6 +874,65 @@ func TestCreatePools_PersistsConfiguredPriorities(t *testing.T) {
 	}
 	if resp.Pools[0].Priority != 2 || resp.Pools[1].Priority != 0 || resp.Pools[2].Priority != 1 {
 		t.Fatalf("expected response priorities [2 0 1], got [%d %d %d]", resp.Pools[0].Priority, resp.Pools[1].Priority, resp.Pools[2].Priority)
+	}
+}
+
+func TestGetPools_UsesSpecShareFieldNames(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{
+		Idx:      0,
+		Url:      "stratum+tcp://mine.ocean.xyz:3334",
+		Username: "worker",
+		Statistics: &PoolStatistics{
+			AcceptedShares: 100,
+			RejectedShares: 20,
+		},
+	})
+	state.SetAccessToken("test-token")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	// Assert raw wire keys against the MDK spec (Pool): accepted/rejected, not
+	// accepted_shares/rejected_shares. Decoding into PoolData would hide a
+	// json-tag regression, so inspect the raw object keys.
+	var envelope struct {
+		Pools []map[string]json.RawMessage `json:"pools"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+	}
+	if len(envelope.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d; body=%s", len(envelope.Pools), rr.Body.String())
+	}
+
+	pool := envelope.Pools[0]
+	for _, legacy := range []string{"accepted_shares", "rejected_shares"} {
+		if _, ok := pool[legacy]; ok {
+			t.Fatalf("pool still emits legacy key %q; body=%s", legacy, rr.Body.String())
+		}
+	}
+
+	if got, ok := pool["accepted"]; !ok {
+		t.Fatalf("pool missing %q key; body=%s", "accepted", rr.Body.String())
+	} else if string(got) != "100" {
+		t.Fatalf("expected accepted 100, got %s", got)
+	}
+
+	if got, ok := pool["rejected"]; !ok {
+		t.Fatalf("pool missing %q key; body=%s", "rejected", rr.Body.String())
+	} else if string(got) != "20" {
+		t.Fatalf("expected rejected 20, got %s", got)
 	}
 }
 

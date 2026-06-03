@@ -168,7 +168,7 @@ var catalog = []CatalogEntry{
 	{PermUserRead, "List users in the organization.", ResourceUser},
 	{PermUserManage, "Create, reset, and deactivate users in the organization.", ResourceUser},
 
-	{PermRoleManage, "Create, edit, and delete custom roles and edit the ADMIN/FIELD_TECH built-ins.", ResourceRole},
+	{PermRoleManage, "Create, edit, and delete custom roles. Built-in roles cannot be modified.", ResourceRole},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

@@ -16,6 +16,24 @@ type FleetError struct {
 	FleetErrorCode     int32
 	FleetErrorCodeType FleetErrorCodeType
 	StackTrace         StackTrace
+	// cause carries an underlying error so errors.Is / errors.As walks
+	// can reach it. The *Errorf constructors capture this from a %w
+	// directive in the format string; *v formats still produce a
+	// FleetError with cause == nil. Keeping it unexported preserves the
+	// struct's external shape (every existing literal goes through New()
+	// so adding a field is backward compatible) while letting retry
+	// logic in WithTransaction inspect the underlying pg error.
+	cause error
+}
+
+// Unwrap returns the underlying cause set by an *Errorf constructor with
+// %w in its format string, or nil if there is none. This lets callers
+// use errors.Is / errors.As to inspect the original error — for
+// example, db.IsRetryablePostgresError checks for a *pgconn.PgError
+// inside the FleetError returned from a sqlc-wrapped action so the
+// transaction retry loop fires on serialization failures and deadlocks.
+func (e FleetError) Unwrap() error {
+	return e.cause
 }
 
 // FleetErrorCodeType represents the type of error code being used
@@ -194,9 +212,20 @@ func NewInternalError(debugMessage string) FleetError {
 }
 
 func NewInternalErrorf(format string, a ...any) FleetError {
-	return NewInternalError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeInternal, a...)
+}
+
+// newErrorfWithCode is the shared implementation behind every *Errorf
+// constructor. Routing the format string through fmt.Errorf (rather
+// than fmt.Sprintf) lets a %w directive populate FleetError.cause so
+// downstream errors.Is / errors.As walks can reach the underlying
+// error. %v formats produce cause == nil — identical to the pre-Unwrap
+// behavior.
+func newErrorfWithCode(format string, grpcCode connect.Code, a ...any) FleetError {
+	formatted := fmt.Errorf(format, a...)
+	e := NewPlainError(formatted.Error(), grpcCode).WithCallerStackTrace()
+	e.cause = errors.Unwrap(formatted)
+	return e
 }
 
 func NewUnauthenticatedError(debugMessage string) FleetError {
@@ -204,9 +233,7 @@ func NewUnauthenticatedError(debugMessage string) FleetError {
 }
 
 func NewUnauthenticatedErrorf(format string, a ...any) FleetError {
-	return NewUnauthenticatedError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeUnauthenticated, a...)
 }
 
 func NewForbiddenError(debugMessage string) FleetError {
@@ -214,9 +241,7 @@ func NewForbiddenError(debugMessage string) FleetError {
 }
 
 func NewForbiddenErrorf(format string, a ...any) FleetError {
-	return NewForbiddenError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodePermissionDenied, a...)
 }
 
 func NewInvalidArgumentError(debugMessage string) FleetError {
@@ -224,9 +249,7 @@ func NewInvalidArgumentError(debugMessage string) FleetError {
 }
 
 func NewInvalidArgumentErrorf(format string, a ...any) FleetError {
-	return NewInvalidArgumentError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeInvalidArgument, a...)
 }
 
 func NewNotFoundError(debugMessage string) FleetError {
@@ -234,9 +257,7 @@ func NewNotFoundError(debugMessage string) FleetError {
 }
 
 func NewNotFoundErrorf(format string, a ...any) FleetError {
-	return NewNotFoundError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeNotFound, a...)
 }
 
 func NewFailedPreconditionError(debugMessage string) FleetError {
@@ -244,9 +265,7 @@ func NewFailedPreconditionError(debugMessage string) FleetError {
 }
 
 func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
-	return NewFailedPreconditionError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeFailedPrecondition, a...)
 }
 
 func NewAlreadyExistsError(debugMessage string) FleetError {
@@ -254,9 +273,7 @@ func NewAlreadyExistsError(debugMessage string) FleetError {
 }
 
 func NewAlreadyExistsErrorf(format string, a ...any) FleetError {
-	return NewAlreadyExistsError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeAlreadyExists, a...)
 }
 
 func NewUnimplementedError(debugMessage string) FleetError {
@@ -264,16 +281,11 @@ func NewUnimplementedError(debugMessage string) FleetError {
 }
 
 func NewUnimplementedErrorf(format string, a ...any) FleetError {
-	return NewUnimplementedError(
-		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeUnimplemented, a...)
 }
 
 func NewUnavailableErrorf(format string, a ...any) FleetError {
-	return NewPlainError(
-		fmt.Sprintf(format, a...),
-		connect.CodeUnavailable,
-	).WithCallerStackTrace()
+	return newErrorfWithCode(format, connect.CodeUnavailable, a...)
 }
 
 func NewCanceledError() FleetError {

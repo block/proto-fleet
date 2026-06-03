@@ -3,6 +3,7 @@ package interceptors
 import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
@@ -65,6 +66,19 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	// AuthzService role management mutates RBAC state — granting, editing,
+	// or removing permission bundles assigned to users. A leaked API key
+	// with role:manage would otherwise be able to persistently widen its
+	// own (or others') effective permissions. Listing surfaces are
+	// session-only too: the catalog + role list are only useful inside
+	// the browser role editor, and keeping the surface uniform stops the
+	// next reviewer from having to think about why mutations are
+	// session-only but reads aren't.
+	authzv1connect.AuthzServiceListPermissionsProcedure,
+	authzv1connect.AuthzServiceListRolesProcedure,
+	authzv1connect.AuthzServiceCreateCustomRoleProcedure,
+	authzv1connect.AuthzServiceUpdateCustomRoleProcedure,
+	authzv1connect.AuthzServiceDeleteCustomRoleProcedure,
 	// FleetNodeAdminService mints credentials (enrollment codes, fleet node
 	// api_keys) and exposes operator-only fleet metadata. Restrict to
 	// interactive browser sessions so a leaked user api_key cannot bootstrap

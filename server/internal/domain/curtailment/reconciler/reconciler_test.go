@@ -96,6 +96,9 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised")
 }
+func (f *fakeStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
+	panic("ListActiveEvents not exercised")
+}
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
 }

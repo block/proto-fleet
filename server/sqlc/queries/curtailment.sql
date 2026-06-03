@@ -64,15 +64,19 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ct.state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: ListRecentlyResolvedCurtailedDevicesByOrg :many
--- Targets that hit a terminal state within `cooldown_sec`. Selector
--- excludes these unless priority=EMERGENCY (Go-side bypass).
+-- Restored/failed targets the selector excludes (unless priority=EMERGENCY,
+-- Go-side bypass): a target restored mid-stagger stays protected while its
+-- event is still non-terminal (the old org-level singleton enforced this
+-- implicitly), then for `cooldown_sec` after the event ends.
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ct.state IN ('resolved', 'restore_failed')
-    AND ce.ended_at IS NOT NULL
-    AND ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second');
+    AND (
+        ce.state IN ('pending', 'active', 'restoring')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second')
+    );
 
 -- name: InsertCurtailmentEvent :one
 -- Full column list mirrors the migration so callers can't rely on DEFAULTs
@@ -284,15 +288,25 @@ ORDER BY id DESC
 LIMIT sqlc.arg('row_limit')::BIGINT;
 
 -- name: GetActiveCurtailmentEvent :one
--- Org-scoped recovery path for pending/active/restoring events. At most one
--- row matches per org under uq_curtailment_event_one_non_terminal_per_org;
--- LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
--- partial unique index without a sort step.
+-- Most-recent non-terminal event for the org (several can coexist, one per
+-- disjoint device scope). Ordered by effective time — created_at for pending
+-- events so a fresh pending isn't buried behind older active ones — id tiebreak.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active', 'restoring')
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
 LIMIT 1;
+
+-- name: ListActiveCurtailmentEvents :many
+-- Org-scoped list of every non-terminal event. Multiple can be active when
+-- they target disjoint device scopes (e.g. per-site curtailment). Most-recent
+-- first by effective time (started_at, or created_at for pending), id tiebreak.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND state IN ('pending', 'active', 'restoring')
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC;
 
 -- name: BulkInsertCurtailmentTargets :execrows
 -- Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB

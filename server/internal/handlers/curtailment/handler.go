@@ -183,6 +183,21 @@ func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[p
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request[pb.ListActiveCurtailmentsRequest]) (*connect.Response[pb.ListActiveCurtailmentsResponse], error) {
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("ListActiveCurtailments")
+	}
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	events, err := h.service.ListActive(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toListActiveCurtailmentsResponse(events)), nil
+}
+
 func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Request[pb.ListCurtailmentEventsRequest]) (*connect.Response[pb.ListCurtailmentEventsResponse], error) {
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
