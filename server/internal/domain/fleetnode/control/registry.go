@@ -85,7 +85,7 @@ type inflightCommand struct {
 }
 
 type Registry struct {
-	mu    sync.RWMutex
+	mu    sync.Mutex
 	conns map[int64]*connection
 }
 
@@ -97,8 +97,8 @@ func NewRegistry() *Registry {
 // right now. Used by fan-out discovery to target only nodes the server can reach;
 // callers intersect this with the org's CONFIRMED nodes. Order is unspecified.
 func (r *Registry) ConnectedFleetNodeIDs() []int64 {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	ids := make([]int64, 0, len(r.conns))
 	for id := range r.conns {
 		ids = append(ids, id)

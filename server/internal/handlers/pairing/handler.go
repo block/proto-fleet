@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -26,15 +25,6 @@ type Handler struct {
 	// nodes; nil disables fan-out (cloud-only discovery).
 	discovery *discovery.Service
 }
-
-// maxConcurrentFleetNodeScans bounds in-flight per-node commands so a large fleet
-// can't spawn an unbounded number of ControlStream slots. Above typical fleet sizes.
-const maxConcurrentFleetNodeScans = 32
-
-// fleetNodeFanOutTimeout caps how long the opportunistic fan-out can extend the
-// Discover stream — tighter than RunOnNode's 12m budget so one wedged node can't
-// make the operator wait minutes past the cloud scan.
-const fleetNodeFanOutTimeout = 5 * time.Minute
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
@@ -112,31 +102,19 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 			// cloud scan. With zero connected nodes this is the same path.
 			slog.Warn("skipping fleet node discovery fan-out", "error", listErr)
 		} else {
-			// Bound the fan-out's contribution to the stream so one wedged node
-			// can't extend the operator's wait to the full per-node timeout.
-			fanOutCtx, fanOutCancel := context.WithTimeout(streamCtx, fleetNodeFanOutTimeout)
-			defer fanOutCancel()
 			autoReq := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
 				Target: nmaptarget.LocalSubnetTarget,
 				Ports:  r.Msg.GetNmap().GetPorts(),
 			}}}
-			sem := make(chan struct{}, maxConcurrentFleetNodeScans)
 			for _, nodeID := range nodeIDs {
 				wg.Add(1)
 				go func(nodeID int64) {
 					defer wg.Done()
-					// Cap concurrent in-flight node commands; exit early if the
-					// stream closed or the fan-out budget expired while queued.
-					select {
-					case sem <- struct{}{}:
-						defer func() { <-sem }()
-					case <-fanOutCtx.Done():
-						return
-					}
-					runErr := h.discovery.RunOnNode(fanOutCtx, nodeID, autoReq, fwd.forward)
-					// One node failing must not fail the scan, and is expected
-					// once fanOutCtx is done (disconnect/budget) — stay quiet then.
-					if runErr != nil && fanOutCtx.Err() == nil {
+					// Each node is bounded by RunOnNode's per-node timeout.
+					runErr := h.discovery.RunOnNode(streamCtx, nodeID, autoReq, fwd.forward)
+					// One node failing must not fail the scan, and is expected on
+					// operator disconnect — stay quiet once streamCtx is done.
+					if runErr != nil && streamCtx.Err() == nil {
 						slog.Warn("fleet node discovery failed during cloud fan-out",
 							"fleet_node_id", nodeID, "error", runErr)
 					}
