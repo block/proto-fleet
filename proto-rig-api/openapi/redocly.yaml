@@ -1,0 +1,25 @@
+theme:
+  openapi:
+    theme:
+      colors:
+        primary:
+          main: "#FE7C00"
+        success:
+          main: "#38A600"
+        warning:
+          main: "#FD8A00"
+        error:
+          main: "#FA2B37"
+        http:
+          get: "#2690C7"
+          post: "#38A600"
+          put: "#FD8A00"
+          delete: "#FA2B37"
+      typography:
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        headings:
+          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        code:
+          fontFamily: 'JetBrainsMono, "SF Mono", Menlo, Consolas, monospace'
+      sidebar:
+        activeTextColor: "#FE7C00"

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Render MDK-API.json to a single self-contained, proto-fleet-branded HTML page.
+# The proto-fleet logo and web fonts are injected at build time so the vendored
+# spec (MDK-API.json) is never modified.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$here/../.." && pwd)"
+spec="$here/MDK-API.json"
+config="$here/redocly.yaml"
+logo="$repo_root/docs/logo.svg"
+out="${1:?usage: build-docs.sh <output.html>}"
+redocly_version="1.34.15"
+
+mkdir -p "$(dirname "$out")"
+
+# Embed the logo (recolored to brand orange) as a data URI and merge it into a
+# temp copy of the spec via x-logo. The vendored spec is left untouched.
+logo_b64="$(sed 's/currentColor/#FE7C00/' "$logo" | base64 | tr -d '\n')"
+spec_with_logo="$here/.MDK-API.branded.json"
+trap 'rm -f "$spec_with_logo"' EXIT
+jq --arg url "data:image/svg+xml;base64,$logo_b64" \
+  '.info["x-logo"] = {url: $url, altText: "Proto Fleet", href: "https://github.com/block/proto-fleet"}' \
+  "$spec" >"$spec_with_logo"
+
+npx -y "@redocly/cli@$redocly_version" build-docs "$spec_with_logo" --config "$config" -o "$out"
+
+# Load Inter + JetBrains Mono (referenced by redocly.yaml typography) from Google
+# Fonts so the docs match the app regardless of the viewer's installed fonts.
+node -e '
+const fs = require("fs");
+const f = process.argv[1];
+const links =
+  "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">" +
+  "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>" +
+  "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?" +
+  "family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&" +
+  "family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap\">";
+let html = fs.readFileSync(f, "utf8");
+if (!html.includes(links)) html = html.replace("</head>", links + "</head>");
+fs.writeFileSync(f, html);
+' "$out"
