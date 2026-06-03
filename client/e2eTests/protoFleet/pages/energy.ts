@@ -161,10 +161,7 @@ export class EnergyPage extends BasePage {
   }
 
   private activeCurtailmentSection(reason: string): Locator {
-    return this.page
-      .getByRole("heading", { name: "Active curtailment" })
-      .locator("xpath=ancestor::section[1]")
-      .filter({ hasText: reason });
+    return this.page.locator("section").filter({ hasText: "Active curtailment" }).filter({ hasText: reason });
   }
 
   private activeCurtailmentStopButton(reason: string): Locator {
