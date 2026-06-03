@@ -452,12 +452,12 @@ type CurtailmentMqttSourceConfig struct {
 	Topic                   string
 	BrokerPrimaryHost       string
 	BrokerSecondaryHost     string
-	BrokerPort              int32
+	BrokerPort              sql.NullInt32
 	MqttUsername            string
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw int32
-	StalenessThresholdSec   int32
-	MinCurtailedDurationSec int32
+	StalenessThresholdSec   sql.NullInt32
+	MinCurtailedDurationSec sql.NullInt32
 	Enabled                 bool
 	CreatedAt               time.Time
 	UpdatedAt               time.Time

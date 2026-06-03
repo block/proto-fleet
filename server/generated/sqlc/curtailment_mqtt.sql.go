@@ -104,12 +104,12 @@ type InsertMQTTSourceConfigParams struct {
 	Topic                   string
 	BrokerPrimaryHost       string
 	BrokerSecondaryHost     string
-	BrokerPort              int32
+	BrokerPort              sql.NullInt32
 	MqttUsername            string
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw int32
-	StalenessThresholdSec   int32
-	MinCurtailedDurationSec int32
+	StalenessThresholdSec   sql.NullInt32
+	MinCurtailedDurationSec sql.NullInt32
 	Enabled                 bool
 }
 
@@ -221,7 +221,7 @@ type ListMQTTSourcesForWatchdogRow struct {
 	SourceConfigID        int64
 	SourceName            string
 	OrganizationID        int64
-	StalenessThresholdSec int32
+	StalenessThresholdSec sql.NullInt32
 	LastTarget            sql.NullInt16
 	LastReceivedAt        sql.NullTime
 	LastEdgeEventUuid     uuid.NullUUID

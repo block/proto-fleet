@@ -86,12 +86,12 @@ INSERT INTO curtailment_mqtt_source_config (
     sqlc.arg('topic'),
     sqlc.arg('broker_primary_host'),
     sqlc.arg('broker_secondary_host'),
-    sqlc.arg('broker_port'),
+    sqlc.narg('broker_port'),
     sqlc.arg('mqtt_username'),
     sqlc.arg('mqtt_password_enc'),
     sqlc.arg('contracted_curtailment_kw'),
-    sqlc.arg('staleness_threshold_sec'),
-    sqlc.arg('min_curtailed_duration_sec'),
+    sqlc.narg('staleness_threshold_sec'),
+    sqlc.narg('min_curtailed_duration_sec'),
     sqlc.arg('enabled')
 )
 RETURNING *;

@@ -155,7 +155,7 @@ func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, 
 			SourceConfigID:     r.SourceConfigID,
 			SourceName:         r.SourceName,
 			OrganizationID:     r.OrganizationID,
-			StalenessThreshold: time.Duration(r.StalenessThresholdSec) * time.Second,
+			StalenessThreshold: time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
 			LastTarget:         targetFromNullInt16(r.LastTarget),
 			LastReceivedAt:     timeFromNullTime(r.LastReceivedAt),
 			LastEdgeEventUUID:  stringFromNullUUID(r.LastEdgeEventUuid),
@@ -163,6 +163,15 @@ func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, 
 	}
 	return out, nil
 }
+
+const (
+	// Source-config defaults applied when a row leaves these columns NULL.
+	// Kept in code (not as DB column defaults) so they're tunable without a
+	// migration and reviewed alongside the logic that consumes them.
+	defaultBrokerPort              int32 = 1883
+	defaultStalenessThresholdSec   int32 = 240
+	defaultMinCurtailedDurationSec int32 = 600
+)
 
 func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 	return SourceConfig{
@@ -173,12 +182,12 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 		Topic:                   r.Topic,
 		BrokerPrimaryHost:       r.BrokerPrimaryHost,
 		BrokerSecondaryHost:     r.BrokerSecondaryHost,
-		BrokerPort:              r.BrokerPort,
+		BrokerPort:              int32OrDefault(r.BrokerPort, defaultBrokerPort),
 		MQTTUsername:            r.MqttUsername,
 		MQTTPasswordEncrypted:   r.MqttPasswordEnc,
 		ContractedCurtailmentKw: r.ContractedCurtailmentKw,
-		StalenessThreshold:      time.Duration(r.StalenessThresholdSec) * time.Second,
-		MinCurtailedDuration:    time.Duration(r.MinCurtailedDurationSec) * time.Second,
+		StalenessThreshold:      time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
+		MinCurtailedDuration:    time.Duration(int32OrDefault(r.MinCurtailedDurationSec, defaultMinCurtailedDurationSec)) * time.Second,
 		Enabled:                 r.Enabled,
 	}
 }

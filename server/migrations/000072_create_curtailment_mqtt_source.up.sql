@@ -12,7 +12,8 @@ CREATE TABLE curtailment_mqtt_source_config (
     topic                           VARCHAR(255) NOT NULL,
     broker_primary_host             VARCHAR(255) NOT NULL,
     broker_secondary_host           VARCHAR(255) NOT NULL,
-    broker_port                     INT          NOT NULL DEFAULT 1883,
+    -- Broker TCP port; NULL → default applied in code.
+    broker_port                     INT          NULL,
     mqtt_username                   VARCHAR(255) NOT NULL,
     -- Encrypted via infrastructure/encrypt (base64-wrapped); rotation
     -- is operator-driven.
@@ -20,10 +21,12 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges.
     -- Upper bound is a fat-finger sanity ceiling (1 GW per source).
     contracted_curtailment_kw       INT          NOT NULL,
-    -- Watchdog fires WATCHDOG_OFF after this many seconds of broker silence.
-    staleness_threshold_sec         INT          NOT NULL DEFAULT 240,
+    -- Seconds of broker silence before the watchdog fires WATCHDOG_OFF.
+    -- NULL → default applied in code.
+    staleness_threshold_sec         INT          NULL,
     -- Minimum hold time stamped on the curtailment event.
-    min_curtailed_duration_sec      INT          NOT NULL DEFAULT 600,
+    -- NULL → default applied in code.
+    min_curtailed_duration_sec      INT          NULL,
     enabled                         BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at                      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -36,15 +39,15 @@ CREATE TABLE curtailment_mqtt_source_config (
         REFERENCES "user"(id) ON DELETE RESTRICT,
     CONSTRAINT uq_curtailment_mqtt_source_config_org_name UNIQUE (organization_id, source_name),
     CONSTRAINT ck_curtailment_mqtt_source_config_port_positive
-        CHECK (broker_port > 0 AND broker_port < 65536),
+        CHECK (broker_port IS NULL OR (broker_port > 0 AND broker_port < 65536)),
     CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_positive
         CHECK (contracted_curtailment_kw > 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_max
         CHECK (contracted_curtailment_kw <= 1000000),
     CONSTRAINT ck_curtailment_mqtt_source_config_staleness_positive
-        CHECK (staleness_threshold_sec > 0),
+        CHECK (staleness_threshold_sec IS NULL OR staleness_threshold_sec > 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_hold_nonneg
-        CHECK (min_curtailed_duration_sec >= 0),
+        CHECK (min_curtailed_duration_sec IS NULL OR min_curtailed_duration_sec >= 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_brokers_distinct
         CHECK (broker_primary_host <> broker_secondary_host)
 );

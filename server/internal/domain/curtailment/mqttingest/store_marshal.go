@@ -30,6 +30,16 @@ func targetFromNullInt16(n sql.NullInt16) Target {
 	return Target(n.Int16)
 }
 
+// int32OrDefault returns n's value when set, else def. Source-config columns
+// whose defaults live in code (not as DB column defaults) surface as NULL and
+// resolve through here.
+func int32OrDefault(n sql.NullInt32, def int32) int32 {
+	if !n.Valid {
+		return def
+	}
+	return n.Int32
+}
+
 func nullTimeFrom(t time.Time) sql.NullTime {
 	if t.IsZero() {
 		return sql.NullTime{}
