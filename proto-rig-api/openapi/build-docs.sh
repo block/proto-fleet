@@ -8,15 +8,15 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/../.." && pwd)"
 spec="$here/MDK-API.json"
 config="$here/redocly.yaml"
-logo="$repo_root/docs/logo.svg"
+logo="$here/logo.svg"
 out="${1:?usage: build-docs.sh <output.html>}"
 redocly_version="1.34.15"
 
 mkdir -p "$(dirname "$out")"
 
-# Embed the logo (recolored to brand orange) as a data URI and merge it into a
-# temp copy of the spec via x-logo. The vendored spec is left untouched.
-logo_b64="$(sed 's/currentColor/#FE7C00/' "$logo" | base64 | tr -d '\n')"
+# Embed the proto-fleet wordmark as a data URI and merge it into a temp copy of
+# the spec via x-logo. The vendored spec is left untouched.
+logo_b64="$(base64 <"$logo" | tr -d '\n')"
 spec_with_logo="$here/.MDK-API.branded.json"
 trap 'rm -f "$spec_with_logo"' EXIT
 jq --arg url "data:image/svg+xml;base64,$logo_b64" \

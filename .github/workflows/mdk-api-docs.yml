@@ -7,14 +7,14 @@ on:
       - proto-rig-api/openapi/MDK-API.json
       - proto-rig-api/openapi/redocly.yaml
       - proto-rig-api/openapi/build-docs.sh
-      - docs/logo.svg
+      - proto-rig-api/openapi/logo.svg
       - .github/workflows/mdk-api-docs.yml
   pull_request:
     paths:
       - proto-rig-api/openapi/MDK-API.json
       - proto-rig-api/openapi/redocly.yaml
       - proto-rig-api/openapi/build-docs.sh
-      - docs/logo.svg
+      - proto-rig-api/openapi/logo.svg
       - .github/workflows/mdk-api-docs.yml
   workflow_dispatch:
 
