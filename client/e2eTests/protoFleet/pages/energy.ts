@@ -113,21 +113,55 @@ export class EnergyPage extends BasePage {
     }
   }
 
+  async waitForCurtailmentToRestore(target: CurtailmentCleanupTarget) {
+    const activeCurtailmentSection = this.activeCurtailmentSection(target.reason);
+    const terminalRestoreState = "terminal";
+    const inactiveState = "inactive";
+
+    await expect
+      .poll(
+        async () => {
+          if (!(await activeCurtailmentSection.isVisible().catch(() => false))) {
+            return inactiveState;
+          }
+
+          const primaryLockupText =
+            (await activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup").textContent()) ?? "";
+          return /Restored|Restore incomplete/.test(primaryLockupText) ? terminalRestoreState : primaryLockupText;
+        },
+        { timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] },
+      )
+      .toMatch(new RegExp(`${terminalRestoreState}|${inactiveState}`));
+
+    const dismissButton = activeCurtailmentSection.getByRole("button", { name: "Dismiss", exact: true });
+    if (await dismissButton.isVisible().catch(() => false)) {
+      await dismissButton.click();
+      await activeCurtailmentSection.waitFor({ state: "hidden", timeout: DEFAULT_TIMEOUT }).catch(() => undefined);
+    }
+  }
+
   async cleanupStartedCurtailment(target: CurtailmentCleanupTarget) {
     await this.page.goto("/energy");
     await expect(this.page).toHaveURL(/.*\/energy/);
 
-    if (!(await this.waitForMatchingStoppableCurtailment(target))) {
+    if (!(await this.waitForMatchingCleanupCurtailment(target))) {
       return;
     }
 
     if (await this.stopMatchingActiveCurtailmentIfPresent(target.reason)) {
+      await this.waitForCurtailmentToRestore(target);
       return;
     }
 
     const historyStopButton = this.curtailmentHistoryStopButton(target);
     if (await historyStopButton.isVisible().catch(() => false)) {
       await this.confirmStopAction(historyStopButton, "Confirm stop");
+      await this.waitForCurtailmentToRestore(target);
+      return;
+    }
+
+    if (await this.hasMatchingActiveCurtailment(target.reason)) {
+      await this.waitForCurtailmentToRestore(target);
     }
   }
 
@@ -184,18 +218,31 @@ export class EnergyPage extends BasePage {
     return (await this.curtailmentHistoryStopButton(target).count()) > 0;
   }
 
-  private async waitForMatchingStoppableCurtailment(target: CurtailmentCleanupTarget): Promise<boolean> {
+  private async hasMatchingActiveCurtailment(reason: string): Promise<boolean> {
+    return this.activeCurtailmentSection(reason)
+      .isVisible()
+      .catch(() => false);
+  }
+
+  private async hasMatchingCleanupCurtailment(target: CurtailmentCleanupTarget): Promise<boolean> {
+    return (
+      (await this.hasMatchingActiveCurtailment(target.reason)) ||
+      (await this.curtailmentHistoryStopButton(target).count()) > 0
+    );
+  }
+
+  private async waitForMatchingCleanupCurtailment(target: CurtailmentCleanupTarget): Promise<boolean> {
     const deadline = Date.now() + DEFAULT_TIMEOUT;
 
     do {
-      if (await this.hasMatchingStoppableCurtailment(target)) {
+      if (await this.hasMatchingCleanupCurtailment(target)) {
         return true;
       }
 
       await delay(DEFAULT_INTERVAL);
     } while (Date.now() < deadline);
 
-    return this.hasMatchingStoppableCurtailment(target);
+    return this.hasMatchingCleanupCurtailment(target);
   }
 
   private async confirmStopAction(button: Locator, confirmationButtonName: "Confirm stop" | "Restore power") {

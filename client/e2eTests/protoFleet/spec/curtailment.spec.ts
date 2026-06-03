@@ -101,6 +101,7 @@ test.describe("Proto Fleet - Curtailment", () => {
         expect(stopBody.force ?? false).toBe(false);
         expect(stopResponse.status()).toBe(200);
 
+        await energyPage.waitForCurtailmentToRestore(curtailmentToStop);
         startedCurtailment = undefined;
       });
     });
