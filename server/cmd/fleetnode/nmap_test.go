@@ -270,23 +270,37 @@ func TestBuildNmapOptions_LocalSubnetTarget_UsesDetectedCIDRs(t *testing.T) {
 	assert.False(t, slices.Contains(args, nmaptarget.LocalSubnetTarget), "sentinel must not reach nmap as a literal target: %v", args)
 }
 
-func TestBuildNmapOptions_LocalSubnetTarget_RejectsNonPrivateSubnet(t *testing.T) {
-	// Arrange: detection returns a public subnet (e.g. a node whose primary NIC
-	// is public). An automatic scan must never probe it.
-	r := &RunCmd{
-		nmapPath:     "/usr/bin/nmap",
-		discoverer:   &stubDiscoverer{},
-		localSubnets: func() ([]string, error) { return []string{"8.8.8.0/24"}, nil },
+func TestBuildNmapOptions_LocalSubnetTarget_RejectsUnscannableSubnet(t *testing.T) {
+	tests := []struct {
+		name   string
+		subnet string
+	}{
+		// A node whose primary NIC is public must never have it probed.
+		{name: "public subnet", subnet: "8.8.8.0/24"},
+		// A private prefix broader than the /22 cap would sweep tens of
+		// thousands of hosts; reject it like an operator-supplied target.
+		{name: "over-broad private subnet", subnet: "10.0.0.0/16"},
 	}
-	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
 
-	// Act
-	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			r := &RunCmd{
+				nmapPath:     "/usr/bin/nmap",
+				discoverer:   &stubDiscoverer{},
+				localSubnets: func() ([]string, error) { return []string{tc.subnet}, nil },
+			}
+			req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
 
-	// Assert: refused before any scan, mapped so a fan-out skips this node.
-	var ce *commandError
-	require.ErrorAs(t, err, &ce)
-	assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
+			// Act
+			_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+
+			// Assert: refused before any scan, mapped so a fan-out skips this node.
+			var ce *commandError
+			require.ErrorAs(t, err, &ce)
+			assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
+		})
+	}
 }
 
 func TestBuildNmapOptions_LocalSubnetTarget_NoSubnetIsAgentIncapable(t *testing.T) {
