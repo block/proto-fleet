@@ -284,15 +284,25 @@ ORDER BY id DESC
 LIMIT sqlc.arg('row_limit')::BIGINT;
 
 -- name: GetActiveCurtailmentEvent :one
--- Org-scoped recovery path for pending/active/restoring events. At most one
--- row matches per org under uq_curtailment_event_one_non_terminal_per_org;
--- LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
--- partial unique index without a sort step.
+-- Org-scoped recovery path returning the most-recent non-terminal event.
+-- Multiple non-terminal events can exist per org (one per disjoint device
+-- scope), so order by start time with id as the deterministic tiebreaker.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active', 'restoring')
+ORDER BY started_at DESC NULLS LAST, id DESC
 LIMIT 1;
+
+-- name: ListActiveCurtailmentEvents :many
+-- Org-scoped list of every non-terminal event. Multiple can be active when
+-- they target disjoint device scopes (e.g. per-site curtailment). Most-recent
+-- first, id as the deterministic tiebreaker.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND state IN ('pending', 'active', 'restoring')
+ORDER BY started_at DESC NULLS LAST, id DESC;
 
 -- name: BulkInsertCurtailmentTargets :execrows
 -- Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB

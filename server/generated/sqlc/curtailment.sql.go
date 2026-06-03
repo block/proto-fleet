@@ -313,13 +313,13 @@ SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
+ORDER BY started_at DESC NULLS LAST, id DESC
 LIMIT 1
 `
 
-// Org-scoped recovery path for pending/active/restoring events. At most one
-// row matches per org under uq_curtailment_event_one_non_terminal_per_org;
-// LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
-// partial unique index without a sort step.
+// Org-scoped recovery path returning the most-recent non-terminal event.
+// Multiple non-terminal events can exist per org (one per disjoint device
+// scope), so order by start time with id as the deterministic tiebreaker.
 func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
 	var i CurtailmentEvent
@@ -750,6 +750,75 @@ func (q *Queries) ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int
 			return nil, err
 		}
 		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveCurtailmentEvents = `-- name: ListActiveCurtailmentEvents :many
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND state IN ('pending', 'active', 'restoring')
+ORDER BY started_at DESC NULLS LAST, id DESC
+`
+
+// Org-scoped list of every non-terminal event. Multiple can be active when
+// they target disjoint device scopes (e.g. per-site curtailment). Most-recent
+// first, id as the deterministic tiebreaker.
+func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) ([]CurtailmentEvent, error) {
+	rows, err := q.query(ctx, q.listActiveCurtailmentEventsStmt, listActiveCurtailmentEvents, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentEvent
+	for rows.Next() {
+		var i CurtailmentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventUuid,
+			&i.OrgID,
+			&i.State,
+			&i.Mode,
+			&i.Strategy,
+			&i.Level,
+			&i.Priority,
+			&i.LoopType,
+			&i.ScopeType,
+			&i.ScopeJsonb,
+			&i.ModeParamsJsonb,
+			&i.RestoreBatchSize,
+			&i.RestoreBatchIntervalSec,
+			&i.EffectiveBatchSize,
+			&i.MinCurtailedDurationSec,
+			&i.MaxDurationSeconds,
+			&i.AllowUnbounded,
+			&i.IncludeMaintenance,
+			&i.ForceIncludeMaintenance,
+			&i.DecisionSnapshotJsonb,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.ExternalSource,
+			&i.ExternalReference,
+			&i.IdempotencyKey,
+			&i.SupersedesEventID,
+			&i.Reason,
+			&i.ScheduledStartAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

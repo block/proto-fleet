@@ -591,6 +591,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailedDevicesByOrg: %w", err)
 	}
+	if q.listActiveCurtailmentEventsStmt, err = db.PrepareContext(ctx, listActiveCurtailmentEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentEvents: %w", err)
+	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
 	}
@@ -2003,6 +2006,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailedDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listActiveCurtailmentEventsStmt != nil {
+		if cerr := q.listActiveCurtailmentEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveCurtailmentEventsStmt: %w", cerr)
+		}
+	}
 	if q.listActiveOrganizationIDsStmt != nil {
 		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
@@ -3001,6 +3009,7 @@ type Queries struct {
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                 *sql.Stmt
+	listActiveCurtailmentEventsStmt                     *sql.Stmt
 	listActiveOrganizationIDsStmt                       *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
@@ -3350,6 +3359,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActiveCurtailedDevicesByOrgStmt:                 q.listActiveCurtailedDevicesByOrgStmt,
+		listActiveCurtailmentEventsStmt:                     q.listActiveCurtailmentEventsStmt,
 		listActiveOrganizationIDsStmt:                       q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,

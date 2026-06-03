@@ -130,6 +130,9 @@ func (s *updateStubStore) InsertEventWithTargets(context.Context, models.InsertE
 func (s *updateStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised by Update handler tests")
 }
+func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
+	panic("ListActiveEvents not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	return s.targets, s.targetsErr
 }

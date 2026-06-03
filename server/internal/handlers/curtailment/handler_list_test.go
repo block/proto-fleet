@@ -34,6 +34,7 @@ const listHandlerTestCursorFixture = "opaque-next-cursor"
 // panic so an unintended path is loud rather than silently default-valuing.
 type listStubStore struct {
 	events        []*models.Event
+	activeEvents  []*models.Event
 	nextPageToken string
 	err           error
 	lastParams    interfaces.ListEventsParams
@@ -67,6 +68,9 @@ func (s *listStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*mode
 }
 func (s *listStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised by List handler tests")
+}
+func (s *listStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
+	return s.activeEvents, nil
 }
 func (s *listStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	panic("ListTargetsByEvent not exercised by List handler tests")
@@ -162,6 +166,51 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 	assert.Equal(t, listHandlerTestCursorFixture, resp.Msg.NextPageToken)
 	// Org from session attaches to the store call; not the request.
 	assert.Equal(t, int64(42), store.lastParams.OrgID)
+}
+
+// TestHandler_ListActiveCurtailments_ReturnsActiveEvents: multiple concurrent
+// non-terminal events round-trip through the handler, and the per-target heavy
+// payload is intentionally absent (use GetActiveCurtailment for detail).
+func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
+	t.Parallel()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:                      1,
+				EventUUID:               uuid.New(),
+				OrgID:                   42,
+				State:                   models.EventStateActive,
+				Mode:                    models.ModeFixedKw,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "site-a",
+			},
+			{
+				ID:                      2,
+				EventUUID:               uuid.New(),
+				OrgID:                   42,
+				State:                   models.EventStatePending,
+				Mode:                    models.ModeFixedKw,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "site-b",
+			},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.ListActiveCurtailments(sessionCtx(42), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 2)
+	assert.Equal(t, store.activeEvents[0].EventUUID.String(), resp.Msg.Events[0].EventUuid)
+	assert.Equal(t, store.activeEvents[1].EventUUID.String(), resp.Msg.Events[1].EventUuid)
+	assert.Empty(t, resp.Msg.Events[0].Targets, "list-active response must not include per-target rows")
 }
 
 func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {

@@ -85,6 +85,13 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				return err
 			},
 		},
+		{
+			"ListActiveCurtailments",
+			func() error {
+				_, err := client.ListActiveCurtailments(t.Context(), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+				return err
+			},
+		},
 	}
 
 	for _, tc := range cases {

@@ -62,6 +62,9 @@ func (s *stopStubStore) GetActiveEvent(_ context.Context, _ int64) (*models.Even
 	}
 	return s.activeEvent, nil
 }
+func (s *stopStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
+	panic("ListActiveEvents not exercised by Stop handler tests")
+}
 func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	if s.listTargetsErr != nil {
 		return nil, s.listTargetsErr

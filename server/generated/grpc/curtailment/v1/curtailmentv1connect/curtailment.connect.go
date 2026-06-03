@@ -49,6 +49,9 @@ const (
 	// CurtailmentServiceGetActiveCurtailmentProcedure is the fully-qualified name of the
 	// CurtailmentService's GetActiveCurtailment RPC.
 	CurtailmentServiceGetActiveCurtailmentProcedure = "/curtailment.v1.CurtailmentService/GetActiveCurtailment"
+	// CurtailmentServiceListActiveCurtailmentsProcedure is the fully-qualified name of the
+	// CurtailmentService's ListActiveCurtailments RPC.
+	CurtailmentServiceListActiveCurtailmentsProcedure = "/curtailment.v1.CurtailmentService/ListActiveCurtailments"
 	// CurtailmentServiceListCurtailmentEventsProcedure is the fully-qualified name of the
 	// CurtailmentService's ListCurtailmentEvents RPC.
 	CurtailmentServiceListCurtailmentEventsProcedure = "/curtailment.v1.CurtailmentService/ListCurtailmentEvents"
@@ -65,17 +68,20 @@ type CurtailmentServiceClient interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
 	// Start an event, persist targets, and dispatch initial Curtail
-	// commands. AlreadyExists on the one-non-terminal-event-per-org
-	// constraint carries the existing identity as
-	// `(event_uuid=<uuid>, state="<state>")` for recovery.
+	// commands. Multiple events can be active per org when they target
+	// disjoint device scopes; AlreadyExists means a selected device is
+	// already in a non-terminal curtailment (retry against the remainder).
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
 	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the current pending, active, or restoring event.
+	// Get the most-recent pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
+	// List every active (pending/active/restoring) event for the org.
+	// Multiple can be active at once when scoped to disjoint device sets.
+	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
@@ -137,6 +143,11 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceGetActiveCurtailmentProcedure,
 			opts...,
 		),
+		listActiveCurtailments: connect.NewClient[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse](
+			httpClient,
+			baseURL+CurtailmentServiceListActiveCurtailmentsProcedure,
+			opts...,
+		),
 		listCurtailmentEvents: connect.NewClient[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse](
 			httpClient,
 			baseURL+CurtailmentServiceListCurtailmentEventsProcedure,
@@ -162,6 +173,7 @@ type curtailmentServiceClient struct {
 	updateCurtailmentEvent  *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
 	stopCurtailment         *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
 	getActiveCurtailment    *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
+	listActiveCurtailments  *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
 	listCurtailmentEvents   *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
 	adminTerminateEvent     *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
 	ingestCurtailmentSignal *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
@@ -192,6 +204,11 @@ func (c *curtailmentServiceClient) GetActiveCurtailment(ctx context.Context, req
 	return c.getActiveCurtailment.CallUnary(ctx, req)
 }
 
+// ListActiveCurtailments calls curtailment.v1.CurtailmentService.ListActiveCurtailments.
+func (c *curtailmentServiceClient) ListActiveCurtailments(ctx context.Context, req *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {
+	return c.listActiveCurtailments.CallUnary(ctx, req)
+}
+
 // ListCurtailmentEvents calls curtailment.v1.CurtailmentService.ListCurtailmentEvents.
 func (c *curtailmentServiceClient) ListCurtailmentEvents(ctx context.Context, req *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error) {
 	return c.listCurtailmentEvents.CallUnary(ctx, req)
@@ -212,17 +229,20 @@ type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
 	// Start an event, persist targets, and dispatch initial Curtail
-	// commands. AlreadyExists on the one-non-terminal-event-per-org
-	// constraint carries the existing identity as
-	// `(event_uuid=<uuid>, state="<state>")` for recovery.
+	// commands. Multiple events can be active per org when they target
+	// disjoint device scopes; AlreadyExists means a selected device is
+	// already in a non-terminal curtailment (retry against the remainder).
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
 	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the current pending, active, or restoring event.
+	// Get the most-recent pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
+	// List every active (pending/active/restoring) event for the org.
+	// Multiple can be active at once when scoped to disjoint device sets.
+	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
@@ -280,6 +300,11 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.GetActiveCurtailment,
 		opts...,
 	)
+	curtailmentServiceListActiveCurtailmentsHandler := connect.NewUnaryHandler(
+		CurtailmentServiceListActiveCurtailmentsProcedure,
+		svc.ListActiveCurtailments,
+		opts...,
+	)
 	curtailmentServiceListCurtailmentEventsHandler := connect.NewUnaryHandler(
 		CurtailmentServiceListCurtailmentEventsProcedure,
 		svc.ListCurtailmentEvents,
@@ -307,6 +332,8 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceStopCurtailmentHandler.ServeHTTP(w, r)
 		case CurtailmentServiceGetActiveCurtailmentProcedure:
 			curtailmentServiceGetActiveCurtailmentHandler.ServeHTTP(w, r)
+		case CurtailmentServiceListActiveCurtailmentsProcedure:
+			curtailmentServiceListActiveCurtailmentsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListCurtailmentEventsProcedure:
 			curtailmentServiceListCurtailmentEventsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceAdminTerminateEventProcedure:
@@ -340,6 +367,10 @@ func (UnimplementedCurtailmentServiceHandler) StopCurtailment(context.Context, *
 
 func (UnimplementedCurtailmentServiceHandler) GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetActiveCurtailment is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListActiveCurtailments is not implemented"))
 }
 
 func (UnimplementedCurtailmentServiceHandler) ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error) {
