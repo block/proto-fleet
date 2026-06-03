@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: 20
       - name: Render branded API docs
-        run: bash proto-rig-api/openapi/build-docs.sh _site/index.html
+        run: bash proto-rig-api/openapi/build-docs.sh _site/proto-api-docs/index.html
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: _site
