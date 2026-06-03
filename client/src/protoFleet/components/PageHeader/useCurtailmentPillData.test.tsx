@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
+import { applyActiveCurtailmentEvent, resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import {
@@ -12,9 +12,10 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 
-const { mockGetActiveCurtailment, mockHandleAuthErrors } = vi.hoisted(() => ({
+const { mockGetActiveCurtailment, mockHandleAuthErrors, mockUseHasPermission } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
+  mockUseHasPermission: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -27,6 +28,7 @@ vi.mock("@/protoFleet/store", () => ({
   useAuthErrors: () => ({
     handleAuthErrors: mockHandleAuthErrors,
   }),
+  useHasPermission: mockUseHasPermission,
 }));
 
 function curtailmentEvent(): CurtailmentEvent {
@@ -42,6 +44,7 @@ describe("useCurtailmentPillData", () => {
     vi.useFakeTimers();
     resetActiveCurtailmentData();
     vi.clearAllMocks();
+    mockUseHasPermission.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -77,6 +80,23 @@ describe("useCurtailmentPillData", () => {
       vi.advanceTimersByTime(30_000);
     });
     expect(curtailmentClient.getActiveCurtailment).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not poll or surface cached events without curtailment read permission", async () => {
+    applyActiveCurtailmentEvent(curtailmentEvent());
+    mockUseHasPermission.mockReturnValue(false);
+
+    const { result } = renderHook(() => useCurtailmentPillData());
+
+    expect(result.current.activeEvent).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+    });
+
+    expect(mockUseHasPermission).toHaveBeenCalledWith("curtailment:read");
+    expect(curtailmentClient.getActiveCurtailment).not.toHaveBeenCalled();
   });
 
   it("polls active curtailments more frequently", async () => {

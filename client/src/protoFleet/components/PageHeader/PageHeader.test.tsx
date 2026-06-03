@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import PageHeader from "./PageHeader";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
+import { useHasPermission } from "@/protoFleet/store";
 
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockCurtailmentPill = vi.fn();
+const mockListSites = vi.fn();
 
 vi.mock("./CurtailmentPill", () => ({
   default: (props: { detailsPath?: string }) => {
@@ -25,12 +27,22 @@ vi.mock("./SchedulePill", () => ({
   default: ({ pillSchedule }: { pillSchedule: { name: string } }) => <div>{pillSchedule.name}</div>,
 }));
 
+vi.mock("@/protoFleet/api/sites", () => ({
+  useSites: () => ({
+    listSites: mockListSites,
+  }),
+}));
+
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   useWindowDimensions: () => mockUseWindowDimensions(),
 }));
 
 vi.mock("@/shared/hooks/useReactiveLocalStorage", () => ({
   useReactiveLocalStorage: () => mockUseReactiveLocalStorage(),
+}));
+
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: vi.fn(),
 }));
 
 vi.mock("@/shared/assets/icons", () => ({
@@ -62,11 +74,13 @@ const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = 
 describe("PageHeader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockListSites.mockReturnValue(undefined);
     mockUseWindowDimensions.mockReturnValue({
       isPhone: true,
       isTablet: false,
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
+    vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
   it("shows the phone widget row when schedules are available even if setup is not dismissed", () => {
@@ -117,5 +131,32 @@ describe("PageHeader", () => {
     );
 
     expect(mockCurtailmentPill).toHaveBeenCalledWith(expect.objectContaining({ detailsPath: "/energy" }));
+  });
+
+  it("hides the curtailment pill without curtailment read permission", () => {
+    vi.mocked(useHasPermission).mockReturnValue(false);
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          activeCurtailmentEvent={{
+            reason: "Grid peak call",
+            state: "curtailing",
+            scopeLabel: "Whole fleet",
+            selectedMiners: 48,
+            estimatedReductionKw: 126.4,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read");
+    expect(screen.queryByText("Curtailment pill")).not.toBeInTheDocument();
+    expect(mockCurtailmentPill).not.toHaveBeenCalled();
   });
 });

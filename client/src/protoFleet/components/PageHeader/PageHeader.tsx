@@ -11,6 +11,7 @@ import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { useSites } from "@/protoFleet/api/sites";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { useHasPermission } from "@/protoFleet/store";
 import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -25,6 +26,7 @@ interface PageHeaderProps {
 
 interface HeaderWidgetsProps {
   activeCurtailmentEvent: CurtailmentPillEvent | null;
+  canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
   onContinueSetup: () => void;
@@ -35,6 +37,7 @@ const headerWidgetEnabled = true;
 
 function HeaderWidgets({
   activeCurtailmentEvent,
+  canReadCurtailment,
   className,
   dismissedSetup,
   onContinueSetup,
@@ -44,7 +47,9 @@ function HeaderWidgets({
 
   return (
     <div className={clsx("flex space-x-3", className)}>
-      {activeCurtailmentEvent ? <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" /> : null}
+      {activeCurtailmentEvent && canReadCurtailment ? (
+        <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" />
+      ) : null}
       {pillSchedule ? (
         <SchedulePill
           pillSchedule={pillSchedule}
@@ -70,6 +75,7 @@ function PageHeader({
   const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
+  const canReadCurtailment = useHasPermission("curtailment:read");
 
   // Multi-site: the SitePicker replaces today's LocationSelector when the
   // feature flag is on. Sites are fetched once on mount and held here so the
@@ -108,13 +114,14 @@ function PageHeader({
 
   const headerWidgetsProps = {
     activeCurtailmentEvent,
+    canReadCurtailment,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     schedulePillData,
   };
-  const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
+  const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
+    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasVisibleCurtailmentPill);
 
   return (
     <>

@@ -49,12 +49,16 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
           Request edit
         </button>
       ) : null}
-      <button type="button" onClick={onRequestRestore}>
-        Request restore
-      </button>
-      <button type="button" onClick={onRequestStop}>
-        Request stop
-      </button>
+      {onRequestRestore ? (
+        <button type="button" onClick={onRequestRestore}>
+          Request restore
+        </button>
+      ) : null}
+      {onRequestStop ? (
+        <button type="button" onClick={onRequestStop}>
+          Request stop
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -94,9 +98,19 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
       <button type="button" onClick={() => onStatusFiltersChange?.(["completed", "failed"])}>
         Filter completed and failed
       </button>
-      <button type="button" disabled={events.length === 0} onClick={() => onStopActiveEvent?.(events[0])}>
-        Stop history event
-      </button>
+      {onStopActiveEvent ? (
+        <button
+          type="button"
+          disabled={events.length === 0}
+          onClick={() => {
+            if (events[0]) {
+              onStopActiveEvent(events[0]);
+            }
+          }}
+        >
+          Stop history event
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -416,7 +430,7 @@ describe("CurtailmentManagementPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
   });
 
-  it("hides active curtailment management for read-only users", () => {
+  it("hides curtailment management actions for users without curtailment manage permission", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent,
@@ -429,7 +443,10 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.getByTestId("active-curtailment-status")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Plan curtailment" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop history event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plan curtailment" })).not.toBeInTheDocument();
   });
 
   it("keeps the edit baseline stable after active event refreshes", async () => {
