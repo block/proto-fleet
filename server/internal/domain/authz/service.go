@@ -73,7 +73,7 @@ type RoleView struct {
 func (s *Service) ListRoles(ctx context.Context, orgID int64) ([]RoleView, error) {
 	rows, err := sqlc.New(s.conn).ListRolesWithDetailsForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("authz: list roles: %v", err)
+		return nil, fleeterror.NewInternalErrorf("authz: list roles: %w", err)
 	}
 	out := make([]RoleView, 0, len(rows))
 	for _, r := range applyBuiltinDisplayOrder(rows) {
@@ -198,14 +198,22 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 			return RoleView{}, mapRolePersistError(err)
 		}
 		if err := q.ClearRolePermissions(ctx, roleID); err != nil {
-			return RoleView{}, fleeterror.NewInternalErrorf("authz: clear role permissions: %v", err)
+			return RoleView{}, fleeterror.NewInternalErrorf("authz: clear role permissions: %w", err)
 		}
 		if err := setRolePermissions(ctx, q, roleID, normalized); err != nil {
 			return RoleView{}, err
 		}
 		updated, err := q.GetRoleByID(ctx, roleID)
 		if err != nil {
-			return RoleView{}, fleeterror.NewInternalErrorf("authz: reload role: %v", err)
+			// A concurrent DeleteCustomRole between getRoleInOrg above
+			// and this reload would soft-delete the row out from under
+			// us. Treat that as a clean 4xx (mirrors getRoleInOrg) so
+			// the caller sees a benign race as InvalidArgument rather
+			// than an Internal.
+			if errors.Is(err, sql.ErrNoRows) {
+				return RoleView{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+			}
+			return RoleView{}, fleeterror.NewInternalErrorf("authz: reload role: %w", err)
 		}
 		return hydrateRole(ctx, q, updated)
 	})
@@ -237,13 +245,13 @@ func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID 
 		}
 		count, err := q.CountActiveAssignmentsForRole(ctx, roleID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("authz: count assignments: %v", err)
+			return fleeterror.NewInternalErrorf("authz: count assignments: %w", err)
 		}
 		if count > 0 {
 			return fleeterror.NewFailedPreconditionErrorf("role has %d active assignment(s); unassign before deleting", count)
 		}
 		if err := q.SoftDeleteCustomRole(ctx, roleID); err != nil {
-			return fleeterror.NewInternalErrorf("authz: soft delete role: %v", err)
+			return fleeterror.NewInternalErrorf("authz: soft delete role: %w", err)
 		}
 		return nil
 	})
@@ -269,7 +277,7 @@ func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID 
 func authorizeCallerCanGrant(ctx context.Context, q *sqlc.Queries, callerID, orgID int64, normalizedKeys []string) error {
 	callerEff, err := LoadEffectiveForUpdate(ctx, q, callerID, orgID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("authz: load caller permissions: %v", err)
+		return fleeterror.NewInternalErrorf("authz: load caller permissions: %w", err)
 	}
 	if !callerEff.Has(PermRoleManage, ResourceContext{}) {
 		return fleeterror.NewForbiddenError("caller does not hold role:manage at org scope")
@@ -384,7 +392,7 @@ func setRolePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, keys
 	}
 	perms, err := q.GetPermissionsByKeys(ctx, keys)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("authz: lookup permission ids: %v", err)
+		return fleeterror.NewInternalErrorf("authz: lookup permission ids: %w", err)
 	}
 	if len(perms) != len(keys) {
 		return fleeterror.NewInternalErrorf("authz: permission row missing for one of: %v (catalog reconcile may have failed)", keys)
@@ -394,7 +402,7 @@ func setRolePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, keys
 			RoleID:       roleID,
 			PermissionID: p.ID,
 		}); err != nil {
-			return fleeterror.NewInternalErrorf("authz: attach permission %s: %v", p.Key, err)
+			return fleeterror.NewInternalErrorf("authz: attach permission %s: %w", p.Key, err)
 		}
 	}
 	return nil
@@ -406,11 +414,11 @@ func setRolePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, keys
 func hydrateRole(ctx context.Context, q *sqlc.Queries, r sqlc.Role) (RoleView, error) {
 	keys, err := q.ListRolePermissionKeys(ctx, r.ID)
 	if err != nil {
-		return RoleView{}, fleeterror.NewInternalErrorf("authz: list role permissions: %v", err)
+		return RoleView{}, fleeterror.NewInternalErrorf("authz: list role permissions: %w", err)
 	}
 	count, err := q.CountActiveAssignmentsForRole(ctx, r.ID)
 	if err != nil {
-		return RoleView{}, fleeterror.NewInternalErrorf("authz: count role assignments: %v", err)
+		return RoleView{}, fleeterror.NewInternalErrorf("authz: count role assignments: %w", err)
 	}
 	desc := ""
 	if r.Description.Valid {
@@ -442,7 +450,7 @@ func getRoleInOrg(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sq
 		if errors.Is(err, sql.ErrNoRows) {
 			return sqlc.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
 		}
-		return sqlc.Role{}, fleeterror.NewInternalErrorf("authz: get role: %v", err)
+		return sqlc.Role{}, fleeterror.NewInternalErrorf("authz: get role: %w", err)
 	}
 	if !role.OrganizationID.Valid || role.OrganizationID.Int64 != orgID {
 		return sqlc.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
@@ -479,5 +487,5 @@ func mapRolePersistError(err error) error {
 			}
 		}
 	}
-	return fleeterror.NewInternalErrorf("authz: persist role: %v", err)
+	return fleeterror.NewInternalErrorf("authz: persist role: %w", err)
 }

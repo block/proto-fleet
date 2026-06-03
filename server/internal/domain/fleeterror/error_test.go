@@ -11,6 +11,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFleetErrorUnwrap(t *testing.T) {
+	t.Run("Errorf with %w exposes the wrapped error via errors.Unwrap", func(t *testing.T) {
+		base := errors.New("boom")
+		fe := NewInternalErrorf("op failed: %w", base)
+		assert.Same(t, base, errors.Unwrap(fe))
+	})
+
+	t.Run("Errorf with %v leaves Unwrap == nil", func(t *testing.T) {
+		base := errors.New("boom")
+		fe := NewInternalErrorf("op failed: %v", base)
+		assert.Nil(t, errors.Unwrap(fe))
+	})
+
+	t.Run("errors.As walks through FleetError to the wrapped sentinel", func(t *testing.T) {
+		// Mirrors the WithTransaction retry path: a business wrapper
+		// over a sql/pg error must still let callers see the inner
+		// error via errors.As so retry detection works.
+		type pgLike struct{ error }
+		base := pgLike{error: errors.New("serialization_failure")}
+		fe := NewInternalErrorf("authz: list roles: %w", base)
+
+		var got pgLike
+		require.True(t, errors.As(fe, &got))
+		assert.Equal(t, "serialization_failure", got.Error())
+	})
+
+	t.Run("Unwrap is nil for non-Errorf constructors", func(t *testing.T) {
+		fe := NewInternalError("static message")
+		assert.Nil(t, errors.Unwrap(fe))
+	})
+}
+
 func TestConnectionError(t *testing.T) {
 	t.Run("creates connection error with device identifier", func(t *testing.T) {
 		// Arrange

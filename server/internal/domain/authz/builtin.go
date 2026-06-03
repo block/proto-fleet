@@ -10,20 +10,23 @@ const (
 	// built-in. Its permission set is always AllPermissions().
 	BuiltinKeySuperAdmin BuiltinKey = "SUPER_ADMIN"
 
-	// BuiltinKeyAdmin denotes the editable, additive-only built-in.
-	// Operator edits survive restart; new catalog keys in the seed
-	// formula are added on each boot.
+	// BuiltinKeyAdmin denotes the additive-reconciled built-in for org
+	// admins. Like every built-in, it cannot be modified through the
+	// authz RPCs; the additive mode only controls how the seed formula
+	// grows across releases (new catalog keys are added on each boot).
 	BuiltinKeyAdmin BuiltinKey = "ADMIN"
 
-	// BuiltinKeyFieldTech denotes the editable, additive-only built-in
-	// shipped for field technicians.
+	// BuiltinKeyFieldTech denotes the additive-reconciled built-in
+	// shipped for field technicians. Not editable through the RPCs;
+	// see BuiltinKeyAdmin for the additive-mode rationale.
 	BuiltinKeyFieldTech BuiltinKey = "FIELD_TECH"
 )
 
 // BuiltinReconcileMode controls whether reconciliation will remove
 // permission rows that aren't in the seed formula. SUPER_ADMIN is the
 // only role with mode=ReconcileFull. ADMIN and FIELD_TECH are
-// ReconcileAdditive so operator edits persist.
+// ReconcileAdditive so seed-formula growth across releases adds keys
+// without retroactively trimming any that were seeded previously.
 type BuiltinReconcileMode int
 
 const (
@@ -61,14 +64,14 @@ func BuiltinRoles() []BuiltinRoleSpec {
 		{
 			Key:             BuiltinKeyAdmin,
 			Name:            "ADMIN",
-			Description:     "Org admin. Editable by a SUPER_ADMIN.",
+			Description:     "Org admin. Built-in role; cannot be modified.",
 			Mode:            ReconcileAdditive,
 			SeedPermissions: adminSeedPermissions(),
 		},
 		{
 			Key:             BuiltinKeyFieldTech,
 			Name:            "FIELD_TECH",
-			Description:     "Field tech. Read fleet data, blink the locator LED, download logs, manage racks. Editable by a SUPER_ADMIN.",
+			Description:     "Field tech. Read fleet data, blink the locator LED, download logs, manage racks. Built-in role; cannot be modified.",
 			Mode:            ReconcileAdditive,
 			SeedPermissions: fieldTechSeedPermissions(),
 		},
