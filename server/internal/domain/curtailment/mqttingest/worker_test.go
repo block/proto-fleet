@@ -195,6 +195,41 @@ func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
 	assert.Equal(t, now, next.LastReceivedAt, "freshness still advances")
 }
 
+// Regression: a debounced OFF→ON flip advances LastTargetAt to that payload's
+// publisher stamp while LastTarget stays OFF. A later QoS-1 redelivery of the
+// same payload (equal stamp) arriving after the debounce window must not be
+// read as a fresh edge and Stop the curtailment — the publisher sent no new ON.
+func TestWorker_HandleMessage_DebouncedFlipRedelivery_DoesNotStop(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
+	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID}}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	published := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC) // the debounced ON's stamp
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": published.Unix()})
+	require.NoError(t, err)
+
+	// Post-debounce state: the ON flip was absorbed (LastTarget still OFF) but
+	// its stamp landed in LastTargetAt; the edge anchor is old, so the next
+	// arrival is well outside the 5 s debounce window.
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOff,
+		LastTargetAt:   published,
+		LastEdgeAt:     published.Add(-10 * time.Second),
+	}
+
+	// The same ON payload redelivered after the debounce window.
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: published.Add(30 * time.Second)})
+
+	assert.Empty(t, svc.stopCalls, "a redelivered duplicate of a debounced flip must not Stop the curtailment")
+	assert.Empty(t, svc.listActiveCalls, "no OFF→ON dispatch should be attempted for a duplicate stamp")
+	assert.Equal(t, TargetOff, next.LastTarget, "state stays OFF — no new publisher ON")
+}
+
 // Guards the debounce fix from over-suppressing: a cold-start ON (no prior
 // target) is not a flip and must record ON.
 func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {

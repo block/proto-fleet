@@ -201,6 +201,13 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 
+	// Ignore a duplicate of an already-processed publisher stamp: the eviction
+	// loop drops only strictly-older payloads, so after a debounced flip an
+	// equal stamp (QoS-1 redelivery, dual-broker copy) would re-fire as an edge.
+	if !prior.LastTargetAt.IsZero() && !canonical.PublishedAt.After(prior.LastTargetAt) {
+		direction = EdgeNone
+	}
+
 	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
 
 	// Freshness columns advance on every decoded message, even if dispatch failed.
