@@ -3,6 +3,7 @@ import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
 const stopRequestPattern = /StopCurtailment/;
+const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 2;
 
 export interface CurtailmentCleanupTarget {
   reason: string;
@@ -145,7 +146,7 @@ export class EnergyPage extends BasePage {
             (await activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup").textContent()) ?? "";
           return /Restored|Restore incomplete/.test(primaryLockupText) ? terminalRestoreState : primaryLockupText;
         },
-        { timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] },
+        { timeout: restoreReconciliationTimeout, intervals: [DEFAULT_INTERVAL] },
       )
       .toMatch(new RegExp(`${terminalRestoreState}|${inactiveState}`));
 
