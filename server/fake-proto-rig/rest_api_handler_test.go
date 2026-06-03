@@ -888,11 +888,16 @@ func TestGetPools_UsesSpecShareFieldNames(t *testing.T) {
 			RejectedShares: 20,
 		},
 	})
+	state.SetAccessToken("test-token")
 	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
-	h.getPools(rr, req)
+	req.Header.Set("Authorization", "Bearer test-token")
+	mux.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
