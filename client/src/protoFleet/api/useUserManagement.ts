@@ -55,14 +55,8 @@ const useUserManagement = () => {
 
   const createUser = useCallback(
     async ({ username, roleId, onSuccess, onError, onFinally }: CreateUserProps) => {
-      // TODO(rbac): drop this guard once useRoleManagement swaps to
-      // AuthzService.ListRoles. The placeholder hook emits non-numeric
-      // role ids ("builtin-field-tech", "role-<ts>") that the server's
-      // int64 parser rejects; strip them so the server applies the
-      // default role until real ids are on the wire.
-      const wireRoleId = roleId && /^[1-9][0-9]*$/.test(roleId) ? roleId : undefined;
       await authClient
-        .createUser({ username, roleId: wireRoleId })
+        .createUser({ username, roleId })
         .then((response) => {
           onSuccess?.(response.userId, response.username, response.temporaryPassword);
         })

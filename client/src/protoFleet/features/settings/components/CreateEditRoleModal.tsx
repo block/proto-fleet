@@ -2,11 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
-import {
-  lockedReadKeys,
-  permissionGroups,
-  withRequiredReads,
-} from "@/protoFleet/features/settings/utils/permissionCatalog";
+import { type PermissionGroup, usePermissionCatalog } from "@/protoFleet/features/settings/utils/permissionCatalog";
 import { Alert, ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -23,63 +19,138 @@ interface CreateEditRoleModalProps {
   onSuccess: () => void;
 }
 
+const DESCRIPTION_MAX_LENGTH = 1024;
+
 // Groups start collapsed so the catalog reads as a compact list. When editing,
 // groups that already grant something open by default so current access is
 // visible at a glance.
-const collapsedFor = (permissions: string[]): Set<string> => {
+const collapsedFor = (permissions: string[], groups: PermissionGroup[]): Set<string> => {
   const collapsed = new Set<string>();
-  permissionGroups.forEach((group) => {
+  groups.forEach((group) => {
     const anySelected = group.entries.some((entry) => permissions.includes(entry.key));
     if (!anySelected) collapsed.add(group.resource);
   });
   return collapsed;
 };
 
-const allResources = permissionGroups.map((group) => group.resource);
-
 const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRoleModalProps) => {
   const isVisible = open ?? true;
   const isEdit = !!role;
   const nameLocked = !!role?.builtin;
 
+  const { createRole, updateRole } = useRoleManagement();
+  const {
+    permissionGroups,
+    withRequiredReads,
+    lockedReadKeys,
+    isLoading: catalogLoading,
+    error: catalogError,
+  } = usePermissionCatalog();
+
+  if (catalogLoading || catalogError) {
+    return (
+      <Modal open={isVisible} onDismiss={onDismiss} size={sizes.standard} title={isEdit ? "Edit role" : "Create role"}>
+        {catalogError ? (
+          <Callout intent="danger" prefixIcon={<Alert />} title={catalogError} />
+        ) : (
+          <div className="py-10 text-center text-text-primary-50">Loading permissions...</div>
+        )}
+      </Modal>
+    );
+  }
+
+  return (
+    <CreateEditRoleModalForm
+      isVisible={isVisible}
+      isEdit={isEdit}
+      nameLocked={nameLocked}
+      role={role ?? null}
+      permissionGroups={permissionGroups}
+      withRequiredReads={withRequiredReads}
+      lockedReadKeys={lockedReadKeys}
+      createRole={createRole}
+      updateRole={updateRole}
+      onDismiss={onDismiss}
+      onSuccess={onSuccess}
+    />
+  );
+};
+
+interface FormProps {
+  isVisible: boolean;
+  isEdit: boolean;
+  nameLocked: boolean;
+  role: RoleItem | null;
+  permissionGroups: PermissionGroup[];
+  withRequiredReads: (selected: Iterable<string>) => string[];
+  lockedReadKeys: (selected: Iterable<string>) => Set<string>;
+  createRole: ReturnType<typeof useRoleManagement>["createRole"];
+  updateRole: ReturnType<typeof useRoleManagement>["updateRole"];
+  onDismiss: () => void;
+  onSuccess: () => void;
+}
+
+const CreateEditRoleModalForm = ({
+  isVisible,
+  isEdit,
+  nameLocked,
+  role,
+  permissionGroups,
+  withRequiredReads,
+  lockedReadKeys,
+  createRole,
+  updateRole,
+  onDismiss,
+  onSuccess,
+}: FormProps) => {
   // Form state is seeded from `role` via useState defaults. Callers
   // remount the modal (key={role?.roleId ?? "create"}) when switching
   // between create/edit or between two different roles, so the seed
   // happens exactly once per open and stale state can't leak.
-  const { createRole, updateRole } = useRoleManagement();
   const [name, setName] = useState(role?.name ?? "");
+  const [description, setDescription] = useState(role?.description ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set(role?.permissions ?? []));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [query, setQuery] = useState("");
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => collapsedFor(role?.permissions ?? []));
+  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
+    collapsedFor(role?.permissions ?? [], permissionGroups),
+  );
 
-  const toggleKey = useCallback((key: string, checked: boolean) => {
-    setErrorMsg("");
-    setSelected((prev) => {
-      if (checked) {
-        return new Set(withRequiredReads([...prev, key]));
-      }
-      // Removing a read key triggers withRequiredReads, which re-adds it if any selected action in the same resource still needs it. lockedReadKeys above marks those checkboxes disabled so the click cannot occur.
-      const next = new Set(prev);
-      next.delete(key);
-      return new Set(withRequiredReads(next));
-    });
-  }, []);
+  const allResources = useMemo(() => permissionGroups.map((group) => group.resource), [permissionGroups]);
 
-  const toggleGroup = useCallback((keys: string[], checked: boolean) => {
-    setErrorMsg("");
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        keys.forEach((key) => next.add(key));
+  const toggleKey = useCallback(
+    (key: string, checked: boolean) => {
+      setErrorMsg("");
+      setSelected((prev) => {
+        if (checked) {
+          return new Set(withRequiredReads([...prev, key]));
+        }
+        // Removing a read key triggers withRequiredReads, which re-adds it if any selected action in the same resource still needs it. lockedReadKeys above marks those checkboxes disabled so the click cannot occur.
+        const next = new Set(prev);
+        next.delete(key);
         return new Set(withRequiredReads(next));
-      }
-      keys.forEach((key) => next.delete(key));
-      // Keep cross-group reads that other selected actions still depend on.
-      return new Set(withRequiredReads(next));
-    });
-  }, []);
+      });
+    },
+    [withRequiredReads],
+  );
+
+  const toggleGroup = useCallback(
+    (keys: string[], checked: boolean) => {
+      setErrorMsg("");
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (checked) {
+          keys.forEach((key) => next.add(key));
+          return new Set(withRequiredReads(next));
+        }
+        keys.forEach((key) => next.delete(key));
+        // Keep cross-group reads that other selected actions still depend on.
+        return new Set(withRequiredReads(next));
+      });
+    },
+    [withRequiredReads],
+  );
 
   const toggleCollapse = useCallback((resource: string) => {
     setCollapsed((prev) => {
@@ -106,11 +177,13 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     setIsSubmitting(true);
     setErrorMsg("");
     const permissions = [...selected];
+    const trimmedName = name.trim();
+    const trimmedDescription = description.trim();
 
     const handlers = {
       onSuccess: () => {
         pushToast({
-          message: isEdit ? `Role "${name.trim()}" updated` : `Role "${name.trim()}" created`,
+          message: isEdit ? `Role "${trimmedName}" updated` : `Role "${trimmedName}" created`,
           status: STATUSES.success,
         });
         onSuccess();
@@ -121,11 +194,11 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     };
 
     if (isEdit && role) {
-      updateRole({ roleId: role.roleId, name: name.trim(), permissions, ...handlers });
+      updateRole({ roleId: role.roleId, name: trimmedName, description: trimmedDescription, permissions, ...handlers });
     } else {
-      createRole({ name: name.trim(), permissions, ...handlers });
+      createRole({ name: trimmedName, description: trimmedDescription, permissions, ...handlers });
     }
-  }, [name, selected, isEdit, role, createRole, updateRole, onSuccess, onDismiss]);
+  }, [name, description, selected, isEdit, role, createRole, updateRole, onSuccess, onDismiss]);
 
   // Filter the catalog by the search query against group label, permission key,
   // and description. While a query is active the matching groups are forced
@@ -145,9 +218,9 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
         return { group, entries };
       })
       .filter(({ entries }) => !searching || entries.length > 0);
-  }, [query_, searching]);
+  }, [query_, searching, permissionGroups]);
 
-  const lockedReads = useMemo(() => lockedReadKeys(Array.from(selected)), [selected]);
+  const lockedReads = useMemo(() => lockedReadKeys(Array.from(selected)), [selected, lockedReadKeys]);
 
   return (
     <Modal
@@ -172,7 +245,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     >
       {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
-      <div className="mb-6">
+      <div className="mb-4">
         <Input
           id="role-name"
           label="Role name"
@@ -180,6 +253,16 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
           onChange={(value) => setName(value)}
           disabled={nameLocked}
           autoFocus={!isEdit}
+        />
+      </div>
+
+      <div className="mb-6">
+        <Input
+          id="role-description"
+          label="Description"
+          initValue={description}
+          onChange={(value) => setDescription(value)}
+          maxLength={DESCRIPTION_MAX_LENGTH}
         />
       </div>
 
