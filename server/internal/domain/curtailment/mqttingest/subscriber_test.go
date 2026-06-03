@@ -3,6 +3,7 @@ package mqttingest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -87,12 +88,13 @@ func (f *fakeStore) ListSourcesForWatchdog(_ context.Context) ([]WatchdogRow, er
 // returned channel routes through the handler the subscriber
 // registered.
 type fakeMQTTClient struct {
-	mu         sync.Mutex
-	host       string
-	subscribed bool
-	disconnect chan struct{}
-	handler    func(payload []byte, receivedAt time.Time)
-	ready      chan struct{}
+	mu            sync.Mutex
+	host          string
+	subscribed    bool
+	connectBlocks bool
+	disconnect    chan struct{}
+	handler       func(payload []byte, receivedAt time.Time)
+	ready         chan struct{}
 }
 
 func newFakeMQTTClient() *fakeMQTTClient {
@@ -102,7 +104,11 @@ func newFakeMQTTClient() *fakeMQTTClient {
 	}
 }
 
-func (f *fakeMQTTClient) Connect(_ context.Context, host string, _ int32, _ string, _ string) error {
+func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ string, _ string) error {
+	if f.connectBlocks {
+		<-ctx.Done()
+		return fmt.Errorf("fake mqtt connect canceled: %w", ctx.Err())
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.host = host

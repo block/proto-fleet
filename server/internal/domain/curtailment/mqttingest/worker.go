@@ -52,20 +52,32 @@ func (w *sourceWorker) run(ctx context.Context) {
 	defer primaryClient.Disconnect(w.cfg.ShutdownDeadline)
 	defer secondaryClient.Disconnect(w.cfg.ShutdownDeadline)
 
-	if err := w.connectAndSubscribe(ctx, primaryClient, w.primaryHost, messages); err != nil {
-		w.cfg.Logger.Error("mqttingest: primary broker connect failed",
-			slog.String("source", w.source.SourceName),
-			slog.String("broker", w.primaryHost),
-			slog.Any("error", err))
-		// Continue with the secondary — the watchdog will fire OFF
-		// if both end up unreachable.
+	// Connect to both brokers concurrently. MQTTClient.Connect blocks until
+	// connected (it retries with backoff), so a serial connect would let one
+	// down broker stall the other broker's subscription and the fail-safe
+	// watchdog. Each connect only feeds the shared channel; the loop below
+	// stays the sole goroutine that touches source state. Wait for them on
+	// exit so a connect finishes before the worker's password is cleared.
+	var connectWG sync.WaitGroup
+	for _, bc := range []struct {
+		client MQTTClient
+		host   string
+	}{
+		{primaryClient, w.primaryHost},
+		{secondaryClient, w.secondaryHost},
+	} {
+		connectWG.Add(1)
+		go func(client MQTTClient, host string) {
+			defer connectWG.Done()
+			if err := w.connectAndSubscribe(ctx, client, host, messages); err != nil {
+				w.cfg.Logger.Error("mqttingest: broker connect failed",
+					slog.String("source", w.source.SourceName),
+					slog.String("broker", host),
+					slog.Any("error", err))
+			}
+		}(bc.client, bc.host)
 	}
-	if err := w.connectAndSubscribe(ctx, secondaryClient, w.secondaryHost, messages); err != nil {
-		w.cfg.Logger.Error("mqttingest: secondary broker connect failed",
-			slog.String("source", w.source.SourceName),
-			slog.String("broker", w.secondaryHost),
-			slog.Any("error", err))
-	}
+	defer connectWG.Wait()
 
 	watchdog := time.NewTicker(w.cfg.WatchdogTickEvery)
 	defer watchdog.Stop()

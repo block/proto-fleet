@@ -14,6 +14,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // newTestWorker wires a sourceWorker for direct-method exercise. The
@@ -438,5 +439,61 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 				assert.Equal(t, tc.wantEventID, state.LastEdgeEventUUID)
 			}
 		})
+	}
+}
+
+// An OFF whose Start hits the org-level already-exists guard records OFF, so
+// the watchdog maintains fail-safe curtailment once that other event ends.
+func TestWorker_HandleMessage_OnToOff_AlreadyExists_RecordsOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{startErr: fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already exists for this organization")}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOn}
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+
+	assert.Equal(t, TargetOff, next.LastTarget,
+		"an OFF satisfied by an existing org event must record OFF for the watchdog fail-safe")
+}
+
+// A broker whose Connect blocks must not stall the other broker's
+// subscription or the fail-safe watchdog — connects run concurrently.
+func TestWorker_Run_BrokerConnectBlocked_WatchdogStillFires(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+	var clientN int
+	w.cfg.NewClient = func() MQTTClient {
+		clientN++
+		c := newFakeMQTTClient()
+		if clientN == 1 {
+			c.connectBlocks = true // primary hangs in Connect
+		}
+		return c
+	}
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	assertEventually(t, 2*time.Second, func() bool { return svc.startCallsLen() >= 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
 	}
 }

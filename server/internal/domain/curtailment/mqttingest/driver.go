@@ -10,6 +10,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // curtailmentService is the subset of curtailment.Service the driver
@@ -112,6 +113,14 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 
 	plan, err := d.svc.Start(ctx, req)
 	if err != nil {
+		if fleeterror.IsAlreadyExistsError(err) {
+			// The org already has a non-terminal event (a manual action or
+			// another source). Whole-org scope means this source is already
+			// curtailed, so treat OFF as satisfied — advance to OFF without
+			// claiming an event of our own. The watchdog re-curtails once
+			// that event ends.
+			return uuid.Nil, nil
+		}
 		return uuid.Nil, fmt.Errorf("mqttingest: dispatch Start: %w", err)
 	}
 	if plan == nil {

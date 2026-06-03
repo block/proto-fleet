@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // fakeService captures Start/Stop/GetActive calls so tests can assert
@@ -284,4 +285,19 @@ func TestDriver_Dispatch_EdgeNoneIsNoOp(t *testing.T) {
 	assert.Empty(t, svc.startCalls)
 	assert.Empty(t, svc.stopCalls)
 	assert.Empty(t, svc.getActiveCalls)
+}
+
+// An OFF whose Start hits the org-level already-exists guard (a manual or
+// cross-source event already curtails the org) is a satisfied OFF, not a
+// failure — Dispatch returns a nil event so the worker records OFF.
+func TestDriver_Dispatch_OnToOff_AlreadyExistsIsSatisfied(t *testing.T) {
+	t.Parallel()
+
+	svc := &fakeService{startErr: fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already exists for this organization")}
+	d := NewDriver(svc, nil)
+
+	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
+
+	require.NoError(t, err, "org-level AlreadyExists must be a satisfied OFF, not a dispatch failure")
+	assert.Equal(t, uuid.Nil, outcome.EventUUID, "no event of our own is claimed")
 }
