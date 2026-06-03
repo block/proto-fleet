@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Racks, Settings, Site } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Racks, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -31,30 +31,30 @@ export const primaryNavItems: NavItem[] = [
   ...(MULTI_SITE_ENABLED
     ? [
         {
-          path: "/sites",
-          label: "Sites",
-          icon: Site,
-          // Gate on site:read so any role that can list sites can
-          // navigate to the overview. SitesPage renders the read view
-          // for everyone (ListSites + ListBuildings, both site:read);
-          // the "Add site" CTA and per-card edit/delete affordances
-          // gate on site:manage independently inside the page, so
-          // restricting the nav to site:manage would hide a useful
-          // surface from read-only roles for no security benefit.
-          requiredPermission: "site:read",
+          // Multi-site redesign (2026-06-02) collapses /miners, /racks,
+          // /sites, and /settings/sites into a single tabbed Fleet page.
+          // Behind the same flag that previously hid the /sites nav entry.
+          path: "/fleet",
+          label: "Fleet",
+          icon: Fleet,
         },
       ]
-    : []),
-  {
-    path: "/miners",
-    label: "Miners",
-    icon: Fleet,
-  },
-  {
-    path: "/racks",
-    label: "Racks",
-    icon: Racks,
-  },
+    : [
+        // Pre-redesign: standalone Miners + Racks entries. Removed once the
+        // flag flips on. The /miners and /racks routes themselves are
+        // permanent redirects to /fleet/miners and /fleet/racks regardless
+        // of the flag — see router.tsx.
+        {
+          path: "/miners",
+          label: "Miners",
+          icon: Fleet,
+        },
+        {
+          path: "/racks",
+          label: "Racks",
+          icon: Racks,
+        },
+      ]),
   {
     path: "/groups",
     label: "Groups",
@@ -128,16 +128,10 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     requiredPermission: "apikey:manage",
   },
-  ...(MULTI_SITE_ENABLED
-    ? [
-        {
-          path: "/settings/sites",
-          label: "Sites",
-          parent: "/settings",
-          requiredPermission: "site:manage",
-        },
-      ]
-    : []),
+  // /settings/sites was removed by the 2026-06-02 multi-site redesign —
+  // site config now lives on /sites/:id detail pages reached via the
+  // Sites tab on /fleet. The /settings/sites route itself stays as an
+  // unguarded redirect path until traffic dies down.
   {
     path: "/settings/server-logs",
     label: "Server Logs",

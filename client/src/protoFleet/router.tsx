@@ -11,7 +11,10 @@ import {
   importBuildingPage,
   importDashboard,
   importEnergyPage,
+  importFleetBuildingsPage,
   importFleetDown,
+  importFleetLayout,
+  importFleetSitesPage,
   importGroupOverviewPage,
   importGroupsPage,
   importMiners,
@@ -30,6 +33,7 @@ import {
   importSettingsSchedules,
   importSettingsSitesPage,
   importSettingsTeam,
+  importSiteDetailPage,
   importSitesPage,
   importUpdatePassword,
   importWelcomePage,
@@ -67,7 +71,11 @@ const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const SitesPage = lazy(importSitesPage);
 const SettingsSitesPage = lazy(importSettingsSitesPage);
+const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
+const FleetLayout = lazy(importFleetLayout);
+const FleetBuildingsPage = lazy(importFleetBuildingsPage);
+const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetDown = lazy(importFleetDown);
 
 // Helper to check if an admin user has been created
@@ -135,20 +143,53 @@ const router = createBrowserRouter([
   // Dashboard (Home)
   createRoute("/", <Dashboard />, { bg: "surface-5" }),
 
-  // Miners
-  createRoute("/miners", <Miners />),
+  // Fleet — unified list home with tab nav (Miners / Racks / Buildings /
+  // Sites). See docs/plans/2026-05-05-multi-site-support-plan.md (J3).
+  // The FleetLayout child route renders an <Outlet />; child paths supply
+  // the tab body. `/fleet` (bare) redirects to the last active tab inside
+  // FleetLayout, so we mount FleetLayout as the parent and rely on its
+  // useEffect to navigate. Nested routes need their own App wrapper to
+  // pick up backgrounds and the global PageHeader, so each child is
+  // declared as its own top-level route alongside the parent layout.
+  {
+    path: "/fleet",
+    element: (
+      <App>
+        <FleetLayout />
+      </App>
+    ),
+    children: [
+      { index: true, element: null },
+      { path: "miners", element: <Miners /> },
+      { path: "racks", element: <RacksPage /> },
+      { path: "buildings", element: <FleetBuildingsPage /> },
+      { path: "sites", element: <FleetSitesPage /> },
+    ],
+  },
+
+  // Permanent redirects from the old standalone Miners + Racks routes to
+  // their Fleet-tab homes. Existing bookmarks degrade cleanly; no
+  // deprecation window — see plan J2.
+  {
+    path: "/miners",
+    loader: () => redirect("/fleet/miners"),
+  },
+  {
+    path: "/racks",
+    loader: () => redirect("/fleet/racks"),
+  },
 
   // Groups
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
-  // Racks
-  createRoute("/racks", <RacksPage />),
+  // Rack detail (rack list itself now lives under /fleet/racks).
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
   // Sites + buildings (multi-site; nav entries flag-gated, routes
   // unguarded so direct URL access works during dogfood)
   createRoute("/sites", <SitesPage />),
+  createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 
   // Energy
