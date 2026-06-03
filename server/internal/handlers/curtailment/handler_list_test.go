@@ -173,6 +173,7 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 // payload is intentionally absent (use GetActiveCurtailment for detail).
 func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	t.Parallel()
+	source, reference, key := "opensearch", "alert-1", "retry-key"
 	store := &listStubStore{
 		activeEvents: []*models.Event{
 			{
@@ -187,6 +188,9 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 				RestoreBatchSize:        10,
 				RestoreBatchIntervalSec: 120,
 				Reason:                  "site-a",
+				ExternalSource:          &source,
+				ExternalReference:       &reference,
+				IdempotencyKey:          &key,
 			},
 			{
 				ID:                      2,
@@ -211,6 +215,10 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	assert.Equal(t, store.activeEvents[0].EventUUID.String(), resp.Msg.Events[0].EventUuid)
 	assert.Equal(t, store.activeEvents[1].EventUUID.String(), resp.Msg.Events[1].EventUuid)
 	assert.Empty(t, resp.Msg.Events[0].Targets, "list-active response must not include per-target rows")
+	// Replay handles are scrubbed from the list view, like the history list.
+	assert.Empty(t, resp.Msg.Events[0].ExternalSource)
+	assert.Empty(t, resp.Msg.Events[0].ExternalReference)
+	assert.Empty(t, resp.Msg.Events[0].IdempotencyKey)
 }
 
 func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {
