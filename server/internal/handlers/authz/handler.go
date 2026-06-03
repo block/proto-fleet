@@ -55,7 +55,15 @@ func (h *Handler) ListPermissions(ctx context.Context, _ *connect.Request[pb.Lis
 }
 
 func (h *Handler) ListRoles(ctx context.Context, _ *connect.Request[pb.ListRolesRequest]) (*connect.Response[pb.ListRolesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authzDomain.PermRoleManage, authzDomain.ResourceContext{})
+	// ListRoles is the only AuthzService RPC callable by user:manage in
+	// addition to role:manage. The AddTeamMember modal needs the list to
+	// populate its assignable-role picker, and the built-in ADMIN role
+	// intentionally excludes role:manage (see
+	// server/internal/domain/authz/builtin.go) — without this widening
+	// admins could open the modal but never save a new user. Escalation
+	// is still bounded by the privilege-parity check inside CreateUser
+	// and by the role:manage-only gate on every mutation RPC below.
+	info, err := middleware.RequireAnyPermission(ctx, []string{authzDomain.PermRoleManage, authzDomain.PermUserManage}, authzDomain.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}

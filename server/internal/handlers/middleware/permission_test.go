@@ -189,6 +189,103 @@ func TestRequirePermission_NarrowingAtSiteScope(t *testing.T) {
 }
 
 // ---------------------------------------------------------------
+// RequireAnyPermission
+// ---------------------------------------------------------------
+
+func TestRequireAnyPermission_AllowsWhenFirstKeyMatches(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermRoleManage))
+
+	info, err := middleware.RequireAnyPermission(ctx,
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.Equal(t, "alice", info.Username)
+}
+
+func TestRequireAnyPermission_AllowsWhenSecondKeyMatches(t *testing.T) {
+	// The motivating case: built-in ADMIN holds user:manage but NOT
+	// role:manage, and must still be able to load the assignable-role
+	// list for the AddTeamMember modal.
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermUserManage))
+
+	info, err := middleware.RequireAnyPermission(ctx,
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.Equal(t, "alice", info.Username)
+}
+
+func TestRequireAnyPermission_DeniesWhenNoKeyMatches(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermFleetRead))
+
+	info, err := middleware.RequireAnyPermission(ctx,
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Nil(t, info)
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+
+	// Denial payload reports the primary key (the first entry in the
+	// slice) so the existing structured-payload contract is stable.
+	var payload struct {
+		Required string         `json:"required"`
+		Scope    map[string]any `json:"scope"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(connectMessage(t, err)), &payload))
+	require.Equal(t, authz.PermRoleManage, payload.Required,
+		"denial echoes the primary key (first in slice)")
+	require.Equal(t, map[string]any{}, payload.Scope)
+}
+
+func TestRequireAnyPermission_UnauthenticatedWhenNoSessionInfo(t *testing.T) {
+	_, err := middleware.RequireAnyPermission(context.Background(),
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Equal(t, connect.CodeUnauthenticated, connectCode(t, err))
+}
+
+func TestRequireAnyPermission_FailClosedOnMissingEffective(t *testing.T) {
+	ctx := ctxWithInfo(userInfo())
+	_, err := middleware.RequireAnyPermission(ctx,
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err))
+}
+
+func TestRequireAnyPermission_FailClosedOnEmptyKeys(t *testing.T) {
+	// Programming error — must fail closed rather than silently allow.
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermRoleManage))
+	_, err := middleware.RequireAnyPermission(ctx, nil, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err),
+		"empty keys must surface as Internal, not ALLOW and not PermissionDenied")
+}
+
+func TestRequireAnyPermission_SchedulerShortCircuitsToAllow(t *testing.T) {
+	info := &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		Actor:          session.ActorScheduler,
+		OrganizationID: 1,
+	}
+	ctx := ctxWithInfo(info)
+
+	got, err := middleware.RequireAnyPermission(ctx,
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.Equal(t, session.ActorScheduler, got.Actor)
+}
+
+func TestRequireAnyPermission_UnknownActorDoesNotBypass(t *testing.T) {
+	info := &session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.Actor("future-orchestrator-typo"),
+	}
+	ctx := ctxWithInfo(info)
+
+	_, err := middleware.RequireAnyPermission(ctx,
+		[]string{authz.PermRoleManage, authz.PermUserManage}, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err))
+}
+
+// ---------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------
 

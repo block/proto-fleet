@@ -632,6 +632,12 @@ func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerU
 // a non-empty roleID is validated against the caller's org and
 // rejected for SUPER_ADMIN (ownership transfer lives elsewhere) before
 // the parity check runs.
+//
+// Call this inside the same RunInTx block as the assignment write:
+// GetRoleByID filters `deleted_at IS NULL`, so a concurrent
+// DeleteCustomRole between resolution and assignment would otherwise
+// leave the new user bound to a soft-deleted role (the FK enforces row
+// existence, not liveness).
 func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID int64, roleID string) (stores.Role, error) {
 	if roleID == "" {
 		return s.authorizeCallerForNewUserWithRole(ctx, callerUserID, orgID, AdminRoleName)
@@ -746,16 +752,6 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
-	// Resolve the role the new user will be bound to: an explicit role_id
-	// from the caller (validated to belong to this org and not be
-	// SUPER_ADMIN) or the legacy ADMIN default. Either path returns a
-	// role whose permissions are run through the same parity check so
-	// callers cannot mint a user above their own privilege level.
-	role, err := s.resolveCreateUserRole(ctx, info.UserID, orgID, req.GetRoleId())
-	if err != nil {
-		return nil, err
-	}
-
 	// Generate temporary password
 	tempPassword, err := generateTemporaryPassword()
 	if err != nil {
@@ -770,6 +766,21 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	var createdUserID string
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Resolve the role the new user will be bound to inside the tx
+		// so the role row read shares a snapshot with the assignment
+		// write. A concurrent DeleteCustomRole soft-deletes via
+		// `deleted_at = now()`; the underlying GetRoleByID query
+		// filters `deleted_at IS NULL`, so once we're inside the tx a
+		// racing delete either commits before the resolver reads (and
+		// we surface InvalidArgument) or after our assignment write
+		// (and the FK lands on a still-live row at the moment of
+		// write). Either way the new user is never bound to a
+		// soft-deleted role.
+		role, err := s.resolveCreateUserRole(ctx, info.UserID, orgID, req.GetRoleId())
+		if err != nil {
+			return err
+		}
+
 		// Generate external user ID
 		createdUserID = id.GenerateID()
 
