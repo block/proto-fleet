@@ -96,6 +96,10 @@ export class ActivityPage extends BasePage {
     await expect(this.activityRowByDescription(description)).toBeVisible();
   }
 
+  async validateActivityDescriptionMarkedFailed(description: string) {
+    await expect(this.activityRowByDescription(description).getByText("Failed", { exact: true })).toBeVisible();
+  }
+
   async openLatestActivityDetails() {
     await this.latestActivityRow().click();
   }

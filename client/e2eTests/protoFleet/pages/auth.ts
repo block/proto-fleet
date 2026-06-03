@@ -2,6 +2,10 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class AuthPage extends BasePage {
+  private invalidCredentialsContainer() {
+    return this.page.getByTestId("error");
+  }
+
   async isAlreadyLoggedIn(timeoutMs = 5000): Promise<boolean> {
     const loggedInMarker = this.isMobile
       ? this.page.getByTestId("navigation-menu-button")
@@ -27,7 +31,9 @@ export class AuthPage extends BasePage {
   }
 
   async inputPassword(password: string) {
-    await this.page.locator(`//input[@id='password']`).fill(password);
+    const passwordInput = this.page.locator(`//input[@id='password']`);
+    await passwordInput.clear();
+    await passwordInput.fill(password);
   }
 
   async clickLogin() {
@@ -59,7 +65,14 @@ export class AuthPage extends BasePage {
   }
 
   async validateInvalidCredentials() {
-    await expect(this.page.getByText("Invalid credentials entered.")).toBeVisible();
+    await expect(this.invalidCredentialsContainer()).not.toHaveClass(/hidden/);
+    await expect(
+      this.invalidCredentialsContainer().getByText("Invalid credentials entered.", { exact: true }),
+    ).toBeVisible();
+  }
+
+  async validateInvalidCredentialsNotVisible() {
+    await expect(this.invalidCredentialsContainer()).toHaveClass(/hidden/);
   }
 
   async validateUpdatePasswordTitle() {

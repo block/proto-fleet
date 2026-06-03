@@ -6,6 +6,7 @@ import { testConfig } from "./config/test.config";
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const adminStorageState = path.join(configDir, "playwright", ".auth", "admin.json");
 const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
+const skipProjectDeps = process.env.PW_UI_NO_DEPS === "1";
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -77,7 +78,7 @@ export default defineConfig({
       name: "desktop",
       testMatch: /.*\.spec\.ts$/,
       testIgnore: SETUP_FILE_GLOB,
-      dependencies: ["setup-desktop"],
+      dependencies: skipProjectDeps ? [] : ["setup-desktop"],
       use: {
         viewport: { width: 1600, height: 900 },
         isMobile: false,
@@ -89,7 +90,7 @@ export default defineConfig({
       name: "mobile",
       testMatch: /.*\.spec\.ts$/,
       testIgnore: SETUP_FILE_GLOB,
-      dependencies: ["setup-mobile"],
+      dependencies: skipProjectDeps ? [] : ["setup-mobile"],
       use: {
         viewport: { width: 393, height: 852 },
         isMobile: true,

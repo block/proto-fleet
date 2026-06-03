@@ -66,6 +66,7 @@ npx playwright test --headed             # See browser
 npx playwright test --debug              # Debug mode
 npx playwright test --ui                 # Interactive UI
 npx playwright test spec/auth.spec.ts    # Run specific file
+PW_UI_NO_DEPS=1 npx playwright test --ui --project=desktop  # Skip setup project deps for targeted reruns
 ```
 
 ### Viewing Test Reports
