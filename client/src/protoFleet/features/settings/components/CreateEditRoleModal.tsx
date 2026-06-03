@@ -114,8 +114,16 @@ const CreateEditRoleModalForm = ({
   // reads on top via withRequiredReads. Keeping derived reads out of state
   // means unchecking the last dependent action drops them automatically;
   // storing the merged set would leave invisible reads (e.g. fleet:read)
-  // behind after deselection.
-  const [explicit, setExplicit] = useState<Set<string>>(new Set(role?.permissions ?? []));
+  // behind after deselection. On edit, the stored role permissions include
+  // server-required auto-injected reads — filter to keys the user can
+  // actually see/toggle so the same drop-on-deselect behavior applies.
+  const visibleKeys = useMemo(
+    () => new Set(permissionGroups.flatMap((g) => g.entries.map((e) => e.key))),
+    [permissionGroups],
+  );
+  const [explicit, setExplicit] = useState<Set<string>>(
+    () => new Set((role?.permissions ?? []).filter((key) => visibleKeys.has(key))),
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [query, setQuery] = useState("");
