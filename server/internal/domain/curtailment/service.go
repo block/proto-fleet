@@ -225,15 +225,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
-		if errors.Is(err, interfaces.ErrCurtailmentDeviceAlreadyCurtailed) {
-			// A concurrent Start claimed one of the selected devices between
-			// the selector pass and the target insert; the device-exclusivity
-			// index rejected the overlap. Surface a conflict so the caller can
-			// retry against the now-smaller candidate set.
-			return nil, fleeterror.NewAlreadyExistsError(
-				"one or more selected devices are already in a non-terminal curtailment; retry",
-			)
-		}
 		// Webhook-replay race: re-issue the lookup so the loser falls
 		// into the same replay path as a deliberate retry.
 		if errors.Is(err, interfaces.ErrCurtailmentReplayRaceLoss) {

@@ -12,7 +12,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -685,7 +684,7 @@ func TestService_Start_DeviceOverlapReturnsAlreadyExists(t *testing.T) {
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("a", 6000, 100, 40),
 	}
-	store.insertEventErr = interfaces.ErrCurtailmentDeviceAlreadyCurtailed
+	store.insertEventErr = fleeterror.NewAlreadyExistsError("one or more selected devices are already in a non-terminal curtailment; retry")
 	svc := NewService(store)
 	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
 	require.Error(t, err)

@@ -102,6 +102,7 @@ var ProcedurePermissions = map[string]string{
 	// gates pending the broader curtailment authz redesign.
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:   authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:    authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:  authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure:  authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure: authz.PermCurtailmentIngest,

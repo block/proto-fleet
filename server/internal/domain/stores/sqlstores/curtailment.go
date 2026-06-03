@@ -172,8 +172,12 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				pgErr.ConstraintName == deviceNonTerminalUniqueIndex {
 				// The device-exclusivity index rejected a target: another
 				// non-terminal event already curtails one of these devices
-				// (selector/insert race).
-				return nil, interfaces.ErrCurtailmentDeviceAlreadyCurtailed
+				// (selector/insert race). Return the FleetError directly —
+				// WithTransaction preserves FleetError values but converts
+				// plain sentinels to Internal.
+				return nil, fleeterror.NewAlreadyExistsError(
+					"one or more selected devices are already in a non-terminal curtailment; retry",
+				)
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
 		}

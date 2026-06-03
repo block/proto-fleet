@@ -10,13 +10,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
-// ErrCurtailmentDeviceAlreadyCurtailed is returned by InsertEventWithTargets
-// when the device-level partial unique index rejects a target: one of the
-// selected devices is already in a non-terminal curtailment. Expected only on
-// a race between the selector pass and the target insert — the selector
-// otherwise excludes already-curtailed devices.
-var ErrCurtailmentDeviceAlreadyCurtailed = errors.New("a selected device is already in a non-terminal curtailment")
-
 // ErrCurtailmentReplayRaceLoss is returned by InsertEventWithTargets when
 // a concurrent first-time Start sharing the same idempotency_key or
 // (external_source, external_reference) won the partial-unique-index race.
