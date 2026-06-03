@@ -137,9 +137,9 @@ func TestConfirmedConnectedNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
 	// Act
 	got, err := svc.ConfirmedConnectedNodeIDs(context.Background(), 1)
 
-	// Assert: only the confirmed AND connected node.
+	// Assert: only the confirmed AND connected node (order is unspecified).
 	require.NoError(t, err)
-	assert.Equal(t, []int64{1}, got)
+	assert.ElementsMatch(t, []int64{1}, got)
 }
 
 func TestRunOnNode_OnBatchErrorIsTerminal(t *testing.T) {

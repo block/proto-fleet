@@ -117,8 +117,8 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	}
 	defer session.Close()
 
-	// handleEvent forwards a batch or resolves the command on an ack. terminal
-	// reports whether the command is finished; err is set only on failure.
+	// terminal=true stops the loop whether or not err is set — an OK/PARTIAL ack
+	// is terminal with a nil err.
 	handleEvent := func(ev control.CommandEvent) (terminal bool, err error) {
 		switch {
 		case ev.Batch != nil:
