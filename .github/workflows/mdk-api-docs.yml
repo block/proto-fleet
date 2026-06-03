@@ -6,6 +6,10 @@ on:
     paths:
       - proto-rig-api/openapi/MDK-API.json
       - .github/workflows/mdk-api-docs.yml
+  pull_request:
+    paths:
+      - proto-rig-api/openapi/MDK-API.json
+      - .github/workflows/mdk-api-docs.yml
   workflow_dispatch:
 
 permissions:
@@ -37,6 +41,7 @@ jobs:
     name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
