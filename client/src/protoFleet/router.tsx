@@ -169,14 +169,23 @@ const router = createBrowserRouter([
 
   // Permanent redirects from the old standalone Miners + Racks routes to
   // their Fleet-tab homes. Existing bookmarks degrade cleanly; no
-  // deprecation window — see plan J2.
+  // deprecation window — see plan J2. Preserve the query string + hash so
+  // deep-links like `/miners?filter=control-board` keep their filter state
+  // through the redirect (the dashboard issue cards and several rack-flow
+  // entry points rely on this).
   {
     path: "/miners",
-    loader: () => redirect("/fleet/miners"),
+    loader: ({ request }) => {
+      const url = new URL(request.url);
+      return redirect(`/fleet/miners${url.search}${url.hash}`);
+    },
   },
   {
     path: "/racks",
-    loader: () => redirect("/fleet/racks"),
+    loader: ({ request }) => {
+      const url = new URL(request.url);
+      return redirect(`/fleet/racks${url.search}${url.hash}`);
+    },
   },
 
   // Groups
