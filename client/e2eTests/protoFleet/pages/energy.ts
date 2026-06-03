@@ -107,10 +107,7 @@ export class EnergyPage extends BasePage {
       return;
     }
 
-    const historyStopButton = this.curtailmentHistoryStopButton(target);
-    if (await historyStopButton.isVisible().catch(() => false)) {
-      await this.confirmStopAction(historyStopButton, "Confirm stop");
-    }
+    await this.stopHistoryCurtailmentIfPresent(target);
   }
 
   async waitForCurtailmentToRestore(target: CurtailmentCleanupTarget) {
@@ -153,9 +150,7 @@ export class EnergyPage extends BasePage {
       return;
     }
 
-    const historyStopButton = this.curtailmentHistoryStopButton(target);
-    if (await historyStopButton.isVisible().catch(() => false)) {
-      await this.confirmStopAction(historyStopButton, "Confirm stop");
+    if (await this.stopHistoryCurtailmentIfPresent(target)) {
       await this.waitForCurtailmentToRestore(target);
       return;
     }
@@ -196,6 +191,17 @@ export class EnergyPage extends BasePage {
 
   private curtailmentHistoryStopButton(target: CurtailmentCleanupTarget): Locator {
     return this.curtailmentHistoryRow(target).getByRole("button", { name: `Stop ${target.reason}` });
+  }
+
+  private async stopHistoryCurtailmentIfPresent(target: CurtailmentCleanupTarget): Promise<boolean> {
+    const historyStopButton = this.curtailmentHistoryStopButton(target);
+    if ((await historyStopButton.count()) === 0) {
+      return false;
+    }
+
+    await historyStopButton.first().scrollIntoViewIfNeeded();
+    await this.confirmStopAction(historyStopButton.first(), "Confirm stop");
+    return true;
   }
 
   private async hasMatchingStoppableCurtailment(target: CurtailmentCleanupTarget): Promise<boolean> {
