@@ -395,6 +395,35 @@ func TestWorker_HandleMessage_StalePayload_Ignored(t *testing.T) {
 	assert.Equal(t, processedAt, next.LastTargetAt, "stale payload must not advance the processed timestamp")
 }
 
+// A retained/backlog payload whose publisher stamp is already older than the
+// staleness threshold must not be treated as fresh on cold start: it must not
+// advance LastTarget or reset the watchdog freshness clock, so the watchdog
+// fails safe instead of idling a full threshold on stale data.
+func TestWorker_HandleMessage_AgeStalePayload_Ignored(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource()) // StalenessThreshold = 240 s
+
+	now := time.Now().UTC()
+	// Retained ON published well past the staleness threshold (but inside the
+	// 24 h decode sanity window).
+	staleTS := now.Add(-10 * time.Minute)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": staleTS.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown} // cold
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now})
+
+	assert.Equal(t, TargetUnknown, next.LastTarget, "age-stale ON must not advance LastTarget on cold start")
+	assert.True(t, next.LastReceivedAt.IsZero(), "age-stale payload must not reset the watchdog freshness clock")
+	assert.Empty(t, svc.startCalls)
+	assert.Empty(t, svc.stopCalls)
+}
+
 // A stale observation that wins precedence by receive-time must be evicted so
 // it stops masking the other broker's current data; the fresh OFF is acted on
 // immediately rather than after the freshness window.

@@ -197,6 +197,17 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		return prior
 	}
 
+	// Reject an age-stale payload: a retained/backlog message older than the
+	// staleness threshold doesn't prove the publisher is live, so leave state
+	// untouched for the watchdog to fail safe (cold start has no other guard).
+	if age := canonical.ReceivedAt.Sub(canonical.PublishedAt); age >= w.source.StalenessThreshold {
+		w.cfg.Logger.Warn("mqttingest: ignoring age-stale payload",
+			slog.String("source", w.source.SourceName),
+			slog.Time("published_at", canonical.PublishedAt),
+			slog.Duration("age", age))
+		return prior
+	}
+
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
