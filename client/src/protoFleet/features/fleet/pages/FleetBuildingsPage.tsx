@@ -1,51 +1,52 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import BuildingsListTable from "../components/BuildingsListTable";
+import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
-// Buildings tab content for `/fleet/buildings`. List of every building
-// across the org with its parent site. Row click navigates to
-// /buildings/:id. The "Add building" CTA + per-row ellipsis menu actions
-// land in PR 3 alongside the BuildingDetailsModal site-picker field —
-// see plan J3 / J10.
+// Buildings tab content for `/fleet/buildings`. Reads the sites list from
+// the FleetLayout outlet context (single shared fetch) and fetches buildings
+// locally. Row click navigates to /buildings/:id. The "Add building" CTA +
+// per-row ellipsis menu actions land in PR 3 alongside the
+// BuildingDetailsModal site-picker field — see plan J3 / J10.
 const FleetBuildingsPage = () => {
-  const { listAllBuildings } = useBuildings();
-  const { listSites } = useSites();
-  const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
+  const { sites, sitesError, refetchSites } = useFleetOutletContext();
 
-  const fetchAll = useCallback(() => {
+  const { listAllBuildings } = useBuildings();
+  const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
+  const [buildingsError, setBuildingsError] = useState<string | null>(null);
+
+  const fetchBuildings = useCallback(() => {
     const controller = new AbortController();
     void listAllBuildings({
       signal: controller.signal,
       onSuccess: (rows) => {
         setBuildings(rows);
-        setError(null);
+        setBuildingsError(null);
       },
       onError: (msg) => {
-        setError(msg);
-        setBuildings([]);
+        setBuildingsError(msg);
+        // Preserve last-good list on transient errors; only clear on the
+        // initial-load failure path so consumers can distinguish "no
+        // buildings" from "fetch failed and we have nothing to show".
+        setBuildings((prev) => prev ?? []);
       },
     });
-    // Sites are joined client-side to render the site column. Errors here
-    // collapse to an empty site map — the page still renders, just with
-    // "—" in the Site column.
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => setSites(rows),
-      onError: () => setSites([]),
-    });
     return () => controller.abort();
-  }, [listAllBuildings, listSites]);
+  }, [listAllBuildings]);
 
-  useEffect(() => fetchAll(), [fetchAll]);
+  // Retry handler shared by the buttons below. Re-runs the effect by bumping
+  // `retryCounter`, which means the cleanup AbortController is owned by
+  // useEffect and never leaks across retries.
+  const [retryCounter, setRetryCounter] = useState(0);
+  const handleBuildingsRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
+
+  useEffect(() => fetchBuildings(), [fetchBuildings, retryCounter]);
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
@@ -72,16 +73,16 @@ const FleetBuildingsPage = () => {
     );
   }
 
-  if (error) {
+  if (buildingsError && buildings.length === 0) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-error">
         <Header title="Couldn't load buildings" titleSize="text-heading-200" />
-        <p className="text-300 text-text-primary-70">{error}</p>
+        <p className="text-300 text-text-primary-70">{buildingsError}</p>
         <Button
           variant={variants.secondary}
           size={sizes.compact}
           text="Retry"
-          onClick={fetchAll}
+          onClick={handleBuildingsRetry}
           testId="fleet-buildings-retry"
         />
       </div>
@@ -124,6 +125,42 @@ const FleetBuildingsPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-page">
+      {/* Surface a sites-fetch failure inline. The Site column degrades to "—"
+          for every row when sites is empty due to error, and a silent
+          degradation would leave the operator wondering why the column is
+          missing. */}
+      {sitesError ? (
+        <div
+          className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+          data-testid="fleet-buildings-sites-error"
+        >
+          <span className="text-300 text-text-primary-70">
+            Couldn&apos;t load sites for the Site column: {sitesError}
+          </span>
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Retry"
+            onClick={refetchSites}
+            testId="fleet-buildings-sites-retry"
+          />
+        </div>
+      ) : null}
+      {buildingsError ? (
+        <div
+          className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+          data-testid="fleet-buildings-inline-error"
+        >
+          <span className="text-300 text-text-primary-70">Couldn&apos;t refresh buildings: {buildingsError}</span>
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Retry"
+            onClick={handleBuildingsRetry}
+            testId="fleet-buildings-inline-retry"
+          />
+        </div>
+      ) : null}
       <BuildingsListTable buildings={visibleBuildings} sites={sites} />
     </div>
   );

@@ -44,10 +44,10 @@ const BuildingsListTable = ({ buildings, sites }: BuildingsListTableProps) => {
         const id = (entry.building?.id ?? 0n).toString();
         const siteId = entry.building?.siteId;
         const siteName = siteId ? (siteNameById.get(siteId.toString()) ?? "—") : "—";
-        // Power capacity comes from the proto in kW. The shared formatter
-        // converts to MW so we don't render "50000 kW" — matches
-        // BuildingMetricsRow. Used side is null until Phase 1b telemetry
-        // wiring lands.
+        // Power capacity comes from the proto in kW; the shared
+        // formatter expects capacity in MW, so divide before passing.
+        // Matches BuildingMetricsRow. Used side is null until Phase 1b
+        // telemetry wiring lands.
         const powerCapacityKw = entry.building?.powerKw ?? 0;
         const power = formatPowerUsedCapacity(null, powerCapacityKw / KW_PER_MW) ?? "—";
         return (

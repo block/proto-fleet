@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
+import { useFleetOutletContext } from "../components/FleetLayout";
 import SitesListTable from "../components/SitesListTable";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
@@ -10,38 +10,19 @@ import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
-// Sites tab content for `/fleet/sites`. Mirrors the original
-// /settings/sites All Sites table — Add Site CTA, flat list, modals —
-// but rows navigate to /sites/:id (J3a) instead of narrowing the
-// topbar SitePicker. Phase 1a uses placeholder metrics; the live
-// metric columns land with the rest of Phase 1b enrichment.
+// Sites tab content for `/fleet/sites`. Reads the sites list from the
+// FleetLayout outlet context (single shared fetch) and mirrors the original
+// /settings/sites All Sites table — Add Site CTA, flat list, modals. Rows
+// navigate to /sites/:id (J3a) instead of narrowing the topbar SitePicker.
+// Phase 1a uses placeholder metrics; the live metric columns land with the
+// rest of Phase 1b enrichment.
 const FleetSitesPage = () => {
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setError(null);
-      },
-      onError: (msg) => {
-        setError(msg);
-        setSites([]);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
-
-  useEffect(() => fetchSites(), [fetchSites]);
+  const { sites, sitesError, refetchSites } = useFleetOutletContext();
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
 
-  const modals = useSiteModals({ refetchSites: fetchSites });
+  const modals = useSiteModals({ refetchSites });
 
   if (sites === undefined) {
     return (
@@ -51,16 +32,19 @@ const FleetSitesPage = () => {
     );
   }
 
-  if (error) {
+  // Full-page error path only when we have no last-good data. Once the layout
+  // has rendered sites at least once, a transient failure surfaces inline
+  // below and the existing list stays visible — see FleetLayout's onError.
+  if (sitesError && sites.length === 0) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-sites-error">
         <Header title="Couldn't load sites" titleSize="text-heading-200" />
-        <p className="text-300 text-text-primary-70">{error}</p>
+        <p className="text-300 text-text-primary-70">{sitesError}</p>
         <Button
           variant={variants.secondary}
           size={sizes.compact}
           text="Retry"
-          onClick={fetchSites}
+          onClick={refetchSites}
           testId="fleet-sites-retry"
         />
       </div>
@@ -100,6 +84,23 @@ const FleetSitesPage = () => {
   return (
     <>
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-sites-page">
+        {sitesError ? (
+          // Post-init listSites failure: keep last-good data rendered below
+          // and surface the failure as an inline retry banner.
+          <div
+            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+            data-testid="fleet-sites-inline-error"
+          >
+            <span className="text-300 text-text-primary-70">Couldn&apos;t refresh sites: {sitesError}</span>
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Retry"
+              onClick={refetchSites}
+              testId="fleet-sites-inline-retry"
+            />
+          </div>
+        ) : null}
         {body}
       </div>
       <SiteModals modals={modals} sites={sites} />

@@ -1,0 +1,172 @@
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+
+import FleetLayout from "./FleetLayout";
+import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
+
+// Mock listSites at the hook level so the test stays focused on FleetLayout's
+// redirect logic. The hook returns a callable that resolves with the
+// provided sites via onSuccess — same shape as the real listSites contract.
+const listSitesMock = vi.hoisted(() => vi.fn());
+vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/protoFleet/api/sites")>();
+  return {
+    ...actual,
+    useSites: () => ({
+      listSites: listSitesMock,
+      // The other useSites members are unused in FleetLayout but the type
+      // shape requires them; stub as no-ops.
+      createSite: vi.fn(),
+      updateSite: vi.fn(),
+      deleteSite: vi.fn(),
+      reassignDevicesToSite: vi.fn(),
+    }),
+  };
+});
+
+// Mock useActiveSite so each test can pin the SitePicker selection without
+// driving the Zustand store. The hook returns { activeSite, setActiveSite }.
+const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as ActiveSite }));
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
+  useActiveSite: () => ({
+    activeSite: activeSiteMock.current,
+    setActiveSite: vi.fn(),
+  }),
+}));
+
+const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>
+  create(SiteWithCountsSchema, {
+    site: create(SiteSchema, { id: BigInt(id), name }),
+    deviceCount: 0n,
+    rackCount: 0n,
+    buildingCount: 0n,
+  });
+
+const LocationProbe = () => {
+  const location = useLocation();
+  return <div data-testid="location-probe">{location.pathname}</div>;
+};
+
+const renderAt = (initialPath: string) =>
+  render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route path="/fleet" element={<FleetLayout />}>
+          <Route index element={null} />
+          <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
+          <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
+          <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
+          <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
+        </Route>
+      </Routes>
+      <LocationProbe />
+    </MemoryRouter>,
+  );
+
+beforeEach(() => {
+  // Default: listSites resolves with a non-empty set so the redirect
+  // gate (waits for sites !== undefined) clears. Tests that need to
+  // exercise the in-flight branch override before render.
+  listSitesMock.mockImplementation(async ({ onSuccess }) => {
+    onSuccess?.([buildSite(1), buildSite(2)]);
+  });
+  activeSiteMock.current = { kind: "all" };
+  localStorage.clear();
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("FleetLayout redirect logic", () => {
+  test("bare /fleet redirects to Sites tab when picker is All Sites and no lastTab is stored", async () => {
+    renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
+    expect(screen.getByTestId("tab-content-sites")).toBeInTheDocument();
+  });
+
+  test("bare /fleet redirects to the stored lastTab when one exists", async () => {
+    localStorage.setItem("fleet:lastActiveTab", JSON.stringify("racks"));
+    renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+  });
+
+  test("bare /fleet falls back to Buildings when picker is single-site and lastTab is 'sites'", async () => {
+    localStorage.setItem("fleet:lastActiveTab", JSON.stringify("sites"));
+    activeSiteMock.current = { kind: "site", id: "1" };
+    renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/buildings"));
+  });
+
+  test("ignores a corrupted lastTab value and falls back to the default tab", async () => {
+    // Older schema or manual tampering: lastTab is a string but not a
+    // FleetTabId. Without the isFleetTabId guard the layout would navigate
+    // to /fleet/<garbage>.
+    localStorage.setItem("fleet:lastActiveTab", JSON.stringify("dashboard"));
+    renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
+  });
+
+  test("Sites tab redirects away when SitePicker selects a single site", async () => {
+    localStorage.setItem("fleet:lastActiveTab", JSON.stringify("buildings"));
+    activeSiteMock.current = { kind: "site", id: "1" };
+    renderAt("/fleet/sites");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/buildings"));
+  });
+
+  test("Sites tab stays visible under Unassigned picker selection", async () => {
+    activeSiteMock.current = { kind: "unassigned" };
+    renderAt("/fleet/sites");
+    // No redirect — content for the Sites tab still renders.
+    await waitFor(() => expect(screen.getByTestId("tab-content-sites")).toBeInTheDocument());
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites");
+  });
+
+  test("does not redirect away from a non-sites tab when picker hides Sites", async () => {
+    activeSiteMock.current = { kind: "site", id: "1" };
+    renderAt("/fleet/racks");
+    // Operator is on a non-hidden tab; layout must leave them there.
+    await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
+  });
+});
+
+describe("FleetLayout lastTab persistence", () => {
+  test("writes the current tab to localStorage on navigation", async () => {
+    renderAt("/fleet/buildings");
+    await waitFor(() => expect(screen.getByTestId("tab-content-buildings")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(localStorage.getItem("fleet:lastActiveTab")).toBe(JSON.stringify("buildings"));
+    });
+  });
+});
+
+describe("FleetLayout redirect gating on sites load", () => {
+  test("defers the redirect until the initial sites load resolves", async () => {
+    // Hold the listSites promise so sites === undefined for one frame.
+    let resolveSites: ((sites: SiteWithCounts[]) => void) | null = null;
+    listSitesMock.mockImplementation(async ({ onSuccess }) => {
+      await new Promise<void>((resolve) => {
+        resolveSites = (sites: SiteWithCounts[]) => {
+          onSuccess?.(sites);
+          resolve();
+        };
+      });
+    });
+    // Stale picker selection points at a now-deleted site; once sites land,
+    // useActiveSite would normally reset to "all" — meanwhile, the layout's
+    // redirect must NOT fire and bounce the operator off /fleet.
+    activeSiteMock.current = { kind: "site", id: "999" };
+    renderAt("/fleet");
+    // Before sites resolve: still on /fleet (no redirect).
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
+
+    await act(async () => {
+      resolveSites?.([buildSite(1)]);
+    });
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).not.toBe("/fleet"));
+  });
+});

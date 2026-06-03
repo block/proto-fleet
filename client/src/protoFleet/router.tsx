@@ -39,6 +39,7 @@ import {
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
+import { minersRedirectLoader, racksRedirectLoader } from "@/protoFleet/features/fleet/redirectLoaders";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -169,24 +170,11 @@ const router = createBrowserRouter([
 
   // Permanent redirects from the old standalone Miners + Racks routes to
   // their Fleet-tab homes. Existing bookmarks degrade cleanly; no
-  // deprecation window — see plan J2. Preserve the query string + hash so
-  // deep-links like `/miners?filter=control-board` keep their filter state
-  // through the redirect (the dashboard issue cards and several rack-flow
-  // entry points rely on this).
-  {
-    path: "/miners",
-    loader: ({ request }) => {
-      const url = new URL(request.url);
-      return redirect(`/fleet/miners${url.search}${url.hash}`);
-    },
-  },
-  {
-    path: "/racks",
-    loader: ({ request }) => {
-      const url = new URL(request.url);
-      return redirect(`/fleet/racks${url.search}${url.hash}`);
-    },
-  },
+  // deprecation window — see plan J2. Loaders live in
+  // features/fleet/redirectLoaders.ts so the query+hash preservation
+  // contract is unit-testable independent of the route tree.
+  { path: "/miners", loader: minersRedirectLoader },
+  { path: "/racks", loader: racksRedirectLoader },
 
   // Groups
   createRoute("/groups", <GroupsPage />),
