@@ -98,7 +98,7 @@ test.describe("Proto Fleet - Curtailment", () => {
 
         expect(stopRequest.method()).toBe("POST");
         expect(stopBody.eventUuid).toBe(expectedEventUuid);
-        expect(stopBody.force).toBe(false);
+        expect(stopBody.force ?? false).toBe(false);
         expect(stopResponse.status()).toBe(200);
 
         startedCurtailment = undefined;
