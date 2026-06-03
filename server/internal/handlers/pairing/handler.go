@@ -94,8 +94,11 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	}()
 
 	// Fan out only for the automatic "Scan your network" action (nmap target ==
-	// the cloud's own local subnet), never a manual/explicit target.
-	if isLocalSubnetNmap && h.discovery != nil {
+	// the cloud's own local subnet), never a manual/explicit target, and only for
+	// callers who also hold fleetnode:manage — the same permission the single-node
+	// DiscoverOnFleetNode path requires. Without it, discovery stays cloud-only so
+	// the weaker miner:pair grant can't drive discovery commands on fleet nodes.
+	if isLocalSubnetNmap && h.discovery != nil && callerCanManageFleetNodes(ctx) {
 		nodeIDs, listErr := h.discovery.ConfirmedConnectedNodeIDs(streamCtx, info.OrganizationID)
 		if listErr != nil {
 			// Fan-out is best-effort; a lookup failure must never break the
@@ -136,6 +139,15 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return fleeterror.NewCanceledError()
 	}
 	return nil
+}
+
+// callerCanManageFleetNodes reports whether the request holds fleetnode:manage.
+// It reuses the canonical permission path (so the synthesized-actor and
+// fail-closed semantics match) but treats absence as a soft signal to skip
+// fan-out rather than an error to return.
+func callerCanManageFleetNodes(ctx context.Context) bool {
+	_, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
+	return err == nil
 }
 
 // Pair implements pairingv1connect.PairingServiceHandler.
