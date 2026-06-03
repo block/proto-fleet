@@ -76,10 +76,14 @@ export const requiredReadsFor = (key: string, catalog: CatalogEntry[]): string[]
   if (!entry) return [];
 
   const reads = new Set<string>();
-  const sameResourceRead = readKeyByResource(catalog).get(entry.resource);
+  const readsByResource = readKeyByResource(catalog);
+  const sameResourceRead = readsByResource.get(entry.resource);
   if (sameResourceRead) reads.add(sameResourceRead);
-  // fleet:read is the floor for any role that grants a miner action.
-  if (entry.resource === "miner") reads.add("fleet:read");
+  // Miner actions additionally require the fleet-level read floor.
+  if (entry.resource === "miner") {
+    const fleetRead = readsByResource.get("fleet");
+    if (fleetRead) reads.add(fleetRead);
+  }
 
   return [...reads];
 };

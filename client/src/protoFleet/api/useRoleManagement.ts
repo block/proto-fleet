@@ -15,7 +15,7 @@ export interface RoleItem {
   description: string;
   /** Effective catalog permission keys granted by the role. */
   permissions: string[];
-  /** Built-in roles are seeded server-side; SUPER_ADMIN is immutable. */
+  /** Built-in roles are seeded server-side and unconditionally immutable; the server rejects mutation on any built-in. */
   builtin: boolean;
   builtinKey?: BuiltinRoleKey;
   /** Number of active members currently assigned this role. */

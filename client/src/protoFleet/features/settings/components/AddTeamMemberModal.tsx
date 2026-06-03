@@ -43,8 +43,10 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
   // we don't trigger cascading renders from setState inside an effect.
   useEffect(() => {
     if (!isVisible) return;
+    let cancelled = false;
     listRoles({
       onSuccess: (roleList) => {
+        if (cancelled) return;
         const assignable = roleList.filter((role) => role.builtinKey !== "SUPER_ADMIN");
         setRoles(assignable);
         // Default to the least-privileged built-in (Field Tech) when present.
@@ -52,12 +54,19 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
         setRoleId((current) => current || defaultRole?.roleId || "");
       },
       onError: (error) => {
+        if (cancelled) return;
         const message = error || "Failed to load roles";
         setRolesError(message);
         pushToast({ message, status: STATUSES.error });
       },
-      onFinally: () => setIsLoadingRoles(false),
+      onFinally: () => {
+        if (cancelled) return;
+        setIsLoadingRoles(false);
+      },
     });
+    return () => {
+      cancelled = true;
+    };
   }, [isVisible, listRoles]);
 
   const roleOptions = useMemo(
