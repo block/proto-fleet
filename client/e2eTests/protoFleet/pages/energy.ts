@@ -9,6 +9,10 @@ export interface CurtailmentCleanupTarget {
   eventUuid?: string;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class EnergyPage extends BasePage {
   async navigateToEnergyPage() {
     await this.clickNavigationMenuIfMobile();
@@ -93,28 +97,10 @@ export class EnergyPage extends BasePage {
 
   async stopCurtailment(target: CurtailmentCleanupTarget) {
     await expect
-      .poll(
-        async () => {
-          if (
-            await this.activeCurtailmentStopButton(target.reason)
-              .isVisible()
-              .catch(() => false)
-          ) {
-            return true;
-          }
-
-          if (
-            await this.activeCurtailmentRestoreButton(target.reason)
-              .isVisible()
-              .catch(() => false)
-          ) {
-            return true;
-          }
-
-          return (await this.curtailmentHistoryStopButton(target).count()) > 0;
-        },
-        { timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] },
-      )
+      .poll(async () => this.hasMatchingStoppableCurtailment(target), {
+        timeout: DEFAULT_TIMEOUT,
+        intervals: [DEFAULT_INTERVAL],
+      })
       .toBe(true);
 
     if (await this.stopMatchingActiveCurtailmentIfPresent(target.reason)) {
@@ -130,6 +116,10 @@ export class EnergyPage extends BasePage {
   async cleanupStartedCurtailment(target: CurtailmentCleanupTarget) {
     await this.page.goto("/energy");
     await expect(this.page).toHaveURL(/.*\/energy/);
+
+    if (!(await this.waitForMatchingStoppableCurtailment(target))) {
+      return;
+    }
 
     if (await this.stopMatchingActiveCurtailmentIfPresent(target.reason)) {
       return;
@@ -172,6 +162,40 @@ export class EnergyPage extends BasePage {
 
   private curtailmentHistoryStopButton(target: CurtailmentCleanupTarget): Locator {
     return this.curtailmentHistoryRow(target).getByRole("button", { name: `Stop ${target.reason}` });
+  }
+
+  private async hasMatchingStoppableCurtailment(target: CurtailmentCleanupTarget): Promise<boolean> {
+    if (
+      await this.activeCurtailmentStopButton(target.reason)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return true;
+    }
+
+    if (
+      await this.activeCurtailmentRestoreButton(target.reason)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return true;
+    }
+
+    return (await this.curtailmentHistoryStopButton(target).count()) > 0;
+  }
+
+  private async waitForMatchingStoppableCurtailment(target: CurtailmentCleanupTarget): Promise<boolean> {
+    const deadline = Date.now() + DEFAULT_TIMEOUT;
+
+    do {
+      if (await this.hasMatchingStoppableCurtailment(target)) {
+        return true;
+      }
+
+      await delay(DEFAULT_INTERVAL);
+    } while (Date.now() < deadline);
+
+    return this.hasMatchingStoppableCurtailment(target);
   }
 
   private async confirmStopAction(button: Locator, confirmationButtonName: "Confirm stop" | "Restore power") {
