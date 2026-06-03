@@ -59,7 +59,6 @@ export class AuthPage extends BasePage {
   }
 
   async validateInvalidCredentials() {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
     await expect(this.page.getByText("Invalid credentials entered.")).toBeVisible();
   }
 

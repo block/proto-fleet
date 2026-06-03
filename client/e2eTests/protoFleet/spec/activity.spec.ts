@@ -30,6 +30,10 @@ async function attemptFailedAdminLogin(authPage: AuthPage) {
 }
 
 test.describe("Proto Fleet - Activity", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+  });
+
   test.afterEach("CLEANUP: Delete schedules created during activity tests", async ({ browser }, testInfo) => {
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport ?? undefined;
@@ -55,7 +59,6 @@ test.describe("Proto Fleet - Activity", () => {
   });
 
   test("Blink LEDs activity opens detail modal and shows per-miner results", async ({
-    page,
     activityPage,
     commonSteps,
     minersPage,
@@ -63,7 +66,6 @@ test.describe("Proto Fleet - Activity", () => {
     let selectedMinerIps: string[] = [];
 
     await test.step("Log in, open Miners, and trigger Blink LEDs for three authenticated miners", async () => {
-      await page.goto("/");
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
 
@@ -108,7 +110,6 @@ test.describe("Proto Fleet - Activity", () => {
   });
 
   test("Search, no-results, and clear-filters work for schedule activity", async ({
-    page,
     activityPage,
     commonSteps,
     settingsSchedulesPage,
@@ -116,7 +117,6 @@ test.describe("Proto Fleet - Activity", () => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
     await test.step("Log in and open schedules settings", async () => {
-      await page.goto("/");
       await commonSteps.loginAsAdmin();
       await settingsSchedulesPage.navigateToSchedulesSettings();
       await settingsSchedulesPage.validateSchedulesPageOpened();
@@ -166,7 +166,6 @@ test.describe("Proto Fleet - Activity", () => {
   });
 
   test("Activity filter pills can be removed individually", async ({
-    page,
     activityPage,
     commonSteps,
     settingsSchedulesPage,
@@ -174,7 +173,6 @@ test.describe("Proto Fleet - Activity", () => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
     await test.step("Log in and create a uniquely named schedule for Activity filtering", async () => {
-      await page.goto("/");
       await commonSteps.loginAsAdmin();
       await settingsSchedulesPage.navigateToSchedulesSettings();
       await settingsSchedulesPage.validateSchedulesPageOpened();
@@ -215,9 +213,8 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Activity export starts a CSV download", async ({ page, activityPage, commonSteps }) => {
+  test("Activity export starts a CSV download", async ({ activityPage, commonSteps }) => {
     await test.step("Log in and open Activity with visible rows", async () => {
-      await page.goto("/");
       await commonSteps.loginAsAdmin();
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
@@ -230,9 +227,8 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Activity load more appends older rows", async ({ page, activityPage, authPage, commonSteps }) => {
+  test("Activity load more appends older rows", async ({ activityPage, authPage, commonSteps }) => {
     await test.step("Log in and create enough recent login activity in one session", async () => {
-      await page.goto("/");
       await commonSteps.loginAsAdmin();
       for (let i = 0; i < LOGIN_EVENTS_FOR_PAGINATION; i++) {
         await logoutAndLoginAsAdmin(authPage);
@@ -257,13 +253,8 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Failed and successful admin logins appear in Activity as expected", async ({
-    page,
-    authPage,
-    activityPage,
-  }) => {
+  test("Failed and successful admin logins appear in Activity as expected", async ({ authPage, activityPage }) => {
     await test.step("Open Fleet and log in as admin", async () => {
-      await page.goto("/");
       await loginAsAdmin(authPage);
     });
 
@@ -280,7 +271,6 @@ test.describe("Proto Fleet - Activity", () => {
       await authPage.logout();
       await authPage.validateRedirectedToAuth();
       await attemptFailedAdminLogin(authPage);
-      await page.goto("/auth");
       await loginAsAdmin(authPage);
     });
 
