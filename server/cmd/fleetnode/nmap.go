@@ -34,8 +34,10 @@ var errNoLocalSubnet = errors.New("no local IPv4 subnet found")
 // It reuses the same primary-interface detection the cloud Discover path uses
 // (networking.GetLocalNetworkInfo). That is intentionally less robust than
 // per-NIC private filtering — it picks one interface, doesn't skip
-// virtual/container NICs, and doesn't narrow or cap the mask; hardening is a
-// follow-up. The localSubnets seam lets tests inject canned CIDRs.
+// virtual/container NICs, and doesn't narrow or cap the mask. The caller
+// (buildNmapOptions) rejects non-private results before scanning; narrowing an
+// over-broad private mask is a follow-up. The localSubnets seam lets tests
+// inject canned CIDRs.
 func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 	if r.localSubnets != nil {
 		return r.localSubnets()
@@ -53,6 +55,24 @@ func (r *RunCmd) detectLocalSubnets() ([]string, error) {
 // validateNmapTarget enforces the shared nmap target grammar (see nmaptarget).
 func validateNmapTarget(s string) error {
 	return nmaptarget.Validate(s)
+}
+
+// requirePrivateIPv4Subnet guards the local-subnet sentinel: a detected subnet
+// must be a private (RFC1918) IPv4 prefix before it is scanned, since
+// primary-interface detection itself doesn't filter for RFC1918.
+func requirePrivateIPv4Subnet(s string) error {
+	prefix, err := netip.ParsePrefix(s)
+	if err != nil {
+		return fmt.Errorf("not a CIDR: %w", err)
+	}
+	addr := prefix.Addr()
+	if !addr.Is4() {
+		return errors.New("not IPv4")
+	}
+	if !addr.IsPrivate() {
+		return errors.New("not in an RFC1918 private range")
+	}
+	return nil
 }
 
 const (
@@ -144,6 +164,17 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 		subnets, err := r.detectLocalSubnets()
 		if err != nil {
 			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no connected private IPv4 subnet for local-subnet scan: %s", err)
+		}
+		// detectLocalSubnets reuses primary-interface detection that does not
+		// filter for RFC1918, so a node whose primary NIC is public would
+		// otherwise have that subnet scanned. Refuse non-private targets here so
+		// an automatic "Scan your network" can never probe a public network; the
+		// server's report scope drops public IPs, but only after the node has
+		// already sent the scan traffic.
+		for _, s := range subnets {
+			if err := requirePrivateIPv4Subnet(s); err != nil {
+				return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q is not a private IPv4 subnet: %s", s, err)
+			}
 		}
 		return append(baseNmapOptions(r.nmapPath, ports), nmap.WithTargets(subnets...)), nil
 	}

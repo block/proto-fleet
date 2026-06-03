@@ -270,6 +270,25 @@ func TestBuildNmapOptions_LocalSubnetTarget_UsesDetectedCIDRs(t *testing.T) {
 	assert.False(t, slices.Contains(args, nmaptarget.LocalSubnetTarget), "sentinel must not reach nmap as a literal target: %v", args)
 }
 
+func TestBuildNmapOptions_LocalSubnetTarget_RejectsNonPrivateSubnet(t *testing.T) {
+	// Arrange: detection returns a public subnet (e.g. a node whose primary NIC
+	// is public). An automatic scan must never probe it.
+	r := &RunCmd{
+		nmapPath:     "/usr/bin/nmap",
+		discoverer:   &stubDiscoverer{},
+		localSubnets: func() ([]string, error) { return []string{"8.8.8.0/24"}, nil },
+	}
+	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+
+	// Act
+	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+
+	// Assert: refused before any scan, mapped so a fan-out skips this node.
+	var ce *commandError
+	require.ErrorAs(t, err, &ce)
+	assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
+}
+
 func TestBuildNmapOptions_LocalSubnetTarget_NoSubnetIsAgentIncapable(t *testing.T) {
 	// Arrange: detection finds no private subnet.
 	r := &RunCmd{
