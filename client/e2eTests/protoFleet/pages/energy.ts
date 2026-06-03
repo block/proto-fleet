@@ -181,8 +181,8 @@ export class EnergyPage extends BasePage {
 
   private activeCurtailmentSection(reason: string): Locator {
     return this.page
-      .locator("section")
-      .filter({ has: this.page.getByTestId("active-curtailment-primary-lockup") })
+      .getByTestId("active-curtailment-primary-lockup")
+      .locator("xpath=ancestor::section[1]")
       .filter({ hasText: reason });
   }
 
