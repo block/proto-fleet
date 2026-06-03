@@ -81,8 +81,8 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 // the command is in flight but unconstrained. Callers filter reported devices
 // through the matcher so a node can't report outside the requested scope.
 func (r *Registry) ReportScopeFor(fleetNodeID int64, commandID string) (ReportScope, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	cmd := r.inflightFor(fleetNodeID, commandID)
 	if cmd == nil {
 		return nil, false

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -32,6 +33,13 @@ type Handler struct {
 // ControlStream commands (each held until its ack or the per-node timeout). It
 // sits comfortably above typical fleet sizes; only the pathological case binds.
 const maxConcurrentFleetNodeScans = 32
+
+// fleetNodeFanOutTimeout caps how long the fleet-node fan-out can extend the
+// Discover stream. RunOnNode's 12m timeout is the dedicated single-node budget;
+// for the opportunistic fan-out a tighter ceiling keeps a wedged node from making
+// the operator wait minutes past the cloud scan. A LAN subnet scan finishes well
+// within this.
+const fleetNodeFanOutTimeout = 5 * time.Minute
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
@@ -62,57 +70,19 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Connect server streams are not safe for concurrent Send, and the cloud
-	// scan + each node write to this one stream. Serialize through send, which
-	// also dedupes devices across sources by identifier (each source dedupes
-	// internally, but not against the others).
-	var (
-		sendMu  sync.Mutex
-		seen    = make(map[string]struct{})
-		sendErr error
-	)
-	send := func(resp *pb.DiscoverResponse) error {
-		sendMu.Lock()
-		defer sendMu.Unlock()
-		if sendErr != nil {
-			return sendErr
-		}
-		out := resp
-		if len(resp.GetDevices()) > 0 {
-			deduped := make([]*pb.Device, 0, len(resp.GetDevices()))
-			for _, d := range resp.GetDevices() {
-				key := pairing.DeviceDedupKey(d)
-				if _, dup := seen[key]; dup {
-					continue
-				}
-				seen[key] = struct{}{}
-				deduped = append(deduped, d)
-			}
-			if len(deduped) == 0 && resp.GetError() == "" {
-				return nil // whole batch was duplicates; nothing to forward
-			}
-			if len(deduped) < len(resp.GetDevices()) {
-				out = &pb.DiscoverResponse{Devices: deduped, Error: resp.GetError()}
-			}
-		}
-		if sErr := s.Send(out); sErr != nil {
-			sendErr = sErr
-			cancel()
-			return sErr //nolint:wrapcheck // a connect stream Send error is already a connect error
-		}
-		return nil
-	}
+	// Serialize the concurrent sources (cloud scan + each node) onto the one
+	// stream and dedupe devices across them; a Send failure cancels the rest.
+	fwd := newDedupForwarder(s.Send, cancel)
 
 	var resultChan <-chan *pb.DiscoverResponse
-	var isNmap bool
+	var isLocalSubnetNmap bool
 	switch r.Msg.Mode.(type) {
 	case *pb.DiscoverRequest_IpList:
 		resultChan, err = h.pairingSvc.DiscoverWithIPList(streamCtx, r.Msg.GetIpList())
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_Nmap:
-		isNmap = true
-		resultChan, err = h.pairingSvc.DiscoverWithNmap(streamCtx, r.Msg.GetNmap())
+		resultChan, isLocalSubnetNmap, err = h.pairingSvc.DiscoverWithNmap(streamCtx, r.Msg.GetNmap())
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(streamCtx, r.Msg.GetMdns())
 	default:
@@ -134,7 +104,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 				if !ok {
 					return
 				}
-				if err := send(result); err != nil {
+				if err := fwd.forward(result); err != nil {
 					return
 				}
 			case <-streamCtx.Done():
@@ -143,17 +113,21 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		}
 	}()
 
-	// Fleet node fan-out, gated to the automatic "Scan your network" action: an
-	// nmap request whose target is the cloud's own local subnet. A manual/explicit
-	// nmap target (a user-typed subnet/IP) must NOT also sweep every node's LAN.
-	if isNmap && h.discovery != nil &&
-		h.pairingSvc.IsLocalSubnetScan(streamCtx, r.Msg.GetNmap().GetTarget()) {
+	// Fleet node fan-out, only for the automatic "Scan your network" action — an
+	// nmap target equal to the cloud's own local subnet (reported by
+	// DiscoverWithNmap). A manual/explicit nmap target must NOT sweep every node's
+	// LAN.
+	if isLocalSubnetNmap && h.discovery != nil {
 		nodeIDs, listErr := h.discovery.ConfirmedConnectedNodeIDs(streamCtx, info.OrganizationID)
 		if listErr != nil {
 			// Fan-out is best-effort; a lookup failure must never break the
 			// cloud scan. With zero connected nodes this is the same path.
 			slog.Warn("skipping fleet node discovery fan-out", "error", listErr)
 		} else {
+			// Bound the fan-out's contribution to the stream so one wedged node
+			// can't extend the operator's wait to the full per-node timeout.
+			fanOutCtx, fanOutCancel := context.WithTimeout(streamCtx, fleetNodeFanOutTimeout)
+			defer fanOutCancel()
 			autoReq := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_Nmap{Nmap: &pb.NmapModeRequest{
 				Target: nmaptarget.LocalSubnetTarget,
 				Ports:  r.Msg.GetNmap().GetPorts(),
@@ -164,18 +138,18 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 				go func(nodeID int64) {
 					defer wg.Done()
 					// Cap concurrent in-flight node commands; exit early if the
-					// operator disconnected while we were queued behind the cap.
+					// stream closed or the fan-out budget expired while queued.
 					select {
 					case sem <- struct{}{}:
 						defer func() { <-sem }()
-					case <-streamCtx.Done():
+					case <-fanOutCtx.Done():
 						return
 					}
-					runErr := h.discovery.RunOnNode(streamCtx, nodeID, autoReq, send)
-					// One node failing must not fail the whole scan. Stay quiet
-					// when streamCtx is already cancelled (operator disconnected) —
-					// that's expected, not a node fault.
-					if runErr != nil && streamCtx.Err() == nil {
+					runErr := h.discovery.RunOnNode(fanOutCtx, nodeID, autoReq, fwd.forward)
+					// One node failing (or hitting the fan-out budget) must not
+					// fail the scan; it's expected on disconnect/budget, so stay
+					// quiet once fanOutCtx is done.
+					if runErr != nil && fanOutCtx.Err() == nil {
 						slog.Warn("fleet node discovery failed during cloud fan-out",
 							"fleet_node_id", nodeID, "error", runErr)
 					}
@@ -185,11 +159,12 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	}
 
 	wg.Wait()
-	if sendErr != nil {
-		return sendErr
+	if err := fwd.failure(); err != nil {
+		return err
 	}
 	// A client cancel/deadline drains the sources without a Send error; surface
-	// it as canceled/deadline rather than a successful completion.
+	// it as canceled/deadline rather than a successful completion. (The fan-out
+	// budget firing is not a client error — it returns whatever streamed.)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
 			return connect.NewError(connect.CodeDeadlineExceeded, ctxErr)

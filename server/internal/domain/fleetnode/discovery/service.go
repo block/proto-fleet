@@ -41,13 +41,21 @@ type nodeLister interface {
 	ListFleetNodes(ctx context.Context, orgID int64) ([]enrollment.FleetNodeListing, error)
 }
 
+// nodeRegistry is the slice of control.Registry this service needs: enumerate
+// connected nodes and dispatch a command to one. Narrowing it (like nodeLister)
+// makes the coupling explicit and lets tests inject a fake without a Registry.
+type nodeRegistry interface {
+	ConnectedFleetNodeIDs() []int64
+	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope control.ReportScope) (*control.Session, error)
+}
+
 // Service runs discovery commands against connected fleet nodes.
 type Service struct {
-	registry   *control.Registry
+	registry   nodeRegistry
 	enrollment nodeLister
 }
 
-func NewService(registry *control.Registry, enrollmentSvc nodeLister) *Service {
+func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
 	return &Service{registry: registry, enrollment: enrollmentSvc}
 }
 

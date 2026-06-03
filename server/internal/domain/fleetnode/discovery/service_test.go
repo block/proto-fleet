@@ -9,12 +9,14 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 )
 
 type stubLister struct {
@@ -196,4 +198,32 @@ func TestConfirmedConnectedNodeIDs_PropagatesListError(t *testing.T) {
 
 	// Assert: the error propagates (fan-out treats it as best-effort upstream).
 	require.Error(t, err)
+}
+
+func TestRunOnNode_DispatchesLocalSubnetTargetSentinel(t *testing.T) {
+	// Arrange: the LocalSubnetTarget sentinel (operator single-node scan or fan-out)
+	// must reach the agent unchanged so the node scans its own subnet.
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	const nodeID = int64(21)
+	stream := reg.Register(nodeID)
+	defer stream.Unregister()
+	gotTarget := make(chan string, 1)
+	go func() {
+		cmd := <-stream.Outgoing
+		var req pairingpb.DiscoverRequest
+		_ = proto.Unmarshal(cmd.GetPayload(), &req)
+		gotTarget <- req.GetNmap().GetTarget()
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+	}()
+	req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{
+		Nmap: &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget},
+	}}
+
+	// Act
+	err := svc.RunOnNode(context.Background(), nodeID, req, func(*pairingpb.DiscoverResponse) error { return nil })
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, nmaptarget.LocalSubnetTarget, <-gotTarget)
 }
