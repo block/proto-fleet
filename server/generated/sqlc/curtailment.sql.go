@@ -313,13 +313,15 @@ SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
-ORDER BY started_at DESC NULLS LAST, id DESC
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
 LIMIT 1
 `
 
 // Org-scoped recovery path returning the most-recent non-terminal event.
 // Multiple non-terminal events can exist per org (one per disjoint device
-// scope), so order by start time with id as the deterministic tiebreaker.
+// scope); order by effective time — started_at, or created_at for a not-yet-
+// started pending event so it isn't sorted behind older active ones — with id
+// as the deterministic tiebreaker.
 func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
 	var i CurtailmentEvent
@@ -765,12 +767,12 @@ SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
-ORDER BY started_at DESC NULLS LAST, id DESC
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
 `
 
 // Org-scoped list of every non-terminal event. Multiple can be active when
 // they target disjoint device scopes (e.g. per-site curtailment). Most-recent
-// first, id as the deterministic tiebreaker.
+// first by effective time (started_at, or created_at for pending), id tiebreak.
 func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) ([]CurtailmentEvent, error) {
 	rows, err := q.query(ctx, q.listActiveCurtailmentEventsStmt, listActiveCurtailmentEvents, orgID)
 	if err != nil {
