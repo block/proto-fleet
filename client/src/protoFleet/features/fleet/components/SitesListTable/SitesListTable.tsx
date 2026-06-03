@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
+import { formatPowerUsedCapacity } from "@/shared/utils/telemetryFormat";
 
 interface SitesListTableProps {
   sites: SiteWithCounts[];
@@ -35,7 +36,11 @@ const SitesListTable = ({ sites }: SitesListTableProps) => {
       {ordered.map((entry) => {
         const id = (entry.site?.id ?? 0n).toString();
         const location = formatSiteAddress(entry.site ?? {}) || "—";
-        const powerCapacity = entry.site?.powerCapacityMw ? `${entry.site.powerCapacityMw} MW` : "—";
+        // Site capacity ships in MW; the shared formatter keeps the unit
+        // consistent with SiteMetricsRow and the building list. Used side
+        // is null until Phase 1b telemetry lands.
+        const powerCapacityMw = entry.site?.powerCapacityMw ?? 0;
+        const power = formatPowerUsedCapacity(null, powerCapacityMw) ?? "—";
         return (
           <button
             key={id}
@@ -53,7 +58,7 @@ const SitesListTable = ({ sites }: SitesListTableProps) => {
               <span className="truncate text-300 text-text-primary-50">{entry.deviceCount.toString()} miners</span>
             </div>
             <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-300">— / {powerCapacity}</span>
+              <span className="truncate text-300">{power}</span>
               <span className="truncate text-300 text-text-primary-50">—</span>
             </div>
           </button>

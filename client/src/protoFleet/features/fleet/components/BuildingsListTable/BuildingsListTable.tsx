@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { formatPowerUsedCapacity, KW_PER_MW } from "@/shared/utils/telemetryFormat";
 
 interface BuildingsListTableProps {
   buildings: BuildingWithCounts[];
@@ -43,7 +44,12 @@ const BuildingsListTable = ({ buildings, sites }: BuildingsListTableProps) => {
         const id = (entry.building?.id ?? 0n).toString();
         const siteId = entry.building?.siteId;
         const siteName = siteId ? (siteNameById.get(siteId.toString()) ?? "—") : "—";
-        const powerCapacity = entry.building?.powerKw ? `${entry.building.powerKw} kW` : "—";
+        // Power capacity comes from the proto in kW. The shared formatter
+        // converts to MW so we don't render "50000 kW" — matches
+        // BuildingMetricsRow. Used side is null until Phase 1b telemetry
+        // wiring lands.
+        const powerCapacityKw = entry.building?.powerKw ?? 0;
+        const power = formatPowerUsedCapacity(null, powerCapacityKw / KW_PER_MW) ?? "—";
         return (
           <button
             key={id}
@@ -55,7 +61,7 @@ const BuildingsListTable = ({ buildings, sites }: BuildingsListTableProps) => {
             <span className="truncate text-emphasis-300">{entry.building?.name ?? "(unnamed)"}</span>
             <span className="truncate text-300 text-text-primary-50">{siteName}</span>
             <span className="truncate text-300">{entry.rackCount.toString()}</span>
-            <span className="truncate text-300">— / {powerCapacity}</span>
+            <span className="truncate text-300">{power}</span>
           </button>
         );
       })}
