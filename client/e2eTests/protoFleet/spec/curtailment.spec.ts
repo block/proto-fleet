@@ -64,8 +64,8 @@ test.describe("Proto Fleet - Curtailment", () => {
         expect(request.method()).toBe("POST");
         expect(requestBody.reason).toBe(curtailmentReason);
         expect(requestBody.mode).toBe("CURTAILMENT_MODE_FIXED_KW");
-        expect(requestBody.modeParams?.fixedKw?.targetKw).toBe(Number(targetKw));
-        expect(requestBody.scope?.wholeOrg).toEqual({});
+        expect(requestBody.fixedKw?.targetKw).toBe(Number(targetKw));
+        expect(requestBody.wholeOrg).toEqual({});
         expect(requestBody.includeMaintenance).toBe(true);
         expect(requestBody.forceIncludeMaintenance).toBe(true);
         expect(requestBody.restoreBatchIntervalSec).toBe(Number(restoreBatchIntervalSec));

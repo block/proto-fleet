@@ -213,12 +213,14 @@ export class EnergyPage extends BasePage {
 
 export function getStartCurtailmentRequestBody(request: Request) {
   return request.postDataJSON() as {
+    fixedKw?: { targetKw?: number; toleranceKw?: number };
     forceIncludeMaintenance?: boolean;
     includeMaintenance?: boolean;
     mode?: string;
     modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
     reason?: string;
     restoreBatchIntervalSec?: number;
+    wholeOrg?: Record<string, never>;
     scope?: { wholeOrg?: Record<string, never> };
   };
 }
