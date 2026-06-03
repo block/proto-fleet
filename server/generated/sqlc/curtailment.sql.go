@@ -1221,8 +1221,10 @@ FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = $1
     AND ct.state IN ('resolved', 'restore_failed')
-    AND ce.ended_at IS NOT NULL
-    AND ce.ended_at >= CURRENT_TIMESTAMP - ($2::int * INTERVAL '1 second')
+    AND (
+        ce.state IN ('pending', 'active', 'restoring')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - ($2::int * INTERVAL '1 second')
+    )
 `
 
 type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
@@ -1230,8 +1232,10 @@ type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
 	CooldownSec int32
 }
 
-// Targets that hit a terminal state within `cooldown_sec`. Selector
-// excludes these unless priority=EMERGENCY (Go-side bypass).
+// Restored/failed targets the selector excludes (unless priority=EMERGENCY,
+// Go-side bypass): a target restored mid-stagger stays protected while its
+// event is still non-terminal (the old org-level singleton enforced this
+// implicitly), then for `cooldown_sec` after the event ends.
 func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByOrgParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listRecentlyResolvedCurtailedDevicesByOrgStmt, listRecentlyResolvedCurtailedDevicesByOrg, arg.OrgID, arg.CooldownSec)
 	if err != nil {
