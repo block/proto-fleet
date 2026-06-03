@@ -586,10 +586,9 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 	return out
 }
 
-// toListActiveCurtailmentsResponse builds the active-events response. Per-device
-// targets and the decision snapshot are omitted to keep the payload bounded
-// (use GetActiveCurtailment for full detail); trigger attribution is retained
-// untrimmed since active events are the caller's own current curtailments.
+// toListActiveCurtailmentsResponse builds the active-events response: event
+// metadata + scope, no per-device targets or decision snapshot (use
+// GetActiveCurtailment for detail).
 func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurtailmentsResponse {
 	out := &pb.ListActiveCurtailmentsResponse{
 		Events: make([]*pb.CurtailmentEvent, len(events)),

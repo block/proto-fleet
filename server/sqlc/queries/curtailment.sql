@@ -284,11 +284,9 @@ ORDER BY id DESC
 LIMIT sqlc.arg('row_limit')::BIGINT;
 
 -- name: GetActiveCurtailmentEvent :one
--- Org-scoped recovery path returning the most-recent non-terminal event.
--- Multiple non-terminal events can exist per org (one per disjoint device
--- scope); order by effective time — started_at, or created_at for a not-yet-
--- started pending event so it isn't sorted behind older active ones — with id
--- as the deterministic tiebreaker.
+-- Most-recent non-terminal event for the org (several can coexist, one per
+-- disjoint device scope). Ordered by effective time — created_at for pending
+-- events so a fresh pending isn't buried behind older active ones — id tiebreak.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
