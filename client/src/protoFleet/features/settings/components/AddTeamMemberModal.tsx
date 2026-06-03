@@ -31,9 +31,16 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
   const [errorMsg, setErrorMsg] = useState("");
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [roleId, setRoleId] = useState("");
+  // Track listRoles loading/error so the Save button can fail closed. Without
+  // this, an empty roleId would slip through to the server, which historically
+  // falls back to ADMIN — accidentally minting an admin account.
+  const [isLoadingRoles, setIsLoadingRoles] = useState(true);
+  const [rolesError, setRolesError] = useState<string | null>(null);
 
   // Load assignable roles when the modal opens. The Owner role is excluded —
   // ownership transfer is a separate, deliberate flow, not a member default.
+  // Loading/error flags are reset in the visibility-transition block below so
+  // we don't trigger cascading renders from setState inside an effect.
   useEffect(() => {
     if (!isVisible) return;
     listRoles({
@@ -44,7 +51,12 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
         const defaultRole = assignable.find((role) => role.builtinKey === "FIELD_TECH") ?? assignable[0];
         setRoleId((current) => current || defaultRole?.roleId || "");
       },
-      onError: (error) => pushToast({ message: error || "Failed to load roles", status: STATUSES.error }),
+      onError: (error) => {
+        const message = error || "Failed to load roles";
+        setRolesError(message);
+        pushToast({ message, status: STATUSES.error });
+      },
+      onFinally: () => setIsLoadingRoles(false),
     });
   }, [isVisible, listRoles]);
 
@@ -53,7 +65,9 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
     [roles],
   );
 
-  // Reset form state when modal closes
+  // Reset form state on every visibility transition. On close we wipe inputs;
+  // on open we re-arm the role-loading gate so a stale "loaded" flag from a
+  // prior session can't briefly enable Save with no roles fetched yet.
   const [prevVisible, setPrevVisible] = useState(isVisible);
   if (prevVisible !== isVisible) {
     setPrevVisible(isVisible);
@@ -65,11 +79,20 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       setErrorMsg("");
       setRoleId("");
     }
+    // Both open and close need the loading gate re-armed and any prior error cleared.
+    setIsLoadingRoles(true);
+    setRolesError(null);
   }
 
   const handleCreateUser = useCallback(() => {
     if (!username.trim()) {
       setErrorMsg("Username is required");
+      return;
+    }
+    // Defensive guard: even though Save is disabled until a role is selected,
+    // refuse to submit an empty roleId — the server treats empty as ADMIN.
+    if (!roleId) {
+      setErrorMsg("Select a role before saving");
       return;
     }
 
@@ -78,7 +101,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
 
     createUser({
       username: username.trim(),
-      roleId: roleId || undefined,
+      roleId,
       onSuccess: (_userId, _username, tempPassword) => {
         setTemporaryPassword(tempPassword);
         setStep("displayPassword");
@@ -118,6 +141,9 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
   }, [onSuccess, onDismiss]);
 
   if (step === "enterUsername") {
+    // Fail closed: Save stays disabled until roles load and one is selected.
+    // If listRoles failed, Save remains disabled and an inline error explains why.
+    const canSave = !isLoadingRoles && !rolesError && Boolean(roleId);
     return (
       <Modal
         open={isVisible}
@@ -129,6 +155,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
             onClick: handleCreateUser,
             variant: variants.primary,
             loading: isSubmitting,
+            disabled: !canSave,
             dismissModalOnClick: false,
           },
         ]}
@@ -138,6 +165,15 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
           Add a member by entering their username and choosing a role. Fleet generates a temporary password for you to
           share so they can log in and set a new one.
         </div>
+
+        {rolesError ? (
+          <Callout
+            className="mb-6"
+            intent="danger"
+            prefixIcon={<Alert />}
+            title={`${rolesError} — close and reopen this dialog to try again.`}
+          />
+        ) : null}
 
         {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
@@ -163,11 +199,14 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
                 setRoleId(value);
                 setErrorMsg("");
               }}
+              disabled={isLoadingRoles || Boolean(rolesError)}
               // Open downward so the modal footer doesn't clip the listbox.
               forceBelow
             />
             <span className="text-200 text-text-primary-50">
-              The role sets what this member can see and do. Manage roles in Settings → Roles.
+              {isLoadingRoles
+                ? "Loading roles…"
+                : "The role sets what this member can see and do. Manage roles in Settings → Roles."}
             </span>
           </div>
         </div>

@@ -109,7 +109,13 @@ const CreateEditRoleModalForm = ({
   // happens exactly once per open and stale state can't leak.
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
-  const [selected, setSelected] = useState<Set<string>>(new Set(role?.permissions ?? []));
+  // `explicit` is the user's literal selection — only keys they have actively
+  // checked. The effective `selected` set (derived below) layers required
+  // reads on top via withRequiredReads. Keeping derived reads out of state
+  // means unchecking the last dependent action drops them automatically;
+  // storing the merged set would leave invisible reads (e.g. fleet:read)
+  // behind after deselection.
+  const [explicit, setExplicit] = useState<Set<string>>(new Set(role?.permissions ?? []));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [query, setQuery] = useState("");
@@ -117,40 +123,29 @@ const CreateEditRoleModalForm = ({
     collapsedFor(role?.permissions ?? [], permissionGroups),
   );
 
+  const selected = useMemo(() => new Set(withRequiredReads(explicit)), [explicit, withRequiredReads]);
+
   const allResources = useMemo(() => permissionGroups.map((group) => group.resource), [permissionGroups]);
 
-  const toggleKey = useCallback(
-    (key: string, checked: boolean) => {
-      setErrorMsg("");
-      setSelected((prev) => {
-        if (checked) {
-          return new Set(withRequiredReads([...prev, key]));
-        }
-        // Removing a read key triggers withRequiredReads, which re-adds it if any selected action in the same resource still needs it. lockedReadKeys above marks those checkboxes disabled so the click cannot occur.
-        const next = new Set(prev);
-        next.delete(key);
-        return new Set(withRequiredReads(next));
-      });
-    },
-    [withRequiredReads],
-  );
+  const toggleKey = useCallback((key: string, checked: boolean) => {
+    setErrorMsg("");
+    setExplicit((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
 
-  const toggleGroup = useCallback(
-    (keys: string[], checked: boolean) => {
-      setErrorMsg("");
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (checked) {
-          keys.forEach((key) => next.add(key));
-          return new Set(withRequiredReads(next));
-        }
-        keys.forEach((key) => next.delete(key));
-        // Keep cross-group reads that other selected actions still depend on.
-        return new Set(withRequiredReads(next));
-      });
-    },
-    [withRequiredReads],
-  );
+  const toggleGroup = useCallback((keys: string[], checked: boolean) => {
+    setErrorMsg("");
+    setExplicit((prev) => {
+      const next = new Set(prev);
+      if (checked) keys.forEach((key) => next.add(key));
+      else keys.forEach((key) => next.delete(key));
+      return next;
+    });
+  }, []);
 
   const toggleCollapse = useCallback((resource: string) => {
     setCollapsed((prev) => {
