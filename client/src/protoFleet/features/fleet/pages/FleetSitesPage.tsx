@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SitesListTable from "../components/SitesListTable";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
@@ -37,6 +38,9 @@ const FleetSitesPage = () => {
 
   useEffect(() => fetchSites(), [fetchSites]);
 
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+
   const modals = useSiteModals({ refetchSites: fetchSites });
 
   if (sites === undefined) {
@@ -63,25 +67,40 @@ const FleetSitesPage = () => {
     );
   }
 
+  // "Unassigned" filters miners with no site, not sites. The Sites tab
+  // can't meaningfully scope itself to an Unassigned bucket, so we render
+  // a note redirecting the operator. The "site" picker case is impossible
+  // here — FleetLayout hides this tab + redirects away when a single site
+  // is selected (J2).
+  const body =
+    sites.length === 0 ? (
+      <SitesEmptyState onAddSite={modals.openCreate} />
+    ) : activeSite.kind === "unassigned" ? (
+      <div
+        className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+        data-testid="fleet-sites-unassigned-note"
+      >
+        &quot;Unassigned&quot; filters miners, not sites. Switch the picker to All Sites to see every site.
+      </div>
+    ) : (
+      <>
+        <div className="flex items-center justify-end">
+          <Button
+            variant={variants.primary}
+            size={sizes.compact}
+            text="Add site"
+            onClick={modals.openCreate}
+            testId="fleet-sites-add"
+          />
+        </div>
+        <SitesListTable sites={sites} />
+      </>
+    );
+
   return (
     <>
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-sites-page">
-        {sites.length === 0 ? (
-          <SitesEmptyState onAddSite={modals.openCreate} />
-        ) : (
-          <>
-            <div className="flex items-center justify-end">
-              <Button
-                variant={variants.primary}
-                size={sizes.compact}
-                text="Add site"
-                onClick={modals.openCreate}
-                testId="fleet-sites-add"
-              />
-            </div>
-            <SitesListTable sites={sites} />
-          </>
-        )}
+        {body}
       </div>
       <SiteModals modals={modals} sites={sites} />
     </>
