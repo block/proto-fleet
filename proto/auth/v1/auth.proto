@@ -115,6 +115,10 @@ message CreateUserRequest {
     // Username for the new user account
     // Must be unique within the system
     string username = 1;
+
+    // Optional role id to assign to the new user. When empty, the server applies
+    // the default role for the organization.
+    optional string role_id = 2;
 }
 
 message CreateUserResponse {

@@ -23,6 +23,10 @@ import { PERMISSION_CATALOG } from "@/protoFleet/features/settings/utils/permiss
 /** Stable identifier code uses for a built-in role. Mirrors authz.BuiltinKey on the server. */
 export type BuiltinRoleKey = "SUPER_ADMIN" | "ADMIN" | "FIELD_TECH";
 
+// RoleItem is the client model. Swapping useRoleManagement to AuthzService
+// requires a pbToRoleItem adapter at the wire boundary — proto Role uses
+// permissionKeys (not permissions), a numeric BuiltinKey enum (not the
+// string union here), and Timestamp (not Date | null) for updatedAt.
 export interface RoleItem {
   roleId: string;
   name: string;
@@ -49,7 +53,7 @@ interface ListRolesProps extends RoleCallbacks {
 
 interface CreateRoleProps extends RoleCallbacks {
   name: string;
-  description: string;
+  description?: string;
   permissions: string[];
   onSuccess?: (role: RoleItem) => void;
 }
@@ -57,7 +61,7 @@ interface CreateRoleProps extends RoleCallbacks {
 interface UpdateRoleProps extends RoleCallbacks {
   roleId: string;
   name: string;
-  description: string;
+  description?: string;
   permissions: string[];
   onSuccess?: (role: RoleItem) => void;
 }
@@ -67,11 +71,13 @@ interface DeleteRoleProps extends RoleCallbacks {
   onSuccess?: () => void;
 }
 
+/** Returns true for roles that may never be edited or deleted (server-side built-ins). */
+export const isImmutable = (role: RoleItem): boolean => role.builtin === true;
+
 // --- Placeholder dataset (remove once AuthzService is wired) -----------------
 
 const ALL_KEYS = PERMISSION_CATALOG.map((entry) => entry.key);
-// FIELD_TECH mirrors the seed in migration 000053: read fleet data, blink the
-// locator LED, download logs, manage racks.
+// FIELD_TECH: read-only fleet visibility plus blink, logs, and rack management — matches the server's built-in role definition.
 const FIELD_TECH_KEYS = [
   "fleet:read",
   "miner:read",
@@ -80,9 +86,6 @@ const FIELD_TECH_KEYS = [
   "rack:read",
   "rack:manage",
 ];
-// ADMIN: full access except managing SUPER_ADMIN (role:manage is still granted;
-// the server scopes which roles an ADMIN may touch).
-const ADMIN_KEYS = ALL_KEYS;
 
 let placeholderRoles: RoleItem[] = [
   {
@@ -99,7 +102,7 @@ let placeholderRoles: RoleItem[] = [
     roleId: "builtin-admin",
     name: "Admin",
     description: "Org admin. Editable by an Owner.",
-    permissions: ADMIN_KEYS,
+    permissions: ALL_KEYS,
     builtin: true,
     builtinKey: "ADMIN",
     memberCount: 2,
@@ -140,11 +143,13 @@ const useRoleManagement = () => {
         return;
       }
 
-      // const response = await authzClient.createRole({ name: trimmed, description, permissions });
+      // TODO(rbac): wire description input once the editor surfaces a description field.
+      // const response = await authzClient.createCustomRole({ name: trimmed, description, permissions });
+      // Map response via pbToRoleItem; map BuiltinKey enum to BuiltinRoleKey string; convert Timestamp to Date.
       const role: RoleItem = {
         roleId: `role-${Date.now()}`,
         name: trimmed,
-        description: description.trim(),
+        description: description?.trim() ?? "",
         permissions: [...permissions],
         builtin: false,
         memberCount: 0,
@@ -171,11 +176,13 @@ const useRoleManagement = () => {
         return;
       }
 
-      // const response = await authzClient.updateRole({ roleId, name, description, permissions });
+      // TODO(rbac): wire description input once the editor surfaces a description field.
+      // const response = await authzClient.updateCustomRole({ roleId, name, description, permissions });
+      // Map response via pbToRoleItem; map BuiltinKey enum to BuiltinRoleKey string; convert Timestamp to Date.
       const updated: RoleItem = {
         ...existing,
         name: name.trim(),
-        description: description.trim(),
+        description: description === undefined ? existing.description : description.trim(),
         permissions: [...permissions],
         updatedAt: new Date(),
       };
@@ -204,7 +211,8 @@ const useRoleManagement = () => {
       return;
     }
 
-    // await authzClient.deleteRole({ roleId });
+    // await authzClient.deleteCustomRole({ roleId });
+    // Map response via pbToRoleItem; map BuiltinKey enum to BuiltinRoleKey string; convert Timestamp to Date.
     placeholderRoles = placeholderRoles.filter((role) => role.roleId !== roleId);
     onSuccess?.();
     onFinally?.();

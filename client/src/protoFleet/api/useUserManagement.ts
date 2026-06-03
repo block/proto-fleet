@@ -11,12 +11,11 @@ import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateUserProps {
   username: CreateUserRequest["username"];
-  // roleId is the role to assign on creation. Optional so existing callers
-  // keep working; when omitted the server applies its default (FIELD_TECH).
-  // TODO(rbac): CreateUserRequest has no role_id field yet. Add
-  // `string role_id = 2;` to proto/auth/v1/auth.proto, run `just gen`, then
-  // forward it in the authClient.createUser call below.
-  roleId?: string;
+  // roleId is the role to assign on creation. Optional — when omitted the
+  // server applies the org's default role (currently ADMIN). When set, the
+  // server validates that the role belongs to the caller's org and is not
+  // SUPER_ADMIN before assigning.
+  roleId?: CreateUserRequest["roleId"];
   onSuccess?: (userId: string, username: string, tempPassword: string) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -56,12 +55,8 @@ const useUserManagement = () => {
 
   const createUser = useCallback(
     async ({ username, roleId, onSuccess, onError, onFinally }: CreateUserProps) => {
-      // TODO(rbac): forward roleId once CreateUserRequest gains a role_id field
-      // (see the note on CreateUserProps). Referenced here so the
-      // accepted-but-not-yet-wired parameter doesn't trip the unused check.
-      void roleId;
       await authClient
-        .createUser({ username })
+        .createUser({ username, roleId })
         .then((response) => {
           onSuccess?.(response.userId, response.username, response.temporaryPassword);
         })

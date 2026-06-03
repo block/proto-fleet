@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -972,6 +973,136 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestParseInt64RoleID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+		wantVal int64
+	}{
+		{"valid simple", "1", false, 1},
+		{"valid multi-digit", "12345", false, 12345},
+		{"empty", "", true, 0},
+		{"leading zero", "012", true, 0},
+		{"zero", "0", true, 0},
+		{"negative", "-1", true, 0},
+		{"plus prefix", "+1", true, 0},
+		{"whitespace", " 1", true, 0},
+		{"trailing whitespace", "1 ", true, 0},
+		{"non-numeric", "abc", true, 0},
+		{"unicode digit", "१", true, 0},
+		{"mixed", "1a", true, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseInt64RoleID(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, fleeterror.NewInvalidArgumentError("").GRPCCode, fleetErr.GRPCCode)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantVal, got)
+			}
+		})
+	}
+}
+
+// TestResolveCreateUserRole_ValidationBranches covers the pre-LoadEffective
+// branches that reject a request before the resolver is touched. The
+// "valid role_id assignment lands" and "parity rejection" paths require a
+// real PermissionResolver (DB-backed), so they live in the integration
+// suite alongside the existing role-management tests.
+func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
+	t.Parallel()
+
+	const orgID int64 = 7
+	const otherOrgID int64 = 99
+
+	cases := []struct {
+		name      string
+		roleID    string
+		setupMock func(*mocks.MockUserManagementStore)
+		wantMsg   string
+	}{
+		{
+			name:      "malformed role_id rejected before lookup",
+			roleID:    "+1",
+			setupMock: func(_ *mocks.MockUserManagementStore) {},
+			wantMsg:   "invalid role_id",
+		},
+		{
+			name:   "role not found surfaces as invalid",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{}, sql.ErrNoRows)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "cross-org role rejected",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				other := otherOrgID
+				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{
+					ID:             42,
+					Name:           "other-org-admin",
+					OrganizationID: &other,
+				}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "SUPER_ADMIN built-in rejected",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				owner := orgID
+				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{
+					ID:             42,
+					Name:           "Owner",
+					OrganizationID: &owner,
+					BuiltinKey:     string(authz.BuiltinKeySuperAdmin),
+				}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "org-less role rejected",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{
+					ID:   42,
+					Name: "global-role",
+				}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			mockStore := mocks.NewMockUserManagementStore(ctrl)
+			tc.setupMock(mockStore)
+
+			svc := &Service{userManagementStore: mockStore}
+			_, err := svc.resolveCreateUserRole(context.Background(), 1, orgID, tc.roleID)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, fleeterror.NewInvalidArgumentError("").GRPCCode, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
 	}
 }

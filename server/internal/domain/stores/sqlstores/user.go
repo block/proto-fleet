@@ -237,13 +237,35 @@ func (s *SQLUserStore) GetBuiltinRoleForOrg(ctx context.Context, organizationID 
 	if err != nil {
 		return interfaces.Role{}, err
 	}
+	return toRole(role), nil
+}
+
+// GetRoleByID fetches a role row by primary key. Returns sql.ErrNoRows if
+// the role is missing (or soft-deleted); CreateUser resolves that to an
+// InvalidArgument so callers cannot probe role-id existence.
+func (s *SQLUserStore) GetRoleByID(ctx context.Context, roleID int64) (interfaces.Role, error) {
+	role, err := s.getQueries(ctx).GetRoleByID(ctx, roleID)
+	if err != nil {
+		return interfaces.Role{}, err
+	}
+	return toRole(role), nil
+}
+
+func toRole(role sqlc.Role) interfaces.Role {
+	var orgID *int64
+	if role.OrganizationID.Valid {
+		v := role.OrganizationID.Int64
+		orgID = &v
+	}
 	return interfaces.Role{
-		ID:          role.ID,
-		Name:        role.Name,
-		Description: role.Description.String,
-		CreatedAt:   role.CreatedAt,
-		UpdatedAt:   role.UpdatedAt,
-	}, nil
+		ID:             role.ID,
+		Name:           role.Name,
+		Description:    role.Description.String,
+		CreatedAt:      role.CreatedAt,
+		UpdatedAt:      role.UpdatedAt,
+		OrganizationID: orgID,
+		BuiltinKey:     role.BuiltinKey.String,
+	}
 }
 
 func (s *SQLUserStore) UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error {

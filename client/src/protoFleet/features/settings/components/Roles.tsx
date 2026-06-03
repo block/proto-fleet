@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
+import { isImmutable, type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import CreateEditRoleModal from "@/protoFleet/features/settings/components/CreateEditRoleModal";
 import DeleteRoleDialog from "@/protoFleet/features/settings/components/DeleteRoleDialog";
 import { useHasPermission } from "@/protoFleet/store";
@@ -30,6 +30,7 @@ const Roles = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [editRole, setEditRole] = useState<RoleItem | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createKeyBump, setCreateKeyBump] = useState(0);
   const [deleteRoleData, setDeleteRoleData] = useState<RoleItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -53,11 +54,13 @@ const Roles = () => {
     fetchRoles();
     setShowCreateModal(false);
     setEditRole(null);
+    setCreateKeyBump((n) => n + 1);
   }, [fetchRoles]);
 
   const handleEditorDismiss = useCallback(() => {
     setShowCreateModal(false);
     setEditRole(null);
+    setCreateKeyBump((n) => n + 1);
   }, []);
 
   const handleDeleteConfirm = useCallback(() => {
@@ -126,15 +129,15 @@ const Roles = () => {
       {
         title: "Edit",
         icon: <Edit />,
-        // SUPER_ADMIN (Owner) is immutable; ADMIN/FIELD_TECH and custom roles are editable.
-        hidden: (role: RoleItem) => role.builtinKey === "SUPER_ADMIN",
+        // Built-in roles are immutable server-side; the action is hidden so the UI doesn't expose a path the server will reject.
+        hidden: (role: RoleItem) => isImmutable(role),
         actionHandler: (role: RoleItem) => setEditRole(role),
       },
       {
         title: "Delete",
         icon: <Trash />,
         variant: "destructive" as const,
-        hidden: (role: RoleItem) => role.builtin,
+        hidden: (role: RoleItem) => isImmutable(role),
         disabled: (role: RoleItem) => role.memberCount > 0,
         actionHandler: (role: RoleItem) => setDeleteRoleData(role),
       },
@@ -183,13 +186,15 @@ const Roles = () => {
         />
       )}
 
-      <CreateEditRoleModal
-        key={editRole?.roleId ?? "create"}
-        open={showCreateModal || !!editRole}
-        role={editRole}
-        onDismiss={handleEditorDismiss}
-        onSuccess={handleEditorSuccess}
-      />
+      {showCreateModal || editRole ? (
+        <CreateEditRoleModal
+          key={editRole?.roleId ?? `create-${createKeyBump}`}
+          open={showCreateModal || !!editRole}
+          role={editRole}
+          onDismiss={handleEditorDismiss}
+          onSuccess={handleEditorSuccess}
+        />
+      ) : null}
       <DeleteRoleDialog
         open={!!deleteRoleData}
         roleName={deleteRoleData?.name ?? ""}

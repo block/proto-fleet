@@ -29,10 +29,11 @@ export interface PermissionGroup {
 // per-resource grouping into fewer, more scannable buckets. The underlying
 // permission keys and the read-pairing logic are unchanged — only the
 // visual grouping differs.
-//
-// "fleet" is intentionally absent: fleet:read is a dependency floor
-// auto-selected by the read-pairing rule, not a standalone grant.
 
+// `fleet` is intentionally excluded from RESOURCE_TO_GROUP so `fleet:read`
+// never renders as a manually toggleable checkbox in the role builder —
+// it is the dependency floor for every miner action and is auto-included
+// by `withRequiredReads` whenever a miner action is selected.
 /** Maps a catalog entry's `resource` field to a UI group key. */
 const RESOURCE_TO_GROUP: Record<string, string> = {
   miner: "miner",
@@ -43,6 +44,7 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   schedule: "schedule",
   fleetnode: "admin",
   serverlog: "admin",
+  activity: "admin",
   apikey: "admin",
   user: "admin",
   role: "admin",
@@ -57,14 +59,7 @@ const GROUP_LABELS: Record<string, string> = {
   admin: "Administration",
 };
 
-const GROUP_ORDER = [
-  "miner",
-  "infrastructure",
-  "curtailment",
-  "pool",
-  "schedule",
-  "admin",
-];
+const GROUP_ORDER = ["miner", "infrastructure", "curtailment", "pool", "schedule", "admin"];
 
 // The canonical catalog, in declaration order. Keep in lockstep with the
 // `catalog` slice in catalog.go.
@@ -104,6 +99,12 @@ export const PERMISSION_CATALOG: CatalogEntry[] = [
   { key: "site:read", description: "View sites and buildings.", resource: "site" },
   { key: "site:manage", description: "Create, edit, and delete sites and buildings.", resource: "site" },
 
+  {
+    key: "activity:read",
+    description: "View the organization-wide activity log and export it as CSV.",
+    resource: "activity",
+  },
+
   { key: "serverlog:read", description: "View server-side logs.", resource: "serverlog" },
 
   { key: "curtailment:read", description: "View curtailment policies and preview impact.", resource: "curtailment" },
@@ -135,7 +136,7 @@ export const PERMISSION_CATALOG: CatalogEntry[] = [
 
   {
     key: "role:manage",
-    description: "Create, edit, and delete custom roles and edit the ADMIN/FIELD_TECH built-ins.",
+    description: "Create, edit, and delete custom roles. Built-in roles cannot be modified.",
     resource: "role",
   },
 ];

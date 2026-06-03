@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -625,6 +626,76 @@ func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerU
 	return role, nil
 }
 
+// resolveCreateUserRole picks the role a freshly created user will be
+// bound to and runs the same parity check used for in-place role
+// management. An empty roleID falls back to the org's ADMIN built-in;
+// a non-empty roleID is validated against the caller's org and
+// rejected for SUPER_ADMIN (ownership transfer lives elsewhere) before
+// the parity check runs.
+func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID int64, roleID string) (stores.Role, error) {
+	if roleID == "" {
+		return s.authorizeCallerForNewUserWithRole(ctx, callerUserID, orgID, AdminRoleName)
+	}
+	parsed, err := parseInt64RoleID(roleID)
+	if err != nil {
+		return stores.Role{}, err
+	}
+	role, err := s.userManagementStore.GetRoleByID(ctx, parsed)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+		}
+		return stores.Role{}, fleeterror.NewInternalErrorf("error looking up role: %v", err)
+	}
+	if role.OrganizationID == nil || *role.OrganizationID != orgID {
+		// Mask cross-org / org-less roles as InvalidArgument so a caller
+		// cannot probe role ids that belong to a different tenant.
+		return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	if role.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
+		return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
+	}
+	targetEff := authz.NewEffectivePermissions([]authz.Assignment{{
+		ScopeType:   authz.ScopeOrg,
+		Permissions: targetKeys,
+	}})
+	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
+	if err != nil {
+		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+	}
+	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+		return stores.Role{}, err
+	}
+	return role, nil
+}
+
+// parseInt64RoleID rejects anything that doesn't round-trip to the
+// canonical base-10 form roleViewToProto emits, matching the authz
+// handler's parseRoleID so a probe with "+1" or leading whitespace
+// surfaces as InvalidArgument instead of NotFound.
+func parseInt64RoleID(s string) (int64, error) {
+	if s == "" {
+		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	if s[0] < '1' || s[0] > '9' {
+		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	for _, r := range s[1:] {
+		if r < '0' || r > '9' {
+			return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
+		}
+	}
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	return id, nil
+}
+
 // requireCallerCanManageTarget enforces the user-management hierarchy:
 // callers with org-scope role:manage need only subsume the target;
 // everyone else must strictly dominate it. Without the strict-dominate
@@ -646,6 +717,11 @@ func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissio
 // CreateUser creates a new user with a temporary password. Authorization is
 // enforced by the Connect handler via RequirePermission(PermUserManage);
 // callers outside the handler layer must add their own permission gate.
+//
+// When req.RoleId is empty the caller inherits the org's default ADMIN
+// role (legacy behavior). When non-empty the role must live in the
+// caller's org and must not be SUPER_ADMIN — ownership transfer is a
+// deliberately separate flow.
 func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
 	// Validate username
 	trimmedUsername := strings.TrimSpace(req.Username)
@@ -670,10 +746,12 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
-	// Look up the ADMIN role for this org and gate the caller against
-	// the permission set the new user will inherit. Org-scoped row
-	// lookup avoids binding to a different tenant's ADMIN.
-	role, err := s.authorizeCallerForNewUserWithRole(ctx, info.UserID, orgID, AdminRoleName)
+	// Resolve the role the new user will be bound to: an explicit role_id
+	// from the caller (validated to belong to this org and not be
+	// SUPER_ADMIN) or the legacy ADMIN default. Either path returns a
+	// role whose permissions are run through the same parity check so
+	// callers cannot mint a user above their own privilege level.
+	role, err := s.resolveCreateUserRole(ctx, info.UserID, orgID, req.GetRoleId())
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ import clsx from "clsx";
 
 import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import {
+  lockedReadKeys,
   permissionGroups,
   withRequiredReads,
 } from "@/protoFleet/features/settings/utils/permissionCatalog";
@@ -59,9 +60,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       if (checked) {
         return new Set(withRequiredReads([...prev, key]));
       }
-      // Removing a read key cascades: drop it plus any actions in the same
-      // resource that depended on it, then recompute required reads for
-      // whatever remains.
+      // Removing a read key triggers withRequiredReads, which re-adds it if any selected action in the same resource still needs it. lockedReadKeys above marks those checkboxes disabled so the click cannot occur.
       const next = new Set(prev);
       next.delete(key);
       return new Set(withRequiredReads(next));
@@ -122,9 +121,9 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     };
 
     if (isEdit && role) {
-      updateRole({ roleId: role.roleId, name: name.trim(), description: "", permissions, ...handlers });
+      updateRole({ roleId: role.roleId, name: name.trim(), permissions, ...handlers });
     } else {
-      createRole({ name: name.trim(), description: "", permissions, ...handlers });
+      createRole({ name: name.trim(), permissions, ...handlers });
     }
   }, [name, selected, isEdit, role, createRole, updateRole, onSuccess, onDismiss]);
 
@@ -147,6 +146,8 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       })
       .filter(({ entries }) => !searching || entries.length > 0);
   }, [query_, searching]);
+
+  const lockedReads = useMemo(() => lockedReadKeys(Array.from(selected)), [selected]);
 
   return (
     <Modal
@@ -206,9 +207,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       </div>
 
       {renderedGroups.length === 0 ? (
-        <div className="py-10 text-center text-200 text-text-primary-50">
-          No permissions match "{query.trim()}".
-        </div>
+        <div className="py-10 text-center text-200 text-text-primary-50">No permissions match "{query.trim()}".</div>
       ) : (
         <div className="flex flex-col divide-y divide-border-5 border-y border-border-5">
           {renderedGroups.map(({ group, entries }) => {
@@ -255,16 +254,25 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
                     {entries.map((entry, i) => {
                       const checked = selected.has(entry.key);
                       const isLast = i === entries.length - 1;
+                      const isLocked = lockedReads.has(entry.key);
                       return (
                         <label
                           key={entry.key}
                           className={clsx(
-                            "flex cursor-pointer items-center gap-3 py-2 pl-6 hover:bg-core-primary-2",
+                            "flex items-center gap-3 py-2 pl-6 hover:bg-core-primary-2",
+                            isLocked ? "cursor-not-allowed" : "cursor-pointer",
                             isLast && "pb-3",
                           )}
                         >
-                          <Checkbox checked={checked} onChange={(e) => toggleKey(entry.key, e.target.checked)} />
-                          <span className="text-300 text-text-primary">{entry.description}</span>
+                          <Checkbox
+                            checked={checked}
+                            disabled={isLocked}
+                            onChange={(e) => toggleKey(entry.key, e.target.checked)}
+                          />
+                          <span className="text-300 text-text-primary">
+                            {entry.description}
+                            {isLocked ? <span className="text-text-primary-50"> (required)</span> : null}
+                          </span>
                         </label>
                       );
                     })}
