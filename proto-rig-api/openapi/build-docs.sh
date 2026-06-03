@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Render MDK-API.json to a single self-contained, proto-fleet-branded HTML page.
+# Render MDK-API.json to a single self-contained, proto-fleet-branded HTML page
+# under <site-dir>/proto-api-docs/, plus a root redirect so the Pages base URL
+# (the deployment environment URL) lands on the docs instead of a 404.
 # The proto-fleet logo and web fonts are injected at build time so the vendored
 # spec (MDK-API.json) is never modified.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$here/../.." && pwd)"
 spec="$here/MDK-API.json"
 config="$here/redocly.yaml"
 logo="$here/logo.svg"
-out="${1:?usage: build-docs.sh <output.html>}"
+site_dir="${1:?usage: build-docs.sh <site-dir>}"
+subpath="proto-api-docs"
+out="$site_dir/$subpath/index.html"
 redocly_version="1.34.15"
 
 mkdir -p "$(dirname "$out")"
@@ -40,3 +43,13 @@ let html = fs.readFileSync(f, "utf8");
 if (!html.includes(links)) html = html.replace("</head>", links + "</head>");
 fs.writeFileSync(f, html);
 ' "$out"
+
+# Redirect the Pages root to the docs. Relative target so it is domain-agnostic.
+cat >"$site_dir/index.html" <<EOF
+<!doctype html>
+<meta charset="utf-8">
+<title>Proto Fleet API Docs</title>
+<meta http-equiv="refresh" content="0; url=$subpath/">
+<link rel="canonical" href="$subpath/">
+<a href="$subpath/">Proto Fleet API Docs</a>
+EOF
