@@ -387,7 +387,6 @@ const ScopedMinerListBody = ({
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
-        overflowContainer={false}
         applyColumnWidthsToCells
         total={totalMiners}
         // Every row is selectable; `totalSelectable = totalMiners` so action-bar

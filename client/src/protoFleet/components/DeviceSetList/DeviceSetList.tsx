@@ -109,7 +109,6 @@ const DeviceSetList = ({
         items={items}
         itemKey="id"
         hideTotal
-        overflowContainer={false}
         sortableColumns={SORTABLE_COLUMNS}
         currentSort={currentSort}
         onSort={onSort}

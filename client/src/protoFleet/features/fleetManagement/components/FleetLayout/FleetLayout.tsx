@@ -135,9 +135,14 @@ const FleetLayout = () => {
     [sites, sitesError, fetchSites],
   );
 
+  // Chrome bands (heading + tab strip) stay pinned during any residual
+  // horizontal scroll. Each tab's list controls its own overflow (List
+  // defaults to `overflowContainer` = true), but a sticky-left chrome row
+  // is the standing convention across all four tabs so any new band added
+  // later inherits the right behavior for free.
   return (
     <div className="flex h-full flex-col" data-testid="fleet-layout">
-      <div className="flex flex-col gap-4 px-10 pt-6 phone:px-6">
+      <div className="sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10">
         <h1 className="text-heading-300 text-text-primary">Fleet</h1>
         <TabStrip activeId={currentTab} onSelect={onSelect} ariaLabel="Fleet sections">
           {visibleTabs.map((tab) => (
