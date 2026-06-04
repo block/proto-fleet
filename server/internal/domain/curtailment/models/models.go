@@ -201,8 +201,12 @@ type InsertEventParams struct {
 	IdempotencyKey          *string
 	Reason                  string
 	ScheduledStartAt        *time.Time
-	CreatedByUserID         int64
-	EffectiveBatchSize      int32
+	// EndedAt is set only when an event is inserted already terminal — a
+	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
+	// completion time is recorded; the reconciler/restorer set it otherwise.
+	EndedAt            *time.Time
+	CreatedByUserID    int64
+	EffectiveBatchSize int32
 }
 
 // InsertEventResult is what InsertEventWithTargets returns to the caller.

@@ -55,6 +55,7 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsCompleted(t *testing.T)
 	assert.Equal(t, models.ModeFullFleet, store.lastInsertEvent.Mode)
 	assert.Equal(t, models.EventStateCompleted, store.lastInsertEvent.State,
 		"nothing eligible == vacuously complete on arrival")
+	assert.NotNil(t, store.lastInsertEvent.EndedAt, "a completed-empty event records its completion time")
 	assert.Empty(t, store.lastInsertTargets, "a completed-empty event has no targets")
 }
 

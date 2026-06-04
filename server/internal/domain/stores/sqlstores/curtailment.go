@@ -140,6 +140,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IdempotencyKey:          ptrToNullString(event.IdempotencyKey),
 			Reason:                  event.Reason,
 			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
+			EndedAt:                 ptrToNullTime(event.EndedAt),
 			CreatedByUserID:         event.CreatedByUserID,
 			EffectiveBatchSize:      sql.NullInt32{Int32: event.EffectiveBatchSize, Valid: true},
 		})

@@ -224,6 +224,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	// An event inserted already terminal (an empty FULL_FLEET start) resolved
+	// instantly; stamp the completion time so history/replay don't surface a
+	// completed event with no ended_at.
+	if eventParams.State.IsTerminal() && eventParams.EndedAt == nil {
+		now := time.Now().UTC()
+		eventParams.EndedAt = &now
+	}
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
