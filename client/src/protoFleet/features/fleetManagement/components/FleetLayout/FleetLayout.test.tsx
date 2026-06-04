@@ -3,6 +3,13 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
+// Force MULTI_SITE_ENABLED=true at module-load time so FleetLayout's
+// TAB_ORDER includes Sites + Buildings under test. CI default is false; the
+// tests below pin behavior to the flag-on path explicitly.
+vi.mock("@/protoFleet/constants/featureFlags", () => ({
+  MULTI_SITE_ENABLED: true,
+}));
+
 import FleetLayout from "./FleetLayout";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
