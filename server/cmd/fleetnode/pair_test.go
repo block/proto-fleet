@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,6 +153,30 @@ func TestClassifyNodePairError(t *testing.T) {
 			assert.NotEmpty(t, res.GetErrorMessage())
 		})
 	}
+}
+
+func TestSetPaired_ClampsOversizedIdentityToProtoCaps(t *testing.T) {
+	// Arrange: a plugin returns identity fields longer than FleetNodePairResult
+	// caps; reporting them unclamped would fail validation for the whole chunk.
+	res := &pb.FleetNodePairResult{DeviceIdentifier: "mac:x"}
+	long := strings.Repeat("z", 300)
+	info := sdk.DeviceInfo{
+		SerialNumber:    long,
+		MacAddress:      strings.Repeat("a", 100),
+		Model:           long,
+		Manufacturer:    long,
+		FirmwareVersion: long,
+	}
+
+	// Act
+	setPaired(res, info)
+
+	// Assert: every reported field is within its proto max_len.
+	assert.LessOrEqual(t, len(res.GetSerialNumber()), 255)
+	assert.LessOrEqual(t, len(res.GetMacAddress()), 64)
+	assert.LessOrEqual(t, len(res.GetModel()), 255)
+	assert.LessOrEqual(t, len(res.GetManufacturer()), 255)
+	assert.LessOrEqual(t, len(res.GetFirmwareVersion()), 255)
 }
 
 func TestControlLoop_PairAcksAndReportsResults(t *testing.T) {

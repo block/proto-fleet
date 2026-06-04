@@ -26,6 +26,14 @@ import (
 
 const pairConcurrency = 16
 
+// Mirror the FleetNodePairResult string caps so a plugin returning an oversized
+// identity field can't fail validation for the whole ReportPairedDevices chunk
+// (which would drop every other device's outcome in that batch).
+const (
+	maxPairIdentityBytes = 255
+	maxPairMACBytes      = 64
+)
+
 // perPairTimeout bounds one device's auth handshake. var so tests can shrink it.
 var perPairTimeout = 60 * time.Second
 
@@ -127,11 +135,11 @@ func secretBundleFor(caps sdk.Capabilities, nodePubKey string, creds *pairingpb.
 
 func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
 	res.Outcome = pb.PairOutcome_PAIR_OUTCOME_PAIRED
-	res.SerialNumber = info.SerialNumber
-	res.MacAddress = info.MacAddress
-	res.Model = info.Model
-	res.Manufacturer = info.Manufacturer
-	res.FirmwareVersion = info.FirmwareVersion
+	res.SerialNumber = truncateUTF8(info.SerialNumber, maxPairIdentityBytes)
+	res.MacAddress = truncateUTF8(info.MacAddress, maxPairMACBytes)
+	res.Model = truncateUTF8(info.Model, maxPairIdentityBytes)
+	res.Manufacturer = truncateUTF8(info.Manufacturer, maxPairIdentityBytes)
+	res.FirmwareVersion = truncateUTF8(info.FirmwareVersion, maxPairIdentityBytes)
 }
 
 // classifyNodePairError maps a plugin pairing error to a per-device outcome.
