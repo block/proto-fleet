@@ -142,16 +142,26 @@ SELECT DISTINCT ON (dd.id)
 FROM discovered_device dd
 LEFT JOIN device d ON d.discovered_device_id = dd.id AND d.deleted_at IS NULL
 LEFT JOIN device_pairing dp ON dp.device_id = d.id
-LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = dd.org_id
 WHERE dd.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
   AND dd.discovered_by_fleet_node_id IS NOT NULL
-  AND fnd.device_id IS NULL
-  AND (dp.pairing_status IS NULL OR dp.pairing_status <> 'PAIRED')
+  AND NOT EXISTS (
+      SELECT 1
+      FROM device db
+      JOIN fleet_node_device fnd ON fnd.device_id = db.id AND fnd.org_id = dd.org_id
+      WHERE db.discovered_device_id = dd.id AND db.deleted_at IS NULL
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM device dpd
+      JOIN device_pairing dpp ON dpp.device_id = dpd.id
+      WHERE dpd.discovered_device_id = dd.id AND dpd.deleted_at IS NULL
+        AND dpp.pairing_status = 'PAIRED'
+  )
   AND ($2::bigint IS NULL OR dd.discovered_by_fleet_node_id = $2::bigint)
   AND ($3::bigint IS NULL OR dd.id > $3::bigint)
-ORDER BY dd.id ASC
+ORDER BY dd.id ASC, d.id DESC NULLS LAST
 LIMIT $4::bigint
 `
 
@@ -178,13 +188,16 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	PairingStatus           string
 }
 
-// Fleet-node-discovered devices not yet paired to their node. A device already
-// bound via fleet_node_device is excluded; AUTHENTICATION_NEEDED rows (a pair
+// Fleet-node-discovered devices not yet paired to their node. A discovered
+// device is excluded when ANY of its live device rows is already node-bound
+// (fleet_node_device) or cloud-PAIRED; AUTHENTICATION_NEEDED rows (a pair
 // attempt that needs credentials) surface for retry. Inverse of
 // GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
-// DISTINCT ON (dd.id) yields one row per discovered device even when more than
-// one live device row points at it. Paginates by ascending id; a NULL limit
-// returns all rows (the pairing batch path needs every candidate).
+// The exclusions use NOT EXISTS so a device with more than one live row is
+// judged across all of them, not just the joined row. DISTINCT ON (dd.id) with
+// the d.id DESC tie-breaker yields one deterministic row per discovered device
+// (the latest live device's pairing_status). Paginates by ascending id; a NULL
+// limit returns all rows (the pairing batch path needs every candidate).
 func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFleetNodeDiscoveredDevicesParams) ([]ListFleetNodeDiscoveredDevicesRow, error) {
 	rows, err := q.query(ctx, q.listFleetNodeDiscoveredDevicesStmt, listFleetNodeDiscoveredDevices,
 		arg.OrgID,

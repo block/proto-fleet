@@ -130,6 +130,37 @@ func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
 	}
 }
 
+func TestListFleetNodeDiscoveredDevices_ExcludesWhenAnyDeviceRowIsBound(t *testing.T) {
+	// Arrange: one discovered device with two live device rows -- one bound to
+	// the node, one not. The whole discovered device must be excluded, not
+	// surfaced through its still-unbound row.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-multi")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:multi")
+	boundDev := deviceForDiscovered(t, db, orgID, "mac:multi")
+	require.NoError(t, pairing.PairDevice(ctx, node, boundDev, orgID, nil))
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:multi",
+	).Scan(&ddID))
+	_, err := db.Exec(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		"dev-multi-unbound", "aa:bb:cc:00:99:99", "sn-multi-unbound", orgID, ddID,
+	)
+	require.NoError(t, err)
+
+	// Act
+	got, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, nil)
+	require.NoError(t, err)
+
+	// Assert
+	assert.NotContains(t, discoveredIdentifiers(got), "mac:multi",
+		"a discovered device with any bound device row must not surface, even if another row is unbound")
+}
+
 func TestListFleetNodeDiscoveredDevices_Paginates(t *testing.T) {
 	// Arrange: three devices discovered by one node.
 	ctx := t.Context()
