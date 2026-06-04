@@ -222,9 +222,14 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	// LastTargetAt is the last *processed* publisher stamp (ordering + duplicate
 	// suppression); advance it only when the edge settled. On a failed dispatch
 	// leave it so a redelivery of the same stamp retries instead of being
-	// suppressed as a duplicate.
+	// suppressed as a duplicate. Clamp to receive-time so a future-dated stamp
+	// can't pin the watermark ahead of real time and suppress later signals as
+	// out-of-order; the raw stamp still drives the external_reference.
 	if dispatched {
 		state.LastTargetAt = canonical.PublishedAt
+		if canonical.PublishedAt.After(canonical.ReceivedAt) {
+			state.LastTargetAt = canonical.ReceivedAt
+		}
 		state.LastProcessedTarget = canonical.Target
 	}
 

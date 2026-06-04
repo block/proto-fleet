@@ -305,6 +305,63 @@ func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
+// Regression: a future-dated publisher stamp must not pin the ordering
+// watermark ahead of receive-time. Before the clamp, an OFF stamped in the
+// future advanced LastTargetAt to that future stamp, so every later
+// real-stamped signal read as out-of-order (isStalePayload) and was dropped
+// until wall-clock caught up — the site stayed curtailed. The watermark clamps
+// to receive-time; the future-dated OFF still curtails.
+func TestWorker_HandleMessage_FutureDatedStamp_ClampsWatermark(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	offUUID := uuid.New()
+	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
+	svc := &fakeService{
+		startResult:      &curtailment.Plan{EventUUID: &offUUID},
+		listActiveResult: []*models.Event{{EventUUID: offUUID, SourceActorID: &actorID}},
+		stopResult:       &models.Event{EventUUID: offUUID},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	recvOff := time.Now().UTC()
+	// Valid OFF (inside the decoder's ±24 h window) but stamped 12 h ahead of
+	// receive-time: a clock-skewed/hostile publisher or a stale retained message.
+	futureStamp := recvOff.Add(12 * time.Hour)
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": futureStamp.Unix()})
+	require.NoError(t, err)
+
+	// Settled ON; edge anchor old enough that the OFF is a real, non-debounced edge.
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   recvOff.Add(-60 * time.Second),
+		LastEdgeAt:     recvOff.Add(-60 * time.Second),
+	}
+
+	afterOff := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: recvOff})
+
+	require.Equal(t, 1, svc.startCallsLen(), "the future-dated OFF must still curtail")
+	require.Equal(t, TargetOff, afterOff.LastTarget)
+	assert.Equal(t, recvOff, afterOff.LastTargetAt,
+		"watermark must clamp to receive-time, not the 12 h-future publisher stamp")
+
+	// A later legitimate ON (real stamp, earlier than the future OFF stamp)
+	// arriving outside the debounce window must be honored, not dropped as
+	// out-of-order behind a future-pinned watermark.
+	recvOn := recvOff.Add(10 * time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": recvOn.Unix()})
+	require.NoError(t, err)
+
+	afterOn := w.handleMessage(context.Background(), afterOff,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: recvOn})
+
+	assert.Equal(t, TargetOn, afterOn.LastTarget,
+		"a later real ON must not be suppressed behind a future-dated watermark")
+	require.Len(t, svc.stopCalls, 1, "the ON must dispatch a Stop")
+}
+
 // Guards the debounce fix from over-suppressing: a cold-start ON (no prior
 // target) is not a flip and must record ON.
 func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
