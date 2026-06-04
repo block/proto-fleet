@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { type FleetOutletContext } from "./outletContext";
@@ -7,6 +7,7 @@ import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { useHasPermission } from "@/protoFleet/store";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -52,15 +53,18 @@ const FleetLayout = () => {
   const location = useLocation();
   const [lastTab, setLastTab] = useReactiveLocalStorage<FleetTabId | undefined>(LAST_TAB_KEY, undefined);
 
+  // Site access is gated client-side on the same catalog permission the
+  // server enforces (`site:read`). Both ListSites and ListBuildings sit
+  // behind PermSiteRead in `server/internal/handlers/middleware/
+  // rpc_permissions.go`, so a caller without it can't load either surface.
+  // Reading from the catalog (instead of inferring from a failed RPC) keeps
+  // transient network / 5xx errors out of the access-blocked branch —
+  // those still surface a retry banner on the Sites tab itself.
+  const canReadSites = useHasPermission("site:read");
+
   const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
-  // Tracks whether any listSites call has succeeded. Distinguishes a
-  // zero-site org (loaded once, returned []) from a hard-blocked caller
-  // (never loaded — likely permissions or transport). Without this, a
-  // transient poll error on a zero-site org would flip sitesAccessBlocked
-  // and hide the only Sites-tab CTA for creating the first site.
-  const sitesLoadedRef = useRef(false);
 
   // Poll listSites on the same cadence as the legacy /sites overview so site
   // renames / deletes / count changes from another session surface here
@@ -72,7 +76,6 @@ const FleetLayout = () => {
         onSuccess: (rows) => {
           setSites(rows);
           setSitesError(null);
-          sitesLoadedRef.current = true;
         },
         onError: (msg) => {
           setSitesError(msg);
@@ -84,7 +87,9 @@ const FleetLayout = () => {
     [listSites],
   );
 
-  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  // Skip the call entirely for reduced-permission roles — the server would
+  // return PermissionDenied anyway and we already know the answer client-side.
+  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: canReadSites });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
@@ -97,13 +102,10 @@ const FleetLayout = () => {
 
   const currentTab = tabFromPath(location.pathname);
 
-  // Pick the default tab. When the layout has never successfully loaded sites
-  // (initial listSites failed with a permission or transport error), fall
-  // back to Miners so callers with reduced permissions land somewhere
-  // usable. A zero-site org that loaded successfully then hit a poll error
-  // still has Sites access — sitesLoadedRef distinguishes the two states.
-  const sitesAccessBlocked =
-    sitesError !== null && sites !== undefined && sites.length === 0 && !sitesLoadedRef.current;
+  // Pick the default tab. When the caller can't read sites at all, fall back
+  // to Miners — site-gated tabs (Sites + Buildings) would both error on
+  // mount.
+  const sitesAccessBlocked = !canReadSites;
   const fallback = sitesAccessBlocked
     ? DEFAULT_TAB_NO_SITES_ACCESS
     : sitesTabHidden
@@ -119,10 +121,15 @@ const FleetLayout = () => {
     // Guard against corrupted or older-schema localStorage values so a stale
     // lastTab cannot navigate to /fleet/<garbage>. Honor only tabs that are
     // currently visible (TAB_ORDER) — flag-off installs shouldn't replay a
-    // Sites/Buildings choice persisted while the flag was on.
+    // Sites/Buildings choice persisted while the flag was on. The access-
+    // blocked case additionally rejects Sites and Buildings since neither
+    // can load without site:read.
     const safeLastTab = lastTab && isVisibleFleetTabId(lastTab) ? lastTab : undefined;
-    const usableLastTab =
-      safeLastTab && (safeLastTab !== "sites" || (!sitesTabHidden && !sitesAccessBlocked)) ? safeLastTab : undefined;
+    const lastTabUsable =
+      safeLastTab &&
+      (safeLastTab === "sites" ? !sitesTabHidden && !sitesAccessBlocked : true) &&
+      (safeLastTab === "buildings" ? !sitesAccessBlocked : true);
+    const usableLastTab = lastTabUsable ? safeLastTab : undefined;
     if (location.pathname === "/fleet" || location.pathname === "/fleet/") {
       navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
       return;
@@ -134,10 +141,35 @@ const FleetLayout = () => {
       navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
       return;
     }
-    if (currentTab === "sites" && (sitesTabHidden || sitesAccessBlocked)) {
+    if (currentTab === "sites" && sitesTabHidden) {
+      // Picker is pinned to an existing site. Treat `/fleet/sites` as a
+      // shortcut to that site's management surface so the legacy "Manage
+      // sites" affordance still has a meaningful landing page.
+      if (activeSite.kind === "site") {
+        navigate(`/sites/${activeSite.id}`, { replace: true });
+        return;
+      }
+      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
+      return;
+    }
+    if (currentTab === "sites" && sitesAccessBlocked) {
+      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
+      return;
+    }
+    if (currentTab === "buildings" && sitesAccessBlocked) {
       navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
     }
-  }, [sites, location.pathname, currentTab, sitesTabHidden, sitesAccessBlocked, lastTab, navigate, fallback]);
+  }, [
+    sites,
+    location.pathname,
+    currentTab,
+    sitesTabHidden,
+    sitesAccessBlocked,
+    activeSite,
+    lastTab,
+    navigate,
+    fallback,
+  ]);
 
   useEffect(() => {
     if (currentTab && currentTab !== lastTab) {
@@ -152,10 +184,16 @@ const FleetLayout = () => {
     [navigate],
   );
 
-  // Sites tab is suppressed when the picker resolves to an existing site OR
-  // when the operator can't load sites at all — both states make the Sites
-  // surface unusable.
-  const visibleTabs = TAB_ORDER.filter((t) => !(t === "sites" && (sitesTabHidden || sitesAccessBlocked)));
+  // Site-gated tabs disappear under two conditions:
+  //   - Sites only: picker pinned to an existing site (J2).
+  //   - Sites AND Buildings: caller lacks site:read. Both ListSites and
+  //     ListBuildings sit behind the same permission, so both pages would
+  //     immediately error for these operators.
+  const visibleTabs = TAB_ORDER.filter((t) => {
+    if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
+    if (t === "buildings" && sitesAccessBlocked) return false;
+    return true;
+  });
 
   const outletContext: FleetOutletContext = useMemo(
     () => ({ sites, sitesError, refetchSites: fetchSites }),

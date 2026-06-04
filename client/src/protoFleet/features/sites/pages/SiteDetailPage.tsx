@@ -8,6 +8,7 @@ import { parseBigIntId, useSites } from "@/protoFleet/api/sites";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
+import { useHasPermission } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
@@ -53,6 +54,11 @@ const SiteDetailPage = () => {
     return sites.find((s) => s.site?.id === parsed);
   }, [sites, targetId]);
 
+  // UpdateSite + CreateBuilding are gated on `site:manage` server-side; hide
+  // the Edit + Add building CTAs for read-only roles so they don't fill in a
+  // modal that fails on submit.
+  const canManageSites = useHasPermission("site:manage");
+
   const modals = useSiteModals({ refetchSites: fetchSites });
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
   const buildingModals = useBuildingModals({
@@ -67,7 +73,12 @@ const SiteDetailPage = () => {
     );
   }
 
-  if (error) {
+  // Full-page error only when we have no last-good site to show. Once a
+  // detail load has succeeded, a later refetch failure (e.g. after a
+  // successful edit-modal save calls refetchSites) surfaces inline on the
+  // happy path instead of stranding the user on a "Couldn't load site"
+  // screen — mirrors the fleet list pattern.
+  if (error && sites.length === 0) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6">
         <Header title="Couldn't load site" titleSize="text-heading-200" />
@@ -104,28 +115,47 @@ const SiteDetailPage = () => {
   return (
     <>
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="site-detail-page">
+        {error ? (
+          <div
+            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+            data-testid="site-detail-inline-error"
+          >
+            <span className="text-300 text-text-primary-70">Couldn&apos;t refresh site: {error}</span>
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Retry"
+              onClick={handleRetry}
+              testId="site-detail-inline-retry"
+            />
+          </div>
+        ) : null}
         <div className="flex items-start justify-between gap-4">
           <Header title={site.site.name} titleSize="text-heading-300" subtitle={address || undefined} />
-          <Button
-            variant={variants.primary}
-            size={sizes.compact}
-            text="Edit site"
-            onClick={() => modals.openManageEdit(site.site!)}
-            testId="site-detail-edit"
-          />
+          {canManageSites ? (
+            <Button
+              variant={variants.primary}
+              size={sizes.compact}
+              text="Edit site"
+              onClick={() => modals.openManageEdit(site.site!)}
+              testId="site-detail-edit"
+            />
+          ) : null}
         </div>
         <PlaceholderBlock label="Metrics row — coming soon" className="h-20" />
         <PlaceholderBlock label="Details table — coming soon" className="h-40" />
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <Header title="Buildings" titleSize="text-heading-200" />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Add building"
-              onClick={() => buildingModals.openDetailsCreate(site.site!.id, site.site!.name)}
-              testId="site-detail-add-building"
-            />
+            {canManageSites ? (
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="Add building"
+                onClick={() => buildingModals.openDetailsCreate(site.site!.id, site.site!.name)}
+                testId="site-detail-add-building"
+              />
+            ) : null}
           </div>
           <PlaceholderBlock label="Buildings grid — coming soon" className="h-40" />
         </div>

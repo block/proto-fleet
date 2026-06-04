@@ -44,6 +44,14 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
   }),
 }));
 
+// Mock useHasPermission so site:read returns true by default — most tests
+// pin the full-access path. Individual tests can override by setting
+// `hasPermissionMock.current` before render.
+const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string) => true }));
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: (key: string) => hasPermissionMock.current(key),
+}));
+
 const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>
   create(SiteWithCountsSchema, {
     site: create(SiteSchema, { id: BigInt(id), name }),
@@ -117,11 +125,13 @@ describe("FleetLayout redirect logic", () => {
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
   });
 
-  test("Sites tab redirects away when SitePicker selects a single site", async () => {
-    localStorage.setItem("fleet:lastActiveTab", JSON.stringify("buildings"));
+  test("Sites tab redirects to /sites/:id when SitePicker selects a single site", async () => {
+    // Legacy "Manage sites" entry points (e.g. /settings/sites → /fleet/sites)
+    // resolve to that site's management detail page when the picker is
+    // pinned, rather than bouncing to Buildings.
     activeSiteMock.current = { kind: "site", id: "1" };
     renderAt("/fleet/sites");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/buildings"));
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/sites/1"));
   });
 
   test("Sites tab stays visible under Unassigned picker selection", async () => {

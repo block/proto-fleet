@@ -38,10 +38,28 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
-const RACK_COLUMNS: DeviceSetColumn[] = [
+// Column set when mounted inside the /fleet shell: site + building columns
+// surface because the operator is browsing across the multi-site hierarchy.
+const RACK_COLUMNS_FLEET: DeviceSetColumn[] = [
   "name",
   "site",
   "building",
+  "zone",
+  "miners",
+  "issues",
+  "hashrate",
+  "efficiency",
+  "power",
+  "temperature",
+  "health",
+];
+
+// Column set for the legacy standalone /racks route (flag-off). Drops site
+// and building so the page renders the same shape it did before the
+// multi-site redesign — those columns would just be em-dash noise pushing
+// rack telemetry off-screen in a single-site environment.
+const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
+  "name",
   "zone",
   "miners",
   "issues",
@@ -520,7 +538,7 @@ const RacksPage = () => {
             renderMiners={renderMiners}
             renderSite={renderSite}
             renderBuilding={renderBuilding}
-            columns={RACK_COLUMNS}
+            columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
             onSort={handleSort}
             itemName={{ singular: "rack", plural: "racks" }}
