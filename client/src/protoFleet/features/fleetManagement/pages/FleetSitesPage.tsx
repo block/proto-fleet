@@ -8,6 +8,7 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
+import { useHasPermission } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
@@ -23,6 +24,9 @@ const FleetSitesPage = () => {
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
+  // CreateSite is gated on `site:manage` server-side; hide the CTAs for
+  // read-only roles so they don't fill out a modal that fails on submit.
+  const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites });
 
@@ -57,7 +61,7 @@ const FleetSitesPage = () => {
     return (
       <>
         <FilterRow testId="fleet-sites-page">
-          <SitesEmptyState onAddSite={modals.openCreate} />
+          <SitesEmptyState onAddSite={canManageSites ? modals.openCreate : undefined} />
         </FilterRow>
         <SiteModals modals={modals} sites={sites} />
       </>
@@ -116,15 +120,17 @@ const FleetSitesPage = () => {
             />
           </div>
         ) : null}
-        <div className="flex items-center justify-end">
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            text="Add site"
-            onClick={modals.openCreate}
-            testId="fleet-sites-add"
-          />
-        </div>
+        {canManageSites ? (
+          <div className="flex items-center justify-end">
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Add site"
+              onClick={modals.openCreate}
+              testId="fleet-sites-add"
+            />
+          </div>
+        ) : null}
       </FilterRow>
       <div className={LIST_WRAPPER}>
         <SiteList sites={sites} />

@@ -11,6 +11,7 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import { useHasPermission } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -99,6 +100,9 @@ const FleetBuildingsPage = () => {
   );
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
+  // CreateBuilding is gated on `site:manage` server-side; hide the CTA for
+  // read-only roles so they don't get rejected on submit.
+  const canManageBuildings = useHasPermission("site:manage");
 
   if (buildings === undefined || sites === undefined) {
     return (
@@ -124,7 +128,7 @@ const FleetBuildingsPage = () => {
     );
   }
 
-  const addBuildingButton = (
+  const addBuildingButton = canManageBuildings ? (
     <Button
       variant={variants.secondary}
       size={sizes.compact}
@@ -133,7 +137,7 @@ const FleetBuildingsPage = () => {
       disabled={!hasSites}
       testId="fleet-buildings-add"
     />
-  );
+  ) : null;
 
   if (buildings.length === 0) {
     return (
@@ -143,9 +147,11 @@ const FleetBuildingsPage = () => {
           <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
             <Header title="No buildings yet" titleSize="text-heading-200" />
             <p className="text-300 text-text-primary-70">
-              {hasSites
-                ? "Add a building to start organizing racks."
-                : "Create a site first, then add buildings to organize racks."}
+              {!canManageBuildings
+                ? "No buildings have been added to this fleet yet."
+                : hasSites
+                  ? "Add a building to start organizing racks."
+                  : "Create a site first, then add buildings to organize racks."}
             </p>
           </div>
         </FilterRow>

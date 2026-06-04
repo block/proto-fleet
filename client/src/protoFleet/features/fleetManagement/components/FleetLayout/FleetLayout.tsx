@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { type FleetOutletContext } from "./outletContext";
@@ -55,6 +55,12 @@ const FleetLayout = () => {
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
   const [sitesError, setSitesError] = useState<string | null>(null);
+  // Tracks whether any listSites call has succeeded. Distinguishes a
+  // zero-site org (loaded once, returned []) from a hard-blocked caller
+  // (never loaded — likely permissions or transport). Without this, a
+  // transient poll error on a zero-site org would flip sitesAccessBlocked
+  // and hide the only Sites-tab CTA for creating the first site.
+  const sitesLoadedRef = useRef(false);
 
   // Poll listSites on the same cadence as the legacy /sites overview so site
   // renames / deletes / count changes from another session surface here
@@ -66,6 +72,7 @@ const FleetLayout = () => {
         onSuccess: (rows) => {
           setSites(rows);
           setSitesError(null);
+          sitesLoadedRef.current = true;
         },
         onError: (msg) => {
           setSitesError(msg);
@@ -90,11 +97,13 @@ const FleetLayout = () => {
 
   const currentTab = tabFromPath(location.pathname);
 
-  // Pick the default tab. When the layout can't load sites at all (initial
-  // listSites failed with a permission or transport error and we have no
-  // last-good data), fall back to Miners so callers with reduced permissions
-  // land somewhere usable. Otherwise prefer the leftmost visible tab.
-  const sitesAccessBlocked = sitesError !== null && sites !== undefined && sites.length === 0;
+  // Pick the default tab. When the layout has never successfully loaded sites
+  // (initial listSites failed with a permission or transport error), fall
+  // back to Miners so callers with reduced permissions land somewhere
+  // usable. A zero-site org that loaded successfully then hit a poll error
+  // still has Sites access — sitesLoadedRef distinguishes the two states.
+  const sitesAccessBlocked =
+    sitesError !== null && sites !== undefined && sites.length === 0 && !sitesLoadedRef.current;
   const fallback = sitesAccessBlocked
     ? DEFAULT_TAB_NO_SITES_ACCESS
     : sitesTabHidden
