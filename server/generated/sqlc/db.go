@@ -120,9 +120,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
-	if q.countOrgScopeSuperAdminsExcludingAssignmentStmt, err = db.PrepareContext(ctx, countOrgScopeSuperAdminsExcludingAssignment); err != nil {
-		return nil, fmt.Errorf("error preparing query CountOrgScopeSuperAdminsExcludingAssignment: %w", err)
-	}
 	if q.countOrgScopeSuperAdminsExcludingUserStmt, err = db.PrepareContext(ctx, countOrgScopeSuperAdminsExcludingUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CountOrgScopeSuperAdminsExcludingUser: %w", err)
 	}
@@ -447,6 +444,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
 	}
+	if q.getOrgScopeAssignmentForUserStmt, err = db.PrepareContext(ctx, getOrgScopeAssignmentForUser); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgScopeAssignmentForUser: %w", err)
+	}
 	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
 	}
@@ -710,6 +710,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
+	}
+	if q.lockAndCountOrgScopeSuperAdminsStmt, err = db.PrepareContext(ctx, lockAndCountOrgScopeSuperAdmins); err != nil {
+		return nil, fmt.Errorf("error preparing query LockAndCountOrgScopeSuperAdmins: %w", err)
 	}
 	if q.lockBuildingForWriteStmt, err = db.PrepareContext(ctx, lockBuildingForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingForWrite: %w", err)
@@ -1222,11 +1225,6 @@ func (q *Queries) Close() error {
 	if q.countMinersByStateStmt != nil {
 		if cerr := q.countMinersByStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
-		}
-	}
-	if q.countOrgScopeSuperAdminsExcludingAssignmentStmt != nil {
-		if cerr := q.countOrgScopeSuperAdminsExcludingAssignmentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing countOrgScopeSuperAdminsExcludingAssignmentStmt: %w", cerr)
 		}
 	}
 	if q.countOrgScopeSuperAdminsExcludingUserStmt != nil {
@@ -1769,6 +1767,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
 		}
 	}
+	if q.getOrgScopeAssignmentForUserStmt != nil {
+		if cerr := q.getOrgScopeAssignmentForUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgScopeAssignmentForUserStmt: %w", cerr)
+		}
+	}
 	if q.getOrganizationByIDStmt != nil {
 		if cerr := q.getOrganizationByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrganizationByIDStmt: %w", cerr)
@@ -2207,6 +2210,11 @@ func (q *Queries) Close() error {
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.lockAndCountOrgScopeSuperAdminsStmt != nil {
+		if cerr := q.lockAndCountOrgScopeSuperAdminsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockAndCountOrgScopeSuperAdminsStmt: %w", cerr)
 		}
 	}
 	if q.lockBuildingForWriteStmt != nil {
@@ -2860,7 +2868,6 @@ type Queries struct {
 	countDevicesWithErrorsStmt                          *sql.Stmt
 	countErrorsStmt                                     *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
-	countOrgScopeSuperAdminsExcludingAssignmentStmt     *sql.Stmt
 	countOrgScopeSuperAdminsExcludingUserStmt           *sql.Stmt
 	createApiKeyStmt                                    *sql.Stmt
 	createBuildingStmt                                  *sql.Stmt
@@ -2969,6 +2976,7 @@ type Queries struct {
 	getMinerStateSnapshotsStmt                          *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                          *sql.Stmt
+	getOrgScopeAssignmentForUserStmt                    *sql.Stmt
 	getOrganizationByIDStmt                             *sql.Stmt
 	getOrganizationByNameStmt                           *sql.Stmt
 	getOrganizationByOrgIDStmt                          *sql.Stmt
@@ -3057,6 +3065,7 @@ type Queries struct {
 	listSiteNetworkConfigsForOverlapStmt                *sql.Stmt
 	listSitesStmt                                       *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
+	lockAndCountOrgScopeSuperAdminsStmt                 *sql.Stmt
 	lockBuildingForWriteStmt                            *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                     *sql.Stmt
 	lockDevicesForReassignStmt                          *sql.Stmt
@@ -3211,7 +3220,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                     q.countErrorsStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
-		countOrgScopeSuperAdminsExcludingAssignmentStmt:     q.countOrgScopeSuperAdminsExcludingAssignmentStmt,
 		countOrgScopeSuperAdminsExcludingUserStmt:           q.countOrgScopeSuperAdminsExcludingUserStmt,
 		createApiKeyStmt:                                    q.createApiKeyStmt,
 		createBuildingStmt:                                  q.createBuildingStmt,
@@ -3320,6 +3328,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotsStmt:                          q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,
+		getOrgScopeAssignmentForUserStmt:                    q.getOrgScopeAssignmentForUserStmt,
 		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                           q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,
@@ -3408,6 +3417,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSiteNetworkConfigsForOverlapStmt:                q.listSiteNetworkConfigsForOverlapStmt,
 		listSitesStmt:                                       q.listSitesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
+		lockAndCountOrgScopeSuperAdminsStmt:                 q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                            q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                     q.lockBuildingsBySiteForWriteStmt,
 		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,

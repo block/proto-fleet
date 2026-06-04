@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
+import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
@@ -37,10 +38,8 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
-  // Load assignable roles when the modal opens. The Owner role is excluded —
-  // ownership transfer is a separate, deliberate flow, not a member default.
-  // Loading/error flags are reset in the visibility-transition block below so
-  // we don't trigger cascading renders from setState inside an effect.
+  // Load assignable roles when the modal opens. SUPER_ADMIN is excluded —
+  // ownership transfer is a separate flow.
   useEffect(() => {
     if (!isVisible) return;
     let cancelled = false;
@@ -49,9 +48,6 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
         if (cancelled) return;
         const assignable = roleList.filter((role) => role.builtinKey !== "SUPER_ADMIN");
         setRoles(assignable);
-        // Default to the least-privileged built-in (Field Tech) when present.
-        const defaultRole = assignable.find((role) => role.builtinKey === "FIELD_TECH") ?? assignable[0];
-        setRoleId((current) => current || defaultRole?.roleId || "");
       },
       onError: (error) => {
         if (cancelled) return;
@@ -69,14 +65,17 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
     };
   }, [isVisible, listRoles]);
 
+  // `role.name` is the server's seed identifier ("ADMIN"/"FIELD_TECH"/...).
+  // Surface the formatted display label to the user; matching elsewhere
+  // (e.g. EditRoleModal preselect) still goes through `role.name`.
   const roleOptions = useMemo(
-    () => roles.map((role) => ({ value: role.roleId, label: role.name, description: role.description })),
+    () => roles.map((role) => ({ value: role.roleId, label: formatRole(role.name), description: role.description })),
     [roles],
   );
 
-  // Reset form state on every visibility transition. On close we wipe inputs;
-  // on open we re-arm the role-loading gate so a stale "loaded" flag from a
-  // prior session can't briefly enable Save with no roles fetched yet.
+  // Reset form state on every visibility transition. Re-arm the loading
+  // gate on both open and close so a stale "loaded" flag from a prior
+  // session can't briefly enable Save before roles refetch.
   const [prevVisible, setPrevVisible] = useState(isVisible);
   if (prevVisible !== isVisible) {
     setPrevVisible(isVisible);

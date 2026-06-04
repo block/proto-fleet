@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // PermissionResolver computes the effective permission set for a
@@ -26,6 +27,22 @@ type PermissionResolver struct {
 // query called per request, before any handler transaction begins.
 func NewPermissionResolver(conn *sql.DB) *PermissionResolver {
 	return &PermissionResolver{conn: conn}
+}
+
+// LoadEffectiveForUpdateInTx is the resolver-side wrapper around
+// LoadEffectiveForUpdate that fetches the tx-bound queries from ctx.
+// Use this from auth-domain mutations that already opened a transaction
+// via the Transactor abstraction so the parity recheck takes FOR UPDATE
+// locks on the same connection as the subsequent write.
+//
+// Returns an error if ctx is not carrying tx queries — the lock-taking
+// path is only correct inside a transaction.
+func (r *PermissionResolver) LoadEffectiveForUpdateInTx(ctx context.Context, userID, organizationID int64) (*EffectivePermissions, error) {
+	q := db.GetTxQueries(ctx)
+	if q == nil {
+		return nil, fmt.Errorf("authz resolver: LoadEffectiveForUpdateInTx called outside a transaction")
+	}
+	return LoadEffectiveForUpdate(ctx, q, userID, organizationID)
 }
 
 // LoadEffective returns the user's full set of (role × scope ×

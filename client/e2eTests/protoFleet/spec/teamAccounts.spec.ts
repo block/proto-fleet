@@ -75,6 +75,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     await test.step("Add a new team member", async () => {
       await settingsTeamPage.clickAddTeamMember();
       await settingsTeamPage.inputMemberUsername(username);
+      await settingsTeamPage.selectMemberRole("Field Tech");
       await settingsTeamPage.clickSaveTeamMember();
     });
 
@@ -85,11 +86,42 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Validate member appears in list with correct role and login status", async () => {
-      // The Add team member modal defaults to FIELD_TECH (least privileged
-      // built-in). The server no longer accepts an empty role_id, so the
-      // default-picked role is what lands.
       await settingsTeamPage.validateMemberRole(username, "Field Tech");
       await settingsTeamPage.validateMemberLastLogin(username, "Never");
+    });
+  });
+
+  test("Edit team member role", async ({ settingsPage, settingsTeamPage, commonSteps }) => {
+    await test.step("Log in as admin", async () => {
+      await commonSteps.loginAsAdmin();
+    });
+
+    await test.step("Navigate to Team Settings", async () => {
+      await settingsPage.navigateToTeamSettings();
+      await settingsTeamPage.validateTeamSettingsPageOpened();
+    });
+
+    const username = generateRandomUsername();
+
+    await test.step("Create a Field Tech member to promote", async () => {
+      await settingsTeamPage.clickAddTeamMember();
+      await settingsTeamPage.inputMemberUsername(username);
+      await settingsTeamPage.selectMemberRole("Field Tech");
+      await settingsTeamPage.clickSaveTeamMember();
+      await settingsTeamPage.validateMemberAdded();
+      await settingsTeamPage.clickDone();
+      await settingsTeamPage.validateMemberRole(username, "Field Tech");
+    });
+
+    await test.step("Promote the member to Admin via Edit role", async () => {
+      await settingsTeamPage.clickMemberActionsMenu(username);
+      await settingsTeamPage.clickEditRole();
+      await settingsTeamPage.selectEditedRole("Admin");
+      await settingsTeamPage.clickSaveEditedRole();
+    });
+
+    await test.step("Member row reflects the new role", async () => {
+      await settingsTeamPage.validateMemberRole(username, "Admin");
     });
   });
 
@@ -106,6 +138,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     await test.step("Add a new team member", async () => {
       await settingsTeamPage.clickAddTeamMember();
       await settingsTeamPage.inputMemberUsername(username);
+      await settingsTeamPage.selectMemberRole("Field Tech");
       await settingsTeamPage.clickSaveTeamMember();
       await settingsTeamPage.validateMemberAdded();
       tempPassword = await settingsTeamPage.getTemporaryPassword();
@@ -133,9 +166,13 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Verify no admin rights", async () => {
-      await settingsPage.navigateToTeamSettings();
-      await settingsTeamPage.validateTeamSettingsPageOpened();
-      await settingsTeamPage.validateNoAdminRights();
+      // Field Tech doesn't hold user:read, so the Team submenu link is
+      // hidden in Settings → secondary nav (gated in navItems.ts).
+      // Navigating directly to /team would still hit a server-rejected
+      // ListUsers; asserting the nav link absence is the canonical
+      // "no admin rights" check for this role.
+      await settingsPage.navigateToSettingsPage();
+      await settingsTeamPage.validateTeamSubmenuHidden();
     });
   });
 
@@ -154,6 +191,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     await test.step("Add team member", async () => {
       await settingsTeamPage.clickAddTeamMember();
       await settingsTeamPage.inputMemberUsername(username);
+      await settingsTeamPage.selectMemberRole("Field Tech");
       await settingsTeamPage.clickSaveTeamMember();
       await settingsTeamPage.validateMemberAdded();
       tempPassword1 = await settingsTeamPage.getTemporaryPassword();
@@ -221,6 +259,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
     await test.step("Add team member", async () => {
       await settingsTeamPage.clickAddTeamMember();
       await settingsTeamPage.inputMemberUsername(username);
+      await settingsTeamPage.selectMemberRole("Field Tech");
       await settingsTeamPage.clickSaveTeamMember();
       await settingsTeamPage.validateMemberAdded();
       tempPassword = await settingsTeamPage.getTemporaryPassword();

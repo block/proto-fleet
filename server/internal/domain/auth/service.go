@@ -44,6 +44,15 @@ const (
 // when a concurrent password change is detected via the version check.
 var errBadPassword = errors.New("bad password")
 
+// effectivePermissionResolver is the slice of authz.PermissionResolver this
+// service needs. Held behind an interface so tests can stub the
+// effective-permission lookups for parity / last-SUPER_ADMIN branches
+// without spinning up a real DB-backed resolver.
+type effectivePermissionResolver interface {
+	LoadEffective(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error)
+	LoadEffectiveForUpdateInTx(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error)
+}
+
 type Service struct {
 	userStore           stores.UserStore
 	userManagementStore stores.UserManagementStore
@@ -52,7 +61,7 @@ type Service struct {
 	sessionSvc          *session.Service
 	encryptSvc          *encrypt.Service
 	activitySvc         *activity.Service
-	permResolver        *authz.PermissionResolver
+	permResolver        effectivePermissionResolver
 }
 
 func NewService(
@@ -931,9 +940,32 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		return nil, err
 	}
 
-	// Soft delete user
-	if err := s.userManagementStore.SoftDeleteUser(ctx, user.ID); err != nil {
-		return nil, fleeterror.NewInternalErrorf("error deactivating user: %v", err)
+	// Run the soft-delete inside a tx so the last-SUPER_ADMIN guard
+	// (when the target is a SUPER_ADMIN) takes the same row locks as
+	// UpdateUserRole. Without this, a concurrent demotion of one
+	// SUPER_ADMIN and deactivation of another could both observe a
+	// valid post-state and commit, leaving the org with zero owners.
+	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		current, err := s.userManagementStore.GetOrgScopeAssignmentForUser(ctx, user.ID, orgID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewInternalErrorf("error getting target assignment: %v", err)
+		}
+		// If the target holds an org-scope SUPER_ADMIN seat, lock every
+		// live SA assignment in the org and require count > 1 (the
+		// target's own seat is still live at this point).
+		if err == nil && current.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
+			total, countErr := s.userManagementStore.LockAndCountOrgScopeSuperAdmins(ctx, orgID)
+			if countErr != nil {
+				return fleeterror.NewInternalErrorf("error counting org super admins: %v", countErr)
+			}
+			if total <= 1 {
+				return fleeterror.NewFailedPreconditionError("cannot deactivate the last SUPER_ADMIN in the organization")
+			}
+		}
+		return s.userManagementStore.SoftDeleteUser(ctx, user.ID)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	s.logActivity(ctx, activitymodels.Event{
@@ -947,6 +979,154 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	})
 
 	return &authv1.DeactivateUserResponse{}, nil
+}
+
+// UpdateUserRole atomically swaps a team member's org-scope role.
+// Authorization is enforced by the Connect handler; callers outside the
+// handler layer must add their own permission gate.
+//
+// Concurrency: the new role row, the target's current org-scope
+// assignment row, the caller/target effective-permission rows, and the
+// org's live SUPER_ADMIN set are all locked FOR UPDATE inside the tx so
+// concurrent role mutations against any of them serialize correctly.
+// Idempotent: assigning the role the user already holds returns OK
+// without writes or audit.
+func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRoleRequest) (*authv1.UpdateUserRoleResponse, error) {
+	if req.UserId == "" {
+		return nil, fleeterror.NewInvalidArgumentError("user_id is required")
+	}
+	if req.RoleId == "" {
+		return nil, fleeterror.NewInvalidArgumentError("role_id is required")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
+	}
+	if len(orgs) != 1 {
+		return nil, fleeterror.NewInternalErrorf("user should belong to exactly 1 org")
+	}
+	orgID := orgs[0].ID
+
+	target, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
+	if err != nil {
+		// Mask not-found as InvalidArgument so a probe cannot enumerate user ids across orgs.
+		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
+
+	var swapped bool
+	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		parsed, err := authz.ParseRoleID(req.RoleId)
+		if err != nil {
+			return err
+		}
+		newRole, err := s.userManagementStore.GetRoleByIDForUpdate(ctx, parsed)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewInvalidArgumentError("invalid role_id")
+			}
+			return fleeterror.NewInternalErrorf("error looking up role: %v", err)
+		}
+		if newRole.OrganizationID == nil || *newRole.OrganizationID != orgID {
+			return fleeterror.NewInvalidArgumentError("invalid role_id")
+		}
+		if newRole.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
+			return fleeterror.NewInvalidArgumentError("invalid role_id")
+		}
+
+		// GetOrgScopeAssignmentForUser takes FOR UPDATE on the assignment row
+		// and filters by (user, org), so ErrNoRows here doubles as the
+		// cross-org existence guard and the corrupted-user guard — both
+		// surface as InvalidArgument to avoid leaking across orgs. The lock
+		// also serializes two concurrent swaps on the same target user.
+		current, err := s.userManagementStore.GetOrgScopeAssignmentForUser(ctx, target.ID, orgID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewInvalidArgumentError("invalid user_id")
+			}
+			return fleeterror.NewInternalErrorf("error getting target assignment: %v", err)
+		}
+
+		if current.RoleID == newRole.ID {
+			return nil
+		}
+
+		// Recheck caller + target permissions through the lock-taking
+		// resolver (FOR UPDATE on uor/u/r) so a concurrent demotion of the
+		// caller can't slip between this check and the write below.
+		// `targetCurrentEff` captures the target's *full* effective set
+		// (all assignments); `targetNewEff` synthesizes the post-swap
+		// effective set from the new role's permission keys.
+		targetCurrentEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, target.ID, orgID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+		}
+		newRoleKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, newRole.ID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error listing new role permissions: %v", err)
+		}
+		targetNewEff := authz.NewEffectivePermissions([]authz.Assignment{{
+			ScopeType:   authz.ScopeOrg,
+			Permissions: newRoleKeys,
+		}})
+		callerEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, info.UserID, orgID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+		}
+		if err := requireCallerCanManageTarget(callerEff, targetCurrentEff); err != nil {
+			return err
+		}
+		if err := requireCallerCanManageTarget(callerEff, targetNewEff); err != nil {
+			return err
+		}
+
+		// Last-SUPER_ADMIN guard: lock every live SA row in the org and
+		// count them. The target's own assignment is still live at this
+		// point (UnassignRole hasn't fired), so the count includes it —
+		// compare against 1 (count <= 1 means we'd be dropping the last
+		// seat). The CTE-with-FOR-UPDATE inside the SQL ensures two
+		// concurrent demotions contend on the same row set.
+		if current.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
+			total, err := s.userManagementStore.LockAndCountOrgScopeSuperAdmins(ctx, orgID)
+			if err != nil {
+				return fleeterror.NewInternalErrorf("error counting org super admins: %v", err)
+			}
+			if total <= 1 {
+				return fleeterror.NewFailedPreconditionError("cannot demote the last SUPER_ADMIN in the organization")
+			}
+		}
+
+		if err := s.userManagementStore.UpdateUserOrganizationRole(ctx, target.ID, orgID, current.AssignmentID, newRole.ID); err != nil {
+			return err
+		}
+		swapped = true
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !swapped {
+		return &authv1.UpdateUserRoleResponse{}, nil
+	}
+
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "update_user_role",
+		Description:    fmt.Sprintf("Role updated for user: %s", target.Username),
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"target_user_id": target.UserID, "target_username": target.Username, "role_id": req.RoleId},
+	})
+
+	return &authv1.UpdateUserRoleResponse{}, nil
 }
 
 // toTimestampProto converts time.Time to *timestamppb.Timestamp

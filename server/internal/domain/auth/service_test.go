@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -1069,6 +1070,520 @@ func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
 			require.ErrorAs(t, err, &fleetErr)
 			assert.Equal(t, fleeterror.NewInvalidArgumentError("").GRPCCode, fleetErr.GRPCCode)
 			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+// Covers validation branches that fire before the parity check; parity-fail
+// and last-SA cases need a DB-backed resolver and live in the integration suite.
+func TestUpdateUserRole_ValidationBranches(t *testing.T) {
+	t.Parallel()
+
+	const callerExternalID = "caller-ext"
+	const callerInternalID int64 = 1
+	const orgID int64 = 7
+	const otherOrgID int64 = 99
+	const targetExternalID = "target-ext"
+	const targetInternalID int64 = 42
+
+	target := interfaces.User{ID: targetInternalID, UserID: targetExternalID, Username: "target"}
+	owner := orgID
+
+	invalidCode := fleeterror.NewInvalidArgumentError("").GRPCCode
+
+	cases := []struct {
+		name    string
+		userID  string
+		roleID  string
+		setup   func(userStore *mocks.MockUserStore, mgmtStore *mocks.MockUserManagementStore)
+		wantMsg string
+	}{
+		{
+			name:    "empty user_id rejected",
+			userID:  "",
+			roleID:  "1",
+			setup:   func(_ *mocks.MockUserStore, _ *mocks.MockUserManagementStore) {},
+			wantMsg: "user_id is required",
+		},
+		{
+			name:    "empty role_id rejected",
+			userID:  targetExternalID,
+			roleID:  "",
+			setup:   func(_ *mocks.MockUserStore, _ *mocks.MockUserManagementStore) {},
+			wantMsg: "role_id is required",
+		},
+		{
+			name:   "unknown target user surfaces as invalid",
+			userID: "ghost",
+			roleID: "1",
+			setup: func(us *mocks.MockUserStore, _ *mocks.MockUserManagementStore) {
+				us.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+					Return([]interfaces.Organization{{ID: orgID}}, nil)
+				us.EXPECT().GetUserByExternalID(gomock.Any(), "ghost").
+					Return(interfaces.User{}, sql.ErrNoRows)
+			},
+			wantMsg: "invalid user_id",
+		},
+		{
+			name:   "malformed role_id rejected inside tx",
+			userID: targetExternalID,
+			roleID: "+1",
+			setup: func(us *mocks.MockUserStore, _ *mocks.MockUserManagementStore) {
+				us.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+					Return([]interfaces.Organization{{ID: orgID}}, nil)
+				us.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "role not found surfaces as invalid",
+			userID: targetExternalID,
+			roleID: "55",
+			setup: func(us *mocks.MockUserStore, mgmt *mocks.MockUserManagementStore) {
+				us.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+					Return([]interfaces.Organization{{ID: orgID}}, nil)
+				us.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+				mgmt.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(55)).
+					Return(interfaces.Role{}, sql.ErrNoRows)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "cross-org role rejected",
+			userID: targetExternalID,
+			roleID: "55",
+			setup: func(us *mocks.MockUserStore, mgmt *mocks.MockUserManagementStore) {
+				us.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+					Return([]interfaces.Organization{{ID: orgID}}, nil)
+				us.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+				other := otherOrgID
+				mgmt.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(55)).
+					Return(interfaces.Role{ID: 55, Name: "other-org-role", OrganizationID: &other}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "SUPER_ADMIN new role rejected",
+			userID: targetExternalID,
+			roleID: "55",
+			setup: func(us *mocks.MockUserStore, mgmt *mocks.MockUserManagementStore) {
+				us.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+					Return([]interfaces.Organization{{ID: orgID}}, nil)
+				us.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+				mgmt.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(55)).
+					Return(interfaces.Role{
+						ID:             55,
+						Name:           "Owner",
+						OrganizationID: &owner,
+						BuiltinKey:     string(authz.BuiltinKeySuperAdmin),
+					}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			// Doubles as cross-org guard: GetOrgScopeAssignmentForUser filters
+			// by (user, org), so the same ErrNoRows path covers both cases.
+			name:   "target with no live org-scope assignment in caller's org",
+			userID: targetExternalID,
+			roleID: "55",
+			setup: func(us *mocks.MockUserStore, mgmt *mocks.MockUserManagementStore) {
+				us.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+					Return([]interfaces.Organization{{ID: orgID}}, nil)
+				us.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+				mgmt.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(55)).
+					Return(interfaces.Role{ID: 55, Name: "Field Tech", OrganizationID: &owner, BuiltinKey: string(authz.BuiltinKeyFieldTech)}, nil)
+				mgmt.EXPECT().GetOrgScopeAssignmentForUser(gomock.Any(), targetInternalID, orgID).
+					Return(interfaces.OrgScopeAssignment{}, sql.ErrNoRows)
+			},
+			wantMsg: "invalid user_id",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			mockUserStore := mocks.NewMockUserStore(ctrl)
+			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+			tc.setup(mockUserStore, mockMgmtStore)
+
+			svc := &Service{
+				userStore:           mockUserStore,
+				userManagementStore: mockMgmtStore,
+				transactor:          noopTransactor{},
+			}
+
+			_, err := svc.UpdateUserRole(
+				ctxWithSession(callerExternalID, "caller", orgID),
+				&authv1.UpdateUserRoleRequest{UserId: tc.userID, RoleId: tc.roleID},
+			)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, invalidCode, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestUpdateUserRole_NoOpWhenSameRole(t *testing.T) {
+	t.Parallel()
+
+	const callerExternalID = "caller-ext"
+	const callerInternalID int64 = 1
+	const orgID int64 = 7
+	const targetExternalID = "target-ext"
+	const targetInternalID int64 = 42
+	const sameRoleID int64 = 55
+
+	ctrl := gomock.NewController(t)
+	target := interfaces.User{ID: targetInternalID, UserID: targetExternalID, Username: "target"}
+	owner := orgID
+
+	mockUserStore := mocks.NewMockUserStore(ctrl)
+	mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+
+	mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+		Return([]interfaces.Organization{{ID: orgID}}, nil)
+	mockUserStore.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+	mockMgmtStore.EXPECT().GetRoleByIDForUpdate(gomock.Any(), sameRoleID).
+		Return(interfaces.Role{ID: sameRoleID, Name: "Field Tech", OrganizationID: &owner, BuiltinKey: string(authz.BuiltinKeyFieldTech)}, nil)
+	mockMgmtStore.EXPECT().GetOrgScopeAssignmentForUser(gomock.Any(), targetInternalID, orgID).
+		Return(interfaces.OrgScopeAssignment{
+			AssignmentID: 200,
+			RoleID:       sameRoleID,
+			BuiltinKey:   string(authz.BuiltinKeyFieldTech),
+		}, nil)
+	// No UpdateUserOrganizationRole / LoadEffective / Count calls expected — idempotent short-circuit fires first.
+
+	svc := &Service{
+		userStore:           mockUserStore,
+		userManagementStore: mockMgmtStore,
+		transactor:          noopTransactor{},
+	}
+
+	resp, err := svc.UpdateUserRole(
+		ctxWithSession(callerExternalID, "caller", orgID),
+		&authv1.UpdateUserRoleRequest{UserId: targetExternalID, RoleId: fmt.Sprintf("%d", sameRoleID)},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+}
+
+// TestDeactivateUser_LastSuperAdminGuard covers the new in-tx
+// last-SUPER_ADMIN guard plus the standard happy / self-deactivate
+// branches. Caller is given role:manage so authorizeCallerForUser's
+// parity check trivially passes (target is subsumed); the test focus
+// is the in-tx guard logic.
+func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
+	t.Parallel()
+
+	const callerExternalID = "caller-ext"
+	const callerInternalID int64 = 1
+	const orgID int64 = 7
+	const targetExternalID = "target-ext"
+	const targetInternalID int64 = 42
+
+	target := interfaces.User{ID: targetInternalID, UserID: targetExternalID, Username: "target"}
+	caller := interfaces.User{ID: callerInternalID, UserID: callerExternalID, Username: "caller"}
+	failedPreCode := fleeterror.NewFailedPreconditionError("").GRPCCode
+	invalidArgCode := fleeterror.NewInvalidArgumentError("").GRPCCode
+	callerHasRoleManage := orgScopeEff(authz.PermRoleManage, authz.PermUserManage, authz.PermFleetRead)
+
+	cases := []struct {
+		name                string
+		userID              string
+		currentBuiltinKey   string
+		saCount             int64
+		expectSoftDelete    bool
+		expectLockCount     bool
+		expectGetAssignment bool
+		expectSelfRejectMsg string
+		wantErrCode         connect.Code
+		wantErrSubstring    string
+	}{
+		{
+			name:                "non-SA target proceeds to SoftDeleteUser",
+			userID:              targetExternalID,
+			currentBuiltinKey:   string(authz.BuiltinKeyFieldTech),
+			expectGetAssignment: true,
+			expectSoftDelete:    true,
+		},
+		{
+			name:                "SA target refused when count would drop to zero",
+			userID:              targetExternalID,
+			currentBuiltinKey:   string(authz.BuiltinKeySuperAdmin),
+			saCount:             1,
+			expectGetAssignment: true,
+			expectLockCount:     true,
+			wantErrCode:         failedPreCode,
+			wantErrSubstring:    "cannot deactivate the last SUPER_ADMIN",
+		},
+		{
+			name:                "SA target proceeds when another SA remains",
+			userID:              targetExternalID,
+			currentBuiltinKey:   string(authz.BuiltinKeySuperAdmin),
+			saCount:             2,
+			expectGetAssignment: true,
+			expectLockCount:     true,
+			expectSoftDelete:    true,
+		},
+		{
+			// Self-deactivation: rejected before any store calls beyond the
+			// initial caller lookup. The handler-layer test exercises the
+			// permission gate; this asserts the domain-layer CANNOT_DEACTIVATE_SELF.
+			name:             "self-deactivate rejected before tx",
+			userID:           callerExternalID,
+			wantErrCode:      invalidArgCode,
+			wantErrSubstring: "cannot deactivate your own account",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			mockUserStore := mocks.NewMockUserStore(ctrl)
+			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+
+			mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+				Return([]interfaces.Organization{{ID: orgID}}, nil)
+			mockUserStore.EXPECT().GetUserByID(gomock.Any(), callerInternalID).Return(caller, nil)
+
+			if tc.expectGetAssignment {
+				// authorizeCallerForUser → target lookup + parity check
+				mockUserStore.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+				mockMgmtStore.EXPECT().GetUserRoleName(gomock.Any(), targetInternalID, orgID).Return("FIELD_TECH", nil)
+				// In-tx assignment fetch
+				mockMgmtStore.EXPECT().GetOrgScopeAssignmentForUser(gomock.Any(), targetInternalID, orgID).
+					Return(interfaces.OrgScopeAssignment{
+						AssignmentID: 200,
+						RoleID:       999,
+						BuiltinKey:   tc.currentBuiltinKey,
+					}, nil)
+			}
+			if tc.expectLockCount {
+				mockMgmtStore.EXPECT().LockAndCountOrgScopeSuperAdmins(gomock.Any(), orgID).
+					Return(tc.saCount, nil)
+			}
+			if tc.expectSoftDelete {
+				mockMgmtStore.EXPECT().SoftDeleteUser(gomock.Any(), targetInternalID).Return(nil)
+			}
+
+			svc := &Service{
+				userStore:           mockUserStore,
+				userManagementStore: mockMgmtStore,
+				transactor:          noopTransactor{},
+				permResolver: &fakeResolver{effective: map[int64]*authz.EffectivePermissions{
+					callerInternalID: callerHasRoleManage,
+					targetInternalID: orgScopeEff(authz.PermFleetRead), // trivially subsumed
+				}},
+			}
+
+			_, err := svc.DeactivateUser(
+				ctxWithSession(callerExternalID, "caller", orgID),
+				&authv1.DeactivateUserRequest{UserId: tc.userID},
+			)
+
+			if tc.wantErrCode == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, tc.wantErrCode, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.wantErrSubstring)
+		})
+	}
+}
+
+// fakeResolver stubs the parity-check dependency so unit tests can drive
+// the parity / last-SUPER_ADMIN branches without a DB-backed resolver.
+// effective keyed by userID; absent users return an empty (deny-all) set.
+type fakeResolver struct {
+	effective map[int64]*authz.EffectivePermissions
+}
+
+func (f *fakeResolver) LoadEffective(_ context.Context, userID, _ int64) (*authz.EffectivePermissions, error) {
+	if e, ok := f.effective[userID]; ok {
+		return e, nil
+	}
+	return authz.NewEffectivePermissions(nil), nil
+}
+
+func (f *fakeResolver) LoadEffectiveForUpdateInTx(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error) {
+	return f.LoadEffective(ctx, userID, organizationID)
+}
+
+func orgScopeEff(perms ...string) *authz.EffectivePermissions {
+	return authz.NewEffectivePermissions([]authz.Assignment{{
+		ScopeType:   authz.ScopeOrg,
+		Permissions: perms,
+	}})
+}
+
+// TestUpdateUserRole_ParityAndLastSuperAdmin covers the branches that fire
+// after GetOrgScopeAssignmentForUser: parity vs target's current perms,
+// parity vs the new role's perms, and the last-SUPER_ADMIN guard. The
+// resolver is stubbed via fakeResolver so each case can hand-craft the
+// caller/target effective sets.
+func TestUpdateUserRole_ParityAndLastSuperAdmin(t *testing.T) {
+	t.Parallel()
+
+	const callerExternalID = "caller-ext"
+	const callerInternalID int64 = 1
+	const orgID int64 = 7
+	const targetExternalID = "target-ext"
+	const targetInternalID int64 = 42
+	const newRoleID int64 = 55
+
+	target := interfaces.User{ID: targetInternalID, UserID: targetExternalID, Username: "target"}
+	owner := orgID
+
+	invalidArgCode := fleeterror.NewInvalidArgumentError("").GRPCCode
+	_ = invalidArgCode
+	forbiddenCode := fleeterror.NewForbiddenError("").GRPCCode
+	failedPreCode := fleeterror.NewFailedPreconditionError("").GRPCCode
+
+	// Builds a Service with mocks wired up for the standard "lookup +
+	// in-tx role resolve" path. Tests override callerEff/targetEff/newRoleKeys
+	// and the last-SA count to exercise specific branches.
+	type setup struct {
+		callerEff   *authz.EffectivePermissions
+		targetEff   *authz.EffectivePermissions
+		newRoleKeys []string
+		// builtinKey of the target's *current* assignment row (drives whether
+		// the last-SA guard runs).
+		currentBuiltinKey string
+		// remaining live SUPER_ADMIN count returned by LockAndCount when the
+		// guard runs. Set to 0 when the current assignment isn't SA — the
+		// guard won't be called.
+		saCount int64
+		// expectSwap when true, the test expects the swap write to fire and
+		// returns nil from it; when false, the swap must NOT be called.
+		expectSwap bool
+	}
+
+	cases := []struct {
+		name     string
+		s        setup
+		wantCode connect.Code
+		wantMsg  string
+	}{
+		{
+			name: "parity-fail on current role: peer caller cannot manage target",
+			s: setup{
+				// Caller and target both hold the same org-scope perms, so caller
+				// doesn't strictly dominate (no role:manage shortcut, equal perms).
+				callerEff:         orgScopeEff(authz.PermUserManage, authz.PermFleetRead),
+				targetEff:         orgScopeEff(authz.PermUserManage, authz.PermFleetRead),
+				newRoleKeys:       []string{authz.PermFleetRead},
+				currentBuiltinKey: string(authz.BuiltinKeyAdmin),
+			},
+			wantCode: forbiddenCode,
+			wantMsg:  "insufficient permissions to manage this user",
+		},
+		{
+			name: "parity-fail on new role: caller dominates current but not new",
+			s: setup{
+				// Caller dominates target's current set (target has only fleet:read).
+				callerEff:   orgScopeEff(authz.PermUserManage, authz.PermFleetRead),
+				targetEff:   orgScopeEff(authz.PermFleetRead),
+				newRoleKeys: []string{authz.PermUserManage, authz.PermRoleManage, authz.PermFleetRead},
+				// New role grants role:manage which caller lacks — parity-on-new fails.
+				currentBuiltinKey: string(authz.BuiltinKeyFieldTech),
+			},
+			wantCode: forbiddenCode,
+			wantMsg:  "insufficient permissions to manage this user",
+		},
+		{
+			name: "last-SUPER_ADMIN refusal: target is SA and count would drop to zero",
+			s: setup{
+				// Caller has role:manage so it can manage the SA target (parity passes).
+				callerEff:         orgScopeEff(authz.PermRoleManage, authz.PermUserManage, authz.PermFleetRead),
+				targetEff:         orgScopeEff(authz.PermRoleManage, authz.PermUserManage, authz.PermFleetRead),
+				newRoleKeys:       []string{authz.PermFleetRead},
+				currentBuiltinKey: string(authz.BuiltinKeySuperAdmin),
+				saCount:           1,
+			},
+			wantCode: failedPreCode,
+			wantMsg:  "cannot demote the last SUPER_ADMIN",
+		},
+		{
+			name: "last-SUPER_ADMIN passes when another SA remains: swap proceeds",
+			s: setup{
+				callerEff:         orgScopeEff(authz.PermRoleManage, authz.PermUserManage, authz.PermFleetRead),
+				targetEff:         orgScopeEff(authz.PermRoleManage, authz.PermUserManage, authz.PermFleetRead),
+				newRoleKeys:       []string{authz.PermFleetRead},
+				currentBuiltinKey: string(authz.BuiltinKeySuperAdmin),
+				saCount:           2,
+				expectSwap:        true,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			mockUserStore := mocks.NewMockUserStore(ctrl)
+			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+
+			mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
+				Return([]interfaces.Organization{{ID: orgID}}, nil)
+			mockUserStore.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
+			mockMgmtStore.EXPECT().GetRoleByIDForUpdate(gomock.Any(), newRoleID).
+				Return(interfaces.Role{ID: newRoleID, Name: "FIELD_TECH", OrganizationID: &owner, BuiltinKey: string(authz.BuiltinKeyFieldTech)}, nil)
+			mockMgmtStore.EXPECT().GetOrgScopeAssignmentForUser(gomock.Any(), targetInternalID, orgID).
+				Return(interfaces.OrgScopeAssignment{
+					AssignmentID: 200,
+					RoleID:       999, // != newRoleID so the no-op short-circuit doesn't fire
+					BuiltinKey:   tc.s.currentBuiltinKey,
+				}, nil)
+			mockMgmtStore.EXPECT().ListPermissionKeysByRoleID(gomock.Any(), newRoleID).
+				Return(tc.s.newRoleKeys, nil)
+
+			if tc.s.currentBuiltinKey == string(authz.BuiltinKeySuperAdmin) {
+				// Parity check passes when caller has role:manage and target's
+				// perms are subsumed — both SA scenarios are configured to pass.
+				mockMgmtStore.EXPECT().LockAndCountOrgScopeSuperAdmins(gomock.Any(), orgID).
+					Return(tc.s.saCount, nil)
+			}
+			if tc.s.expectSwap {
+				mockMgmtStore.EXPECT().UpdateUserOrganizationRole(gomock.Any(), targetInternalID, orgID, int64(200), newRoleID).
+					Return(nil)
+			}
+
+			svc := &Service{
+				userStore:           mockUserStore,
+				userManagementStore: mockMgmtStore,
+				transactor:          noopTransactor{},
+				permResolver: &fakeResolver{effective: map[int64]*authz.EffectivePermissions{
+					callerInternalID: tc.s.callerEff,
+					targetInternalID: tc.s.targetEff,
+				}},
+			}
+
+			_, err := svc.UpdateUserRole(
+				ctxWithSession(callerExternalID, "caller", orgID),
+				&authv1.UpdateUserRoleRequest{UserId: targetExternalID, RoleId: fmt.Sprintf("%d", newRoleID)},
+			)
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			if tc.wantMsg != "" {
+				assert.Contains(t, err.Error(), tc.wantMsg)
+			}
 		})
 	}
 }

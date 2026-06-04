@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS uq_user_org_single_live_org_scope;

@@ -24,7 +24,11 @@ func NewHandler(pairingSvc *pairing.Service) *Handler {
 }
 
 func (h Handler) GetNetworkInfo(ctx context.Context, _ *connect.Request[pb.GetNetworkInfoRequest]) (*connect.Response[pb.GetNetworkInfoResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{}); err != nil {
+	// GetNetworkInfo returns the device's own IP/gateway/subnet, surfaced on
+	// Settings → General for every user who can view the fleet. site:read
+	// would block FIELD_TECH (who can install/maintain miners but holds no
+	// site-management permission), so this sits on the universal view floor.
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	info, err := h.pairingSvc.GetLocalNetworkInfo(ctx)

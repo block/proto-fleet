@@ -96,6 +96,10 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/team",
     label: "Team",
     parent: "/settings",
+    // ListUsers is server-gated on user:read (held by ADMIN + SUPER_ADMIN
+    // but not FIELD_TECH). Without this gate the entry shows for every
+    // authenticated user even though the page can't load anything.
+    requiredPermission: "user:read",
   },
   {
     path: "/settings/roles",
