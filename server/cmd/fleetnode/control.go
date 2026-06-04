@@ -212,7 +212,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
 		slot := cmdSem
-		if parseErr == nil && env.GetDiscover() != nil {
+		if parseErr == nil && (env.GetDiscover() != nil || env.GetPair() != nil) {
 			slot = discoverySlot
 		}
 		select {
@@ -266,6 +266,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	switch k := env.GetCommand().(type) {
 	case *pairingpb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
+	case *pairingpb.AgentCommand_Pair:
+		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
 	default:
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
 	}
@@ -562,7 +564,9 @@ type pluginDiscoverer struct {
 	fleetNodeID int64
 }
 
-func newPluginDiscoverer(parent context.Context, pluginsDir string, fleetNodeID int64) (*pluginDiscoverer, func(), error) {
+// newPluginComponents loads the plugin manager once and builds both the
+// discoverer and the pairer over it, so the node never loads plugins twice.
+func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, minerSigningPrivKeyHex string) (*pluginDiscoverer, *pluginPairer, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -581,7 +585,7 @@ func newPluginDiscoverer(parent context.Context, pluginsDir string, fleetNodeID 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_ = manager.Shutdown(shutdownCtx)
 		shutdownCancel()
-		return nil, func() {}, fmt.Errorf("load plugins: %w", err)
+		return nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
 	// Parent ctx is typically already cancelled by a signal when cleanup
 	// runs; use a fresh background ctx bounded by the same 10s budget.
@@ -590,11 +594,17 @@ func newPluginDiscoverer(parent context.Context, pluginsDir string, fleetNodeID 
 		defer shutdownCancel()
 		_ = manager.Shutdown(shutdownCtx)
 	}
-	return &pluginDiscoverer{
+	prr, err := newPluginPairer(manager, minerSigningPrivKeyHex)
+	if err != nil {
+		cleanup()
+		return nil, nil, func() {}, fmt.Errorf("init pairer: %w", err)
+	}
+	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),
 		fleetNodeID: fleetNodeID,
-	}, cleanup, nil
+	}
+	return disc, prr, cleanup, nil
 }
 
 func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*pb.DiscoveredDeviceReport, error) {
