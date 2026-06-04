@@ -19,11 +19,15 @@ export interface PermissionGroup {
   entries: CatalogEntry[];
 }
 
-// `fleet` is intentionally excluded from RESOURCE_TO_GROUP so `fleet:read`
-// never renders as a manually toggleable checkbox in the role builder —
-// it is the dependency floor for every miner action and is auto-included
-// by `withRequiredReads` whenever a miner action is selected.
+// `fleet:read` is the dependency floor for every miner action — when any
+// miner action is selected, `withRequiredReads` adds it and
+// `lockedReadKeys` locks the checkbox so the user can't clear the
+// dependency. It also renders as a standalone toggle so a read-only
+// dashboard/telemetry role (e.g. `fleet:read` alone, or `fleet:read +
+// miner:read` with no miner action) can be built and edited without the
+// hidden key being silently dropped on save.
 const RESOURCE_TO_GROUP: Record<string, string> = {
+  fleet: "fleet",
   miner: "miner",
   rack: "infrastructure",
   site: "infrastructure",
@@ -39,6 +43,7 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
 };
 
 const GROUP_LABELS: Record<string, string> = {
+  fleet: "Fleet",
   miner: "Miners",
   infrastructure: "Sites, buildings & racks",
   curtailment: "Curtailment",
@@ -47,7 +52,7 @@ const GROUP_LABELS: Record<string, string> = {
   admin: "Administration",
 };
 
-const GROUP_ORDER = ["miner", "infrastructure", "curtailment", "pool", "schedule", "admin"];
+const GROUP_ORDER = ["fleet", "miner", "infrastructure", "curtailment", "pool", "schedule", "admin"];
 
 /** True for catalog keys whose action segment is "read". */
 export const isReadKey = (key: string): boolean => key.endsWith(":read");
