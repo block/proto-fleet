@@ -37,8 +37,25 @@ export class ActivityPage extends BasePage {
     await this.selectDropdownFilter("Type", optionLabel);
   }
 
+  async selectScopeFilter(optionLabel: string) {
+    await this.selectDropdownFilter("Scope", optionLabel);
+  }
+
   async selectUserFilter(optionLabel: string) {
     await this.selectDropdownFilter("Users", optionLabel);
+  }
+
+  async validateFilterPillVisible(label: string) {
+    await expect(this.filterPillsContainer().getByRole("button", { name: label, exact: true })).toBeVisible();
+  }
+
+  async validateFilterPillNotVisible(label: string) {
+    await expect(this.filterPillsContainer().getByRole("button", { name: label, exact: true })).toHaveCount(0);
+  }
+
+  async removeFilterPill(label: string) {
+    await this.filterPillsContainer().getByRole("button", { name: label, exact: true }).click();
+    await this.waitForActivityListToLoad();
   }
 
   async validateNoResultsVisible() {
@@ -79,6 +96,38 @@ export class ActivityPage extends BasePage {
     await expect(this.activityRowByDescription(description)).toBeVisible();
   }
 
+  async validateActivityDescriptionMarkedFailed(description: string) {
+    await expect(this.activityRowByDescription(description).getByText("Failed", { exact: true })).toBeVisible();
+  }
+
+  async openLatestActivityDetails() {
+    await this.latestActivityRow().click();
+  }
+
+  async validateActivityDetailModalOpened() {
+    await expect(this.activityDetailModal()).toBeVisible();
+    await expect(this.activityDetailModal()).toContainText("Actions");
+  }
+
+  async validateActivityDetailContainsText(text: string) {
+    await expect(this.activityDetailModal()).toContainText(text);
+  }
+
+  async validateActivityDetailDeviceResultsRowCount(expectedCount: number) {
+    await expect(this.activityDetailModal().locator("tbody tr")).toHaveCount(expectedCount);
+  }
+
+  async dismissActivityDetailModal() {
+    await this.activityDetailModal().getByTestId("header-icon-button").click();
+    await expect(this.activityDetailModal()).toBeHidden();
+  }
+
+  async exportCsv() {
+    const downloadPromise = this.page.waitForEvent("download");
+    await this.page.getByRole("button", { name: "Export CSV", exact: true }).click();
+    return await downloadPromise;
+  }
+
   private latestActivityRow(): Locator {
     return this.page.getByTestId("list-row").first();
   }
@@ -97,6 +146,14 @@ export class ActivityPage extends BasePage {
     await popover.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(popover).toBeHidden();
     await this.waitForActivityListToLoad();
+  }
+
+  private filterPillsContainer(): Locator {
+    return this.page.getByTestId("activity-filter-pills");
+  }
+
+  private activityDetailModal(): Locator {
+    return this.page.getByTestId("modal");
   }
 
   private async getVisibleActivityListState(): Promise<string> {
