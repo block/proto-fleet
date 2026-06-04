@@ -9,7 +9,6 @@
 // route tree. The tier addition isn't lint-enforced — a missed entry
 // leaves the chunk un-warmed without breaking the build.
 
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { singleMinerRoutePrefetch } from "@/protoOS/routePrefetch"; // eslint-disable-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
@@ -39,8 +38,6 @@ export const importSettingsFirmware = () => import("@/protoFleet/features/settin
 export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
 export const importSettingsApiKeys = () => import("@/protoFleet/features/settings/components/ApiKeys");
-export const importSitesPage = () => import("@/protoFleet/features/sites/pages/SitesPage");
-export const importSettingsSitesPage = () => import("@/protoFleet/features/sites/pages/SettingsSitesPage");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
@@ -52,14 +49,16 @@ export const importFleetDown = () => import("@/protoFleet/components/FleetDown/F
 // triggers this at idle so the first nav click has no Suspense flash.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
   importDashboard,
+  importFleetLayout,
   importMiners,
   importRacksPage,
+  importFleetBuildingsPage,
+  importFleetSitesPage,
   importGroupsPage,
   importEnergyPage,
   importActivityPage,
   importSettingsLayout,
   importSettingsGeneral,
-  ...(MULTI_SITE_ENABLED ? [importFleetLayout, importFleetBuildingsPage, importFleetSitesPage, importSitesPage] : []),
 ];
 
 // Settings sub-routes; SettingsLayout triggers this on mount so the rest of
@@ -72,5 +71,4 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsSchedules,
   importSettingsApiKeys,
   importServerLogsPage,
-  importSettingsSitesPage,
 ];

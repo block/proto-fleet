@@ -1,7 +1,6 @@
 import { type ReactNode } from "react";
 
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Racks, Settings } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -28,26 +27,11 @@ export const primaryNavItems: NavItem[] = [
     label: "Home",
     icon: Home,
   },
-  ...(MULTI_SITE_ENABLED
-    ? [
-        {
-          path: "/fleet",
-          label: "Fleet",
-          icon: Fleet,
-        },
-      ]
-    : [
-        {
-          path: "/miners",
-          label: "Miners",
-          icon: Fleet,
-        },
-        {
-          path: "/racks",
-          label: "Racks",
-          icon: Racks,
-        },
-      ]),
+  {
+    path: "/fleet",
+    label: "Fleet",
+    icon: Fleet,
+  },
   {
     path: "/groups",
     label: "Groups",

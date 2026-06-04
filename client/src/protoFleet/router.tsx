@@ -31,15 +31,12 @@ import {
   importSettingsLayout,
   importSettingsMiningPools,
   importSettingsSchedules,
-  importSettingsSitesPage,
   importSettingsTeam,
   importSiteDetailPage,
-  importSitesPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import {
   minersRedirectLoader,
   racksRedirectLoader,
@@ -75,8 +72,6 @@ const SettingsTeam = lazy(importSettingsTeam);
 const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
-const SitesPage = lazy(importSitesPage);
-const SettingsSitesPage = lazy(importSettingsSitesPage);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
@@ -167,17 +162,15 @@ const router = createBrowserRouter([
     ],
   },
 
-  // Off-flag: sidenav still exposes /miners and /racks as standalone
-  // entries, so mount the pages directly. On-flag: redirect into /fleet.
-  MULTI_SITE_ENABLED ? { path: "/miners", loader: minersRedirectLoader } : createRoute("/miners", <Miners />),
-  MULTI_SITE_ENABLED ? { path: "/racks", loader: racksRedirectLoader } : createRoute("/racks", <RacksPage />),
+  { path: "/miners", loader: minersRedirectLoader },
+  { path: "/racks", loader: racksRedirectLoader },
 
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
-  MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
+  { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 
@@ -246,14 +239,7 @@ const router = createBrowserRouter([
       <ServerLogsPage />
     </SettingsLayout>,
   ),
-  MULTI_SITE_ENABLED
-    ? { path: "/settings/sites", loader: sitesRedirectLoader }
-    : createRoute(
-        "/settings/sites",
-        <SettingsLayout>
-          <SettingsSitesPage />
-        </SettingsLayout>,
-      ),
+  { path: "/settings/sites", loader: sitesRedirectLoader },
 
   // Auth routes (fullscreen)
   createRoute("/auth", <Auth />, { fullscreen: true, loader: authLoader }),
