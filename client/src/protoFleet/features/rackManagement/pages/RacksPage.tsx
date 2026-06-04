@@ -38,8 +38,6 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
-// Column set when mounted inside the /fleet shell: site + building columns
-// surface because the operator is browsing across the multi-site hierarchy.
 const RACK_COLUMNS_FLEET: DeviceSetColumn[] = [
   "name",
   "site",
@@ -54,10 +52,6 @@ const RACK_COLUMNS_FLEET: DeviceSetColumn[] = [
   "health",
 ];
 
-// Column set for the legacy standalone /racks route (flag-off). Drops site
-// and building so the page renders the same shape it did before the
-// multi-site redesign — those columns would just be em-dash noise pushing
-// rack telemetry off-screen in a single-site environment.
 const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
   "name",
   "zone",
@@ -76,9 +70,6 @@ const RacksPage = () => {
   const { listAllBuildings } = useBuildings();
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
-  // Suppress the standalone "Racks" h1 when mounted inside the Fleet shell —
-  // FleetLayout already renders its own heading + tab nav above this page.
-  // Direct mounts at `/racks` (flag-off) keep the heading.
   const { pathname } = useLocation();
   const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);

@@ -56,11 +56,6 @@ const Fleet = () => {
     });
   }, [listGroups, listRacks]);
 
-  // The Fleet shell (FleetLayout) renders its own "Fleet" heading + tab nav
-  // above this component, so the MinerList heading would be redundant under
-  // /fleet/miners. The standalone /miners route (flag-off) doesn't have that
-  // chrome and keeps its heading. `useLocation` is exact-match safe — only
-  // the `/fleet/` prefix routes mount FleetLayout.
   const { pathname } = useLocation();
   const insideFleetShell = pathname.startsWith("/fleet/");
 

@@ -40,8 +40,8 @@ const SiteDetailPage = () => {
     return () => controller.abort();
   }, [listSites]);
 
-  // Retry re-runs the effect via retryCounter so the cleanup AbortController
-  // stays owned by useEffect and never leaks across retries.
+  // Bump retryCounter to re-run the effect so the cleanup AbortController
+  // stays owned by useEffect and isn't leaked by an imperative call.
   const [retryCounter, setRetryCounter] = useState(0);
   const handleRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
 
@@ -54,9 +54,7 @@ const SiteDetailPage = () => {
     return sites.find((s) => s.site?.id === parsed);
   }, [sites, targetId]);
 
-  // UpdateSite + CreateBuilding are gated on `site:manage` server-side; hide
-  // the Edit + Add building CTAs for read-only roles so they don't fill in a
-  // modal that fails on submit.
+  // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites: fetchSites });
@@ -73,11 +71,8 @@ const SiteDetailPage = () => {
     );
   }
 
-  // Full-page error only when we have no last-good site to show. Once a
-  // detail load has succeeded, a later refetch failure (e.g. after a
-  // successful edit-modal save calls refetchSites) surfaces inline on the
-  // happy path instead of stranding the user on a "Couldn't load site"
-  // screen — mirrors the fleet list pattern.
+  // Full-page error only when no last-good data; later failures surface
+  // inline so the operator isn't stranded after a successful detail load.
   if (error && sites.length === 0) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6">

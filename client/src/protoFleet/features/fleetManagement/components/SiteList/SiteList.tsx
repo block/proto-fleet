@@ -52,9 +52,6 @@ const SiteList = ({ sites, emptyStateRow }: SiteListProps) => {
     [sites],
   );
 
-  // Most telemetry columns are placeholder em-dashes until the Phase 1b
-  // metric rollup lands. The list shape matches the rack list so operators
-  // see consistent columns across /fleet/* tabs.
   const colConfig = useMemo<ColConfig<SiteListItem, string, SiteColumn>>(
     () => ({
       name: {
@@ -87,8 +84,6 @@ const SiteList = ({ sites, emptyStateRow }: SiteListProps) => {
       hideTotal
       onRowClick={handleRowClick}
       emptyStateRow={emptyStateRow}
-      // Mirrors MinerList so the first column lines up with the
-      // FilterRow's horizontal padding on every breakpoint.
       paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
     />
   );

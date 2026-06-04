@@ -14,11 +14,6 @@ interface SiteSelectModalProps {
   onDismiss: () => void;
 }
 
-// Lightweight "pick a site" modal used by the Buildings tab Add CTA until
-// BuildingSettingsModal grows a built-in site dropdown (#371). Renders a
-// list of clickable rows; selection calls onSelect with the chosen site's
-// id + name. Callers should skip mounting this modal when there is only
-// one site or when the SitePicker is already pinned to a single site.
 const SiteSelectModal = ({
   open,
   sites,

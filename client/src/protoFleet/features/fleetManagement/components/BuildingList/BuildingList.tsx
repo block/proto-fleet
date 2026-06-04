@@ -82,10 +82,6 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
     [buildings, siteNameById],
   );
 
-  // Telemetry columns are em-dash placeholders until the Phase 1b metric
-  // rollup lands; the column shape mirrors the rack list (with site instead
-  // of zone, since zones are rack-scoped) so the /fleet/* tabs read
-  // consistently.
   const colConfig = useMemo<ColConfig<BuildingListItem, string, BuildingColumn>>(
     () => ({
       name: {
@@ -121,8 +117,6 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
       hideTotal
       onRowClick={handleRowClick}
       emptyStateRow={emptyStateRow}
-      // Mirrors MinerList so the first column lines up with the
-      // FilterRow's horizontal padding on every breakpoint.
       paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
     />
   );

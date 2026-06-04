@@ -149,8 +149,8 @@ const router = createBrowserRouter([
   // Dashboard (Home)
   createRoute("/", <Dashboard />, { bg: "surface-5" }),
 
-  // Fleet shell wraps FleetLayout in <App> so the global PageHeader and
-  // page-background hook apply; tab children render through its <Outlet />.
+  // FleetLayout wraps tab children through its <Outlet />; nesting under
+  // <App> preserves the global PageHeader and page-background hook.
   {
     path: "/fleet",
     element: (
@@ -167,10 +167,8 @@ const router = createBrowserRouter([
     ],
   },
 
-  // Redirect the legacy /miners and /racks routes into the Fleet shell only
-  // when the multi-site flag is on. When the flag is off the sidenav still
-  // exposes /miners and /racks as standalone nav entries, so the routes need
-  // to mount the original pages directly.
+  // Off-flag: sidenav still exposes /miners and /racks as standalone
+  // entries, so mount the pages directly. On-flag: redirect into /fleet.
   MULTI_SITE_ENABLED ? { path: "/miners", loader: minersRedirectLoader } : createRoute("/miners", <Miners />),
   MULTI_SITE_ENABLED ? { path: "/racks", loader: racksRedirectLoader } : createRoute("/racks", <RacksPage />),
 
@@ -179,9 +177,6 @@ const router = createBrowserRouter([
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
-  // /sites is replaced by the Sites tab on /fleet. Under the flag it
-  // redirects so legacy bookmarks degrade cleanly; flag-off keeps the
-  // standalone SitesPage mounted until that page is deleted.
   MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
@@ -251,9 +246,6 @@ const router = createBrowserRouter([
       <ServerLogsPage />
     </SettingsLayout>,
   ),
-  // /settings/sites is replaced by the Sites tab on /fleet plus the
-  // /sites/:id detail page. Redirect under the flag; keep the legacy
-  // SettingsLayout-mount when the flag is off until the page is deleted.
   MULTI_SITE_ENABLED
     ? { path: "/settings/sites", loader: sitesRedirectLoader }
     : createRoute(

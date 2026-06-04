@@ -16,11 +16,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { usePoll } from "@/shared/hooks/usePoll";
 
-// Each layout element owns its own top padding so callers don't have to
-// reason about combined gaps:
-//   - Heading + tab strip: pt-6 (FleetLayout)
-//   - FilterRow: pt-10
-//   - List: pt-6 (LIST_WRAPPER)
 const LIST_WRAPPER = "pt-6";
 
 const FleetBuildingsPage = () => {
@@ -31,7 +26,7 @@ const FleetBuildingsPage = () => {
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
 
   // Returning the promise lets usePoll schedule the next tick from response
-  // completion — matches the legacy /sites overview polling cadence.
+  // completion (not from request start) so slow responses can't overlap.
   const fetchBuildings = useCallback(
     () =>
       listAllBuildings({
@@ -66,13 +61,8 @@ const FleetBuildingsPage = () => {
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
   const [showSiteSelect, setShowSiteSelect] = useState(false);
 
-  // Picks a site for the new building when the user clicks Add building.
-  // The picker has three branches:
-  //   1. SitePicker is pinned to a single existing site → use it directly.
-  //   2. Org has exactly one site → use it directly (no point asking).
-  //   3. Otherwise → open SiteSelectModal so the operator picks which site.
-  // Once #371 ships a Site dropdown inside BuildingSettingsModal this layer
-  // collapses to a single openDetailsCreate(undefined) call.
+  // Skip the picker when the target is unambiguous: a pinned single-site
+  // selection or an org with exactly one site.
   const handleAddBuilding = useCallback(() => {
     const validSites = sites?.filter((s) => s.site !== undefined) ?? [];
     if (validSites.length === 0) return;
@@ -100,8 +90,7 @@ const FleetBuildingsPage = () => {
   );
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
-  // CreateBuilding is gated on `site:manage` server-side; hide the CTA for
-  // read-only roles so they don't get rejected on submit.
+  // CreateBuilding requires site:manage server-side.
   const canManageBuildings = useHasPermission("site:manage");
 
   if (buildings === undefined || sites === undefined) {

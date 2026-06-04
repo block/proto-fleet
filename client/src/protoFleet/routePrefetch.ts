@@ -50,9 +50,6 @@ export const importFleetDown = () => import("@/protoFleet/components/FleetDown/F
 
 // Sidebar destinations + the default settings sub-route. App.tsx
 // triggers this at idle so the first nav click has no Suspense flash.
-// Fleet-specific chunks are only warmed when MULTI_SITE_ENABLED is on, so
-// single-site installs don't download tab code that's not reachable from
-// their sidenav.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
   importDashboard,
   importMiners,
