@@ -5,6 +5,7 @@ import { type FleetOutletContext } from "./outletContext";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -12,9 +13,15 @@ import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage"
 
 type FleetTabId = "sites" | "buildings" | "racks" | "miners";
 
-const TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners"];
-const DEFAULT_TAB: FleetTabId = "sites";
-const DEFAULT_TAB_NO_SITES: FleetTabId = "buildings";
+// Sites and Buildings tabs only ship under the multi-site flag. The routes
+// remain mounted unconditionally (router.tsx + redirectLoaders) so direct-URL
+// access still works during dogfood, but the tab nav hides them off-flag so
+// half-implemented multi-site UX doesn't reach single-site installs.
+const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED ? ["sites", "buildings", "racks", "miners"] : ["racks", "miners"];
+// Default tab picks the leftmost visible in TAB_ORDER so the flag-off shell
+// (no Sites/Buildings) lands on Racks, while flag-on lands on Sites.
+const DEFAULT_TAB: FleetTabId = MULTI_SITE_ENABLED ? "sites" : "racks";
+const DEFAULT_TAB_NO_SITES: FleetTabId = MULTI_SITE_ENABLED ? "buildings" : "racks";
 // Used when the operator's role can't load sites (listSites returned an error
 // on initial load). Miners is the most universally accessible fleet view, so
 // landing there avoids dumping the operator into a permission-error page.
@@ -28,7 +35,11 @@ const tabLabel: Record<FleetTabId, string> = {
   sites: "Sites",
 };
 
-const isFleetTabId = (s: string): s is FleetTabId => (TAB_ORDER as string[]).includes(s);
+// All four ids stay valid here so a localStorage `lastTab` value persisted
+// while the flag was on doesn't get treated as garbage when the flag flips.
+const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners"]);
+const isFleetTabId = (s: string): s is FleetTabId => ALL_TAB_IDS.has(s as FleetTabId);
+const isVisibleFleetTabId = (s: string): s is FleetTabId => (TAB_ORDER as string[]).includes(s);
 
 const tabFromPath = (pathname: string): FleetTabId | undefined => {
   const m = pathname.match(/^\/fleet\/([^/]+)/);
@@ -97,13 +108,20 @@ const FleetLayout = () => {
   useEffect(() => {
     if (sites === undefined) return;
     // Guard against corrupted or older-schema localStorage values so a stale
-    // lastTab cannot navigate to /fleet/<garbage>.
-    const safeLastTab = lastTab && isFleetTabId(lastTab) ? lastTab : undefined;
-    // If sites access is blocked, do not honor lastTab="sites" — that route
-    // would immediately error.
+    // lastTab cannot navigate to /fleet/<garbage>. Honor only tabs that are
+    // currently visible (TAB_ORDER) — flag-off installs shouldn't replay a
+    // Sites/Buildings choice persisted while the flag was on.
+    const safeLastTab = lastTab && isVisibleFleetTabId(lastTab) ? lastTab : undefined;
     const usableLastTab =
       safeLastTab && (safeLastTab !== "sites" || (!sitesTabHidden && !sitesAccessBlocked)) ? safeLastTab : undefined;
     if (location.pathname === "/fleet" || location.pathname === "/fleet/") {
+      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
+      return;
+    }
+    // Active path points at a tab that's no longer visible — could be because
+    // sites are hidden under a single-site picker, sites access is blocked, or
+    // the multi-site flag was disabled while the operator was on a flagged tab.
+    if (currentTab && !isVisibleFleetTabId(currentTab)) {
       navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
       return;
     }
