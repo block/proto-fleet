@@ -94,6 +94,46 @@ func TestRegistry_SendDeliversCommandAndRoutesAck(t *testing.T) {
 	assert.True(t, gotAck.Ack.GetSucceeded())
 }
 
+func TestRegistry_TerminalAckDeliveredWhenEventBufferFull(t *testing.T) {
+	// Arrange: a report-bearing command whose event buffer is filled to capacity
+	// with best-effort batches the operator has not drained.
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	require.Equal(t, "discover", recvCommandID(t, s))
+	for range commandEventBuffer {
+		r.PublishBatch(1, "discover", &pairingpb.DiscoverResponse{Devices: []*pairingpb.Device{{DeviceIdentifier: "d"}}})
+	}
+
+	// Act: the terminal ack arrives while the buffer is full.
+	s.PublishAck(&gatewaypb.ControlAck{CommandId: "discover", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+
+	// Assert: the ack survives (one best-effort batch is evicted to make room),
+	// rather than being dropped and stranding the operator until the timeout.
+	var acks, batches int
+	events := session.Events()
+drain:
+	for {
+		select {
+		case ev := <-events:
+			if ev.Ack != nil {
+				acks++
+				assert.True(t, ev.Ack.GetSucceeded())
+			}
+			if ev.Batch != nil {
+				batches++
+			}
+		default:
+			break drain
+		}
+	}
+	assert.Equal(t, 1, acks, "terminal ack must survive a full event buffer")
+	assert.Equal(t, commandEventBuffer-1, batches, "exactly one best-effort batch is evicted for the ack")
+}
+
 func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
 	// Arrange: a discovery is already in flight.
 	r := NewRegistry()
@@ -169,7 +209,7 @@ func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	require.Error(t, res.err)
 	assert.Nil(t, res.ack)
 	_, err := r.SendCommand(canceledCtx(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
-	require.Error(t, err) // not errDuplicateCommandID — the slot was freed
+	require.Error(t, err) // not errDuplicateCommandID; the slot was freed
 	assert.False(t, errors.Is(err, ErrNoActiveStream))
 }
 
@@ -185,7 +225,7 @@ func TestRegistry_AckRoutesByKind(t *testing.T) {
 	}()
 	require.Equal(t, "mk", recvCommandID(t, s))
 
-	// Assert: an ack-only command is not a report channel — the report path rejects it.
+	// Assert: an ack-only command is not a report channel; the report path rejects it.
 	assert.ErrorIs(t, r.AdmitReport(1, "mk", 1), errNoInFlightCommand)
 	_, ok := r.ReportScopeFor(1, "mk")
 	assert.False(t, ok)
@@ -334,7 +374,7 @@ func TestPublish_RaceWithCleanup(t *testing.T) {
 		for range iters {
 			session, sendErr := r.Send(context.Background(), 101, &gatewaypb.ControlCommand{CommandId: "race-cmd"}, nil)
 			if sendErr != nil {
-				// Send only fails here if the connection was evicted mid-call; fine — race continues.
+				// Send only fails here if the connection was evicted mid-call; fine, race continues.
 				continue
 			}
 			<-s.Outgoing

@@ -207,18 +207,22 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if cmd == nil {
 			continue
 		}
+		// Decode the envelope once here so we can pick a lane and handleCommand
+		// need not re-parse the payload. A malformed payload is not report-bearing:
+		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
+		env, parseErr := decodeAgentCommand(cmd.GetPayload())
 		slot := cmdSem
-		if reportBearingCommand(cmd.GetPayload()) {
+		if parseErr == nil && env.GetDiscover() != nil {
 			slot = discoverySlot
 		}
 		select {
 		case slot <- struct{}{}:
 			wg.Add(1)
-			go func(c *pb.ControlCommand) {
+			go func(c *pb.ControlCommand, e *pairingpb.AgentCommand, pErr error) {
 				defer wg.Done()
 				defer func() { <-slot }()
-				r.handleCommand(sessionCtx, client, sender, c, logger)
-			}(cmd)
+				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
+			}(cmd, env, parseErr)
 		default:
 			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
 			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
@@ -226,20 +230,20 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}
 }
 
-// reportBearingCommand reports whether the envelope carries a heavy, report-bearing
-// command (discovery, and the pairing effort's future pair) that takes the exclusive
-// single-flight discovery slot rather than the per-miner command pool. A
-// malformed/unknown envelope is treated as not report-bearing; handleCommand acks it
-// (BAD_REQUEST) from the pool lane.
-func reportBearingCommand(payload []byte) bool {
-	var env pairingpb.AgentCommand
-	if err := proto.Unmarshal(payload, &env); err != nil {
-		return false
+// decodeAgentCommand unmarshals the ControlCommand.payload envelope. The receive loop
+// decodes once and hands the result to handleCommand so the payload is parsed a single
+// time. Discovery (and the pairing effort's future pair) is the heavy, report-bearing
+// kind that takes the exclusive single-flight slot; everything else, including a
+// malformed payload, takes the per-miner command pool and is acked by handleCommand.
+func decodeAgentCommand(payload []byte) (*pairingpb.AgentCommand, error) {
+	env := &pairingpb.AgentCommand{}
+	if err := proto.Unmarshal(payload, env); err != nil {
+		return nil, fmt.Errorf("decode AgentCommand: %w", err)
 	}
-	return env.GetDiscover() != nil
+	return env, nil
 }
 
-func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, logger *slog.Logger) {
+func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pairingpb.AgentCommand, parseErr error, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
 	// Drop silently if command_id is itself unsafe to echo in an ack; the
 	// gateway would reject the ack and close the stream. Server retries.
@@ -253,9 +257,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	}
 	logger.Info("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
 
-	var env pairingpb.AgentCommand
-	if err := proto.Unmarshal(cmd.GetPayload(), &env); err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("decode AgentCommand: %v", err), logger)
+	if parseErr != nil {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, parseErr.Error(), logger)
 		return
 	}
 	switch k := env.GetCommand().(type) {

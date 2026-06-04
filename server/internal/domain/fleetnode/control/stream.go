@@ -120,11 +120,25 @@ func (r *Registry) deliverAck(fleetNodeID int64, ack *gatewaypb.ControlAck) {
 		return // unknown/stale/duplicate command_id
 	}
 	if cmd.reportBearing() {
+		// The terminal ack must reach the operator even when the batch buffer is
+		// full, or RunOnNode strands until DiscoverCommandTimeout. Batches are
+		// best-effort, so on a full buffer evict the oldest one to make room. Safe
+		// under r.mu: every events producer holds it, so nothing refills the freed
+		// slot before the retried send.
+		ev := CommandEvent{Ack: ack}
 		select {
-		case cmd.events <- CommandEvent{Ack: ack}:
+		case cmd.events <- ev:
 		default:
-			slog.Warn("dropping fleet node control ack; operator stream not draining",
-				"fleet_node_id", fleetNodeID, "command_id", ack.GetCommandId())
+			select {
+			case <-cmd.events:
+			default:
+			}
+			select {
+			case cmd.events <- ev:
+			default:
+				slog.Warn("dropping fleet node control ack; operator stream not draining",
+					"fleet_node_id", fleetNodeID, "command_id", ack.GetCommandId())
+			}
 		}
 		return
 	}

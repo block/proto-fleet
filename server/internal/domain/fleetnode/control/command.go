@@ -16,7 +16,7 @@ import (
 //
 // Returns ErrNoActiveStream if the node has no live ControlStream (callers map to
 // FailedPrecondition). The returned *ControlAck is the agent's structured outcome:
-// a non-OK code is NOT a Go error here — the caller inspects ack.Code/Succeeded.
+// a non-OK code is NOT a Go error here; the caller inspects ack.Code/Succeeded.
 func (r *Registry) SendCommand(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	c := &inflightCommand{
 		id:   cmd.GetCommandId(),
