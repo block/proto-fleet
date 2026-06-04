@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,8 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/activity"
-	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
 
 const Path = "/internal/alertmanager-webhook"
@@ -27,6 +25,8 @@ const maxBodyBytes = 1 << 20 // 1 MiB
 const maxAlertsPerRequest = 100
 
 const maxRowsPerRequest = 1000
+
+const insertTimeout = 10 * time.Second
 
 const (
 	statusFiring   = "firing"
@@ -63,13 +63,13 @@ type OrgLister interface {
 }
 
 type Handler struct {
-	activitySvc  *activity.Service
+	store        notificationhistory.Store
 	webhookToken string
 	orgLister    OrgLister
 }
 
-func NewHandler(activitySvc *activity.Service, webhookToken string, orgLister OrgLister) http.Handler {
-	return &Handler{activitySvc: activitySvc, webhookToken: webhookToken, orgLister: orgLister}
+func NewHandler(store notificationhistory.Store, webhookToken string, orgLister OrgLister) http.Handler {
+	return &Handler{store: store, webhookToken: webhookToken, orgLister: orgLister}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -80,8 +80,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !h.authorized(r) {
-		// Don't leak whether the receiver is misconfigured vs. the
-		// caller supplied a wrong token — a generic 401 is enough.
+		// Generic 401 — don't leak whether the receiver is misconfigured
+		// vs. the caller supplied a wrong token.
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -89,8 +89,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		// MaxBytesReader returns a *http.MaxBytesError once the cap is
-		// exceeded; everything else is a network/read error.
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "payload exceeds limit")
@@ -107,8 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(payload.Alerts) == 0 {
-		// An empty batch is well-formed but uninteresting; ack and
-		// return so Grafana doesn't retry.
+		// Well-formed but uninteresting; ack so Grafana doesn't retry.
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -122,19 +119,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	orgIDs := h.fanOutOrgIDs(r.Context())
+
 	remainingRows := maxRowsPerRequest
 	persisted := 0
 	truncated := false
-	orgIDs := []int64{}
-
-	if h.orgLister != nil {
-		orgIDs, err = h.orgLister.ListActiveOrganizationIDs(r.Context())
-		if err != nil {
-			slog.Warn("alertmanager webhook: failed to list orgs for self-monitoring fan-out; recording as unscoped",
-				"error", err,
-			)
-		}
-	}
 
 	for i, alert := range payload.Alerts {
 		if remainingRows <= 0 {
@@ -157,13 +146,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"status", payload.Status,
 	)
 
-	// return a 5xx so grafana retries delivery
+	// Return 5xx so Grafana retries delivery.
 	if persisted == 0 {
 		writeError(w, http.StatusInternalServerError, "failed to persist alerts")
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// fanOutOrgIDs returns the orgs eligible for self-monitoring fan-out, or
+// nil when the lister is unset or errors — both fall back to an unscoped row.
+func (h *Handler) fanOutOrgIDs(ctx context.Context) []int64 {
+	if h.orgLister == nil {
+		return nil
+	}
+	orgIDs, err := h.orgLister.ListActiveOrganizationIDs(ctx)
+	if err != nil {
+		slog.Warn("alertmanager webhook: failed to list orgs for self-monitoring fan-out; recording as unscoped",
+			"error", err,
+		)
+		return nil
+	}
+	return orgIDs
 }
 
 func (h *Handler) authorized(r *http.Request) bool {
@@ -182,28 +187,22 @@ func (h *Handler) persistAlert(parent context.Context, alert alertmanagerAlert, 
 	if budget <= 0 {
 		return 0, 0
 	}
-	event := alertToEvent(alert)
+	row := alertToRow(alert)
 
-	// set timeout for persistence
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, insertTimeout)
 	defer cancel()
 
-	// Org-scoped alert (the usual case)
-	if event.OrganizationID != nil {
-		return 1, h.insertEvent(ctx, event, alert)
+	// Org-scoped alert (the usual case).
+	if row.OrganizationID != nil {
+		return 1, h.insert(ctx, row, alert)
 	}
 
-	// Unscoped alert — fan out only when this is a known global self-monitoring rule.
-	if !isGlobalSelfMonitoringAlert(alert.Labels) {
-		return 1, h.insertEvent(ctx, event, alert)
+	// Unscoped + not self-monitoring → keep historic single-row behaviour.
+	if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
+		return 1, h.insert(ctx, row, alert)
 	}
 
-	if len(orgIDs) == 0 {
-		// Persist the unscoped event so the alert still lands somewhere
-		return 1, h.insertEvent(ctx, event, alert)
-	}
-
-	// Cap fan-out at the remaining per-request budget.
+	// Self-monitoring fan-out, capped at the remaining row budget.
 	n := len(orgIDs)
 	if n > budget {
 		slog.Warn("alertmanager webhook: self-monitoring fan-out truncated by per-request row cap",
@@ -216,17 +215,17 @@ func (h *Handler) persistAlert(parent context.Context, alert alertmanagerAlert, 
 	}
 
 	for i := range n {
-		scoped := event
+		scoped := row
 		scoped.OrganizationID = &orgIDs[i]
-		persisted += h.insertEvent(ctx, scoped, alert)
+		persisted += h.insert(ctx, scoped, alert)
 	}
 	return n, persisted
 }
 
-func (h *Handler) insertEvent(ctx context.Context, event models.Event, alert alertmanagerAlert) int {
-	if err := h.activitySvc.LogStrict(ctx, event); err != nil {
-		// We persist on a best-effort basis within a batch
-		slog.Error("alertmanager webhook: failed to insert activity event",
+func (h *Handler) insert(ctx context.Context, row notificationhistory.Notification, alert alertmanagerAlert) int {
+	if err := h.store.Insert(ctx, &row); err != nil {
+		// Best-effort within a batch — log and let the caller count successes.
+		slog.Error("alertmanager webhook: failed to insert notification_history row",
 			"error", err,
 			"fingerprint", alert.Fingerprint,
 			"alertname", alert.Labels[labelAlertName],
@@ -240,7 +239,7 @@ func isGlobalSelfMonitoringAlert(labels map[string]string) bool {
 	return labels[labelRuleGroup] == ruleGroupSelfMonitoring
 }
 
-func alertToEvent(alert alertmanagerAlert) models.Event {
+func alertToRow(alert alertmanagerAlert) notificationhistory.Notification {
 	alertName := alert.Labels[labelAlertName]
 	if alertName == "" {
 		alertName = "unknown"
@@ -250,61 +249,30 @@ func alertToEvent(alert alertmanagerAlert) models.Event {
 		status = statusFiring
 	}
 
-	description := alert.Annotations["summary"]
-	if description == "" {
-		description = fmt.Sprintf("alert %s %s", alertName, status)
-	}
-
-	result := models.ResultFailure
-	if status == statusResolved {
-		result = models.ResultSuccess
-	}
-
-	scopeType := alert.Labels[labelTemplate]
-	scopeLabel := alert.Labels[labelDeviceID]
-	scopeTypePtr := nilIfEmpty(scopeType)
-	scopeLabelPtr := nilIfEmpty(scopeLabel)
-
-	event := models.Event{
-		Category:    models.CategorySystem,
-		Type:        fmt.Sprintf("alert.%s.%s", alertName, status),
-		Description: description,
-		Result:      result,
-		ScopeType:   scopeTypePtr,
-		ScopeLabel:  scopeLabelPtr,
-		ActorType:   models.ActorSystem,
-		Metadata:    alertMetadata(alert),
-	}
-
-	if orgID, ok := parseOrgID(alert.Labels[labelOrganizationID]); ok {
-		event.OrganizationID = &orgID
-	}
-
-	return event
-}
-
-func alertMetadata(alert alertmanagerAlert) map[string]any {
-	meta := map[string]any{
-		"status":      alert.Status,
-		"labels":      alert.Labels,
-		"annotations": alert.Annotations,
+	row := notificationhistory.Notification{
+		AlertName:   alertName,
+		Status:      status,
+		Severity:    alert.Labels[labelSeverity],
+		RuleGroup:   alert.Labels[labelRuleGroup],
+		Fingerprint: alert.Fingerprint,
+		DeviceID:    alert.Labels[labelDeviceID],
+		Template:    alert.Labels[labelTemplate],
+		Summary:     alert.Annotations["summary"],
+		Labels:      alert.Labels,
+		Annotations: alert.Annotations,
 	}
 	if !alert.StartsAt.IsZero() {
-		meta["starts_at"] = alert.StartsAt.UTC().Format(time.RFC3339)
+		t := alert.StartsAt.UTC()
+		row.StartsAt = &t
 	}
 	if !alert.EndsAt.IsZero() {
-		meta["ends_at"] = alert.EndsAt.UTC().Format(time.RFC3339)
+		t := alert.EndsAt.UTC()
+		row.EndsAt = &t
 	}
-	if alert.Fingerprint != "" {
-		meta["fingerprint"] = alert.Fingerprint
+	if orgID, ok := parseOrgID(alert.Labels[labelOrganizationID]); ok {
+		row.OrganizationID = &orgID
 	}
-	if severity := alert.Labels[labelSeverity]; severity != "" {
-		meta["severity"] = severity
-	}
-	if ruleGroup := alert.Labels[labelRuleGroup]; ruleGroup != "" {
-		meta["rule_group"] = ruleGroup
-	}
-	return meta
+	return row
 }
 
 func parseOrgID(raw string) (int64, bool) {
@@ -319,13 +287,6 @@ func parseOrgID(raw string) (int64, bool) {
 	return v, true
 }
 
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 type errorResponse struct {
 	Error string `json:"error"`
 }
@@ -333,8 +294,7 @@ type errorResponse struct {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	err := json.NewEncoder(w).Encode(errorResponse{Error: message})
-	if err != nil {
+	if err := json.NewEncoder(w).Encode(errorResponse{Error: message}); err != nil {
 		slog.Error("alertmanager webhook: failed encode json", "error", err)
 	}
 }
