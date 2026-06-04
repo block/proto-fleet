@@ -305,6 +305,37 @@ func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
+// A dispatched edge must persist LastProcessedTarget so the redelivery dedup
+// guard survives a restart; this also guards the fake store's fidelity to the
+// real sqlc store, which round-trips the column.
+func TestWorker_HandleMessage_PersistsProcessedTarget(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	// Settled ON with an old edge anchor: the OFF is a real, non-debounced edge.
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+	}
+	w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	assert.Equal(t, TargetOff, persisted.LastProcessedTarget,
+		"a dispatched edge must persist LastProcessedTarget for restart-safe dedup")
+}
+
 // Regression: a future-dated publisher stamp must not pin the ordering
 // watermark ahead of receive-time. Before the clamp, an OFF stamped in the
 // future advanced LastTargetAt to that future stamp, so every later

@@ -64,6 +64,9 @@ func (f *fakeStore) UpsertSourceState(_ context.Context, u StateUpdate) error {
 	if u.LastTargetAt != nil {
 		existing.LastTargetAt = *u.LastTargetAt
 	}
+	if u.LastProcessedTarget != nil {
+		existing.LastProcessedTarget = *u.LastProcessedTarget
+	}
 	if u.LastReceivedAt != nil {
 		existing.LastReceivedAt = *u.LastReceivedAt
 	}

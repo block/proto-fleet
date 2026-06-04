@@ -174,6 +174,10 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 		secondaryHost: secondary,
 		password:      string(password),
 	}
+	// string(password) copied the plaintext into w.password (cleared on worker
+	// exit); zero the decrypted slice so that extra copy doesn't linger in the
+	// heap until GC.
+	clear(password)
 
 	wg.Add(1)
 	go func() {

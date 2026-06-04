@@ -100,8 +100,7 @@ func (w *sourceWorker) run(ctx context.Context) {
 // with it. If the loaded target is non-OFF but this source already has an
 // active curtailment event — a prior OFF started one and the state read or a
 // post-Start persist failed — it reconciles to OFF, so a later ON stops that
-// event instead of being a cold-start no-op and a repeated OFF doesn't keep
-// hitting the one-non-terminal-event-per-org conflict.
+// event instead of being a cold-start no-op.
 func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
