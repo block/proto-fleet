@@ -13,31 +13,29 @@ import (
 func TestToRequestMode_FullFleetTakesNoParams(t *testing.T) {
 	t.Parallel()
 
-	mode, fk, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET, nil)
+	mode, fk, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET, nil, false)
 	require.NoError(t, err)
 	assert.Equal(t, models.ModeFullFleet, mode)
 	assert.Nil(t, fk, "full_fleet takes no fixed_kw params")
 }
 
-// FULL_FLEET must reject fixed_kw params rather than silently dropping them.
+// FULL_FLEET must reject any set mode_params (fixed_kw, or reserved
+// fixed_count / site_power_cap) rather than silently dropping them.
 func TestToRequestMode_FullFleetRejectsParams(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := toRequestMode(
-		pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
-		&pb.FixedKwParams{TargetKw: 100},
-	)
-	require.Error(t, err, "FULL_FLEET with fixed_kw params is a client bug, not a silent drop")
+	_, _, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET, nil, true)
+	require.Error(t, err, "FULL_FLEET with any mode params is a client bug, not a silent drop")
 }
 
 func TestToRequestMode_FixedKwRequiresParams(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW, nil)
+	_, _, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW, nil, false)
 	require.Error(t, err, "FIXED_KW requires fixed_kw params")
 
 	params := &pb.FixedKwParams{TargetKw: 100}
-	mode, fk, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED, params)
+	mode, fk, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED, params, true)
 	require.NoError(t, err, "the unspecified default is FIXED_KW")
 	assert.Equal(t, models.ModeFixedKw, mode)
 	assert.Equal(t, params, fk)
@@ -46,7 +44,7 @@ func TestToRequestMode_FixedKwRequiresParams(t *testing.T) {
 func TestToRequestMode_ReservedModeRejected(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_SITE_POWER_CAP, nil)
+	_, _, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_SITE_POWER_CAP, nil, false)
 	require.Error(t, err)
 }
 

@@ -21,11 +21,13 @@ import (
 // toRequestMode validates the proto mode and returns the domain mode plus the
 // FIXED_KW params (nil for FULL_FLEET). FIXED_KW (and the unspecified default)
 // require fixed_kw params; FULL_FLEET takes none.
-func toRequestMode(m pb.CurtailmentMode, fixedKw *pb.FixedKwParams) (models.Mode, *pb.FixedKwParams, error) {
+func toRequestMode(m pb.CurtailmentMode, fixedKw *pb.FixedKwParams, hasModeParams bool) (models.Mode, *pb.FixedKwParams, error) {
 	if m == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
-		if fixedKw != nil {
+		// FULL_FLEET takes no params; reject any set mode_params oneof rather
+		// than silently dropping a reserved fixed_count / site_power_cap.
+		if hasModeParams {
 			return "", nil, fleeterror.NewInvalidArgumentError(
-				"fixed_kw mode params are not valid for FULL_FLEET")
+				"FULL_FLEET takes no mode params")
 		}
 		return models.ModeFullFleet, nil, nil
 	}
@@ -57,7 +59,7 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 		return curtailment.PreviewRequest{}, err
 	}
 
-	mode, fixedKw, err := toRequestMode(msg.GetMode(), msg.GetFixedKw())
+	mode, fixedKw, err := toRequestMode(msg.GetMode(), msg.GetFixedKw(), msg.GetModeParams() != nil)
 	if err != nil {
 		return curtailment.PreviewRequest{}, err
 	}
@@ -121,7 +123,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		return curtailment.StartRequest{}, err
 	}
 
-	mode, fixedKw, err := toRequestMode(msg.GetMode(), msg.GetFixedKw())
+	mode, fixedKw, err := toRequestMode(msg.GetMode(), msg.GetFixedKw(), msg.GetModeParams() != nil)
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}

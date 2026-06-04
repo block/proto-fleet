@@ -341,7 +341,7 @@ message PreviewCurtailmentPlanRequest {
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
-        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw) && !has(this.fixed_count) && !has(this.site_power_cap))"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
@@ -428,7 +428,7 @@ message StartCurtailmentRequest {
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
-        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw) && !has(this.fixed_count) && !has(this.site_power_cap))"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
