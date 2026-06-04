@@ -111,8 +111,6 @@ type inflightCommand struct {
 
 // reportBearing is true for commands that stream device reports (discovery, pairing)
 // and receive their terminal ack on `events`; false for ack-only per-miner commands.
-// New report-bearing kinds plug in by constructing an inflightCommand with `events`
-// set, so the report-admission and ack-routing paths need no per-kind changes.
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {

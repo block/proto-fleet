@@ -359,15 +359,11 @@ export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
   messageDesc(file_pairing_v1_pairing, 7);
 
 /**
- * AgentCommand is the typed envelope marshaled into the ControlStream's
- * ControlCommand.payload. It lets a fleet node tell what kind of work a command
- * carries instead of assuming the payload is a bare DiscoverRequest. command_id
- * stays on the transport-level ControlCommand/ControlAck and is not duplicated here.
- *
- * Field numbers are shared across efforts so the discovery payload is migrated
- * into this envelope exactly once and later arms are purely additive:
- *   2 = MinerCommand miner_command   (per-miner command path)
- *   3 = FleetNodePairRequest pair    (fleet-node pairing path)
+ * AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
+ * fleet node can tell command kinds apart rather than assuming a bare
+ * DiscoverRequest. command_id stays on the transport-level
+ * ControlCommand/ControlAck and is not duplicated here. Field numbers 2 and 3 are
+ * reserved for the upcoming miner-command and pairing arms.
  *
  * @generated from message pairing.v1.AgentCommand
  */

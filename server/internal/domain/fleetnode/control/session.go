@@ -32,7 +32,7 @@ func (s *Session) Close() {
 // Send dispatches a report-bearing command and returns a Session for its batches +
 // terminal ack. scope bounds which reported devices the report path will admit for
 // this command (nil = unconstrained). Many commands may be in flight per node
-// concurrently, so unlike before this no longer rejects a second Send.
+// concurrently.
 func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope) (*Session, error) {
 	c := &inflightCommand{
 		id:     cmd.GetCommandId(),
