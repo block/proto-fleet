@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -597,56 +596,28 @@ func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgI
 	return target, nil
 }
 
-// authorizeCallerForNewUserWithRole is the CreateUser counterpart of
-// authorizeCallerForUser: the target does not yet exist, so the parity
-// check uses a synthetic effective-permissions snapshot built from the
-// role being assigned. Returns the resolved role so the caller can
-// bind the new user to it.
-func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerUserID, orgID int64, roleName string) (stores.Role, error) {
-	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, roleName)
-	if err != nil {
-		return stores.Role{}, fleeterror.NewInternalErrorf("error getting %s role for org: %v", roleName, err)
-	}
-
-	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
-	if err != nil {
-		return stores.Role{}, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
-	}
-	targetEff := authz.NewEffectivePermissions([]authz.Assignment{{
-		ScopeType:   authz.ScopeOrg,
-		Permissions: targetKeys,
-	}})
-	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
-	if err != nil {
-		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
-	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
-		return stores.Role{}, err
-	}
-	return role, nil
-}
-
 // resolveCreateUserRole picks the role a freshly created user will be
 // bound to and runs the same parity check used for in-place role
-// management. An empty roleID falls back to the org's ADMIN built-in;
-// a non-empty roleID is validated against the caller's org and
-// rejected for SUPER_ADMIN (ownership transfer lives elsewhere) before
-// the parity check runs.
+// management. The roleID must be non-empty, live in the caller's org,
+// and is rejected for SUPER_ADMIN (ownership transfer lives elsewhere)
+// before the parity check runs.
 //
 // Call this inside the same RunInTx block as the assignment write:
-// GetRoleByID filters `deleted_at IS NULL`, so a concurrent
-// DeleteCustomRole between resolution and assignment would otherwise
-// leave the new user bound to a soft-deleted role (the FK enforces row
-// existence, not liveness).
+// the FOR UPDATE row lock taken by GetRoleByIDForUpdate serializes
+// against DeleteCustomRole's getRoleInOrgForUpdate, so a racing delete
+// either commits first (and we surface InvalidArgument because the
+// locked re-read sees deleted_at set) or blocks behind our commit (and
+// then sees an active assignment in CountActiveAssignmentsForRole).
+// Either way the new user is never bound to a soft-deleted role.
 func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID int64, roleID string) (stores.Role, error) {
 	if roleID == "" {
-		return s.authorizeCallerForNewUserWithRole(ctx, callerUserID, orgID, AdminRoleName)
+		return stores.Role{}, fleeterror.NewInvalidArgumentError("role_id is required")
 	}
-	parsed, err := parseInt64RoleID(roleID)
+	parsed, err := authz.ParseRoleID(roleID)
 	if err != nil {
 		return stores.Role{}, err
 	}
-	role, err := s.userManagementStore.GetRoleByID(ctx, parsed)
+	role, err := s.userManagementStore.GetRoleByIDForUpdate(ctx, parsed)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
@@ -679,29 +650,6 @@ func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID
 	return role, nil
 }
 
-// parseInt64RoleID rejects anything that doesn't round-trip to the
-// canonical base-10 form roleViewToProto emits, matching the authz
-// handler's parseRoleID so a probe with "+1" or leading whitespace
-// surfaces as InvalidArgument instead of NotFound.
-func parseInt64RoleID(s string) (int64, error) {
-	if s == "" {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	if s[0] < '1' || s[0] > '9' {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	for _, r := range s[1:] {
-		if r < '0' || r > '9' {
-			return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-		}
-	}
-	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	return id, nil
-}
-
 // requireCallerCanManageTarget enforces the user-management hierarchy:
 // callers with org-scope role:manage need only subsume the target;
 // everyone else must strictly dominate it. Without the strict-dominate
@@ -724,10 +672,11 @@ func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissio
 // enforced by the Connect handler via RequirePermission(PermUserManage);
 // callers outside the handler layer must add their own permission gate.
 //
-// When req.RoleId is empty the caller inherits the org's default ADMIN
-// role (legacy behavior). When non-empty the role must live in the
-// caller's org and must not be SUPER_ADMIN — ownership transfer is a
-// deliberately separate flow.
+// req.RoleId is required and must live in the caller's org, must not be
+// SUPER_ADMIN (ownership transfer is a deliberately separate flow), and
+// must subsume to the caller via the standard parity check. There is no
+// implicit default — the server refuses empty role_id rather than
+// minting an admin account on the caller's behalf.
 func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
 	// Validate username
 	trimmedUsername := strings.TrimSpace(req.Username)

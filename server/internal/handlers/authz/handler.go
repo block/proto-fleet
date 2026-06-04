@@ -15,7 +15,6 @@ package authz
 
 import (
 	"context"
-	"regexp"
 	"strconv"
 
 	"connectrpc.com/connect"
@@ -95,7 +94,7 @@ func (h *Handler) UpdateCustomRole(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	roleID, err := parseRoleID(req.Msg.RoleId)
+	roleID, err := authzDomain.ParseRoleID(req.Msg.RoleId)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +110,7 @@ func (h *Handler) DeleteCustomRole(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	roleID, err := parseRoleID(req.Msg.RoleId)
+	roleID, err := authzDomain.ParseRoleID(req.Msg.RoleId)
 	if err != nil {
 		return nil, err
 	}
@@ -162,21 +161,4 @@ func builtinKeyToProto(key string) pb.BuiltinKey {
 	default:
 		return pb.BuiltinKey_BUILTIN_KEY_UNSPECIFIED
 	}
-}
-
-// roleIDPattern locks parseRoleID to the canonical base-10 form. Without
-// it strconv.ParseInt would accept "+123" / leading whitespace / unicode
-// digits, all of which round-trip to a different string than the one we
-// emit in roleViewToProto.
-var roleIDPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
-
-func parseRoleID(s string) (int64, error) {
-	if !roleIDPattern.MatchString(s) {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	return id, nil
 }

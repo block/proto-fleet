@@ -37,7 +37,7 @@ func TestParseRoleID(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			id, err := parseRoleID(tc.input)
+			id, err := ParseRoleID(tc.input)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for input %q, got id=%d", tc.input, id)

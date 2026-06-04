@@ -251,6 +251,18 @@ func (s *SQLUserStore) GetRoleByID(ctx context.Context, roleID int64) (interface
 	return toRole(role), nil
 }
 
+// GetRoleByIDForUpdate is the locking counterpart of GetRoleByID. Callers
+// must be inside a transaction; the FOR UPDATE row lock serializes against
+// SoftDeleteCustomRole so a freshly-resolved role cannot be soft-deleted
+// out from under an assignment write.
+func (s *SQLUserStore) GetRoleByIDForUpdate(ctx context.Context, roleID int64) (interfaces.Role, error) {
+	role, err := s.getQueries(ctx).GetRoleByIDForUpdate(ctx, roleID)
+	if err != nil {
+		return interfaces.Role{}, err
+	}
+	return toRole(role), nil
+}
+
 func toRole(role sqlc.Role) interfaces.Role {
 	var orgID *int64
 	if role.OrganizationID.Valid {

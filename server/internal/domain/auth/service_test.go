@@ -977,46 +977,6 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 	}
 }
 
-func TestParseInt64RoleID(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name    string
-		input   string
-		wantErr bool
-		wantVal int64
-	}{
-		{"valid simple", "1", false, 1},
-		{"valid multi-digit", "12345", false, 12345},
-		{"empty", "", true, 0},
-		{"leading zero", "012", true, 0},
-		{"zero", "0", true, 0},
-		{"negative", "-1", true, 0},
-		{"plus prefix", "+1", true, 0},
-		{"whitespace", " 1", true, 0},
-		{"trailing whitespace", "1 ", true, 0},
-		{"non-numeric", "abc", true, 0},
-		{"unicode digit", "१", true, 0},
-		{"mixed", "1a", true, 0},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := parseInt64RoleID(tc.input)
-			if tc.wantErr {
-				require.Error(t, err)
-				var fleetErr fleeterror.FleetError
-				require.ErrorAs(t, err, &fleetErr)
-				assert.Equal(t, fleeterror.NewInvalidArgumentError("").GRPCCode, fleetErr.GRPCCode)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tc.wantVal, got)
-			}
-		})
-	}
-}
-
 // TestResolveCreateUserRole_ValidationBranches covers the pre-LoadEffective
 // branches that reject a request before the resolver is touched. The
 // "valid role_id assignment lands" and "parity rejection" paths require a
@@ -1035,6 +995,12 @@ func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
 		wantMsg   string
 	}{
 		{
+			name:      "empty role_id rejected",
+			roleID:    "",
+			setupMock: func(_ *mocks.MockUserManagementStore) {},
+			wantMsg:   "role_id is required",
+		},
+		{
 			name:      "malformed role_id rejected before lookup",
 			roleID:    "+1",
 			setupMock: func(_ *mocks.MockUserManagementStore) {},
@@ -1044,7 +1010,7 @@ func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
 			name:   "role not found surfaces as invalid",
 			roleID: "42",
 			setupMock: func(m *mocks.MockUserManagementStore) {
-				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{}, sql.ErrNoRows)
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{}, sql.ErrNoRows)
 			},
 			wantMsg: "invalid role_id",
 		},
@@ -1053,7 +1019,7 @@ func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
 			roleID: "42",
 			setupMock: func(m *mocks.MockUserManagementStore) {
 				other := otherOrgID
-				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{
 					ID:             42,
 					Name:           "other-org-admin",
 					OrganizationID: &other,
@@ -1066,7 +1032,7 @@ func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
 			roleID: "42",
 			setupMock: func(m *mocks.MockUserManagementStore) {
 				owner := orgID
-				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{
 					ID:             42,
 					Name:           "Owner",
 					OrganizationID: &owner,
@@ -1079,7 +1045,7 @@ func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
 			name:   "org-less role rejected",
 			roleID: "42",
 			setupMock: func(m *mocks.MockUserManagementStore) {
-				m.EXPECT().GetRoleByID(gomock.Any(), int64(42)).Return(interfaces.Role{
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{
 					ID:   42,
 					Name: "global-role",
 				}, nil)

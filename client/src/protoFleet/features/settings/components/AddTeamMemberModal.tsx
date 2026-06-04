@@ -31,9 +31,9 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
   const [errorMsg, setErrorMsg] = useState("");
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [roleId, setRoleId] = useState("");
-  // Track listRoles loading/error so the Save button can fail closed. Without
-  // this, an empty roleId would slip through to the server, which historically
-  // falls back to ADMIN — accidentally minting an admin account.
+  // Track listRoles loading/error so the Save button can fail closed. The
+  // server rejects an empty role_id with InvalidArgument, but failing closed
+  // here surfaces the error inline instead of as a generic toast.
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
@@ -98,8 +98,9 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       setErrorMsg("Username is required");
       return;
     }
-    // Defensive guard: even though Save is disabled until a role is selected,
-    // refuse to submit an empty roleId — the server treats empty as ADMIN.
+    // Save is disabled until a role is selected, but surface a clear inline
+    // message if it ever fires with an empty selection so users don't see the
+    // server's generic InvalidArgument toast.
     if (!roleId) {
       setErrorMsg("Select a role before saving");
       return;
