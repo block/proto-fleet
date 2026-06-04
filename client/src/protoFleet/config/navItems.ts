@@ -31,19 +31,12 @@ export const primaryNavItems: NavItem[] = [
   ...(MULTI_SITE_ENABLED
     ? [
         {
-          // Multi-site redesign (2026-06-02) collapses /miners, /racks,
-          // /sites, and /settings/sites into a single tabbed Fleet page.
-          // Behind the same flag that previously hid the /sites nav entry.
           path: "/fleet",
           label: "Fleet",
           icon: Fleet,
         },
       ]
     : [
-        // Pre-redesign: standalone Miners + Racks entries. Removed once the
-        // flag flips on. The /miners and /racks routes themselves are
-        // permanent redirects to /fleet/miners and /fleet/racks regardless
-        // of the flag — see router.tsx.
         {
           path: "/miners",
           label: "Miners",
@@ -128,10 +121,6 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     requiredPermission: "apikey:manage",
   },
-  // /settings/sites was removed by the 2026-06-02 multi-site redesign —
-  // site config now lives on /sites/:id detail pages reached via the
-  // Sites tab on /fleet. The /settings/sites route itself stays as an
-  // unguarded redirect path until traffic dies down.
   {
     path: "/settings/server-logs",
     label: "Server Logs",

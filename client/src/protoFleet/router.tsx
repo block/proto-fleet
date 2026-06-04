@@ -144,14 +144,8 @@ const router = createBrowserRouter([
   // Dashboard (Home)
   createRoute("/", <Dashboard />, { bg: "surface-5" }),
 
-  // Fleet — unified list home with tab nav (Miners / Racks / Buildings /
-  // Sites). See docs/plans/2026-05-05-multi-site-support-plan.md (J3).
-  // The FleetLayout child route renders an <Outlet />; child paths supply
-  // the tab body. `/fleet` (bare) redirects to the last active tab inside
-  // FleetLayout, so we mount FleetLayout as the parent and rely on its
-  // useEffect to navigate. Nested routes need their own App wrapper to
-  // pick up backgrounds and the global PageHeader, so each child is
-  // declared as its own top-level route alongside the parent layout.
+  // Fleet shell wraps FleetLayout in <App> so the global PageHeader and
+  // page-background hook apply; tab children render through its <Outlet />.
   {
     path: "/fleet",
     element: (
@@ -168,23 +162,14 @@ const router = createBrowserRouter([
     ],
   },
 
-  // Permanent redirects from the old standalone Miners + Racks routes to
-  // their Fleet-tab homes. Existing bookmarks degrade cleanly; no
-  // deprecation window — see plan J2. Loaders live in
-  // features/fleet/redirectLoaders.ts so the query+hash preservation
-  // contract is unit-testable independent of the route tree.
   { path: "/miners", loader: minersRedirectLoader },
   { path: "/racks", loader: racksRedirectLoader },
 
-  // Groups
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
-  // Rack detail (rack list itself now lives under /fleet/racks).
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
-  // Sites + buildings (multi-site; nav entries flag-gated, routes
-  // unguarded so direct URL access works during dogfood)
   createRoute("/sites", <SitesPage />),
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),

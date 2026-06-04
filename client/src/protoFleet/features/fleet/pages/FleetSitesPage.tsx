@@ -10,12 +10,6 @@ import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
-// Sites tab content for `/fleet/sites`. Reads the sites list from the
-// FleetLayout outlet context (single shared fetch) and mirrors the original
-// /settings/sites All Sites table — Add Site CTA, flat list, modals. Rows
-// navigate to /sites/:id (J3a) instead of narrowing the topbar SitePicker.
-// Phase 1a uses placeholder metrics; the live metric columns land with the
-// rest of Phase 1b enrichment.
 const FleetSitesPage = () => {
   const { sites, sitesError, refetchSites } = useFleetOutletContext();
 
@@ -32,9 +26,9 @@ const FleetSitesPage = () => {
     );
   }
 
-  // Full-page error path only when we have no last-good data. Once the layout
-  // has rendered sites at least once, a transient failure surfaces inline
-  // below and the existing list stays visible — see FleetLayout's onError.
+  // Show the full-page error only when we have no last-good data; once the
+  // layout has rendered sites at least once, transient failures surface in
+  // the inline banner below so the existing list stays visible.
   if (sitesError && sites.length === 0) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-sites-error">
@@ -51,11 +45,6 @@ const FleetSitesPage = () => {
     );
   }
 
-  // "Unassigned" filters miners with no site, not sites. The Sites tab
-  // can't meaningfully scope itself to an Unassigned bucket, so we render
-  // a note redirecting the operator. The "site" picker case is impossible
-  // here — FleetLayout hides this tab + redirects away when a single site
-  // is selected (J2).
   const body =
     sites.length === 0 ? (
       <SitesEmptyState onAddSite={modals.openCreate} />
@@ -85,8 +74,6 @@ const FleetSitesPage = () => {
     <>
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-sites-page">
         {sitesError ? (
-          // Post-init listSites failure: keep last-good data rendered below
-          // and surface the failure as an inline retry banner.
           <div
             className="flex items-center justify-between rounded-xl border border-border-5 p-4"
             data-testid="fleet-sites-inline-error"

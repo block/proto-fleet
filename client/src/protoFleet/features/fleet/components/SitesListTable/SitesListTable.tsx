@@ -9,15 +9,6 @@ interface SitesListTableProps {
   sites: SiteWithCounts[];
 }
 
-// Sites tab list table. Mirrors the visual shape of the legacy
-// SitesAllTable (open layout, hairline row dividers, three-column grid)
-// but rows navigate to /sites/:id rather than changing the SitePicker
-// selection — the picker stays on All Sites / Unassigned while the
-// operator drills into a single site via the detail page.
-//
-// Columns land per the redesign plan once metric data is wired: name +
-// location, infrastructure counts, power. Phase 1a shows the three
-// columns with placeholder metrics; Phase 1b joins the telemetry feed.
 const SitesListTable = ({ sites }: SitesListTableProps) => {
   const navigate = useNavigate();
 
@@ -36,9 +27,6 @@ const SitesListTable = ({ sites }: SitesListTableProps) => {
       {ordered.map((entry) => {
         const id = (entry.site?.id ?? 0n).toString();
         const location = formatSiteAddress(entry.site ?? {}) || "—";
-        // Site capacity ships in MW; the shared formatter keeps the unit
-        // consistent with SiteMetricsRow and the building list. Used side
-        // is null until Phase 1b telemetry lands.
         const powerCapacityMw = entry.site?.powerCapacityMw ?? 0;
         const power = formatPowerUsedCapacity(null, powerCapacityMw) ?? "—";
         return (

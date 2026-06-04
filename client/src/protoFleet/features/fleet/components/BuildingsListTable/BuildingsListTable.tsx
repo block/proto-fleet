@@ -10,11 +10,6 @@ interface BuildingsListTableProps {
   sites: SiteWithCounts[];
 }
 
-// Buildings tab list table. Rows navigate to /buildings/:id; the site
-// column links indirectly by name so the operator can see which site
-// owns each building at a glance. Real metric columns (hashrate, power,
-// temperature, issues, health) land in Phase 1b once the building
-// telemetry rollup is wired.
 const BuildingsListTable = ({ buildings, sites }: BuildingsListTableProps) => {
   const navigate = useNavigate();
 
@@ -44,10 +39,8 @@ const BuildingsListTable = ({ buildings, sites }: BuildingsListTableProps) => {
         const id = (entry.building?.id ?? 0n).toString();
         const siteId = entry.building?.siteId;
         const siteName = siteId ? (siteNameById.get(siteId.toString()) ?? "—") : "—";
-        // Power capacity comes from the proto in kW; the shared
-        // formatter expects capacity in MW, so divide before passing.
-        // Matches BuildingMetricsRow. Used side is null until Phase 1b
-        // telemetry wiring lands.
+        // formatPowerUsedCapacity expects capacity in MW; building.powerKw
+        // is kW, so divide before passing.
         const powerCapacityKw = entry.building?.powerKw ?? 0;
         const power = formatPowerUsedCapacity(null, powerCapacityKw / KW_PER_MW) ?? "—";
         return (

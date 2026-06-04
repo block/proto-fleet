@@ -12,14 +12,8 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 
-// `/sites/:id` detail page — Phase 1a shell. Header + "Edit site" button +
-// FPO placeholder body. Real metric row, Details table, and Buildings grid
-// land in Phase 1b. See J3a in 2026-05-05-multi-site-support-plan.md.
 const SiteDetailPage = () => {
   const navigate = useNavigate();
-  // useParams returns `id?: string` at runtime even when the typed generic
-  // claims otherwise; the optional shape matches what React Router actually
-  // provides for dynamic segments that may be missing during transitions.
   const { id: idParam } = useParams<{ id?: string }>();
   const targetId = idParam ?? "";
 
@@ -37,17 +31,16 @@ const SiteDetailPage = () => {
       },
       onError: (msg) => {
         setError(msg);
-        // Preserve last-good list on transient errors; only clear it on the
-        // initial-load failure path so the not-found branch can distinguish
-        // "no sites in org" from "fetch failed and we have nothing".
+        // Preserve last-good list across transient errors; only fall to []
+        // on the initial-load failure path.
         setSites((prev) => prev ?? []);
       },
     });
     return () => controller.abort();
   }, [listSites]);
 
-  // Retry bumps a counter so the useEffect re-runs with a fresh
-  // AbortController under cleanup ownership — never a leaked controller.
+  // Retry re-runs the effect via retryCounter so the cleanup AbortController
+  // stays owned by useEffect and never leaks across retries.
   const [retryCounter, setRetryCounter] = useState(0);
   const handleRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
 

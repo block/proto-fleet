@@ -11,9 +11,6 @@ import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage"
 type FleetTabId = "sites" | "buildings" | "racks" | "miners";
 
 const TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners"];
-// Default lands on the leftmost tab — Sites — to mirror the fleet
-// hierarchy (site → building → rack → device). Falls back to the next
-// visible tab when Sites is hidden under a single-site picker.
 const DEFAULT_TAB: FleetTabId = "sites";
 const DEFAULT_TAB_NO_SITES: FleetTabId = "buildings";
 const LAST_TAB_KEY = "fleet:lastActiveTab";
@@ -27,8 +24,6 @@ const tabLabel: Record<FleetTabId, string> = {
 
 const isFleetTabId = (s: string): s is FleetTabId => (TAB_ORDER as string[]).includes(s);
 
-// Extracts the tab segment from a /fleet/* path. Returns undefined for bare
-// /fleet so the caller can apply the redirect rule.
 const tabFromPath = (pathname: string): FleetTabId | undefined => {
   const m = pathname.match(/^\/fleet\/([^/]+)/);
   if (!m) return undefined;
@@ -40,10 +35,6 @@ const FleetLayout = () => {
   const location = useLocation();
   const [lastTab, setLastTab] = useReactiveLocalStorage<FleetTabId | undefined>(LAST_TAB_KEY, undefined);
 
-  // Sites list lives at the layout level so the Sites-tab visibility check
-  // and the tab pages share one fetch. Previously each tab page issued its
-  // own listSites RPC alongside the layout's, producing 2-3 identical
-  // in-flight requests on /fleet/sites and /fleet/buildings.
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
   const [sitesError, setSitesError] = useState<string | null>(null);
@@ -58,9 +49,8 @@ const FleetLayout = () => {
       },
       onError: (msg) => {
         setSitesError(msg);
-        // Preserve last-good list on transient errors; only clear it on the
-        // initial-load failure path so consumers can distinguish "no sites"
-        // from "fetch failed and we have nothing to show".
+        // Preserve last-good list across transient errors; only fall to []
+        // on the initial-load failure path.
         setSites((prev) => prev ?? []);
       },
     });
@@ -71,22 +61,18 @@ const FleetLayout = () => {
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
-  // Hide the Sites tab once a specific site is picked — J2. "All Sites" and
-  // "Unassigned" both keep the tab visible since both modes treat the list
-  // as more than one row.
   const sitesTabHidden = activeSite.kind === "site";
 
   const currentTab = tabFromPath(location.pathname);
 
-  // Bare /fleet → redirect to last active tab (or default). Sites tab hidden
-  // under a single-site picker → redirect to another tab. Wait for the
-  // initial sites load so a stale "single site" picker selection pointing at
-  // a now-deleted site doesn't briefly hide the Sites tab and redirect away
-  // before useActiveSite's known-id validation effect can reset it to "all".
+  // Defer redirect until the initial sites load resolves: a stale single-site
+  // picker selection pointing at a now-deleted site would otherwise briefly
+  // hide the Sites tab and bounce the operator before useActiveSite's
+  // known-id validation resets it to "all".
   useEffect(() => {
     if (sites === undefined) return;
-    // Validate the persisted lastTab — corrupted or older-schema localStorage
-    // values must not navigate into /fleet/<garbage>.
+    // Guard against corrupted or older-schema localStorage values so a stale
+    // lastTab cannot navigate to /fleet/<garbage>.
     const safeLastTab = lastTab && isFleetTabId(lastTab) ? lastTab : undefined;
     const fallback = sitesTabHidden ? DEFAULT_TAB_NO_SITES : DEFAULT_TAB;
     if (location.pathname === "/fleet" || location.pathname === "/fleet/") {
@@ -100,8 +86,6 @@ const FleetLayout = () => {
     }
   }, [sites, location.pathname, currentTab, sitesTabHidden, lastTab, navigate]);
 
-  // Persist the active tab so /fleet bare-route and cross-session reopens
-  // land on the operator's last view.
   useEffect(() => {
     if (currentTab && currentTab !== lastTab) {
       setLastTab(currentTab);
@@ -122,10 +106,6 @@ const FleetLayout = () => {
     [sites, sitesError, fetchSites],
   );
 
-  // Tab strip sits in its own flush band with horizontal padding matching
-  // the rest of the layout (`p-10` / `p-6`). Children render flush; each
-  // tab page owns its own internal padding (the existing Miners + Racks
-  // pages already do this, and the new Buildings/Sites stubs match).
   return (
     <div className="flex h-full flex-col" data-testid="fleet-layout">
       <div className="px-10 pt-6 phone:px-6">

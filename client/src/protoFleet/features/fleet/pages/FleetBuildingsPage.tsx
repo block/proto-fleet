@@ -9,11 +9,6 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
-// Buildings tab content for `/fleet/buildings`. Reads the sites list from
-// the FleetLayout outlet context (single shared fetch) and fetches buildings
-// locally. Row click navigates to /buildings/:id. The "Add building" CTA +
-// per-row ellipsis menu actions land in PR 3 alongside the
-// BuildingDetailsModal site-picker field — see plan J3 / J10.
 const FleetBuildingsPage = () => {
   const { sites, sitesError, refetchSites } = useFleetOutletContext();
 
@@ -31,18 +26,16 @@ const FleetBuildingsPage = () => {
       },
       onError: (msg) => {
         setBuildingsError(msg);
-        // Preserve last-good list on transient errors; only clear on the
-        // initial-load failure path so consumers can distinguish "no
-        // buildings" from "fetch failed and we have nothing to show".
+        // Preserve last-good list across transient errors; only fall to []
+        // on the initial-load failure path.
         setBuildings((prev) => prev ?? []);
       },
     });
     return () => controller.abort();
   }, [listAllBuildings]);
 
-  // Retry handler shared by the buttons below. Re-runs the effect by bumping
-  // `retryCounter`, which means the cleanup AbortController is owned by
-  // useEffect and never leaks across retries.
+  // Retry re-runs the effect via retryCounter so the cleanup AbortController
+  // stays owned by useEffect and never leaks across retries.
   const [retryCounter, setRetryCounter] = useState(0);
   const handleBuildingsRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
 
@@ -51,11 +44,6 @@ const FleetBuildingsPage = () => {
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
 
-  // SitePicker filter: All Sites = all rows; specific site = rows whose
-  // building.siteId matches; Unassigned = rows whose building.siteId is
-  // 0n/unset. Buildings without a site are rare but the schema allows it
-  // (placeholder buildings created ahead of site assignment, or buildings
-  // whose site has been deleted).
   const visibleBuildings = useMemo(() => {
     if (!buildings) return [];
     if (activeSite.kind === "all") return buildings;
@@ -104,9 +92,6 @@ const FleetBuildingsPage = () => {
   }
 
   if (visibleBuildings.length === 0) {
-    // Org has buildings but none match the picker selection. Don't fall back
-    // to the bare "No buildings yet" empty state — the operator needs to know
-    // the filter is hiding rows, not that the org is empty.
     const message =
       activeSite.kind === "unassigned"
         ? "No buildings without a site. Switch the picker to All Sites to see every building."
@@ -125,10 +110,6 @@ const FleetBuildingsPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-page">
-      {/* Surface a sites-fetch failure inline. The Site column degrades to "—"
-          for every row when sites is empty due to error, and a silent
-          degradation would leave the operator wondering why the column is
-          missing. */}
       {sitesError ? (
         <div
           className="flex items-center justify-between rounded-xl border border-border-5 p-4"
