@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
@@ -39,6 +41,8 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const RACK_COLUMNS: DeviceSetColumn[] = [
   "name",
+  "site",
+  "building",
   "zone",
   "miners",
   "issues",
@@ -53,12 +57,14 @@ const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
+  const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string }[]>([]);
+  const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
 
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
@@ -132,6 +138,26 @@ const RacksPage = () => {
     });
     return () => controller.abort();
   }, [listAllBuildings]);
+
+  // Sites lookup powers the new Site column on the rack list. Same one-shot
+  // load shape as buildings; renames are infrequent enough that polling here
+  // would be wasted bandwidth.
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: (sites: SiteWithCounts[]) => {
+        setAllSites(
+          sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
+        );
+      },
+      onError: () => setAllSites([]),
+    });
+    return () => controller.abort();
+  }, [listSites]);
+
+  const siteNameById = useMemo(() => new Map(allSites.map((s) => [s.id, s.label])), [allSites]);
+  const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
 
   const setBuildingFilter = useCallback(
     (ids: string[]) => {
@@ -290,6 +316,26 @@ const RacksPage = () => {
   );
 
   const renderMiners = useCallback((item: DeviceSetListItem) => <span>{item.deviceSet.deviceCount}</span>, []);
+
+  const renderSite = useCallback(
+    (item: DeviceSetListItem) => {
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>—</span>;
+      const siteId = item.deviceSet.typeDetails.value.siteId;
+      if (siteId === undefined) return <span>—</span>;
+      return <span>{siteNameById.get(siteId.toString()) ?? "—"}</span>;
+    },
+    [siteNameById],
+  );
+
+  const renderBuilding = useCallback(
+    (item: DeviceSetListItem) => {
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>—</span>;
+      const buildingId = item.deviceSet.typeDetails.value.buildingId;
+      if (buildingId === undefined) return <span>—</span>;
+      return <span>{buildingNameById.get(buildingId.toString()) ?? "—"}</span>;
+    },
+    [buildingNameById],
+  );
 
   // Responsive grid measurement
   const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
@@ -468,6 +514,8 @@ const RacksPage = () => {
             statsMap={statsMap}
             renderName={renderName}
             renderMiners={renderMiners}
+            renderSite={renderSite}
+            renderBuilding={renderBuilding}
             columns={RACK_COLUMNS}
             currentSort={currentSort}
             onSort={handleSort}

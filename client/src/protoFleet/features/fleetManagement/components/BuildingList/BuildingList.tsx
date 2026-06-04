@@ -5,7 +5,6 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import List from "@/shared/components/List";
 import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
-import { formatPowerUsedCapacity, KW_PER_MW } from "@/shared/utils/telemetryFormat";
 
 type BuildingListItem = {
   id: string;
@@ -13,16 +12,42 @@ type BuildingListItem = {
   siteName: string;
 };
 
-type BuildingColumn = "name" | "site" | "racks" | "power";
+type BuildingColumn =
+  | "name"
+  | "site"
+  | "miners"
+  | "issues"
+  | "hashrate"
+  | "efficiency"
+  | "power"
+  | "temperature"
+  | "health";
+
+const INACTIVE_PLACEHOLDER = "—";
 
 const COL_TITLES: ColTitles<BuildingColumn> = {
-  name: "Building",
+  name: "Name",
   site: "Site",
-  racks: "Racks",
-  power: "Power",
+  miners: "Miners",
+  issues: "Issues",
+  hashrate: "Total Hashrate",
+  efficiency: "Avg Efficiency",
+  power: "Total Power",
+  temperature: "Temperature",
+  health: "Health",
 };
 
-const ACTIVE_COLS: BuildingColumn[] = ["name", "site", "racks", "power"];
+const ACTIVE_COLS: BuildingColumn[] = [
+  "name",
+  "site",
+  "miners",
+  "issues",
+  "hashrate",
+  "efficiency",
+  "power",
+  "temperature",
+  "health",
+];
 
 interface BuildingListProps {
   buildings: BuildingWithCounts[];
@@ -49,12 +74,18 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
         .map((building) => {
           const id = (building.building?.id ?? 0n).toString();
           const siteId = building.building?.siteId;
-          const siteName = siteId ? (siteNameById.get(siteId.toString()) ?? "—") : "—";
+          const siteName = siteId
+            ? (siteNameById.get(siteId.toString()) ?? INACTIVE_PLACEHOLDER)
+            : INACTIVE_PLACEHOLDER;
           return { id, building, siteName };
         }),
     [buildings, siteNameById],
   );
 
+  // Telemetry columns are em-dash placeholders until the Phase 1b metric
+  // rollup lands; the column shape mirrors the rack list (with site instead
+  // of zone, since zones are rack-scoped) so the /fleet/* tabs read
+  // consistently.
   const colConfig = useMemo<ColConfig<BuildingListItem, string, BuildingColumn>>(
     () => ({
       name: {
@@ -64,23 +95,16 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
         width: "min-w-44",
       },
       site: {
-        component: (item) => <span className="truncate text-300 text-text-primary-50">{item.siteName}</span>,
-        width: "min-w-32",
-      },
-      racks: {
-        component: (item) => <span className="truncate text-300">{item.building.rackCount.toString()}</span>,
-        width: "min-w-20",
-      },
-      power: {
-        component: (item) => {
-          // formatPowerUsedCapacity expects capacity in MW; building.powerKw
-          // is kW, so divide before passing.
-          const powerCapacityKw = item.building.building?.powerKw ?? 0;
-          const power = formatPowerUsedCapacity(null, powerCapacityKw / KW_PER_MW) ?? "—";
-          return <span className="truncate text-300">{power}</span>;
-        },
+        component: (item) => <span>{item.siteName}</span>,
         width: "min-w-28",
       },
+      miners: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-20" },
+      issues: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-20" },
+      hashrate: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
+      efficiency: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
+      power: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-24" },
+      temperature: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
+      health: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-32" },
     }),
     [],
   );
