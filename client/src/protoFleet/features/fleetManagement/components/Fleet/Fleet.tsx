@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
 import {
@@ -14,7 +14,6 @@ import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { MINERS_PAGE_SIZE } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -56,6 +55,14 @@ const Fleet = () => {
       },
     });
   }, [listGroups, listRacks]);
+
+  // The Fleet shell (FleetLayout) renders its own "Fleet" heading + tab nav
+  // above this component, so the MinerList heading would be redundant under
+  // /fleet/miners. The standalone /miners route (flag-off) doesn't have that
+  // chrome and keeps its heading. `useLocation` is exact-match safe — only
+  // the `/fleet/` prefix routes mount FleetLayout.
+  const { pathname } = useLocation();
+  const insideFleetShell = pathname.startsWith("/fleet/");
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
@@ -228,7 +235,7 @@ const Fleet = () => {
       ) : null}
       <ErrorBoundary>
         <MinerList
-          title={MULTI_SITE_ENABLED ? undefined : "Miners"}
+          title={insideFleetShell ? undefined : "Miners"}
           minerIds={minerIds}
           miners={miners}
           errorsByDevice={errorsByDevice}

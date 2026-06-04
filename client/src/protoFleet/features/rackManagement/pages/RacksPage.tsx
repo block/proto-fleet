@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -12,7 +12,6 @@ import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "
 import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   AssignMinersModal,
@@ -59,6 +58,11 @@ const RacksPage = () => {
   const { listAllBuildings } = useBuildings();
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
+  // Suppress the standalone "Racks" h1 when mounted inside the Fleet shell —
+  // FleetLayout already renders its own heading + tab nav above this page.
+  // Direct mounts at `/racks` (flag-off) keep the heading.
+  const { pathname } = useLocation();
+  const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
@@ -428,7 +432,7 @@ const RacksPage = () => {
   return (
     <div>
       <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
-        {!MULTI_SITE_ENABLED ? <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1> : null}
+        {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
         <div className="flex flex-col gap-2 pb-6">
           {/* Action button — full-width on tablet/phone */}
           <div className="block laptop:hidden">
