@@ -43,9 +43,10 @@ const (
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
 	// Mirrors the proto cap so a verbose error doesn't fail buf-validate on the ack itself.
 	maxAckErrorMessageBytes = 4096
-	// commandPoolSize bounds commands handled concurrently per session. A long
-	// discovery occupies one slot while quick per-miner commands use the rest;
-	// commands past the ceiling are acked BUSY.
+	// commandPoolSize bounds quick per-miner commands handled concurrently per
+	// session. Discovery does not draw from this pool; it has its own exclusive,
+	// single-flight slot (see runControlSession). Commands past the ceiling are
+	// acked BUSY.
 	commandPoolSize = 16
 )
 
@@ -174,11 +175,16 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
 
-	// Bounded worker pool: commands run concurrently so a long discovery (up to
-	// commandTimeout) doesn't head-of-line-block quick per-miner commands, and many
-	// commands to this node run in parallel. The semaphore ceiling is the only
-	// backpressure point; a command that can't get a slot is acked BUSY.
-	sem := make(chan struct{}, commandPoolSize)
+	// Two lanes per session:
+	//   - discovery (and the pairing effort's future pair) is a heavy, report-bearing
+	//     scan; it is single-flight per node via an exclusive slot, so a second
+	//     concurrent discovery is rejected BUSY rather than doubling the scan load.
+	//   - quick per-miner commands use a broader pool, so they run concurrently and a
+	//     long discovery never head-of-line-blocks them.
+	// Both are non-blocking acquires: parking the receive loop would hide stream
+	// drops behind in-flight work, so at capacity we ack BUSY.
+	discoverySlot := make(chan struct{}, 1)
+	cmdSem := make(chan struct{}, commandPoolSize)
 	var wg sync.WaitGroup
 	defer func() {
 		cancelSession() // cancel every in-flight handler's ctx
@@ -201,21 +207,36 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if cmd == nil {
 			continue
 		}
-		// Non-blocking acquire: parking here would hide stream drops behind the
-		// in-flight work. At the pool ceiling, ack BUSY instead of queueing.
+		slot := cmdSem
+		if reportBearingCommand(cmd.GetPayload()) {
+			slot = discoverySlot
+		}
 		select {
-		case sem <- struct{}{}:
+		case slot <- struct{}{}:
 			wg.Add(1)
 			go func(c *pb.ControlCommand) {
 				defer wg.Done()
-				defer func() { <-sem }()
+				defer func() { <-slot }()
 				r.handleCommand(sessionCtx, client, sender, c, logger)
 			}(cmd)
 		default:
-			logger.Warn("agent at command-pool ceiling; rejecting", "command_id", cmd.GetCommandId())
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at command concurrency limit; retry shortly", logger)
+			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
+			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
 		}
 	}
+}
+
+// reportBearingCommand reports whether the envelope carries a heavy, report-bearing
+// command (discovery, and the pairing effort's future pair) that takes the exclusive
+// single-flight discovery slot rather than the per-miner command pool. A
+// malformed/unknown envelope is treated as not report-bearing; handleCommand acks it
+// (BAD_REQUEST) from the pool lane.
+func reportBearingCommand(payload []byte) bool {
+	var env pairingpb.AgentCommand
+	if err := proto.Unmarshal(payload, &env); err != nil {
+		return false
+	}
+	return env.GetDiscover() != nil
 }
 
 func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, logger *slog.Logger) {

@@ -819,24 +819,21 @@ func (b *blockingDiscoverer) release1(ip string) {
 	close(ch)
 }
 
-func TestControlLoop_LongCommandDoesNotBlockQuickCommands(t *testing.T) {
-	// Arrange: two blocking probes. With the concurrent worker pool, cmd-B runs
-	// while cmd-A is still in flight rather than waiting for it to finish.
-	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
+func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
+	// Arrange: discovery is single-flight per node. The first discovery blocks in its
+	// probe, holding the exclusive discovery slot.
+	disc := newBlockingDiscoverer("10.0.0.1")
 	cmd := &RunCmd{discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	fake.queueWithID("cmd-A", discoverPayload(t, &pairingpb.DiscoverRequest{
-		Mode: &pairingpb.DiscoverRequest_IpList{
-			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
-		},
-	}))
-	fake.queueWithID("cmd-B", discoverPayload(t, &pairingpb.DiscoverRequest{
-		Mode: &pairingpb.DiscoverRequest_IpList{
-			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.2"}, Ports: []string{"4028"}},
-		},
-	}))
+	for _, id := range []string{"disc-1", "disc-2"} {
+		fake.queueWithID(id, discoverPayload(t, &pairingpb.DiscoverRequest{
+			Mode: &pairingpb.DiscoverRequest_IpList{
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
+			},
+		}))
+	}
 	client := newControlClient(t, fake)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -846,26 +843,19 @@ func TestControlLoop_LongCommandDoesNotBlockQuickCommands(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
 
-	// Assert: both probes are in flight at once — cmd-B started without waiting for
-	// the still-blocked cmd-A. waitStarted fails the test if cmd-B never ran.
-	disc.waitStarted(t, "10.0.0.1")
-	disc.waitStarted(t, "10.0.0.2")
+	// Assert: the second concurrent discovery is rejected BUSY while the first holds
+	// the exclusive discovery slot.
+	require.Eventually(t, func() bool {
+		for _, ack := range fake.acksCopy() {
+			if ack.GetCommandId() == "disc-2" {
+				return ack.GetCode() == pb.AckCode_ACK_CODE_BUSY && !ack.GetSucceeded()
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "second concurrent discovery should be rejected BUSY")
 
-	// Release both; each acks.
-	disc.release1("10.0.0.1")
-	disc.release1("10.0.0.2")
-
-	require.Eventually(t, func() bool { return fake.ackCount() >= 2 }, 3*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
-
-	acks := fake.acksCopy()
-	require.Len(t, acks, 2)
-	assert.ElementsMatch(t, []string{"cmd-A", "cmd-B"},
-		[]string{acks[0].GetCommandId(), acks[1].GetCommandId()})
-	for _, a := range acks {
-		assert.True(t, a.GetSucceeded(), "ack=%+v", a)
-	}
 }
 
 func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
@@ -1130,49 +1120,6 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	// requires the unblock path -- without it, the loop's defer would
 	// hang for commandTimeout (30s) before reconnect.
 	require.Eventually(t, func() bool { return fake.helloCount() >= 2 }, 4*time.Second, 50*time.Millisecond)
-	cancel()
-	<-done
-}
-
-func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
-	// Every probe blocks forever, so each dispatched command holds its pool slot.
-	// Once commandPoolSize are in flight, the receive loop can't acquire a slot for
-	// further commands and acks them BUSY rather than queueing. Which command lands
-	// the busy ack is scheduling-dependent, so assert that at least one does.
-	disc := newBlockingDiscoverer("10.0.0.1")
-	cmd := &RunCmd{discoverer: disc}
-	state := &bootstrap.State{FleetNodeID: 7}
-
-	fake := &controlFakeGateway{}
-	for i := range commandPoolSize + 4 {
-		fake.queueWithID(fmt.Sprintf("cmd-%02d", i), discoverPayload(t, &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_IpList{
-				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
-			},
-		}))
-	}
-	client := newControlClient(t, fake)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Act
-	done := make(chan error, 1)
-	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
-
-	// Assert
-	var busyAck *pb.ControlAck
-	require.Eventually(t, func() bool {
-		for _, ack := range fake.acksCopy() {
-			if ack.GetCode() == pb.AckCode_ACK_CODE_BUSY {
-				busyAck = ack
-				return true
-			}
-		}
-		return false
-	}, 3*time.Second, 20*time.Millisecond, "a command past the pool ceiling should get a BUSY ack")
-	require.NotNil(t, busyAck)
-	assert.False(t, busyAck.GetSucceeded())
 	cancel()
 	<-done
 }
