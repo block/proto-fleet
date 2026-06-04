@@ -18,6 +18,40 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
+// toRequestMode validates the proto mode and returns the domain mode plus the
+// FIXED_KW params (nil for FULL_FLEET). FIXED_KW (and the unspecified default)
+// require fixed_kw params; FULL_FLEET takes none.
+func toRequestMode(m pb.CurtailmentMode, fixedKw *pb.FixedKwParams, hasModeParams bool) (models.Mode, *pb.FixedKwParams, error) {
+	if m == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
+		// FULL_FLEET takes no params; reject any set mode_params oneof rather
+		// than silently dropping a reserved fixed_count / site_power_cap.
+		if hasModeParams {
+			return "", nil, fleeterror.NewInvalidArgumentError(
+				"FULL_FLEET takes no mode params")
+		}
+		return models.ModeFullFleet, nil, nil
+	}
+	if m != pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW &&
+		m != pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED {
+		return "", nil, fleeterror.NewInvalidArgumentErrorf(
+			"mode %s is not supported; only FIXED_KW and FULL_FLEET", m.String())
+	}
+	// FIXED_KW (and the unspecified default) require fixed_kw params.
+	if fixedKw == nil {
+		return "", nil, fleeterror.NewInvalidArgumentError("fixed_kw mode params required for FIXED_KW")
+	}
+	return models.ModeFixedKw, fixedKw, nil
+}
+
+// requestModeProto normalizes a request's mode for echoing in responses: the
+// unspecified default is FIXED_KW.
+func requestModeProto(m pb.CurtailmentMode) pb.CurtailmentMode {
+	if m == pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED {
+		return pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW
+	}
+	return m
+}
+
 // toPreviewRequest converts the proto request to a service PreviewRequest.
 func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curtailment.PreviewRequest, error) {
 	scope, err := toScope(msg)
@@ -25,28 +59,19 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 		return curtailment.PreviewRequest{}, err
 	}
 
-	if msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW &&
-		msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED {
-		return curtailment.PreviewRequest{}, fleeterror.NewInvalidArgumentErrorf(
-			"mode %s is not supported; only FIXED_KW",
-			msg.GetMode().String(),
-		)
-	}
-	fixedKw := msg.GetFixedKw()
-	if fixedKw == nil {
-		return curtailment.PreviewRequest{}, fleeterror.NewInvalidArgumentError(
-			"fixed_kw mode params required for FIXED_KW preview",
-		)
+	mode, fixedKw, err := toRequestMode(msg.GetMode(), msg.GetFixedKw(), msg.GetModeParams() != nil)
+	if err != nil {
+		return curtailment.PreviewRequest{}, err
 	}
 	tolerance := 0.0
-	if fixedKw.ToleranceKw != nil {
+	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
 
 	out := curtailment.PreviewRequest{
 		OrgID:                   orgID,
 		Scope:                   scope,
-		Mode:                    models.ModeFixedKw,
+		Mode:                    mode,
 		Strategy:                strategyName(msg.GetStrategy()),
 		Level:                   levelName(msg.GetLevel()),
 		Priority:                priorityName(msg.GetPriority()),
@@ -98,28 +123,19 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		return curtailment.StartRequest{}, err
 	}
 
-	if msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW &&
-		msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED {
-		return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentErrorf(
-			"mode %s is not supported; only FIXED_KW",
-			msg.GetMode().String(),
-		)
-	}
-	fixedKw := msg.GetFixedKw()
-	if fixedKw == nil {
-		return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentError(
-			"fixed_kw mode params required for FIXED_KW start",
-		)
+	mode, fixedKw, err := toRequestMode(msg.GetMode(), msg.GetFixedKw(), msg.GetModeParams() != nil)
+	if err != nil {
+		return curtailment.StartRequest{}, err
 	}
 	tolerance := 0.0
-	if fixedKw.ToleranceKw != nil {
+	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
 
 	preview := curtailment.PreviewRequest{
 		OrgID:                   info.OrganizationID,
 		Scope:                   scope,
-		Mode:                    models.ModeFixedKw,
+		Mode:                    mode,
 		Strategy:                strategyName(msg.GetStrategy()),
 		Level:                   levelName(msg.GetLevel()),
 		Priority:                priorityName(msg.GetPriority()),
@@ -207,12 +223,22 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	}
 }
 
+// startResponseState mirrors the persisted state for the synchronous Start
+// response: a FULL_FLEET event with nothing eligible is COMPLETED on arrival;
+// everything else is PENDING and the reconciler drives it.
+func startResponseState(mode pb.CurtailmentMode, selected int) pb.CurtailmentEventState {
+	if mode == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET && selected == 0 {
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED
+	}
+	return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+}
+
 // toStartResponse renders a newly persisted Plan + request as the
 // response. Idempotent replays render from the persisted event row.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
-		State:                   pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING,
-		Mode:                    pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		State:                   startResponseState(req.GetMode(), len(plan.Selected)),
+		Mode:                    requestModeProto(req.GetMode()),
 		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
 		Priority:                resolvePriority(req.GetPriority()),
@@ -231,6 +257,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
 	}
+	if plan.EndedAt != nil {
+		event.EndedAt = timestamppb.New(*plan.EndedAt)
+	}
 	switch s := req.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
 		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
@@ -239,7 +268,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
 		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
 	}
-	if fk := req.GetFixedKw(); fk != nil {
+	if req.GetMode() == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
+		event.ModeParams = &pb.CurtailmentEvent_FullFleet{FullFleet: &pb.FullFleetParams{}}
+	} else if fk := req.GetFixedKw(); fk != nil {
 		event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 	}
 
@@ -377,7 +408,7 @@ func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanReq
 		Candidates:                candidates,
 		EstimatedReductionKw:      plan.EstimatedReductionKW,
 		EstimatedRemainingPowerKw: plan.EstimatedRemainingPowerKW,
-		Mode:                      pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		Mode:                      requestModeProto(req.GetMode()),
 		SkippedCandidates:         skipped,
 	}
 	// Echo FIXED_KW params so the UI can render the undershoot delta.
@@ -704,23 +735,22 @@ func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
 }
 
 func populateEventModeParams(out *pb.CurtailmentEvent, event *models.Event) {
-	if event.Mode != models.ModeFixedKw {
-		return
-	}
-	var payload struct {
-		TargetKW    float64 `json:"target_kw"`
-		ToleranceKW float64 `json:"tolerance_kw"`
-	}
-	if err := json.Unmarshal(event.ModeParamsJSON, &payload); err != nil {
-		return
-	}
-	out.ModeParams = &pb.CurtailmentEvent_FixedKw{
-		FixedKw: &pb.FixedKwParams{
-			TargetKw: payload.TargetKW,
-		},
-	}
-	if payload.ToleranceKW > 0 {
-		out.GetFixedKw().ToleranceKw = &payload.ToleranceKW
+	switch event.Mode {
+	case models.ModeFullFleet:
+		out.ModeParams = &pb.CurtailmentEvent_FullFleet{FullFleet: &pb.FullFleetParams{}}
+	case models.ModeFixedKw:
+		var payload struct {
+			TargetKW    float64 `json:"target_kw"`
+			ToleranceKW float64 `json:"tolerance_kw"`
+		}
+		if err := json.Unmarshal(event.ModeParamsJSON, &payload); err != nil {
+			return
+		}
+		fk := &pb.FixedKwParams{TargetKw: payload.TargetKW}
+		if payload.ToleranceKW > 0 {
+			fk.ToleranceKw = &payload.ToleranceKW
+		}
+		out.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 	}
 }
 
@@ -912,10 +942,14 @@ func desiredStateProto(s string) pb.CurtailmentTargetDesiredState {
 }
 
 func modeProto(m models.Mode) pb.CurtailmentMode {
-	if m == models.ModeFixedKw {
+	switch m {
+	case models.ModeFixedKw:
 		return pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW
+	case models.ModeFullFleet:
+		return pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
+	default:
+		return pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED
 	}
-	return pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED
 }
 
 func strategyProto(s models.Strategy) pb.CurtailmentStrategy {

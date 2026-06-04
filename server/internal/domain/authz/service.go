@@ -231,12 +231,18 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 // write would otherwise still be able to commit the delete. The
 // recheck takes FOR UPDATE on the caller's assignment rows so a
 // concurrent UnassignRole blocks until this tx commits.
+//
+// The role row itself is locked via getRoleInOrgForUpdate before the
+// assignment-count check so a concurrent CreateUser (which locks the
+// same role row in resolveCreateUserRole before inserting its
+// user_organization_role row) cannot slip an assignment in between the
+// count check and the soft delete.
 func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID int64) error {
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, nil); err != nil {
 			return err
 		}
-		existing, err := getRoleInOrg(ctx, q, orgID, roleID)
+		existing, err := getRoleInOrgForUpdate(ctx, q, orgID, roleID)
 		if err != nil {
 			return err
 		}
@@ -446,6 +452,24 @@ func hydrateRole(ctx context.Context, q *sqlc.Queries, r sqlc.Role) (RoleView, e
 // existence-leak reason.
 func getRoleInOrg(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sqlc.Role, error) {
 	role, err := q.GetRoleByID(ctx, roleID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sqlc.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+		}
+		return sqlc.Role{}, fleeterror.NewInternalErrorf("authz: get role: %w", err)
+	}
+	if !role.OrganizationID.Valid || role.OrganizationID.Int64 != orgID {
+		return sqlc.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	return role, nil
+}
+
+// getRoleInOrgForUpdate is the locking counterpart of getRoleInOrg.
+// Takes FOR UPDATE on the role row so DeleteCustomRole serializes
+// against resolveCreateUserRole (the only other code path that mutates
+// or depends on the role row's liveness during an assignment write).
+func getRoleInOrgForUpdate(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sqlc.Role, error) {
+	role, err := q.GetRoleByIDForUpdate(ctx, roleID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return sqlc.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")

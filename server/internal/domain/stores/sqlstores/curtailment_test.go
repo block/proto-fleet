@@ -14,6 +14,23 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+// InsertEventWithTargets still rejects an empty target slice for a non-terminal
+// event after the guard was relaxed to permit terminal (vacuously-COMPLETED
+// FULL_FLEET) events. The guard returns before any DB access, so a zero-value
+// store suffices.
+func TestInsertEventWithTargets_RejectsEmptyTargetsForNonTerminalEvent(t *testing.T) {
+	t.Parallel()
+
+	store := &SQLCurtailmentStore{}
+	_, err := store.InsertEventWithTargets(
+		t.Context(),
+		models.InsertEventParams{State: models.EventStatePending},
+		nil,
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
 func TestMapOrgConfigError(t *testing.T) {
 	t.Parallel()
 

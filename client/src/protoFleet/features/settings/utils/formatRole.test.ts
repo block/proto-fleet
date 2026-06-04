@@ -10,6 +10,10 @@ describe("formatRole", () => {
     expect(formatRole("ADMIN")).toBe("Admin");
   });
 
+  it("should format FIELD_TECH as Field Tech", () => {
+    expect(formatRole("FIELD_TECH")).toBe("Field Tech");
+  });
+
   it("should return unknown roles unchanged", () => {
     expect(formatRole("UNKNOWN_ROLE")).toBe("UNKNOWN_ROLE");
   });

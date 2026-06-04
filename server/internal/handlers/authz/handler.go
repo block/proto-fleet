@@ -15,7 +15,6 @@ package authz
 
 import (
 	"context"
-	"regexp"
 	"strconv"
 
 	"connectrpc.com/connect"
@@ -55,7 +54,15 @@ func (h *Handler) ListPermissions(ctx context.Context, _ *connect.Request[pb.Lis
 }
 
 func (h *Handler) ListRoles(ctx context.Context, _ *connect.Request[pb.ListRolesRequest]) (*connect.Response[pb.ListRolesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authzDomain.PermRoleManage, authzDomain.ResourceContext{})
+	// ListRoles is the only AuthzService RPC callable by user:manage in
+	// addition to role:manage. The AddTeamMember modal needs the list to
+	// populate its assignable-role picker, and the built-in ADMIN role
+	// intentionally excludes role:manage (see
+	// server/internal/domain/authz/builtin.go) — without this widening
+	// admins could open the modal but never save a new user. Escalation
+	// is still bounded by the privilege-parity check inside CreateUser
+	// and by the role:manage-only gate on every mutation RPC below.
+	info, err := middleware.RequireAnyPermission(ctx, []string{authzDomain.PermRoleManage, authzDomain.PermUserManage}, authzDomain.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +94,7 @@ func (h *Handler) UpdateCustomRole(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	roleID, err := parseRoleID(req.Msg.RoleId)
+	roleID, err := authzDomain.ParseRoleID(req.Msg.RoleId)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +110,7 @@ func (h *Handler) DeleteCustomRole(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	roleID, err := parseRoleID(req.Msg.RoleId)
+	roleID, err := authzDomain.ParseRoleID(req.Msg.RoleId)
 	if err != nil {
 		return nil, err
 	}
@@ -154,21 +161,4 @@ func builtinKeyToProto(key string) pb.BuiltinKey {
 	default:
 		return pb.BuiltinKey_BUILTIN_KEY_UNSPECIFIED
 	}
-}
-
-// roleIDPattern locks parseRoleID to the canonical base-10 form. Without
-// it strconv.ParseInt would accept "+123" / leading whitespace / unicode
-// digits, all of which round-trip to a different string than the one we
-// emit in roleViewToProto.
-var roleIDPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
-
-func parseRoleID(s string) (int64, error) {
-	if !roleIDPattern.MatchString(s) {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, fleeterror.NewInvalidArgumentError("invalid role_id")
-	}
-	return id, nil
 }

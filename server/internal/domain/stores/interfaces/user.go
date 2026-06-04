@@ -23,10 +23,12 @@ type UserStore interface { //nolint:interfacebloat // GetUserByIDForUpdate is a 
 }
 
 // UserManagementStore provides multi-user account management operations
-type UserManagementStore interface { //nolint:interfacebloat // user mgmt store covers create + lookup + role lookup; splitting would fragment the call sites that need them together
+type UserManagementStore interface { //nolint:interfacebloat // user mgmt store covers create + lookup + role lookup (incl. locking variant); splitting would fragment the call sites that need them together
 	CreateUser(ctx context.Context, externalUserID string, username string, passwordHash string, requiresPasswordChange bool) (int64, error)
 	CreateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, roleID int64) error
 	GetBuiltinRoleForOrg(ctx context.Context, organizationID int64, builtinKey string) (Role, error)
+	GetRoleByID(ctx context.Context, roleID int64) (Role, error)
+	GetRoleByIDForUpdate(ctx context.Context, roleID int64) (Role, error)
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
 	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error
 	SoftDeleteUser(ctx context.Context, userID int64) error
@@ -57,9 +59,11 @@ type Organization struct {
 }
 
 type Role struct {
-	ID          int64
-	Name        string
-	Description string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             int64
+	Name           string
+	Description    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	OrganizationID *int64
+	BuiltinKey     string
 }

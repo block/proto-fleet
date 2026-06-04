@@ -99,6 +99,39 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 	return i, err
 }
 
+const getRoleByIDForUpdate = `-- name: GetRoleByIDForUpdate :one
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+FROM role
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+// Locking counterpart of GetRoleByID. Used by mutations that must serialize
+// against a concurrent SoftDeleteCustomRole on the same role row:
+// resolveCreateUserRole takes this lock so its assignment insert lands while
+// the role is still live, and DeleteCustomRole's getRoleInOrgForUpdate takes
+// it so the assignment-count check happens after any racing create has
+// committed. The deleted_at filter ensures a waiter that unblocks after the
+// lock holder soft-deleted the row sees ErrNoRows instead of a tombstoned
+// record.
+func (q *Queries) GetRoleByIDForUpdate(ctx context.Context, id int64) (Role, error) {
+	row := q.queryRow(ctx, q.getRoleByIDForUpdateStmt, getRoleByIDForUpdate, id)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+		&i.OrganizationID,
+	)
+	return i, err
+}
+
 const listActiveOrganizationIDs = `-- name: ListActiveOrganizationIDs :many
 SELECT id
 FROM organization

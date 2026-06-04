@@ -610,6 +610,7 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
+    ended_at,
     created_by_user_id,
     effective_batch_size
 ) VALUES (
@@ -640,7 +641,8 @@ INSERT INTO curtailment_event (
     $25,
     $26,
     $27,
-    $28
+    $28,
+    $29
 )
 RETURNING id, event_uuid, created_at, updated_at
 `
@@ -672,6 +674,7 @@ type InsertCurtailmentEventParams struct {
 	IdempotencyKey          sql.NullString
 	Reason                  string
 	ScheduledStartAt        sql.NullTime
+	EndedAt                 sql.NullTime
 	CreatedByUserID         int64
 	EffectiveBatchSize      sql.NullInt32
 }
@@ -713,6 +716,7 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		arg.IdempotencyKey,
 		arg.Reason,
 		arg.ScheduledStartAt,
+		arg.EndedAt,
 		arg.CreatedByUserID,
 		arg.EffectiveBatchSize,
 	)

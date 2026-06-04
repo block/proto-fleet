@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -972,6 +973,102 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+// TestResolveCreateUserRole_ValidationBranches covers the pre-LoadEffective
+// branches that reject a request before the resolver is touched. The
+// "valid role_id assignment lands" and "parity rejection" paths require a
+// real PermissionResolver (DB-backed), so they live in the integration
+// suite alongside the existing role-management tests.
+func TestResolveCreateUserRole_ValidationBranches(t *testing.T) {
+	t.Parallel()
+
+	const orgID int64 = 7
+	const otherOrgID int64 = 99
+
+	cases := []struct {
+		name      string
+		roleID    string
+		setupMock func(*mocks.MockUserManagementStore)
+		wantMsg   string
+	}{
+		{
+			name:      "empty role_id rejected",
+			roleID:    "",
+			setupMock: func(_ *mocks.MockUserManagementStore) {},
+			wantMsg:   "role_id is required",
+		},
+		{
+			name:      "malformed role_id rejected before lookup",
+			roleID:    "+1",
+			setupMock: func(_ *mocks.MockUserManagementStore) {},
+			wantMsg:   "invalid role_id",
+		},
+		{
+			name:   "role not found surfaces as invalid",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{}, sql.ErrNoRows)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "cross-org role rejected",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				other := otherOrgID
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{
+					ID:             42,
+					Name:           "other-org-admin",
+					OrganizationID: &other,
+				}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "SUPER_ADMIN built-in rejected",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				owner := orgID
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{
+					ID:             42,
+					Name:           "Owner",
+					OrganizationID: &owner,
+					BuiltinKey:     string(authz.BuiltinKeySuperAdmin),
+				}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+		{
+			name:   "org-less role rejected",
+			roleID: "42",
+			setupMock: func(m *mocks.MockUserManagementStore) {
+				m.EXPECT().GetRoleByIDForUpdate(gomock.Any(), int64(42)).Return(interfaces.Role{
+					ID:   42,
+					Name: "global-role",
+				}, nil)
+			},
+			wantMsg: "invalid role_id",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			mockStore := mocks.NewMockUserManagementStore(ctrl)
+			tc.setupMock(mockStore)
+
+			svc := &Service{userManagementStore: mockStore}
+			_, err := svc.resolveCreateUserRole(context.Background(), 1, orgID, tc.roleID)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, fleeterror.NewInvalidArgumentError("").GRPCCode, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
 	}
 }

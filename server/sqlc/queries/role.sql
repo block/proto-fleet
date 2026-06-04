@@ -21,6 +21,21 @@ FROM role
 WHERE id = $1
   AND deleted_at IS NULL;
 
+-- name: GetRoleByIDForUpdate :one
+-- Locking counterpart of GetRoleByID. Used by mutations that must serialize
+-- against a concurrent SoftDeleteCustomRole on the same role row:
+-- resolveCreateUserRole takes this lock so its assignment insert lands while
+-- the role is still live, and DeleteCustomRole's getRoleInOrgForUpdate takes
+-- it so the assignment-count check happens after any racing create has
+-- committed. The deleted_at filter ensures a waiter that unblocks after the
+-- lock holder soft-deleted the row sees ErrNoRows instead of a tombstoned
+-- record.
+SELECT *
+FROM role
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: ListRoles :many
 SELECT *
 FROM role

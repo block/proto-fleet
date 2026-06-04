@@ -115,6 +115,12 @@ message CreateUserRequest {
     // Username for the new user account
     // Must be unique within the system
     string username = 1;
+
+    // Role id to assign to the new user. Required — the server rejects an
+    // empty value with InvalidArgument rather than picking a default, so a
+    // missing role can never silently mint an admin account. SUPER_ADMIN
+    // is also rejected (ownership transfer is a separate flow).
+    string role_id = 2;
 }
 
 message CreateUserResponse {

@@ -98,6 +98,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
   },
   {
+    path: "/settings/roles",
+    label: "Roles",
+    parent: "/settings",
+    // Roles management reads/writes are server-gated on role:manage.
+    requiredPermission: "role:manage",
+  },
+  {
     path: "/settings/mining-pools",
     label: "Pools",
     parent: "/settings",

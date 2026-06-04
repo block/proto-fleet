@@ -86,6 +86,11 @@ enum CurtailmentMode {
     CURTAILMENT_MODE_THERMAL_LIMIT    = 5;  // reserved (v3)
     CURTAILMENT_MODE_PRICE_BREAKEVEN  = 6;  // reserved (v3)
     CURTAILMENT_MODE_POWER_TRAJECTORY = 7;  // reserved (v3)
+
+    // Open-loop: curtail every eligible candidate in the selected scope (no kW
+    // target), frozen at creation. Whole-org scope = whole fleet; a site /
+    // device-list scope = that site.
+    CURTAILMENT_MODE_FULL_FLEET       = 8;
 }
 
 // CurtailmentStrategy selects candidate ranking.
@@ -204,6 +209,11 @@ message SitePowerCapParams {
     double cap_kw = 1;
 }
 
+// FullFleetParams configures FULL_FLEET (curtail every eligible candidate in
+// scope). Empty today; reserved for future toggles (e.g. also targeting
+// idle / sub-threshold miners).
+message FullFleetParams {}
+
 // --- Domain messages ---
 
 // CurtailmentEvent is the full event returned by Get/List/Start RPCs.
@@ -227,6 +237,7 @@ message CurtailmentEvent {
         FixedKwParams      fixed_kw       = 10;
         FixedCountParams   fixed_count    = 11;
         SitePowerCapParams site_power_cap = 12;
+        FullFleetParams    full_fleet     = 13;
     }
 
     // Original operational controls.
@@ -329,8 +340,8 @@ message PreviewCurtailmentPlanRequest {
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
-        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw)"
-        expression: "this.mode == 1 && has(this.fixed_kw)"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw) && !has(this.fixed_count) && !has(this.site_power_cap))"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
@@ -346,8 +357,8 @@ message PreviewCurtailmentPlanRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        // v1 supports FIXED_KW.
-        in: [1]
+        // v1 supports FIXED_KW and FULL_FLEET.
+        in: [1, 8]
     }];
     // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
@@ -416,8 +427,8 @@ message StartCurtailmentRequest {
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
-        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw)"
-        expression: "this.mode == 1 && has(this.fixed_kw)"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw) && !has(this.fixed_count) && !has(this.site_power_cap))"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
@@ -433,7 +444,7 @@ message StartCurtailmentRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        in: [1]
+        in: [1, 8]
     }];
     // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {

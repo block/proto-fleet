@@ -122,6 +122,61 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	return info, nil
 }
 
+// RequireAnyPermission gates a handler on the caller holding at least
+// one of the named permission keys against the supplied resource
+// context. Use it sparingly — for read-only RPCs whose information is
+// legitimately useful to multiple permission holders (e.g.
+// AuthzService.ListRoles, needed by both role:manage holders for
+// editing and user:manage holders for picking an assignment role when
+// creating a team member).
+//
+// keys must be non-empty. The first key is treated as the "primary"
+// gate for error messaging — a denial reports the primary key so the
+// existing structured-payload contract stays stable for clients that
+// already key off the original permission. Authentication, fail-closed,
+// and internal-actor handling match RequirePermission exactly.
+func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceContext) (*session.Info, error) {
+	if len(keys) == 0 {
+		// Programming error — surface as Internal so a misuse fails
+		// closed rather than silently allowing.
+		return nil, fleeterror.NewInternalError(
+			"authz: RequireAnyPermission called with no keys; refusing to short-circuit RBAC",
+		)
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	// Same allowlisted internal-actor short-circuit as RequirePermission.
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return info, nil
+		default:
+			return nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+
+	for _, key := range keys {
+		if eff.Has(key, rc) {
+			return info, nil
+		}
+	}
+	return nil, permissionDeniedError(keys[0], rc)
+}
+
 // permissionDeniedError builds a Connect PermissionDenied error whose
 // body is the structured payload the plan specifies:
 //
