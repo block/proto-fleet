@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import BuildingList from "../components/BuildingList";
+import FilterRow from "../components/FilterRow";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import SiteSelectModal from "../components/SiteSelectModal";
 import { useBuildings } from "@/protoFleet/api/buildings";
@@ -14,10 +15,12 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { usePoll } from "@/shared/hooks/usePoll";
 
-// Filter / Add-button band. Owns the full top + bottom spacing between the
-// tab strip and the list below it so the BuildingList itself can sit flush.
-// Matches the Racks tab structure on /fleet/racks.
-const BAND_CLASSES = "flex flex-col gap-4 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10";
+// Each layout element owns its own top padding so callers don't have to
+// reason about combined gaps:
+//   - Heading + tab strip: pt-6 (FleetLayout)
+//   - FilterRow: pt-10
+//   - List: pt-6 (LIST_WRAPPER)
+const LIST_WRAPPER = "pt-6";
 
 const FleetBuildingsPage = () => {
   const { sites, sitesError, refetchSites } = useFleetOutletContext();
@@ -99,15 +102,15 @@ const FleetBuildingsPage = () => {
 
   if (buildings === undefined || sites === undefined) {
     return (
-      <div className={BAND_CLASSES}>
+      <FilterRow>
         <div className="text-300 text-text-primary-70">Loading…</div>
-      </div>
+      </FilterRow>
     );
   }
 
   if (buildingsError && buildings.length === 0) {
     return (
-      <div className={BAND_CLASSES} data-testid="fleet-buildings-error">
+      <FilterRow testId="fleet-buildings-error">
         <Header title="Couldn't load buildings" titleSize="text-heading-200" />
         <p className="text-300 text-text-primary-70">{buildingsError}</p>
         <Button
@@ -117,13 +120,10 @@ const FleetBuildingsPage = () => {
           onClick={fetchBuildings}
           testId="fleet-buildings-retry"
         />
-      </div>
+      </FilterRow>
     );
   }
 
-  // Add-building action button — shared between the empty state, the
-  // filter-empty state, and the populated list. Disabled when no sites
-  // exist since every building requires a parent site.
   const addBuildingButton = (
     <Button
       variant={variants.primary}
@@ -138,7 +138,7 @@ const FleetBuildingsPage = () => {
   if (buildings.length === 0) {
     return (
       <>
-        <div className={BAND_CLASSES} data-testid="fleet-buildings-page">
+        <FilterRow testId="fleet-buildings-page">
           <div className="flex items-center justify-end">{addBuildingButton}</div>
           <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
             <Header title="No buildings yet" titleSize="text-heading-200" />
@@ -148,7 +148,7 @@ const FleetBuildingsPage = () => {
                 : "Create a site first, then add buildings to organize racks."}
             </p>
           </div>
-        </div>
+        </FilterRow>
         <BuildingModals modals={buildingModals} />
         <SiteSelectModal
           open={showSiteSelect}
@@ -167,7 +167,7 @@ const FleetBuildingsPage = () => {
         : "No buildings in this site yet.";
     return (
       <>
-        <div className={BAND_CLASSES} data-testid="fleet-buildings-page">
+        <FilterRow testId="fleet-buildings-page">
           <div className="flex items-center justify-end">{addBuildingButton}</div>
           <div
             className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
@@ -175,7 +175,7 @@ const FleetBuildingsPage = () => {
           >
             {message}
           </div>
-        </div>
+        </FilterRow>
         <BuildingModals modals={buildingModals} />
         <SiteSelectModal
           open={showSiteSelect}
@@ -189,42 +189,42 @@ const FleetBuildingsPage = () => {
 
   return (
     <>
-      <div data-testid="fleet-buildings-page">
-        <div className={BAND_CLASSES}>
-          {sitesError ? (
-            <div
-              className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-              data-testid="fleet-buildings-sites-error"
-            >
-              <span className="text-300 text-text-primary-70">
-                Couldn&apos;t load sites for the Site column: {sitesError}
-              </span>
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                text="Retry"
-                onClick={refetchSites}
-                testId="fleet-buildings-sites-retry"
-              />
-            </div>
-          ) : null}
-          {buildingsError ? (
-            <div
-              className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-              data-testid="fleet-buildings-inline-error"
-            >
-              <span className="text-300 text-text-primary-70">Couldn&apos;t refresh buildings: {buildingsError}</span>
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                text="Retry"
-                onClick={fetchBuildings}
-                testId="fleet-buildings-inline-retry"
-              />
-            </div>
-          ) : null}
-          <div className="flex items-center justify-end">{addBuildingButton}</div>
-        </div>
+      <FilterRow testId="fleet-buildings-page">
+        {sitesError ? (
+          <div
+            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+            data-testid="fleet-buildings-sites-error"
+          >
+            <span className="text-300 text-text-primary-70">
+              Couldn&apos;t load sites for the Site column: {sitesError}
+            </span>
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Retry"
+              onClick={refetchSites}
+              testId="fleet-buildings-sites-retry"
+            />
+          </div>
+        ) : null}
+        {buildingsError ? (
+          <div
+            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+            data-testid="fleet-buildings-inline-error"
+          >
+            <span className="text-300 text-text-primary-70">Couldn&apos;t refresh buildings: {buildingsError}</span>
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Retry"
+              onClick={fetchBuildings}
+              testId="fleet-buildings-inline-retry"
+            />
+          </div>
+        ) : null}
+        <div className="flex items-center justify-end">{addBuildingButton}</div>
+      </FilterRow>
+      <div className={LIST_WRAPPER}>
         <BuildingList buildings={visibleBuildings} sites={sites} />
       </div>
       <BuildingModals modals={buildingModals} />

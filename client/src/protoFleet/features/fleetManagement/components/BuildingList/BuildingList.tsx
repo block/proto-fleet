@@ -121,6 +121,9 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
       hideTotal
       onRowClick={handleRowClick}
       emptyStateRow={emptyStateRow}
+      // Mirrors MinerList so the first column lines up with the
+      // FilterRow's horizontal padding on every breakpoint.
+      paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
     />
   );
 };
