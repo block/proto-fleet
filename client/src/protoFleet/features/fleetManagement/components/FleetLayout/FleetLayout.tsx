@@ -137,7 +137,8 @@ const FleetLayout = () => {
 
   return (
     <div className="flex h-full flex-col" data-testid="fleet-layout">
-      <div className="px-10 pt-6 phone:px-6">
+      <div className="flex flex-col gap-4 px-10 pt-6 phone:px-6">
+        <h1 className="text-heading-300 text-text-primary">Fleet</h1>
         <TabStrip activeId={currentTab} onSelect={onSelect} ariaLabel="Fleet sections">
           {visibleTabs.map((tab) => (
             <TabStripItem key={tab} id={tab} label={tabLabel[tab]} testId={`fleet-tab-${tab}`} />

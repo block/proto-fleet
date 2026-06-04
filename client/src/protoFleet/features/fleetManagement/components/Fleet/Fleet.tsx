@@ -14,6 +14,7 @@ import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { MINERS_PAGE_SIZE } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -227,7 +228,7 @@ const Fleet = () => {
       ) : null}
       <ErrorBoundary>
         <MinerList
-          title="Miners"
+          title={MULTI_SITE_ENABLED ? undefined : "Miners"}
           minerIds={minerIds}
           miners={miners}
           errorsByDevice={errorsByDevice}
