@@ -5,7 +5,9 @@ import { type FleetOutletContext } from "./outletContext";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
+import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 type FleetTabId = "sites" | "buildings" | "racks" | "miners";
@@ -13,6 +15,10 @@ type FleetTabId = "sites" | "buildings" | "racks" | "miners";
 const TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners"];
 const DEFAULT_TAB: FleetTabId = "sites";
 const DEFAULT_TAB_NO_SITES: FleetTabId = "buildings";
+// Used when the operator's role can't load sites (listSites returned an error
+// on initial load). Miners is the most universally accessible fleet view, so
+// landing there avoids dumping the operator into a permission-error page.
+const DEFAULT_TAB_NO_SITES_ACCESS: FleetTabId = "miners";
 const LAST_TAB_KEY = "fleet:lastActiveTab";
 
 const tabLabel: Record<FleetTabId, string> = {
@@ -39,31 +45,50 @@ const FleetLayout = () => {
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
   const [sitesError, setSitesError] = useState<string | null>(null);
 
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesError(null);
-      },
-      onError: (msg) => {
-        setSitesError(msg);
-        // Preserve last-good list across transient errors; only fall to []
-        // on the initial-load failure path.
-        setSites((prev) => prev ?? []);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
+  // Poll listSites on the same cadence as the legacy /sites overview so site
+  // renames / deletes / count changes from another session surface here
+  // without remounting the route. Returning the promise lets usePoll schedule
+  // the next tick from response completion.
+  const fetchSites = useCallback(
+    () =>
+      listSites({
+        onSuccess: (rows) => {
+          setSites(rows);
+          setSitesError(null);
+        },
+        onError: (msg) => {
+          setSitesError(msg);
+          // Preserve last-good list across transient errors; only fall to []
+          // on the initial-load failure path.
+          setSites((prev) => prev ?? []);
+        },
+      }),
+    [listSites],
+  );
 
-  useEffect(() => fetchSites(), [fetchSites]);
+  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
-  const sitesTabHidden = activeSite.kind === "site";
+  // Hide the Sites tab only when the picker resolves to an existing site.
+  // A stale "single site" selection pointing at a now-deleted site (sites
+  // list returned empty, useActiveSite couldn't reset because knownSiteIds
+  // is empty) must keep the tab visible so the operator can create a new
+  // one — see codex review thread on this file.
+  const sitesTabHidden = activeSite.kind === "site" && knownSiteIds.has(activeSite.id);
 
   const currentTab = tabFromPath(location.pathname);
+
+  // Pick the default tab. When the layout can't load sites at all (initial
+  // listSites failed with a permission or transport error and we have no
+  // last-good data), fall back to Miners so callers with reduced permissions
+  // land somewhere usable. Otherwise prefer the leftmost visible tab.
+  const sitesAccessBlocked = sitesError !== null && sites !== undefined && sites.length === 0;
+  const fallback = sitesAccessBlocked
+    ? DEFAULT_TAB_NO_SITES_ACCESS
+    : sitesTabHidden
+      ? DEFAULT_TAB_NO_SITES
+      : DEFAULT_TAB;
 
   // Defer redirect until the initial sites load resolves: a stale single-site
   // picker selection pointing at a now-deleted site would otherwise briefly
@@ -74,17 +99,18 @@ const FleetLayout = () => {
     // Guard against corrupted or older-schema localStorage values so a stale
     // lastTab cannot navigate to /fleet/<garbage>.
     const safeLastTab = lastTab && isFleetTabId(lastTab) ? lastTab : undefined;
-    const fallback = sitesTabHidden ? DEFAULT_TAB_NO_SITES : DEFAULT_TAB;
+    // If sites access is blocked, do not honor lastTab="sites" — that route
+    // would immediately error.
+    const usableLastTab =
+      safeLastTab && (safeLastTab !== "sites" || (!sitesTabHidden && !sitesAccessBlocked)) ? safeLastTab : undefined;
     if (location.pathname === "/fleet" || location.pathname === "/fleet/") {
-      const target = safeLastTab && (safeLastTab !== "sites" || !sitesTabHidden) ? safeLastTab : fallback;
-      navigate(`/fleet/${target}`, { replace: true });
+      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
       return;
     }
-    if (currentTab === "sites" && sitesTabHidden) {
-      const target = safeLastTab && safeLastTab !== "sites" ? safeLastTab : fallback;
-      navigate(`/fleet/${target}`, { replace: true });
+    if (currentTab === "sites" && (sitesTabHidden || sitesAccessBlocked)) {
+      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
     }
-  }, [sites, location.pathname, currentTab, sitesTabHidden, lastTab, navigate]);
+  }, [sites, location.pathname, currentTab, sitesTabHidden, sitesAccessBlocked, lastTab, navigate, fallback]);
 
   useEffect(() => {
     if (currentTab && currentTab !== lastTab) {
@@ -99,7 +125,10 @@ const FleetLayout = () => {
     [navigate],
   );
 
-  const visibleTabs = TAB_ORDER.filter((t) => !(t === "sites" && sitesTabHidden));
+  // Sites tab is suppressed when the picker resolves to an existing site OR
+  // when the operator can't load sites at all — both states make the Sites
+  // surface unusable.
+  const visibleTabs = TAB_ORDER.filter((t) => !(t === "sites" && (sitesTabHidden || sitesAccessBlocked)));
 
   const outletContext: FleetOutletContext = useMemo(
     () => ({ sites, sitesError, refetchSites: fetchSites }),

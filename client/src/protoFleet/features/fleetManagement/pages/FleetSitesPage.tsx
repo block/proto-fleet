@@ -45,9 +45,18 @@ const FleetSitesPage = () => {
     );
   }
 
+  // FleetLayout normally hides + redirects away from this tab when the
+  // picker resolves to an existing single site (J2), but the redirect
+  // effect needs a render to fire. Render a transitional placeholder
+  // here instead of the full Sites list so the operator never sees a
+  // contradictory "All Sites" page under a single-site picker.
   const body =
     sites.length === 0 ? (
       <SitesEmptyState onAddSite={modals.openCreate} />
+    ) : activeSite.kind === "site" ? (
+      <div className="text-300 text-text-primary-70" data-testid="fleet-sites-redirecting">
+        Loading…
+      </div>
     ) : activeSite.kind === "unassigned" ? (
       <div
         className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"

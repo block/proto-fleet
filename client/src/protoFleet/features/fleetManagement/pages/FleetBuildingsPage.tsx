@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import BuildingList from "../components/BuildingList";
 import { useFleetOutletContext } from "../components/FleetLayout";
@@ -6,8 +6,10 @@ import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 const FleetBuildingsPage = () => {
   const { sites, sitesError, refetchSites } = useFleetOutletContext();
@@ -16,30 +18,26 @@ const FleetBuildingsPage = () => {
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
 
-  const fetchBuildings = useCallback(() => {
-    const controller = new AbortController();
-    void listAllBuildings({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setBuildings(rows);
-        setBuildingsError(null);
-      },
-      onError: (msg) => {
-        setBuildingsError(msg);
-        // Preserve last-good list across transient errors; only fall to []
-        // on the initial-load failure path.
-        setBuildings((prev) => prev ?? []);
-      },
-    });
-    return () => controller.abort();
-  }, [listAllBuildings]);
+  // Returning the promise lets usePoll schedule the next tick from response
+  // completion — matches the legacy /sites overview polling cadence.
+  const fetchBuildings = useCallback(
+    () =>
+      listAllBuildings({
+        onSuccess: (rows) => {
+          setBuildings(rows);
+          setBuildingsError(null);
+        },
+        onError: (msg) => {
+          setBuildingsError(msg);
+          // Preserve last-good list across transient errors; only fall to []
+          // on the initial-load failure path.
+          setBuildings((prev) => prev ?? []);
+        },
+      }),
+    [listAllBuildings],
+  );
 
-  // Retry re-runs the effect via retryCounter so the cleanup AbortController
-  // stays owned by useEffect and never leaks across retries.
-  const [retryCounter, setRetryCounter] = useState(0);
-  const handleBuildingsRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
-
-  useEffect(() => fetchBuildings(), [fetchBuildings, retryCounter]);
+  usePoll({ fetchData: fetchBuildings, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
@@ -70,7 +68,7 @@ const FleetBuildingsPage = () => {
           variant={variants.secondary}
           size={sizes.compact}
           text="Retry"
-          onClick={handleBuildingsRetry}
+          onClick={fetchBuildings}
           testId="fleet-buildings-retry"
         />
       </div>
@@ -137,7 +135,7 @@ const FleetBuildingsPage = () => {
             variant={variants.secondary}
             size={sizes.compact}
             text="Retry"
-            onClick={handleBuildingsRetry}
+            onClick={fetchBuildings}
             testId="fleet-buildings-inline-retry"
           />
         </div>

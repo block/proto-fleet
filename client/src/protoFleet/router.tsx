@@ -39,6 +39,7 @@ import {
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { minersRedirectLoader, racksRedirectLoader } from "@/protoFleet/features/fleetManagement/redirectLoaders";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
@@ -162,8 +163,12 @@ const router = createBrowserRouter([
     ],
   },
 
-  { path: "/miners", loader: minersRedirectLoader },
-  { path: "/racks", loader: racksRedirectLoader },
+  // Redirect the legacy /miners and /racks routes into the Fleet shell only
+  // when the multi-site flag is on. When the flag is off the sidenav still
+  // exposes /miners and /racks as standalone nav entries, so the routes need
+  // to mount the original pages directly.
+  MULTI_SITE_ENABLED ? { path: "/miners", loader: minersRedirectLoader } : createRoute("/miners", <Miners />),
+  MULTI_SITE_ENABLED ? { path: "/racks", loader: racksRedirectLoader } : createRoute("/racks", <RacksPage />),
 
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),

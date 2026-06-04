@@ -9,6 +9,7 @@
 // route tree. The tier addition isn't lint-enforced — a missed entry
 // leaves the chunk un-warmed without breaking the build.
 
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { singleMinerRoutePrefetch } from "@/protoOS/routePrefetch"; // eslint-disable-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
@@ -49,19 +50,19 @@ export const importFleetDown = () => import("@/protoFleet/components/FleetDown/F
 
 // Sidebar destinations + the default settings sub-route. App.tsx
 // triggers this at idle so the first nav click has no Suspense flash.
+// Fleet-specific chunks are only warmed when MULTI_SITE_ENABLED is on, so
+// single-site installs don't download tab code that's not reachable from
+// their sidenav.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
   importDashboard,
-  importFleetLayout,
   importMiners,
   importRacksPage,
-  importFleetBuildingsPage,
-  importFleetSitesPage,
   importGroupsPage,
   importEnergyPage,
   importActivityPage,
   importSettingsLayout,
   importSettingsGeneral,
-  importSitesPage,
+  ...(MULTI_SITE_ENABLED ? [importFleetLayout, importFleetBuildingsPage, importFleetSitesPage, importSitesPage] : []),
 ];
 
 // Settings sub-routes; SettingsLayout triggers this on mount so the rest of

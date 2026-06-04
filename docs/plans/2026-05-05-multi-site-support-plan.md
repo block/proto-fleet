@@ -345,8 +345,12 @@ compatibility but is deferred — Phase 1 ships the four list tabs.
 `/fleet/racks`, `/fleet/buildings`, `/fleet/sites`. Bare `/fleet`
 redirects to the operator's last active tab (persisted in
 localStorage per username, same shape as the SitePicker selection)
-or to `/fleet/miners` on first visit. Filter state per tab lives in
-the URL query string, same as `/miners` and `/racks` today.
+or to `/fleet/sites` on first visit — the leftmost tab in the
+hierarchy. When the SitePicker is pinned to a single site (Sites
+tab hidden) or when the operator's role can't load `ListSites`,
+the default falls through to `/fleet/buildings` and `/fleet/miners`
+respectively. Filter state per tab lives in the URL query string,
+same as `/miners` and `/racks` today.
 
 **SitePicker interaction.** The Sites tab is hidden when a specific
 site is selected in the topbar — see J2 for the redirect rule and
