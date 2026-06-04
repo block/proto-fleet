@@ -118,7 +118,7 @@ const FleetSitesPage = () => {
         ) : null}
         <div className="flex items-center justify-end">
           <Button
-            variant={variants.primary}
+            variant={variants.secondary}
             size={sizes.compact}
             text="Add site"
             onClick={modals.openCreate}

@@ -126,7 +126,7 @@ const FleetBuildingsPage = () => {
 
   const addBuildingButton = (
     <Button
-      variant={variants.primary}
+      variant={variants.secondary}
       size={sizes.compact}
       text="Add building"
       onClick={handleAddBuilding}
