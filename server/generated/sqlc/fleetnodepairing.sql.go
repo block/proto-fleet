@@ -39,6 +39,12 @@ SELECT EXISTS (
       AND d.org_id = $2
       AND d.deleted_at IS NULL
       AND dp.pairing_status = 'PAIRED'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id
+          AND fnd.org_id = d.org_id
+      )
 )
 `
 
@@ -47,9 +53,11 @@ type DeviceHasActiveCloudPairingParams struct {
 	OrgID    int64
 }
 
-// True when the device has a PAIRED cloud device_pairing. Fleet-node pairing
-// refuses these: the upsert guard blocks refreshing a cloud-paired row, so
-// pairing one would strand the node unable to refresh its discovery endpoint.
+// True when the device is cloud-dialed: PAIRED and not bound to any fleet node.
+// A device paired to a fleet node is also PAIRED (so it reads as paired in the
+// UI), but the node dials it, so it is excluded here. Fleet-node pairing refuses
+// cloud-dialed devices: the upsert guard blocks refreshing them, so pairing one
+// would strand the node unable to refresh its discovery endpoint.
 func (q *Queries) DeviceHasActiveCloudPairing(ctx context.Context, arg DeviceHasActiveCloudPairingParams) (bool, error) {
 	row := q.queryRow(ctx, q.deviceHasActiveCloudPairingStmt, deviceHasActiveCloudPairing, arg.DeviceID, arg.OrgID)
 	var exists bool
@@ -102,6 +110,96 @@ func (q *Queries) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDev
 			&i.DeviceType,
 			&i.AssignedAt,
 			&i.AssignedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFleetNodeDiscoveredDevices = `-- name: ListFleetNodeDiscoveredDevices :many
+SELECT dd.id,
+       dd.org_id,
+       dd.device_identifier,
+       dd.discovered_by_fleet_node_id,
+       dd.ip_address,
+       dd.port,
+       dd.url_scheme,
+       dd.driver_name,
+       dd.model,
+       dd.manufacturer,
+       dd.firmware_version,
+       dd.last_seen,
+       COALESCE(dp.pairing_status::text, '')::text AS pairing_status
+FROM discovered_device dd
+LEFT JOIN device d ON d.discovered_device_id = dd.id AND d.deleted_at IS NULL
+LEFT JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = dd.org_id
+WHERE dd.org_id = $1
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dd.discovered_by_fleet_node_id IS NOT NULL
+  AND fnd.device_id IS NULL
+  AND (dp.pairing_status IS NULL OR dp.pairing_status <> 'PAIRED')
+  AND ($2::bigint IS NULL OR dd.discovered_by_fleet_node_id = $2::bigint)
+ORDER BY dd.last_seen DESC NULLS LAST, dd.id ASC
+`
+
+type ListFleetNodeDiscoveredDevicesParams struct {
+	OrgID       int64
+	FleetNodeID sql.NullInt64
+}
+
+type ListFleetNodeDiscoveredDevicesRow struct {
+	ID                      int64
+	OrgID                   int64
+	DeviceIdentifier        string
+	DiscoveredByFleetNodeID sql.NullInt64
+	IpAddress               string
+	Port                    string
+	UrlScheme               string
+	DriverName              string
+	Model                   sql.NullString
+	Manufacturer            sql.NullString
+	FirmwareVersion         sql.NullString
+	LastSeen                sql.NullTime
+	PairingStatus           string
+}
+
+// Fleet-node-discovered devices not yet paired to their node. A device already
+// bound via fleet_node_device is excluded; AUTHENTICATION_NEEDED rows (a pair
+// attempt that needs credentials) surface for retry. Inverse of
+// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFleetNodeDiscoveredDevicesParams) ([]ListFleetNodeDiscoveredDevicesRow, error) {
+	rows, err := q.query(ctx, q.listFleetNodeDiscoveredDevicesStmt, listFleetNodeDiscoveredDevices, arg.OrgID, arg.FleetNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFleetNodeDiscoveredDevicesRow
+	for rows.Next() {
+		var i ListFleetNodeDiscoveredDevicesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.DeviceIdentifier,
+			&i.DiscoveredByFleetNodeID,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.DriverName,
+			&i.Model,
+			&i.Manufacturer,
+			&i.FirmwareVersion,
+			&i.LastSeen,
+			&i.PairingStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -241,11 +339,22 @@ WHERE (
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (
-        EXISTS (
-          SELECT 1
-          FROM device_pairing dp
-          WHERE dp.device_id = d.id
-            AND dp.pairing_status = 'PAIRED'
+        (
+          EXISTS (
+            SELECT 1
+            FROM device_pairing dp
+            WHERE dp.device_id = d.id
+              AND dp.pairing_status = 'PAIRED'
+          )
+          -- A device paired to THIS reporting node ($10) is node-dialed, not
+          -- cloud-dialed; its PAIRED row must not block its own node's re-scan.
+          AND NOT EXISTS (
+            SELECT 1
+            FROM fleet_node_device fnd
+            WHERE fnd.device_id = d.id
+              AND fnd.org_id = d.org_id
+              AND fnd.fleet_node_id = $10
+          )
         )
         OR EXISTS (
           SELECT 1

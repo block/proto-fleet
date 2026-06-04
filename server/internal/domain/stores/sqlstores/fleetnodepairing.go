@@ -76,6 +76,34 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	return out, nil
 }
 
+func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]pairing.FleetNodeDiscoveredDevice, error) {
+	rows, err := s.q(ctx).ListFleetNodeDiscoveredDevices(ctx, sqlc.ListFleetNodeDiscoveredDevicesParams{
+		OrgID:       orgID,
+		FleetNodeID: ptrToNullInt64(fleetNodeID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pairing.FleetNodeDiscoveredDevice, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, pairing.FleetNodeDiscoveredDevice{
+			ID:               r.ID,
+			FleetNodeID:      r.DiscoveredByFleetNodeID.Int64,
+			DeviceIdentifier: r.DeviceIdentifier,
+			IPAddress:        r.IpAddress,
+			Port:             r.Port,
+			URLScheme:        r.UrlScheme,
+			DriverName:       r.DriverName,
+			Model:            r.Model.String,
+			Manufacturer:     r.Manufacturer.String,
+			FirmwareVersion:  r.FirmwareVersion.String,
+			LastSeen:         r.LastSeen.Time,
+			PairingStatus:    r.PairingStatus,
+		})
+	}
+	return out, nil
+}
+
 func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (int64, error) {
 	return s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
 		OrgID:                   orgID,

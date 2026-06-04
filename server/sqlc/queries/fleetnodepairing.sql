@@ -56,11 +56,22 @@ WHERE (
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (
-        EXISTS (
-          SELECT 1
-          FROM device_pairing dp
-          WHERE dp.device_id = d.id
-            AND dp.pairing_status = 'PAIRED'
+        (
+          EXISTS (
+            SELECT 1
+            FROM device_pairing dp
+            WHERE dp.device_id = d.id
+              AND dp.pairing_status = 'PAIRED'
+          )
+          -- A device paired to THIS reporting node ($10) is node-dialed, not
+          -- cloud-dialed; its PAIRED row must not block its own node's re-scan.
+          AND NOT EXISTS (
+            SELECT 1
+            FROM fleet_node_device fnd
+            WHERE fnd.device_id = d.id
+              AND fnd.org_id = d.org_id
+              AND fnd.fleet_node_id = $10
+          )
         )
         OR EXISTS (
           SELECT 1
@@ -78,9 +89,11 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
 -- name: DeviceHasActiveCloudPairing :one
--- True when the device has a PAIRED cloud device_pairing. Fleet-node pairing
--- refuses these: the upsert guard blocks refreshing a cloud-paired row, so
--- pairing one would strand the node unable to refresh its discovery endpoint.
+-- True when the device is cloud-dialed: PAIRED and not bound to any fleet node.
+-- A device paired to a fleet node is also PAIRED (so it reads as paired in the
+-- UI), but the node dials it, so it is excluded here. Fleet-node pairing refuses
+-- cloud-dialed devices: the upsert guard blocks refreshing them, so pairing one
+-- would strand the node unable to refresh its discovery endpoint.
 SELECT EXISTS (
     SELECT 1
     FROM device_pairing dp
@@ -89,6 +102,12 @@ SELECT EXISTS (
       AND d.org_id = $2
       AND d.deleted_at IS NULL
       AND dp.pairing_status = 'PAIRED'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id
+          AND fnd.org_id = d.org_id
+      )
 );
 
 -- name: TransferDiscoveredDeviceAttribution :execrows
@@ -128,3 +147,34 @@ LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_
 WHERE fnd.org_id = $1
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR fnd.fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
 ORDER BY fnd.assigned_at DESC, fnd.device_id ASC;
+
+-- name: ListFleetNodeDiscoveredDevices :many
+-- Fleet-node-discovered devices not yet paired to their node. A device already
+-- bound via fleet_node_device is excluded; AUTHENTICATION_NEEDED rows (a pair
+-- attempt that needs credentials) surface for retry. Inverse of
+-- GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+SELECT dd.id,
+       dd.org_id,
+       dd.device_identifier,
+       dd.discovered_by_fleet_node_id,
+       dd.ip_address,
+       dd.port,
+       dd.url_scheme,
+       dd.driver_name,
+       dd.model,
+       dd.manufacturer,
+       dd.firmware_version,
+       dd.last_seen,
+       COALESCE(dp.pairing_status::text, '')::text AS pairing_status
+FROM discovered_device dd
+LEFT JOIN device d ON d.discovered_device_id = dd.id AND d.deleted_at IS NULL
+LEFT JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = dd.org_id
+WHERE dd.org_id = $1
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dd.discovered_by_fleet_node_id IS NOT NULL
+  AND fnd.device_id IS NULL
+  AND (dp.pairing_status IS NULL OR dp.pairing_status <> 'PAIRED')
+  AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR dd.discovered_by_fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
+ORDER BY dd.last_seen DESC NULLS LAST, dd.id ASC;

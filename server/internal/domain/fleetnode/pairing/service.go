@@ -28,6 +28,7 @@ type Store interface {
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
+	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDiscoveredDevice, error)
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 }
@@ -112,6 +113,16 @@ func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgI
 		return nil, fleeterror.LogInternal(component, "list pairs for fleet node", clientErrList, err)
 	}
 	return pairs, nil
+}
+
+// ListDiscoveredDevicesForFleetNode lists fleet-node-discovered devices not yet
+// paired to their node. A nil fleetNodeID returns all such devices in the org.
+func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDiscoveredDevice, error) {
+	devices, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, fleetNodeID)
+	if err != nil {
+		return nil, fleeterror.LogInternal(component, "list discovered devices", clientErrList, err)
+	}
+	return devices, nil
 }
 
 // UpsertDiscoveredDevices validates the whole batch up front, then runs
