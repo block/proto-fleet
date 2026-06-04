@@ -257,6 +257,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
 	}
+	if plan.EndedAt != nil {
+		event.EndedAt = timestamppb.New(*plan.EndedAt)
+	}
 	switch s := req.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
 		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}

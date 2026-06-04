@@ -2,11 +2,13 @@ package curtailment
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
@@ -61,4 +63,24 @@ func TestPopulateEventModeParams_FullFleet(t *testing.T) {
 	populateEventModeParams(out, &models.Event{Mode: models.ModeFullFleet})
 	assert.NotNil(t, out.GetFullFleet(), "full_fleet event sets the full_fleet oneof")
 	assert.Nil(t, out.GetFixedKw())
+}
+
+// An empty FULL_FLEET start persists a COMPLETED event with a stamped ended_at;
+// the synchronous Start response must carry that completion time too, so it
+// agrees with a later Get/List.
+func TestToStartResponse_FullFleetEmptyCarriesEndedAt(t *testing.T) {
+	t.Parallel()
+
+	endedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	plan := &curtailment.Plan{EndedAt: &endedAt} // no Selected -> empty full_fleet
+	req := &pb.StartCurtailmentRequest{
+		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED, event.GetState())
+	require.NotNil(t, event.GetEndedAt(), "empty full_fleet Start response must carry the completion time")
+	assert.Equal(t, endedAt.Unix(), event.GetEndedAt().AsTime().Unix())
 }

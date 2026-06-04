@@ -231,6 +231,10 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		now := time.Now().UTC()
 		eventParams.EndedAt = &now
 	}
+	// Carry the stamped completion time into the Plan so the synchronous Start
+	// response matches the persisted row (otherwise a later Get/List shows
+	// ended_at but the Start response does not).
+	plan.EndedAt = eventParams.EndedAt
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
