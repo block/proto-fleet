@@ -26,7 +26,7 @@ const maxAlertsPerRequest = 100
 
 const maxRowsPerRequest = 1000
 
-const insertTimeout = 10 * time.Second
+const insertsTimeout = 10 * time.Second
 
 const (
 	statusFiring   = "firing"
@@ -124,6 +124,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	remainingRows := maxRowsPerRequest
 	persisted := 0
 	truncated := false
+	persistCtx, cancel := context.WithTimeout(r.Context(), insertsTimeout)
+	defer cancel()
 
 	for i, alert := range payload.Alerts {
 		if remainingRows <= 0 {
@@ -134,7 +136,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			truncated = true
 			break
 		}
-		attempted, written := h.persistAlert(r.Context(), alert, remainingRows, orgIDs)
+		attempted, written := h.persistAlert(persistCtx, alert, remainingRows, orgIDs)
 		persisted += written
 		remainingRows -= attempted
 	}
@@ -183,14 +185,11 @@ func (h *Handler) authorized(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(h.webhookToken)) == 1
 }
 
-func (h *Handler) persistAlert(parent context.Context, alert alertmanagerAlert, budget int, orgIDs []int64) (attempted, persisted int) {
+func (h *Handler) persistAlert(ctx context.Context, alert alertmanagerAlert, budget int, orgIDs []int64) (attempted, persisted int) {
 	if budget <= 0 {
 		return 0, 0
 	}
 	row := alertToRow(alert)
-
-	ctx, cancel := context.WithTimeout(parent, insertTimeout)
-	defer cancel()
 
 	// Org-scoped alert (the usual case).
 	if row.OrganizationID != nil {

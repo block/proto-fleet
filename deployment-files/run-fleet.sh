@@ -563,7 +563,7 @@ if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
     # The Grafana sidecar runs the alerting engine + UI; give it a
     # rotated admin password the first time we boot the stack so the
     # default "admin / admin" never ships.
-    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=" "$ENV_FILE" 2>/dev/null; then
+    if ! env_has_nonempty_value GRAFANA_ADMIN_PASSWORD; then
         GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24)
         echo "GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD" >> "$ENV_FILE"
         echo "Generated Grafana admin password (stored in $ENV_FILE)."
