@@ -18,6 +18,8 @@ service FleetNodeAdminService {
     rpc UnpairDevice(UnpairDeviceRequest) returns (UnpairDeviceResponse);
     rpc ListFleetNodeDevices(ListFleetNodeDevicesRequest) returns (ListFleetNodeDevicesResponse);
     rpc DiscoverOnFleetNode(DiscoverOnFleetNodeRequest) returns (stream DiscoverOnFleetNodeResponse);
+    rpc ListFleetNodeDiscoveredDevices(ListFleetNodeDiscoveredDevicesRequest) returns (ListFleetNodeDiscoveredDevicesResponse);
+    rpc PairDiscoveredDevicesOnFleetNode(PairDiscoveredDevicesOnFleetNodeRequest) returns (stream PairDiscoveredDevicesOnFleetNodeResponse);
 }
 
 enum FleetNodeEnrollmentStatus {
@@ -105,4 +107,53 @@ message DiscoverOnFleetNodeRequest {
 
 message DiscoverOnFleetNodeResponse {
     pairing.v1.DiscoverResponse response = 1;
+}
+
+message ListFleetNodeDiscoveredDevicesRequest {
+    // 0 = all fleet nodes in org; > 0 restricts to that fleet node.
+    int64 fleet_node_id = 1 [(buf.validate.field).int64.gte = 0];
+}
+
+message ListFleetNodeDiscoveredDevicesResponse {
+    repeated FleetNodeDiscoveredDevice devices = 1;
+}
+
+// FleetNodeDiscoveredDevice is a device a fleet node discovered that is not yet
+// paired to it (or is AUTHENTICATION_NEEDED awaiting credentials).
+message FleetNodeDiscoveredDevice {
+    int64 fleet_node_id      = 1;
+    string device_identifier = 2;
+    string ip_address        = 3;
+    string port              = 4;
+    string url_scheme        = 5;
+    string driver_name       = 6;
+    string model             = 7;
+    string manufacturer      = 8;
+    string firmware_version  = 9;
+    google.protobuf.Timestamp last_seen = 10;
+    // Empty when never attempted; "AUTHENTICATION_NEEDED" after a pair attempt
+    // that needs credentials.
+    string pairing_status    = 11;
+}
+
+message PairDiscoveredDevicesOnFleetNodeRequest {
+    int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Explicit selection by discovered device_identifier. Ignored when
+    // pair_all_unpaired is true.
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated.max_items = 1024];
+    // Pair every not-yet-paired device discovered on this node.
+    bool pair_all_unpaired = 3;
+    // Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+    pairing.v1.Credentials credentials = 4;
+}
+
+message PairDiscoveredDevicesOnFleetNodeResponse {
+    repeated DevicePairingResult results = 1;
+}
+
+message DevicePairingResult {
+    string device_identifier = 1;
+    // PAIRED | AUTHENTICATION_NEEDED | FAILED
+    string pairing_status = 2;
+    string error = 3;
 }

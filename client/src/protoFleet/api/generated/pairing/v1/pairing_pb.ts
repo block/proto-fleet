@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiOwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACIlAKEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSGAoFcG9ydHMYAyADKAlCCbpIBpIBAxCAAiJOChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSJRCgxBZ2VudENvbW1hbmQSLwoIZGlzY292ZXIYASABKAsyGy5wYWlyaW5nLnYxLkRpc2NvdmVyUmVxdWVzdEgAQhAKB2NvbW1hbmQSBbpIAggBInUKC1BhaXJSZXF1ZXN0EiwKC2NyZWRlbnRpYWxzGAEgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscxI4Cg9kZXZpY2Vfc2VsZWN0b3IYAiABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3IiKQoMUGFpclJlc3BvbnNlEhkKEWZhaWxlZF9kZXZpY2VfaWRzGAEgAygJMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUKwAQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiOwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACIlAKEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSGAoFcG9ydHMYAyADKAlCCbpIBpIBAxCAAiJOChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSJ1CgtQYWlyUmVxdWVzdBIsCgtjcmVkZW50aWFscxgBIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMSOAoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIikKDFBhaXJSZXNwb25zZRIZChFmYWlsZWRfZGV2aWNlX2lkcxgBIAMoCSJ8CgxBZ2VudENvbW1hbmQSLwoIZGlzY292ZXIYASABKAsyGy5wYWlyaW5nLnYxLkRpc2NvdmVyUmVxdWVzdEgAEjAKBHBhaXIYAiABKAsyIC5wYWlyaW5nLnYxLkZsZWV0Tm9kZVBhaXJSZXF1ZXN0SABCCQoHY29tbWFuZCKBAQoURmxlZXROb2RlUGFpclJlcXVlc3QSOwoHdGFyZ2V0cxgBIAMoCzIfLnBhaXJpbmcudjEuRmxlZXROb2RlUGFpclRhcmdldEIJukgGkgEDEIAIEiwKC2NyZWRlbnRpYWxzGAIgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscyLnAgoTRmxlZXROb2RlUGFpclRhcmdldBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIfCgppcF9hZGRyZXNzGAIgASgJQgu6SAhyBhABGC1wARKGAQoEcG9ydBgDIAEoCUJ4ukh1ugFsCgpwb3J0LnJhbmdlEilwb3J0IG11c3QgYmUgYSBkZWNpbWFsIG51bWJlciBpbiAxLi42NTUzNRozdGhpcy5tYXRjaGVzKCdeWzEtOV1bMC05XSokJykgJiYgaW50KHRoaXMpIDw9IDY1NTM1cgQQARgFEhsKCnVybF9zY2hlbWUYBCABKAlCB7pIBHICGCASHgoLZHJpdmVyX25hbWUYBSABKAlCCbpIBnIEEAEYMhIeCgxtYW51ZmFjdHVyZXIYBiABKAlCCLpIBXIDGP8BEiIKEGZpcm13YXJlX3ZlcnNpb24YByABKAlCCLpIBXIDGP8BMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUKwAQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_capabilities_v1_capabilities, file_minercommand_v1_command],
   );
 
@@ -359,36 +359,6 @@ export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
   messageDesc(file_pairing_v1_pairing, 7);
 
 /**
- * AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
- * fleet node can tell command kinds apart rather than assuming a bare
- * DiscoverRequest. command_id stays on the transport-level
- * ControlCommand/ControlAck and is not duplicated here. Field numbers 2 and 3 are
- * reserved for the upcoming miner-command and pairing arms.
- *
- * @generated from message pairing.v1.AgentCommand
- */
-export type AgentCommand = Message<"pairing.v1.AgentCommand"> & {
-  /**
-   * @generated from oneof pairing.v1.AgentCommand.command
-   */
-  command:
-    | {
-        /**
-         * @generated from field: pairing.v1.DiscoverRequest discover = 1;
-         */
-        value: DiscoverRequest;
-        case: "discover";
-      }
-    | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message pairing.v1.AgentCommand.
- * Use `create(AgentCommandSchema)` to create a new message.
- */
-export const AgentCommandSchema: GenMessage<AgentCommand> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
-
-/**
  * Request to pair with discovered devices
  *
  * @generated from message pairing.v1.PairRequest
@@ -413,7 +383,7 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
  * Describes the message pairing.v1.PairRequest.
  * Use `create(PairRequestSchema)` to create a new message.
  */
-export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
+export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
 
 /**
  * Response to pairing request
@@ -432,7 +402,124 @@ export type PairResponse = Message<"pairing.v1.PairResponse"> & {
  * Describes the message pairing.v1.PairResponse.
  * Use `create(PairResponseSchema)` to create a new message.
  */
-export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 10);
+export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
+
+/**
+ * AgentCommand is the node-facing command envelope. It is marshaled into
+ * fleetnodegateway.v1.ControlCommand.payload; the node unmarshals it and
+ * switches on the populated arm. The fleet-node command-routing work adds a
+ * miner_command arm here.
+ *
+ * @generated from message pairing.v1.AgentCommand
+ */
+export type AgentCommand = Message<"pairing.v1.AgentCommand"> & {
+  /**
+   * @generated from oneof pairing.v1.AgentCommand.command
+   */
+  command:
+    | {
+        /**
+         * @generated from field: pairing.v1.DiscoverRequest discover = 1;
+         */
+        value: DiscoverRequest;
+        case: "discover";
+      }
+    | {
+        /**
+         * @generated from field: pairing.v1.FleetNodePairRequest pair = 2;
+         */
+        value: FleetNodePairRequest;
+        case: "pair";
+      }
+    | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message pairing.v1.AgentCommand.
+ * Use `create(AgentCommandSchema)` to create a new message.
+ */
+export const AgentCommandSchema: GenMessage<AgentCommand> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 10);
+
+/**
+ * FleetNodePairRequest asks a fleet node to pair (authenticate) a batch of
+ * devices it previously discovered. The node has no database, so the server
+ * supplies each target's endpoint and driver.
+ *
+ * @generated from message pairing.v1.FleetNodePairRequest
+ */
+export type FleetNodePairRequest = Message<"pairing.v1.FleetNodePairRequest"> & {
+  /**
+   * @generated from field: repeated pairing.v1.FleetNodePairTarget targets = 1;
+   */
+  targets: FleetNodePairTarget[];
+
+  /**
+   * Applied to basic-auth targets in the batch; omitted for asymmetric-auth
+   * drivers, which pair with the node's own miner-signing key.
+   *
+   * @generated from field: pairing.v1.Credentials credentials = 2;
+   */
+  credentials?: Credentials | undefined;
+};
+
+/**
+ * Describes the message pairing.v1.FleetNodePairRequest.
+ * Use `create(FleetNodePairRequestSchema)` to create a new message.
+ */
+export const FleetNodePairRequestSchema: GenMessage<FleetNodePairRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 11);
+
+/**
+ * @generated from message pairing.v1.FleetNodePairTarget
+ */
+export type FleetNodePairTarget = Message<"pairing.v1.FleetNodePairTarget"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string ip_address = 2;
+   */
+  ipAddress: string;
+
+  /**
+   * @generated from field: string port = 3;
+   */
+  port: string;
+
+  /**
+   * @generated from field: string url_scheme = 4;
+   */
+  urlScheme: string;
+
+  /**
+   * @generated from field: string driver_name = 5;
+   */
+  driverName: string;
+
+  /**
+   * Carried so the node can look up plugin default credentials (keyed on
+   * manufacturer + firmware) without a database.
+   *
+   * @generated from field: string manufacturer = 6;
+   */
+  manufacturer: string;
+
+  /**
+   * @generated from field: string firmware_version = 7;
+   */
+  firmwareVersion: string;
+};
+
+/**
+ * Describes the message pairing.v1.FleetNodePairTarget.
+ * Use `create(FleetNodePairTargetSchema)` to create a new message.
+ */
+export const FleetNodePairTargetSchema: GenMessage<FleetNodePairTarget> =
+  /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 12);
 
 /**
  * Service for discovering and pairing with network devices

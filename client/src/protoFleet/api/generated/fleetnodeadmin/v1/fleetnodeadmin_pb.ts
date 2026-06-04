@@ -11,7 +11,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { DiscoverRequest, DiscoverResponse } from "../../pairing/v1/pairing_pb";
+import type { Credentials, DiscoverRequest, DiscoverResponse } from "../../pairing/v1/pairing_pb";
 import { file_pairing_v1_pairing } from "../../pairing/v1/pairing_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetnodeadmin_v1_fleetnodeadmin: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiZmbGVldG5vZGVhZG1pbi92MS9mbGVldG5vZGVhZG1pbi5wcm90bxIRZmxlZXRub2RlYWRtaW4udjEiHQobQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0IlwKHENyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USDAoEY29kZRgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIXChVMaXN0RmxlZXROb2Rlc1JlcXVlc3QiUgoWTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRI4CgtmbGVldF9ub2RlcxgBIAMoCzIjLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZVN1bW1hcnkilgIKEEZsZWV0Tm9kZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIMCgRuYW1lGAIgASgJEkcKEWVucm9sbG1lbnRfc3RhdHVzGAMgASgOMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRW5yb2xsbWVudFN0YXR1cxIcChRpZGVudGl0eV9maW5nZXJwcmludBgEIAEoCRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI1CgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDwoNX2xhc3Rfc2Vlbl9hdCI5ChdDb25maXJtRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIm8KGENvbmZpcm1GbGVldE5vZGVSZXNwb25zZRIPCgdhcGlfa2V5GAEgASgJEjMKCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDQoLX2V4cGlyZXNfYXQiOAoWUmV2b2tlRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIhkKF1Jldm9rZUZsZWV0Tm9kZVJlc3BvbnNlIloKHFBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABIaCglkZXZpY2VfaWQYAiABKANCB7pIBCICIAAiHwodUGFpckRldmljZVRvRmxlZXROb2RlUmVzcG9uc2UiMQoTVW5wYWlyRGV2aWNlUmVxdWVzdBIaCglkZXZpY2VfaWQYASABKANCB7pIBCICIAAiFgoUVW5wYWlyRGV2aWNlUmVzcG9uc2UiPQobTGlzdEZsZWV0Tm9kZURldmljZXNSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICKAAiWAocTGlzdEZsZWV0Tm9kZURldmljZXNSZXNwb25zZRI4CgVwYWlycxgBIAMoCzIpLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZURldmljZVN1bW1hcnkizQEKFkZsZWV0Tm9kZURldmljZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIRCglkZXZpY2VfaWQYAiABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAyABKAkSEwoLZGV2aWNlX3R5cGUYBCABKAkSLwoLYXNzaWduZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2Fzc2lnbmVkX2J5GAYgASgDSACIAQFCDgoMX2Fzc2lnbmVkX2J5InIKGkRpc2NvdmVyT25GbGVldE5vZGVSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICIAASNAoHcmVxdWVzdBgCIAEoCzIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0Qga6SAPIAQEiTQobRGlzY292ZXJPbkZsZWV0Tm9kZVJlc3BvbnNlEi4KCHJlc3BvbnNlGAEgASgLMhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlKoECChlGbGVldE5vZGVFbnJvbGxtZW50U3RhdHVzEiwKKEZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIoCiRGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX1BFTkRJTkcQARI2CjJGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX0FXQUlUSU5HX0NPTkZJUk1BVElPThACEioKJkZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfQ09ORklSTUVEEAMSKAokRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19SRVZPS0VEEAQynAcKFUZsZWV0Tm9kZUFkbWluU2VydmljZRJ3ChRDcmVhdGVFbnJvbGxtZW50Q29kZRIuLmZsZWV0bm9kZWFkbWluLnYxLkNyZWF0ZUVucm9sbG1lbnRDb2RlUmVxdWVzdBovLmZsZWV0bm9kZWFkbWluLnYxLkNyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USZQoOTGlzdEZsZWV0Tm9kZXMSKC5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2Rlc1JlcXVlc3QaKS5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2Rlc1Jlc3BvbnNlEmsKEENvbmZpcm1GbGVldE5vZGUSKi5mbGVldG5vZGVhZG1pbi52MS5Db25maXJtRmxlZXROb2RlUmVxdWVzdBorLmZsZWV0bm9kZWFkbWluLnYxLkNvbmZpcm1GbGVldE5vZGVSZXNwb25zZRJoCg9SZXZva2VGbGVldE5vZGUSKS5mbGVldG5vZGVhZG1pbi52MS5SZXZva2VGbGVldE5vZGVSZXF1ZXN0GiouZmxlZXRub2RlYWRtaW4udjEuUmV2b2tlRmxlZXROb2RlUmVzcG9uc2USegoVUGFpckRldmljZVRvRmxlZXROb2RlEi8uZmxlZXRub2RlYWRtaW4udjEuUGFpckRldmljZVRvRmxlZXROb2RlUmVxdWVzdBowLmZsZWV0bm9kZWFkbWluLnYxLlBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlc3BvbnNlEl8KDFVucGFpckRldmljZRImLmZsZWV0bm9kZWFkbWluLnYxLlVucGFpckRldmljZVJlcXVlc3QaJy5mbGVldG5vZGVhZG1pbi52MS5VbnBhaXJEZXZpY2VSZXNwb25zZRJ3ChRMaXN0RmxlZXROb2RlRGV2aWNlcxIuLmZsZWV0bm9kZWFkbWluLnYxLkxpc3RGbGVldE5vZGVEZXZpY2VzUmVxdWVzdBovLmZsZWV0bm9kZWFkbWluLnYxLkxpc3RGbGVldE5vZGVEZXZpY2VzUmVzcG9uc2USdgoTRGlzY292ZXJPbkZsZWV0Tm9kZRItLmZsZWV0bm9kZWFkbWluLnYxLkRpc2NvdmVyT25GbGVldE5vZGVSZXF1ZXN0Gi4uZmxlZXRub2RlYWRtaW4udjEuRGlzY292ZXJPbkZsZWV0Tm9kZVJlc3BvbnNlMAFC6AEKFWNvbS5mbGVldG5vZGVhZG1pbi52MUITRmxlZXRub2RlYWRtaW5Qcm90b1ABWlVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldG5vZGVhZG1pbi92MTtmbGVldG5vZGVhZG1pbnYxogIDRlhYqgIRRmxlZXRub2RlYWRtaW4uVjHKAhFGbGVldG5vZGVhZG1pblxWMeICHUZsZWV0bm9kZWFkbWluXFYxXEdQQk1ldGFkYXRh6gISRmxlZXRub2RlYWRtaW46OlYxYgZwcm90bzM",
+    "CiZmbGVldG5vZGVhZG1pbi92MS9mbGVldG5vZGVhZG1pbi5wcm90bxIRZmxlZXRub2RlYWRtaW4udjEiHQobQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0IlwKHENyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USDAoEY29kZRgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIXChVMaXN0RmxlZXROb2Rlc1JlcXVlc3QiUgoWTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRI4CgtmbGVldF9ub2RlcxgBIAMoCzIjLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZVN1bW1hcnkilgIKEEZsZWV0Tm9kZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIMCgRuYW1lGAIgASgJEkcKEWVucm9sbG1lbnRfc3RhdHVzGAMgASgOMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRW5yb2xsbWVudFN0YXR1cxIcChRpZGVudGl0eV9maW5nZXJwcmludBgEIAEoCRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI1CgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDwoNX2xhc3Rfc2Vlbl9hdCI5ChdDb25maXJtRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIm8KGENvbmZpcm1GbGVldE5vZGVSZXNwb25zZRIPCgdhcGlfa2V5GAEgASgJEjMKCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDQoLX2V4cGlyZXNfYXQiOAoWUmV2b2tlRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIhkKF1Jldm9rZUZsZWV0Tm9kZVJlc3BvbnNlIloKHFBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABIaCglkZXZpY2VfaWQYAiABKANCB7pIBCICIAAiHwodUGFpckRldmljZVRvRmxlZXROb2RlUmVzcG9uc2UiMQoTVW5wYWlyRGV2aWNlUmVxdWVzdBIaCglkZXZpY2VfaWQYASABKANCB7pIBCICIAAiFgoUVW5wYWlyRGV2aWNlUmVzcG9uc2UiPQobTGlzdEZsZWV0Tm9kZURldmljZXNSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICKAAiWAocTGlzdEZsZWV0Tm9kZURldmljZXNSZXNwb25zZRI4CgVwYWlycxgBIAMoCzIpLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZURldmljZVN1bW1hcnkizQEKFkZsZWV0Tm9kZURldmljZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIRCglkZXZpY2VfaWQYAiABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAyABKAkSEwoLZGV2aWNlX3R5cGUYBCABKAkSLwoLYXNzaWduZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2Fzc2lnbmVkX2J5GAYgASgDSACIAQFCDgoMX2Fzc2lnbmVkX2J5InIKGkRpc2NvdmVyT25GbGVldE5vZGVSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICIAASNAoHcmVxdWVzdBgCIAEoCzIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0Qga6SAPIAQEiTQobRGlzY292ZXJPbkZsZWV0Tm9kZVJlc3BvbnNlEi4KCHJlc3BvbnNlGAEgASgLMhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlIkcKJUxpc3RGbGVldE5vZGVEaXNjb3ZlcmVkRGV2aWNlc1JlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIoACJnCiZMaXN0RmxlZXROb2RlRGlzY292ZXJlZERldmljZXNSZXNwb25zZRI9CgdkZXZpY2VzGAEgAygLMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRGlzY292ZXJlZERldmljZSKeAgoZRmxlZXROb2RlRGlzY292ZXJlZERldmljZRIVCg1mbGVldF9ub2RlX2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEhIKCmlwX2FkZHJlc3MYAyABKAkSDAoEcG9ydBgEIAEoCRISCgp1cmxfc2NoZW1lGAUgASgJEhMKC2RyaXZlcl9uYW1lGAYgASgJEg0KBW1vZGVsGAcgASgJEhQKDG1hbnVmYWN0dXJlchgIIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAkgASgJEi0KCWxhc3Rfc2VlbhgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoOcGFpcmluZ19zdGF0dXMYCyABKAkiuQEKJ1BhaXJEaXNjb3ZlcmVkRGV2aWNlc09uRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAEiUKEmRldmljZV9pZGVudGlmaWVycxgCIAMoCUIJukgGkgEDEIAIEhkKEXBhaXJfYWxsX3VucGFpcmVkGAMgASgIEiwKC2NyZWRlbnRpYWxzGAQgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscyJjCihQYWlyRGlzY292ZXJlZERldmljZXNPbkZsZWV0Tm9kZVJlc3BvbnNlEjcKB3Jlc3VsdHMYASADKAsyJi5mbGVldG5vZGVhZG1pbi52MS5EZXZpY2VQYWlyaW5nUmVzdWx0IlcKE0RldmljZVBhaXJpbmdSZXN1bHQSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSFgoOcGFpcmluZ19zdGF0dXMYAiABKAkSDQoFZXJyb3IYAyABKAkqgQIKGUZsZWV0Tm9kZUVucm9sbG1lbnRTdGF0dXMSLAooRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19VTlNQRUNJRklFRBAAEigKJEZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfUEVORElORxABEjYKMkZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfQVdBSVRJTkdfQ09ORklSTUFUSU9OEAISKgomRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19DT05GSVJNRUQQAxIoCiRGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX1JFVk9LRUQQBDLUCQoVRmxlZXROb2RlQWRtaW5TZXJ2aWNlEncKFENyZWF0ZUVucm9sbG1lbnRDb2RlEi4uZmxlZXRub2RlYWRtaW4udjEuQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0Gi8uZmxlZXRub2RlYWRtaW4udjEuQ3JlYXRlRW5yb2xsbWVudENvZGVSZXNwb25zZRJlCg5MaXN0RmxlZXROb2RlcxIoLmZsZWV0bm9kZWFkbWluLnYxLkxpc3RGbGVldE5vZGVzUmVxdWVzdBopLmZsZWV0bm9kZWFkbWluLnYxLkxpc3RGbGVldE5vZGVzUmVzcG9uc2USawoQQ29uZmlybUZsZWV0Tm9kZRIqLmZsZWV0bm9kZWFkbWluLnYxLkNvbmZpcm1GbGVldE5vZGVSZXF1ZXN0GisuZmxlZXRub2RlYWRtaW4udjEuQ29uZmlybUZsZWV0Tm9kZVJlc3BvbnNlEmgKD1Jldm9rZUZsZWV0Tm9kZRIpLmZsZWV0bm9kZWFkbWluLnYxLlJldm9rZUZsZWV0Tm9kZVJlcXVlc3QaKi5mbGVldG5vZGVhZG1pbi52MS5SZXZva2VGbGVldE5vZGVSZXNwb25zZRJ6ChVQYWlyRGV2aWNlVG9GbGVldE5vZGUSLy5mbGVldG5vZGVhZG1pbi52MS5QYWlyRGV2aWNlVG9GbGVldE5vZGVSZXF1ZXN0GjAuZmxlZXRub2RlYWRtaW4udjEuUGFpckRldmljZVRvRmxlZXROb2RlUmVzcG9uc2USXwoMVW5wYWlyRGV2aWNlEiYuZmxlZXRub2RlYWRtaW4udjEuVW5wYWlyRGV2aWNlUmVxdWVzdBonLmZsZWV0bm9kZWFkbWluLnYxLlVucGFpckRldmljZVJlc3BvbnNlEncKFExpc3RGbGVldE5vZGVEZXZpY2VzEi4uZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZURldmljZXNSZXF1ZXN0Gi8uZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZURldmljZXNSZXNwb25zZRJ2ChNEaXNjb3Zlck9uRmxlZXROb2RlEi0uZmxlZXRub2RlYWRtaW4udjEuRGlzY292ZXJPbkZsZWV0Tm9kZVJlcXVlc3QaLi5mbGVldG5vZGVhZG1pbi52MS5EaXNjb3Zlck9uRmxlZXROb2RlUmVzcG9uc2UwARKVAQoeTGlzdEZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2VzEjguZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2VzUmVxdWVzdBo5LmZsZWV0bm9kZWFkbWluLnYxLkxpc3RGbGVldE5vZGVEaXNjb3ZlcmVkRGV2aWNlc1Jlc3BvbnNlEp0BCiBQYWlyRGlzY292ZXJlZERldmljZXNPbkZsZWV0Tm9kZRI6LmZsZWV0bm9kZWFkbWluLnYxLlBhaXJEaXNjb3ZlcmVkRGV2aWNlc09uRmxlZXROb2RlUmVxdWVzdBo7LmZsZWV0bm9kZWFkbWluLnYxLlBhaXJEaXNjb3ZlcmVkRGV2aWNlc09uRmxlZXROb2RlUmVzcG9uc2UwAULoAQoVY29tLmZsZWV0bm9kZWFkbWluLnYxQhNGbGVldG5vZGVhZG1pblByb3RvUAFaVWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0bm9kZWFkbWluL3YxO2ZsZWV0bm9kZWFkbWludjGiAgNGWFiqAhFGbGVldG5vZGVhZG1pbi5WMcoCEUZsZWV0bm9kZWFkbWluXFYx4gIdRmxlZXRub2RlYWRtaW5cVjFcR1BCTWV0YWRhdGHqAhJGbGVldG5vZGVhZG1pbjo6VjFiBnByb3RvMw",
     [file_buf_validate_validate, file_google_protobuf_timestamp, file_pairing_v1_pairing],
   );
 
@@ -401,6 +401,210 @@ export const DiscoverOnFleetNodeResponseSchema: GenMessage<DiscoverOnFleetNodeRe
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 17);
 
 /**
+ * @generated from message fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesRequest
+ */
+export type ListFleetNodeDiscoveredDevicesRequest =
+  Message<"fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesRequest"> & {
+    /**
+     * 0 = all fleet nodes in org; > 0 restricts to that fleet node.
+     *
+     * @generated from field: int64 fleet_node_id = 1;
+     */
+    fleetNodeId: bigint;
+  };
+
+/**
+ * Describes the message fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesRequest.
+ * Use `create(ListFleetNodeDiscoveredDevicesRequestSchema)` to create a new message.
+ */
+export const ListFleetNodeDiscoveredDevicesRequestSchema: GenMessage<ListFleetNodeDiscoveredDevicesRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 18);
+
+/**
+ * @generated from message fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse
+ */
+export type ListFleetNodeDiscoveredDevicesResponse =
+  Message<"fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse"> & {
+    /**
+     * @generated from field: repeated fleetnodeadmin.v1.FleetNodeDiscoveredDevice devices = 1;
+     */
+    devices: FleetNodeDiscoveredDevice[];
+  };
+
+/**
+ * Describes the message fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse.
+ * Use `create(ListFleetNodeDiscoveredDevicesResponseSchema)` to create a new message.
+ */
+export const ListFleetNodeDiscoveredDevicesResponseSchema: GenMessage<ListFleetNodeDiscoveredDevicesResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 19);
+
+/**
+ * FleetNodeDiscoveredDevice is a device a fleet node discovered that is not yet
+ * paired to it (or is AUTHENTICATION_NEEDED awaiting credentials).
+ *
+ * @generated from message fleetnodeadmin.v1.FleetNodeDiscoveredDevice
+ */
+export type FleetNodeDiscoveredDevice = Message<"fleetnodeadmin.v1.FleetNodeDiscoveredDevice"> & {
+  /**
+   * @generated from field: int64 fleet_node_id = 1;
+   */
+  fleetNodeId: bigint;
+
+  /**
+   * @generated from field: string device_identifier = 2;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string ip_address = 3;
+   */
+  ipAddress: string;
+
+  /**
+   * @generated from field: string port = 4;
+   */
+  port: string;
+
+  /**
+   * @generated from field: string url_scheme = 5;
+   */
+  urlScheme: string;
+
+  /**
+   * @generated from field: string driver_name = 6;
+   */
+  driverName: string;
+
+  /**
+   * @generated from field: string model = 7;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string manufacturer = 8;
+   */
+  manufacturer: string;
+
+  /**
+   * @generated from field: string firmware_version = 9;
+   */
+  firmwareVersion: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp last_seen = 10;
+   */
+  lastSeen?: Timestamp | undefined;
+
+  /**
+   * Empty when never attempted; "AUTHENTICATION_NEEDED" after a pair attempt
+   * that needs credentials.
+   *
+   * @generated from field: string pairing_status = 11;
+   */
+  pairingStatus: string;
+};
+
+/**
+ * Describes the message fleetnodeadmin.v1.FleetNodeDiscoveredDevice.
+ * Use `create(FleetNodeDiscoveredDeviceSchema)` to create a new message.
+ */
+export const FleetNodeDiscoveredDeviceSchema: GenMessage<FleetNodeDiscoveredDevice> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 20);
+
+/**
+ * @generated from message fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest
+ */
+export type PairDiscoveredDevicesOnFleetNodeRequest =
+  Message<"fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest"> & {
+    /**
+     * @generated from field: int64 fleet_node_id = 1;
+     */
+    fleetNodeId: bigint;
+
+    /**
+     * Explicit selection by discovered device_identifier. Ignored when
+     * pair_all_unpaired is true.
+     *
+     * @generated from field: repeated string device_identifiers = 2;
+     */
+    deviceIdentifiers: string[];
+
+    /**
+     * Pair every not-yet-paired device discovered on this node.
+     *
+     * @generated from field: bool pair_all_unpaired = 3;
+     */
+    pairAllUnpaired: boolean;
+
+    /**
+     * Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+     *
+     * @generated from field: pairing.v1.Credentials credentials = 4;
+     */
+    credentials?: Credentials | undefined;
+  };
+
+/**
+ * Describes the message fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest.
+ * Use `create(PairDiscoveredDevicesOnFleetNodeRequestSchema)` to create a new message.
+ */
+export const PairDiscoveredDevicesOnFleetNodeRequestSchema: GenMessage<PairDiscoveredDevicesOnFleetNodeRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 21);
+
+/**
+ * @generated from message fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse
+ */
+export type PairDiscoveredDevicesOnFleetNodeResponse =
+  Message<"fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse"> & {
+    /**
+     * @generated from field: repeated fleetnodeadmin.v1.DevicePairingResult results = 1;
+     */
+    results: DevicePairingResult[];
+  };
+
+/**
+ * Describes the message fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse.
+ * Use `create(PairDiscoveredDevicesOnFleetNodeResponseSchema)` to create a new message.
+ */
+export const PairDiscoveredDevicesOnFleetNodeResponseSchema: GenMessage<PairDiscoveredDevicesOnFleetNodeResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 22);
+
+/**
+ * @generated from message fleetnodeadmin.v1.DevicePairingResult
+ */
+export type DevicePairingResult = Message<"fleetnodeadmin.v1.DevicePairingResult"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * PAIRED | AUTHENTICATION_NEEDED | FAILED
+   *
+   * @generated from field: string pairing_status = 2;
+   */
+  pairingStatus: string;
+
+  /**
+   * @generated from field: string error = 3;
+   */
+  error: string;
+};
+
+/**
+ * Describes the message fleetnodeadmin.v1.DevicePairingResult.
+ * Use `create(DevicePairingResultSchema)` to create a new message.
+ */
+export const DevicePairingResultSchema: GenMessage<DevicePairingResult> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 23);
+
+/**
  * @generated from enum fleetnodeadmin.v1.FleetNodeEnrollmentStatus
  */
 export enum FleetNodeEnrollmentStatus {
@@ -504,5 +708,21 @@ export const FleetNodeAdminService: GenService<{
     methodKind: "server_streaming";
     input: typeof DiscoverOnFleetNodeRequestSchema;
     output: typeof DiscoverOnFleetNodeResponseSchema;
+  };
+  /**
+   * @generated from rpc fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDiscoveredDevices
+   */
+  listFleetNodeDiscoveredDevices: {
+    methodKind: "unary";
+    input: typeof ListFleetNodeDiscoveredDevicesRequestSchema;
+    output: typeof ListFleetNodeDiscoveredDevicesResponseSchema;
+  };
+  /**
+   * @generated from rpc fleetnodeadmin.v1.FleetNodeAdminService.PairDiscoveredDevicesOnFleetNode
+   */
+  pairDiscoveredDevicesOnFleetNode: {
+    methodKind: "server_streaming";
+    input: typeof PairDiscoveredDevicesOnFleetNodeRequestSchema;
+    output: typeof PairDiscoveredDevicesOnFleetNodeResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 0);
