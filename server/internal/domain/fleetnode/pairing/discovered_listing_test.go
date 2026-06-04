@@ -61,11 +61,10 @@ func discoveredIdentifiers(devices []fleetnodepairing.FleetNodeDiscoveredDevice)
 	return out
 }
 
-// Under the new model a node-paired device is also device_pairing=PAIRED (so it
-// reads as paired in the UI), but the node dials it. The cloud-dial guard and the
-// discovery promotion guard must treat such a device as node-dialed, not
-// cloud-dialed: it is not "active cloud pairing" and its own node can still
-// refresh it, while a genuinely cloud-PAIRED device stays protected.
+// A node-paired device is also device_pairing=PAIRED but the node dials it, so the
+// cloud-dial guard and the discovery promotion guard must treat it as node-dialed:
+// not "active cloud pairing", and its own node can still refresh it, while a
+// genuinely cloud-PAIRED device stays protected.
 func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
@@ -76,7 +75,7 @@ func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:guard-bound")
 	boundDev := deviceForDiscovered(t, db, orgID, "mac:guard-bound")
 	require.NoError(t, pairing.PairDevice(ctx, node, boundDev, orgID, nil))
-	setPairingStatus(t, db, boundDev, "PAIRED") // PR4 marks node-paired devices PAIRED
+	setPairingStatus(t, db, boundDev, "PAIRED") // node-paired devices are PAIRED
 
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:guard-cloud")
 	cloudDev := deviceForDiscovered(t, db, orgID, "mac:guard-cloud")

@@ -737,10 +737,9 @@ func (x *PairResponse) GetFailedDeviceIds() []string {
 	return nil
 }
 
-// AgentCommand is the node-facing command envelope. It is marshaled into
+// AgentCommand is the node-facing command envelope, marshaled into
 // fleetnodegateway.v1.ControlCommand.payload; the node unmarshals it and
-// switches on the populated arm. The fleet-node command-routing work adds a
-// miner_command arm here.
+// switches on the populated arm.
 type AgentCommand struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Command:

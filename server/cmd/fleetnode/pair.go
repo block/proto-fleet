@@ -77,7 +77,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		return p.attempt(ctx, plugin, deviceInfo, bundle, res)
 	}
 
-	// No credentials supplied: try plugin-provided defaults, if any.
+	// No credentials supplied: try plugin-provided defaults.
 	if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
 		defaults := provider.GetDefaultCredentials(ctx, target.GetManufacturer(), target.GetFirmwareVersion())
 		for _, c := range defaults {
