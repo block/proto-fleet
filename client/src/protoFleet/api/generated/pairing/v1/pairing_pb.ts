@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiOwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACIlAKEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSGAoFcG9ydHMYAyADKAlCCbpIBpIBAxCAAiJOChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSJ1CgtQYWlyUmVxdWVzdBIsCgtjcmVkZW50aWFscxgBIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMSOAoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIikKDFBhaXJSZXNwb25zZRIZChFmYWlsZWRfZGV2aWNlX2lkcxgBIAMoCTKUAQoOUGFpcmluZ1NlcnZpY2USRwoIRGlzY292ZXISGy5wYWlyaW5nLnYxLkRpc2NvdmVyUmVxdWVzdBocLnBhaXJpbmcudjEuRGlzY292ZXJSZXNwb25zZTABEjkKBFBhaXISFy5wYWlyaW5nLnYxLlBhaXJSZXF1ZXN0GhgucGFpcmluZy52MS5QYWlyUmVzcG9uc2VCsAEKDmNvbS5wYWlyaW5nLnYxQgxQYWlyaW5nUHJvdG9QAVpHZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcGFpcmluZy92MTtwYWlyaW5ndjGiAgNQWFiqAgpQYWlyaW5nLlYxygIKUGFpcmluZ1xWMeICFlBhaXJpbmdcVjFcR1BCTWV0YWRhdGHqAgtQYWlyaW5nOjpWMWIGcHJvdG8z",
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiOwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACIlAKEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSGAoFcG9ydHMYAyADKAlCCbpIBpIBAxCAAiJOChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSJRCgxBZ2VudENvbW1hbmQSLwoIZGlzY292ZXIYASABKAsyGy5wYWlyaW5nLnYxLkRpc2NvdmVyUmVxdWVzdEgAQhAKB2NvbW1hbmQSBbpIAggBInUKC1BhaXJSZXF1ZXN0EiwKC2NyZWRlbnRpYWxzGAEgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscxI4Cg9kZXZpY2Vfc2VsZWN0b3IYAiABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3IiKQoMUGFpclJlc3BvbnNlEhkKEWZhaWxlZF9kZXZpY2VfaWRzGAEgAygJMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUKwAQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_capabilities_v1_capabilities, file_minercommand_v1_command],
   );
 
@@ -359,6 +359,40 @@ export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
   messageDesc(file_pairing_v1_pairing, 7);
 
 /**
+ * AgentCommand is the typed envelope marshaled into the ControlStream's
+ * ControlCommand.payload. It lets a fleet node tell what kind of work a command
+ * carries instead of assuming the payload is a bare DiscoverRequest. command_id
+ * stays on the transport-level ControlCommand/ControlAck and is not duplicated here.
+ *
+ * Field numbers are shared across efforts so the discovery payload is migrated
+ * into this envelope exactly once and later arms are purely additive:
+ *   2 = MinerCommand miner_command   (per-miner command path)
+ *   3 = FleetNodePairRequest pair    (fleet-node pairing path)
+ *
+ * @generated from message pairing.v1.AgentCommand
+ */
+export type AgentCommand = Message<"pairing.v1.AgentCommand"> & {
+  /**
+   * @generated from oneof pairing.v1.AgentCommand.command
+   */
+  command:
+    | {
+        /**
+         * @generated from field: pairing.v1.DiscoverRequest discover = 1;
+         */
+        value: DiscoverRequest;
+        case: "discover";
+      }
+    | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message pairing.v1.AgentCommand.
+ * Use `create(AgentCommandSchema)` to create a new message.
+ */
+export const AgentCommandSchema: GenMessage<AgentCommand> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
+
+/**
  * Request to pair with discovered devices
  *
  * @generated from message pairing.v1.PairRequest
@@ -383,7 +417,7 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
  * Describes the message pairing.v1.PairRequest.
  * Use `create(PairRequestSchema)` to create a new message.
  */
-export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
+export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
 
 /**
  * Response to pairing request
@@ -402,7 +436,7 @@ export type PairResponse = Message<"pairing.v1.PairResponse"> & {
  * Describes the message pairing.v1.PairResponse.
  * Use `create(PairResponseSchema)` to create a new message.
  */
-export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
+export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 10);
 
 /**
  * Service for discovering and pairing with network devices

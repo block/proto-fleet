@@ -201,7 +201,11 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 	}
 
 	commandID := id.GenerateID()
-	payload, err := proto.Marshal(normalized)
+	// Discovery rides the shared AgentCommand envelope so the node can tell
+	// command kinds apart from the single ControlCommand.payload byte field.
+	payload, err := proto.Marshal(&pairingpb.AgentCommand{
+		Command: &pairingpb.AgentCommand_Discover{Discover: normalized},
+	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}

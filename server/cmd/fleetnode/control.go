@@ -43,6 +43,10 @@ const (
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
 	// Mirrors the proto cap so a verbose error doesn't fail buf-validate on the ack itself.
 	maxAckErrorMessageBytes = 4096
+	// commandPoolSize bounds commands handled concurrently per session. A long
+	// discovery occupies one slot while quick per-miner commands use the rest;
+	// commands past the ceiling are acked BUSY.
+	commandPoolSize = 16
 )
 
 // var, not const, so tests can drive the deadline-during-scan path.
@@ -170,15 +174,15 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
 
-	// Capacity 2 (1 in flight + 1 queued) absorbs the receive-vs-drain
-	// race; a 3rd outstanding command hits the busy-ack path.
-	cmdCh := make(chan *pb.ControlCommand, 2)
-	workerDone := make(chan struct{})
-	go r.commandWorker(sessionCtx, client, sender, cmdCh, workerDone, logger)
+	// Bounded worker pool: commands run concurrently so a long discovery (up to
+	// commandTimeout) doesn't head-of-line-block quick per-miner commands, and many
+	// commands to this node run in parallel. The semaphore ceiling is the only
+	// backpressure point; a command that can't get a slot is acked BUSY.
+	sem := make(chan struct{}, commandPoolSize)
+	var wg sync.WaitGroup
 	defer func() {
-		cancelSession()
-		close(cmdCh)
-		<-workerDone
+		cancelSession() // cancel every in-flight handler's ctx
+		wg.Wait()       // drain: handlers ack or abort fast on the cancelled ctx
 	}()
 
 	for {
@@ -197,21 +201,20 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if cmd == nil {
 			continue
 		}
-		// Non-blocking: parking here would hide stream drops until the
-		// in-flight scan finishes (up to commandTimeout). Ack-busy instead.
+		// Non-blocking acquire: parking here would hide stream drops behind the
+		// in-flight work. At the pool ceiling, ack BUSY instead of queueing.
 		select {
-		case cmdCh <- cmd:
+		case sem <- struct{}{}:
+			wg.Add(1)
+			go func(c *pb.ControlCommand) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				r.handleCommand(sessionCtx, client, sender, c, logger)
+			}(cmd)
 		default:
-			logger.Warn("agent busy; dropping pipelined command", "command_id", cmd.GetCommandId())
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent already has a command in flight; retry after the prior ack", logger)
+			logger.Warn("agent at command-pool ceiling; rejecting", "command_id", cmd.GetCommandId())
+			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at command concurrency limit; retry shortly", logger)
 		}
-	}
-}
-
-func (r *RunCmd) commandWorker(ctx context.Context, client gatewayClient, stream acker, cmdCh <-chan *pb.ControlCommand, done chan<- struct{}, logger *slog.Logger) {
-	defer close(done)
-	for cmd := range cmdCh {
-		r.handleCommand(ctx, client, stream, cmd, logger)
 	}
 }
 
@@ -229,16 +232,26 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	}
 	logger.Info("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
 
-	var req pairingpb.DiscoverRequest
-	if err := proto.Unmarshal(cmd.GetPayload(), &req); err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("decode payload: %v", err), logger)
+	var env pairingpb.AgentCommand
+	if err := proto.Unmarshal(cmd.GetPayload(), &env); err != nil {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("decode AgentCommand: %v", err), logger)
 		return
 	}
+	switch k := env.GetCommand().(type) {
+	case *pairingpb.AgentCommand_Discover:
+		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
+	default:
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
+	}
+}
 
+// handleDiscover scans the local network for the requested targets, streams the
+// discovered devices back via ReportDiscoveredDevices, and acks OK/PARTIAL/failure.
+func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, stream acker, commandID string, req *pairingpb.DiscoverRequest, logger *slog.Logger) {
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	reports, truncated, err := r.discoverForCommand(cmdCtx, &req, logger)
+	reports, truncated, err := r.discoverForCommand(cmdCtx, req, logger)
 	if err != nil {
 		code := pb.AckCode_ACK_CODE_INTERNAL
 		var ce *commandError
