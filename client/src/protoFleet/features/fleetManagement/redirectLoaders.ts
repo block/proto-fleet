@@ -11,3 +11,4 @@ const buildRedirect = (target: string): LoaderFunction => {
 
 export const minersRedirectLoader = buildRedirect("/fleet/miners");
 export const racksRedirectLoader = buildRedirect("/fleet/racks");
+export const sitesRedirectLoader = buildRedirect("/fleet/sites");

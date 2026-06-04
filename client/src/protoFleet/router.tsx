@@ -40,7 +40,11 @@ import {
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
-import { minersRedirectLoader, racksRedirectLoader } from "@/protoFleet/features/fleetManagement/redirectLoaders";
+import {
+  minersRedirectLoader,
+  racksRedirectLoader,
+  sitesRedirectLoader,
+} from "@/protoFleet/features/fleetManagement/redirectLoaders";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -175,7 +179,10 @@ const router = createBrowserRouter([
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
-  createRoute("/sites", <SitesPage />),
+  // /sites is replaced by the Sites tab on /fleet. Under the flag it
+  // redirects so legacy bookmarks degrade cleanly; flag-off keeps the
+  // standalone SitesPage mounted until that page is deleted.
+  MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 
@@ -244,12 +251,17 @@ const router = createBrowserRouter([
       <ServerLogsPage />
     </SettingsLayout>,
   ),
-  createRoute(
-    "/settings/sites",
-    <SettingsLayout>
-      <SettingsSitesPage />
-    </SettingsLayout>,
-  ),
+  // /settings/sites is replaced by the Sites tab on /fleet plus the
+  // /sites/:id detail page. Redirect under the flag; keep the legacy
+  // SettingsLayout-mount when the flag is off until the page is deleted.
+  MULTI_SITE_ENABLED
+    ? { path: "/settings/sites", loader: sitesRedirectLoader }
+    : createRoute(
+        "/settings/sites",
+        <SettingsLayout>
+          <SettingsSitesPage />
+        </SettingsLayout>,
+      ),
 
   // Auth routes (fullscreen)
   createRoute("/auth", <Auth />, { fullscreen: true, loader: authLoader }),
