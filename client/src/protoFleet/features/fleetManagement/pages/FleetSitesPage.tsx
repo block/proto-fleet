@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { useFleetOutletContext } from "../components/FleetLayout";
-import SitesListTable from "../components/SitesListTable";
+import SiteList from "../components/SiteList";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
@@ -66,7 +66,7 @@ const FleetSitesPage = () => {
             testId="fleet-sites-add"
           />
         </div>
-        <SitesListTable sites={sites} />
+        <SiteList sites={sites} />
       </>
     );
 

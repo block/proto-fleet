@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import BuildingsListTable from "../components/BuildingsListTable";
+import BuildingList from "../components/BuildingList";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -142,7 +142,7 @@ const FleetBuildingsPage = () => {
           />
         </div>
       ) : null}
-      <BuildingsListTable buildings={visibleBuildings} sites={sites} />
+      <BuildingList buildings={visibleBuildings} sites={sites} />
     </div>
   );
 };

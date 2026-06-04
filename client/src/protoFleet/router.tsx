@@ -39,7 +39,7 @@ import {
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
-import { minersRedirectLoader, racksRedirectLoader } from "@/protoFleet/features/fleet/redirectLoaders";
+import { minersRedirectLoader, racksRedirectLoader } from "@/protoFleet/features/fleetManagement/redirectLoaders";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
