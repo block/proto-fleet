@@ -340,8 +340,8 @@ message PreviewCurtailmentPlanRequest {
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
-        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw)"
-        expression: "this.mode == 1 && has(this.fixed_kw)"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
@@ -357,8 +357,8 @@ message PreviewCurtailmentPlanRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        // v1 supports FIXED_KW.
-        in: [1]
+        // v1 supports FIXED_KW and FULL_FLEET.
+        in: [1, 8]
     }];
     // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
@@ -427,8 +427,8 @@ message StartCurtailmentRequest {
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
-        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw)"
-        expression: "this.mode == 1 && has(this.fixed_kw)"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
@@ -444,7 +444,7 @@ message StartCurtailmentRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        in: [1]
+        in: [1, 8]
     }];
     // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {

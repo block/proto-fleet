@@ -23,6 +23,10 @@ import (
 // require fixed_kw params; FULL_FLEET takes none.
 func toRequestMode(m pb.CurtailmentMode, fixedKw *pb.FixedKwParams) (models.Mode, *pb.FixedKwParams, error) {
 	if m == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
+		if fixedKw != nil {
+			return "", nil, fleeterror.NewInvalidArgumentError(
+				"fixed_kw mode params are not valid for FULL_FLEET")
+		}
 		return models.ModeFullFleet, nil, nil
 	}
 	if m != pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW &&

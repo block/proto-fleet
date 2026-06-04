@@ -19,6 +19,17 @@ func TestToRequestMode_FullFleetTakesNoParams(t *testing.T) {
 	assert.Nil(t, fk, "full_fleet takes no fixed_kw params")
 }
 
+// FULL_FLEET must reject fixed_kw params rather than silently dropping them.
+func TestToRequestMode_FullFleetRejectsParams(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := toRequestMode(
+		pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		&pb.FixedKwParams{TargetKw: 100},
+	)
+	require.Error(t, err, "FULL_FLEET with fixed_kw params is a client bug, not a silent drop")
+}
+
 func TestToRequestMode_FixedKwRequiresParams(t *testing.T) {
 	t.Parallel()
 

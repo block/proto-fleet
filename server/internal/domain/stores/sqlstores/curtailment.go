@@ -104,9 +104,12 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	if len(targets) == 0 {
+	// A terminal event (a vacuously-COMPLETED FULL_FLEET start with nothing
+	// eligible) legitimately has no targets; a non-terminal event with none is
+	// a caller bug.
+	if len(targets) == 0 && !event.State.IsTerminal() {
 		return nil, fleeterror.NewInvalidArgumentError(
-			"InsertEventWithTargets requires a non-empty targets slice",
+			"InsertEventWithTargets requires a non-empty targets slice for a non-terminal event",
 		)
 	}
 	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
