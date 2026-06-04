@@ -65,6 +65,11 @@ const FleetLayout = () => {
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
+  // Flips true on the first successful response. Stays true through any
+  // later failure so tab consumers can tell "we have last-good data,
+  // refresh just failed" from "we've never seen data" — the two states
+  // need different UX (empty-state vs full-page error) when sites is [].
+  const [sitesLoaded, setSitesLoaded] = useState(false);
 
   // Poll listSites on the same cadence as the legacy /sites overview so site
   // renames / deletes / count changes from another session surface here
@@ -76,6 +81,7 @@ const FleetLayout = () => {
         onSuccess: (rows) => {
           setSites(rows);
           setSitesError(null);
+          setSitesLoaded(true);
         },
         onError: (msg) => {
           setSitesError(msg);
@@ -196,8 +202,8 @@ const FleetLayout = () => {
   });
 
   const outletContext: FleetOutletContext = useMemo(
-    () => ({ sites, sitesError, refetchSites: fetchSites }),
-    [sites, sitesError, fetchSites],
+    () => ({ sites, sitesError, sitesLoaded, refetchSites: fetchSites }),
+    [sites, sitesError, sitesLoaded, fetchSites],
   );
 
   // Chrome bands (heading + tab strip) stay pinned during any residual
