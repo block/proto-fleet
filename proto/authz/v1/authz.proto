@@ -17,6 +17,12 @@ import "google/protobuf/timestamp.proto";
 // effective set. Privilege parity (caller can only grant keys they
 // themselves hold at org scope) bounds escalation; the session gate
 // bounds persistence.
+//
+// ListRoles is the one exception: it is callable by role:manage OR
+// user:manage, because the AddTeamMember flow needs the assignable-role
+// list and the built-in ADMIN role intentionally lacks role:manage. All
+// mutation RPCs (CreateCustomRole / UpdateCustomRole / DeleteCustomRole
+// / AssignRole / UnassignRole) remain role:manage-only.
 service AuthzService {
     // ListPermissions returns the full catalog as a flat list. The client
     // groups by resource for display; see the resource field on Permission.

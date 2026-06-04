@@ -367,6 +367,12 @@ func (f *fakeStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
+	// Mirror the SQL store: only a terminal event may have zero targets.
+	if len(targets) == 0 && !event.State.IsTerminal() {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"InsertEventWithTargets requires a non-empty targets slice for a non-terminal event",
+		)
+	}
 	f.insertEventCalls++
 	f.lastInsertEvent = event
 	f.lastInsertTargets = append([]models.InsertTargetParams(nil), targets...)

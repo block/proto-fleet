@@ -11,6 +11,11 @@ import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateUserProps {
   username: CreateUserRequest["username"];
+  // roleId is the role to assign on creation. Optional — when omitted the
+  // server applies the org's default role (currently ADMIN). When set, the
+  // server validates that the role belongs to the caller's org and is not
+  // SUPER_ADMIN before assigning.
+  roleId?: CreateUserRequest["roleId"];
   onSuccess?: (userId: string, username: string, tempPassword: string) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -49,9 +54,9 @@ const useUserManagement = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createUser = useCallback(
-    async ({ username, onSuccess, onError, onFinally }: CreateUserProps) => {
+    async ({ username, roleId, onSuccess, onError, onFinally }: CreateUserProps) => {
       await authClient
-        .createUser({ username })
+        .createUser({ username, roleId })
         .then((response) => {
           onSuccess?.(response.userId, response.username, response.temporaryPassword);
         })

@@ -85,7 +85,10 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
 
     await test.step("Validate member appears in list with correct role and login status", async () => {
-      await settingsTeamPage.validateMemberRole(username, "Admin");
+      // The Add team member modal defaults to FIELD_TECH (least privileged
+      // built-in). The server no longer accepts an empty role_id, so the
+      // default-picked role is what lands.
+      await settingsTeamPage.validateMemberRole(username, "Field Tech");
       await settingsTeamPage.validateMemberLastLogin(username, "Never");
     });
   });

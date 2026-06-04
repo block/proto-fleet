@@ -601,6 +601,12 @@ export const ScopeTypeSchema: GenEnum<ScopeType> = /*@__PURE__*/ enumDesc(file_a
  * themselves hold at org scope) bounds escalation; the session gate
  * bounds persistence.
  *
+ * ListRoles is the one exception: it is callable by role:manage OR
+ * user:manage, because the AddTeamMember flow needs the assignable-role
+ * list and the built-in ADMIN role intentionally lacks role:manage. All
+ * mutation RPCs (CreateCustomRole / UpdateCustomRole / DeleteCustomRole
+ * / AssignRole / UnassignRole) remain role:manage-only.
+ *
  * @generated from service authz.v1.AuthzService
  */
 export const AuthzService: GenService<{

@@ -20,11 +20,66 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 )
+
+// errNoLocalSubnet means the host has no usable IPv4 subnet to scan for a
+// LocalSubnetTarget command. Surfaces as AGENT_INCAPABLE so a fan-out skips this
+// node and tries the others.
+var errNoLocalSubnet = errors.New("no local IPv4 subnet found")
+
+// detectLocalSubnets returns the subnet(s) the agent scans for a local-subnet
+// nmap command (the nmaptarget.LocalSubnetTarget sentinel).
+//
+// It reuses the same primary-interface detection the cloud Discover path uses
+// (networking.GetLocalNetworkInfo). That is intentionally less robust than
+// per-NIC private filtering — it picks one interface, doesn't skip
+// virtual/container NICs, and returns the raw OS mask. The caller
+// (buildNmapOptions) rejects non-private or over-broad results before scanning
+// (see validateLocalSubnetTarget). The localSubnets seam lets tests inject
+// canned CIDRs.
+func (r *RunCmd) detectLocalSubnets() ([]string, error) {
+	if r.localSubnets != nil {
+		return r.localSubnets()
+	}
+	info, err := networking.GetLocalNetworkInfo()
+	if err != nil {
+		return nil, fmt.Errorf("get local network info: %w", err)
+	}
+	if info.Subnet == "" {
+		return nil, errNoLocalSubnet
+	}
+	return []string{info.Subnet}, nil
+}
 
 // validateNmapTarget enforces the shared nmap target grammar (see nmaptarget).
 func validateNmapTarget(s string) error {
 	return nmaptarget.Validate(s)
+}
+
+// validateLocalSubnetTarget guards the local-subnet sentinel: a detected subnet
+// must be a private (RFC1918) IPv4 prefix no broader than the shared scan-size
+// cap before it is scanned. Primary-interface detection doesn't filter for
+// RFC1918 and returns the raw OS interface mask, so a public NIC or an
+// over-broad prefix (e.g. 10.0.0.0/16) would otherwise reach nmap. The breadth
+// limit mirrors nmaptarget.Validate so the fan-out can't sweep more hosts per
+// node than an operator-supplied target is allowed to.
+func validateLocalSubnetTarget(s string) error {
+	prefix, err := netip.ParsePrefix(s)
+	if err != nil {
+		return fmt.Errorf("not a CIDR: %w", err)
+	}
+	addr := prefix.Addr()
+	if !addr.Is4() {
+		return errors.New("not IPv4")
+	}
+	if !addr.IsPrivate() {
+		return errors.New("not in an RFC1918 private range")
+	}
+	if prefix.Bits() < nmaptarget.MinIPv4PrefixBits {
+		return fmt.Errorf("prefix /%d is broader than the supported maximum /%d", prefix.Bits(), nmaptarget.MinIPv4PrefixBits)
+	}
+	return nil
 }
 
 const (
@@ -107,6 +162,29 @@ func validateNmapBinary(path string) (string, error) {
 
 func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRequest, ports []string) ([]nmap.Option, error) {
 	target := strings.TrimSpace(req.GetTarget())
+
+	// The LocalSubnetTarget sentinel means the server couldn't know the node's
+	// network, so the agent enumerates its own private IPv4 subnet(s) and scans
+	// those (IPv4 only, same as the manual path's IPv6-CIDR rejection). Matched
+	// exactly, before any hostname resolution.
+	if target == nmaptarget.LocalSubnetTarget {
+		subnets, err := r.detectLocalSubnets()
+		if err != nil {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no connected private IPv4 subnet for local-subnet scan: %s", err)
+		}
+		// detectLocalSubnets reuses primary-interface detection that doesn't
+		// filter for RFC1918 or cap breadth, so a public NIC or an over-broad
+		// prefix would otherwise be scanned. Refuse such targets here so an
+		// automatic "Scan your network" can never probe a public network or sweep
+		// more hosts than an operator-supplied target may.
+		for _, s := range subnets {
+			if err := validateLocalSubnetTarget(s); err != nil {
+				return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q is not scannable: %s", s, err)
+			}
+		}
+		return append(baseNmapOptions(r.nmapPath, ports), nmap.WithTargets(subnets...)), nil
+	}
+
 	if err := validateNmapTarget(target); err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}
@@ -114,9 +192,18 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}
-	opts := []nmap.Option{
-		nmap.WithBinaryPath(r.nmapPath),
-		nmap.WithTargets(resolved),
+	opts := append(baseNmapOptions(r.nmapPath, ports), nmap.WithTargets(resolved))
+	if useIPv6 {
+		opts = append(opts, nmap.WithIPv6Scanning())
+	}
+	return opts, nil
+}
+
+// baseNmapOptions are the timing/safety options shared by targeted and
+// local-subnet scans; callers append the target(s) (and -6 if needed).
+func baseNmapOptions(binaryPath string, ports []string) []nmap.Option {
+	return []nmap.Option{
+		nmap.WithBinaryPath(binaryPath),
 		nmap.WithPorts(strings.Join(ports, ",")),
 		nmap.WithUnique(),
 		nmap.WithDisabledDNSResolution(),
@@ -125,10 +212,6 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 		nmap.WithHostTimeout(nmapHostTimeout),
 		nmap.WithMinRTTTimeout(nmapMinRTT),
 	}
-	if useIPv6 {
-		opts = append(opts, nmap.WithIPv6Scanning())
-	}
-	return opts, nil
 }
 
 // Mirrors pairing-service validateNmapTargets so agent and server feed

@@ -5,6 +5,7 @@ export const formatRole = (role: string): string => {
   const roleMap: Record<string, string> = {
     SUPER_ADMIN: "Owner",
     ADMIN: "Admin",
+    FIELD_TECH: "Field Tech",
   };
 
   return roleMap[role] || role;

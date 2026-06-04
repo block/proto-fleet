@@ -442,7 +442,10 @@ type stubDiscoverer struct {
 
 func (s *stubDiscoverer) Probe(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
 	if r, ok := s.probes[ip+"|"+port]; ok {
-		return r, nil
+		// Clone: fanOutProbes stamps ip/port onto the returned report, so handing
+		// out a shared pointer would race when commands run concurrently.
+		cloned, _ := proto.Clone(r).(*pb.DiscoveredDeviceReport)
+		return cloned, nil
 	}
 	return nil, nil
 }

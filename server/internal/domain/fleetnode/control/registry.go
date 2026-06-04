@@ -122,6 +122,19 @@ func NewRegistry() *Registry {
 	return &Registry{conns: make(map[int64]*connection)}
 }
 
+// ConnectedFleetNodeIDs returns the fleet_node IDs with an active ControlStream
+// right now. Used by fan-out discovery to target only nodes the server can reach;
+// callers intersect this with the org's CONFIRMED nodes. Order is unspecified.
+func (r *Registry) ConnectedFleetNodeIDs() []int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]int64, 0, len(r.conns))
+	for id := range r.conns {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // teardown closes connection.done and every in-flight command's done. Caller holds
 // Registry.mu and must then remove/replace the conn so teardown can't run twice.
 func teardown(conn *connection) {

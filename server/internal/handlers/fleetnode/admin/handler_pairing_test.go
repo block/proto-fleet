@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -57,8 +58,9 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
 
 	registry := control.NewRegistry()
+	discoverySvc := discovery.NewService(registry, enrollmentSvc)
 	return &pairingHarness{
-		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, registry),
+		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,

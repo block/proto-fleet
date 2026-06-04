@@ -58,12 +58,18 @@ var ProcedurePermissions = map[string]string{
 	apikeyv1connect.ApiKeyServiceListApiKeysProcedure:  authz.PermAPIKeyManage,
 	apikeyv1connect.ApiKeyServiceRevokeApiKeyProcedure: authz.PermAPIKeyManage,
 
-	// AuthzService — role management. Every implemented RPC is gated
-	// by role:manage. ListPermissions returns the catalog (no PII / no
-	// org data) but is gated all the same because the catalog picker
-	// is only useful inside the role editor, which itself requires
-	// role:manage; widening this surface adds no UX and gives away
-	// less than zero.
+	// AuthzService — role management. Mutations gate on role:manage.
+	// ListPermissions returns the catalog (no PII / no org data) but is
+	// gated all the same because the catalog picker is only useful inside
+	// the role editor, which itself requires role:manage; widening this
+	// surface adds no UX and gives away less than zero.
+	//
+	// ListRoles is the exception: its handler calls
+	// middleware.RequireAnyPermission with [role:manage, user:manage] so
+	// the AddTeamMember modal works for the built-in ADMIN role (which
+	// holds user:manage but intentionally lacks role:manage). The map
+	// value below records the primary gate for classification; the
+	// secondary alternate is enforced in the handler.
 	authzv1connect.AuthzServiceListPermissionsProcedure:  authz.PermRoleManage,
 	authzv1connect.AuthzServiceListRolesProcedure:        authz.PermRoleManage,
 	authzv1connect.AuthzServiceCreateCustomRoleProcedure: authz.PermRoleManage,

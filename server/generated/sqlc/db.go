@@ -504,6 +504,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
 	}
+	if q.getRoleByIDForUpdateStmt, err = db.PrepareContext(ctx, getRoleByIDForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRoleByIDForUpdate: %w", err)
+	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt, err = db.PrepareContext(ctx, getRunningPowerTargetScheduleOverlaps); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetScheduleOverlaps: %w", err)
 	}
@@ -1861,6 +1864,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRoleByIDStmt: %w", cerr)
 		}
 	}
+	if q.getRoleByIDForUpdateStmt != nil {
+		if cerr := q.getRoleByIDForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRoleByIDForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt != nil {
 		if cerr := q.getRunningPowerTargetScheduleOverlapsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRunningPowerTargetScheduleOverlapsStmt: %w", cerr)
@@ -2980,6 +2988,7 @@ type Queries struct {
 	getRackInfoBatchStmt                                *sql.Stmt
 	getRackSlotsStmt                                    *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
+	getRoleByIDForUpdateStmt                            *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt           *sql.Stmt
 	getScheduleStmt                                     *sql.Stmt
 	getScheduleByIDForProcessorStmt                     *sql.Stmt
@@ -3330,6 +3339,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoBatchStmt:                                q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
+		getRoleByIDForUpdateStmt:                            q.getRoleByIDForUpdateStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:           q.getRunningPowerTargetScheduleOverlapsStmt,
 		getScheduleStmt:                                     q.getScheduleStmt,
 		getScheduleByIDForProcessorStmt:                     q.getScheduleByIDForProcessorStmt,

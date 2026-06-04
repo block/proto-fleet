@@ -481,3 +481,21 @@ func canceledCtx() context.Context {
 	cancel()
 	return ctx
 }
+
+func TestConnectedFleetNodeIDs_ReflectsRegisterAndUnregister(t *testing.T) {
+	// Arrange
+	r := NewRegistry()
+	s1 := r.Register(1)
+	s2 := r.Register(2)
+
+	// Act + Assert: both connected.
+	assert.ElementsMatch(t, []int64{1, 2}, r.ConnectedFleetNodeIDs())
+
+	// Act + Assert: unregistering one drops it.
+	s1.Unregister()
+	assert.ElementsMatch(t, []int64{2}, r.ConnectedFleetNodeIDs())
+
+	// Act + Assert: empty once all are gone.
+	s2.Unregister()
+	assert.Empty(t, r.ConnectedFleetNodeIDs())
+}

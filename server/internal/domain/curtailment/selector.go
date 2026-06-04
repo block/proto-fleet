@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -70,6 +71,10 @@ type Plan struct {
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
 	// EventUUID is set by Service.Start after persisting; nil for Preview.
 	EventUUID *uuid.UUID
+	// EndedAt is set by Service.Start only when an event is persisted already
+	// terminal (an empty FULL_FLEET start); echoed in the Start response so it
+	// matches the stamped row. nil otherwise.
+	EndedAt *time.Time
 	// EffectiveMaxDurationSeconds is the persisted cap after Service.Start
 	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
 	// or for Preview.

@@ -108,6 +108,7 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
+    ended_at,
     created_by_user_id,
     effective_batch_size
 ) VALUES (
@@ -137,6 +138,7 @@ INSERT INTO curtailment_event (
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
     sqlc.narg('scheduled_start_at'),
+    sqlc.narg('ended_at'),
     sqlc.arg('created_by_user_id'),
     sqlc.arg('effective_batch_size')
 )

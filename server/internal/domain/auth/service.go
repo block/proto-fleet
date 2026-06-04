@@ -596,17 +596,42 @@ func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgI
 	return target, nil
 }
 
-// authorizeCallerForNewUserWithRole is the CreateUser counterpart of
-// authorizeCallerForUser: the target does not yet exist, so the parity
-// check uses a synthetic effective-permissions snapshot built from the
-// role being assigned. Returns the resolved role so the caller can
-// bind the new user to it.
-func (s *Service) authorizeCallerForNewUserWithRole(ctx context.Context, callerUserID, orgID int64, roleName string) (stores.Role, error) {
-	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, roleName)
-	if err != nil {
-		return stores.Role{}, fleeterror.NewInternalErrorf("error getting %s role for org: %v", roleName, err)
+// resolveCreateUserRole picks the role a freshly created user will be
+// bound to and runs the same parity check used for in-place role
+// management. The roleID must be non-empty, live in the caller's org,
+// and is rejected for SUPER_ADMIN (ownership transfer lives elsewhere)
+// before the parity check runs.
+//
+// Call this inside the same RunInTx block as the assignment write:
+// the FOR UPDATE row lock taken by GetRoleByIDForUpdate serializes
+// against DeleteCustomRole's getRoleInOrgForUpdate, so a racing delete
+// either commits first (and we surface InvalidArgument because the
+// locked re-read sees deleted_at set) or blocks behind our commit (and
+// then sees an active assignment in CountActiveAssignmentsForRole).
+// Either way the new user is never bound to a soft-deleted role.
+func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID int64, roleID string) (stores.Role, error) {
+	if roleID == "" {
+		return stores.Role{}, fleeterror.NewInvalidArgumentError("role_id is required")
 	}
-
+	parsed, err := authz.ParseRoleID(roleID)
+	if err != nil {
+		return stores.Role{}, err
+	}
+	role, err := s.userManagementStore.GetRoleByIDForUpdate(ctx, parsed)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+		}
+		return stores.Role{}, fleeterror.NewInternalErrorf("error looking up role: %v", err)
+	}
+	if role.OrganizationID == nil || *role.OrganizationID != orgID {
+		// Mask cross-org / org-less roles as InvalidArgument so a caller
+		// cannot probe role ids that belong to a different tenant.
+		return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
+	if role.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
+		return stores.Role{}, fleeterror.NewInvalidArgumentError("invalid role_id")
+	}
 	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
 	if err != nil {
 		return stores.Role{}, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
@@ -646,6 +671,12 @@ func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissio
 // CreateUser creates a new user with a temporary password. Authorization is
 // enforced by the Connect handler via RequirePermission(PermUserManage);
 // callers outside the handler layer must add their own permission gate.
+//
+// req.RoleId is required and must live in the caller's org, must not be
+// SUPER_ADMIN (ownership transfer is a deliberately separate flow), and
+// must subsume to the caller via the standard parity check. There is no
+// implicit default — the server refuses empty role_id rather than
+// minting an admin account on the caller's behalf.
 func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
 	// Validate username
 	trimmedUsername := strings.TrimSpace(req.Username)
@@ -670,14 +701,6 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
-	// Look up the ADMIN role for this org and gate the caller against
-	// the permission set the new user will inherit. Org-scoped row
-	// lookup avoids binding to a different tenant's ADMIN.
-	role, err := s.authorizeCallerForNewUserWithRole(ctx, info.UserID, orgID, AdminRoleName)
-	if err != nil {
-		return nil, err
-	}
-
 	// Generate temporary password
 	tempPassword, err := generateTemporaryPassword()
 	if err != nil {
@@ -692,6 +715,21 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	var createdUserID string
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Resolve the role the new user will be bound to inside the tx
+		// so the role row read shares a snapshot with the assignment
+		// write. A concurrent DeleteCustomRole soft-deletes via
+		// `deleted_at = now()`; the underlying GetRoleByID query
+		// filters `deleted_at IS NULL`, so once we're inside the tx a
+		// racing delete either commits before the resolver reads (and
+		// we surface InvalidArgument) or after our assignment write
+		// (and the FK lands on a still-live row at the moment of
+		// write). Either way the new user is never bound to a
+		// soft-deleted role.
+		role, err := s.resolveCreateUserRole(ctx, info.UserID, orgID, req.GetRoleId())
+		if err != nil {
+			return err
+		}
+
 		// Generate external user ID
 		createdUserID = id.GenerateID()
 

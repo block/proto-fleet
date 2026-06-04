@@ -147,7 +147,7 @@ const ActivityPage = () => {
             onUsersChange={setSelectedUsers}
           />
           {activeFilterPills.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" data-testid="activity-filter-pills">
               {activeFilterPills.map((pill) => (
                 <Button
                   key={pill.key}
@@ -155,6 +155,7 @@ const ActivityPage = () => {
                   variant={variants.accent}
                   prefixIcon={<DismissTiny />}
                   onClick={pill.onRemove}
+                  testId={`activity-filter-pill-${pill.key}`}
                 >
                   {pill.label}
                 </Button>

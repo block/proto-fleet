@@ -16,7 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/nmaptarget"
 )
 
 func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -244,6 +246,79 @@ func TestBuildNmapOptions_AddsIPv6Scanning(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, slices.Contains(v4Scanner.Args(), "-6"), "IPv4 target must not carry -6")
 	assert.True(t, slices.Contains(v6Scanner.Args(), "-6"), "IPv6 target must carry -6")
+}
+
+func TestBuildNmapOptions_LocalSubnetTarget_UsesDetectedCIDRs(t *testing.T) {
+	// Arrange: inject the detected subnets so the test doesn't depend on the host.
+	r := &RunCmd{
+		nmapPath:     "/usr/bin/nmap",
+		discoverer:   &stubDiscoverer{},
+		localSubnets: func() ([]string, error) { return []string{"192.168.1.0/24"}, nil },
+	}
+	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+
+	// Act
+	opts, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+	require.NoError(t, err)
+	scanner, err := nmap.NewScanner(context.Background(), opts...)
+	require.NoError(t, err)
+
+	// Assert: the detected subnet reaches nmap and the scan stays IPv4-only.
+	args := scanner.Args()
+	assert.True(t, slices.Contains(args, "192.168.1.0/24"), "expected detected subnet in argv: %v", args)
+	assert.False(t, slices.Contains(args, "-6"), "local-subnet scan must be IPv4-only: %v", args)
+	assert.False(t, slices.Contains(args, nmaptarget.LocalSubnetTarget), "sentinel must not reach nmap as a literal target: %v", args)
+}
+
+func TestBuildNmapOptions_LocalSubnetTarget_RejectsUnscannableSubnet(t *testing.T) {
+	tests := []struct {
+		name   string
+		subnet string
+	}{
+		// A node whose primary NIC is public must never have it probed.
+		{name: "public subnet", subnet: "8.8.8.0/24"},
+		// A private prefix broader than the /22 cap would sweep tens of
+		// thousands of hosts; reject it like an operator-supplied target.
+		{name: "over-broad private subnet", subnet: "10.0.0.0/16"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			r := &RunCmd{
+				nmapPath:     "/usr/bin/nmap",
+				discoverer:   &stubDiscoverer{},
+				localSubnets: func() ([]string, error) { return []string{tc.subnet}, nil },
+			}
+			req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+
+			// Act
+			_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+
+			// Assert: refused before any scan, mapped so a fan-out skips this node.
+			var ce *commandError
+			require.ErrorAs(t, err, &ce)
+			assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
+		})
+	}
+}
+
+func TestBuildNmapOptions_LocalSubnetTarget_NoSubnetIsAgentIncapable(t *testing.T) {
+	// Arrange: detection finds no private subnet.
+	r := &RunCmd{
+		nmapPath:     "/usr/bin/nmap",
+		discoverer:   &stubDiscoverer{},
+		localSubnets: func() ([]string, error) { return nil, errNoLocalSubnet },
+	}
+	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+
+	// Act
+	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+
+	// Assert: a fan-out should skip this node, so the ack maps to FailedPrecondition.
+	var ce *commandError
+	require.ErrorAs(t, err, &ce)
+	assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
 }
 
 func TestDiscoverForCommand_NmapPathEmptyFailsClosed(t *testing.T) {
