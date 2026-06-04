@@ -25,9 +25,10 @@ type SourceConfig struct {
 	MQTTUsername            string
 	MQTTPasswordEncrypted   string
 	ContractedCurtailmentKw int32
-	// CurtailMode is 'fixed_kw' (shed ContractedCurtailmentKw) or 'full_fleet'
-	// (curtail every eligible device in scope). ContractedCurtailmentKw is
-	// 0/unused for full_fleet; the driver builds the request mode from this.
+	// CurtailMode is 'FIXED_KW' (shed ContractedCurtailmentKw) or 'FULL_FLEET'
+	// (curtail every eligible device in scope) — matching the curtailment Mode
+	// enum. ContractedCurtailmentKw is 0/unused for FULL_FLEET; the driver
+	// builds the request mode from this.
 	CurtailMode string
 	// ScopeType is 'whole_org' or 'device_list'; ScopeDeviceIdentifiers holds
 	// the devices for 'device_list' (empty for 'whole_org'). The driver builds
@@ -42,13 +43,18 @@ type SourceConfig struct {
 // SourceState is the domain shape of a curtailment_mqtt_source_state
 // row. Nullable columns surface as zero-value time.Time / TargetUnknown.
 type SourceState struct {
-	SourceConfigID     int64
-	LastTarget         Target
-	LastTargetAt       time.Time
-	LastReceivedAt     time.Time
-	LastReceivedBroker string
-	LastEdgeAt         time.Time
-	LastEdgeEventUUID  string
+	SourceConfigID int64
+	LastTarget     Target
+	LastTargetAt   time.Time
+	// LastProcessedTarget is the target of the payload that last advanced
+	// LastTargetAt. The dedup guard suppresses a redelivery (same stamp AND
+	// same target) while still acting on a genuine same-second flip (wire
+	// stamps are seconds-precision). In-memory; initialized from LastTarget.
+	LastProcessedTarget Target
+	LastReceivedAt      time.Time
+	LastReceivedBroker  string
+	LastEdgeAt          time.Time
+	LastEdgeEventUUID   string
 }
 
 // WatchdogRow is the projection ListSourcesForWatchdog returns —
@@ -206,12 +212,13 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 
 func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 	return SourceState{
-		SourceConfigID:     r.SourceConfigID,
-		LastTarget:         targetFromNullInt16(r.LastTarget),
-		LastTargetAt:       timeFromNullTime(r.LastTargetAt),
-		LastReceivedAt:     timeFromNullTime(r.LastReceivedAt),
-		LastReceivedBroker: stringFromNullString(r.LastReceivedBroker),
-		LastEdgeAt:         timeFromNullTime(r.LastEdgeAt),
-		LastEdgeEventUUID:  stringFromNullUUID(r.LastEdgeEventUuid),
+		SourceConfigID:      r.SourceConfigID,
+		LastTarget:          targetFromNullInt16(r.LastTarget),
+		LastTargetAt:        timeFromNullTime(r.LastTargetAt),
+		LastProcessedTarget: targetFromNullInt16(r.LastTarget),
+		LastReceivedAt:      timeFromNullTime(r.LastReceivedAt),
+		LastReceivedBroker:  stringFromNullString(r.LastReceivedBroker),
+		LastEdgeAt:          timeFromNullTime(r.LastEdgeAt),
+		LastEdgeEventUUID:   stringFromNullUUID(r.LastEdgeEventUuid),
 	}
 }

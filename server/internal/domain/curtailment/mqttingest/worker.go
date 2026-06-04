@@ -201,10 +201,13 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 
-	// Ignore a duplicate of an already-processed publisher stamp (a recent QoS-1
-	// redelivery or dual-broker copy that survives the eviction loop above):
-	// after a debounced flip an equal stamp would otherwise re-fire as an edge.
-	if !prior.LastTargetAt.IsZero() && !canonical.PublishedAt.After(prior.LastTargetAt) {
+	// Ignore a redelivery of an already-processed payload (a recent QoS-1 or
+	// dual-broker copy that survives the eviction loop above): same publisher
+	// stamp AND same target. A genuine same-second target change — equal stamp
+	// but a differing target, since wire stamps are seconds-precision — is not a
+	// duplicate and must still drive its edge.
+	if !prior.LastTargetAt.IsZero() && !canonical.PublishedAt.After(prior.LastTargetAt) &&
+		canonical.Target == prior.LastProcessedTarget {
 		direction = EdgeNone
 	}
 
@@ -221,6 +224,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	// suppressed as a duplicate.
 	if dispatched {
 		state.LastTargetAt = canonical.PublishedAt
+		state.LastProcessedTarget = canonical.Target
 	}
 
 	// LastTarget advances only when the owed dispatch landed: a failed

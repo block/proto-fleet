@@ -252,13 +252,14 @@ func TestWorker_HandleMessage_DebouncedFlipRedelivery_DoesNotStop(t *testing.T) 
 	require.NoError(t, err)
 
 	// Post-debounce state: the ON flip was absorbed (LastTarget still OFF) but
-	// its stamp landed in LastTargetAt; the edge anchor is old, so the next
-	// arrival is well outside the 5 s debounce window.
+	// its stamp + target landed in LastTargetAt / LastProcessedTarget; the edge
+	// anchor is old, so the next arrival is well outside the 5 s debounce window.
 	prior := SourceState{
-		SourceConfigID: w.source.ID,
-		LastTarget:     TargetOff,
-		LastTargetAt:   published,
-		LastEdgeAt:     published.Add(-10 * time.Second),
+		SourceConfigID:      w.source.ID,
+		LastTarget:          TargetOff,
+		LastTargetAt:        published,
+		LastProcessedTarget: TargetOn,
+		LastEdgeAt:          published.Add(-10 * time.Second),
 	}
 
 	// The same ON payload redelivered after the debounce window.
@@ -268,6 +269,39 @@ func TestWorker_HandleMessage_DebouncedFlipRedelivery_DoesNotStop(t *testing.T) 
 	assert.Empty(t, svc.stopCalls, "a redelivered duplicate of a debounced flip must not Stop the curtailment")
 	assert.Empty(t, svc.listActiveCalls, "no OFF→ON dispatch should be attempted for a duplicate stamp")
 	assert.Equal(t, TargetOff, next.LastTarget, "state stays OFF — no new publisher ON")
+}
+
+// A genuine same-second target change must still dispatch: wire stamps are
+// seconds-precision, so a real ON→OFF flip can share the prior ON's Unix-second
+// (equal stamp) yet differ in target — it is not a redelivery.
+func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	published := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC) // shared Unix-second
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": published.Unix()})
+	require.NoError(t, err)
+
+	// Settled ON at this stamp; the edge anchor is old (outside the debounce).
+	prior := SourceState{
+		SourceConfigID:      w.source.ID,
+		LastTarget:          TargetOn,
+		LastTargetAt:        published,
+		LastProcessedTarget: TargetOn,
+		LastEdgeAt:          published.Add(-1 * time.Minute),
+	}
+
+	// A real OFF published in the same Unix-second as the settled ON.
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: published.Add(500 * time.Millisecond)})
+
+	require.Equal(t, 1, svc.startCallsLen(),
+		"a real same-second ON->OFF flip must curtail, not be dropped as a duplicate stamp")
+	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
 // Guards the debounce fix from over-suppressing: a cold-start ON (no prior
