@@ -30,6 +30,9 @@ type SourceConfig struct {
 	// enum. ContractedCurtailmentKw is 0/unused for FULL_FLEET; the driver
 	// builds the request mode from this.
 	CurtailMode string
+	// PayloadFormat selects the PayloadDecoder for this source's wire format
+	// (e.g. 'target_timestamp'); resolved against the decoder registry at start.
+	PayloadFormat string
 	// ScopeType is 'whole_org' or 'device_list'; ScopeDeviceIdentifiers holds
 	// the devices for 'device_list' (empty for 'whole_org'). The driver builds
 	// the curtailment Scope from these.
@@ -138,13 +141,13 @@ func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) e
 		SourceConfigID: update.SourceConfigID,
 	}
 	if update.LastTarget != nil {
-		params.LastTarget = nullInt16FromTarget(*update.LastTarget)
+		params.LastTarget = nullStringFromTarget(*update.LastTarget)
 	}
 	if update.LastTargetAt != nil {
 		params.LastTargetAt = nullTimeFrom(*update.LastTargetAt)
 	}
 	if update.LastProcessedTarget != nil {
-		params.LastProcessedTarget = nullInt16FromTarget(*update.LastProcessedTarget)
+		params.LastProcessedTarget = nullStringFromTarget(*update.LastProcessedTarget)
 	}
 	if update.LastReceivedAt != nil {
 		params.LastReceivedAt = nullTimeFrom(*update.LastReceivedAt)
@@ -176,7 +179,7 @@ func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, 
 			SourceName:         r.SourceName,
 			OrganizationID:     r.OrganizationID,
 			StalenessThreshold: time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
-			LastTarget:         targetFromNullInt16(r.LastTarget),
+			LastTarget:         targetFromNullString(r.LastTarget),
 			LastReceivedAt:     timeFromNullTime(r.LastReceivedAt),
 			LastEdgeEventUUID:  stringFromNullUUID(r.LastEdgeEventUuid),
 		}
@@ -207,6 +210,7 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 		MQTTPasswordEncrypted:   r.MqttPasswordEnc,
 		ContractedCurtailmentKw: r.ContractedCurtailmentKw.Int32,
 		CurtailMode:             r.CurtailMode,
+		PayloadFormat:           r.PayloadFormat,
 		ScopeType:               r.ScopeType,
 		ScopeDeviceIdentifiers:  r.ScopeDeviceIdentifiers,
 		StalenessThreshold:      time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
@@ -218,9 +222,9 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 	return SourceState{
 		SourceConfigID:      r.SourceConfigID,
-		LastTarget:          targetFromNullInt16(r.LastTarget),
+		LastTarget:          targetFromNullString(r.LastTarget),
 		LastTargetAt:        timeFromNullTime(r.LastTargetAt),
-		LastProcessedTarget: targetFromNullInt16(r.LastProcessedTarget),
+		LastProcessedTarget: targetFromNullString(r.LastProcessedTarget),
 		LastReceivedAt:      timeFromNullTime(r.LastReceivedAt),
 		LastReceivedBroker:  stringFromNullString(r.LastReceivedBroker),
 		LastEdgeAt:          timeFromNullTime(r.LastEdgeAt),

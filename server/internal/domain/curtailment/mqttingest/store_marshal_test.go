@@ -9,38 +9,39 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNullInt16FromTarget(t *testing.T) {
+func TestNullStringFromTarget(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name      string
 		target    Target
 		wantValid bool
-		wantValue int16
+		wantValue string
 	}{
-		{"OFF", TargetOff, true, 0},
-		{"ON", TargetOn, true, 100},
-		{"Unknown becomes NULL", TargetUnknown, false, 0},
+		{"OFF", TargetOff, true, "OFF"},
+		{"ON", TargetOn, true, "ON"},
+		{"Unknown becomes NULL", TargetUnknown, false, ""},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := nullInt16FromTarget(tc.target)
+			got := nullStringFromTarget(tc.target)
 			assert.Equal(t, tc.wantValid, got.Valid)
 			if tc.wantValid {
-				assert.Equal(t, tc.wantValue, got.Int16)
+				assert.Equal(t, tc.wantValue, got.String)
 			}
 		})
 	}
 }
 
-func TestTargetFromNullInt16(t *testing.T) {
+func TestTargetFromNullString(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, TargetOff, targetFromNullInt16(sql.NullInt16{Int16: 0, Valid: true}))
-	assert.Equal(t, TargetOn, targetFromNullInt16(sql.NullInt16{Int16: 100, Valid: true}))
-	assert.Equal(t, TargetUnknown, targetFromNullInt16(sql.NullInt16{Valid: false}))
+	assert.Equal(t, TargetOff, targetFromNullString(sql.NullString{String: "OFF", Valid: true}))
+	assert.Equal(t, TargetOn, targetFromNullString(sql.NullString{String: "ON", Valid: true}))
+	assert.Equal(t, TargetUnknown, targetFromNullString(sql.NullString{Valid: false}))
+	assert.Equal(t, TargetUnknown, targetFromNullString(sql.NullString{String: "garbage", Valid: true}))
 }
 
 func TestNullTimeFrom(t *testing.T) {

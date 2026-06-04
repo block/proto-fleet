@@ -26,6 +26,10 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- contracted_curtailment_kw) or 'FULL_FLEET' (curtail every eligible
     -- device in scope; kW irrelevant).
     curtail_mode                    TEXT         NOT NULL DEFAULT 'FIXED_KW',
+    -- Wire format of the MQTT payload; selects the decoder that maps it to the
+    -- canonical (target, timestamp). Validated against the in-code decoder
+    -- registry at startup, so a new integration needs no migration here.
+    payload_format                  TEXT         NOT NULL DEFAULT 'target_timestamp',
     -- Curtailment scope this source targets: 'whole_org' (all org devices) or
     -- 'device_list' (scope_device_identifiers below). device_sets is not yet
     -- supported by the curtailment core.
@@ -89,14 +93,14 @@ CREATE TRIGGER update_curtailment_mqtt_source_config_updated_at
 -- lets OFF->ON resolve the event for Service.Stop.
 CREATE TABLE curtailment_mqtt_source_state (
     source_config_id        BIGINT       PRIMARY KEY,
-    -- 0, 100, or NULL when no message has been received yet.
-    last_target             SMALLINT     NULL,
+    -- Canonical target 'OFF' / 'ON', or NULL when no message received yet.
+    last_target             TEXT         NULL,
     -- Publisher-stamped timestamp from the most recent payload.
     last_target_at          TIMESTAMPTZ  NULL,
     -- Target of the payload that set last_target_at; may differ from
     -- last_target after a debounced flip. Persisted so the duplicate guard
     -- survives a restart (a redelivery of a debounced flip stays suppressed).
-    last_processed_target   SMALLINT     NULL,
+    last_processed_target   TEXT         NULL,
     -- Fleet's receive timestamp; staleness compares this against now().
     last_received_at        TIMESTAMPTZ  NULL,
     -- Broker that won precedence on the last message.
@@ -112,9 +116,9 @@ CREATE TABLE curtailment_mqtt_source_state (
     CONSTRAINT fk_curtailment_mqtt_source_state_config FOREIGN KEY (source_config_id)
         REFERENCES curtailment_mqtt_source_config(id) ON DELETE CASCADE,
     CONSTRAINT ck_curtailment_mqtt_source_state_target_valid
-        CHECK (last_target IS NULL OR last_target IN (0, 100)),
+        CHECK (last_target IS NULL OR last_target IN ('OFF', 'ON')),
     CONSTRAINT ck_curtailment_mqtt_source_state_processed_target_valid
-        CHECK (last_processed_target IS NULL OR last_processed_target IN (0, 100))
+        CHECK (last_processed_target IS NULL OR last_processed_target IN ('OFF', 'ON'))
 );
 
 CREATE TRIGGER update_curtailment_mqtt_source_state_updated_at

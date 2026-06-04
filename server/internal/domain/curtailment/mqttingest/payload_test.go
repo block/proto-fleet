@@ -1,7 +1,9 @@
 package mqttingest
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,7 +49,7 @@ func TestDecodePayload_Valid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			p, err := DecodePayload([]byte(tc.body), now)
+			p, err := targetTimestampDecoder{}.Decode([]byte(tc.body), now)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTarget, p.Target)
@@ -93,7 +95,7 @@ func TestDecodePayload_Malformed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := DecodePayload([]byte(tc.body), now)
+			_, err := targetTimestampDecoder{}.Decode([]byte(tc.body), now)
 
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, ErrMalformedPayload), "want ErrMalformedPayload, got %v", err)
@@ -133,3 +135,56 @@ func TestTarget_Predicates(t *testing.T) {
 
 // itoa formats an int64 for the table-driven test bodies above.
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// stateStringDecoder is a second, differently-shaped decoder used to prove the
+// PayloadDecoder seam: an unrelated wire schema maps to the same canonical
+// Payload, with nothing downstream changed.
+type stateStringDecoder struct{}
+
+func (stateStringDecoder) Decode(body []byte, _ time.Time) (Payload, error) {
+	var raw struct {
+		State string `json:"state"`
+		At    int64  `json:"at"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return Payload{}, fmt.Errorf("%w: %v", ErrMalformedPayload, err)
+	}
+	switch raw.State {
+	case "on":
+		return Payload{Target: TargetOn, PublishedAt: time.Unix(raw.At, 0).UTC()}, nil
+	case "off":
+		return Payload{Target: TargetOff, PublishedAt: time.Unix(raw.At, 0).UTC()}, nil
+	default:
+		return Payload{}, fmt.Errorf("%w: state=%q", ErrMalformedPayload, raw.State)
+	}
+}
+
+// An arbitrary JSON shape decodes to the same canonical Payload the rest of the
+// package consumes — the whole point of the decoder seam.
+func TestPayloadDecoder_AlternateShapeYieldsCanonical(t *testing.T) {
+	t.Parallel()
+
+	var dec PayloadDecoder = stateStringDecoder{}
+	p, err := dec.Decode([]byte(`{"state":"off","at":1000}`), time.Unix(1000, 0))
+	require.NoError(t, err)
+	assert.Equal(t, TargetOff, p.Target)
+	assert.Equal(t, time.Unix(1000, 0).UTC(), p.PublishedAt)
+}
+
+// The registry resolves a known format and rejects an unregistered one, so a
+// misconfigured source fails loudly at startup.
+func TestDecoderForFormat(t *testing.T) {
+	t.Parallel()
+
+	d, err := decoderForFormat(payloadFormatTargetTimestamp)
+	require.NoError(t, err)
+	assert.IsType(t, targetTimestampDecoder{}, d)
+
+	// Unset format resolves to the default (the DB column's default).
+	def, err := decoderForFormat("")
+	require.NoError(t, err)
+	assert.IsType(t, targetTimestampDecoder{}, def)
+
+	_, err = decoderForFormat("nope")
+	require.Error(t, err)
+}

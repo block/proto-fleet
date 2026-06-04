@@ -148,9 +148,15 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 		return nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)
 	}
 
+	decoder, err := decoderForFormat(src.PayloadFormat)
+	if err != nil {
+		return nil, fmt.Errorf("mqttingest: source %s: %w", src.SourceName, err)
+	}
+
 	w := &sourceWorker{
 		cfg:           s.cfg,
 		source:        src,
+		decoder:       decoder,
 		primaryHost:   primary,
 		secondaryHost: secondary,
 		password:      string(password),

@@ -457,6 +457,7 @@ type CurtailmentMqttSourceConfig struct {
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw sql.NullInt32
 	CurtailMode             string
+	PayloadFormat           string
 	ScopeType               string
 	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
@@ -468,9 +469,9 @@ type CurtailmentMqttSourceConfig struct {
 
 type CurtailmentMqttSourceState struct {
 	SourceConfigID      int64
-	LastTarget          sql.NullInt16
+	LastTarget          sql.NullString
 	LastTargetAt        sql.NullTime
-	LastProcessedTarget sql.NullInt16
+	LastProcessedTarget sql.NullString
 	LastReceivedAt      sql.NullTime
 	LastReceivedBroker  sql.NullString
 	LastEdgeAt          sql.NullTime

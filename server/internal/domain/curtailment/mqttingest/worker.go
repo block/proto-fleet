@@ -17,6 +17,7 @@ import (
 type sourceWorker struct {
 	cfg           Config
 	source        SourceConfig
+	decoder       PayloadDecoder
 	primaryHost   string
 	secondaryHost string
 	password      string
@@ -152,7 +153,7 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 // fields always advance on a decoded message; LastTarget advances only
 // when the owed dispatch landed — never on a debounced flip.
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
-	payload, err := DecodePayload(obs.payload, obs.receivedAt)
+	payload, err := w.decoder.Decode(obs.payload, obs.receivedAt)
 	if err != nil {
 		w.cfg.Logger.Warn("mqttingest: malformed payload, ignoring",
 			slog.String("source", w.source.SourceName),

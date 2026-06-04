@@ -83,8 +83,8 @@ func TestSourceStateFromRow_RehydratesProcessedTarget(t *testing.T) {
 	t.Parallel()
 
 	st := sourceStateFromRow(sqlc.CurtailmentMqttSourceState{
-		LastTarget:          sql.NullInt16{Int16: 0, Valid: true},   // settled OFF
-		LastProcessedTarget: sql.NullInt16{Int16: 100, Valid: true}, // debounced ON
+		LastTarget:          sql.NullString{String: "OFF", Valid: true}, // settled OFF
+		LastProcessedTarget: sql.NullString{String: "ON", Valid: true},  // debounced ON
 	})
 
 	assert.Equal(t, TargetOff, st.LastTarget)

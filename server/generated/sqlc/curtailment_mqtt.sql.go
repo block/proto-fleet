@@ -14,7 +14,7 @@ import (
 )
 
 const getMQTTSourceConfigByID = `-- name: GetMQTTSourceConfigByID :one
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE id = $1
 `
@@ -35,6 +35,7 @@ func (q *Queries) GetMQTTSourceConfigByID(ctx context.Context, id int64) (Curtai
 		&i.MqttPasswordEnc,
 		&i.ContractedCurtailmentKw,
 		&i.CurtailMode,
+		&i.PayloadFormat,
 		&i.ScopeType,
 		pq.Array(&i.ScopeDeviceIdentifiers),
 		&i.StalenessThresholdSec,
@@ -82,6 +83,7 @@ INSERT INTO curtailment_mqtt_source_config (
     mqtt_password_enc,
     contracted_curtailment_kw,
     curtail_mode,
+    payload_format,
     scope_type,
     scope_device_identifiers,
     staleness_threshold_sec,
@@ -103,9 +105,10 @@ INSERT INTO curtailment_mqtt_source_config (
     $13,
     $14,
     $15,
-    $16
+    $16,
+    $17
 )
-RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 `
 
 type InsertMQTTSourceConfigParams struct {
@@ -120,6 +123,7 @@ type InsertMQTTSourceConfigParams struct {
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw sql.NullInt32
 	CurtailMode             string
+	PayloadFormat           string
 	ScopeType               string
 	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
@@ -142,6 +146,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		arg.MqttPasswordEnc,
 		arg.ContractedCurtailmentKw,
 		arg.CurtailMode,
+		arg.PayloadFormat,
 		arg.ScopeType,
 		pq.Array(arg.ScopeDeviceIdentifiers),
 		arg.StalenessThresholdSec,
@@ -162,6 +167,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		&i.MqttPasswordEnc,
 		&i.ContractedCurtailmentKw,
 		&i.CurtailMode,
+		&i.PayloadFormat,
 		&i.ScopeType,
 		pq.Array(&i.ScopeDeviceIdentifiers),
 		&i.StalenessThresholdSec,
@@ -174,7 +180,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 }
 
 const listEnabledMQTTSources = `-- name: ListEnabledMQTTSources :many
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE enabled = TRUE
 ORDER BY id
@@ -204,6 +210,7 @@ func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqtt
 			&i.MqttPasswordEnc,
 			&i.ContractedCurtailmentKw,
 			&i.CurtailMode,
+			&i.PayloadFormat,
 			&i.ScopeType,
 			pq.Array(&i.ScopeDeviceIdentifiers),
 			&i.StalenessThresholdSec,
@@ -245,7 +252,7 @@ type ListMQTTSourcesForWatchdogRow struct {
 	SourceName            string
 	OrganizationID        int64
 	StalenessThresholdSec sql.NullInt32
-	LastTarget            sql.NullInt16
+	LastTarget            sql.NullString
 	LastReceivedAt        sql.NullTime
 	LastEdgeEventUuid     uuid.NullUUID
 }
@@ -317,9 +324,9 @@ SET
 
 type UpsertMQTTSourceStateParams struct {
 	SourceConfigID      int64
-	LastTarget          sql.NullInt16
+	LastTarget          sql.NullString
 	LastTargetAt        sql.NullTime
-	LastProcessedTarget sql.NullInt16
+	LastProcessedTarget sql.NullString
 	LastReceivedAt      sql.NullTime
 	LastReceivedBroker  sql.NullString
 	LastEdgeAt          sql.NullTime

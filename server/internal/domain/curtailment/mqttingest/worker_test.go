@@ -35,6 +35,7 @@ func newTestWorker(t *testing.T, store *fakeStore, svc *fakeService, src SourceC
 	return &sourceWorker{
 		cfg:           cfg,
 		source:        src,
+		decoder:       targetTimestampDecoder{},
 		primaryHost:   src.BrokerPrimaryHost,
 		secondaryHost: src.BrokerSecondaryHost,
 		lastObs:       map[BrokerRole]*Observation{},

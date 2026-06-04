@@ -7,27 +7,34 @@ import (
 	"github.com/google/uuid"
 )
 
-// nullInt16FromTarget marshals a Target into sql.NullInt16 for the
-// upsert path. Unknown is treated as no-write (null) to avoid
-// clobbering a previously-known value.
-func nullInt16FromTarget(t Target) sql.NullInt16 {
+// nullStringFromTarget marshals a Target into the canonical TEXT encoding
+// ('OFF'/'ON') for the upsert path. Unknown is treated as no-write (null) to
+// avoid clobbering a previously-known value.
+func nullStringFromTarget(t Target) sql.NullString {
 	switch t {
 	case TargetOff:
-		return sql.NullInt16{Int16: 0, Valid: true}
+		return sql.NullString{String: "OFF", Valid: true}
 	case TargetOn:
-		return sql.NullInt16{Int16: 100, Valid: true}
+		return sql.NullString{String: "ON", Valid: true}
 	case TargetUnknown:
-		return sql.NullInt16{}
+		return sql.NullString{}
 	default:
-		return sql.NullInt16{}
+		return sql.NullString{}
 	}
 }
 
-func targetFromNullInt16(n sql.NullInt16) Target {
+func targetFromNullString(n sql.NullString) Target {
 	if !n.Valid {
 		return TargetUnknown
 	}
-	return Target(n.Int16)
+	switch n.String {
+	case "OFF":
+		return TargetOff
+	case "ON":
+		return TargetOn
+	default:
+		return TargetUnknown
+	}
 }
 
 // int32OrDefault returns n's value when set, else def. Source-config columns
