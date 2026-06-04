@@ -134,6 +134,46 @@ func TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget(t *testing.T) {
 	assert.Equal(t, w.primaryHost, next.LastReceivedBroker)
 }
 
+// A transient dispatch failure must not advance LastTargetAt: a QoS-1
+// redelivery of the same payload has to retry the failed Start, not be
+// suppressed as an already-processed duplicate.
+func TestWorker_HandleMessage_FailedDispatch_RedeliveryRetries(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{startErr: errors.New("svc down")}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	// ON settled at an earlier stamp; the edge anchor is old enough that the OFF
+	// is outside the debounce window.
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+	}
+
+	// First OFF: Start fails, so LastTarget stays ON and LastTargetAt is unmoved.
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+	require.Equal(t, 1, svc.startCallsLen(), "first OFF attempts a Start")
+	require.Equal(t, TargetOn, next.LastTarget, "a failed Start must not settle OFF")
+
+	// Recover, then redeliver the SAME OFF payload — it must retry the Start.
+	svc.startErr = nil
+	newUUID := uuid.New()
+	svc.startResult = &curtailment.Plan{EventUUID: &newUUID}
+	next = w.handleMessage(context.Background(), next,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now.Add(2 * time.Second)})
+
+	assert.Equal(t, 2, svc.startCallsLen(), "a redelivery of the failed OFF must retry the Start, not be suppressed as a duplicate")
+	assert.Equal(t, TargetOff, next.LastTarget, "the retry settles OFF")
+}
+
 // Regression: an OFF→ON edge with no in-flight event (ErrNoActiveEvent)
 // must advance to ON, not wedge in OFF and re-attempt Stop every message.
 func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
@@ -422,6 +462,41 @@ func TestWorker_HandleMessage_AgeStalePayload_Ignored(t *testing.T) {
 	assert.True(t, next.LastReceivedAt.IsZero(), "age-stale payload must not reset the watchdog freshness clock")
 	assert.Empty(t, svc.startCalls)
 	assert.Empty(t, svc.stopCalls)
+}
+
+// On cold start, an age-stale winner on the precedence broker must be evicted
+// and re-resolved against the other broker, so a live broker's fresh signal is
+// honored instead of masked (and the cold-start watchdog doesn't curtail a
+// source a live broker is reporting ON).
+func TestWorker_HandleMessage_EvictsAgeStaleWinner_ThenProcessesFresh(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource()) // StalenessThreshold = 240 s
+
+	now := time.Now().UTC()
+	// Primary holds a retained ON published well past the staleness threshold,
+	// received now — so it wins precedence by receive-time but is age-stale.
+	w.lastObs[BrokerPrimary] = &Observation{
+		Broker:     w.primaryHost,
+		Role:       BrokerPrimary,
+		Payload:    Payload{Target: TargetOn, PublishedAt: now.Add(-10 * time.Minute)},
+		ReceivedAt: now,
+	}
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown} // cold
+
+	// Secondary delivers a fresh ON.
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.secondaryHost, payload: onBody, receivedAt: now})
+
+	_, primaryCached := w.lastObs[BrokerPrimary]
+	assert.False(t, primaryCached, "age-stale primary must be evicted so it can't mask the fresh secondary")
+	assert.Equal(t, TargetOn, next.LastTarget, "the live secondary ON must be honored, not masked")
+	assert.Equal(t, now, next.LastReceivedAt, "freshness advances from the live secondary, so the watchdog stays idle")
+	assert.Empty(t, svc.startCalls, "cold-start ON is not an edge — no curtail")
 }
 
 // A stale observation that wins precedence by receive-time must be evicted so

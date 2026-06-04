@@ -175,17 +175,17 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	canonical, canonicalOK := CanonicalFromPair(primaryObs, secondaryObs, w.cfg.BrokerFreshness)
 
-	// Skip stale/out-of-order payloads (QoS-1 redelivery, reconnect backlog,
-	// reorder): they must not drive edge detection, or a late ON would stop a
-	// curtailment the newer OFF established. When the precedence winner is
-	// stale, evict it from the per-broker cache so it stops masking the other
-	// broker's current data, then re-resolve against the survivor.
-	for canonicalOK && !prior.LastTargetAt.IsZero() && canonical.PublishedAt.Before(prior.LastTargetAt) {
+	// Drop a stale precedence winner and re-resolve against the other broker so
+	// a stale cached observation can't mask the survivor's current data. Stale =
+	// published before the last processed stamp (out-of-order redelivery), or
+	// older than the staleness threshold at receipt (retained/backlog, which a
+	// live broker may outrank — also the cold-start guard, LastTargetAt zero).
+	for canonicalOK && w.isStalePayload(prior, canonical) {
 		w.cfg.Logger.Warn("mqttingest: evicting stale payload",
 			slog.String("source", w.source.SourceName),
 			slog.String("broker", canonical.Broker),
 			slog.Time("published_at", canonical.PublishedAt),
-			slog.Time("last_processed_at", prior.LastTargetAt))
+			slog.Duration("age", canonical.ReceivedAt.Sub(canonical.PublishedAt)))
 		w.mu.Lock()
 		delete(w.lastObs, w.brokerRole(canonical.Broker))
 		primaryObs = w.lastObs[BrokerPrimary]
@@ -197,34 +197,31 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		return prior
 	}
 
-	// Reject an age-stale payload: a retained/backlog message older than the
-	// staleness threshold doesn't prove the publisher is live, so leave state
-	// untouched for the watchdog to fail safe (cold start has no other guard).
-	if age := canonical.ReceivedAt.Sub(canonical.PublishedAt); age >= w.source.StalenessThreshold {
-		w.cfg.Logger.Warn("mqttingest: ignoring age-stale payload",
-			slog.String("source", w.source.SourceName),
-			slog.Time("published_at", canonical.PublishedAt),
-			slog.Duration("age", age))
-		return prior
-	}
-
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 
-	// Ignore a duplicate of an already-processed publisher stamp: the eviction
-	// loop drops only strictly-older payloads, so after a debounced flip an
-	// equal stamp (QoS-1 redelivery, dual-broker copy) would re-fire as an edge.
+	// Ignore a duplicate of an already-processed publisher stamp (a recent QoS-1
+	// redelivery or dual-broker copy that survives the eviction loop above):
+	// after a debounced flip an equal stamp would otherwise re-fire as an edge.
 	if !prior.LastTargetAt.IsZero() && !canonical.PublishedAt.After(prior.LastTargetAt) {
 		direction = EdgeNone
 	}
 
 	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
 
-	// Freshness columns advance on every decoded message, even if dispatch failed.
-	state.LastTargetAt = canonical.PublishedAt
+	// LastReceivedAt/Broker track liveness for the watchdog — advance on every
+	// decoded message, even on a failed dispatch (we did hear the publisher).
 	state.LastReceivedAt = canonical.ReceivedAt
 	state.LastReceivedBroker = canonical.Broker
+
+	// LastTargetAt is the last *processed* publisher stamp (ordering + duplicate
+	// suppression); advance it only when the edge settled. On a failed dispatch
+	// leave it so a redelivery of the same stamp retries instead of being
+	// suppressed as a duplicate.
+	if dispatched {
+		state.LastTargetAt = canonical.PublishedAt
+	}
 
 	// LastTarget advances only when the owed dispatch landed: a failed
 	// dispatch must not read as a settled transition (the next identical
@@ -346,6 +343,18 @@ func (w *sourceWorker) persistState(ctx context.Context, s SourceState) {
 			slog.String("source", w.source.SourceName),
 			slog.Any("error", err))
 	}
+}
+
+// isStalePayload reports whether a canonical observation must be dropped from
+// edge detection and re-resolved against the other broker: published before the
+// last processed stamp (out-of-order redelivery), or older than the staleness
+// threshold at receipt (retained / reconnect-backlog data that doesn't prove
+// the publisher is live). The latter also covers cold start (LastTargetAt zero).
+func (w *sourceWorker) isStalePayload(prior SourceState, c CanonicalState) bool {
+	if !prior.LastTargetAt.IsZero() && c.PublishedAt.Before(prior.LastTargetAt) {
+		return true
+	}
+	return c.ReceivedAt.Sub(c.PublishedAt) >= w.source.StalenessThreshold
 }
 
 func (w *sourceWorker) brokerRole(host string) BrokerRole {
