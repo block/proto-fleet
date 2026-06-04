@@ -94,7 +94,7 @@ const FleetBuildingsPage = () => {
 
   if (buildings === undefined || sites === undefined) {
     return (
-      <div className="flex flex-col gap-6 p-10 phone:p-6">
+      <div className="flex flex-col gap-6 px-6 pt-6 laptop:px-10 laptop:pt-10">
         <div className="text-300 text-text-primary-70">Loading…</div>
       </div>
     );
@@ -102,7 +102,7 @@ const FleetBuildingsPage = () => {
 
   if (buildingsError && buildings.length === 0) {
     return (
-      <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-error">
+      <div className="flex flex-col gap-6 px-6 pt-6 laptop:px-10 laptop:pt-10" data-testid="fleet-buildings-error">
         <Header title="Couldn't load buildings" titleSize="text-heading-200" />
         <p className="text-300 text-text-primary-70">{buildingsError}</p>
         <Button
@@ -133,7 +133,7 @@ const FleetBuildingsPage = () => {
   if (buildings.length === 0) {
     return (
       <>
-        <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-page">
+        <div className="flex flex-col gap-6 px-6 pt-6 laptop:px-10 laptop:pt-10" data-testid="fleet-buildings-page">
           <div className="flex items-center justify-end">{addBuildingButton}</div>
           <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
             <Header title="No buildings yet" titleSize="text-heading-200" />
@@ -162,7 +162,7 @@ const FleetBuildingsPage = () => {
         : "No buildings in this site yet.";
     return (
       <>
-        <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-page">
+        <div className="flex flex-col gap-6 px-6 pt-6 laptop:px-10 laptop:pt-10" data-testid="fleet-buildings-page">
           <div className="flex items-center justify-end">{addBuildingButton}</div>
           <div
             className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
@@ -184,7 +184,7 @@ const FleetBuildingsPage = () => {
 
   return (
     <>
-      <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="fleet-buildings-page">
+      <div className="flex flex-col gap-6 px-6 pt-6 laptop:px-10 laptop:pt-10" data-testid="fleet-buildings-page">
         {sitesError ? (
           <div
             className="flex items-center justify-between rounded-xl border border-border-5 p-4"
