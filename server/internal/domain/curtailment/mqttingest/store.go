@@ -25,6 +25,10 @@ type SourceConfig struct {
 	MQTTUsername            string
 	MQTTPasswordEncrypted   string
 	ContractedCurtailmentKw int32
+	// CurtailMode is 'fixed_kw' (shed ContractedCurtailmentKw) or 'full_fleet'
+	// (curtail every eligible device in scope). ContractedCurtailmentKw is
+	// 0/unused for full_fleet; the driver builds the request mode from this.
+	CurtailMode string
 	// ScopeType is 'whole_org' or 'device_list'; ScopeDeviceIdentifiers holds
 	// the devices for 'device_list' (empty for 'whole_org'). The driver builds
 	// the curtailment Scope from these.
@@ -190,7 +194,8 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 		BrokerPort:              int32OrDefault(r.BrokerPort, defaultBrokerPort),
 		MQTTUsername:            r.MqttUsername,
 		MQTTPasswordEncrypted:   r.MqttPasswordEnc,
-		ContractedCurtailmentKw: r.ContractedCurtailmentKw,
+		ContractedCurtailmentKw: r.ContractedCurtailmentKw.Int32,
+		CurtailMode:             r.CurtailMode,
 		ScopeType:               r.ScopeType,
 		ScopeDeviceIdentifiers:  r.ScopeDeviceIdentifiers,
 		StalenessThreshold:      time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,

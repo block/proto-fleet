@@ -455,7 +455,8 @@ type CurtailmentMqttSourceConfig struct {
 	BrokerPort              sql.NullInt32
 	MqttUsername            string
 	MqttPasswordEnc         string
-	ContractedCurtailmentKw int32
+	ContractedCurtailmentKw sql.NullInt32
+	CurtailMode             string
 	ScopeType               string
 	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32

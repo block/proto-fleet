@@ -19,7 +19,7 @@ func TestSourceConfigFromRow_NullColumnsUseCodeDefaults(t *testing.T) {
 	cfg := sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig{
 		ID:                      1,
 		OrganizationID:          7,
-		ContractedCurtailmentKw: 12500,
+		ContractedCurtailmentKw: sql.NullInt32{Int32: 12500, Valid: true},
 		// BrokerPort / StalenessThresholdSec / MinCurtailedDurationSec left NULL.
 	})
 
@@ -55,4 +55,23 @@ func TestSourceConfigFromRow_CarriesScope(t *testing.T) {
 
 	assert.Equal(t, "device_list", cfg.ScopeType)
 	assert.Equal(t, []string{"miner-1", "miner-2"}, cfg.ScopeDeviceIdentifiers)
+}
+
+// curtail_mode round-trips, and a NULL contracted_curtailment_kw (a full_fleet
+// source) surfaces as 0 in the domain shape.
+func TestSourceConfigFromRow_CarriesCurtailMode(t *testing.T) {
+	t.Parallel()
+
+	fixed := sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig{
+		CurtailMode:             "FIXED_KW",
+		ContractedCurtailmentKw: sql.NullInt32{Int32: 9000, Valid: true},
+	})
+	assert.Equal(t, "FIXED_KW", fixed.CurtailMode)
+	assert.Equal(t, int32(9000), fixed.ContractedCurtailmentKw)
+
+	full := sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig{
+		CurtailMode: "FULL_FLEET", // contracted_curtailment_kw left NULL
+	})
+	assert.Equal(t, "FULL_FLEET", full.CurtailMode)
+	assert.Zero(t, full.ContractedCurtailmentKw, "NULL contracted kW surfaces as 0 for full_fleet")
 }

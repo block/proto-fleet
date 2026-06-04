@@ -18,9 +18,14 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- Encrypted via infrastructure/encrypt (base64-wrapped); rotation
     -- is operator-driven.
     mqtt_password_enc               TEXT         NOT NULL,
-    -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges.
-    -- Upper bound is a fat-finger sanity ceiling (1 GW per source).
-    contracted_curtailment_kw       INT          NOT NULL,
+    -- target_kw dispatched on ON->OFF / WATCHDOG_OFF edges for curtail_mode
+    -- 'FIXED_KW'. Required for 'FIXED_KW'; NULL-able (reporting only) for
+    -- 'FULL_FLEET'. Upper bound is a fat-finger sanity ceiling (1 GW/source).
+    contracted_curtailment_kw       INT          NULL,
+    -- Target-set mode; matches the curtailment Mode enum. 'FIXED_KW' (shed
+    -- contracted_curtailment_kw) or 'FULL_FLEET' (curtail every eligible
+    -- device in scope; kW irrelevant).
+    curtail_mode                    TEXT         NOT NULL DEFAULT 'FIXED_KW',
     -- Curtailment scope this source targets: 'whole_org' (all org devices) or
     -- 'device_list' (scope_device_identifiers below). device_sets is not yet
     -- supported by the curtailment core.
@@ -46,10 +51,15 @@ CREATE TABLE curtailment_mqtt_source_config (
     CONSTRAINT uq_curtailment_mqtt_source_config_org_name UNIQUE (organization_id, source_name),
     CONSTRAINT ck_curtailment_mqtt_source_config_port_positive
         CHECK (broker_port IS NULL OR (broker_port > 0 AND broker_port < 65536)),
-    CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_positive
-        CHECK (contracted_curtailment_kw > 0),
-    CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_max
-        CHECK (contracted_curtailment_kw <= 1000000),
+    -- kW is null-able (reporting-only for full_fleet); valid range when set.
+    CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_range
+        CHECK (contracted_curtailment_kw IS NULL
+            OR (contracted_curtailment_kw > 0 AND contracted_curtailment_kw <= 1000000)),
+    CONSTRAINT ck_curtailment_mqtt_source_config_curtail_mode
+        CHECK (curtail_mode IN ('FIXED_KW', 'FULL_FLEET')),
+    -- FIXED_KW must carry a contracted target; FULL_FLEET may omit it.
+    CONSTRAINT ck_curtailment_mqtt_source_config_fixed_kw_requires_target
+        CHECK (curtail_mode <> 'FIXED_KW' OR contracted_curtailment_kw IS NOT NULL),
     CONSTRAINT ck_curtailment_mqtt_source_config_staleness_positive
         CHECK (staleness_threshold_sec IS NULL OR staleness_threshold_sec > 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_hold_nonneg

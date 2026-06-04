@@ -127,6 +127,30 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 	assert.Equal(t, "mqtt:site-a", *start.SourceActorID)
 }
 
+// A FULL_FLEET source dispatches Mode=FULL_FLEET with no kW target — the
+// "stop the whole scope" path — instead of FIXED_KW sized to contracted kW.
+func TestDriver_Dispatch_OnToOff_FullFleet(t *testing.T) {
+	t.Parallel()
+
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	d := NewDriver(svc, nil)
+
+	src := sampleSource()
+	src.CurtailMode = string(models.ModeFullFleet)
+	src.ContractedCurtailmentKw = 0 // irrelevant for full_fleet
+
+	_, err := d.Dispatch(context.Background(), src, EdgeOnToOff, time.Now())
+	require.NoError(t, err)
+
+	require.Len(t, svc.startCalls, 1)
+	start := svc.startCalls[0]
+	assert.Equal(t, models.ModeFullFleet, start.Mode)
+	assert.Zero(t, start.TargetKW, "full_fleet carries no kW target")
+	assert.Zero(t, start.ToleranceKW)
+	assert.Equal(t, models.PriorityEmergency, start.Priority)
+}
+
 func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	t.Parallel()
 

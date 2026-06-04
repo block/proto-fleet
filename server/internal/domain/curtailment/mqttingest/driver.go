@@ -95,16 +95,17 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 	externalSource := src.SourceName
 	sourceActorID := sourceActorIDFor(src)
 
+	mode, targetKW, toleranceKW := modeForSource(src)
 	req := curtailment.StartRequest{
 		PreviewRequest: curtailment.PreviewRequest{
 			OrgID:       src.OrganizationID,
 			Scope:       scope,
-			Mode:        models.ModeFixedKw,
+			Mode:        mode,
 			Strategy:    models.StrategyLeastEfficientFirst,
 			Level:       models.LevelFull,
 			Priority:    models.PriorityEmergency,
-			TargetKW:    float64(src.ContractedCurtailmentKw),
-			ToleranceKW: float64(src.ContractedCurtailmentKw) * 0.05,
+			TargetKW:    targetKW,
+			ToleranceKW: toleranceKW,
 		},
 		Reason:                  reason,
 		MinCurtailedDurationSec: clampToInt32Seconds(src.MinCurtailedDuration),
@@ -240,6 +241,19 @@ func startReason(source string, direction EdgeDirection, edgeAt time.Time) strin
 // source before stopping it.
 func sourceActorIDFor(src SourceConfig) string {
 	return fmt.Sprintf("mqtt:%s", src.SourceName)
+}
+
+// modeForSource builds the curtailment mode and kW params from the source's
+// curtail_mode. FULL_FLEET curtails every eligible device in scope with no kW
+// target; FIXED_KW (the default) sheds the contracted target with a 5%
+// undershoot tolerance. With a device_list scope, FULL_FLEET means "stop this
+// whole site."
+func modeForSource(src SourceConfig) (mode models.Mode, targetKW, toleranceKW float64) {
+	if models.Mode(src.CurtailMode) == models.ModeFullFleet {
+		return models.ModeFullFleet, 0, 0
+	}
+	kw := float64(src.ContractedCurtailmentKw)
+	return models.ModeFixedKw, kw, kw * 0.05
 }
 
 // scopeForSource builds the curtailment Scope from the source config. Supports
