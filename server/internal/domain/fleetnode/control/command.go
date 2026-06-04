@@ -33,12 +33,8 @@ func (r *Registry) SendCommand(ctx context.Context, fleetNodeID int64, cmd *gate
 	// Always free the slot: on ack, disconnect, or ctx expiry.
 	defer r.removeCmd(fleetNodeID, c)
 
-	select {
-	case outgoing <- cmd:
-	case <-connDone:
-		return nil, ErrNoActiveStream
-	case <-ctx.Done():
-		return nil, fleeterror.NewInternalErrorf("send command: %v", ctx.Err())
+	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
+		return nil, err
 	}
 
 	select {

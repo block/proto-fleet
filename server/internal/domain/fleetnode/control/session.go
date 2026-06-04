@@ -49,15 +49,23 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 	}
 
 	session := &Session{r: r, fleetNodeID: fleetNodeID, cmd: c}
+	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
+		session.Close()
+		return nil, err
+	}
+	return session, nil
+}
+
+// enqueue hands cmd to the connection's outbound queue, returning ErrNoActiveStream
+// if the connection drops first or an Internal error if ctx expires. The caller owns
+// freeing the inflight entry on failure (Session.Close / removeCmd).
+func (r *Registry) enqueue(ctx context.Context, outgoing chan<- *gatewaypb.ControlCommand, connDone <-chan struct{}, cmd *gatewaypb.ControlCommand) error {
 	select {
 	case outgoing <- cmd:
-		return session, nil
+		return nil
 	case <-connDone:
-		// connection evicted between addCmd and enqueue
-		session.Close()
-		return nil, ErrNoActiveStream
+		return ErrNoActiveStream
 	case <-ctx.Done():
-		session.Close()
-		return nil, fleeterror.NewInternalErrorf("send command: %v", ctx.Err())
+		return fleeterror.NewInternalErrorf("send command: %v", ctx.Err())
 	}
 }
