@@ -125,7 +125,8 @@ func (q *Queries) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDev
 }
 
 const listFleetNodeDiscoveredDevices = `-- name: ListFleetNodeDiscoveredDevices :many
-SELECT dd.id,
+SELECT DISTINCT ON (dd.id)
+       dd.id,
        dd.org_id,
        dd.device_identifier,
        dd.discovered_by_fleet_node_id,
@@ -149,12 +150,16 @@ WHERE dd.org_id = $1
   AND fnd.device_id IS NULL
   AND (dp.pairing_status IS NULL OR dp.pairing_status <> 'PAIRED')
   AND ($2::bigint IS NULL OR dd.discovered_by_fleet_node_id = $2::bigint)
-ORDER BY dd.last_seen DESC NULLS LAST, dd.id ASC
+  AND ($3::bigint IS NULL OR dd.id > $3::bigint)
+ORDER BY dd.id ASC
+LIMIT $4::bigint
 `
 
 type ListFleetNodeDiscoveredDevicesParams struct {
 	OrgID       int64
 	FleetNodeID sql.NullInt64
+	CursorID    sql.NullInt64
+	Limit       sql.NullInt64
 }
 
 type ListFleetNodeDiscoveredDevicesRow struct {
@@ -177,8 +182,16 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 // bound via fleet_node_device is excluded; AUTHENTICATION_NEEDED rows (a pair
 // attempt that needs credentials) surface for retry. Inverse of
 // GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+// DISTINCT ON (dd.id) yields one row per discovered device even when more than
+// one live device row points at it. Paginates by ascending id; a NULL limit
+// returns all rows (the pairing batch path needs every candidate).
 func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFleetNodeDiscoveredDevicesParams) ([]ListFleetNodeDiscoveredDevicesRow, error) {
-	rows, err := q.query(ctx, q.listFleetNodeDiscoveredDevicesStmt, listFleetNodeDiscoveredDevices, arg.OrgID, arg.FleetNodeID)
+	rows, err := q.query(ctx, q.listFleetNodeDiscoveredDevicesStmt, listFleetNodeDiscoveredDevices,
+		arg.OrgID,
+		arg.FleetNodeID,
+		arg.CursorID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

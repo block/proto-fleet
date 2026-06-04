@@ -62,7 +62,12 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		return res
 	}
 
-	port, _ := sdk.ParsePort(target.GetPort())
+	port, err := sdk.ParsePort(target.GetPort())
+	if err != nil {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = truncateUTF8(fmt.Sprintf("invalid port %q: %v", target.GetPort(), err), maxAckErrorMessageBytes)
+		return res
+	}
 	deviceInfo := sdk.DeviceInfo{
 		Host:            target.GetIpAddress(),
 		Port:            port,
@@ -74,7 +79,13 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	// Asymmetric-auth drivers (Proto) pair with the node's own miner-signing key;
 	// operator-supplied username/password covers basic-auth drivers.
 	if bundle, ok := secretBundleFor(plugin.Caps, p.minerSigningPubKey, creds); ok {
-		return p.attempt(ctx, plugin, deviceInfo, bundle, res)
+		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+		if pairErr != nil {
+			classifyNodePairError(pairErr, res)
+			return res
+		}
+		setPaired(res, updated)
+		return res
 	}
 
 	// No credentials supplied: try plugin-provided defaults.
@@ -112,16 +123,6 @@ func secretBundleFor(caps sdk.Capabilities, nodePubKey string, creds *pairingpb.
 		return sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: creds.GetUsername(), Password: creds.GetPassword()}}, true
 	}
 	return sdk.SecretBundle{}, false
-}
-
-func (p *pluginPairer) attempt(ctx context.Context, plugin *plugins.LoadedPlugin, deviceInfo sdk.DeviceInfo, bundle sdk.SecretBundle, res *pb.FleetNodePairResult) *pb.FleetNodePairResult {
-	updated, err := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
-	if err != nil {
-		classifyNodePairError(err, res)
-		return res
-	}
-	setPaired(res, updated)
-	return res
 }
 
 func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
@@ -251,7 +252,7 @@ func fanOutPairs(ctx context.Context, targets []*pairingpb.FleetNodePairTarget, 
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			out, _ := waitPairSupervisor(&wg, &mu, &results, perPairTimeout*2, logger)
+			out, _ := waitSupervisor(&wg, &mu, &results, perPairTimeout*2, "pair", logger)
 			return out, true
 		}
 		wg.Add(1)
@@ -266,31 +267,7 @@ func fanOutPairs(ctx context.Context, targets []*pairingpb.FleetNodePairTarget, 
 			mu.Unlock()
 		}(t)
 	}
-	return waitPairSupervisor(&wg, &mu, &results, perPairTimeout*2, logger)
-}
-
-// waitPairSupervisor caps wg.Wait at maxWait so a plugin PairDevice that ignores
-// ctx can't pin the agent; truncated=true lets the caller ack PARTIAL.
-func waitPairSupervisor(wg *sync.WaitGroup, mu *sync.Mutex, results *[]*pb.FleetNodePairResult, maxWait time.Duration, logger *slog.Logger) ([]*pb.FleetNodePairResult, bool) {
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	timer := time.NewTimer(maxWait)
-	defer timer.Stop()
-	truncated := false
-	select {
-	case <-done:
-	case <-timer.C:
-		truncated = true
-		logger.Warn("pair wait exceeded supervisor budget; returning partial batch", "max_wait", maxWait.String())
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	out := make([]*pb.FleetNodePairResult, len(*results))
-	copy(out, *results)
-	return out, truncated
+	return waitSupervisor(&wg, &mu, &results, perPairTimeout*2, "pair", logger)
 }
 
 // truncateUTF8 trims s to at most maxLen bytes on a rune boundary so it stays valid

@@ -157,7 +157,7 @@ message PairResponse {
 // devices it previously discovered. The node has no database, so the server
 // supplies each target's endpoint and driver.
 message FleetNodePairRequest {
-  repeated FleetNodePairTarget targets = 1 [(buf.validate.field).repeated.max_items = 1024];
+  repeated FleetNodePairTarget targets = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 1024}];
 
   // Applied to basic-auth targets in the batch; omitted for asymmetric-auth
   // drivers, which pair with the node's own miner-signing key.

@@ -153,7 +153,11 @@ ORDER BY fnd.assigned_at DESC, fnd.device_id ASC;
 -- bound via fleet_node_device is excluded; AUTHENTICATION_NEEDED rows (a pair
 -- attempt that needs credentials) surface for retry. Inverse of
 -- GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
-SELECT dd.id,
+-- DISTINCT ON (dd.id) yields one row per discovered device even when more than
+-- one live device row points at it. Paginates by ascending id; a NULL limit
+-- returns all rows (the pairing batch path needs every candidate).
+SELECT DISTINCT ON (dd.id)
+       dd.id,
        dd.org_id,
        dd.device_identifier,
        dd.discovered_by_fleet_node_id,
@@ -177,4 +181,6 @@ WHERE dd.org_id = $1
   AND fnd.device_id IS NULL
   AND (dp.pairing_status IS NULL OR dp.pairing_status <> 'PAIRED')
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR dd.discovered_by_fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
-ORDER BY dd.last_seen DESC NULLS LAST, dd.id ASC;
+  AND (sqlc.narg('cursor_id')::bigint IS NULL OR dd.id > sqlc.narg('cursor_id')::bigint)
+ORDER BY dd.id ASC
+LIMIT sqlc.narg('limit')::bigint;

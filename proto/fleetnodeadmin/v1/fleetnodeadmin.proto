@@ -112,10 +112,17 @@ message DiscoverOnFleetNodeResponse {
 message ListFleetNodeDiscoveredDevicesRequest {
     // 0 = all fleet nodes in org; > 0 restricts to that fleet node.
     int64 fleet_node_id = 1 [(buf.validate.field).int64.gte = 0];
+    // Max devices to return; 0 = no limit. A node can discover thousands of
+    // devices, so operators should page.
+    int32 limit = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1024}];
+    // Forward cursor: pass the previous response's next_cursor; 0 = first page.
+    int64 cursor = 3 [(buf.validate.field).int64.gte = 0];
 }
 
 message ListFleetNodeDiscoveredDevicesResponse {
     repeated FleetNodeDiscoveredDevice devices = 1;
+    // Cursor for the next page; 0 when no further rows remain.
+    int64 next_cursor = 2;
 }
 
 // FleetNodeDiscoveredDevice is a device a fleet node discovered that is not yet
@@ -133,14 +140,14 @@ message FleetNodeDiscoveredDevice {
     google.protobuf.Timestamp last_seen = 10;
     // Empty when never attempted; "AUTHENTICATION_NEEDED" after a pair attempt
     // that needs credentials.
-    string pairing_status    = 11;
+    string pairing_status    = 11 [(buf.validate.field).string.max_len = 64];
 }
 
 message PairDiscoveredDevicesOnFleetNodeRequest {
     int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
     // Explicit selection by discovered device_identifier. Ignored when
     // pair_all_unpaired is true.
-    repeated string device_identifiers = 2 [(buf.validate.field).repeated.max_items = 1024];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {max_items: 1024, items: {string: {min_len: 1, max_len: 255}}}];
     // Pair every not-yet-paired device discovered on this node.
     bool pair_all_unpaired = 3;
     // Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
@@ -154,6 +161,6 @@ message PairDiscoveredDevicesOnFleetNodeResponse {
 message DevicePairingResult {
     string device_identifier = 1;
     // PAIRED | AUTHENTICATION_NEEDED | FAILED
-    string pairing_status = 2;
+    string pairing_status = 2 [(buf.validate.field).string.max_len = 64];
     string error = 3;
 }

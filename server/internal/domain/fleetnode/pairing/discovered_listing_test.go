@@ -81,20 +81,24 @@ func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	cloudDev := deviceForDiscovered(t, db, orgID, "mac:guard-cloud")
 	setPairingStatus(t, db, cloudDev, "PAIRED") // cloud-paired: no fleet_node_device
 
-	// Act + Assert: cloud-dial guard.
+	// Act: cloud-dial guard on both devices.
 	boundIsCloud, err := store.DeviceHasActiveCloudPairing(ctx, boundDev, orgID)
 	require.NoError(t, err)
-	assert.False(t, boundIsCloud, "a node-bound PAIRED device is node-dialed, not cloud-dialed")
 	cloudIsCloud, err := store.DeviceHasActiveCloudPairing(ctx, cloudDev, orgID)
 	require.NoError(t, err)
+
+	// Assert
+	assert.False(t, boundIsCloud, "a node-bound PAIRED device is node-dialed, not cloud-dialed")
 	assert.True(t, cloudIsCloud, "a PAIRED device with no fleet_node_device is cloud-dialed")
 
-	// Act + Assert: promotion guard. The owning node re-scans both devices.
+	// Act: promotion guard. The owning node re-scans both devices.
 	accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{
 		{DeviceIdentifier: "mac:guard-bound", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
 		{DeviceIdentifier: "mac:guard-cloud", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
 	})
 	require.NoError(t, err)
+
+	// Assert
 	assert.Equal(t, []int{0}, accepted, "own-node PAIRED device refreshes; cloud-paired device is rejected")
 	assert.Equal(t, int64(1), rejected)
 }
@@ -110,9 +114,9 @@ func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
 	upsertNodeDiscovered(t, pairing, orgID, nodeB, "mac:list-b1")
 
 	// Act
-	all, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, nil)
+	all, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, nil, nil, nil)
 	require.NoError(t, err)
-	aOnly, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &nodeA)
+	aOnly, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &nodeA, nil, nil)
 	require.NoError(t, err)
 
 	// Assert
@@ -124,6 +128,31 @@ func TestListFleetNodeDiscoveredDevices_FiltersByNode(t *testing.T) {
 	for _, d := range aOnly {
 		assert.Equal(t, nodeA, d.FleetNodeID)
 	}
+}
+
+func TestListFleetNodeDiscoveredDevices_Paginates(t *testing.T) {
+	// Arrange: three devices discovered by one node.
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-paginate")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:pg-1")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:pg-2")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:pg-3")
+	limit := int64(2)
+
+	// Act: a full first page, then the remainder via the returned cursor.
+	page1, next, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, &limit)
+	require.NoError(t, err)
+	require.NotNil(t, next, "a full page must return a cursor")
+	page2, next2, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, next, &limit)
+	require.NoError(t, err)
+
+	// Assert: 2 + 1 rows, no overlap, cursor exhausted on the short final page.
+	assert.Len(t, page1, 2)
+	assert.Len(t, page2, 1)
+	assert.Nil(t, next2, "a short final page returns no cursor")
+	got := append(discoveredIdentifiers(page1), discoveredIdentifiers(page2)...)
+	assert.ElementsMatch(t, []string{"mac:pg-1", "mac:pg-2", "mac:pg-3"}, got)
 }
 
 func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *testing.T) {
@@ -147,7 +176,7 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 	setPairingStatus(t, db, authDev, "AUTHENTICATION_NEEDED")
 
 	// Act
-	got, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node)
+	got, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, nil)
 	require.NoError(t, err)
 
 	// Assert

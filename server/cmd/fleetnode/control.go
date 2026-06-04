@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
@@ -456,7 +455,7 @@ func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, pr
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			out, _ := waitWithSupervisor(&wg, &mu, &reports, perProbeTimeout*2, logger)
+			out, _ := waitSupervisor(&wg, &mu, &reports, perProbeTimeout*2, "probe", logger)
 			return out, true
 		}
 		wg.Add(1)
@@ -496,10 +495,13 @@ func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, pr
 			mu.Unlock()
 		}(e.ip, e.port)
 	}
-	return waitWithSupervisor(&wg, &mu, &reports, perProbeTimeout*2, logger)
+	return waitSupervisor(&wg, &mu, &reports, perProbeTimeout*2, "probe", logger)
 }
 
-func waitWithSupervisor(wg *sync.WaitGroup, mu *sync.Mutex, reports *[]*pb.DiscoveredDeviceReport, maxWait time.Duration, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, bool) {
+// waitSupervisor caps wg.Wait at maxWait so a plugin call that ignores ctx can't
+// pin the agent; truncated=true lets the caller ack PARTIAL. noun names the work
+// for the budget-exceeded log line. Shared by the discovery and pair fan-outs.
+func waitSupervisor[T any](wg *sync.WaitGroup, mu *sync.Mutex, results *[]T, maxWait time.Duration, noun string, logger *slog.Logger) ([]T, bool) {
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -512,12 +514,12 @@ func waitWithSupervisor(wg *sync.WaitGroup, mu *sync.Mutex, reports *[]*pb.Disco
 	case <-done:
 	case <-timer.C:
 		truncated = true
-		logger.Warn("probe wait exceeded supervisor budget; returning partial batch", "max_wait", maxWait.String())
+		logger.Warn(noun+" wait exceeded supervisor budget; returning partial batch", "max_wait", maxWait.String())
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	out := make([]*pb.DiscoveredDeviceReport, len(*reports))
-	copy(out, *reports)
+	out := make([]T, len(*results))
+	copy(out, *results)
 	return out, truncated
 }
 
@@ -539,14 +541,7 @@ func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, comman
 }
 
 func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg string, logger *slog.Logger) {
-	if len(errMsg) > maxAckErrorMessageBytes {
-		// Walk back to a rune boundary so the ack itself stays valid UTF-8.
-		cut := maxAckErrorMessageBytes - 3
-		for cut > 0 && !utf8.RuneStart(errMsg[cut]) {
-			cut--
-		}
-		errMsg = errMsg[:cut] + "..."
-	}
+	errMsg = truncateUTF8(errMsg, maxAckErrorMessageBytes)
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
 		CommandId:    commandID,
 		Succeeded:    code == pb.AckCode_ACK_CODE_OK,
@@ -564,8 +559,8 @@ type pluginDiscoverer struct {
 	fleetNodeID int64
 }
 
-// newPluginComponents loads the plugin manager once and builds both the
-// discoverer and the pairer over it, so the node never loads plugins twice.
+// newPluginComponents builds the discoverer and pairer over one shared manager
+// so the node loads plugins only once.
 func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, minerSigningPrivKeyHex string) (*pluginDiscoverer, *pluginPairer, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.

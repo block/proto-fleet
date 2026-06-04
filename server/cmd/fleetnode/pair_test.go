@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -17,6 +18,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/token"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -221,4 +223,87 @@ func TestControlLoop_PairEmptyTargetsBadRequest(t *testing.T) {
 	require.Len(t, acks, 1)
 	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, acks[0].GetCode())
 	assert.Empty(t, fake.pairReportsCopy())
+}
+
+func TestControlLoop_PairReportFailureAcksReportFailed(t *testing.T) {
+	// Arrange: a pairable target, but the gateway rejects the result upload.
+	cmd := &RunCmd{pairer: &stubPairer{results: map[string]*pb.FleetNodePairResult{
+		"mac:aa": {DeviceIdentifier: "mac:aa", Outcome: pb.PairOutcome_PAIR_OUTCOME_PAIRED, SerialNumber: "SN1"},
+	}}}
+	fake := &controlFakeGateway{}
+	fake.setBehavior(controlFakeBehavior{pairReportErr: connect.NewError(connect.CodeUnavailable, errors.New("upload boom"))})
+	fake.queue(pairCmd(t, &pairingpb.FleetNodePairRequest{
+		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"}},
+	}))
+
+	// Act
+	runControlLoopOnce(t, cmd, fake)
+
+	// Assert: a failed upload acks REPORT_FAILED after attempting the report.
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_REPORT_FAILED, acks[0].GetCode())
+	assert.Contains(t, acks[0].GetErrorMessage(), "report paired devices")
+	require.Len(t, fake.pairReportsCopy(), 1, "REPORT_FAILED implies the report was attempted")
+}
+
+func TestControlLoop_PairSupervisorTruncatedAcksPartial(t *testing.T) {
+	// Shrink the supervisor budget into a unit-test window.
+	prev := perPairTimeout
+	perPairTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { perPairTimeout = prev })
+
+	// Arrange: one fast target + one that ignores ctx; the supervisor budget
+	// fires before commandTimeout so cmdCtx stays alive and the ack is PARTIAL.
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	cmd := &RunCmd{pairer: &ctxIgnoringPairer{
+		fast:  map[string]*pb.FleetNodePairResult{"mac:fast": {DeviceIdentifier: "mac:fast", Outcome: pb.PairOutcome_PAIR_OUTCOME_PAIRED}},
+		stuck: map[string]bool{"mac:stuck": true},
+		block: block,
+	}}
+	state := &bootstrap.State{FleetNodeID: 7}
+	fake := &controlFakeGateway{}
+	fake.queueWithID("pair-1", pairCmd(t, &pairingpb.FleetNodePairRequest{
+		Targets: []*pairingpb.FleetNodePairTarget{
+			{DeviceIdentifier: "mac:fast", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"},
+			{DeviceIdentifier: "mac:stuck", IpAddress: "10.0.0.6", Port: "80", DriverName: "antminer"},
+		},
+	}))
+	client := newControlClient(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, acks[0].GetCode())
+	assert.Contains(t, acks[0].GetErrorMessage(), "supervisor")
+}
+
+// Ignores ctx for identifiers in stuck (blocks on `block`); fast for the rest.
+type ctxIgnoringPairer struct {
+	fast  map[string]*pb.FleetNodePairResult
+	stuck map[string]bool
+	block chan struct{}
+}
+
+func (p *ctxIgnoringPairer) Pair(_ context.Context, target *pairingpb.FleetNodePairTarget, _ *pairingpb.Credentials) *pb.FleetNodePairResult {
+	id := target.GetDeviceIdentifier()
+	if p.stuck[id] {
+		<-p.block
+	}
+	if r, ok := p.fast[id]; ok {
+		return r
+	}
+	return &pb.FleetNodePairResult{DeviceIdentifier: id, Outcome: pb.PairOutcome_PAIR_OUTCOME_ERROR}
 }

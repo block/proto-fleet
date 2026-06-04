@@ -76,10 +76,12 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	return out, nil
 }
 
-func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]pairing.FleetNodeDiscoveredDevice, error) {
+func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID, cursorID, limit *int64) ([]pairing.FleetNodeDiscoveredDevice, error) {
 	rows, err := s.q(ctx).ListFleetNodeDiscoveredDevices(ctx, sqlc.ListFleetNodeDiscoveredDevicesParams{
 		OrgID:       orgID,
 		FleetNodeID: ptrToNullInt64(fleetNodeID),
+		CursorID:    ptrToNullInt64(cursorID),
+		Limit:       ptrToNullInt64(limit),
 	})
 	if err != nil {
 		return nil, err
