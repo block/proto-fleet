@@ -143,6 +143,19 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 		return nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)
 	}
 
+	// The driver dispatches emergency curtailment under this source's service
+	// user with admin controls, so that user must belong to the org it curtails.
+	// Gate here (before decrypting the password) so a misconfigured cross-org
+	// service_user_id can't start a worker.
+	member, err := s.cfg.Store.UserBelongsToOrg(ctx, src.ServiceUserID, src.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
+	}
+	if !member {
+		return nil, fmt.Errorf("mqttingest: source %s service user %d is not a member of org %d",
+			src.SourceName, src.ServiceUserID, src.OrganizationID)
+	}
+
 	password, err := s.cfg.Decryptor.Decrypt(src.MQTTPasswordEncrypted)
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)

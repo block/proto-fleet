@@ -25,6 +25,7 @@ type fakeStore struct {
 	sources     []SourceConfig
 	state       map[int64]SourceState
 	getStateErr error
+	nonMembers  map[int64]bool // user IDs treated as not belonging to their org
 }
 
 func newFakeStore(sources ...SourceConfig) *fakeStore {
@@ -81,6 +82,12 @@ func (f *fakeStore) UpsertSourceState(_ context.Context, u StateUpdate) error {
 
 func (f *fakeStore) ListSourcesForWatchdog(_ context.Context) ([]WatchdogRow, error) {
 	return nil, nil // unused by the subscriber test path
+}
+
+func (f *fakeStore) UserBelongsToOrg(_ context.Context, userID, _ int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.nonMembers[userID], nil
 }
 
 // fakeMQTTClient delivers operator-injected payloads on a single
@@ -257,6 +264,44 @@ func TestSubscriber_Run_DispatchesOnOffEdge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, TargetOff, s.LastTarget)
 	assert.Equal(t, newUUID.String(), s.LastEdgeEventUUID)
+}
+
+// A source whose service user is not a member of its org is rejected at
+// startup: the worker is not started, so a misconfigured (e.g. cross-org)
+// service_user_id can't drive emergency curtailment under admin controls.
+func TestSubscriber_StartWorker_RejectsNonMemberServiceUser(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{
+		ID:                  1,
+		OrganizationID:      7,
+		ServiceUserID:       99,
+		SourceName:          "site-a",
+		BrokerPrimaryHost:   "10.0.0.1",
+		BrokerSecondaryHost: "10.0.0.2",
+		Enabled:             true,
+	}
+
+	store := newFakeStore(src)
+	store.nonMembers = map[int64]bool{99: true} // service user 99 is not in org 7
+
+	cfg := Config{
+		Store:            store,
+		Driver:           NewDriver(&fakeService{}, nil),
+		NewClient:        func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor:        passthroughDecryptor{},
+		Logger:           slog.New(slog.DiscardHandler),
+		ShutdownDeadline: time.Second,
+	}
+	sub, err := NewSubscriber(cfg)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	w, err := sub.startWorker(context.Background(), src, &wg)
+
+	require.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "not a member of org")
 }
 
 func TestSubscriber_NewSubscriber_RejectsMissingDeps(t *testing.T) {

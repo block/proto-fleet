@@ -94,6 +94,11 @@ type Store interface {
 	GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error)
 	UpsertSourceState(ctx context.Context, update StateUpdate) error
 	ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, error)
+	// UserBelongsToOrg reports whether userID is a (non-deleted) member of
+	// orgID. The subscriber gates each source's service user through this
+	// before starting its worker, so a misconfigured row can't drive
+	// emergency curtailment for an org the user doesn't belong to.
+	UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error)
 }
 
 // ErrSourceStateNotFound is returned by GetSourceState when no state
@@ -185,6 +190,19 @@ func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, 
 		}
 	}
 	return out, nil
+}
+
+func (s *sqlcStore) UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error) {
+	if _, err := s.queries.GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
+		UserID:         userID,
+		OrganizationID: orgID,
+	}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get user role in org: %w", err)
+	}
+	return true, nil
 }
 
 const (
