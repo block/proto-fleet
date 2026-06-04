@@ -218,11 +218,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		select {
 		case slot <- struct{}{}:
 			wg.Add(1)
-			go func(c *pb.ControlCommand, e *pairingpb.AgentCommand, pErr error) {
+			// All loop-scoped values the handler needs are passed as arguments,
+			// including the acquired lane, so each goroutine releases the same lane.
+			go func(c *pb.ControlCommand, e *pairingpb.AgentCommand, pErr error, lane chan struct{}) {
 				defer wg.Done()
-				defer func() { <-slot }()
+				defer func() { <-lane }()
 				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
-			}(cmd, env, parseErr)
+			}(cmd, env, parseErr, slot)
 		default:
 			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
 			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
