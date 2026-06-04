@@ -171,10 +171,12 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return plan, nil
 	}
 
-	if len(plan.Selected) == 0 {
+	if len(plan.Selected) == 0 && req.Mode != models.ModeFullFleet {
 		// Defense-in-depth; FIXED_KW's validator + selector prevent this.
 		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
 	}
+	// FULL_FLEET with an empty eligible set is valid (nothing curtailable ==
+	// vacuously off); it persists directly COMPLETED with no targets below.
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
 	// Bounds-check the normalized value so a misconfigured default surfaces
@@ -850,13 +852,27 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		CandidateMinPowerW: minPowerW,
 	})
 
-	mode, err := modes.NewFixedKw(req.TargetKW, req.ToleranceKW, summary)
+	mode, err := buildMode(req.Mode, req.TargetKW, req.ToleranceKW, summary)
 	if err != nil {
-		return nil, 0, nil, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
+		return nil, 0, nil, err
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
 	return &plan, minPowerW, orgConfig, nil
+}
+
+// buildMode constructs the selection mode from the request. FULL_FLEET takes
+// the whole eligible set; the default (FIXED_KW, including the unset zero
+// value) sizes selection to target_kw.
+func buildMode(m models.Mode, targetKW, toleranceKW float64, summary modes.InsufficientLoadDetail) (modes.Mode, error) {
+	if m == models.ModeFullFleet {
+		return modes.FullFleet{}, nil
+	}
+	fk, err := modes.NewFixedKw(targetKW, toleranceKW, summary)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
+	}
+	return fk, nil
 }
 
 const (
@@ -960,8 +976,8 @@ func validateStartRequest(req StartRequest) error {
 }
 
 func validatePreviewRequest(req PreviewRequest) error {
-	if req.Mode != "" && req.Mode != models.ModeFixedKw {
-		return fleeterror.NewInvalidArgumentErrorf("mode %q is not supported; only FIXED_KW", req.Mode)
+	if req.Mode != "" && req.Mode != models.ModeFixedKw && req.Mode != models.ModeFullFleet {
+		return fleeterror.NewInvalidArgumentErrorf("mode %q is not supported; only FIXED_KW and FULL_FLEET", req.Mode)
 	}
 	if req.Level != "" && req.Level != models.LevelFull {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported; only FULL", req.Level)
@@ -977,27 +993,31 @@ func validatePreviewRequest(req PreviewRequest) error {
 			"priority %q is not supported; use NORMAL or EMERGENCY", req.Priority,
 		)
 	}
-	// NaN/+/-Inf comparisons evaluate false, slipping past the > 0/>= 0
-	// guards below and poisoning FixedKw's running sum.
-	if math.IsNaN(req.TargetKW) || math.IsInf(req.TargetKW, 0) {
-		return fleeterror.NewInvalidArgumentErrorf("target_kw must be a finite number, got %v", req.TargetKW)
-	}
-	if math.IsNaN(req.ToleranceKW) || math.IsInf(req.ToleranceKW, 0) {
-		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be a finite number, got %v", req.ToleranceKW)
-	}
-	if req.TargetKW <= 0 {
-		return fleeterror.NewInvalidArgumentErrorf("target_kw must be > 0, got %v", req.TargetKW)
-	}
-	if req.ToleranceKW < 0 {
-		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be >= 0, got %v", req.ToleranceKW)
-	}
-	// tolerance_kw >= target_kw makes the undershoot branch trivially pass
-	// at zero candidate sum, producing a misleading empty "successful" plan.
-	if req.ToleranceKW >= req.TargetKW {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"tolerance_kw must be < target_kw, got tolerance=%v target=%v",
-			req.ToleranceKW, req.TargetKW,
-		)
+	// FIXED_KW kW-target validation. FULL_FLEET curtails the whole eligible set
+	// and ignores target_kw / tolerance_kw.
+	if req.Mode != models.ModeFullFleet {
+		// NaN/+/-Inf comparisons evaluate false, slipping past the > 0/>= 0
+		// guards below and poisoning FixedKw's running sum.
+		if math.IsNaN(req.TargetKW) || math.IsInf(req.TargetKW, 0) {
+			return fleeterror.NewInvalidArgumentErrorf("target_kw must be a finite number, got %v", req.TargetKW)
+		}
+		if math.IsNaN(req.ToleranceKW) || math.IsInf(req.ToleranceKW, 0) {
+			return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be a finite number, got %v", req.ToleranceKW)
+		}
+		if req.TargetKW <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf("target_kw must be > 0, got %v", req.TargetKW)
+		}
+		if req.ToleranceKW < 0 {
+			return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be >= 0, got %v", req.ToleranceKW)
+		}
+		// tolerance_kw >= target_kw makes the undershoot branch trivially pass
+		// at zero candidate sum, producing a misleading empty "successful" plan.
+		if req.ToleranceKW >= req.TargetKW {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"tolerance_kw must be < target_kw, got tolerance=%v target=%v",
+				req.ToleranceKW, req.TargetKW,
+			)
+		}
 	}
 	// Bounds match proto-side validator; backstop for non-Connect callers.
 	if req.CandidateMinPowerWOverride != nil &&
@@ -1205,14 +1225,21 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
-	modeParamsJSON, err := json.Marshal(map[string]float64{
-		"target_kw":    req.TargetKW,
-		"tolerance_kw": req.ToleranceKW,
-	})
-	if err != nil {
-		return models.InsertEventParams{}, nil, fleeterror.NewInternalErrorf(
-			"failed to encode mode_params: %v", err,
-		)
+	mode := req.Mode
+	if mode == "" {
+		mode = models.ModeFixedKw
+	}
+	modeParamsJSON := []byte("{}")
+	if mode == models.ModeFixedKw {
+		modeParamsJSON, err = json.Marshal(map[string]float64{
+			"target_kw":    req.TargetKW,
+			"tolerance_kw": req.ToleranceKW,
+		})
+		if err != nil {
+			return models.InsertEventParams{}, nil, fleeterror.NewInternalErrorf(
+				"failed to encode mode_params: %v", err,
+			)
+		}
 	}
 	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW)
 	if err != nil {
@@ -1224,8 +1251,8 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
-		State:                   models.EventStatePending,
-		Mode:                    models.ModeFixedKw,
+		State:                   eventStartState(mode, len(plan.Selected)),
+		Mode:                    mode,
 		Strategy:                models.StrategyLeastEfficientFirst,
 		Level:                   models.LevelFull,
 		Priority:                req.Priority,
@@ -1273,6 +1300,17 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		}
 	}
 	return event, targets, nil
+}
+
+// eventStartState is the state a freshly-built event is inserted with. A
+// FULL_FLEET event with no eligible targets is vacuously complete on arrival
+// (nothing to curtail or restore); everything else starts PENDING and the
+// reconciler drives it.
+func eventStartState(mode models.Mode, targetCount int) models.EventState {
+	if mode == models.ModeFullFleet && targetCount == 0 {
+		return models.EventStateCompleted
+	}
+	return models.EventStatePending
 }
 
 // marshalScopeJSON renders the request scope as the JSONB column value.

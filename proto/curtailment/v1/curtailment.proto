@@ -86,6 +86,11 @@ enum CurtailmentMode {
     CURTAILMENT_MODE_THERMAL_LIMIT    = 5;  // reserved (v3)
     CURTAILMENT_MODE_PRICE_BREAKEVEN  = 6;  // reserved (v3)
     CURTAILMENT_MODE_POWER_TRAJECTORY = 7;  // reserved (v3)
+
+    // Open-loop: curtail every eligible candidate in the selected scope (no kW
+    // target), frozen at creation. Whole-org scope = whole fleet; a site /
+    // device-list scope = that site.
+    CURTAILMENT_MODE_FULL_FLEET       = 8;
 }
 
 // CurtailmentStrategy selects candidate ranking.
@@ -204,6 +209,11 @@ message SitePowerCapParams {
     double cap_kw = 1;
 }
 
+// FullFleetParams configures FULL_FLEET (curtail every eligible candidate in
+// scope). Empty today; reserved for future toggles (e.g. also targeting
+// idle / sub-threshold miners).
+message FullFleetParams {}
+
 // --- Domain messages ---
 
 // CurtailmentEvent is the full event returned by Get/List/Start RPCs.
@@ -227,6 +237,7 @@ message CurtailmentEvent {
         FixedKwParams      fixed_kw       = 10;
         FixedCountParams   fixed_count    = 11;
         SitePowerCapParams site_power_cap = 12;
+        FullFleetParams    full_fleet     = 13;
     }
 
     // Original operational controls.

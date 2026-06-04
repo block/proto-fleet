@@ -97,12 +97,14 @@ const (
 	SourceActorScheduler SourceActorType = "scheduler"
 )
 
-// Mode is the curtailment dispatch mode. Currently FIXED_KW only;
-// reserved values are rejected by the service validator.
+// Mode is the curtailment dispatch mode. FIXED_KW (select until a kW target)
+// and FULL_FLEET (curtail every eligible candidate in scope); reserved values
+// are rejected by the service validator.
 type Mode string
 
 const (
-	ModeFixedKw Mode = "FIXED_KW"
+	ModeFixedKw   Mode = "FIXED_KW"
+	ModeFullFleet Mode = "FULL_FLEET"
 )
 
 // Strategy is the candidate-ranking strategy. Currently
