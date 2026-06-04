@@ -467,14 +467,15 @@ type CurtailmentMqttSourceConfig struct {
 }
 
 type CurtailmentMqttSourceState struct {
-	SourceConfigID     int64
-	LastTarget         sql.NullInt16
-	LastTargetAt       sql.NullTime
-	LastReceivedAt     sql.NullTime
-	LastReceivedBroker sql.NullString
-	LastEdgeAt         sql.NullTime
-	LastEdgeEventUuid  uuid.NullUUID
-	UpdatedAt          time.Time
+	SourceConfigID      int64
+	LastTarget          sql.NullInt16
+	LastTargetAt        sql.NullTime
+	LastProcessedTarget sql.NullInt16
+	LastReceivedAt      sql.NullTime
+	LastReceivedBroker  sql.NullString
+	LastEdgeAt          sql.NullTime
+	LastEdgeEventUuid   uuid.NullUUID
+	UpdatedAt           time.Time
 }
 
 type CurtailmentOrgConfig struct {

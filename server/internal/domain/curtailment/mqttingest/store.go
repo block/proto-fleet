@@ -47,9 +47,10 @@ type SourceState struct {
 	LastTarget     Target
 	LastTargetAt   time.Time
 	// LastProcessedTarget is the target of the payload that last advanced
-	// LastTargetAt. The dedup guard suppresses a redelivery (same stamp AND
-	// same target) while still acting on a genuine same-second flip (wire
-	// stamps are seconds-precision). In-memory; initialized from LastTarget.
+	// LastTargetAt (may differ from LastTarget after a debounced flip). The
+	// dedup guard suppresses a redelivery (same stamp AND same target) while
+	// still acting on a genuine same-second flip (wire stamps are
+	// seconds-precision). Persisted so the guard survives a restart.
 	LastProcessedTarget Target
 	LastReceivedAt      time.Time
 	LastReceivedBroker  string
@@ -73,13 +74,14 @@ type WatchdogRow struct {
 // message receive or edge dispatch. Nil pointers leave the existing
 // column value untouched (mirrors the sqlc COALESCE upsert behavior).
 type StateUpdate struct {
-	SourceConfigID     int64
-	LastTarget         *Target
-	LastTargetAt       *time.Time
-	LastReceivedAt     *time.Time
-	LastReceivedBroker *string
-	LastEdgeAt         *time.Time
-	LastEdgeEventUUID  *string
+	SourceConfigID      int64
+	LastTarget          *Target
+	LastTargetAt        *time.Time
+	LastProcessedTarget *Target
+	LastReceivedAt      *time.Time
+	LastReceivedBroker  *string
+	LastEdgeAt          *time.Time
+	LastEdgeEventUUID   *string
 }
 
 // Store is the data-access interface the subscriber depends on. The
@@ -140,6 +142,9 @@ func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) e
 	}
 	if update.LastTargetAt != nil {
 		params.LastTargetAt = nullTimeFrom(*update.LastTargetAt)
+	}
+	if update.LastProcessedTarget != nil {
+		params.LastProcessedTarget = nullInt16FromTarget(*update.LastProcessedTarget)
 	}
 	if update.LastReceivedAt != nil {
 		params.LastReceivedAt = nullTimeFrom(*update.LastReceivedAt)
@@ -215,7 +220,7 @@ func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 		SourceConfigID:      r.SourceConfigID,
 		LastTarget:          targetFromNullInt16(r.LastTarget),
 		LastTargetAt:        timeFromNullTime(r.LastTargetAt),
-		LastProcessedTarget: targetFromNullInt16(r.LastTarget),
+		LastProcessedTarget: targetFromNullInt16(r.LastProcessedTarget),
 		LastReceivedAt:      timeFromNullTime(r.LastReceivedAt),
 		LastReceivedBroker:  stringFromNullString(r.LastReceivedBroker),
 		LastEdgeAt:          timeFromNullTime(r.LastEdgeAt),

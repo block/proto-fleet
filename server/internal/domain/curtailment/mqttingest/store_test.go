@@ -75,3 +75,19 @@ func TestSourceConfigFromRow_CarriesCurtailMode(t *testing.T) {
 	assert.Equal(t, "FULL_FLEET", full.CurtailMode)
 	assert.Zero(t, full.ContractedCurtailmentKw, "NULL contracted kW surfaces as 0 for full_fleet")
 }
+
+// last_processed_target rehydrates independently of last_target so the dedup
+// guard survives a restart after a debounced flip (last_target=OFF while the
+// debounced ON advanced last_processed_target to ON).
+func TestSourceStateFromRow_RehydratesProcessedTarget(t *testing.T) {
+	t.Parallel()
+
+	st := sourceStateFromRow(sqlc.CurtailmentMqttSourceState{
+		LastTarget:          sql.NullInt16{Int16: 0, Valid: true},   // settled OFF
+		LastProcessedTarget: sql.NullInt16{Int16: 100, Valid: true}, // debounced ON
+	})
+
+	assert.Equal(t, TargetOff, st.LastTarget)
+	assert.Equal(t, TargetOn, st.LastProcessedTarget,
+		"processed target survives restart, distinct from the settled target")
+}

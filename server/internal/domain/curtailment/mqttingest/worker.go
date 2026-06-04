@@ -330,11 +330,12 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 
 func (w *sourceWorker) persistState(ctx context.Context, s SourceState) {
 	update := StateUpdate{
-		SourceConfigID:     w.source.ID,
-		LastTarget:         &s.LastTarget,
-		LastTargetAt:       &s.LastTargetAt,
-		LastReceivedAt:     &s.LastReceivedAt,
-		LastReceivedBroker: &s.LastReceivedBroker,
+		SourceConfigID:      w.source.ID,
+		LastTarget:          &s.LastTarget,
+		LastTargetAt:        &s.LastTargetAt,
+		LastProcessedTarget: &s.LastProcessedTarget,
+		LastReceivedAt:      &s.LastReceivedAt,
+		LastReceivedBroker:  &s.LastReceivedBroker,
 	}
 	if !s.LastEdgeAt.IsZero() {
 		update.LastEdgeAt = &s.LastEdgeAt

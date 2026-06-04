@@ -47,7 +47,7 @@ func (q *Queries) GetMQTTSourceConfigByID(ctx context.Context, id int64) (Curtai
 }
 
 const getMQTTSourceStateByID = `-- name: GetMQTTSourceStateByID :one
-SELECT source_config_id, last_target, last_target_at, last_received_at, last_received_broker, last_edge_at, last_edge_event_uuid, updated_at
+SELECT source_config_id, last_target, last_target_at, last_processed_target, last_received_at, last_received_broker, last_edge_at, last_edge_event_uuid, updated_at
 FROM curtailment_mqtt_source_state
 WHERE source_config_id = $1
 `
@@ -59,6 +59,7 @@ func (q *Queries) GetMQTTSourceStateByID(ctx context.Context, sourceConfigID int
 		&i.SourceConfigID,
 		&i.LastTarget,
 		&i.LastTargetAt,
+		&i.LastProcessedTarget,
 		&i.LastReceivedAt,
 		&i.LastReceivedBroker,
 		&i.LastEdgeAt,
@@ -288,6 +289,7 @@ INSERT INTO curtailment_mqtt_source_state (
     source_config_id,
     last_target,
     last_target_at,
+    last_processed_target,
     last_received_at,
     last_received_broker,
     last_edge_at,
@@ -299,12 +301,14 @@ INSERT INTO curtailment_mqtt_source_state (
     $4,
     $5,
     $6,
-    $7
+    $7,
+    $8
 )
 ON CONFLICT (source_config_id) DO UPDATE
 SET
     last_target            = COALESCE(EXCLUDED.last_target, curtailment_mqtt_source_state.last_target),
     last_target_at         = COALESCE(EXCLUDED.last_target_at, curtailment_mqtt_source_state.last_target_at),
+    last_processed_target  = COALESCE(EXCLUDED.last_processed_target, curtailment_mqtt_source_state.last_processed_target),
     last_received_at       = COALESCE(EXCLUDED.last_received_at, curtailment_mqtt_source_state.last_received_at),
     last_received_broker   = COALESCE(EXCLUDED.last_received_broker, curtailment_mqtt_source_state.last_received_broker),
     last_edge_at           = COALESCE(EXCLUDED.last_edge_at, curtailment_mqtt_source_state.last_edge_at),
@@ -312,13 +316,14 @@ SET
 `
 
 type UpsertMQTTSourceStateParams struct {
-	SourceConfigID     int64
-	LastTarget         sql.NullInt16
-	LastTargetAt       sql.NullTime
-	LastReceivedAt     sql.NullTime
-	LastReceivedBroker sql.NullString
-	LastEdgeAt         sql.NullTime
-	LastEdgeEventUuid  uuid.NullUUID
+	SourceConfigID      int64
+	LastTarget          sql.NullInt16
+	LastTargetAt        sql.NullTime
+	LastProcessedTarget sql.NullInt16
+	LastReceivedAt      sql.NullTime
+	LastReceivedBroker  sql.NullString
+	LastEdgeAt          sql.NullTime
+	LastEdgeEventUuid   uuid.NullUUID
 }
 
 // Subscriber upserts state on each successful message receive (after
@@ -328,6 +333,7 @@ func (q *Queries) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourc
 		arg.SourceConfigID,
 		arg.LastTarget,
 		arg.LastTargetAt,
+		arg.LastProcessedTarget,
 		arg.LastReceivedAt,
 		arg.LastReceivedBroker,
 		arg.LastEdgeAt,

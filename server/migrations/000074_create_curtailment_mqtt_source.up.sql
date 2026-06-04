@@ -93,6 +93,10 @@ CREATE TABLE curtailment_mqtt_source_state (
     last_target             SMALLINT     NULL,
     -- Publisher-stamped timestamp from the most recent payload.
     last_target_at          TIMESTAMPTZ  NULL,
+    -- Target of the payload that set last_target_at; may differ from
+    -- last_target after a debounced flip. Persisted so the duplicate guard
+    -- survives a restart (a redelivery of a debounced flip stays suppressed).
+    last_processed_target   SMALLINT     NULL,
     -- Fleet's receive timestamp; staleness compares this against now().
     last_received_at        TIMESTAMPTZ  NULL,
     -- Broker that won precedence on the last message.
@@ -108,7 +112,9 @@ CREATE TABLE curtailment_mqtt_source_state (
     CONSTRAINT fk_curtailment_mqtt_source_state_config FOREIGN KEY (source_config_id)
         REFERENCES curtailment_mqtt_source_config(id) ON DELETE CASCADE,
     CONSTRAINT ck_curtailment_mqtt_source_state_target_valid
-        CHECK (last_target IS NULL OR last_target IN (0, 100))
+        CHECK (last_target IS NULL OR last_target IN (0, 100)),
+    CONSTRAINT ck_curtailment_mqtt_source_state_processed_target_valid
+        CHECK (last_processed_target IS NULL OR last_processed_target IN (0, 100))
 );
 
 CREATE TRIGGER update_curtailment_mqtt_source_state_updated_at

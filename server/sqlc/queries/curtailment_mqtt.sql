@@ -23,6 +23,7 @@ INSERT INTO curtailment_mqtt_source_state (
     source_config_id,
     last_target,
     last_target_at,
+    last_processed_target,
     last_received_at,
     last_received_broker,
     last_edge_at,
@@ -31,6 +32,7 @@ INSERT INTO curtailment_mqtt_source_state (
     sqlc.arg('source_config_id'),
     sqlc.narg('last_target'),
     sqlc.narg('last_target_at'),
+    sqlc.narg('last_processed_target'),
     sqlc.narg('last_received_at'),
     sqlc.narg('last_received_broker'),
     sqlc.narg('last_edge_at'),
@@ -40,6 +42,7 @@ ON CONFLICT (source_config_id) DO UPDATE
 SET
     last_target            = COALESCE(EXCLUDED.last_target, curtailment_mqtt_source_state.last_target),
     last_target_at         = COALESCE(EXCLUDED.last_target_at, curtailment_mqtt_source_state.last_target_at),
+    last_processed_target  = COALESCE(EXCLUDED.last_processed_target, curtailment_mqtt_source_state.last_processed_target),
     last_received_at       = COALESCE(EXCLUDED.last_received_at, curtailment_mqtt_source_state.last_received_at),
     last_received_broker   = COALESCE(EXCLUDED.last_received_broker, curtailment_mqtt_source_state.last_received_broker),
     last_edge_at           = COALESCE(EXCLUDED.last_edge_at, curtailment_mqtt_source_state.last_edge_at),
