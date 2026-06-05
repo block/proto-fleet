@@ -41,6 +41,8 @@ type Config struct {
 type Subscriber struct {
 	cfg     Config
 	workers map[int64]*sourceWorker
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 	mu      sync.Mutex
 }
 
@@ -79,18 +81,32 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	}, nil
 }
 
-// Run starts enabled sources once and blocks until ctx is canceled.
-func (s *Subscriber) Run(ctx context.Context) error {
-	sources, err := s.cfg.Store.ListEnabledSources(ctx)
+// Start starts enabled sources once. Enable/disable changes take effect after
+// restart; per-source startup errors are logged so other sources can still run.
+func (s *Subscriber) Start(ctx context.Context) error {
+	s.mu.Lock()
+	if s.cancel != nil {
+		s.mu.Unlock()
+		return errors.New("mqttingest: subscriber already started")
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.cancel = cancel
+	s.workers = make(map[int64]*sourceWorker)
+	s.mu.Unlock()
+
+	sources, err := s.cfg.Store.ListEnabledSources(runCtx)
 	if err != nil {
+		cancel()
+		s.mu.Lock()
+		s.cancel = nil
+		s.mu.Unlock()
 		return fmt.Errorf("mqttingest: list enabled sources: %w", err)
 	}
 
 	s.cfg.Logger.Info("mqttingest subscriber starting", slog.Int("source_count", len(sources)))
 
-	var wg sync.WaitGroup
 	for _, src := range sources {
-		w, err := s.startWorker(ctx, src, &wg)
+		w, err := s.startWorker(runCtx, src, &s.wg)
 		if err != nil {
 			s.cfg.Logger.Error("mqttingest: start worker failed",
 				slog.String("source", src.SourceName),
@@ -102,12 +118,26 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		s.mu.Unlock()
 	}
 
-	<-ctx.Done()
+	return nil
+}
+
+// Stop cancels all workers and waits up to ShutdownDeadline for them to drain.
+func (s *Subscriber) Stop() {
+	s.mu.Lock()
+	cancel := s.cancel
+	if cancel == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.cancel = nil
+	s.mu.Unlock()
+
+	cancel()
 	s.cfg.Logger.Info("mqttingest subscriber draining workers",
 		slog.Duration("deadline", s.cfg.ShutdownDeadline))
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		s.wg.Wait()
 		close(done)
 	}()
 	select {
@@ -116,6 +146,19 @@ func (s *Subscriber) Run(ctx context.Context) error {
 	case <-time.After(s.cfg.ShutdownDeadline):
 		s.cfg.Logger.Warn("mqttingest subscriber shutdown deadline exceeded")
 	}
+
+	s.mu.Lock()
+	s.workers = make(map[int64]*sourceWorker)
+	s.mu.Unlock()
+}
+
+// Run starts enabled sources once and blocks until ctx is canceled.
+func (s *Subscriber) Run(ctx context.Context) error {
+	if err := s.Start(ctx); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	s.Stop()
 	return nil
 }
 

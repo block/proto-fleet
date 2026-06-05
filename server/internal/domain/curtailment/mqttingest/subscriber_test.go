@@ -3,6 +3,7 @@ package mqttingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -21,11 +22,12 @@ import (
 // write surface. Tests preload sources and inspect state after the
 // subscriber drains.
 type fakeStore struct {
-	mu          sync.Mutex
-	sources     []SourceConfig
-	state       map[int64]SourceState
-	getStateErr error
-	nonMembers  map[int64]bool // user IDs treated as not belonging to their org
+	mu             sync.Mutex
+	sources        []SourceConfig
+	state          map[int64]SourceState
+	listSourcesErr error
+	getStateErr    error
+	nonMembers     map[int64]bool // user IDs treated as not belonging to their org
 }
 
 func newFakeStore(sources ...SourceConfig) *fakeStore {
@@ -35,6 +37,9 @@ func newFakeStore(sources ...SourceConfig) *fakeStore {
 func (f *fakeStore) ListEnabledSources(_ context.Context) ([]SourceConfig, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listSourcesErr != nil {
+		return nil, f.listSourcesErr
+	}
 	cp := make([]SourceConfig, len(f.sources))
 	copy(cp, f.sources)
 	return cp, nil
@@ -305,6 +310,27 @@ func TestSubscriber_StartWorker_RejectsNonMemberServiceUser(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, w)
 	assert.Contains(t, err.Error(), "not a member of org")
+}
+
+func TestSubscriber_Start_ReturnsListSourcesError(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.listSourcesErr = errors.New("db down")
+	sub, err := NewSubscriber(Config{
+		Store:     store,
+		Driver:    NewDriver(&fakeService{}, nil),
+		NewClient: func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor: passthroughDecryptor{},
+		Logger:    slog.New(slog.DiscardHandler),
+	})
+	require.NoError(t, err)
+
+	err = sub.Start(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "list enabled sources")
+	sub.Stop()
 }
 
 func TestSubscriber_NewSubscriber_RejectsMissingDeps(t *testing.T) {

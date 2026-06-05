@@ -498,6 +498,64 @@ func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 	}
 }
 
+func TestWorker_Run_RetriesInitialReconcileBeforeProcessingOn(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	store := newFakeStore()
+	store.state[src.ID] = SourceState{SourceConfigID: src.ID, LastTarget: TargetOn}
+
+	eventUUID := uuid.New()
+	svc := &fakeService{
+		listActiveErrs: []error{errors.New("db down"), nil},
+		listActiveResult: []*models.Event{
+			testSourceEvent(src, eventUUID, models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: eventUUID},
+	}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond
+
+	clients := make(chan *fakeMQTTClient, 2)
+	w.cfg.NewClient = func() MQTTClient {
+		c := newFakeMQTTClient()
+		clients <- c
+		return c
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	var primary *fakeMQTTClient
+	select {
+	case primary = <-clients:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not subscribe after reconcile retry")
+	}
+	select {
+	case <-clients:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not create secondary client after reconcile retry")
+	}
+	require.GreaterOrEqual(t, svc.listActiveCallsLen(), 2, "startup must retry active-event reconciliation before subscribing")
+
+	now := time.Now().UTC()
+	body, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	primary.deliver(body, now)
+
+	assertEventually(t, 2*time.Second, func() bool { return svc.stopCallsLen() == 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}
+
 // A held source event satisfies OFF.
 func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
 	t.Parallel()
@@ -800,8 +858,9 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 			svc := &fakeService{listActiveResult: listActive}
 			w := newTestWorker(t, store, svc, src)
 
-			state := w.loadInitialState(context.Background())
+			state, ok := w.loadInitialState(context.Background())
 
+			require.True(t, ok)
 			assert.Equal(t, tc.wantTarget, state.LastTarget)
 			if tc.wantEventID != "" {
 				assert.Equal(t, tc.wantEventID, state.LastEdgeEventUUID)
@@ -824,7 +883,8 @@ func TestWorker_LoadInitialState_SeedsAnchorsFromActiveEvent(t *testing.T) {
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
-	recovered := w.loadInitialState(context.Background())
+	recovered, ok := w.loadInitialState(context.Background())
+	require.True(t, ok)
 	require.Equal(t, TargetOff, recovered.LastTarget, "an active own event reconciles to OFF")
 	assert.Equal(t, eventStart, recovered.LastTargetAt, "ordering anchor seeded from the active event")
 	assert.Equal(t, eventStart, recovered.LastEdgeAt, "debounce anchor seeded from the active event")

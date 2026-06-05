@@ -37,7 +37,10 @@ const observationChannelBuffer = 256
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
 
-	state := w.loadInitialState(ctx)
+	state, ok := w.waitForInitialState(ctx)
+	if !ok {
+		return
+	}
 
 	messages := make(chan observation, observationChannelBuffer)
 
@@ -84,10 +87,28 @@ func (w *sourceWorker) run(ctx context.Context) {
 	}
 }
 
+func (w *sourceWorker) waitForInitialState(ctx context.Context) (SourceState, bool) {
+	retryEvery := w.initialStateRetryEvery()
+	for {
+		state, ok := w.loadInitialState(ctx)
+		if ok {
+			return state, true
+		}
+
+		timer := time.NewTimer(retryEvery)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return SourceState{}, false
+		case <-timer.C:
+		}
+	}
+}
+
 // loadInitialState recovers persisted source state, then reconciles to OFF only
 // when this source already has a pending/active event. A restoring event means
 // ON was accepted and restore is in progress.
-func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
+func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool) {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
 		if !errors.Is(err, ErrSourceStateNotFound) {
@@ -106,6 +127,7 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 			w.cfg.Logger.Warn("mqttingest: active-event reconcile failed",
 				slog.String("source", w.source.SourceName),
 				slog.Any("error", aerr))
+			return state, false
 		case eventHoldsCurtailment(active):
 			state.LastTarget = TargetOff
 			state.LastEdgeEventUUID = active.EventUUID.String()
@@ -118,7 +140,14 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 				slog.String("event_uuid", state.LastEdgeEventUUID))
 		}
 	}
-	return state
+	return state, true
+}
+
+func (w *sourceWorker) initialStateRetryEvery() time.Duration {
+	if w.cfg.WatchdogTickEvery > 0 && w.cfg.WatchdogTickEvery < time.Second {
+		return w.cfg.WatchdogTickEvery
+	}
+	return time.Second
 }
 
 func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {

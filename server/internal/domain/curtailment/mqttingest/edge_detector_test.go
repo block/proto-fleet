@@ -73,7 +73,7 @@ func TestDecide_Transitions(t *testing.T) {
 func TestDecide_Debounce(t *testing.T) {
 	t.Parallel()
 
-	t.Run("flip within debounce window is absorbed", func(t *testing.T) {
+	t.Run("OFF to ON within debounce window is absorbed", func(t *testing.T) {
 		t.Parallel()
 
 		edgeAt := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
@@ -85,6 +85,20 @@ func TestDecide_Debounce(t *testing.T) {
 		got := Decide(prior, observed)
 
 		assert.Equal(t, EdgeNone, got)
+	})
+
+	t.Run("ON to OFF within debounce window still curtails", func(t *testing.T) {
+		t.Parallel()
+
+		edgeAt := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+		within := edgeAt.Add(2 * time.Second)
+
+		prior := PriorState{LastTarget: TargetOn, LastEdgeAt: edgeAt}
+		observed := CanonicalState{Target: TargetOff, ReceivedAt: within}
+
+		got := Decide(prior, observed)
+
+		assert.Equal(t, EdgeOnToOff, got)
 	})
 
 	t.Run("flip after debounce window fires the edge", func(t *testing.T) {

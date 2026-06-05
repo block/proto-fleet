@@ -59,6 +59,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
@@ -66,6 +67,7 @@ import (
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
@@ -111,6 +113,7 @@ import (
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
 )
 
@@ -475,6 +478,21 @@ func start(config *Config) error {
 			slog.Error("failed to stop curtailment reconciler", "error", err)
 		}
 	}()
+
+	mqttSubscriber, err := mqttingest.NewSubscriber(mqttingest.Config{
+		Store:     mqttingest.NewSQLCStore(sqlc.New(conn)),
+		Driver:    mqttingest.NewDriver(curtailmentSvc, nil),
+		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
+		Decryptor: encryptSvc,
+		Logger:    slog.Default(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize curtailment mqtt subscriber: %w", err)
+	}
+	if err := mqttSubscriber.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
+	}
+	defer mqttSubscriber.Stop()
 
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)

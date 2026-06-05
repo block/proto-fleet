@@ -39,16 +39,13 @@ type PriorState struct {
 	LastEdgeAt time.Time
 }
 
-// DebounceWindow absorbs transient opposite-direction flips.
+// DebounceWindow absorbs transient OFF->ON restore flips.
 const DebounceWindow = 5 * time.Second
 
 // Decide returns the edge implied by an incoming canonical observation.
 func Decide(prior PriorState, canonical CanonicalState) EdgeDirection {
 	switch {
 	case canonical.Target == TargetOff && prior.LastTarget != TargetOff:
-		if debounced(prior, canonical) {
-			return EdgeNone
-		}
 		return EdgeOnToOff
 
 	case canonical.Target == TargetOn && prior.LastTarget == TargetOff:

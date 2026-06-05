@@ -37,6 +37,7 @@ type fakeService struct {
 	// (clamped to the last entry) so a test can model a TOCTOU race where the
 	// event is listed first and gone on a re-check.
 	listActiveResults [][]*models.Event
+	listActiveErrs    []error
 	listActiveErr     error
 }
 
@@ -61,6 +62,15 @@ func (f *fakeService) ListActive(_ context.Context, orgID int64) ([]*models.Even
 	defer f.mu.Unlock()
 	idx := len(f.listActiveCalls)
 	f.listActiveCalls = append(f.listActiveCalls, orgID)
+	if f.listActiveErrs != nil {
+		errIdx := idx
+		if errIdx >= len(f.listActiveErrs) {
+			errIdx = len(f.listActiveErrs) - 1
+		}
+		if err := f.listActiveErrs[errIdx]; err != nil {
+			return nil, err
+		}
+	}
 	if f.listActiveErr != nil {
 		return nil, f.listActiveErr
 	}
@@ -91,6 +101,18 @@ func (f *fakeService) startCallAt(i int) curtailment.StartRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.startCalls[i]
+}
+
+func (f *fakeService) stopCallsLen() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.stopCalls)
+}
+
+func (f *fakeService) listActiveCallsLen() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.listActiveCalls)
 }
 
 func sampleSource() SourceConfig {
