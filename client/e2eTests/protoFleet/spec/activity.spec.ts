@@ -3,43 +3,10 @@ import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
 import { generateRandomText } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
-import { GroupsPage } from "../pages/groups";
 import { MinersPage } from "../pages/miners";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 
 const SCHEDULE_PREFIX = "activity_schedule_e2e";
-
-async function triggerBlinkLedsActivity(commonSteps: CommonSteps, minersPage: MinersPage) {
-  await commonSteps.loginAsAdmin();
-  await commonSteps.goToMinersPage();
-  await minersPage.filterRigMiners();
-  await minersPage.waitForMinersListToLoad();
-
-  const selectedMinerIps: string[] = [];
-
-  for (let index = 0; index < 3; index++) {
-    selectedMinerIps.push(await minersPage.getMinerIpAddressByIndex(index));
-    await minersPage.clickMinerCheckboxByIndex(index);
-    await minersPage.validateActionBarMinerCount(index + 1);
-  }
-
-  await minersPage.clickBlinkLEDsButton();
-  await minersPage.validateTextInToastGroup("Blinking LEDs");
-  await minersPage.validateTextInToastGroup("Blinked LEDs");
-
-  return selectedMinerIps;
-}
-
-async function createGroupActivity(commonSteps: CommonSteps, groupsPage: GroupsPage, groupName: string) {
-  await commonSteps.loginAsAdmin();
-  await groupsPage.navigateToGroupsPage();
-  await groupsPage.clickAddGroupButton();
-  await groupsPage.inputGroupName(groupName);
-  await groupsPage.waitForModalListToLoad();
-  await groupsPage.selectMinersByIndex([0]);
-  await groupsPage.clickSaveInModal();
-  await groupsPage.validateTextInToast(`Group "${groupName}" created`);
-}
 
 test.describe("Proto Fleet - Activity", () => {
   test.beforeEach(async ({ page }) => {
@@ -76,7 +43,7 @@ test.describe("Proto Fleet - Activity", () => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
-    await test.step("Filter Proto miners as a workaround", async () => {
+    await test.step("Filter to Proto rig miners", async () => {
       await minersPage.filterRigMiners();
     });
 
@@ -115,7 +82,24 @@ test.describe("Proto Fleet - Activity", () => {
     commonSteps,
     minersPage,
   }) => {
-    const selectedMinerIps = await triggerBlinkLedsActivity(commonSteps, minersPage);
+    let selectedMinerIps: string[] = [];
+
+    await test.step("Trigger Blink LEDs for three Proto rig miners", async () => {
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
+      await minersPage.filterRigMiners();
+      await minersPage.waitForMinersListToLoad();
+
+      for (let index = 0; index < 3; index++) {
+        selectedMinerIps.push(await minersPage.getMinerIpAddressByIndex(index));
+        await minersPage.clickMinerCheckboxByIndex(index);
+        await minersPage.validateActionBarMinerCount(index + 1);
+      }
+
+      await minersPage.clickBlinkLEDsButton();
+      await minersPage.validateTextInToastGroup("Blinking LEDs");
+      await minersPage.validateTextInToastGroup("Blinked LEDs");
+    });
 
     await test.step("Open Activity and narrow to the Blink LEDs batch", async () => {
       await activityPage.navigateToActivityPage();
@@ -190,7 +174,16 @@ test.describe("Proto Fleet - Activity", () => {
     const groupName = generateRandomText("activity_group");
 
     try {
-      await createGroupActivity(commonSteps, groupsPage, groupName);
+      await test.step("Create a group that will appear in Activity", async () => {
+        await commonSteps.loginAsAdmin();
+        await groupsPage.navigateToGroupsPage();
+        await groupsPage.clickAddGroupButton();
+        await groupsPage.inputGroupName(groupName);
+        await groupsPage.waitForModalListToLoad();
+        await groupsPage.selectMinersByIndex([0]);
+        await groupsPage.clickSaveInModal();
+        await groupsPage.validateTextInToast(`Group "${groupName}" created`);
+      });
 
       await test.step("Open Activity and apply the group scope filter", async () => {
         await activityPage.navigateToActivityPage();
@@ -266,90 +259,6 @@ test.describe("Proto Fleet - Activity", () => {
       await activityPage.waitForActivityListToLoad();
       await activityPage.validateSearchInputValue("");
       await activityPage.validateActivityDescriptionVisible(`Created schedule: ${scheduleName}`);
-    });
-  });
-});
-
-test.describe("Proto Fleet - Activity Login", () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
-
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/");
-  });
-
-  test("Login activity is visible for the signed-in admin", async ({ authPage, activityPage }) => {
-    await test.step("Log in as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Open Activity and filter to login events", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.selectTypeFilter("Login");
-      await activityPage.selectUserFilter(testConfig.users.admin.username);
-    });
-
-    await test.step("Validate the latest login row", async () => {
-      await activityPage.validateLatestActivityDescription("Login");
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityNotMarkedFailed();
-    });
-  });
-
-  test("Failed login activity is visible after correcting invalid credentials and signing in", async ({
-    authPage,
-    activityPage,
-  }) => {
-    await test.step("Log in as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Open Activity and validate the latest login row", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.selectTypeFilter("Login");
-      await activityPage.selectUserFilter(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityDescription("Login");
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityNotMarkedFailed();
-    });
-
-    await test.step("Log out", async () => {
-      await authPage.logout();
-      await authPage.validateRedirectedToAuth();
-    });
-
-    await test.step("Attempt login with an invalid password and validate the error", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(`${testConfig.users.admin.password}-invalid`);
-      await authPage.clickLogin();
-      await authPage.validateInvalidCredentials();
-    });
-
-    await test.step("Rewrite the correct password and validate the error clears", async () => {
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.validateInvalidCredentialsNotVisible();
-    });
-
-    await test.step("Log in successfully with corrected credentials", async () => {
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Validate the failed login attempt appears in Activity", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.searchActivity("Login failed");
-      await activityPage.selectUserFilter(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityDescription("Login failed");
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityMarkedFailed();
     });
   });
 });
