@@ -537,7 +537,9 @@ func (w *sourceWorker) ensureCanDispatch(ctx context.Context) bool {
 func (w *sourceWorker) isStalePayload(prior SourceState, c CanonicalState) bool {
 	cutoff := prior.LastTargetAt
 	if !prior.LastReceivedAt.IsZero() && prior.LastReceivedAt.Before(cutoff) {
-		cutoff = prior.LastReceivedAt
+		// Payload timestamps are Unix seconds. Match that precision when
+		// capping a future publisher stamp to receive-time ordering.
+		cutoff = prior.LastReceivedAt.Truncate(time.Second)
 	}
 	if !prior.LastTargetAt.IsZero() && c.PublishedAt.Before(cutoff) {
 		return true

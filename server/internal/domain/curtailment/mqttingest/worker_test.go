@@ -886,7 +886,7 @@ func TestWorker_HandleMessage_FutureDatedStamp_DoesNotSuppressLaterSignal(t *tes
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
-	recvOff := time.Now().UTC()
+	recvOff := time.Date(2026, 6, 5, 12, 0, 0, int(500*time.Millisecond), time.UTC)
 	// Valid but future-dated within the decoder sanity window.
 	futureStamp := recvOff.Add(12 * time.Hour)
 	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": futureStamp.Unix()})
@@ -919,6 +919,25 @@ func TestWorker_HandleMessage_FutureDatedStamp_DoesNotSuppressLaterSignal(t *tes
 	assert.Equal(t, TargetOn, afterOn.LastTarget,
 		"a later real ON must not be suppressed behind a future-dated watermark")
 	require.Len(t, svc.stopCalls, 1, "the ON must dispatch a Stop")
+}
+
+func TestWorker_IsStalePayload_FutureDatedCutoffAllowsSameSecondCorrection(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWorker(t, newFakeStore(), &fakeService{}, workerSource())
+	received := time.Date(2026, 6, 5, 12, 0, 0, int(500*time.Millisecond), time.UTC)
+	prior := SourceState{
+		LastTargetAt:   received.Add(time.Hour),
+		LastReceivedAt: received,
+	}
+	corrected := CanonicalState{
+		Target:      TargetOn,
+		PublishedAt: received.Truncate(time.Second),
+		ReceivedAt:  received.Add(300 * time.Millisecond),
+	}
+
+	assert.False(t, w.isStalePayload(prior, corrected),
+		"a same-second corrected-clock payload received later must not be stale due only to receive-time subsecond precision")
 }
 
 // Future-dated duplicate suppression still uses the raw processed stamp.
