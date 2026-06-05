@@ -51,6 +51,13 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
 const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string) => true }));
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (key: string) => hasPermissionMock.current(key),
+  useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
+}));
+
+// CompleteSetup renders inside FleetLayout's chrome but isn't under test
+// here — stub it so we don't pull in onboarding's RPC/zustand surface area.
+vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
+  default: () => null,
 }));
 
 const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>

@@ -66,8 +66,17 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
   default: mockMinerList,
 }));
 
-vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
-  default: () => <div data-testid="complete-setup">CompleteSetup</div>,
+// Fleet now reads pairing/refetch coordination from FleetLayout's outlet
+// context; stub the hook so the component can mount without a real layout.
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetLayout", () => ({
+  useFleetOutletContext: () => ({
+    sites: [],
+    sitesError: null,
+    sitesLoaded: true,
+    refetchSites: vi.fn(),
+    notifyPairingCompleted: vi.fn(),
+    minersChangedAt: 0,
+  }),
 }));
 
 vi.mock("@/protoFleet/features/onboarding/components/Miners", () => ({
@@ -218,60 +227,6 @@ describe("Fleet - Component Integration", () => {
   it("should render MinerList component", () => {
     const { getByTestId } = renderFleet();
     expect(getByTestId("miner-list")).toBeInTheDocument();
-  });
-
-  it("should render CompleteSetup component when miners exist", async () => {
-    const useFleetModule = await import("@/protoFleet/api/useFleet");
-
-    vi.mocked(useFleetModule.default).mockReturnValue(
-      createFleetMock({
-        minerIds: ["miner1"],
-        totalMiners: 1,
-        hasInitialLoadCompleted: true,
-      }),
-    );
-
-    const { getByTestId } = renderFleet();
-    expect(getByTestId("complete-setup")).toBeInTheDocument();
-  });
-
-  it("should not render CompleteSetup when there are no miners", async () => {
-    const useFleetModule = await import("@/protoFleet/api/useFleet");
-
-    vi.mocked(useFleetModule.default).mockReturnValue(createFleetMock({ hasInitialLoadCompleted: true }));
-
-    const { queryByTestId } = renderFleet();
-    expect(queryByTestId("complete-setup")).not.toBeInTheDocument();
-  });
-
-  it("should render CompleteSetup when filters yield 0 results but miners exist", async () => {
-    const useFleetModule = await import("@/protoFleet/api/useFleet");
-
-    vi.mocked(useFleetModule.default).mockImplementation((options: any) => {
-      if (options.pageSize === 1) {
-        return createFleetMock({ totalMiners: 5, hasInitialLoadCompleted: true });
-      }
-      return createFleetMock({ totalMiners: 0, hasInitialLoadCompleted: true });
-    });
-
-    const { getByTestId } = renderFleet();
-    expect(getByTestId("complete-setup")).toBeInTheDocument();
-  });
-
-  it("should render CompleteSetup when unfiltered count fails but main fleet shows miners", async () => {
-    const useFleetModule = await import("@/protoFleet/api/useFleet");
-
-    vi.mocked(useFleetModule.default).mockImplementation((options: any) => {
-      if (options.pageSize === 1) {
-        // Unfiltered count fetch failed: hasInitialLoadCompleted is true (set in finally)
-        // but totalMiners stayed at 0 (never updated on error)
-        return createFleetMock({ totalMiners: 0, hasInitialLoadCompleted: true });
-      }
-      return createFleetMock({ minerIds: ["m1"], totalMiners: 1, hasInitialLoadCompleted: true });
-    });
-
-    const { getByTestId } = renderFleet();
-    expect(getByTestId("complete-setup")).toBeInTheDocument();
   });
 
   it("should call useFleet hook with correct parameters", async () => {

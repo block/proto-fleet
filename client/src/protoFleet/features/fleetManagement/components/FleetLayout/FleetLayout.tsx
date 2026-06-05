@@ -8,6 +8,7 @@ import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import { useHasPermission } from "@/protoFleet/store";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -155,15 +156,35 @@ const FleetLayout = () => {
     [navigate],
   );
 
+  // Pairing/refetch coordination with the Miners tab. The chrome-level
+  // CompleteSetup banner outlives any single tab, so the timestamp pulses
+  // live here and surface to tab children via outlet context.
+  const [lastPairingCompletedAt, setLastPairingCompletedAt] = useState(0);
+  const [minersChangedAt, setMinersChangedAt] = useState(0);
+  const notifyPairingCompleted = useCallback(() => setLastPairingCompletedAt(Date.now()), []);
+  const notifyMinersChanged = useCallback(() => setMinersChangedAt(Date.now()), []);
+
   const outletContext: FleetOutletContext = useMemo(
-    () => ({ sites, sitesError, sitesLoaded, refetchSites: fetchSites }),
-    [sites, sitesError, sitesLoaded, fetchSites],
+    () => ({
+      sites,
+      sitesError,
+      sitesLoaded,
+      refetchSites: fetchSites,
+      notifyPairingCompleted,
+      minersChangedAt,
+    }),
+    [sites, sitesError, sitesLoaded, fetchSites, notifyPairingCompleted, minersChangedAt],
   );
 
   return (
     <div className="flex h-full flex-col" data-testid="fleet-layout">
       <div className="sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10">
         <h1 className="text-heading-300 text-text-primary">Fleet</h1>
+        <CompleteSetup
+          lastPairingCompletedAt={lastPairingCompletedAt}
+          onPairingCompleted={notifyPairingCompleted}
+          onRefetchMiners={notifyMinersChanged}
+        />
         <TabStrip activeId={currentTab} onSelect={onSelect} ariaLabel="Fleet sections">
           {visibleTabs.map((tab) => (
             <TabStripItem key={tab} id={tab} label={tabLabel[tab]} testId={`fleet-tab-${tab}`} />
