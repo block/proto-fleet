@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Code } from "@connectrpc/connect";
 
 import { type FleetOutletContext } from "./outletContext";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -56,6 +57,11 @@ const FleetLayout = () => {
   // failures. Lets consumers tell "we have last-good data" from "we've
   // never seen data" when sites is [].
   const [sitesLoaded, setSitesLoaded] = useState(false);
+  // useHasPermission is a flat union across scopes, so a user with only
+  // site-scoped site:read passes `canReadSites` even though ListSites is
+  // gated on org-scoped site:read. Flip this flag when the RPC returns
+  // PermissionDenied so the redirect waterfall can fall back to Miners.
+  const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
 
   const fetchSites = useCallback(
     () =>
@@ -64,9 +70,13 @@ const FleetLayout = () => {
           setSites(rows);
           setSitesError(null);
           setSitesLoaded(true);
+          setSitesPermissionDenied(false);
         },
-        onError: (msg) => {
+        onError: (msg, code) => {
           setSitesError(msg);
+          if (code === Code.PermissionDenied) {
+            setSitesPermissionDenied(true);
+          }
           // Preserve last-good list across transient errors; only fall to []
           // on the initial-load failure path.
           setSites((prev) => prev ?? []);
@@ -86,7 +96,7 @@ const FleetLayout = () => {
 
   const currentTab = tabFromPath(location.pathname);
 
-  const sitesAccessBlocked = !canReadSites;
+  const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const fallback = sitesAccessBlocked
     ? DEFAULT_TAB_NO_SITES_ACCESS
     : sitesTabHidden

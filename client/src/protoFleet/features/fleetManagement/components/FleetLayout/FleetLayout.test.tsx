@@ -2,6 +2,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code } from "@connectrpc/connect";
 
 // Force MULTI_SITE_ENABLED=true at module-load time so FleetLayout's
 // TAB_ORDER includes Sites + Buildings under test. CI default is false; the
@@ -158,6 +159,20 @@ describe("FleetLayout lastTab persistence", () => {
     await waitFor(() => {
       expect(localStorage.getItem("fleet:lastActiveTab")).toBe(JSON.stringify("buildings"));
     });
+  });
+});
+
+describe("FleetLayout scoped-permission fallback", () => {
+  test("falls back to /fleet/miners when listSites returns PermissionDenied", async () => {
+    // useHasPermission("site:read") returns true (flat union across scopes),
+    // but the org-scoped ListSites call is denied for site-scoped-only roles.
+    // The layout must treat that as an access-blocked signal and land the
+    // operator on the still-accessible Miners tab.
+    listSitesMock.mockImplementation(async ({ onError }) => {
+      onError?.("access denied", Code.PermissionDenied);
+    });
+    renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
   });
 });
 
