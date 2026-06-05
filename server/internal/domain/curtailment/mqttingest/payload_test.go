@@ -141,9 +141,8 @@ func TestTarget_Predicates(t *testing.T) {
 // itoa formats an int64 for the table-driven test bodies above.
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
-// stateStringDecoder is a second, differently-shaped decoder used to prove the
-// PayloadDecoder seam: an unrelated wire schema maps to the same canonical
-// Payload, with nothing downstream changed.
+// stateStringDecoder proves a different wire schema can feed the same
+// canonical Payload.
 type stateStringDecoder struct{}
 
 func (stateStringDecoder) Decode(body []byte, _ time.Time) (Payload, error) {
@@ -164,8 +163,7 @@ func (stateStringDecoder) Decode(body []byte, _ time.Time) (Payload, error) {
 	}
 }
 
-// An arbitrary JSON shape decodes to the same canonical Payload the rest of the
-// package consumes — the whole point of the decoder seam.
+// An arbitrary JSON shape decodes to the canonical Payload consumed downstream.
 func TestPayloadDecoder_AlternateShapeYieldsCanonical(t *testing.T) {
 	t.Parallel()
 

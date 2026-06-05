@@ -1306,7 +1306,8 @@ type ResetCurtailmentTargetsForRecurtailRow struct {
 }
 
 // Reopen restore targets for curtailment. Counts let the store reject partial
-// resets when another non-terminal event already holds a resolved target.
+// resets when another non-terminal event already has unresolved work for one
+// of the same devices.
 func (q *Queries) ResetCurtailmentTargetsForRecurtail(ctx context.Context, curtailmentEventID int64) (ResetCurtailmentTargetsForRecurtailRow, error) {
 	row := q.queryRow(ctx, q.resetCurtailmentTargetsForRecurtailStmt, resetCurtailmentTargetsForRecurtail, curtailmentEventID)
 	var i ResetCurtailmentTargetsForRecurtailRow

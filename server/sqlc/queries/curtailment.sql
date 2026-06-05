@@ -409,7 +409,8 @@ RETURNING *;
 
 -- name: ResetCurtailmentTargetsForRecurtail :one
 -- Reopen restore targets for curtailment. Counts let the store reject partial
--- resets when another non-terminal event already holds a resolved target.
+-- resets when another non-terminal event already has unresolved work for one
+-- of the same devices.
 WITH recurtail_candidates AS MATERIALIZED (
     SELECT ct.curtailment_event_id, ct.device_identifier
     FROM curtailment_target AS ct

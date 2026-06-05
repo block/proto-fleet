@@ -120,10 +120,8 @@ func clonePendingEdge(edge *PendingEdge) *PendingEdge {
 	return &cp
 }
 
-// fakeMQTTClient delivers operator-injected payloads on a single
-// topic. Connect / Subscribe record the call sequence; Publish on the
-// returned channel routes through the handler the subscriber
-// registered.
+// fakeMQTTClient records Connect / Subscribe and routes deliver() calls through
+// the subscribed handler.
 type fakeMQTTClient struct {
 	mu            sync.Mutex
 	host          string
