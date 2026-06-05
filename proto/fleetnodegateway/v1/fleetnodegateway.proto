@@ -246,4 +246,10 @@ enum AckCode {
     ACK_CODE_INTERNAL        = 7;
     // BUSY: agent already has a command in flight; safe to retry shortly.
     ACK_CODE_BUSY            = 8;
+    // UNAUTHENTICATED: the miner rejected the supplied/derived credentials. The
+    // server evicts the cached miner handle so the next attempt re-resolves creds.
+    ACK_CODE_UNAUTHENTICATED = 9;
+    // UNIMPLEMENTED: the device (or this agent) does not support the requested
+    // command, e.g. a curtail level the model can't honor.
+    ACK_CODE_UNIMPLEMENTED   = 10;
 }

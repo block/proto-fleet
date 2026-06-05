@@ -328,7 +328,8 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager)
+	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager).
+		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
 	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
@@ -380,6 +381,7 @@ func start(config *Config) error {
 	)
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
+	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(

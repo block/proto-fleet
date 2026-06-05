@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -50,10 +52,25 @@ type Service struct {
 	tokenService   *token.Service
 	pluginManager  PluginManager
 
+	// commandSender, when set, routes commands for fleet-node-paired devices over the
+	// ControlStream; nil disables routing (every device resolves to a direct PluginMiner).
+	commandSender remotenode.CommandSender
+	// nodeLimiter paces commands per fleet node so a large batch can't oversubscribe
+	// a node. Shared across all remote-node miners (keyed by fleet_node id).
+	nodeLimiter remotenode.Gate
+
 	// cache stores miner handles keyed by DeviceIdentifier (string).
 	// Both GetMiner and GetMinerFromDeviceIdentifier read from and write to
 	// this single cache, keeping invalidation simple.
 	cache *lru.LRU[string, interfaces.Miner]
+}
+
+// WithCommandSender enables fleet-node command routing: a device paired to a CONFIRMED
+// fleet node resolves to a remote-node Miner that dispatches over the ControlStream.
+func (s *Service) WithCommandSender(sender remotenode.CommandSender) *Service {
+	s.commandSender = sender
+	s.nodeLimiter = remotenode.NewPerNodeLimiter(remotenode.DefaultPerNodeCommandLimit)
+	return s
 }
 
 // PluginManager defines the interface for plugin manager operations needed by MinerService
@@ -111,6 +128,16 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		return m, nil
 	}
 
+	// Fleet-node-paired devices route over the ControlStream; check first, cloud-dialed
+	// fall through. Deliberately NOT cached: tryFleetNodeMiner re-resolves per command so
+	// an unpair/revoke takes effect immediately (the remote miner holds no live connection,
+	// so re-resolving is cheap).
+	if m, ok, err := s.tryFleetNodeMiner(ctx, deviceID); err != nil {
+		return nil, err
+	} else if ok {
+		return m, nil
+	}
+
 	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -157,12 +184,67 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 	return m, nil
 }
 
+// tryFleetNodeMiner returns a remote-node Miner if the device is paired to an active
+// fleet node. ok=false (nil error) means not fleet-node paired (or routing disabled),
+// so the caller dials directly.
+func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, bool, error) {
+	if s.commandSender == nil {
+		return nil, false, nil
+	}
+	row, err := s.GetQueries(ctx).GetActiveFleetNodeForDevice(ctx, string(deviceID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed to resolve fleet node for device: %w", err)
+	}
+	// No server-side plugin gate: the fleet node (not the server) dials the miner
+	// and loads the driver plugin; the server only routes the command.
+	m, err := remotenode.New(remotenode.Config{
+		Sender:           s.commandSender,
+		Gate:             s.nodeLimiter,
+		FleetNodeID:      row.FleetNodeID,
+		OrgID:            row.OrgID,
+		SiteID:           row.SiteID.Int64,
+		DeviceIdentifier: row.DeviceIdentifier,
+		DriverName:       row.DriverName,
+		IPAddress:        row.IpAddress,
+		Port:             row.Port,
+		URLScheme:        row.UrlScheme,
+		SerialNumber:     row.SerialNumber.String,
+		MacAddress:       row.MacAddress,
+		// Credential intentionally empty: the node's per-org decryption key is a pairing
+		// concern. No-secret drivers (e.g. virtual) work end to end now.
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return m, true, nil
+}
+
 // InvalidateMiner removes the cached miner handle for the given device identifier
 // so the next lookup fetches fresh credentials and connection info from the DB.
 // Call this on auth errors, credential changes, and device lifecycle events
 // (unpair, delete).
 func (s *Service) InvalidateMiner(deviceIdentifier models.DeviceIdentifier) {
 	s.cache.Remove(string(deviceIdentifier))
+}
+
+// InvalidateMinerByID evicts the cached handle for a device id (resolving its identifier
+// first) so a pair/unpair transition doesn't leave a stale direct handle dialing past the
+// fleet-node route. Best-effort: a lookup miss is a no-op.
+func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
+	// Runs after a pair/unpair commit, so detach from the caller ctx (a client
+	// disconnect must not skip the eviction) and bound the lookup.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
+	if err != nil {
+		slog.Warn("miner cache invalidation: device id lookup failed; stale handle may persist until cache TTL",
+			"device_id", deviceID, "err", err)
+		return
+	}
+	s.cache.Remove(identifier)
 }
 
 func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {
