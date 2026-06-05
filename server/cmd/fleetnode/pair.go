@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -197,11 +198,11 @@ func (r *RunCmd) handlePairCommand(ctx context.Context, client gatewayClient, st
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "pairing unavailable: no plugins loaded", logger)
 		return
 	}
-	targets := req.GetTargets()
-	if len(targets) == 0 {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "pair request has no targets", logger)
+	if vErr := protovalidate.Validate(req); vErr != nil {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid pair request: %v", vErr), logger)
 		return
 	}
+	targets := req.GetTargets()
 	logger.Info("pair command received", "command_id", commandID, "targets", len(targets))
 
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
