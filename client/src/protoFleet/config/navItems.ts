@@ -1,7 +1,6 @@
 import { type ReactNode } from "react";
 
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Racks, Settings, Site } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -28,32 +27,10 @@ export const primaryNavItems: NavItem[] = [
     label: "Home",
     icon: Home,
   },
-  ...(MULTI_SITE_ENABLED
-    ? [
-        {
-          path: "/sites",
-          label: "Sites",
-          icon: Site,
-          // Gate on site:read so any role that can list sites can
-          // navigate to the overview. SitesPage renders the read view
-          // for everyone (ListSites + ListBuildings, both site:read);
-          // the "Add site" CTA and per-card edit/delete affordances
-          // gate on site:manage independently inside the page, so
-          // restricting the nav to site:manage would hide a useful
-          // surface from read-only roles for no security benefit.
-          requiredPermission: "site:read",
-        },
-      ]
-    : []),
   {
-    path: "/miners",
-    label: "Miners",
+    path: "/fleet",
+    label: "Fleet",
     icon: Fleet,
-  },
-  {
-    path: "/racks",
-    label: "Racks",
-    icon: Racks,
   },
   {
     path: "/groups",
@@ -139,16 +116,6 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     requiredPermission: "apikey:manage",
   },
-  ...(MULTI_SITE_ENABLED
-    ? [
-        {
-          path: "/settings/sites",
-          label: "Sites",
-          parent: "/settings",
-          requiredPermission: "site:manage",
-        },
-      ]
-    : []),
   {
     path: "/settings/server-logs",
     label: "Server Logs",

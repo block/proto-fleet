@@ -2,6 +2,8 @@ import type { ColTitles } from "@/shared/components/List/types";
 
 export const deviceSetCols = {
   name: "name",
+  site: "site",
+  building: "building",
   zone: "zone",
   miners: "miners",
   issues: "issues",
@@ -16,6 +18,8 @@ export type DeviceSetColumn = (typeof deviceSetCols)[keyof typeof deviceSetCols]
 
 export const deviceSetColTitles: ColTitles<DeviceSetColumn> = {
   name: "Name",
+  site: "Site",
+  building: "Building",
   zone: "Zone",
   miners: "Miners",
   issues: "Issues",

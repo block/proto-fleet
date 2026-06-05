@@ -128,13 +128,14 @@ message DiscoverResponse {
 // AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
 // fleet node can tell command kinds apart rather than assuming a bare
 // DiscoverRequest. command_id stays on the transport-level
-// ControlCommand/ControlAck and is not duplicated here. Field numbers 2 and 3 are
-// reserved for the upcoming miner-command and pairing arms.
+// ControlCommand/ControlAck and is not duplicated here. Field number 3 is
+// reserved for the upcoming miner-command arm.
 message AgentCommand {
   oneof command {
     option (buf.validate.oneof).required = true;
 
     DiscoverRequest discover = 1;
+    FleetNodePairRequest pair = 2;
   }
 }
 
@@ -150,6 +151,37 @@ message PairRequest {
 // Empty message as success/failure is indicated by gRPC status
 message PairResponse {
   repeated string failed_device_ids = 1;
+}
+
+// FleetNodePairRequest asks a fleet node to pair (authenticate) a batch of
+// devices it previously discovered. The node has no database, so the server
+// supplies each target's endpoint and driver.
+message FleetNodePairRequest {
+  repeated FleetNodePairTarget targets = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 1024}];
+
+  // Applied to basic-auth targets in the batch; omitted for asymmetric-auth
+  // drivers, which pair with the node's own miner-signing key.
+  Credentials credentials = 2;
+}
+
+message FleetNodePairTarget {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string ip_address        = 2 [(buf.validate.field).string = {min_len: 1, max_len: 45, ip: true}];
+  string port              = 3 [
+    (buf.validate.field).string = {min_len: 1, max_len: 5},
+    (buf.validate.field).cel = {
+      id: "port.range",
+      message: "port must be a decimal number in 1..65535",
+      expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
+    }
+  ];
+  string url_scheme  = 4 [(buf.validate.field).string.max_len = 32];
+  string driver_name = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
+
+  // Carried so the node can look up plugin default credentials (keyed on
+  // manufacturer + firmware) without a database.
+  string manufacturer     = 6 [(buf.validate.field).string.max_len = 255];
+  string firmware_version = 7 [(buf.validate.field).string.max_len = 255];
 }
 
 // Service for discovering and pairing with network devices

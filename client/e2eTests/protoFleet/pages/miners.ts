@@ -26,7 +26,8 @@ export class MinersPage extends BasePage {
   }
 
   async validateMinersPageOpened() {
-    await this.validateTitle("Miners");
+    await expect(this.page).toHaveURL(/.*\/fleet\/miners/);
+    await this.validateTitle("Fleet");
   }
 
   async validateAmountOfMiners(minerCount: number) {
@@ -223,7 +224,8 @@ export class MinersPage extends BasePage {
   }
 
   async waitForMinersTitle() {
-    await this.validateTitle("Miners");
+    await expect(this.page).toHaveURL(/.*\/fleet\/miners/);
+    await this.validateTitle("Fleet");
   }
 
   async clickSelectAllCheckbox() {

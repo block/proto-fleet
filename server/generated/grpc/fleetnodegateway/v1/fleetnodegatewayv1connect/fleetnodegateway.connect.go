@@ -60,6 +60,9 @@ const (
 	// FleetNodeGatewayServiceReportDiscoveredDevicesProcedure is the fully-qualified name of the
 	// FleetNodeGatewayService's ReportDiscoveredDevices RPC.
 	FleetNodeGatewayServiceReportDiscoveredDevicesProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/ReportDiscoveredDevices"
+	// FleetNodeGatewayServiceReportPairedDevicesProcedure is the fully-qualified name of the
+	// FleetNodeGatewayService's ReportPairedDevices RPC.
+	FleetNodeGatewayServiceReportPairedDevicesProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/ReportPairedDevices"
 	// FleetNodeGatewayServiceControlStreamProcedure is the fully-qualified name of the
 	// FleetNodeGatewayService's ControlStream RPC.
 	FleetNodeGatewayServiceControlStreamProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/ControlStream"
@@ -75,6 +78,7 @@ type FleetNodeGatewayServiceClient interface {
 	UploadEvents(context.Context) *connect.ClientStreamForClient[v1.UploadEventsRequest, v1.UploadEventsResponse]
 	UploadHeartbeat(context.Context, *connect.Request[v1.UploadHeartbeatRequest]) (*connect.Response[v1.UploadHeartbeatResponse], error)
 	ReportDiscoveredDevices(context.Context, *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error)
+	ReportPairedDevices(context.Context, *connect.Request[v1.ReportPairedDevicesRequest]) (*connect.Response[v1.ReportPairedDevicesResponse], error)
 	ControlStream(context.Context) *connect.BidiStreamForClient[v1.ControlStreamRequest, v1.ControlStreamResponse]
 }
 
@@ -124,6 +128,11 @@ func NewFleetNodeGatewayServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
 			opts...,
 		),
+		reportPairedDevices: connect.NewClient[v1.ReportPairedDevicesRequest, v1.ReportPairedDevicesResponse](
+			httpClient,
+			baseURL+FleetNodeGatewayServiceReportPairedDevicesProcedure,
+			opts...,
+		),
 		controlStream: connect.NewClient[v1.ControlStreamRequest, v1.ControlStreamResponse](
 			httpClient,
 			baseURL+FleetNodeGatewayServiceControlStreamProcedure,
@@ -141,6 +150,7 @@ type fleetNodeGatewayServiceClient struct {
 	uploadEvents            *connect.Client[v1.UploadEventsRequest, v1.UploadEventsResponse]
 	uploadHeartbeat         *connect.Client[v1.UploadHeartbeatRequest, v1.UploadHeartbeatResponse]
 	reportDiscoveredDevices *connect.Client[v1.ReportDiscoveredDevicesRequest, v1.ReportDiscoveredDevicesResponse]
+	reportPairedDevices     *connect.Client[v1.ReportPairedDevicesRequest, v1.ReportPairedDevicesResponse]
 	controlStream           *connect.Client[v1.ControlStreamRequest, v1.ControlStreamResponse]
 }
 
@@ -180,6 +190,11 @@ func (c *fleetNodeGatewayServiceClient) ReportDiscoveredDevices(ctx context.Cont
 	return c.reportDiscoveredDevices.CallUnary(ctx, req)
 }
 
+// ReportPairedDevices calls fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices.
+func (c *fleetNodeGatewayServiceClient) ReportPairedDevices(ctx context.Context, req *connect.Request[v1.ReportPairedDevicesRequest]) (*connect.Response[v1.ReportPairedDevicesResponse], error) {
+	return c.reportPairedDevices.CallUnary(ctx, req)
+}
+
 // ControlStream calls fleetnodegateway.v1.FleetNodeGatewayService.ControlStream.
 func (c *fleetNodeGatewayServiceClient) ControlStream(ctx context.Context) *connect.BidiStreamForClient[v1.ControlStreamRequest, v1.ControlStreamResponse] {
 	return c.controlStream.CallBidiStream(ctx)
@@ -195,6 +210,7 @@ type FleetNodeGatewayServiceHandler interface {
 	UploadEvents(context.Context, *connect.ClientStream[v1.UploadEventsRequest]) (*connect.Response[v1.UploadEventsResponse], error)
 	UploadHeartbeat(context.Context, *connect.Request[v1.UploadHeartbeatRequest]) (*connect.Response[v1.UploadHeartbeatResponse], error)
 	ReportDiscoveredDevices(context.Context, *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error)
+	ReportPairedDevices(context.Context, *connect.Request[v1.ReportPairedDevicesRequest]) (*connect.Response[v1.ReportPairedDevicesResponse], error)
 	ControlStream(context.Context, *connect.BidiStream[v1.ControlStreamRequest, v1.ControlStreamResponse]) error
 }
 
@@ -239,6 +255,11 @@ func NewFleetNodeGatewayServiceHandler(svc FleetNodeGatewayServiceHandler, opts 
 		svc.ReportDiscoveredDevices,
 		opts...,
 	)
+	fleetNodeGatewayServiceReportPairedDevicesHandler := connect.NewUnaryHandler(
+		FleetNodeGatewayServiceReportPairedDevicesProcedure,
+		svc.ReportPairedDevices,
+		opts...,
+	)
 	fleetNodeGatewayServiceControlStreamHandler := connect.NewBidiStreamHandler(
 		FleetNodeGatewayServiceControlStreamProcedure,
 		svc.ControlStream,
@@ -260,6 +281,8 @@ func NewFleetNodeGatewayServiceHandler(svc FleetNodeGatewayServiceHandler, opts 
 			fleetNodeGatewayServiceUploadHeartbeatHandler.ServeHTTP(w, r)
 		case FleetNodeGatewayServiceReportDiscoveredDevicesProcedure:
 			fleetNodeGatewayServiceReportDiscoveredDevicesHandler.ServeHTTP(w, r)
+		case FleetNodeGatewayServiceReportPairedDevicesProcedure:
+			fleetNodeGatewayServiceReportPairedDevicesHandler.ServeHTTP(w, r)
 		case FleetNodeGatewayServiceControlStreamProcedure:
 			fleetNodeGatewayServiceControlStreamHandler.ServeHTTP(w, r)
 		default:
@@ -297,6 +320,10 @@ func (UnimplementedFleetNodeGatewayServiceHandler) UploadHeartbeat(context.Conte
 
 func (UnimplementedFleetNodeGatewayServiceHandler) ReportDiscoveredDevices(context.Context, *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices is not implemented"))
+}
+
+func (UnimplementedFleetNodeGatewayServiceHandler) ReportPairedDevices(context.Context, *connect.Request[v1.ReportPairedDevicesRequest]) (*connect.Response[v1.ReportPairedDevicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices is not implemented"))
 }
 
 func (UnimplementedFleetNodeGatewayServiceHandler) ControlStream(context.Context, *connect.BidiStream[v1.ControlStreamRequest, v1.ControlStreamResponse]) error {

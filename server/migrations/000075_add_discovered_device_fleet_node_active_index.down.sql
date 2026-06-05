@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_discovered_device_fleet_node_active;

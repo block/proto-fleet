@@ -86,7 +86,10 @@ type MinerModalFlow =
   | { kind: "status-modal"; deviceIdentifier: string };
 
 type MinerListProps = {
-  title: string;
+  // Optional — when omitted, the heading is suppressed entirely. The Fleet
+  // shell uses this on /fleet/miners since the tab nav already labels the
+  // view; the standalone /miners route keeps its heading.
+  title?: string;
   minerIds: string[];
   miners: Record<string, MinerStateSnapshot>;
   errorsByDevice: Record<string, ErrorMessage[]>;
@@ -384,7 +387,6 @@ const ScopedMinerListBody = ({
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
-        overflowContainer={false}
         applyColumnWidthsToCells
         total={totalMiners}
         // Every row is selectable; `totalSelectable = totalMiners` so action-bar
@@ -1020,7 +1022,7 @@ const MinerList = ({
   return (
     <>
       <div ref={topRef} className="sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10">
-        <h2 className="text-heading-300">{title}</h2>
+        {title ? <h2 className="text-heading-300">{title}</h2> : null}
       </div>
 
       <div className="sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10">

@@ -20,17 +20,33 @@ const HEALTH_COLOR_MAP = {
 type CreateDeviceSetColConfigParams = {
   renderName: (item: DeviceSetListItem) => ReactNode;
   renderMiners: (item: DeviceSetListItem) => ReactNode;
+  // Optional renderers for the new site / building columns. Default to em-dash
+  // so callers that don't pass them (or rows whose rack has no site/building)
+  // get the inactive placeholder without each caller needing to wire it.
+  renderSite?: (item: DeviceSetListItem) => ReactNode;
+  renderBuilding?: (item: DeviceSetListItem) => ReactNode;
   temperatureUnit: TemperatureUnit;
 };
 
 const createDeviceSetColConfig = ({
   renderName,
   renderMiners,
+  renderSite,
+  renderBuilding,
   temperatureUnit,
 }: CreateDeviceSetColConfigParams): ColConfig<DeviceSetListItem, string, DeviceSetColumn> => ({
   [deviceSetCols.name]: {
     component: (item: DeviceSetListItem) => renderName(item),
     width: "min-w-44",
+  },
+  [deviceSetCols.site]: {
+    component: (item: DeviceSetListItem) => (renderSite ? renderSite(item) : <span>{INACTIVE_PLACEHOLDER}</span>),
+    width: "min-w-28",
+  },
+  [deviceSetCols.building]: {
+    component: (item: DeviceSetListItem) =>
+      renderBuilding ? renderBuilding(item) : <span>{INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-28",
   },
   [deviceSetCols.zone]: {
     component: (item: DeviceSetListItem) => {

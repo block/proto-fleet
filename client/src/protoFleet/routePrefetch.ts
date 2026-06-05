@@ -39,23 +39,29 @@ export const importSettingsFirmware = () => import("@/protoFleet/features/settin
 export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
 export const importSettingsApiKeys = () => import("@/protoFleet/features/settings/components/ApiKeys");
+export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importSitesPage = () => import("@/protoFleet/features/sites/pages/SitesPage");
 export const importSettingsSitesPage = () => import("@/protoFleet/features/sites/pages/SettingsSitesPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
+export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
+export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");
+export const importFleetSitesPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetSitesPage");
 export const importFleetDown = () => import("@/protoFleet/components/FleetDown/FleetDown");
 
 // Sidebar destinations + the default settings sub-route. App.tsx
 // triggers this at idle so the first nav click has no Suspense flash.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
   importDashboard,
+  importFleetLayout,
   importMiners,
-  importGroupsPage,
   importRacksPage,
+  importFleetBuildingsPage,
+  importFleetSitesPage,
+  importGroupsPage,
   importEnergyPage,
   importActivityPage,
   importSettingsLayout,
   importSettingsGeneral,
-  importSitesPage,
 ];
 
 // Settings sub-routes; SettingsLayout triggers this on mount so the rest of
@@ -69,5 +75,4 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsSchedules,
   importSettingsApiKeys,
   importServerLogsPage,
-  importSettingsSitesPage,
 ];

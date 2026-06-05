@@ -32,6 +32,8 @@ type DeviceSetListProps = {
   statsMap: Map<bigint, DeviceSetStats>;
   renderName: (item: DeviceSetListItem) => ReactNode;
   renderMiners: (item: DeviceSetListItem) => ReactNode;
+  renderSite?: (item: DeviceSetListItem) => ReactNode;
+  renderBuilding?: (item: DeviceSetListItem) => ReactNode;
   currentSort: { field: DeviceSetColumn; direction: SortDirection };
   onSort: (field: DeviceSetColumn, direction: SortDirection) => void;
   itemName: { singular: string; plural: string };
@@ -53,6 +55,8 @@ const DeviceSetList = ({
   statsMap,
   renderName,
   renderMiners,
+  renderSite,
+  renderBuilding,
   currentSort,
   onSort,
   itemName,
@@ -77,8 +81,8 @@ const DeviceSetList = ({
   );
 
   const colConfig = useMemo(
-    () => createDeviceSetColConfig({ renderName, renderMiners, temperatureUnit }),
-    [renderName, renderMiners, temperatureUnit],
+    () => createDeviceSetColConfig({ renderName, renderMiners, renderSite, renderBuilding, temperatureUnit }),
+    [renderName, renderMiners, renderSite, renderBuilding, temperatureUnit],
   );
 
   const handleNextPage = useCallback(() => {
@@ -105,7 +109,6 @@ const DeviceSetList = ({
         items={items}
         itemKey="id"
         hideTotal
-        overflowContainer={false}
         sortableColumns={SORTABLE_COLUMNS}
         currentSort={currentSort}
         onSort={onSort}

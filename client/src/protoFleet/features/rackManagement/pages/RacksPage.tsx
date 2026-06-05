@@ -1,8 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
@@ -10,6 +12,7 @@ import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "
 import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   AssignMinersModal,
@@ -36,7 +39,21 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
-const RACK_COLUMNS: DeviceSetColumn[] = [
+const RACK_COLUMNS_FLEET: DeviceSetColumn[] = [
+  "name",
+  "site",
+  "building",
+  "zone",
+  "miners",
+  "issues",
+  "hashrate",
+  "efficiency",
+  "power",
+  "temperature",
+  "health",
+];
+
+const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
   "name",
   "zone",
   "miners",
@@ -52,12 +69,16 @@ const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
+  const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { pathname } = useLocation();
+  const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string }[]>([]);
+  const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
 
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
@@ -131,6 +152,26 @@ const RacksPage = () => {
     });
     return () => controller.abort();
   }, [listAllBuildings]);
+
+  // Sites lookup powers the new Site column on the rack list. Same one-shot
+  // load shape as buildings; renames are infrequent enough that polling here
+  // would be wasted bandwidth.
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: (sites: SiteWithCounts[]) => {
+        setAllSites(
+          sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
+        );
+      },
+      onError: () => setAllSites([]),
+    });
+    return () => controller.abort();
+  }, [listSites]);
+
+  const siteNameById = useMemo(() => new Map(allSites.map((s) => [s.id, s.label])), [allSites]);
+  const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
 
   const setBuildingFilter = useCallback(
     (ids: string[]) => {
@@ -290,6 +331,26 @@ const RacksPage = () => {
 
   const renderMiners = useCallback((item: DeviceSetListItem) => <span>{item.deviceSet.deviceCount}</span>, []);
 
+  const renderSite = useCallback(
+    (item: DeviceSetListItem) => {
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>—</span>;
+      const siteId = item.deviceSet.typeDetails.value.siteId;
+      if (siteId === undefined) return <span>—</span>;
+      return <span>{siteNameById.get(siteId.toString()) ?? "—"}</span>;
+    },
+    [siteNameById],
+  );
+
+  const renderBuilding = useCallback(
+    (item: DeviceSetListItem) => {
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>—</span>;
+      const buildingId = item.deviceSet.typeDetails.value.buildingId;
+      if (buildingId === undefined) return <span>—</span>;
+      return <span>{buildingNameById.get(buildingId.toString()) ?? "—"}</span>;
+    },
+    [buildingNameById],
+  );
+
   // Responsive grid measurement
   const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
   const RACK_CARD_MIN_WIDTH_PX = 300;
@@ -381,7 +442,7 @@ const RacksPage = () => {
   return (
     <div>
       <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
-        <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>
+        {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
         <div className="flex flex-col gap-2 pb-6">
           {/* Action button — full-width on tablet/phone */}
           <div className="block laptop:hidden">
@@ -467,7 +528,9 @@ const RacksPage = () => {
             statsMap={statsMap}
             renderName={renderName}
             renderMiners={renderMiners}
-            columns={RACK_COLUMNS}
+            renderSite={renderSite}
+            renderBuilding={renderBuilding}
+            columns={insideFleetShell && MULTI_SITE_ENABLED ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
             onSort={handleSort}
             itemName={{ singular: "rack", plural: "racks" }}

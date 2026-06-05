@@ -18,6 +18,7 @@ service FleetNodeGatewayService {
     rpc UploadEvents(stream UploadEventsRequest) returns (UploadEventsResponse);
     rpc UploadHeartbeat(UploadHeartbeatRequest) returns (UploadHeartbeatResponse);
     rpc ReportDiscoveredDevices(ReportDiscoveredDevicesRequest) returns (ReportDiscoveredDevicesResponse);
+    rpc ReportPairedDevices(ReportPairedDevicesRequest) returns (ReportPairedDevicesResponse);
     rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse);
 }
 
@@ -125,6 +126,43 @@ message ReportDiscoveredDevicesResponse {
     // Reports the server refused to persist because the device is already
     // paired with a different fleet_node. Operators see these as "the
     // agent reported something it doesn't own."
+    int64 rejected_count = 2;
+}
+
+// PairOutcome is the per-device result of a pairing attempt on the node.
+enum PairOutcome {
+    PAIR_OUTCOME_UNSPECIFIED = 0;
+    PAIR_OUTCOME_PAIRED      = 1;
+    // AUTH_NEEDED: credentials were required but missing (or default creds failed).
+    PAIR_OUTCOME_AUTH_NEEDED = 2;
+    // AUTH_FAILED: credentials were supplied but rejected by the miner.
+    PAIR_OUTCOME_AUTH_FAILED = 3;
+    // ERROR: pairing failed for a non-auth reason (unreachable, plugin error).
+    PAIR_OUTCOME_ERROR       = 4;
+}
+
+message FleetNodePairResult {
+    string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    PairOutcome outcome      = 2;
+    // Identity learned during pairing; populated on PAIRED. Never carries credentials.
+    string serial_number     = 3 [(buf.validate.field).string.max_len = 255];
+    string mac_address       = 4 [(buf.validate.field).string.max_len = 64];
+    string model             = 5 [(buf.validate.field).string.max_len = 255];
+    string manufacturer      = 6 [(buf.validate.field).string.max_len = 255];
+    string firmware_version  = 7 [(buf.validate.field).string.max_len = 255];
+    string error_message     = 8 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ReportPairedDevicesRequest {
+    // Echoes the command_id of the ControlCommand that scheduled the pairing,
+    // so the gateway routes the batch to the operator stream waiting on
+    // PairDiscoveredDevicesOnFleetNode.
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    repeated FleetNodePairResult results = 2 [(buf.validate.field).repeated.max_items = 1024];
+}
+
+message ReportPairedDevicesResponse {
+    int64 accepted_count = 1;
     int64 rejected_count = 2;
 }
 

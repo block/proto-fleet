@@ -32,6 +32,7 @@ type RunCmd struct {
 	signals       []os.Signal                                                              `kong:"-"`
 	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 	discoverer    discoverer                                                               `kong:"-"`
+	pairer        pairer                                                                   `kong:"-"`
 	nmapPath      string                                                                   `kong:"-"`
 	resolver      ipResolver                                                               `kong:"-"`
 	localSubnets  func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
@@ -42,6 +43,7 @@ type RunCmd struct {
 type gatewayClient interface {
 	UploadHeartbeat(ctx context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error)
 	ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error)
+	ReportPairedDevices(ctx context.Context, req *connect.Request[pb.ReportPairedDevicesRequest]) (*connect.Response[pb.ReportPairedDevicesResponse], error)
 	ControlStream(ctx context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse]
 }
 
@@ -138,12 +140,13 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	// children mid-startup.
 	if resolvedPluginsDir != "" {
 		reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
-		disc, cleanup, bootstrapErr := newPluginDiscoverer(ctx, resolvedPluginsDir, st.FleetNodeID)
+		disc, prr, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, st.MinerSigningPrivateKeyHex)
 		if bootstrapErr != nil {
-			return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
+			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}
 		defer cleanup()
 		r.discoverer = disc
+		r.pairer = prr
 	}
 
 	if r.sessionNeedsRefresh(st) {

@@ -13,7 +13,8 @@ export class RacksPage extends BasePage {
   private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
 
   async validateRacksPageOpened() {
-    await this.validateTitle("Racks");
+    await expect(this.page).toHaveURL(/.*\/fleet\/racks/);
+    await this.validateTitle("Fleet");
   }
 
   async clickAddRackButton() {

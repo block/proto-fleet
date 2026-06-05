@@ -11,7 +11,10 @@ import {
   importBuildingPage,
   importDashboard,
   importEnergyPage,
+  importFleetBuildingsPage,
   importFleetDown,
+  importFleetLayout,
+  importFleetSitesPage,
   importGroupOverviewPage,
   importGroupsPage,
   importMiners,
@@ -31,11 +34,18 @@ import {
   importSettingsSchedules,
   importSettingsSitesPage,
   importSettingsTeam,
+  importSiteDetailPage,
   importSitesPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import {
+  minersRedirectLoader,
+  racksRedirectLoader,
+  sitesRedirectLoader,
+} from "@/protoFleet/features/fleetManagement/redirectLoaders";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -67,9 +77,13 @@ const SettingsRoles = lazy(importSettingsRoles);
 const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
+const SiteDetailPage = lazy(importSiteDetailPage);
 const SitesPage = lazy(importSitesPage);
 const SettingsSitesPage = lazy(importSettingsSitesPage);
 const BuildingPage = lazy(importBuildingPage);
+const FleetLayout = lazy(importFleetLayout);
+const FleetBuildingsPage = lazy(importFleetBuildingsPage);
+const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetDown = lazy(importFleetDown);
 
 // Helper to check if an admin user has been created
@@ -137,20 +151,38 @@ const router = createBrowserRouter([
   // Dashboard (Home)
   createRoute("/", <Dashboard />, { bg: "surface-5" }),
 
-  // Miners
-  createRoute("/miners", <Miners />),
+  // FleetLayout wraps tab children through its <Outlet />; nesting under
+  // <App> preserves the global PageHeader and page-background hook.
+  {
+    path: "/fleet",
+    element: (
+      <App>
+        <FleetLayout />
+      </App>
+    ),
+    children: [
+      { index: true, element: null },
+      { path: "miners", element: <Miners /> },
+      { path: "racks", element: <RacksPage /> },
+      { path: "buildings", element: <FleetBuildingsPage /> },
+      { path: "sites", element: <FleetSitesPage /> },
+    ],
+  },
 
-  // Groups
+  { path: "/miners", loader: minersRedirectLoader },
+  { path: "/racks", loader: racksRedirectLoader },
+
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
-  // Racks
-  createRoute("/racks", <RacksPage />),
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
-  // Sites + buildings (multi-site; nav entries flag-gated, routes
-  // unguarded so direct URL access works during dogfood)
-  createRoute("/sites", <SitesPage />),
+  // Sites tab is hidden from /fleet when MULTI_SITE_ENABLED is false, so the
+  // legacy SitesPage stays reachable at /sites for QA/dogfood until the
+  // tracked cleanup in #376. When the flag is on, /sites redirects into
+  // /fleet/sites.
+  MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
+  createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 
   // Energy
@@ -224,12 +256,16 @@ const router = createBrowserRouter([
       <ServerLogsPage />
     </SettingsLayout>,
   ),
-  createRoute(
-    "/settings/sites",
-    <SettingsLayout>
-      <SettingsSitesPage />
-    </SettingsLayout>,
-  ),
+  // Same flag-conditional as /sites — keep the legacy SettingsSitesPage
+  // reachable for QA/dogfood when MULTI_SITE_ENABLED is off.
+  MULTI_SITE_ENABLED
+    ? { path: "/settings/sites", loader: sitesRedirectLoader }
+    : createRoute(
+        "/settings/sites",
+        <SettingsLayout>
+          <SettingsSitesPage />
+        </SettingsLayout>,
+      ),
 
   // Auth routes (fullscreen)
   createRoute("/auth", <Auth />, { fullscreen: true, loader: authLoader }),

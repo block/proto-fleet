@@ -181,7 +181,7 @@ test.describe("Miner Settings Actions", () => {
 
       await page.getByTestId("modal").getByTestId("header-icon-button").click();
       await minersPage.closeManageSecurityModal();
-      await minersPage.validateTitle("Miners");
+      await minersPage.validateMinersPageOpened();
     });
   });
 });

@@ -663,6 +663,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetNodeDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDevices: %w", err)
 	}
+	if q.listFleetNodeDiscoveredDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDiscoveredDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetNodeDiscoveredDevices: %w", err)
+	}
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
 	}
@@ -2150,6 +2153,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetNodeDevicesStmt: %w", cerr)
 		}
 	}
+	if q.listFleetNodeDiscoveredDevicesStmt != nil {
+		if cerr := q.listFleetNodeDiscoveredDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetNodeDiscoveredDevicesStmt: %w", cerr)
+		}
+	}
 	if q.listFleetNodesForOrganizationStmt != nil {
 		if cerr := q.listFleetNodesForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
@@ -3097,6 +3105,7 @@ type Queries struct {
 	listEnabledMQTTSourcesStmt                          *sql.Stmt
 	listExistingDeviceIdentifiersStmt                   *sql.Stmt
 	listFleetNodeDevicesStmt                            *sql.Stmt
+	listFleetNodeDiscoveredDevicesStmt                  *sql.Stmt
 	listFleetNodesForOrganizationStmt                   *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                *sql.Stmt
@@ -3455,6 +3464,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEnabledMQTTSourcesStmt:                          q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
 		listFleetNodeDevicesStmt:                            q.listFleetNodeDevicesStmt,
+		listFleetNodeDiscoveredDevicesStmt:                  q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                q.listNonTerminalCurtailmentEventsStmt,

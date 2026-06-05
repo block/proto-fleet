@@ -112,10 +112,16 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/$/);
   }
 
-  async navigateToMinersPage() {
+  async navigateToFleetPage() {
     await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/miners"]').click();
-    await expect(this.page).toHaveURL(/.*\/miners/);
+    await this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]').click();
+    await expect(this.page).toHaveURL(/.*\/fleet/);
+  }
+
+  async navigateToMinersPage() {
+    await this.navigateToFleetPage();
+    await this.page.getByTestId("fleet-tab-miners-activate").click();
+    await expect(this.page).toHaveURL(/.*\/fleet\/miners/);
   }
 
   async navigateToGroupsPage() {
@@ -125,9 +131,9 @@ export class BasePage {
   }
 
   async navigateToRacksPage() {
-    await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/racks"]').click();
-    await expect(this.page).toHaveURL(/.*\/racks/);
+    await this.navigateToFleetPage();
+    await this.page.getByTestId("fleet-tab-racks-activate").click();
+    await expect(this.page).toHaveURL(/.*\/fleet\/racks/);
   }
 
   async navigateToActivityPage() {

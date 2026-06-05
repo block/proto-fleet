@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { sitesClient } from "@/protoFleet/api/clients";
 import { type PerDeviceConflict, type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -8,7 +9,11 @@ import { useAuthErrors } from "@/protoFleet/store";
 interface ListSitesProps {
   signal?: AbortSignal;
   onSuccess?: (sites: SiteWithCounts[]) => void;
-  onError?: (message: string) => void;
+  // ListSites is gated server-side on org-scoped site:read; useHasPermission
+  // returns true even for site-scoped-only roles, so callers that fall back
+  // to a permission-blocked UX need to distinguish PermissionDenied from
+  // transient transport failures.
+  onError?: (message: string, code?: Code) => void;
   onFinally?: () => void;
 }
 
@@ -137,7 +142,8 @@ const useSites = () => {
         handleAuthErrors({
           error: err,
           onError: (error) => {
-            onError?.(getErrorMessage(error));
+            const code = error instanceof ConnectError ? error.code : undefined;
+            onError?.(getErrorMessage(error), code);
           },
         });
       } finally {
