@@ -832,6 +832,13 @@ func TestWorker_HandleMessage_SameSecondOffAfterOn_Recurtails(t *testing.T) {
 	assert.Equal(t, 1, svc.startCallsLen(), "restoring source event should be re-curtailed, not started again")
 	require.Len(t, svc.recurtailCalls, 1)
 	assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
+
+	afterRedeliveredOn := w.handleMessage(context.Background(), afterSecondOff,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: published.Add(30 * time.Second)})
+
+	assert.Equal(t, TargetOff, afterRedeliveredOn.LastTarget, "old same-second ON redelivery must not restore after the latest OFF")
+	assert.Equal(t, 1, svc.stopCallsLen(), "redelivered ON must not dispatch another Stop")
+	assert.Len(t, svc.recurtailCalls, 1, "redelivered ON must not undo the re-curtail")
 }
 
 // LastProcessedTarget must persist for restart-safe dedup.

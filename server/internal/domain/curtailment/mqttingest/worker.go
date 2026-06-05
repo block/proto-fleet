@@ -560,6 +560,11 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 		if c.Target == TargetOff {
 			return false
 		}
+		for _, target := range prior.LastProcessedTargets {
+			if target == c.Target {
+				return true
+			}
+		}
 		return prior.LastTarget != TargetUnknown &&
 			prior.LastProcessedTarget == c.Target &&
 			prior.LastProcessedTarget != prior.LastTarget
