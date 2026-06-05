@@ -176,14 +176,16 @@ var ProcedurePermissions = map[string]string{
 
 	// FleetNodeAdminService — fully migrated. Read for the list endpoints,
 	// manage for everything that mutates fleet-node state or triggers a scan.
-	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        authz.PermFleetnodeRead,
-	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:       authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          authz.PermFleetnodeManage,
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  authz.PermFleetnodeRead,
-	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:   authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:             authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:                   authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:                 authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:                  authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure:            authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:                     authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:             authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:              authz.PermFleetnodeManage,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDiscoveredDevicesProcedure:   authz.PermFleetnodeRead,
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: authz.PermFleetnodeManage,
 
 	// ForemanImportService — bulk miner import flow. Gated on
 	// miner:pair, the same key as the per-miner pairing endpoints —
