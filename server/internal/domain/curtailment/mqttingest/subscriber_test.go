@@ -27,7 +27,16 @@ type fakeStore struct {
 	state          map[int64]SourceState
 	listSourcesErr error
 	getStateErr    error
+	getStateErrs   []error
+	upsertErr      error
+	upsertErrs     []error
 	nonMembers     map[int64]bool // user IDs treated as not belonging to their org
+	nonIngestUsers map[userOrgKey]bool
+}
+
+type userOrgKey struct {
+	userID int64
+	orgID  int64
 }
 
 func newFakeStore(sources ...SourceConfig) *fakeStore {
@@ -51,6 +60,13 @@ func (f *fakeStore) GetSourceState(_ context.Context, id int64) (SourceState, er
 	if f.getStateErr != nil {
 		return SourceState{}, f.getStateErr
 	}
+	if len(f.getStateErrs) > 0 {
+		err := f.getStateErrs[0]
+		f.getStateErrs = f.getStateErrs[1:]
+		if err != nil {
+			return SourceState{}, err
+		}
+	}
 	s, ok := f.state[id]
 	if !ok {
 		return SourceState{}, ErrSourceStateNotFound
@@ -61,41 +77,47 @@ func (f *fakeStore) GetSourceState(_ context.Context, id int64) (SourceState, er
 func (f *fakeStore) UpsertSourceState(_ context.Context, u StateUpdate) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	existing := f.state[u.SourceConfigID]
-	existing.SourceConfigID = u.SourceConfigID
-	if u.LastTarget != nil {
-		existing.LastTarget = *u.LastTarget
+	if f.upsertErr != nil {
+		return f.upsertErr
 	}
-	if u.LastTargetAt != nil {
-		existing.LastTargetAt = *u.LastTargetAt
+	if len(f.upsertErrs) > 0 {
+		err := f.upsertErrs[0]
+		f.upsertErrs = f.upsertErrs[1:]
+		if err != nil {
+			return err
+		}
 	}
-	if u.LastProcessedTarget != nil {
-		existing.LastProcessedTarget = *u.LastProcessedTarget
+	f.state[u.SourceConfigID] = SourceState{
+		SourceConfigID:                u.SourceConfigID,
+		LastTarget:                    u.LastTarget,
+		LastTargetAt:                  u.LastTargetAt,
+		LastProcessedTarget:           u.LastProcessedTarget,
+		LastProcessedTargets:          append([]Target(nil), u.LastProcessedTargets...),
+		LastReceivedAt:                u.LastReceivedAt,
+		LastReceivedBroker:            u.LastReceivedBroker,
+		LastEdgeAt:                    u.LastEdgeAt,
+		LastEdgeEventUUID:             u.LastEdgeEventUUID,
+		PendingEdge:                   clonePendingEdge(u.PendingEdge),
+		LastEmptyFullFleetWatchdogRef: u.LastEmptyFullFleetWatchdogRef,
 	}
-	if u.LastReceivedAt != nil {
-		existing.LastReceivedAt = *u.LastReceivedAt
-	}
-	if u.LastReceivedBroker != nil {
-		existing.LastReceivedBroker = *u.LastReceivedBroker
-	}
-	if u.LastEdgeAt != nil {
-		existing.LastEdgeAt = *u.LastEdgeAt
-	}
-	if u.LastEdgeEventUUID != nil {
-		existing.LastEdgeEventUUID = *u.LastEdgeEventUUID
-	}
-	f.state[u.SourceConfigID] = existing
 	return nil
 }
 
-func (f *fakeStore) ListSourcesForWatchdog(_ context.Context) ([]WatchdogRow, error) {
-	return nil, nil // unused by the subscriber test path
-}
-
-func (f *fakeStore) UserBelongsToOrg(_ context.Context, userID, _ int64) (bool, error) {
+func (f *fakeStore) UserCanIngestCurtailment(_ context.Context, userID, orgID int64) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.nonIngestUsers != nil && f.nonIngestUsers[userOrgKey{userID: userID, orgID: orgID}] {
+		return false, nil
+	}
 	return !f.nonMembers[userID], nil
+}
+
+func clonePendingEdge(edge *PendingEdge) *PendingEdge {
+	if edge == nil {
+		return nil
+	}
+	cp := *edge
+	return &cp
 }
 
 // fakeMQTTClient delivers operator-injected payloads on a single
@@ -121,7 +143,7 @@ func newFakeMQTTClient() *fakeMQTTClient {
 	}
 }
 
-func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ string, _ string) error {
+func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ string, _ string, _ string) error {
 	if f.connectBlocks {
 		<-ctx.Done()
 		return fmt.Errorf("fake mqtt connect canceled: %w", ctx.Err())
@@ -293,10 +315,10 @@ func TestSubscriber_Run_DispatchesOnOffEdge(t *testing.T) {
 	assert.Equal(t, newUUID.String(), s.LastEdgeEventUUID)
 }
 
-// A source whose service user is not a member of its org is rejected at
-// startup: the worker is not started, so a misconfigured (e.g. cross-org)
-// service_user_id can't drive emergency curtailment under admin controls.
-func TestSubscriber_StartWorker_RejectsNonMemberServiceUser(t *testing.T) {
+// A source whose service user lacks curtailment:ingest is rejected at startup:
+// the worker is not started, so any org member cannot drive emergency
+// curtailment just by being referenced from the source row.
+func TestSubscriber_StartWorker_RejectsServiceUserWithoutIngestPermission(t *testing.T) {
 	t.Parallel()
 
 	src := SourceConfig{
@@ -310,7 +332,7 @@ func TestSubscriber_StartWorker_RejectsNonMemberServiceUser(t *testing.T) {
 	}
 
 	store := newFakeStore(src)
-	store.nonMembers = map[int64]bool{99: true} // service user 99 is not in org 7
+	store.nonIngestUsers = map[userOrgKey]bool{{userID: 99, orgID: 7}: true}
 
 	cfg := Config{
 		Store:            store,
@@ -328,7 +350,38 @@ func TestSubscriber_StartWorker_RejectsNonMemberServiceUser(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "not a member of org")
+	assert.Contains(t, err.Error(), "lacks curtailment:ingest")
+}
+
+func TestValidateBrokerTransport_TCPAllowsPrivateMaestroHosts(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{SourceName: "site-a", BrokerTransport: brokerTransportTCP}
+
+	err := validateBrokerTransport(src, "10.155.0.3", "10.155.0.4")
+
+	require.NoError(t, err)
+}
+
+func TestValidateBrokerTransport_TCPRejectsPublicHosts(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{SourceName: "site-a", BrokerTransport: brokerTransportTCP}
+
+	err := validateBrokerTransport(src, "203.0.113.1", "10.155.0.4")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "non-local broker")
+}
+
+func TestValidateBrokerTransport_TLSAllowsDNSHosts(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{SourceName: "site-a", BrokerTransport: brokerTransportTLS}
+
+	err := validateBrokerTransport(src, "broker.example.com", "backup.example.com")
+
+	require.NoError(t, err)
 }
 
 func TestSubscriber_Start_ReturnsListSourcesError(t *testing.T) {

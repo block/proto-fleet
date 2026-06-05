@@ -423,9 +423,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
 	}
-	if q.getMQTTSourceConfigByIDStmt, err = db.PrepareContext(ctx, getMQTTSourceConfigByID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetMQTTSourceConfigByID: %w", err)
-	}
 	if q.getMQTTSourceStateByIDStmt, err = db.PrepareContext(ctx, getMQTTSourceStateByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMQTTSourceStateByID: %w", err)
 	}
@@ -668,9 +665,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
-	}
-	if q.listMQTTSourcesForWatchdogStmt, err = db.PrepareContext(ctx, listMQTTSourcesForWatchdog); err != nil {
-		return nil, fmt.Errorf("error preparing query ListMQTTSourcesForWatchdog: %w", err)
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
@@ -1753,11 +1747,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
 		}
 	}
-	if q.getMQTTSourceConfigByIDStmt != nil {
-		if cerr := q.getMQTTSourceConfigByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getMQTTSourceConfigByIDStmt: %w", cerr)
-		}
-	}
 	if q.getMQTTSourceStateByIDStmt != nil {
 		if cerr := q.getMQTTSourceStateByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMQTTSourceStateByIDStmt: %w", cerr)
@@ -2161,11 +2150,6 @@ func (q *Queries) Close() error {
 	if q.listFleetNodesForOrganizationStmt != nil {
 		if cerr := q.listFleetNodesForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
-		}
-	}
-	if q.listMQTTSourcesForWatchdogStmt != nil {
-		if cerr := q.listMQTTSourcesForWatchdogStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listMQTTSourcesForWatchdogStmt: %w", cerr)
 		}
 	}
 	if q.listMinerStateSnapshotsStmt != nil {
@@ -3025,7 +3009,6 @@ type Queries struct {
 	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
-	getMQTTSourceConfigByIDStmt                         *sql.Stmt
 	getMQTTSourceStateByIDStmt                          *sql.Stmt
 	getMaxPriorityStmt                                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
@@ -3107,7 +3090,6 @@ type Queries struct {
 	listExistingDeviceIdentifiersStmt                   *sql.Stmt
 	listFleetNodeDevicesStmt                            *sql.Stmt
 	listFleetNodesForOrganizationStmt                   *sql.Stmt
-	listMQTTSourcesForWatchdogStmt                      *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
@@ -3384,7 +3366,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
-		getMQTTSourceConfigByIDStmt:                         q.getMQTTSourceConfigByIDStmt,
 		getMQTTSourceStateByIDStmt:                          q.getMQTTSourceStateByIDStmt,
 		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
@@ -3466,7 +3447,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
 		listFleetNodeDevicesStmt:                            q.listFleetNodeDevicesStmt,
 		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,
-		listMQTTSourcesForWatchdogStmt:                      q.listMQTTSourcesForWatchdogStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                q.listNonTerminalCurtailmentEventsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,

@@ -2,6 +2,7 @@ package mqttclient
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,12 @@ import (
 )
 
 const subscribeQoS byte = 1
+const maxPayloadBytes = 1024
+
+const (
+	transportTCP = "tcp"
+	transportTLS = "tls"
+)
 
 // Client adapts Eclipse Paho to the curtailment MQTT ingest interface.
 type Client struct {
@@ -22,7 +29,7 @@ type Client struct {
 }
 
 var _ interface {
-	Connect(ctx context.Context, host string, port int32, username, password string) error
+	Connect(ctx context.Context, host string, port int32, transport string, username, password string) error
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
 	Disconnect(shutdownDeadline time.Duration)
 } = (*Client)(nil)
@@ -31,19 +38,27 @@ func New() *Client {
 	return &Client{}
 }
 
-func (c *Client) Connect(ctx context.Context, host string, port int32, username, password string) error {
+func (c *Client) Connect(ctx context.Context, host string, port int32, transport string, username, password string) error {
 	if port <= 0 {
 		return fmt.Errorf("mqttclient: invalid broker port %d", port)
 	}
 	broker := net.JoinHostPort(host, strconv.Itoa(int(port)))
+	brokerURL, tlsConfig, err := brokerOptions(host, broker, transport)
+	if err != nil {
+		return err
+	}
 	opts := paho.NewClientOptions().
-		AddBroker("tcp://" + broker).
+		AddBroker(brokerURL).
 		SetClientID(clientID()).
 		SetUsername(username).
 		SetPassword(password).
 		SetAutoReconnect(true).
 		SetResumeSubs(true).
-		SetOrderMatters(false)
+		SetOrderMatters(false).
+		SetProtocolVersion(4)
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 
 	client := paho.NewClient(opts)
 	if err := waitToken(ctx, client.Connect()); err != nil {
@@ -69,13 +84,37 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	}
 
 	token := client.Subscribe(topic, subscribeQoS, func(_ paho.Client, msg paho.Message) {
-		payload := append([]byte(nil), msg.Payload()...)
+		payload, ok := copyPayload(msg.Payload())
+		if !ok {
+			return
+		}
 		handler(payload, time.Now().UTC())
 	})
 	if err := waitToken(ctx, token); err != nil {
 		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
 	}
 	return nil
+}
+
+func copyPayload(payload []byte) ([]byte, bool) {
+	if len(payload) > maxPayloadBytes {
+		return nil, false
+	}
+	return append([]byte(nil), payload...), true
+}
+
+func brokerOptions(host, broker, transport string) (string, *tls.Config, error) {
+	switch transport {
+	case "", transportTCP:
+		return "tcp://" + broker, nil, nil
+	case transportTLS:
+		return "ssl://" + broker, &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: host,
+		}, nil
+	default:
+		return "", nil, fmt.Errorf("mqttclient: unsupported broker transport %q", transport)
+	}
 }
 
 func (c *Client) Disconnect(shutdownDeadline time.Duration) {

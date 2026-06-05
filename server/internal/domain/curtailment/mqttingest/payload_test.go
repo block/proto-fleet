@@ -89,6 +89,11 @@ func TestDecodePayload_Malformed(t *testing.T) {
 			body:        `{"target": 0, "timestamp": ` + itoa(farPast) + `}`,
 			wantMessage: "sanity window",
 		},
+		{
+			name:        "oversized payload",
+			body:        strings.Repeat(" ", maxPayloadBytes+1),
+			wantMessage: "payload exceeds",
+		},
 	}
 
 	for _, tc := range cases {

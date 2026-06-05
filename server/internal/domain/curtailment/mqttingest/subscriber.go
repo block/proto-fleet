@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sync"
 	"time"
 )
 
 // MQTTClient is one broker connection for one source.
 type MQTTClient interface {
-	Connect(ctx context.Context, host string, port int32, username, password string) error
+	Connect(ctx context.Context, host string, port int32, transport string, username, password string) error
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
 	Disconnect(shutdownDeadline time.Duration)
 }
@@ -23,6 +24,11 @@ type MQTTClientFactory func() MQTTClient
 type PasswordDecryptor interface {
 	Decrypt(encrypted string) ([]byte, error)
 }
+
+const (
+	brokerTransportTCP = "tcp"
+	brokerTransportTLS = "tls"
+)
 
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
@@ -168,14 +174,17 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 	if !ok {
 		return nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)
 	}
+	if err := validateBrokerTransport(src, primary, secondary); err != nil {
+		return nil, err
+	}
 
-	// The service user must belong to the org it can curtail.
-	member, err := s.cfg.Store.UserBelongsToOrg(ctx, src.ServiceUserID, src.OrganizationID)
+	// The service user must hold the machine-ingest permission for the org it can curtail.
+	canIngest, err := s.cfg.Store.UserCanIngestCurtailment(ctx, src.ServiceUserID, src.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
 	}
-	if !member {
-		return nil, fmt.Errorf("mqttingest: source %s service user %d is not a member of org %d",
+	if !canIngest {
+		return nil, fmt.Errorf("mqttingest: source %s service user %d lacks curtailment:ingest in org %d",
 			src.SourceName, src.ServiceUserID, src.OrganizationID)
 	}
 
@@ -214,4 +223,21 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 		w.run(ctx)
 	}()
 	return w, nil
+}
+
+func validateBrokerTransport(src SourceConfig, hosts ...string) error {
+	switch src.BrokerTransport {
+	case "", brokerTransportTCP:
+		for _, host := range hosts {
+			addr, err := netip.ParseAddr(host)
+			if err != nil || !(addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()) {
+				return fmt.Errorf("mqttingest: source %s uses tcp transport with non-local broker host %q", src.SourceName, host)
+			}
+		}
+		return nil
+	case brokerTransportTLS:
+		return nil
+	default:
+		return fmt.Errorf("mqttingest: source %s has unsupported broker_transport %q", src.SourceName, src.BrokerTransport)
+	}
 }

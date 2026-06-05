@@ -57,6 +57,51 @@ func workerSource() SourceConfig {
 	}
 }
 
+func TestWorker_ConnectAndSubscribe_BackpressuresWhenQueueFull(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWorker(t, newFakeStore(), &fakeService{}, workerSource())
+	client := newFakeMQTTClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	messages := make(chan observation, 1)
+	messages <- observation{broker: "filled"}
+
+	require.NoError(t, w.connectAndSubscribeOnce(ctx, client, w.primaryHost, messages))
+
+	payload := []byte(`{"target":0,"timestamp":1778538975}`)
+	receivedAt := time.Now().UTC()
+	delivered := make(chan struct{})
+	go func() {
+		client.deliver(payload, receivedAt)
+		close(delivered)
+	}()
+
+	select {
+	case <-delivered:
+		t.Fatal("callback returned while the worker queue was full")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	<-messages
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback did not return after queue space became available")
+	}
+
+	select {
+	case got := <-messages:
+		assert.Equal(t, w.primaryHost, got.broker)
+		assert.Equal(t, payload, got.payload)
+		assert.Equal(t, receivedAt, got.receivedAt)
+	default:
+		t.Fatal("payload was not queued after backpressure released")
+	}
+}
+
 // Watchdog OFF must settle state after dispatch.
 func TestWorker_HandleWatchdog_PersistsTargetOff(t *testing.T) {
 	t.Parallel()
@@ -101,8 +146,10 @@ func TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance(t *testing.T) {
 	next := w.handleWatchdog(context.Background(), prior)
 
 	assert.Equal(t, TargetOn, next.LastTarget, "failed dispatch must leave LastTarget unchanged")
-	_, err := store.GetSourceState(context.Background(), w.source.ID)
-	assert.ErrorIs(t, err, ErrSourceStateNotFound, "failed dispatch must not persist state")
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge, "failed dispatch must persist pending retry state")
+	assert.Equal(t, EdgeWatchdogOff, persisted.PendingEdge.Direction)
 }
 
 // Failed Start must not settle LastTarget.
@@ -169,6 +216,114 @@ func TestWorker_HandleMessage_FailedDispatch_RedeliveryRetries(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget, "the retry settles OFF")
 }
 
+func TestWorker_HandleMessage_PendingPersistFailurePreventsSideEffect(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.upsertErr = errors.New("db down")
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+
+	assert.Equal(t, 0, svc.startCallsLen(), "edge side effect must not run until pending state is durable")
+	assert.Equal(t, TargetOn, next.LastTarget)
+}
+
+func TestWorker_HandleWatchdog_RetriesPendingMessageEdge(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{startErr: errors.New("svc down")}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+		LastReceivedAt: now,
+	}
+
+	pending := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+	require.NotNil(t, pending.PendingEdge, "failed edge must remain pending for watchdog retry")
+	require.Equal(t, 1, svc.startCallsLen())
+
+	svc.startErr = nil
+	newUUID := uuid.New()
+	svc.startResult = &curtailment.Plan{EventUUID: &newUUID}
+
+	settled := w.handleWatchdog(context.Background(), pending)
+
+	assert.Equal(t, 2, svc.startCallsLen(), "watchdog must retry the pending edge without waiting for staleness")
+	assert.Nil(t, settled.PendingEdge)
+	assert.Equal(t, TargetOff, settled.LastTarget)
+}
+
+func TestWorker_LoadInitialState_PendingOffAfterStartFailureSettlesExistingEvent(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.upsertErrs = []error{
+		nil,
+		errors.New("settle write failed"),
+		nil,
+	}
+	eventUUID := uuid.New()
+	src := workerSource()
+	active := testSourceEvent(src, eventUUID, models.EventStateActive)
+	svc := &fakeService{
+		startResult: &curtailment.Plan{EventUUID: &eventUUID},
+		listActiveResults: [][]*models.Event{
+			nil,
+			{active},
+		},
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+	}
+
+	afterOff := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+	require.Equal(t, TargetOff, afterOff.LastTarget)
+	require.Equal(t, 1, svc.startCallsLen())
+
+	persisted, err := store.GetSourceState(context.Background(), src.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge)
+
+	recovered, ok := w.loadInitialState(context.Background())
+	require.True(t, ok)
+
+	assert.Equal(t, TargetOff, recovered.LastTarget)
+	assert.Nil(t, recovered.PendingEdge)
+	assert.Equal(t, 1, svc.startCallsLen(), "recovery must settle the existing event without a duplicate Start")
+}
+
 // ON with no source event still settles ON.
 func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	t.Parallel()
@@ -232,6 +387,62 @@ func TestWorker_HandleMessage_OffToOn_ForcesRestore(t *testing.T) {
 	assert.Equal(t, TargetOn, next.LastTarget)
 }
 
+func TestWorker_LoadInitialState_PendingOnAfterStopFailureSettlesWithoutRecurtail(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.upsertErrs = []error{
+		nil,
+		errors.New("settle write failed"),
+		nil,
+	}
+	eventUUID := uuid.New()
+	src := workerSource()
+	active := testSourceEvent(src, eventUUID, models.EventStateActive)
+	restoring := testSourceEvent(src, eventUUID, models.EventStateRestoring)
+	svc := &fakeService{
+		listActiveResults: [][]*models.Event{
+			{active},
+			{active},
+			{restoring},
+		},
+		stopResult: &models.Event{EventUUID: eventUUID},
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	published := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": published.Unix()})
+	require.NoError(t, err)
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOff,
+		LastTargetAt:   published.Add(-time.Minute),
+		LastEdgeAt:     published.Add(-time.Minute),
+	}
+
+	afterOn := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: published})
+	require.Equal(t, TargetOn, afterOn.LastTarget)
+	require.Equal(t, 1, svc.stopCallsLen())
+
+	persisted, err := store.GetSourceState(context.Background(), src.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge, "failed settlement leaves durable pending ON for restart recovery")
+	require.Equal(t, TargetOff, persisted.LastTarget)
+
+	recovered, ok := w.loadInitialState(context.Background())
+	require.True(t, ok)
+
+	assert.Equal(t, TargetOn, recovered.LastTarget)
+	assert.Nil(t, recovered.PendingEdge)
+	assert.Equal(t, 1, svc.stopCallsLen(), "recovery must not Stop the already-restoring event again")
+	assert.Empty(t, svc.recurtailCalls, "recovery must not undo the accepted ON")
+	persisted, err = store.GetSourceState(context.Background(), src.ID)
+	require.NoError(t, err)
+	assert.Equal(t, TargetOn, persisted.LastTarget)
+	assert.Nil(t, persisted.PendingEdge)
+}
+
 // A terminal stop race after lookup must still settle ON.
 func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T) {
 	t.Parallel()
@@ -240,6 +451,7 @@ func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T
 	eventUUID := uuid.New()
 	svc := &fakeService{
 		listActiveResults: [][]*models.Event{
+			{testSourceEvent(workerSource(), eventUUID, models.EventStateActive)},
 			{testSourceEvent(workerSource(), eventUUID, models.EventStateActive)},
 			nil,
 		},
@@ -265,7 +477,7 @@ func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T
 	assert.Equal(t, TargetOn, next.LastTarget,
 		"a terminal stop race must still advance OFF→ON, not leave LastTarget OFF for the watchdog to re-curtail")
 	require.Len(t, svc.stopCalls, 1, "Stop was attempted on the listed event")
-	assert.Len(t, svc.listActiveCalls, 2, "a failed Stop re-checks the active event to detect the terminal race")
+	assert.Len(t, svc.listActiveCalls, 3, "pending ON pre-checks the event, and failed Stop re-checks the terminal race")
 }
 
 // Debounced flips do not settle LastTarget.
@@ -360,6 +572,53 @@ func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
 	require.Equal(t, 1, svc.startCallsLen(),
 		"a real same-second ON->OFF flip must curtail, not be dropped as a duplicate stamp")
 	assert.Equal(t, TargetOff, next.LastTarget)
+}
+
+// Once both target values have been processed for a seconds-precision publisher
+// timestamp, a later QoS redelivery of the old value must not replay it.
+func TestWorker_HandleMessage_SameSecondOffRedeliveryAfterOn_DoesNotRecurtail(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	src := workerSource()
+	svc := &fakeService{
+		startResult: &curtailment.Plan{EventUUID: &eventUUID},
+		listActiveResults: [][]*models.Event{
+			nil,
+			{testSourceEvent(src, eventUUID, models.EventStateActive)},
+		},
+		stopResult: &models.Event{EventUUID: eventUUID},
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	published := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": published.Unix()})
+	require.NoError(t, err)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": published.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   published.Add(-time.Minute),
+		LastEdgeAt:     published.Add(-time.Minute),
+	}
+	afterOff := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: published})
+	require.Equal(t, TargetOff, afterOff.LastTarget)
+	require.Equal(t, 1, svc.startCallsLen())
+
+	afterOn := w.handleMessage(context.Background(), afterOff,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: published.Add(10 * time.Second)})
+	require.Equal(t, TargetOn, afterOn.LastTarget)
+	require.Equal(t, 1, svc.stopCallsLen())
+
+	afterRedelivery := w.handleMessage(context.Background(), afterOn,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: published.Add(20 * time.Second)})
+
+	assert.Equal(t, TargetOn, afterRedelivery.LastTarget, "old OFF redelivery must not undo the accepted ON")
+	assert.Equal(t, 1, svc.startCallsLen(), "redelivered OFF must not dispatch a second Start")
 }
 
 // LastProcessedTarget must persist for restart-safe dedup.
@@ -506,15 +765,21 @@ func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
 	assert.Empty(t, svc.stopCalls)
 }
 
-// State-load errors degrade to cold start, preserving fail-safe OFF.
-func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
+// State-load errors retry before the worker subscribes or starts its watchdog,
+// so a transient read failure cannot erase a recent persisted ON.
+func TestWorker_Run_StateLoadErrorRetriesBeforeWatchdog(t *testing.T) {
 	t.Parallel()
 
+	src := workerSource()
 	store := newFakeStore()
-	store.getStateErr = errors.New("transient db error")
-	newUUID := uuid.New()
-	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	w := newTestWorker(t, store, svc, workerSource())
+	store.getStateErrs = []error{errors.New("transient db error"), nil}
+	store.state[src.ID] = SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastReceivedAt: time.Now().UTC(),
+	}
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, src)
 	w.cfg.WatchdogTickEvery = 10 * time.Millisecond // fire quickly
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -522,7 +787,10 @@ func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 	done := make(chan struct{})
 	go func() { w.run(ctx); close(done) }()
 
-	assertEventually(t, 2*time.Second, func() bool { return svc.startCallsLen() >= 1 })
+	assertEventually(t, 2*time.Second, func() bool {
+		return svc.listActiveCallsLen() >= 1
+	})
+	assert.Equal(t, 0, svc.startCallsLen(), "recent persisted ON must not cold-start to UNKNOWN and fire the watchdog")
 
 	cancel()
 	select {
@@ -709,6 +977,28 @@ func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
 	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
 	require.NoError(t, err)
 	assert.Equal(t, TargetOff, persisted.LastTarget)
+}
+
+func TestWorker_HandleWatchdog_Off_EmptyFullFleetNoopThrottlesWindow(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	newUUID := uuid.New()
+	src := workerSource()
+	src.CurtailMode = string(models.ModeFullFleet)
+	src.ContractedCurtailmentKw = 0
+	now := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	svc := &fakeService{listActiveResult: nil, startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.Clock = func() time.Time { return now }
+
+	prior := SourceState{SourceConfigID: src.ID, LastTarget: TargetOff}
+	afterFirst := w.handleWatchdog(context.Background(), prior)
+	afterSecond := w.handleWatchdog(context.Background(), afterFirst)
+
+	require.Equal(t, 1, svc.startCallsLen(), "empty FULL_FLEET no-op should not create one terminal event per tick")
+	assert.Equal(t, afterFirst.LastEmptyFullFleetWatchdogRef, afterSecond.LastEmptyFullFleetWatchdogRef)
+	assert.NotEmpty(t, afterFirst.LastEmptyFullFleetWatchdogRef)
 }
 
 // OFF during restore re-curtails the restoring event in place.

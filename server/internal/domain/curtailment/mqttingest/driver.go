@@ -31,6 +31,8 @@ type EdgeOutcome struct {
 	EventUUID uuid.UUID
 	// DispatchedAt is the wall-clock time the edge was dispatched.
 	DispatchedAt time.Time
+	// EmptyFullFleetNoop means Start completed immediately with no targets.
+	EmptyFullFleetNoop bool
 }
 
 // Driver translates MQTT edges into curtailment service calls.
@@ -60,13 +62,14 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 		return EdgeOutcome{}, nil
 
 	case EdgeOnToOff, EdgeWatchdogOff:
-		eventUUID, err := d.dispatchCurtail(ctx, src, direction, edgeAt, prior)
+		eventUUID, emptyFullFleetNoop, err := d.dispatchCurtail(ctx, src, direction, edgeAt, prior)
 		if err != nil {
 			return EdgeOutcome{}, err
 		}
 		return EdgeOutcome{
-			EventUUID:    eventUUID,
-			DispatchedAt: d.now().UTC(),
+			EventUUID:          eventUUID,
+			DispatchedAt:       d.now().UTC(),
+			EmptyFullFleetNoop: emptyFullFleetNoop,
 		}, nil
 
 	case EdgeOffToOn:
@@ -84,27 +87,27 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 	}
 }
 
-func (d *Driver) dispatchCurtail(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, error) {
+func (d *Driver) dispatchCurtail(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, bool, error) {
 	active, err := d.ActiveSourceEvent(ctx, src)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, false, err
 	}
 	switch {
 	case eventIsRestoring(active):
 		if err := d.ResumeSourceEvent(ctx, active); err != nil {
-			return uuid.Nil, err
+			return uuid.Nil, false, err
 		}
-		return active.EventUUID, nil
+		return active.EventUUID, false, nil
 	case eventHoldsCurtailment(active):
-		return active.EventUUID, nil
+		return active.EventUUID, false, nil
 	}
 	return d.dispatchStart(ctx, src, direction, edgeAt, priorEdgeAt)
 }
 
-func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, error) {
+func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, bool, error) {
 	scope, err := scopeForSource(src)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, false, err
 	}
 
 	externalRef := startExternalReference(src.SourceName, direction, edgeAt, priorEdgeAt, src.StalenessThreshold)
@@ -140,21 +143,21 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 	if err != nil {
 		// Retryable errors stay retryable; idempotent re-deliveries return
 		// plan.ReplayEvent instead.
-		return uuid.Nil, fmt.Errorf("mqttingest: dispatch Start: %w", err)
+		return uuid.Nil, false, fmt.Errorf("mqttingest: dispatch Start: %w", err)
 	}
 	if plan == nil {
-		return uuid.Nil, errors.New("mqttingest: curtailment service returned nil plan on Start")
+		return uuid.Nil, false, errors.New("mqttingest: curtailment service returned nil plan on Start")
 	}
 	if plan.ReplayEvent != nil {
-		return plan.ReplayEvent.EventUUID, nil
+		return plan.ReplayEvent.EventUUID, false, nil
 	}
 	if plan.InsufficientLoadDetail != nil {
-		return uuid.Nil, fmt.Errorf("mqttingest: curtailment service rejected Start (insufficient load): %+v", plan.InsufficientLoadDetail)
+		return uuid.Nil, false, fmt.Errorf("mqttingest: curtailment service rejected Start (insufficient load): %+v", plan.InsufficientLoadDetail)
 	}
 	if plan.EventUUID == nil {
-		return uuid.Nil, errors.New("mqttingest: curtailment service returned plan with no event UUID")
+		return uuid.Nil, false, errors.New("mqttingest: curtailment service returned plan with no event UUID")
 	}
-	return *plan.EventUUID, nil
+	return *plan.EventUUID, mode == models.ModeFullFleet && len(plan.Selected) == 0, nil
 }
 
 func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Event, error) {

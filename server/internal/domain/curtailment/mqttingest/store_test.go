@@ -24,6 +24,7 @@ func TestSourceConfigFromRow_NullColumnsUseCodeDefaults(t *testing.T) {
 	})
 
 	assert.Equal(t, defaultBrokerPort, cfg.BrokerPort)
+	assert.Equal(t, brokerTransportTCP, cfg.BrokerTransport)
 	assert.Equal(t, time.Duration(defaultStalenessThresholdSec)*time.Second, cfg.StalenessThreshold)
 	assert.Equal(t, time.Duration(defaultMinCurtailedDurationSec)*time.Second, cfg.MinCurtailedDuration)
 }
@@ -34,11 +35,13 @@ func TestSourceConfigFromRow_SetColumnsOverrideDefaults(t *testing.T) {
 
 	cfg := sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig{
 		BrokerPort:              sql.NullInt32{Int32: 8883, Valid: true},
+		BrokerTransport:         brokerTransportTLS,
 		StalenessThresholdSec:   sql.NullInt32{Int32: 120, Valid: true},
 		MinCurtailedDurationSec: sql.NullInt32{Int32: 300, Valid: true},
 	})
 
 	assert.Equal(t, int32(8883), cfg.BrokerPort)
+	assert.Equal(t, brokerTransportTLS, cfg.BrokerTransport)
 	assert.Equal(t, 120*time.Second, cfg.StalenessThreshold)
 	assert.Equal(t, 300*time.Second, cfg.MinCurtailedDuration)
 }

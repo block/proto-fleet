@@ -52,6 +52,7 @@ var ErrMalformedPayload = errors.New("malformed MQTT payload")
 
 // timestampSanityWindow rejects badly skewed publisher clocks.
 const timestampSanityWindow = 24 * time.Hour
+const maxPayloadBytes = 1024
 
 // PayloadDecoder maps a raw MQTT message to canonical state.
 type PayloadDecoder interface {
@@ -86,6 +87,9 @@ const (
 )
 
 func (targetTimestampDecoder) Decode(body []byte, now time.Time) (Payload, error) {
+	if len(body) > maxPayloadBytes {
+		return Payload{}, fmt.Errorf("%w: payload exceeds %d bytes", ErrMalformedPayload, maxPayloadBytes)
+	}
 	var raw struct {
 		Target    *int   `json:"target"`
 		Timestamp *int64 `json:"timestamp"`

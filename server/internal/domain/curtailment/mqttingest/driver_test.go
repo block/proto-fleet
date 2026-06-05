@@ -275,6 +275,24 @@ func TestDriver_Dispatch_OnToOff_FullFleet(t *testing.T) {
 	}
 }
 
+func TestDriver_Dispatch_FullFleetEmptyReportsNoop(t *testing.T) {
+	t.Parallel()
+
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	d := NewDriver(svc, nil)
+
+	src := sampleSource()
+	src.CurtailMode = string(models.ModeFullFleet)
+	src.ContractedCurtailmentKw = 0
+
+	outcome, err := d.Dispatch(context.Background(), src, EdgeWatchdogOff, time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, newUUID, outcome.EventUUID)
+	assert.True(t, outcome.EmptyFullFleetNoop)
+}
+
 func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	t.Parallel()
 

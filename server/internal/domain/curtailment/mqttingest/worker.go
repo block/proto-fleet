@@ -30,8 +30,8 @@ type observation struct {
 	receivedAt time.Time
 }
 
-// observationChannelBuffer absorbs transient dispatch slowness; publisher
-// retries and the watchdog backstop dropped messages.
+// observationChannelBuffer absorbs transient dispatch slowness. Once full, the
+// broker callback backpressures instead of accepting and losing a state signal.
 const observationChannelBuffer = 256
 
 func (w *sourceWorker) run(ctx context.Context) {
@@ -107,13 +107,18 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool)
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
 		if !errors.Is(err, ErrSourceStateNotFound) {
-			w.cfg.Logger.Warn("mqttingest: get source state failed, starting cold",
+			w.cfg.Logger.Warn("mqttingest: get source state failed, retrying",
 				slog.String("source", w.source.SourceName),
 				slog.Any("error", err))
+			return SourceState{}, false
 		}
 		// LastTarget must be the Unknown sentinel, not the TargetOff zero
 		// value, or the first OFF reads as a repeat and the curtail is skipped.
 		state = SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
+	}
+
+	if state.PendingEdge != nil {
+		return w.retryPendingEdge(ctx, state)
 	}
 
 	if state.LastTarget != TargetOff {
@@ -172,16 +177,13 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 }
 
 func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {
-	if err := client.Connect(ctx, host, w.source.BrokerPort, w.source.MQTTUsername, w.password); err != nil {
+	if err := client.Connect(ctx, host, w.source.BrokerPort, w.source.BrokerTransport, w.source.MQTTUsername, w.password); err != nil {
 		return err
 	}
 	return client.Subscribe(ctx, w.source.Topic, func(payload []byte, receivedAt time.Time) {
 		select {
 		case messages <- observation{broker: host, payload: payload, receivedAt: receivedAt}:
-		default:
-			w.cfg.Logger.Warn("mqttingest: message channel full, dropping",
-				slog.String("source", w.source.SourceName),
-				slog.String("broker", host))
+		case <-ctx.Done():
 		}
 	})
 }
@@ -234,10 +236,10 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 
-	// Same stamp + same target is a duplicate; same stamp + different target is
-	// a real flip because wire timestamps are seconds-precision.
-	if !prior.LastTargetAt.IsZero() && !canonical.PublishedAt.After(prior.LastTargetAt) &&
-		canonical.Target == prior.LastProcessedTarget {
+	// Each target value may be processed once per seconds-precision publisher
+	// timestamp. This keeps a real same-second flip, but suppresses a later QoS
+	// redelivery of an older target at that same stamp.
+	if w.alreadyProcessedTarget(prior, canonical) {
 		direction = EdgeNone
 	}
 
@@ -249,8 +251,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	// Advance the duplicate-suppression anchor only after the edge settles.
 	if dispatched {
-		state.LastTargetAt = canonical.PublishedAt
-		state.LastProcessedTarget = canonical.Target
+		recordProcessedTarget(&state, canonical)
 	}
 
 	// Failed dispatches and debounced flips must not settle the source target.
@@ -260,6 +261,9 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	if dispatched && !debouncedFlip {
 		state.LastTarget = canonical.Target
 	}
+	if dispatched {
+		state.LastEmptyFullFleetWatchdogRef = ""
+	}
 
 	w.persistState(ctx, state)
 	return state
@@ -267,6 +271,14 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 // handleWatchdog enforces fail-safe OFF on stale or externally restored sources.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
+	if prior.PendingEdge != nil {
+		state, ok := w.retryPendingEdge(ctx, prior)
+		if ok {
+			return state
+		}
+		return prior
+	}
+
 	now := w.cfg.Clock()
 
 	if prior.LastTarget.IsOff() {
@@ -285,6 +297,10 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 						slog.Any("error", err))
 				}
 			}
+			return prior
+		}
+		watchdogRef := startExternalReference(w.source.SourceName, EdgeWatchdogOff, now, time.Time{}, w.source.StalenessThreshold)
+		if prior.LastEmptyFullFleetWatchdogRef == watchdogRef {
 			return prior
 		}
 	} else if EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold) == WatchdogIdle {
@@ -307,58 +323,136 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 		return prior, true
 	}
 
+	pendingState := prior
+	pendingState.PendingEdge = &PendingEdge{
+		Direction:      direction,
+		Target:         canonical.Target,
+		TargetAt:       canonical.PublishedAt,
+		ReceivedAt:     canonical.ReceivedAt,
+		ReceivedBroker: canonical.Broker,
+		PriorEdgeAt:    prior.LastEdgeAt,
+	}
+	if !w.persistState(ctx, pendingState) {
+		return pendingState, false
+	}
+	return w.dispatchPendingEdge(ctx, pendingState)
+}
+
+func (w *sourceWorker) retryPendingEdge(ctx context.Context, prior SourceState) (SourceState, bool) {
+	state, dispatched := w.dispatchPendingEdge(ctx, prior)
+	if !dispatched {
+		return prior, false
+	}
+	if !w.persistState(ctx, state) {
+		return state, true
+	}
+	return state, true
+}
+
+func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceState) (SourceState, bool) {
+	pending := prior.PendingEdge
+	if pending == nil {
+		return prior, true
+	}
+
 	// Message-driven OFF references use publisher time; watchdog OFF falls back
 	// to receive time. prior.LastEdgeAt disambiguates same-second OFF bursts.
-	dispatchAt := canonical.ReceivedAt
-	if !canonical.PublishedAt.IsZero() {
-		dispatchAt = canonical.PublishedAt
+	dispatchAt := pending.ReceivedAt
+	if !pending.TargetAt.IsZero() {
+		dispatchAt = pending.TargetAt
 	}
-	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, dispatchAt, prior.LastEdgeAt)
+	if pending.Direction == EdgeOffToOn {
+		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
+		if err != nil {
+			w.cfg.Logger.Error("mqttingest: pending ON active-event check failed",
+				slog.String("source", w.source.SourceName),
+				slog.Any("error", err))
+			return prior, false
+		}
+		if active == nil || eventIsRestoring(active) {
+			state := prior
+			state.PendingEdge = nil
+			state.LastEdgeAt = pending.ReceivedAt
+			state.LastReceivedAt = pending.ReceivedAt
+			state.LastReceivedBroker = pending.ReceivedBroker
+			state.LastTarget = TargetOn
+			state.LastEmptyFullFleetWatchdogRef = ""
+			if active != nil {
+				state.LastEdgeEventUUID = active.EventUUID.String()
+			}
+			recordProcessedTarget(&state, pending.canonical())
+			return state, true
+		}
+	}
+	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, pending.Direction, dispatchAt, pending.PriorEdgeAt)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveEvent) {
 			state := prior
-			state.LastEdgeAt = canonical.ReceivedAt
+			state.PendingEdge = nil
+			state.LastEdgeAt = pending.ReceivedAt
+			state.LastReceivedAt = pending.ReceivedAt
+			state.LastReceivedBroker = pending.ReceivedBroker
+			state.LastTarget = pending.Target
+			state.LastEmptyFullFleetWatchdogRef = ""
+			recordProcessedTarget(&state, pending.canonical())
 			return state, true
 		}
 		w.cfg.Logger.Error("mqttingest: edge dispatch failed",
 			slog.String("source", w.source.SourceName),
-			slog.String("direction", direction.String()),
+			slog.String("direction", pending.Direction.String()),
 			slog.Any("error", err))
 		return prior, false
 	}
 
 	state := prior
-	state.LastEdgeAt = canonical.ReceivedAt
+	state.PendingEdge = nil
+	state.LastEdgeAt = pending.ReceivedAt
+	state.LastReceivedAt = pending.ReceivedAt
+	state.LastReceivedBroker = pending.ReceivedBroker
+	state.LastTarget = pending.Target
 	if outcome.EventUUID != uuid.Nil {
 		state.LastEdgeEventUUID = outcome.EventUUID.String()
 	}
+	if outcome.EmptyFullFleetNoop && pending.Direction == EdgeWatchdogOff {
+		state.LastEmptyFullFleetWatchdogRef = startExternalReference(
+			w.source.SourceName,
+			EdgeWatchdogOff,
+			dispatchAt,
+			time.Time{},
+			w.source.StalenessThreshold,
+		)
+	} else {
+		state.LastEmptyFullFleetWatchdogRef = ""
+	}
+	recordProcessedTarget(&state, pending.canonical())
 	w.cfg.Logger.Info("mqttingest: edge dispatched",
 		slog.String("source", w.source.SourceName),
-		slog.String("direction", direction.String()),
+		slog.String("direction", pending.Direction.String()),
 		slog.String("event_uuid", state.LastEdgeEventUUID))
 	return state, true
 }
 
-func (w *sourceWorker) persistState(ctx context.Context, s SourceState) {
+func (w *sourceWorker) persistState(ctx context.Context, s SourceState) bool {
 	update := StateUpdate{
-		SourceConfigID:      w.source.ID,
-		LastTarget:          &s.LastTarget,
-		LastTargetAt:        &s.LastTargetAt,
-		LastProcessedTarget: &s.LastProcessedTarget,
-		LastReceivedAt:      &s.LastReceivedAt,
-		LastReceivedBroker:  &s.LastReceivedBroker,
-	}
-	if !s.LastEdgeAt.IsZero() {
-		update.LastEdgeAt = &s.LastEdgeAt
-	}
-	if s.LastEdgeEventUUID != "" {
-		update.LastEdgeEventUUID = &s.LastEdgeEventUUID
+		SourceConfigID:                w.source.ID,
+		LastTarget:                    s.LastTarget,
+		LastTargetAt:                  s.LastTargetAt,
+		LastProcessedTarget:           s.LastProcessedTarget,
+		LastProcessedTargets:          s.LastProcessedTargets,
+		LastReceivedAt:                s.LastReceivedAt,
+		LastReceivedBroker:            s.LastReceivedBroker,
+		LastEdgeAt:                    s.LastEdgeAt,
+		LastEdgeEventUUID:             s.LastEdgeEventUUID,
+		PendingEdge:                   s.PendingEdge,
+		LastEmptyFullFleetWatchdogRef: s.LastEmptyFullFleetWatchdogRef,
 	}
 	if err := w.cfg.Store.UpsertSourceState(ctx, update); err != nil {
 		w.cfg.Logger.Error("mqttingest: persist source state failed",
 			slog.String("source", w.source.SourceName),
 			slog.Any("error", err))
+		return false
 	}
+	return true
 }
 
 // isStalePayload rejects out-of-order and retained/backlog observations.
@@ -378,4 +472,43 @@ func (w *sourceWorker) brokerRole(host string) BrokerRole {
 		return BrokerPrimary
 	}
 	return BrokerSecondary
+}
+
+func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalState) bool {
+	if prior.LastTargetAt.IsZero() || !c.PublishedAt.Equal(prior.LastTargetAt) {
+		return false
+	}
+	for _, target := range prior.LastProcessedTargets {
+		if target == c.Target {
+			return true
+		}
+	}
+	return c.Target == prior.LastProcessedTarget
+}
+
+func recordProcessedTarget(state *SourceState, c CanonicalState) {
+	if c.PublishedAt.IsZero() {
+		return
+	}
+	state.LastProcessedTarget = c.Target
+	if state.LastTargetAt.IsZero() || !c.PublishedAt.Equal(state.LastTargetAt) {
+		state.LastTargetAt = c.PublishedAt
+		state.LastProcessedTargets = []Target{c.Target}
+		return
+	}
+	for _, target := range state.LastProcessedTargets {
+		if target == c.Target {
+			return
+		}
+	}
+	state.LastProcessedTargets = append(state.LastProcessedTargets, c.Target)
+}
+
+func (p PendingEdge) canonical() CanonicalState {
+	return CanonicalState{
+		Target:      p.Target,
+		PublishedAt: p.TargetAt,
+		ReceivedAt:  p.ReceivedAt,
+		Broker:      p.ReceivedBroker,
+	}
 }

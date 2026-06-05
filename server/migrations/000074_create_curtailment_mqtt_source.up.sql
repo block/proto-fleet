@@ -12,8 +12,11 @@ CREATE TABLE curtailment_mqtt_source_config (
     topic                           VARCHAR(255) NOT NULL,
     broker_primary_host             VARCHAR(255) NOT NULL,
     broker_secondary_host           VARCHAR(255) NOT NULL,
-    -- Broker TCP port; NULL → default applied in code.
+    -- Broker port; NULL → default applied in code (1883 for MaestroOS TCP).
     broker_port                     INT          NULL,
+    -- Explicit transport so plaintext MQTT is deliberate. `tcp` is accepted
+    -- only for private/local broker hosts by the subscriber startup guard.
+    broker_transport                TEXT         NOT NULL DEFAULT 'tcp',
     mqtt_username                   VARCHAR(255) NOT NULL,
     -- Encrypted via infrastructure/encrypt (base64-wrapped); rotation
     -- is operator-driven.
@@ -51,8 +54,22 @@ CREATE TABLE curtailment_mqtt_source_config (
     CONSTRAINT fk_curtailment_mqtt_source_config_service_user FOREIGN KEY (service_user_id)
         REFERENCES "user"(id) ON DELETE RESTRICT,
     CONSTRAINT uq_curtailment_mqtt_source_config_org_name UNIQUE (organization_id, source_name),
+    CONSTRAINT ck_curtailment_mqtt_source_config_source_name_nonempty
+        CHECK (btrim(source_name) <> ''),
+    CONSTRAINT ck_curtailment_mqtt_source_config_topic_nonempty
+        CHECK (btrim(topic) <> ''),
+    CONSTRAINT ck_curtailment_mqtt_source_config_primary_host_nonempty
+        CHECK (btrim(broker_primary_host) <> ''),
+    CONSTRAINT ck_curtailment_mqtt_source_config_secondary_host_nonempty
+        CHECK (btrim(broker_secondary_host) <> ''),
+    CONSTRAINT ck_curtailment_mqtt_source_config_username_nonempty
+        CHECK (btrim(mqtt_username) <> ''),
+    CONSTRAINT ck_curtailment_mqtt_source_config_password_nonempty
+        CHECK (btrim(mqtt_password_enc) <> ''),
     CONSTRAINT ck_curtailment_mqtt_source_config_port_positive
         CHECK (broker_port IS NULL OR (broker_port > 0 AND broker_port < 65536)),
+    CONSTRAINT ck_curtailment_mqtt_source_config_transport
+        CHECK (broker_transport IN ('tcp', 'tls')),
     -- kW is null-able (reporting-only for full_fleet); valid range when set.
     CONSTRAINT ck_curtailment_mqtt_source_config_contracted_kw_range
         CHECK (contracted_curtailment_kw IS NULL
@@ -67,7 +84,7 @@ CREATE TABLE curtailment_mqtt_source_config (
     CONSTRAINT ck_curtailment_mqtt_source_config_hold_nonneg
         CHECK (min_curtailed_duration_sec IS NULL OR min_curtailed_duration_sec >= 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_brokers_distinct
-        CHECK (broker_primary_host <> broker_secondary_host),
+        CHECK (btrim(broker_primary_host) <> btrim(broker_secondary_host)),
     -- whole_org carries no device list; device_list requires a non-empty one.
     CONSTRAINT ck_curtailment_mqtt_source_config_scope CHECK (
         (scope_type = 'whole_org' AND scope_device_identifiers IS NULL)
@@ -99,6 +116,10 @@ CREATE TABLE curtailment_mqtt_source_state (
     -- last_target after a debounced flip. Persisted so the duplicate guard
     -- survives a restart (a redelivery of a debounced flip stays suppressed).
     last_processed_target   TEXT         NULL,
+    -- All targets already processed for last_target_at. The wire timestamp is
+    -- seconds-precision, so this suppresses old same-second QoS redeliveries
+    -- after a legitimate opposite-target flip has already settled.
+    last_processed_targets  TEXT[]       NULL,
     -- Fleet's receive timestamp; staleness compares this against now().
     last_received_at        TIMESTAMPTZ  NULL,
     -- Broker that won precedence on the last message.
@@ -109,6 +130,18 @@ CREATE TABLE curtailment_mqtt_source_state (
     -- OFF->ON resolves this source's event via Service.ListActive matched on
     -- source_actor_id, so cross-source events are never stopped by this source.
     last_edge_event_uuid    UUID         NULL,
+    -- Durable in-flight edge. Written before the curtailment service side
+    -- effect and cleared only after source-state settlement succeeds, so
+    -- restarts can retry/complete the edge instead of trusting stale state.
+    pending_direction       TEXT         NULL,
+    pending_target          TEXT         NULL,
+    pending_target_at       TIMESTAMPTZ  NULL,
+    pending_received_at     TIMESTAMPTZ  NULL,
+    pending_received_broker VARCHAR(255) NULL,
+    pending_prior_edge_at   TIMESTAMPTZ  NULL,
+    -- Watchdog no-op marker for empty FULL_FLEET starts. Prevents one
+    -- terminal event per tick while still allowing a later window to retry.
+    last_empty_full_fleet_watchdog_ref TEXT NULL,
     updated_at              TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_curtailment_mqtt_source_state_config FOREIGN KEY (source_config_id)
@@ -116,7 +149,15 @@ CREATE TABLE curtailment_mqtt_source_state (
     CONSTRAINT ck_curtailment_mqtt_source_state_target_valid
         CHECK (last_target IS NULL OR last_target IN ('OFF', 'ON')),
     CONSTRAINT ck_curtailment_mqtt_source_state_processed_target_valid
-        CHECK (last_processed_target IS NULL OR last_processed_target IN ('OFF', 'ON'))
+        CHECK (last_processed_target IS NULL OR last_processed_target IN ('OFF', 'ON')),
+    CONSTRAINT ck_curtailment_mqtt_source_state_processed_targets_valid
+        CHECK (last_processed_targets IS NULL
+            OR last_processed_targets <@ ARRAY['OFF', 'ON']::TEXT[]),
+    CONSTRAINT ck_curtailment_mqtt_source_state_pending_direction_valid
+        CHECK (pending_direction IS NULL
+            OR pending_direction IN ('on_to_off', 'off_to_on', 'watchdog_off')),
+    CONSTRAINT ck_curtailment_mqtt_source_state_pending_target_valid
+        CHECK (pending_target IS NULL OR pending_target IN ('OFF', 'ON'))
 );
 
 CREATE TRIGGER update_curtailment_mqtt_source_state_updated_at

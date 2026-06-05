@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 )
 
 // SourceConfig is one MQTT source row in domain form.
@@ -20,6 +21,7 @@ type SourceConfig struct {
 	BrokerPrimaryHost       string
 	BrokerSecondaryHost     string
 	BrokerPort              int32
+	BrokerTransport         string
 	MQTTUsername            string
 	MQTTPasswordEncrypted   string
 	ContractedCurtailmentKw int32
@@ -42,33 +44,44 @@ type SourceState struct {
 	LastTargetAt   time.Time
 	// LastProcessedTarget pairs with LastTargetAt for duplicate suppression.
 	LastProcessedTarget Target
-	LastReceivedAt      time.Time
-	LastReceivedBroker  string
-	LastEdgeAt          time.Time
-	LastEdgeEventUUID   string
+	// LastProcessedTargets records every target value already processed at
+	// LastTargetAt so same-second QoS redeliveries cannot replay an old target.
+	LastProcessedTargets []Target
+	LastReceivedAt       time.Time
+	LastReceivedBroker   string
+	LastEdgeAt           time.Time
+	LastEdgeEventUUID    string
+	PendingEdge          *PendingEdge
+	// LastEmptyFullFleetWatchdogRef is the watchdog external_reference window
+	// whose FULL_FLEET dispatch completed with no targets.
+	LastEmptyFullFleetWatchdogRef string
 }
 
-// WatchdogRow is the projection ListSourcesForWatchdog returns.
-type WatchdogRow struct {
-	SourceConfigID     int64
-	SourceName         string
-	OrganizationID     int64
-	StalenessThreshold time.Duration
-	LastTarget         Target
-	LastReceivedAt     time.Time
-	LastEdgeEventUUID  string
+// PendingEdge is durable retry state for a side effect that was owed or started
+// but not yet settled into the source-state row.
+type PendingEdge struct {
+	Direction      EdgeDirection
+	Target         Target
+	TargetAt       time.Time
+	ReceivedAt     time.Time
+	ReceivedBroker string
+	PriorEdgeAt    time.Time
 }
 
-// StateUpdate patches source state; nil pointers leave columns unchanged.
+// StateUpdate replaces a source state row. Zero values map to SQL NULL, which
+// lets callers clear pending-edge fields after settlement.
 type StateUpdate struct {
-	SourceConfigID      int64
-	LastTarget          *Target
-	LastTargetAt        *time.Time
-	LastProcessedTarget *Target
-	LastReceivedAt      *time.Time
-	LastReceivedBroker  *string
-	LastEdgeAt          *time.Time
-	LastEdgeEventUUID   *string
+	SourceConfigID                int64
+	LastTarget                    Target
+	LastTargetAt                  time.Time
+	LastProcessedTarget           Target
+	LastProcessedTargets          []Target
+	LastReceivedAt                time.Time
+	LastReceivedBroker            string
+	LastEdgeAt                    time.Time
+	LastEdgeEventUUID             string
+	PendingEdge                   *PendingEdge
+	LastEmptyFullFleetWatchdogRef string
 }
 
 // Store is the data-access interface the subscriber depends on.
@@ -76,9 +89,8 @@ type Store interface {
 	ListEnabledSources(ctx context.Context) ([]SourceConfig, error)
 	GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error)
 	UpsertSourceState(ctx context.Context, update StateUpdate) error
-	ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, error)
-	// UserBelongsToOrg gates service users before emergency curtailment.
-	UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error)
+	// UserCanIngestCurtailment gates service users before emergency curtailment.
+	UserCanIngestCurtailment(ctx context.Context, userID, orgID int64) (bool, error)
 }
 
 // ErrSourceStateNotFound means cold start.
@@ -118,28 +130,24 @@ func (s *sqlcStore) GetSourceState(ctx context.Context, sourceConfigID int64) (S
 
 func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) error {
 	params := sqlc.UpsertMQTTSourceStateParams{
-		SourceConfigID: update.SourceConfigID,
+		SourceConfigID:                update.SourceConfigID,
+		LastTarget:                    nullStringFromTarget(update.LastTarget),
+		LastTargetAt:                  nullTimeFrom(update.LastTargetAt),
+		LastProcessedTarget:           nullStringFromTarget(update.LastProcessedTarget),
+		LastProcessedTargets:          stringsFromTargets(update.LastProcessedTargets),
+		LastReceivedAt:                nullTimeFrom(update.LastReceivedAt),
+		LastReceivedBroker:            nullStringFrom(update.LastReceivedBroker),
+		LastEdgeAt:                    nullTimeFrom(update.LastEdgeAt),
+		LastEdgeEventUuid:             nullUUIDFrom(update.LastEdgeEventUUID),
+		LastEmptyFullFleetWatchdogRef: nullStringFrom(update.LastEmptyFullFleetWatchdogRef),
 	}
-	if update.LastTarget != nil {
-		params.LastTarget = nullStringFromTarget(*update.LastTarget)
-	}
-	if update.LastTargetAt != nil {
-		params.LastTargetAt = nullTimeFrom(*update.LastTargetAt)
-	}
-	if update.LastProcessedTarget != nil {
-		params.LastProcessedTarget = nullStringFromTarget(*update.LastProcessedTarget)
-	}
-	if update.LastReceivedAt != nil {
-		params.LastReceivedAt = nullTimeFrom(*update.LastReceivedAt)
-	}
-	if update.LastReceivedBroker != nil {
-		params.LastReceivedBroker = nullStringFrom(*update.LastReceivedBroker)
-	}
-	if update.LastEdgeAt != nil {
-		params.LastEdgeAt = nullTimeFrom(*update.LastEdgeAt)
-	}
-	if update.LastEdgeEventUUID != nil {
-		params.LastEdgeEventUuid = nullUUIDFrom(*update.LastEdgeEventUUID)
+	if update.PendingEdge != nil {
+		params.PendingDirection = nullStringFrom(update.PendingEdge.Direction.String())
+		params.PendingTarget = nullStringFromTarget(update.PendingEdge.Target)
+		params.PendingTargetAt = nullTimeFrom(update.PendingEdge.TargetAt)
+		params.PendingReceivedAt = nullTimeFrom(update.PendingEdge.ReceivedAt)
+		params.PendingReceivedBroker = nullStringFrom(update.PendingEdge.ReceivedBroker)
+		params.PendingPriorEdgeAt = nullTimeFrom(update.PendingEdge.PriorEdgeAt)
 	}
 	if err := s.queries.UpsertMQTTSourceState(ctx, params); err != nil {
 		return fmt.Errorf("upsert mqtt source state: %w", err)
@@ -147,45 +155,12 @@ func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) e
 	return nil
 }
 
-func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, error) {
-	rows, err := s.queries.ListMQTTSourcesForWatchdog(ctx)
+func (s *sqlcStore) UserCanIngestCurtailment(ctx context.Context, userID, orgID int64) (bool, error) {
+	effective, err := authz.LoadEffectiveTx(ctx, s.queries, userID, orgID)
 	if err != nil {
-		return nil, fmt.Errorf("list mqtt sources for watchdog: %w", err)
+		return false, fmt.Errorf("load effective permissions: %w", err)
 	}
-	out := make([]WatchdogRow, len(rows))
-	for i, r := range rows {
-		out[i] = WatchdogRow{
-			SourceConfigID:     r.SourceConfigID,
-			SourceName:         r.SourceName,
-			OrganizationID:     r.OrganizationID,
-			StalenessThreshold: time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
-			LastTarget:         targetFromNullString(r.LastTarget),
-			LastReceivedAt:     timeFromNullTime(r.LastReceivedAt),
-			LastEdgeEventUUID:  stringFromNullUUID(r.LastEdgeEventUuid),
-		}
-	}
-	return out, nil
-}
-
-func (s *sqlcStore) UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error) {
-	// GetUserRoleName alone would pass a soft-deleted user whose org link
-	// remains, so verify the user row first.
-	if _, err := s.queries.GetUserById(ctx, userID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, fmt.Errorf("get user: %w", err)
-	}
-	if _, err := s.queries.GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
-		UserID:         userID,
-		OrganizationID: orgID,
-	}); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, fmt.Errorf("get user role in org: %w", err)
-	}
-	return true, nil
+	return effective.Has(authz.PermCurtailmentIngest, authz.ResourceContext{}), nil
 }
 
 const (
@@ -204,6 +179,7 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 		BrokerPrimaryHost:       r.BrokerPrimaryHost,
 		BrokerSecondaryHost:     r.BrokerSecondaryHost,
 		BrokerPort:              int32OrDefault(r.BrokerPort, defaultBrokerPort),
+		BrokerTransport:         stringOrDefault(r.BrokerTransport, brokerTransportTCP),
 		MQTTUsername:            r.MqttUsername,
 		MQTTPasswordEncrypted:   r.MqttPasswordEnc,
 		ContractedCurtailmentKw: r.ContractedCurtailmentKw.Int32,
@@ -219,13 +195,23 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 
 func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 	return SourceState{
-		SourceConfigID:      r.SourceConfigID,
-		LastTarget:          targetFromNullString(r.LastTarget),
-		LastTargetAt:        timeFromNullTime(r.LastTargetAt),
-		LastProcessedTarget: targetFromNullString(r.LastProcessedTarget),
-		LastReceivedAt:      timeFromNullTime(r.LastReceivedAt),
-		LastReceivedBroker:  stringFromNullString(r.LastReceivedBroker),
-		LastEdgeAt:          timeFromNullTime(r.LastEdgeAt),
-		LastEdgeEventUUID:   stringFromNullUUID(r.LastEdgeEventUuid),
+		SourceConfigID:       r.SourceConfigID,
+		LastTarget:           targetFromNullString(r.LastTarget),
+		LastTargetAt:         timeFromNullTime(r.LastTargetAt),
+		LastProcessedTarget:  targetFromNullString(r.LastProcessedTarget),
+		LastProcessedTargets: targetsFromStrings(r.LastProcessedTargets),
+		LastReceivedAt:       timeFromNullTime(r.LastReceivedAt),
+		LastReceivedBroker:   stringFromNullString(r.LastReceivedBroker),
+		LastEdgeAt:           timeFromNullTime(r.LastEdgeAt),
+		LastEdgeEventUUID:    stringFromNullUUID(r.LastEdgeEventUuid),
+		PendingEdge: pendingEdgeFromRow(
+			r.PendingDirection,
+			r.PendingTarget,
+			r.PendingTargetAt,
+			r.PendingReceivedAt,
+			r.PendingReceivedBroker,
+			r.PendingPriorEdgeAt,
+		),
+		LastEmptyFullFleetWatchdogRef: stringFromNullString(r.LastEmptyFullFleetWatchdogRef),
 	}
 }

@@ -453,6 +453,7 @@ type CurtailmentMqttSourceConfig struct {
 	BrokerPrimaryHost       string
 	BrokerSecondaryHost     string
 	BrokerPort              sql.NullInt32
+	BrokerTransport         string
 	MqttUsername            string
 	MqttPasswordEnc         string
 	ContractedCurtailmentKw sql.NullInt32
@@ -468,15 +469,23 @@ type CurtailmentMqttSourceConfig struct {
 }
 
 type CurtailmentMqttSourceState struct {
-	SourceConfigID      int64
-	LastTarget          sql.NullString
-	LastTargetAt        sql.NullTime
-	LastProcessedTarget sql.NullString
-	LastReceivedAt      sql.NullTime
-	LastReceivedBroker  sql.NullString
-	LastEdgeAt          sql.NullTime
-	LastEdgeEventUuid   uuid.NullUUID
-	UpdatedAt           time.Time
+	SourceConfigID                int64
+	LastTarget                    sql.NullString
+	LastTargetAt                  sql.NullTime
+	LastProcessedTarget           sql.NullString
+	LastProcessedTargets          []string
+	LastReceivedAt                sql.NullTime
+	LastReceivedBroker            sql.NullString
+	LastEdgeAt                    sql.NullTime
+	LastEdgeEventUuid             uuid.NullUUID
+	PendingDirection              sql.NullString
+	PendingTarget                 sql.NullString
+	PendingTargetAt               sql.NullTime
+	PendingReceivedAt             sql.NullTime
+	PendingReceivedBroker         sql.NullString
+	PendingPriorEdgeAt            sql.NullTime
+	LastEmptyFullFleetWatchdogRef sql.NullString
+	UpdatedAt                     time.Time
 }
 
 type CurtailmentOrgConfig struct {

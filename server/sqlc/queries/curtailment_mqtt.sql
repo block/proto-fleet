@@ -6,11 +6,6 @@ FROM curtailment_mqtt_source_config
 WHERE enabled = TRUE
 ORDER BY id;
 
--- name: GetMQTTSourceConfigByID :one
-SELECT *
-FROM curtailment_mqtt_source_config
-WHERE id = sqlc.arg('id');
-
 -- name: GetMQTTSourceStateByID :one
 SELECT *
 FROM curtailment_mqtt_source_state
@@ -24,46 +19,53 @@ INSERT INTO curtailment_mqtt_source_state (
     last_target,
     last_target_at,
     last_processed_target,
+    last_processed_targets,
     last_received_at,
     last_received_broker,
     last_edge_at,
-    last_edge_event_uuid
+    last_edge_event_uuid,
+    pending_direction,
+    pending_target,
+    pending_target_at,
+    pending_received_at,
+    pending_received_broker,
+    pending_prior_edge_at,
+    last_empty_full_fleet_watchdog_ref
 ) VALUES (
     sqlc.arg('source_config_id'),
     sqlc.narg('last_target'),
     sqlc.narg('last_target_at'),
     sqlc.narg('last_processed_target'),
+    sqlc.narg('last_processed_targets'),
     sqlc.narg('last_received_at'),
     sqlc.narg('last_received_broker'),
     sqlc.narg('last_edge_at'),
-    sqlc.narg('last_edge_event_uuid')
+    sqlc.narg('last_edge_event_uuid'),
+    sqlc.narg('pending_direction'),
+    sqlc.narg('pending_target'),
+    sqlc.narg('pending_target_at'),
+    sqlc.narg('pending_received_at'),
+    sqlc.narg('pending_received_broker'),
+    sqlc.narg('pending_prior_edge_at'),
+    sqlc.narg('last_empty_full_fleet_watchdog_ref')
 )
 ON CONFLICT (source_config_id) DO UPDATE
 SET
-    last_target            = COALESCE(EXCLUDED.last_target, curtailment_mqtt_source_state.last_target),
-    last_target_at         = COALESCE(EXCLUDED.last_target_at, curtailment_mqtt_source_state.last_target_at),
-    last_processed_target  = COALESCE(EXCLUDED.last_processed_target, curtailment_mqtt_source_state.last_processed_target),
-    last_received_at       = COALESCE(EXCLUDED.last_received_at, curtailment_mqtt_source_state.last_received_at),
-    last_received_broker   = COALESCE(EXCLUDED.last_received_broker, curtailment_mqtt_source_state.last_received_broker),
-    last_edge_at           = COALESCE(EXCLUDED.last_edge_at, curtailment_mqtt_source_state.last_edge_at),
-    last_edge_event_uuid   = COALESCE(EXCLUDED.last_edge_event_uuid, curtailment_mqtt_source_state.last_edge_event_uuid);
-
--- name: ListMQTTSourcesForWatchdog :many
--- Driven by the watchdog ticker: every enabled source paired with its
--- current state. NULL last_received_at signals cold-start; the subscriber
--- treats that as stale (fail-safe).
-SELECT
-    c.id                          AS source_config_id,
-    c.source_name                 AS source_name,
-    c.organization_id             AS organization_id,
-    c.staleness_threshold_sec     AS staleness_threshold_sec,
-    s.last_target                 AS last_target,
-    s.last_received_at            AS last_received_at,
-    s.last_edge_event_uuid        AS last_edge_event_uuid
-FROM curtailment_mqtt_source_config c
-LEFT JOIN curtailment_mqtt_source_state s ON s.source_config_id = c.id
-WHERE c.enabled = TRUE
-ORDER BY c.id;
+    last_target            = EXCLUDED.last_target,
+    last_target_at         = EXCLUDED.last_target_at,
+    last_processed_target  = EXCLUDED.last_processed_target,
+    last_processed_targets = EXCLUDED.last_processed_targets,
+    last_received_at       = EXCLUDED.last_received_at,
+    last_received_broker   = EXCLUDED.last_received_broker,
+    last_edge_at           = EXCLUDED.last_edge_at,
+    last_edge_event_uuid   = EXCLUDED.last_edge_event_uuid,
+    pending_direction      = EXCLUDED.pending_direction,
+    pending_target         = EXCLUDED.pending_target,
+    pending_target_at      = EXCLUDED.pending_target_at,
+    pending_received_at    = EXCLUDED.pending_received_at,
+    pending_received_broker = EXCLUDED.pending_received_broker,
+    pending_prior_edge_at  = EXCLUDED.pending_prior_edge_at,
+    last_empty_full_fleet_watchdog_ref = EXCLUDED.last_empty_full_fleet_watchdog_ref;
 
 -- name: InsertMQTTSourceConfig :one
 -- Used by tests and operator-supplied DML. Production source rows are
@@ -76,6 +78,7 @@ INSERT INTO curtailment_mqtt_source_config (
     broker_primary_host,
     broker_secondary_host,
     broker_port,
+    broker_transport,
     mqtt_username,
     mqtt_password_enc,
     contracted_curtailment_kw,
@@ -94,6 +97,7 @@ INSERT INTO curtailment_mqtt_source_config (
     sqlc.arg('broker_primary_host'),
     sqlc.arg('broker_secondary_host'),
     sqlc.narg('broker_port'),
+    sqlc.arg('broker_transport'),
     sqlc.arg('mqtt_username'),
     sqlc.arg('mqtt_password_enc'),
     sqlc.narg('contracted_curtailment_kw'),
