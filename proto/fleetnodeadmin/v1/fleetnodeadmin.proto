@@ -6,6 +6,7 @@ syntax = "proto3";
 package fleetnodeadmin.v1;
 
 import "buf/validate/validate.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
 import "google/protobuf/timestamp.proto";
 import "pairing/v1/pairing.proto";
 
@@ -160,7 +161,10 @@ message PairDiscoveredDevicesOnFleetNodeResponse {
 
 message DevicePairingResult {
     string device_identifier = 1;
-    // PAIRED | AUTHENTICATION_NEEDED | FAILED
-    string pairing_status = 2 [(buf.validate.field).string.max_len = 64];
-    string error = 3;
+    // Shares the operator-facing enum with fleetmanagement; a fleet-node pair
+    // result is always PAIRED, AUTHENTICATION_NEEDED, or FAILED.
+    fleetmanagement.v1.PairingStatus pairing_status = 2;
+    // Mirrors the gateway's FleetNodePairResult.error_message cap; the node's
+    // error string is echoed through here.
+    string error = 3 [(buf.validate.field).string.max_len = 4096];
 }
