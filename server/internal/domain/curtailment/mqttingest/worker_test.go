@@ -315,6 +315,45 @@ func TestWorker_HandleMessage_NewerOnClearsPendingOff(t *testing.T) {
 	assert.Equal(t, TargetOn, persisted.LastTarget)
 }
 
+func TestWorker_HandleMessage_CorrectedClockOnClearsFutureDatedPendingOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	pendingReceived := time.Now().UTC()
+	futureTargetAt := pendingReceived.Add(time.Hour)
+	onReceived := pendingReceived.Add(5 * time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": onReceived.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   pendingReceived.Add(-time.Minute),
+		LastReceivedAt: pendingReceived,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       futureTargetAt,
+			ReceivedAt:     pendingReceived,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: onReceived})
+
+	assert.Nil(t, next.PendingEdge, "newer ON must cancel a pending OFF from a future-dated publisher stamp")
+	assert.Equal(t, TargetOn, next.LastTarget)
+	assert.Empty(t, svc.startCalls, "correcting the publisher clock must not replay the stale pending OFF")
+
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	assert.Nil(t, persisted.PendingEdge, "cleared future-dated pending edge must persist")
+}
+
 func TestWorker_HandleMessage_PendingClearPersistFailureKeepsPendingInMemory(t *testing.T) {
 	t.Parallel()
 

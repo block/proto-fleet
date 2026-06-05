@@ -599,6 +599,9 @@ func pendingEdgeSupersededBy(edge *PendingEdge, c CanonicalState) bool {
 		case c.PublishedAt.After(edge.TargetAt):
 			return true
 		case c.PublishedAt.Before(edge.TargetAt):
+			if edge.TargetAt.After(edge.ReceivedAt) {
+				return c.ReceivedAt.After(edge.ReceivedAt)
+			}
 			return false
 		}
 	}
