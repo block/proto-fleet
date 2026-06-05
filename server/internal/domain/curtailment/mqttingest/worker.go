@@ -255,20 +255,22 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	return state
 }
 
-// handleWatchdog dispatches a WATCHDOG_OFF curtail when needed: on
-// staleness (no message within the threshold while not already OFF), or —
-// when the last signal was OFF — if the source's event is gone or restoring
-// (terminated out-of-band, or being undone) so the source must be
-// re-curtailed. After a successful dispatch it records LastTarget=OFF.
+// handleWatchdog enforces OFF when needed. On staleness (no message within the
+// threshold while not already OFF) it dispatches WATCHDOG_OFF. When the last
+// signal was OFF it re-asserts curtailment if this source's event stopped
+// holding: resuming a restoring event in place, or — when the event is gone
+// (terminated out-of-band) — dispatching a fresh WATCHDOG_OFF. Records
+// LastTarget=OFF after a successful WATCHDOG_OFF dispatch.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	now := w.cfg.Clock()
 
 	if prior.LastTarget.IsOff() {
-		// OFF means this source must stay curtailed; re-curtail unless its own
-		// event is still holding. A restoring event is being undone (devices
-		// ramping back to full power) and a missing event was terminated
-		// out-of-band — neither satisfies OFF, so re-curtail. Another source's
-		// event doesn't satisfy this source — each curtails its own scope.
+		// OFF means this source must stay curtailed. An active/pending event
+		// still holds → idle. A restoring event is being undone by an
+		// out-of-band Stop, so re-assert curtailment in place. A missing event
+		// was terminated out-of-band → fall through to a fresh WATCHDOG_OFF.
+		// Another source's event doesn't satisfy this source — each curtails
+		// its own scope.
 		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
 		if err != nil {
 			w.cfg.Logger.Warn("mqttingest: watchdog active-event check failed",
@@ -276,7 +278,16 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 				slog.Any("error", err))
 			return prior
 		}
-		if active != nil && active.State != models.EventStateRestoring {
+		if active != nil {
+			if active.State == models.EventStateRestoring {
+				// Flip restoring → active and re-curtail its targets in place,
+				// rather than a fresh Start that would just replay this event.
+				if err := w.cfg.Driver.ResumeSourceEvent(ctx, active); err != nil {
+					w.cfg.Logger.Warn("mqttingest: watchdog re-curtail failed",
+						slog.String("source", w.source.SourceName),
+						slog.Any("error", err))
+				}
+			}
 			return prior
 		}
 	} else if EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold) == WatchdogIdle {

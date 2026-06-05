@@ -559,17 +559,19 @@ func TestWorker_HandleWatchdog_Off_RestoringEvent_Recurtails(t *testing.T) {
 
 	store := newFakeStore()
 	actorID := "mqtt:site-a"
-	newUUID := uuid.New()
+	eventUUID := uuid.New()
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID, State: models.EventStateRestoring}},
-		startResult:      &curtailment.Plan{EventUUID: &newUUID},
+		listActiveResult: []*models.Event{{EventUUID: eventUUID, OrgID: 7, SourceActorID: &actorID, State: models.EventStateRestoring}},
+		recurtailResult:  &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
 	next := w.handleWatchdog(context.Background(), prior)
 
-	require.Equal(t, 1, svc.startCallsLen(), "a restoring event is being undone — must re-curtail to hold OFF")
+	require.Len(t, svc.recurtailCalls, 1, "a restoring event must be re-curtailed in place (resumed), not replayed via Start")
+	assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
+	assert.Empty(t, svc.startCalls, "resume must not dispatch a fresh WATCHDOG_OFF Start (which would replay the restoring event)")
 	assert.Equal(t, TargetOff, next.LastTarget)
 }
 

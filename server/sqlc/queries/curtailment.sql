@@ -399,6 +399,37 @@ SET desired_state      = 'active',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
+-- name: ResumeCurtailmentFromRestoring :one
+-- Inverse of BeginCurtailmentRestoration: a restoring event re-asserts its
+-- curtailment in place (an out-of-band Stop began a restore while the source's
+-- signal still requires OFF). The WHERE state-guard is the concurrency control;
+-- the loser sees zero rows and the store re-reads to route by the latest state.
+UPDATE curtailment_event
+SET state = 'active'
+WHERE id = sqlc.arg('id')
+  AND state = 'restoring'
+RETURNING *;
+
+-- name: ResetCurtailmentTargetsForRecurtail :exec
+-- Inverse of ResetCurtailmentTargetsForRestore: flips the in-flight restore
+-- targets back to desired_state='curtailed' and clears phase-local cursors so
+-- the reconciler re-curtails them. Only targets still being restored
+-- (non-terminal) are touched — a target that already resolved has left this
+-- event's per-device lock, so re-claiming it here could double-write a device
+-- another event may have taken. Sub-second watchdog detection means none have
+-- resolved yet in practice.
+UPDATE curtailment_target
+SET desired_state      = 'curtailed',
+    state              = 'pending',
+    retry_count        = 0,
+    last_dispatched_at = NULL,
+    last_batch_uuid    = NULL,
+    confirmed_at       = NULL,
+    last_error         = NULL
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND desired_state = 'active'
+  AND state NOT IN ('resolved', 'restore_failed', 'released');
+
 -- name: UpdateCurtailmentTargetState :execrows
 -- Reconciler patch. COALESCE preserves un-supplied columns; empty
 -- last_error is the explicit clear sentinel that maps to SQL NULL.

@@ -304,6 +304,18 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	return nil, nil
 }
 
+// BeginRecurtailTransition satisfies the store interface; the reconciler never
+// calls it (the MQTT subscriber's watchdog drives re-curtail).
+func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+	for _, ev := range f.events {
+		if ev.EventUUID == eventUUID {
+			ev.State = models.EventStateActive
+			return ev, nil
+		}
+	}
+	return nil, nil
+}
+
 // fakeDispatcher records Curtail / Uncurtail calls and returns the
 // configured outcome.
 type fakeDispatcher struct {

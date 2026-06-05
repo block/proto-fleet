@@ -139,6 +139,9 @@ func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) 
 func (s *updateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by Update handler tests")
 }
+func (s *updateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("BeginRecurtailTransition not exercised by Update handler tests")
+}
 func (s *updateStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised by Update handler tests")
 }

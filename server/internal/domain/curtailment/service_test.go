@@ -62,6 +62,10 @@ type fakeStore struct {
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
 
+	beginRecurtailErr         error
+	beginRecurtailCalls       int
+	beginRecurtailLastEventID uuid.UUID
+
 	// List-history fakes. eventsHistory is the slice the fake's ListEvents
 	// paginates over (callers seed it newest-first to match the SQL impl).
 	eventsHistory        []*models.Event
@@ -355,6 +359,21 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	}
 	updated := *ev
 	updated.State = models.EventStateRestoring
+	return &updated, nil
+}
+
+func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+	f.beginRecurtailCalls++
+	f.beginRecurtailLastEventID = eventUUID
+	if f.beginRecurtailErr != nil {
+		return nil, f.beginRecurtailErr
+	}
+	ev, ok := f.eventsByUUID[eventUUID]
+	if !ok {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	updated := *ev
+	updated.State = models.EventStateActive
 	return &updated, nil
 }
 

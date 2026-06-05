@@ -85,6 +85,9 @@ func (s *adminTerminateStubStore) ListTargetsByEvent(context.Context, int64, uui
 func (s *adminTerminateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("BeginRecurtailTransition not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised by AdminTerminate handler tests")
 }

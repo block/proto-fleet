@@ -28,10 +28,14 @@ type fakeService struct {
 	stopCalls       []curtailment.StopRequest
 	listActiveCalls []int64
 
+	recurtailCalls []curtailment.RecurtailRequest
+
 	startResult      *curtailment.Plan
 	startErr         error
 	stopResult       *models.Event
 	stopErr          error
+	recurtailResult  *models.Event
+	recurtailErr     error
 	listActiveResult []*models.Event
 	// listActiveResults, when set, returns a distinct result per ListActive call
 	// (clamped to the last entry) so a test can model a TOCTOU race where the
@@ -71,6 +75,14 @@ func (f *fakeService) ListActive(_ context.Context, orgID int64) ([]*models.Even
 		return f.listActiveResults[idx], nil
 	}
 	return f.listActiveResult, nil
+}
+
+func (f *fakeService) Recurtail(_ context.Context, req curtailment.RecurtailRequest) (*models.Event, error) {
+	f.mu.Lock()
+	f.recurtailCalls = append(f.recurtailCalls, req)
+	res, err := f.recurtailResult, f.recurtailErr
+	f.mu.Unlock()
+	return res, err
 }
 
 // startCallsLen is the lock-protected read the subscriber test uses
@@ -435,4 +447,32 @@ func TestDriver_Dispatch_DeviceListScopeRequiresIdentifiers(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "device_list")
 	assert.Empty(t, svc.startCalls, "an invalid scope must not reach Start")
+}
+
+// ResumeSourceEvent re-curtails a restoring event in place via Recurtail,
+// passing the event's org + UUID — not a fresh Start.
+func TestDriver_ResumeSourceEvent(t *testing.T) {
+	t.Parallel()
+
+	eventUUID := uuid.New()
+	svc := &fakeService{recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive}}
+	d := NewDriver(svc, nil)
+
+	err := d.ResumeSourceEvent(context.Background(), &models.Event{EventUUID: eventUUID, OrgID: 7})
+
+	require.NoError(t, err)
+	require.Len(t, svc.recurtailCalls, 1)
+	assert.Equal(t, int64(7), svc.recurtailCalls[0].OrgID)
+	assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
+	assert.Empty(t, svc.startCalls, "resume must not Start a fresh event")
+}
+
+func TestDriver_ResumeSourceEvent_PropagatesError(t *testing.T) {
+	t.Parallel()
+
+	svc := &fakeService{recurtailErr: errors.New("svc down")}
+	d := NewDriver(svc, nil)
+
+	err := d.ResumeSourceEvent(context.Background(), &models.Event{EventUUID: uuid.New(), OrgID: 7})
+	require.Error(t, err)
 }

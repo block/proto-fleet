@@ -1400,6 +1400,28 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID)
 }
 
+// RecurtailRequest re-asserts curtailment on a restoring event.
+type RecurtailRequest struct {
+	OrgID     int64
+	EventUUID uuid.UUID
+}
+
+// Recurtail flips a restoring event back to active and re-curtails its
+// in-flight restore targets — the inverse of Stop's restore transition. The
+// MQTT subscriber's watchdog uses it to re-assert OFF when an out-of-band Stop
+// began a restore while the source still signals OFF, rather than waiting for
+// the restore to complete. Idempotent on a non-restoring non-terminal event
+// (already curtailing or bound to it); terminal events return FailedPrecondition.
+func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.Event, error) {
+	if req.OrgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	return s.store.BeginRecurtailTransition(ctx, req.OrgID, req.EventUUID)
+}
+
 func validateStopRequest(req StopRequest) error {
 	if req.OrgID <= 0 {
 		return fleeterror.NewInvalidArgumentError("org_id must be set")

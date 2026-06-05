@@ -22,6 +22,10 @@ type curtailmentService interface {
 	// per-scope events (GetActive returns only the most-recent, which can be
 	// another source's).
 	ListActive(ctx context.Context, orgID int64) ([]*models.Event, error)
+	// Recurtail flips a restoring event back to active and re-curtails its
+	// in-flight targets in place; the watchdog uses it to re-assert OFF without
+	// starting a fresh event (which would replay the restoring one).
+	Recurtail(ctx context.Context, req curtailment.RecurtailRequest) (*models.Event, error)
 }
 
 // EdgeOutcome reports the result of dispatching one edge; the subscriber
@@ -205,6 +209,20 @@ func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*mode
 		}
 	}
 	return nil, nil
+}
+
+// ResumeSourceEvent re-asserts curtailment on this source's restoring event
+// (an out-of-band Stop began a restore while the publisher still signals OFF),
+// flipping it back to active in place. Preferred over a fresh WATCHDOG_OFF
+// Start, which would replay the restoring event instead of re-curtailing.
+func (d *Driver) ResumeSourceEvent(ctx context.Context, event *models.Event) error {
+	if _, err := d.svc.Recurtail(ctx, curtailment.RecurtailRequest{
+		OrgID:     event.OrgID,
+		EventUUID: event.EventUUID,
+	}); err != nil {
+		return fmt.Errorf("mqttingest: recurtail: %w", err)
+	}
+	return nil
 }
 
 // ErrNoActiveEvent is returned by Dispatch on OFF→ON when no

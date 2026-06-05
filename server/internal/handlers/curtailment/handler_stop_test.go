@@ -100,6 +100,9 @@ func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, event
 	}
 	return &updated, nil
 }
+func (s *stopStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("BeginRecurtailTransition not exercised (no gRPC re-curtail endpoint)")
+}
 func (s *stopStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised")
 }

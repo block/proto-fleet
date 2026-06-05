@@ -801,8 +801,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
 	}
+	if q.resetCurtailmentTargetsForRecurtailStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRecurtail); err != nil {
+		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRecurtail: %w", err)
+	}
 	if q.resetCurtailmentTargetsForRestoreStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRestore: %w", err)
+	}
+	if q.resumeCurtailmentFromRestoringStmt, err = db.PrepareContext(ctx, resumeCurtailmentFromRestoring); err != nil {
+		return nil, fmt.Errorf("error preparing query ResumeCurtailmentFromRestoring: %w", err)
 	}
 	if q.resumePausedScheduleStmt, err = db.PrepareContext(ctx, resumePausedSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumePausedSchedule: %w", err)
@@ -2377,9 +2383,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeDevicesFromDeviceSetStmt: %w", cerr)
 		}
 	}
+	if q.resetCurtailmentTargetsForRecurtailStmt != nil {
+		if cerr := q.resetCurtailmentTargetsForRecurtailStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resetCurtailmentTargetsForRecurtailStmt: %w", cerr)
+		}
+	}
 	if q.resetCurtailmentTargetsForRestoreStmt != nil {
 		if cerr := q.resetCurtailmentTargetsForRestoreStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRestoreStmt: %w", cerr)
+		}
+	}
+	if q.resumeCurtailmentFromRestoringStmt != nil {
+		if cerr := q.resumeCurtailmentFromRestoringStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resumeCurtailmentFromRestoringStmt: %w", cerr)
 		}
 	}
 	if q.resumePausedScheduleStmt != nil {
@@ -3135,7 +3151,9 @@ type Queries struct {
 	reassignRacksUnderBuildingStmt                      *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                   *sql.Stmt
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
+	resetCurtailmentTargetsForRecurtailStmt             *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt               *sql.Stmt
+	resumeCurtailmentFromRestoringStmt                  *sql.Stmt
 	resumePausedScheduleStmt                            *sql.Stmt
 	revertScheduleToActiveStmt                          *sql.Stmt
 	revokeAllSessionsByUserIDStmt                       *sql.Stmt
@@ -3492,7 +3510,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reassignRacksUnderBuildingStmt:                      q.reassignRacksUnderBuildingStmt,
 		removeAllDevicesFromDeviceSetStmt:                   q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
+		resetCurtailmentTargetsForRecurtailStmt:             q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:               q.resetCurtailmentTargetsForRestoreStmt,
+		resumeCurtailmentFromRestoringStmt:                  q.resumeCurtailmentFromRestoringStmt,
 		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
 		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                       q.revokeAllSessionsByUserIDStmt,

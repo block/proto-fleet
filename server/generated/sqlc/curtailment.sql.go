@@ -1263,6 +1263,32 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context,
 	return items, nil
 }
 
+const resetCurtailmentTargetsForRecurtail = `-- name: ResetCurtailmentTargetsForRecurtail :exec
+UPDATE curtailment_target
+SET desired_state      = 'curtailed',
+    state              = 'pending',
+    retry_count        = 0,
+    last_dispatched_at = NULL,
+    last_batch_uuid    = NULL,
+    confirmed_at       = NULL,
+    last_error         = NULL
+WHERE curtailment_event_id = $1
+  AND desired_state = 'active'
+  AND state NOT IN ('resolved', 'restore_failed', 'released')
+`
+
+// Inverse of ResetCurtailmentTargetsForRestore: flips the in-flight restore
+// targets back to desired_state='curtailed' and clears phase-local cursors so
+// the reconciler re-curtails them. Only targets still being restored
+// (non-terminal) are touched — a target that already resolved has left this
+// event's per-device lock, so re-claiming it here could double-write a device
+// another event may have taken. Sub-second watchdog detection means none have
+// resolved yet in practice.
+func (q *Queries) ResetCurtailmentTargetsForRecurtail(ctx context.Context, curtailmentEventID int64) error {
+	_, err := q.exec(ctx, q.resetCurtailmentTargetsForRecurtailStmt, resetCurtailmentTargetsForRecurtail, curtailmentEventID)
+	return err
+}
+
 const resetCurtailmentTargetsForRestore = `-- name: ResetCurtailmentTargetsForRestore :exec
 UPDATE curtailment_target
 SET desired_state      = 'active',
@@ -1282,6 +1308,60 @@ WHERE curtailment_event_id = $1
 func (q *Queries) ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error {
 	_, err := q.exec(ctx, q.resetCurtailmentTargetsForRestoreStmt, resetCurtailmentTargetsForRestore, curtailmentEventID)
 	return err
+}
+
+const resumeCurtailmentFromRestoring = `-- name: ResumeCurtailmentFromRestoring :one
+UPDATE curtailment_event
+SET state = 'active'
+WHERE id = $1
+  AND state = 'restoring'
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+`
+
+// Inverse of BeginCurtailmentRestoration: a restoring event re-asserts its
+// curtailment in place (an out-of-band Stop began a restore while the source's
+// signal still requires OFF). The WHERE state-guard is the concurrency control;
+// the loser sees zero rows and the store re-reads to route by the latest state.
+func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.resumeCurtailmentFromRestoringStmt, resumeCurtailmentFromRestoring, id)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
 }
 
 const sweepCurtailmentTargetsToRestoreFailed = `-- name: SweepCurtailmentTargetsToRestoreFailed :exec
