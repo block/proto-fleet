@@ -33,7 +33,11 @@ type fakeService struct {
 	stopResult       *models.Event
 	stopErr          error
 	listActiveResult []*models.Event
-	listActiveErr    error
+	// listActiveResults, when set, returns a distinct result per ListActive call
+	// (clamped to the last entry) so a test can model a TOCTOU race where the
+	// event is listed first and gone on a re-check.
+	listActiveResults [][]*models.Event
+	listActiveErr     error
 }
 
 func (f *fakeService) Start(_ context.Context, req curtailment.StartRequest) (*curtailment.Plan, error) {
@@ -54,10 +58,19 @@ func (f *fakeService) Stop(_ context.Context, req curtailment.StopRequest) (*mod
 
 func (f *fakeService) ListActive(_ context.Context, orgID int64) ([]*models.Event, error) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
+	idx := len(f.listActiveCalls)
 	f.listActiveCalls = append(f.listActiveCalls, orgID)
-	res, err := f.listActiveResult, f.listActiveErr
-	f.mu.Unlock()
-	return res, err
+	if f.listActiveErr != nil {
+		return nil, f.listActiveErr
+	}
+	if f.listActiveResults != nil {
+		if idx >= len(f.listActiveResults) {
+			idx = len(f.listActiveResults) - 1
+		}
+		return f.listActiveResults[idx], nil
+	}
+	return f.listActiveResult, nil
 }
 
 // startCallsLen is the lock-protected read the subscriber test uses

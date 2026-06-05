@@ -168,6 +168,17 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	}
 	event, err := d.svc.Stop(ctx, stopReq)
 	if err != nil {
+		// The event can go terminal between ActiveSourceEvent listing it and Stop
+		// running (admin terminate, or its own restore completing); Stop rejects a
+		// terminal event. If this source no longer has a non-terminal event there
+		// is nothing left to stop, so treat it like ErrNoActiveEvent — the OFF→ON
+		// still advances and the watchdog won't re-curtail a restored source. A
+		// still-active event is a real failure (e.g. the min-curtailed-duration
+		// gate, which also reports FailedPrecondition) — propagate it so the
+		// worker retries rather than wrongly settling ON.
+		if active2, rerr := d.ActiveSourceEvent(ctx, src); rerr == nil && active2 == nil {
+			return nil, ErrNoActiveEvent
+		}
 		return nil, fmt.Errorf("mqttingest: dispatch Stop: %w", err)
 	}
 	if event == nil {

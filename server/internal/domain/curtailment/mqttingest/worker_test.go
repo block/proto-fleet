@@ -205,6 +205,49 @@ func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	require.Len(t, svc.listActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
 }
 
+// A terminal stop race — the event goes terminal between ActiveSourceEvent
+// listing it and Stop running — must still advance OFF→ON. Otherwise LastTarget
+// stays OFF after the publisher restored and the next watchdog tick re-curtails
+// a source that should be ON.
+func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	mine := "mqtt:site-a" // workerSource() is "site-a"
+	eventUUID := uuid.New()
+	svc := &fakeService{
+		// Found on the dispatchStop lookup, gone on the post-failure re-check
+		// because it went terminal in between; Stop rejects the terminal event.
+		listActiveResults: [][]*models.Event{
+			{{EventUUID: eventUUID, SourceActorID: &mine}},
+			nil,
+		},
+		stopErr: fleeterror.NewFailedPreconditionErrorf(
+			"cannot stop curtailment event %s in terminal state %q", eventUUID, models.EventStateCompleted),
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	// Settled OFF, old edge anchor → the ON is a real, non-debounced OFF→ON.
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOff,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now})
+
+	assert.Equal(t, TargetOn, next.LastTarget,
+		"a terminal stop race must still advance OFF→ON, not leave LastTarget OFF for the watchdog to re-curtail")
+	require.Len(t, svc.stopCalls, 1, "Stop was attempted on the listed event")
+	assert.Len(t, svc.listActiveCalls, 2, "a failed Stop re-checks the active event to detect the terminal race")
+}
+
 // A flip absorbed by the debounce window must leave LastTarget untouched
 // so a later genuine opposite edge still fires.
 func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
