@@ -1,6 +1,18 @@
 package pairing
 
-import "time"
+import (
+	"time"
+
+	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
+)
+
+// device_pairing.pairing_status values this package writes, aliased from the
+// canonical constants so the two pairing paths can't drift.
+const (
+	StatusPaired               = domainpairing.StatusPaired
+	StatusAuthenticationNeeded = domainpairing.StatusAuthenticationNeeded
+	StatusFailed               = domainpairing.StatusFailed
+)
 
 type DiscoveredDeviceReport struct {
 	DeviceIdentifier string

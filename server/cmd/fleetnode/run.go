@@ -38,6 +38,7 @@ type RunCmd struct {
 	localSubnets  func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 
 	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
+	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
 }
 
 type gatewayClient interface {

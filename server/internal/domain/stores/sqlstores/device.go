@@ -137,16 +137,14 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 
 func (s *SQLDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error {
 	err := s.getQueries(ctx).UpdateDeviceInfo(ctx, sqlc.UpdateDeviceInfoParams{
-		MacAddress: networking.NormalizeMAC(device.MacAddress),
-		SerialNumber: sql.NullString{
-			String: device.SerialNumber,
-			Valid:  device.SerialNumber != "",
-		},
+		MacAddress:       networking.NormalizeMAC(device.MacAddress),
+		SerialNumber:     device.SerialNumber,
 		DeviceIdentifier: device.DeviceIdentifier,
 		OrgID:            orgID,
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to update device info for identifier=%s org_id=%d: %v", device.DeviceIdentifier, orgID, err)
+		// %w so callers can recover the DB cause (e.g. a serial unique-violation).
+		return fleeterror.NewInternalErrorf("failed to update device info for identifier=%s org_id=%d: %w", device.DeviceIdentifier, orgID, err)
 	}
 	return nil
 }
@@ -217,6 +215,23 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 		return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 	}
 	return nil
+}
+
+func (s *SQLDeviceStore) SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error) {
+	dbDevice, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: device.DeviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return false, handleQueryError(err,
+			fmt.Sprintf("device not found for pairing update with identifier=%s org_id=%d", device.DeviceIdentifier, orgID),
+			"failed to query device")
+	}
+	rows, err := s.getQueries(ctx).SetDevicePairingAuthNeededIfNotPaired(ctx, dbDevice.ID)
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to set auth-needed pairing: %v", err)
+	}
+	return rows > 0, nil
 }
 
 // UpdateDevicePairingStatusByIdentifier writes the new pairing_status for

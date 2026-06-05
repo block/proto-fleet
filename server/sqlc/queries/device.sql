@@ -71,6 +71,26 @@ ON CONFLICT (device_id) DO UPDATE SET
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL;
 
+-- Mark a device AUTHENTICATION_NEEDED without ever downgrading a PAIRED row: the
+-- WHERE guard no-ops the write when the row is already PAIRED, closing the race
+-- where a concurrent pair commits PAIRED between the caller's read and this write
+-- (the DO UPDATE branch re-reads the latest committed row). Zero rows means PAIRED won.
+-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
+INSERT INTO device_pairing (
+    device_id,
+    pairing_status,
+    paired_at
+) VALUES (
+    $1,
+    'AUTHENTICATION_NEEDED'::pairing_status_enum,
+    CURRENT_TIMESTAMP
+)
+ON CONFLICT (device_id) DO UPDATE SET
+    pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum,
+    paired_at = CURRENT_TIMESTAMP,
+    unpaired_at = NULL
+WHERE device_pairing.pairing_status IS DISTINCT FROM 'PAIRED'::pairing_status_enum;
+
 -- PostgreSQL equivalent of UPDATE with INNER JOIN.
 -- At most one row matches:
 -- device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
@@ -107,7 +127,10 @@ WHERE device_identifier = $1
 UPDATE device
 SET
     mac_address = COALESCE(NULLIF(sqlc.arg('mac_address')::text, ''), mac_address),
-    serial_number = sqlc.arg('serial_number')
+    -- Preserve a previously learned serial when the report omits it (e.g. an
+    -- AUTH_NEEDED/AUTH_FAILED retry, or a plugin that returns only a MAC), matching
+    -- mac_address above; a blank arg must not erase the stored serial.
+    serial_number = COALESCE(NULLIF(sqlc.arg('serial_number')::text, ''), serial_number)
 WHERE device_identifier = sqlc.arg('device_identifier')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;

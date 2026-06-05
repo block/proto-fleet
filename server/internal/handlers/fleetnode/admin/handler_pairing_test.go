@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -35,6 +37,7 @@ type pairingHarness struct {
 	orgID      int64
 	enrollment *enrollment.Service
 	registry   *control.Registry
+	pairing    *pairing.Service
 }
 
 func newPairingHarness(t *testing.T) *pairingHarness {
@@ -55,9 +58,12 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := enrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
-
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
+	require.NoError(t, err)
 	registry := control.NewRegistry()
+	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor).
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
+
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
 	return &pairingHarness{
 		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc),
@@ -65,6 +71,7 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 		orgID:      1,
 		enrollment: enrollmentSvc,
 		registry:   registry,
+		pairing:    pairingSvc,
 	}
 }
 

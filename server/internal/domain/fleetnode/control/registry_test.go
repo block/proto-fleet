@@ -18,7 +18,7 @@ func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	first := r.Register(7)
-	session, err := r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "in-flight"}, nil)
+	session, err := r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "in-flight"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	<-first.Outgoing
 
@@ -44,7 +44,7 @@ func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 
 	// Assert: prior Unregister is a safe no-op (doesn't clobber new stream)
 	first.Unregister()
-	_, err = r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "after-evict"}, nil)
+	_, err = r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "after-evict"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 }
 
@@ -53,7 +53,7 @@ func TestRegistry_SendWithoutStreamReturnsErrNoActiveStream(t *testing.T) {
 	r := NewRegistry()
 
 	// Act
-	_, err := r.Send(context.Background(), 9, &gatewaypb.ControlCommand{CommandId: "x"}, nil)
+	_, err := r.Send(context.Background(), 9, &gatewaypb.ControlCommand{CommandId: "x"}, nil, ReportKindDiscovery, nil)
 
 	// Assert
 	assert.True(t, errors.Is(err, ErrNoActiveStream))
@@ -66,7 +66,7 @@ func TestRegistry_SendDeliversCommandAndRoutesAck(t *testing.T) {
 	defer s.Unregister()
 
 	// Act
-	session, err := r.Send(context.Background(), 42, &gatewaypb.ControlCommand{CommandId: "cmd-1", Payload: []byte("p")}, nil)
+	session, err := r.Send(context.Background(), 42, &gatewaypb.ControlCommand{CommandId: "cmd-1", Payload: []byte("p")}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 
@@ -100,7 +100,7 @@ func TestRegistry_TerminalAckDeliveredWhenEventBufferFull(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(1)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	require.Equal(t, "discover", recvCommandID(t, s))
@@ -139,7 +139,7 @@ func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(1)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	require.Equal(t, "discover", recvCommandID(t, s))
@@ -226,7 +226,7 @@ func TestRegistry_AckRoutesByKind(t *testing.T) {
 	require.Equal(t, "mk", recvCommandID(t, s))
 
 	// Assert: an ack-only command is not a report channel; the report path rejects it.
-	assert.ErrorIs(t, r.AdmitReport(1, "mk", 1), errNoInFlightCommand)
+	assert.ErrorIs(t, r.AdmitReport(1, "mk", 1, ReportKindDiscovery), errNoInFlightCommand)
 	_, ok := r.ReportScopeFor(1, "mk")
 	assert.False(t, ok)
 
@@ -241,7 +241,7 @@ func TestRegistry_TeardownClosesAllInFlightCommands(t *testing.T) {
 	// Arrange: a discovery and an ack-only command are both in flight.
 	r := NewRegistry()
 	s := r.Register(1)
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	require.Equal(t, "discover", recvCommandID(t, s))
 	results := make(chan cmdResult, 1)
@@ -266,26 +266,151 @@ func TestRegistry_AdmitReportEnforcesQuota(t *testing.T) {
 	r := NewRegistry()
 	s := r.Register(77)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 77, &gatewaypb.ControlCommand{CommandId: "scan"}, nil)
+	session, err := r.Send(context.Background(), 77, &gatewaypb.ControlCommand{CommandId: "scan"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-s.Outgoing
 
 	// Act + Assert: reports up to the cap are admitted; the batch crossing it is rejected.
-	require.NoError(t, r.AdmitReport(77, "scan", maxReportsPerCommand-1))
-	require.NoError(t, r.AdmitReport(77, "scan", 1))
-	assert.ErrorIs(t, r.AdmitReport(77, "scan", 1), ErrReportQuotaExceeded)
+	require.NoError(t, r.AdmitReport(77, "scan", maxReportsPerCommand-1, ReportKindDiscovery))
+	require.NoError(t, r.AdmitReport(77, "scan", 1, ReportKindDiscovery))
+	assert.ErrorIs(t, r.AdmitReport(77, "scan", 1, ReportKindDiscovery), ErrReportQuotaExceeded)
 
 	// Assert: a command_id that is not in flight is rejected as such.
-	assert.ErrorIs(t, r.AdmitReport(77, "other", 1), errNoInFlightCommand)
-	assert.ErrorIs(t, r.AdmitReport(404, "scan", 1), errNoInFlightCommand)
+	assert.ErrorIs(t, r.AdmitReport(77, "other", 1, ReportKindDiscovery), errNoInFlightCommand)
+	assert.ErrorIs(t, r.AdmitReport(404, "scan", 1, ReportKindDiscovery), errNoInFlightCommand)
+}
+
+func TestRegistry_AdmitReportRejectsCrossKind(t *testing.T) {
+	// Arrange: one discovery command and one pair command in flight on the same node.
+	r := NewRegistry()
+	s := r.Register(5)
+	defer s.Unregister()
+	discSession, err := r.Send(context.Background(), 5, &gatewaypb.ControlCommand{CommandId: "disc"}, nil, ReportKindDiscovery, nil)
+	require.NoError(t, err)
+	defer discSession.Close()
+	<-s.Outgoing
+	pairSession, err := r.Send(context.Background(), 5, &gatewaypb.ControlCommand{CommandId: "pair"}, nil, ReportKindPair, nil)
+	require.NoError(t, err)
+	defer pairSession.Close()
+	<-s.Outgoing
+
+	// Act + Assert: each command_id admits only reports of its own kind. A node
+	// can't upload discovery rows against a pair command_id (or vice versa).
+	assert.NoError(t, r.AdmitReport(5, "disc", 1, ReportKindDiscovery))
+	assert.ErrorIs(t, r.AdmitReport(5, "disc", 1, ReportKindPair), errNoInFlightCommand)
+	assert.NoError(t, r.AdmitReport(5, "pair", 1, ReportKindPair))
+	assert.ErrorIs(t, r.AdmitReport(5, "pair", 1, ReportKindDiscovery), errNoInFlightCommand)
+}
+
+func sendPair(t *testing.T, r *Registry, fleetNodeID int64, commandID string, pair *PairMeta) (*Session, *Stream) {
+	t.Helper()
+	s := r.Register(fleetNodeID)
+	session, err := r.Send(context.Background(), fleetNodeID, &gatewaypb.ControlCommand{CommandId: commandID}, nil, ReportKindPair, pair)
+	require.NoError(t, err)
+	<-s.Outgoing
+	return session, s
+}
+
+func TestRegistry_AdmitAndScopePairResults_ScopesAndConsumes(t *testing.T) {
+	// Arrange: a pair command scoped to three targets.
+	r := NewRegistry()
+	pair := &PairMeta{OrgID: 9, AssignedBy: nil, Targets: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
+	session, s := sendPair(t, r, 3, "p", pair)
+	defer s.Unregister()
+	defer session.Close()
+
+	// Act: one in-scope ("a"), one out-of-scope ("zzz"), one replay of "a".
+	kept, meta, err := r.AdmitAndScopePairResults(3, "p", []*gatewaypb.FleetNodePairResult{
+		{DeviceIdentifier: "a"}, {DeviceIdentifier: "zzz"}, {DeviceIdentifier: "a"},
+	})
+
+	// Assert: only the first in-scope "a" is kept; out-of-scope + replay dropped;
+	// meta carries the operator context for the gateway to persist with.
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+	assert.Equal(t, "a", kept[0].GetDeviceIdentifier())
+	assert.Equal(t, int64(9), meta.OrgID)
+}
+
+func TestRegistry_AdmitAndScopePairResults_RejectsEmptyAndKind(t *testing.T) {
+	// Arrange
+	r := NewRegistry()
+	pair := &PairMeta{OrgID: 1, Targets: map[string]struct{}{"a": {}}}
+	session, s := sendPair(t, r, 4, "p", pair)
+	defer s.Unregister()
+	defer session.Close()
+	discSession, err := r.Send(context.Background(), 4, &gatewaypb.ControlCommand{CommandId: "d"}, nil, ReportKindDiscovery, nil)
+	require.NoError(t, err)
+	defer discSession.Close()
+	<-s.Outgoing
+
+	// Act + Assert: empty batch rejected (would consume no quota).
+	_, _, err = r.AdmitAndScopePairResults(4, "p", nil)
+	assert.ErrorIs(t, err, ErrEmptyReport)
+
+	// An oversized batch admits only the in-scope rows; quota is charged per
+	// consumed target, so the extra row is dropped rather than rejecting the batch.
+	kept, _, err := r.AdmitAndScopePairResults(4, "p", []*gatewaypb.FleetNodePairResult{
+		{DeviceIdentifier: "a"}, {DeviceIdentifier: "b"},
+	})
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+	assert.Equal(t, "a", kept[0].GetDeviceIdentifier())
+
+	// A discovery command_id is not a pair command.
+	_, _, err = r.AdmitAndScopePairResults(4, "d", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	assert.ErrorIs(t, err, errNoInFlightCommand)
+}
+
+func TestRegistry_AdmitAndScopePairResults_DuplicatesDoNotStarveLaterTargets(t *testing.T) {
+	// Arrange: two targets; the node first reports a duplicated identifier.
+	r := NewRegistry()
+	pair := &PairMeta{OrgID: 1, Targets: map[string]struct{}{"a": {}, "b": {}}}
+	session, s := sendPair(t, r, 5, "p", pair)
+	defer s.Unregister()
+	defer session.Close()
+
+	// Act: [a, a] consumes only "a"; a later report for "b" must still be admitted.
+	kept, _, err := r.AdmitAndScopePairResults(5, "p", []*gatewaypb.FleetNodePairResult{
+		{DeviceIdentifier: "a"}, {DeviceIdentifier: "a"},
+	})
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+	later, _, err := r.AdmitAndScopePairResults(5, "p", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "b"}})
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, later, 1)
+	assert.Equal(t, "b", later[0].GetDeviceIdentifier())
+}
+
+func TestRegistry_ReinstatePairTargets_AllowsRetryAfterPersistFailure(t *testing.T) {
+	// Arrange: a consumed target whose persistence failed.
+	r := NewRegistry()
+	pair := &PairMeta{OrgID: 1, Targets: map[string]struct{}{"a": {}}}
+	session, s := sendPair(t, r, 6, "p", pair)
+	defer s.Unregister()
+	defer session.Close()
+	kept, _, err := r.AdmitAndScopePairResults(6, "p", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+
+	// Act: the gateway reinstates the target after the persist failure.
+	r.ReinstatePairTargets(6, "p", []string{"a"})
+
+	// Assert: a retried report for the same command re-admits the identifier.
+	retried, _, err := r.AdmitAndScopePairResults(6, "p", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	require.NoError(t, err)
+	require.Len(t, retried, 1)
+	assert.Equal(t, "a", retried[0].GetDeviceIdentifier())
 }
 
 func TestRegistry_UnregisterSignalsInFlightCommandDone(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	s := r.Register(99)
-	session, err := r.Send(context.Background(), 99, &gatewaypb.ControlCommand{CommandId: "drop"}, nil)
+	session, err := r.Send(context.Background(), 99, &gatewaypb.ControlCommand{CommandId: "drop"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	<-s.Outgoing
 
@@ -318,7 +443,7 @@ func TestPublish_DropsWhenChannelFullWithoutBlocking(t *testing.T) {
 	s := r.Register(11)
 	defer s.Unregister()
 
-	session, err := r.Send(context.Background(), 11, &gatewaypb.ControlCommand{CommandId: "flood"}, nil)
+	session, err := r.Send(context.Background(), 11, &gatewaypb.ControlCommand{CommandId: "flood"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-s.Outgoing
@@ -372,7 +497,7 @@ func TestPublish_RaceWithCleanup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range iters {
-			session, sendErr := r.Send(context.Background(), 101, &gatewaypb.ControlCommand{CommandId: "race-cmd"}, nil)
+			session, sendErr := r.Send(context.Background(), 101, &gatewaypb.ControlCommand{CommandId: "race-cmd"}, nil, ReportKindDiscovery, nil)
 			if sendErr != nil {
 				// Send only fails here if the connection was evicted mid-call; fine, race continues.
 				continue
@@ -448,7 +573,7 @@ func TestSend_RaceWithReRegister(t *testing.T) {
 		for i := range iters * 4 {
 			session, sendErr := r.Send(context.Background(), 202, &gatewaypb.ControlCommand{
 				CommandId: cmdID(i),
-			}, nil)
+			}, nil, ReportKindDiscovery, nil)
 			if sendErr == nil {
 				session.Close()
 			}

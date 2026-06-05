@@ -309,6 +309,8 @@ func start(config *Config) error {
 	discoverer := pluginService.CreateDiscoverer()
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
+	fleetNodePairingSvc.WithProvisioning(deviceStore, discoveredDeviceStore, encryptSvc, fleetNodeControlRegistry)
+
 	timescaledbService, err := timescaledb.NewTelemetryStore(conn, config.TimescaleDB)
 	if err != nil {
 		return err
