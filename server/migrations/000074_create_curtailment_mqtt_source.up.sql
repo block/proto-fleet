@@ -22,10 +22,8 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- 'FIXED_KW'. Required for 'FIXED_KW'; NULL-able (reporting only) for
     -- 'FULL_FLEET'. Upper bound is a fat-finger sanity ceiling (1 GW/source).
     contracted_curtailment_kw       INT          NULL,
-    -- Target-set mode; matches the curtailment Mode enum. 'FIXED_KW' (shed
-    -- contracted_curtailment_kw) or 'FULL_FLEET' (curtail every eligible
-    -- device in scope; kW irrelevant).
-    curtail_mode                    TEXT         NOT NULL DEFAULT 'FIXED_KW',
+    -- Target-set mode; defaults to curtailing every eligible device in scope.
+    curtail_mode                    TEXT         NOT NULL DEFAULT 'FULL_FLEET',
     -- Wire format of the MQTT payload; selects the decoder that maps it to the
     -- canonical (target, timestamp). Validated against the in-code decoder
     -- registry at startup, so a new integration needs no migration here.

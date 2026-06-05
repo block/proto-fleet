@@ -272,7 +272,7 @@ func sourceActorIDFor(src SourceConfig) string {
 
 // modeForSource maps source config to curtailment mode parameters.
 func modeForSource(src SourceConfig) (mode models.Mode, targetKW, toleranceKW float64) {
-	if models.Mode(src.CurtailMode) == models.ModeFullFleet {
+	if src.CurtailMode == "" || models.Mode(src.CurtailMode) == models.ModeFullFleet {
 		return models.ModeFullFleet, 0, 0
 	}
 	kw := float64(src.ContractedCurtailmentKw)

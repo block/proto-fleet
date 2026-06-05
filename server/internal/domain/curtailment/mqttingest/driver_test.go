@@ -126,6 +126,7 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 	d := NewDriver(svc, func() time.Time { return now })
 
 	src := sampleSource()
+	src.CurtailMode = string(models.ModeFixedKw)
 	edgeAt := time.Date(2026, 5, 28, 11, 59, 30, 0, time.UTC)
 
 	outcome, err := d.Dispatch(context.Background(), src, EdgeOnToOff, edgeAt)
@@ -209,27 +210,41 @@ func TestDriver_Dispatch_OffSignal_ExistingActiveSourceEventIsAlreadyCurtailing(
 	assert.Empty(t, svc.recurtailCalls)
 }
 
-// FULL_FLEET dispatches without a kW target.
+// Empty mode follows the MQTT default: FULL_FLEET.
 func TestDriver_Dispatch_OnToOff_FullFleet(t *testing.T) {
 	t.Parallel()
 
-	newUUID := uuid.New()
-	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	d := NewDriver(svc, nil)
+	cases := []struct {
+		name string
+		mode string
+	}{
+		{"default", ""},
+		{"explicit", string(models.ModeFullFleet)},
+	}
 
-	src := sampleSource()
-	src.CurtailMode = string(models.ModeFullFleet)
-	src.ContractedCurtailmentKw = 0 // irrelevant for full_fleet
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := d.Dispatch(context.Background(), src, EdgeOnToOff, time.Now())
-	require.NoError(t, err)
+			newUUID := uuid.New()
+			svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+			d := NewDriver(svc, nil)
 
-	require.Len(t, svc.startCalls, 1)
-	start := svc.startCalls[0]
-	assert.Equal(t, models.ModeFullFleet, start.Mode)
-	assert.Zero(t, start.TargetKW, "full_fleet carries no kW target")
-	assert.Zero(t, start.ToleranceKW)
-	assert.Equal(t, models.PriorityEmergency, start.Priority)
+			src := sampleSource()
+			src.CurtailMode = tc.mode
+			src.ContractedCurtailmentKw = 0
+
+			_, err := d.Dispatch(context.Background(), src, EdgeOnToOff, time.Now())
+			require.NoError(t, err)
+
+			require.Len(t, svc.startCalls, 1)
+			start := svc.startCalls[0]
+			assert.Equal(t, models.ModeFullFleet, start.Mode)
+			assert.Zero(t, start.TargetKW, "full_fleet carries no kW target")
+			assert.Zero(t, start.ToleranceKW)
+			assert.Equal(t, models.PriorityEmergency, start.Priority)
+		})
+	}
 }
 
 func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
