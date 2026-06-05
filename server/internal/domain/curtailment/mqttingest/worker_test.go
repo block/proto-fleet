@@ -1118,6 +1118,61 @@ func TestWorker_Run_SubscriptionSupersedesStartupPendingOnBeforeReplay(t *testin
 	}
 }
 
+func TestWorker_Run_ReplaysStartupPendingOffWhenBrokersStayDown(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	store := newFakeStore()
+	store.state[src.ID] = SourceState{
+		SourceConfigID:     src.ID,
+		LastTarget:         TargetOn,
+		LastTargetAt:       pendingAt.Add(-time.Minute),
+		LastReceivedAt:     pendingAt,
+		LastReceivedBroker: src.BrokerPrimaryHost,
+		LastEdgeAt:         pendingAt.Add(-time.Minute),
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: src.BrokerPrimaryHost,
+			PriorEdgeAt:    pendingAt.Add(-time.Minute),
+		},
+	}
+
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond
+	w.cfg.NewClient = func() MQTTClient {
+		c := newFakeMQTTClient()
+		c.connectBlocks = true
+		return c
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	assertEventually(t, 2*time.Second, func() bool {
+		state, err := store.GetSourceState(context.Background(), src.ID)
+		return err == nil &&
+			state.PendingEdge == nil &&
+			state.LastTarget == TargetOff &&
+			state.LastEdgeEventUUID == newUUID.String()
+	})
+	assert.Equal(t, 1, svc.startCallsLen(), "pending OFF must replay even when no broker subscribes")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}
+
 func TestWorker_Run_RetriesInitialBrokerConnect(t *testing.T) {
 	t.Parallel()
 

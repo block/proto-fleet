@@ -46,6 +46,10 @@ func (w *sourceWorker) run(ctx context.Context) {
 	subscriptions := make(chan struct{}, 2)
 	deferStartupPending := state.PendingEdge != nil
 	startupPendingReadyAt := time.Time{}
+	startupPendingSubscribed := false
+	if deferStartupPending {
+		startupPendingReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
+	}
 
 	primaryClient := w.cfg.NewClient()
 	secondaryClient := w.cfg.NewClient()
@@ -78,9 +82,12 @@ func (w *sourceWorker) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-subscriptions:
-			if deferStartupPending && startupPendingReadyAt.IsZero() {
+			if deferStartupPending && !startupPendingSubscribed {
+				startupPendingSubscribed = true
 				// Give retained/live payloads a chance to supersede durable
 				// retry state before replaying a possibly stale startup edge.
+				// The startup default above still bounds replay time if no
+				// broker ever subscribes.
 				startupPendingReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
 			}
 		case obs := <-messages:
@@ -88,15 +95,17 @@ func (w *sourceWorker) run(ctx context.Context) {
 			if state.PendingEdge == nil {
 				deferStartupPending = false
 				startupPendingReadyAt = time.Time{}
+				startupPendingSubscribed = false
 			}
 		case <-watchdog.C:
-			if deferStartupPending && (startupPendingReadyAt.IsZero() || w.cfg.Clock().Before(startupPendingReadyAt)) {
+			if deferStartupPending && w.cfg.Clock().Before(startupPendingReadyAt) {
 				continue
 			}
 			state = w.handleWatchdog(ctx, state)
 			if state.PendingEdge == nil {
 				deferStartupPending = false
 				startupPendingReadyAt = time.Time{}
+				startupPendingSubscribed = false
 			}
 		}
 	}
