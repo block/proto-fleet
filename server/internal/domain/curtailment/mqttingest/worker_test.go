@@ -198,6 +198,40 @@ func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	require.Len(t, svc.listActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
 }
 
+// MQTT ON is authoritative and bypasses min-hold.
+func TestWorker_HandleMessage_OffToOn_ForcesRestore(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	src := workerSource()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(src, eventUUID, models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: eventUUID},
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOff,
+		LastTargetAt:   now.Add(-60 * time.Second),
+		LastEdgeAt:     now.Add(-60 * time.Second),
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: now})
+
+	require.Equal(t, 1, svc.stopCallsLen(), "ON must attempt to restore the active source event")
+	assert.True(t, svc.stopCallAt(0).Force, "MQTT ON must bypass source min-hold")
+	assert.Equal(t, TargetOn, next.LastTarget)
+}
+
 // A terminal stop race after lookup must still settle ON.
 func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T) {
 	t.Parallel()
@@ -545,6 +579,62 @@ func TestWorker_Run_RetriesInitialReconcileBeforeProcessingOn(t *testing.T) {
 	body, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
 	require.NoError(t, err)
 	primary.deliver(body, now)
+
+	assertEventually(t, 2*time.Second, func() bool { return svc.stopCallsLen() == 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}
+
+func TestWorker_Run_RetriesInitialBrokerConnect(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	store := newFakeStore()
+	store.state[src.ID] = SourceState{SourceConfigID: src.ID, LastTarget: TargetOff}
+
+	eventUUID := uuid.New()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(src, eventUUID, models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: eventUUID},
+	}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond
+
+	primary := newFakeMQTTClient()
+	primary.connectErrs = []error{errors.New("broker down")}
+	secondary := newFakeMQTTClient()
+	secondary.connectBlocks = true
+	clients := []*fakeMQTTClient{primary, secondary}
+	nextClient := 0
+	w.cfg.NewClient = func() MQTTClient {
+		c := clients[nextClient]
+		nextClient++
+		return c
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	select {
+	case <-primary.ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not retry and subscribe after initial broker connect failure")
+	}
+	require.GreaterOrEqual(t, primary.connectCallsLen(), 2)
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	primary.deliver(onBody, now)
 
 	assertEventually(t, 2*time.Second, func() bool { return svc.stopCallsLen() == 1 })
 

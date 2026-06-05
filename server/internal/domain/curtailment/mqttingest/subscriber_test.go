@@ -107,6 +107,8 @@ type fakeMQTTClient struct {
 	host          string
 	subscribed    bool
 	connectBlocks bool
+	connectErrs   []error
+	connectCalls  int
 	disconnect    chan struct{}
 	handler       func(payload []byte, receivedAt time.Time)
 	ready         chan struct{}
@@ -126,17 +128,34 @@ func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ st
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.connectCalls++
+	if len(f.connectErrs) > 0 {
+		err := f.connectErrs[0]
+		f.connectErrs = f.connectErrs[1:]
+		if err != nil {
+			return err
+		}
+	}
 	f.host = host
 	return nil
 }
 
 func (f *fakeMQTTClient) Subscribe(_ context.Context, _ string, handler func(payload []byte, receivedAt time.Time)) error {
 	f.mu.Lock()
+	alreadySubscribed := f.subscribed
 	f.subscribed = true
 	f.handler = handler
 	f.mu.Unlock()
-	close(f.ready)
+	if !alreadySubscribed {
+		close(f.ready)
+	}
 	return nil
+}
+
+func (f *fakeMQTTClient) connectCallsLen() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.connectCalls
 }
 
 func (f *fakeMQTTClient) Disconnect(_ time.Duration) {

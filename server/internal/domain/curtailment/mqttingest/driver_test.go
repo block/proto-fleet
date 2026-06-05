@@ -109,6 +109,12 @@ func (f *fakeService) stopCallsLen() int {
 	return len(f.stopCalls)
 }
 
+func (f *fakeService) stopCallAt(i int) curtailment.StopRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stopCalls[i]
+}
+
 func (f *fakeService) listActiveCallsLen() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

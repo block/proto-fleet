@@ -168,6 +168,8 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	stopReq := curtailment.StopRequest{
 		OrgID:     src.OrganizationID,
 		EventUUID: active.EventUUID,
+		// MQTT ON is authoritative; source min-hold must not block restore.
+		Force: true,
 	}
 	event, err := d.svc.Stop(ctx, stopReq)
 	if err != nil {

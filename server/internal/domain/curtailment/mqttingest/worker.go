@@ -62,12 +62,7 @@ func (w *sourceWorker) run(ctx context.Context) {
 		connectWG.Add(1)
 		go func(client MQTTClient, host string) {
 			defer connectWG.Done()
-			if err := w.connectAndSubscribe(ctx, client, host, messages); err != nil {
-				w.cfg.Logger.Error("mqttingest: broker connect failed",
-					slog.String("source", w.source.SourceName),
-					slog.String("broker", host),
-					slog.Any("error", err))
-			}
+			w.connectAndSubscribe(ctx, client, host, messages)
 		}(bc.client, bc.host)
 	}
 	defer connectWG.Wait()
@@ -88,7 +83,7 @@ func (w *sourceWorker) run(ctx context.Context) {
 }
 
 func (w *sourceWorker) waitForInitialState(ctx context.Context) (SourceState, bool) {
-	retryEvery := w.initialStateRetryEvery()
+	retryEvery := w.startupRetryEvery()
 	for {
 		state, ok := w.loadInitialState(ctx)
 		if ok {
@@ -143,14 +138,40 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool)
 	return state, true
 }
 
-func (w *sourceWorker) initialStateRetryEvery() time.Duration {
+func (w *sourceWorker) startupRetryEvery() time.Duration {
 	if w.cfg.WatchdogTickEvery > 0 && w.cfg.WatchdogTickEvery < time.Second {
 		return w.cfg.WatchdogTickEvery
 	}
 	return time.Second
 }
 
-func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {
+func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation) {
+	retryEvery := w.startupRetryEvery()
+	for {
+		if err := w.connectAndSubscribeOnce(ctx, client, host, messages); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			client.Disconnect(w.cfg.ShutdownDeadline)
+			w.cfg.Logger.Warn("mqttingest: broker connect failed, retrying",
+				slog.String("source", w.source.SourceName),
+				slog.String("broker", host),
+				slog.Duration("retry_after", retryEvery),
+				slog.Any("error", err))
+			timer := time.NewTimer(retryEvery)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			continue
+		}
+		return
+	}
+}
+
+func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {
 	if err := client.Connect(ctx, host, w.source.BrokerPort, w.source.MQTTUsername, w.password); err != nil {
 		return err
 	}
