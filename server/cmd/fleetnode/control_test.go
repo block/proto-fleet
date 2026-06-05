@@ -71,7 +71,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 		name          string
 		discoverer    discoverer
 		behavior      controlFakeBehavior
-		request       proto.Message
+		request       *pairingpb.DiscoverRequest
 		rawPayload    []byte
 		wantSucceeded bool
 		wantCode      pb.AckCode
@@ -142,7 +142,14 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			rawPayload:    []byte{0xFF, 0xFE},
 			wantSucceeded: false,
 			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
-			wantErrSubstr: "decode payload",
+			wantErrSubstr: "decode AgentCommand",
+		},
+		{
+			name:          "envelope with no command kind",
+			rawPayload:    []byte{}, // valid empty AgentCommand: no oneof arm set
+			wantSucceeded: false,
+			wantCode:      pb.AckCode_ACK_CODE_BAD_REQUEST,
+			wantErrSubstr: "no recognized command kind",
 		},
 		{
 			name:          "report upload failure",
@@ -165,7 +172,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			fake := &controlFakeGateway{}
 			fake.setBehavior(tc.behavior)
 			if tc.request != nil {
-				fake.queue(mustMarshal(t, tc.request))
+				fake.queue(discoverPayload(t, tc.request))
 			} else {
 				fake.queue(tc.rawPayload)
 			}
@@ -308,7 +315,7 @@ func TestControlLoop_PartialResultsSurviveScanDeadline(t *testing.T) {
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
+	fake.queue(discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{
 			IpList: &pairingpb.IPListModeRequest{
 				IpAddresses: []string{"10.0.0.4", "10.0.0.5", "10.0.0.6", "10.0.0.7"},
@@ -435,7 +442,10 @@ type stubDiscoverer struct {
 
 func (s *stubDiscoverer) Probe(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
 	if r, ok := s.probes[ip+"|"+port]; ok {
-		return r, nil
+		// Clone: fanOutProbes stamps ip/port onto the returned report, so handing
+		// out a shared pointer would race when commands run concurrently.
+		cloned, _ := proto.Clone(r).(*pb.DiscoveredDeviceReport)
+		return cloned, nil
 	}
 	return nil, nil
 }
@@ -619,6 +629,15 @@ func mustMarshal(t *testing.T, m proto.Message) []byte {
 	return b
 }
 
+// discoverPayload marshals a discovery request inside the AgentCommand envelope, the
+// way DiscoverOnFleetNode now sends it over the ControlStream.
+func discoverPayload(t *testing.T, req *pairingpb.DiscoverRequest) []byte {
+	t.Helper()
+	return mustMarshal(t, &pairingpb.AgentCommand{
+		Command: &pairingpb.AgentCommand_Discover{Discover: req},
+	})
+}
+
 func TestSynthesizeIdentifier(t *testing.T) {
 	t.Parallel()
 
@@ -800,24 +819,21 @@ func (b *blockingDiscoverer) release1(ip string) {
 	close(ch)
 }
 
-func TestControlLoop_LongCommandDoesNotBlockNextReceiveAndSerializes(t *testing.T) {
-	// Arrange: two blocking probes. With buffer=1 dispatch, Receive can
-	// enqueue cmd-B while cmd-A runs; worker drains them in arrival order.
-	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
+func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
+	// Arrange: discovery is single-flight per node. The first discovery blocks in its
+	// probe, holding the exclusive discovery slot.
+	disc := newBlockingDiscoverer("10.0.0.1")
 	cmd := &RunCmd{discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	fake.queueWithID("cmd-A", mustMarshal(t, &pairingpb.DiscoverRequest{
-		Mode: &pairingpb.DiscoverRequest_IpList{
-			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
-		},
-	}))
-	fake.queueWithID("cmd-B", mustMarshal(t, &pairingpb.DiscoverRequest{
-		Mode: &pairingpb.DiscoverRequest_IpList{
-			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.2"}, Ports: []string{"4028"}},
-		},
-	}))
+	for _, id := range []string{"disc-1", "disc-2"} {
+		fake.queueWithID(id, discoverPayload(t, &pairingpb.DiscoverRequest{
+			Mode: &pairingpb.DiscoverRequest_IpList{
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
+			},
+		}))
+	}
 	client := newControlClient(t, fake)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -827,37 +843,19 @@ func TestControlLoop_LongCommandDoesNotBlockNextReceiveAndSerializes(t *testing.
 	done := make(chan error, 1)
 	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
 
-	// cmd-B must wait for cmd-A (serial); release cmd-A, cmd-B starts.
-	disc.waitStarted(t, "10.0.0.1")
-	assert.False(t, isStarted(disc, "10.0.0.2"), "cmd-B must not run while cmd-A is in flight")
-	disc.release1("10.0.0.1")
-	disc.waitStarted(t, "10.0.0.2")
-	disc.release1("10.0.0.2")
+	// Assert: the second concurrent discovery is rejected BUSY while the first holds
+	// the exclusive discovery slot.
+	require.Eventually(t, func() bool {
+		for _, ack := range fake.acksCopy() {
+			if ack.GetCommandId() == "disc-2" {
+				return ack.GetCode() == pb.AckCode_ACK_CODE_BUSY && !ack.GetSucceeded()
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "second concurrent discovery should be rejected BUSY")
 
-	require.Eventually(t, func() bool { return fake.ackCount() >= 2 }, 3*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
-
-	// Assert
-	acks := fake.acksCopy()
-	require.Len(t, acks, 2)
-	assert.Equal(t, "cmd-A", acks[0].GetCommandId(), "serial dispatch must ack in arrival order")
-	assert.Equal(t, "cmd-B", acks[1].GetCommandId())
-	assert.True(t, acks[0].GetSucceeded())
-	assert.True(t, acks[1].GetSucceeded())
-}
-
-func isStarted(d *blockingDiscoverer, ip string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	ch := d.started[ip]
-	select {
-	case v := <-ch:
-		ch <- v
-		return true
-	default:
-		return false
-	}
 }
 
 func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
@@ -867,7 +865,7 @@ func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	fake.queueWithID("cmd-stuck", mustMarshal(t, &pairingpb.DiscoverRequest{
+	fake.queueWithID("cmd-stuck", discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{
 			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.99"}, Ports: []string{"4028"}},
 		},
@@ -984,7 +982,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	fake.queueWithID("scan-1", mustMarshal(t, &pairingpb.DiscoverRequest{
+	fake.queueWithID("scan-1", discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{
 			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1", "10.0.0.2"}, Ports: []string{"4028"}},
 		},
@@ -1099,7 +1097,7 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	streamClose := make(chan struct{})
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{closeOnSignal: streamClose})
-	fake.queueWithID("cmd-1", mustMarshal(t, &pairingpb.DiscoverRequest{
+	fake.queueWithID("cmd-1", discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{
 			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.42"}, Ports: []string{"4028"}},
 		},
@@ -1126,48 +1124,6 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	<-done
 }
 
-func TestControlLoop_PipelinedCommandGetsBusyAck(t *testing.T) {
-	// cmd-A's probe blocks forever; with buffer=2 and 5 queued commands,
-	// at least one of the trailing commands must overflow regardless of
-	// worker-vs-receive scheduling. (Picking a specific cmd-X is racy:
-	// which command lands the busy ack depends on whether the worker
-	// drained cmd-A before the receive loop got that far.)
-	disc := newBlockingDiscoverer("10.0.0.1", "10.0.0.2")
-	cmd := &RunCmd{discoverer: disc}
-	state := &bootstrap.State{FleetNodeID: 7}
-
-	fake := &controlFakeGateway{}
-	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D", "cmd-E"} {
-		fake.queueWithID(id, mustMarshal(t, &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_IpList{
-				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
-			},
-		}))
-	}
-	client := newControlClient(t, fake)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Act
-	done := make(chan error, 1)
-	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
-
-	// Assert
-	var busyAck *pb.ControlAck
-	require.Eventually(t, func() bool {
-		for _, ack := range fake.acksCopy() {
-			if ack.GetCode() == pb.AckCode_ACK_CODE_BUSY {
-				busyAck = ack
-				return true
-			}
-		}
-		return false
-	}, 3*time.Second, 20*time.Millisecond, "at least one trailing command should get a BUSY ack")
-	require.NotNil(t, busyAck)
-	assert.False(t, busyAck.GetSucceeded())
-}
-
 func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	// Arrange: empty command_id violates the proto's min_len=1. The agent
 	// must drop silently rather than ack -- echoing "" back in an ack
@@ -1181,7 +1137,7 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
-	payload := mustMarshal(t, &pairingpb.DiscoverRequest{
+	payload := discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{
 			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
 		},
@@ -1221,7 +1177,7 @@ func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 
 	fake := &controlFakeGateway{}
 	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D"} {
-		fake.queueWithID(id, mustMarshal(t, &pairingpb.DiscoverRequest{
+		fake.queueWithID(id, discoverPayload(t, &pairingpb.DiscoverRequest{
 			Mode: &pairingpb.DiscoverRequest_IpList{
 				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
 			},

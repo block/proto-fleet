@@ -211,9 +211,9 @@ func TestRunOnNode_DispatchesLocalSubnetTargetSentinel(t *testing.T) {
 	gotTarget := make(chan string, 1)
 	go func() {
 		cmd := <-stream.Outgoing
-		var req pairingpb.DiscoverRequest
-		_ = proto.Unmarshal(cmd.GetPayload(), &req)
-		gotTarget <- req.GetNmap().GetTarget()
+		var env pairingpb.AgentCommand
+		_ = proto.Unmarshal(cmd.GetPayload(), &env)
+		gotTarget <- env.GetDiscover().GetNmap().GetTarget()
 		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 	}()
 	req := &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_Nmap{

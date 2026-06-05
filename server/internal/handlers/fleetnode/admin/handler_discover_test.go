@@ -42,8 +42,9 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 			if !ok {
 				return
 			}
-			var req pairingpb.DiscoverRequest
-			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			req := env.GetDiscover()
 			ip := req.GetIpList().GetIpAddresses()
 			require.Equal(t, []string{"10.0.0.5"}, ip)
 
@@ -399,8 +400,9 @@ func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
 			if !ok {
 				return
 			}
-			var req pairingpb.DiscoverRequest
-			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			req := env.GetDiscover()
 			gotTarget <- req.GetNmap().GetTarget()
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-time.After(2 * time.Second):
@@ -469,8 +471,9 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 			if !ok {
 				return
 			}
-			var req pairingpb.DiscoverRequest
-			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			req := env.GetDiscover()
 			gotIPs <- req.GetIpList().GetIpAddresses()
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-time.After(2 * time.Second):

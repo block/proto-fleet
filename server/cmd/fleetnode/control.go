@@ -43,6 +43,11 @@ const (
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
 	// Mirrors the proto cap so a verbose error doesn't fail buf-validate on the ack itself.
 	maxAckErrorMessageBytes = 4096
+	// commandPoolSize bounds quick per-miner commands handled concurrently per
+	// session. Discovery does not draw from this pool; it has its own exclusive,
+	// single-flight slot (see runControlSession). Commands past the ceiling are
+	// acked BUSY.
+	commandPoolSize = 16
 )
 
 // var, not const, so tests can drive the deadline-during-scan path.
@@ -170,15 +175,20 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
 
-	// Capacity 2 (1 in flight + 1 queued) absorbs the receive-vs-drain
-	// race; a 3rd outstanding command hits the busy-ack path.
-	cmdCh := make(chan *pb.ControlCommand, 2)
-	workerDone := make(chan struct{})
-	go r.commandWorker(sessionCtx, client, sender, cmdCh, workerDone, logger)
+	// Two lanes per session:
+	//   - discovery (and the pairing effort's future pair) is a heavy, report-bearing
+	//     scan; it is single-flight per node via an exclusive slot, so a second
+	//     concurrent discovery is rejected BUSY rather than doubling the scan load.
+	//   - quick per-miner commands use a broader pool, so they run concurrently and a
+	//     long discovery never head-of-line-blocks them.
+	// Both are non-blocking acquires: parking the receive loop would hide stream
+	// drops behind in-flight work, so at capacity we ack BUSY.
+	discoverySlot := make(chan struct{}, 1)
+	cmdSem := make(chan struct{}, commandPoolSize)
+	var wg sync.WaitGroup
 	defer func() {
-		cancelSession()
-		close(cmdCh)
-		<-workerDone
+		cancelSession() // cancel every in-flight handler's ctx
+		wg.Wait()       // drain: handlers ack or abort fast on the cancelled ctx
 	}()
 
 	for {
@@ -197,25 +207,45 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if cmd == nil {
 			continue
 		}
-		// Non-blocking: parking here would hide stream drops until the
-		// in-flight scan finishes (up to commandTimeout). Ack-busy instead.
+		// Decode the envelope once here so we can pick a lane and handleCommand
+		// need not re-parse the payload. A malformed payload is not report-bearing:
+		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
+		env, parseErr := decodeAgentCommand(cmd.GetPayload())
+		slot := cmdSem
+		if parseErr == nil && env.GetDiscover() != nil {
+			slot = discoverySlot
+		}
 		select {
-		case cmdCh <- cmd:
+		case slot <- struct{}{}:
+			wg.Add(1)
+			// All loop-scoped values the handler needs are passed as arguments,
+			// including the acquired lane, so each goroutine releases the same lane.
+			go func(c *pb.ControlCommand, e *pairingpb.AgentCommand, pErr error, lane chan struct{}) {
+				defer wg.Done()
+				defer func() { <-lane }()
+				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
+			}(cmd, env, parseErr, slot)
 		default:
-			logger.Warn("agent busy; dropping pipelined command", "command_id", cmd.GetCommandId())
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent already has a command in flight; retry after the prior ack", logger)
+			logger.Warn("agent at capacity; rejecting command", "command_id", cmd.GetCommandId())
+			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
 		}
 	}
 }
 
-func (r *RunCmd) commandWorker(ctx context.Context, client gatewayClient, stream acker, cmdCh <-chan *pb.ControlCommand, done chan<- struct{}, logger *slog.Logger) {
-	defer close(done)
-	for cmd := range cmdCh {
-		r.handleCommand(ctx, client, stream, cmd, logger)
+// decodeAgentCommand unmarshals the ControlCommand.payload envelope. The receive loop
+// decodes once and hands the result to handleCommand so the payload is parsed a single
+// time. Discovery (and the pairing effort's future pair) is the heavy, report-bearing
+// kind that takes the exclusive single-flight slot; everything else, including a
+// malformed payload, takes the per-miner command pool and is acked by handleCommand.
+func decodeAgentCommand(payload []byte) (*pairingpb.AgentCommand, error) {
+	env := &pairingpb.AgentCommand{}
+	if err := proto.Unmarshal(payload, env); err != nil {
+		return nil, fmt.Errorf("decode AgentCommand: %w", err)
 	}
+	return env, nil
 }
 
-func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, logger *slog.Logger) {
+func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pairingpb.AgentCommand, parseErr error, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
 	// Drop silently if command_id is itself unsafe to echo in an ack; the
 	// gateway would reject the ack and close the stream. Server retries.
@@ -229,16 +259,25 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	}
 	logger.Info("control command received", "command_id", commandID, "payload_bytes", len(cmd.GetPayload()))
 
-	var req pairingpb.DiscoverRequest
-	if err := proto.Unmarshal(cmd.GetPayload(), &req); err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("decode payload: %v", err), logger)
+	if parseErr != nil {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, parseErr.Error(), logger)
 		return
 	}
+	switch k := env.GetCommand().(type) {
+	case *pairingpb.AgentCommand_Discover:
+		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
+	default:
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
+	}
+}
 
+// handleDiscover scans the local network for the requested targets, streams the
+// discovered devices back via ReportDiscoveredDevices, and acks OK/PARTIAL/failure.
+func (r *RunCmd) handleDiscover(ctx context.Context, client gatewayClient, stream acker, commandID string, req *pairingpb.DiscoverRequest, logger *slog.Logger) {
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	reports, truncated, err := r.discoverForCommand(cmdCtx, &req, logger)
+	reports, truncated, err := r.discoverForCommand(cmdCtx, req, logger)
 	if err != nil {
 		code := pb.AckCode_ACK_CODE_INTERNAL
 		var ce *commandError

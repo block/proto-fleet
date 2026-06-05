@@ -60,7 +60,7 @@ func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
 }
 
 // ConfirmedConnectedNodeIDs returns the IDs of fleet nodes in orgID that are both
-// CONFIRMED and currently connected (active ControlStream) — the set a fan-out
+// CONFIRMED and currently connected (active ControlStream): the set a fan-out
 // can dispatch to. A node with a live stream but a non-CONFIRMED enrollment
 // status is excluded.
 func (s *Service) ConfirmedConnectedNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
@@ -87,7 +87,7 @@ func (s *Service) ConfirmedConnectedNodeIDs(ctx context.Context, orgID int64) ([
 // RunOnNode normalizes req, builds the report scope, dispatches the command over
 // the node's ControlStream, and invokes onBatch for each discovered-device batch
 // until the node acks (or the command times out / the stream drops). It returns
-// nil on an OK or PARTIAL ack, and an error otherwise — including any non-nil
+// nil on an OK or PARTIAL ack, and an error otherwise, including any non-nil
 // error returned by onBatch, which is treated as terminal (the caller's stream
 // is gone, so there is nothing left to forward).
 func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
@@ -97,7 +97,11 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	}
 
 	commandID := id.GenerateID()
-	payload, err := proto.Marshal(normalized)
+	// Discovery rides the shared AgentCommand envelope so the node can tell command
+	// kinds apart from the single ControlCommand.payload byte field.
+	payload, err := proto.Marshal(&pairingpb.AgentCommand{
+		Command: &pairingpb.AgentCommand_Discover{Discover: normalized},
+	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}
@@ -117,7 +121,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	}
 	defer session.Close()
 
-	// terminal=true stops the loop whether or not err is set — an OK/PARTIAL ack
+	// terminal=true stops the loop whether or not err is set; an OK/PARTIAL ack
 	// is terminal with a nil err.
 	handleEvent := func(ev control.CommandEvent) (terminal bool, err error) {
 		switch {
@@ -263,7 +267,7 @@ func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.Discove
 			return in, nil
 		}
 		// Validate against the shared grammar (incl. the /22 CIDR cap), then
-		// reject IPv6 CIDR — both rejections the agent makes — so an unsupported
+		// reject IPv6 CIDR (both rejections the agent makes) so an unsupported
 		// target fails fast here instead of as a late agent BAD_REQUEST ack.
 		if err := nmaptarget.Validate(target); err != nil {
 			return nil, fleeterror.NewInvalidArgumentError(err.Error())
@@ -332,7 +336,7 @@ func expandIPv4Range(startStr, endStr string) ([]string, error) {
 	}
 	// Skip the network (.0) and gateway (.1) start addresses, matching the agent
 	// and cloud pairing. Otherwise expanding to an IP list would scan .0/.1 as
-	// literal targets — gateways answer on many ports and look like miners.
+	// literal targets; gateways answer on many ports and look like miners.
 	start = netutil.AdjustIPv4RangeStart(start)
 	if end < start {
 		return nil, fleeterror.NewInvalidArgumentError("ip range covers only network/gateway addresses")
