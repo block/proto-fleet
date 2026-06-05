@@ -10,9 +10,7 @@ import (
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 )
 
-// SourceConfig is the domain shape of a single MQTT source row. The
-// password stays encrypted here; the subscriber decrypts it only when
-// connecting, so plaintext stays bounded to the worker.
+// SourceConfig is one MQTT source row in domain form.
 type SourceConfig struct {
 	ID                      int64
 	OrganizationID          int64
@@ -25,17 +23,11 @@ type SourceConfig struct {
 	MQTTUsername            string
 	MQTTPasswordEncrypted   string
 	ContractedCurtailmentKw int32
-	// CurtailMode is 'FIXED_KW' (shed ContractedCurtailmentKw) or 'FULL_FLEET'
-	// (curtail every eligible device in scope) — matching the curtailment Mode
-	// enum. ContractedCurtailmentKw is 0/unused for FULL_FLEET; the driver
-	// builds the request mode from this.
+	// CurtailMode is 'FIXED_KW' or 'FULL_FLEET'.
 	CurtailMode string
-	// PayloadFormat selects the PayloadDecoder for this source's wire format
-	// (e.g. 'target_timestamp'); resolved against the decoder registry at start.
+	// PayloadFormat selects the source's decoder.
 	PayloadFormat string
-	// ScopeType is 'whole_org' or 'device_list'; ScopeDeviceIdentifiers holds
-	// the devices for 'device_list' (empty for 'whole_org'). The driver builds
-	// the curtailment Scope from these.
+	// ScopeType is 'whole_org' or 'device_list'.
 	ScopeType              string
 	ScopeDeviceIdentifiers []string
 	StalenessThreshold     time.Duration
@@ -43,17 +35,12 @@ type SourceConfig struct {
 	Enabled                bool
 }
 
-// SourceState is the domain shape of a curtailment_mqtt_source_state
-// row. Nullable columns surface as zero-value time.Time / TargetUnknown.
+// SourceState is the persisted state for one source.
 type SourceState struct {
 	SourceConfigID int64
 	LastTarget     Target
 	LastTargetAt   time.Time
-	// LastProcessedTarget is the target of the payload that last advanced
-	// LastTargetAt (may differ from LastTarget after a debounced flip). The
-	// dedup guard suppresses a redelivery (same stamp AND same target) while
-	// still acting on a genuine same-second flip (wire stamps are
-	// seconds-precision). Persisted so the guard survives a restart.
+	// LastProcessedTarget pairs with LastTargetAt for duplicate suppression.
 	LastProcessedTarget Target
 	LastReceivedAt      time.Time
 	LastReceivedBroker  string
@@ -61,8 +48,7 @@ type SourceState struct {
 	LastEdgeEventUUID   string
 }
 
-// WatchdogRow is the projection ListSourcesForWatchdog returns —
-// just the columns the watchdog needs, joined across config + state.
+// WatchdogRow is the projection ListSourcesForWatchdog returns.
 type WatchdogRow struct {
 	SourceConfigID     int64
 	SourceName         string
@@ -73,9 +59,7 @@ type WatchdogRow struct {
 	LastEdgeEventUUID  string
 }
 
-// StateUpdate is the patch shape the subscriber writes after each
-// message receive or edge dispatch. Nil pointers leave the existing
-// column value untouched (mirrors the sqlc COALESCE upsert behavior).
+// StateUpdate patches source state; nil pointers leave columns unchanged.
 type StateUpdate struct {
 	SourceConfigID      int64
 	LastTarget          *Target
@@ -87,34 +71,24 @@ type StateUpdate struct {
 	LastEdgeEventUUID   *string
 }
 
-// Store is the data-access interface the subscriber depends on. The
-// production impl wraps sqlc; tests inject a fake.
+// Store is the data-access interface the subscriber depends on.
 type Store interface {
 	ListEnabledSources(ctx context.Context) ([]SourceConfig, error)
 	GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error)
 	UpsertSourceState(ctx context.Context, update StateUpdate) error
 	ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, error)
-	// UserBelongsToOrg reports whether userID is an active (non-deleted) user
-	// and a current member of orgID. The subscriber gates each source's service
-	// user through this before starting its worker, so a misconfigured or
-	// deactivated row can't drive emergency curtailment for an org the user
-	// doesn't belong to.
+	// UserBelongsToOrg gates service users before emergency curtailment.
 	UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error)
 }
 
-// ErrSourceStateNotFound is returned by GetSourceState when no state
-// row exists for the source — i.e., cold start. Callers treat this
-// as "no observations yet" rather than an error.
+// ErrSourceStateNotFound means cold start.
 var ErrSourceStateNotFound = errors.New("mqttingest: source state not found")
 
-// sqlcStore is the production Store implementation backed by
-// generated sqlc queries.
 type sqlcStore struct {
 	queries *sqlc.Queries
 }
 
-// NewSQLCStore returns a Store that reads/writes via the supplied
-// sqlc.Queries handle. The caller owns transaction scoping.
+// NewSQLCStore returns a Store backed by sqlc.
 func NewSQLCStore(queries *sqlc.Queries) Store {
 	return &sqlcStore{queries: queries}
 }
@@ -194,11 +168,8 @@ func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, 
 }
 
 func (s *sqlcStore) UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error) {
-	// The user row must still be active. SoftDeleteUser only sets
-	// "user".deleted_at and leaves the user_organization row, so the membership
-	// query below (which filters only user_organization.deleted_at) would
-	// otherwise pass for a deactivated service user. GetUserById filters
-	// "user".deleted_at, so a deactivated user surfaces as ErrNoRows.
+	// GetUserRoleName alone would pass a soft-deleted user whose org link
+	// remains, so verify the user row first.
 	if _, err := s.queries.GetUserById(ctx, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -218,9 +189,6 @@ func (s *sqlcStore) UserBelongsToOrg(ctx context.Context, userID, orgID int64) (
 }
 
 const (
-	// Source-config defaults applied when a row leaves these columns NULL.
-	// Kept in code (not as DB column defaults) so they're tunable without a
-	// migration and reviewed alongside the logic that consumes them.
 	defaultBrokerPort              int32 = 1883
 	defaultStalenessThresholdSec   int32 = 240
 	defaultMinCurtailedDurationSec int32 = 600

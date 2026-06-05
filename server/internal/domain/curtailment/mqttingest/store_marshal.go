@@ -7,9 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// nullStringFromTarget marshals a Target into the canonical TEXT encoding
-// ('OFF'/'ON') for the upsert path. Unknown is treated as no-write (null) to
-// avoid clobbering a previously-known value.
+// nullStringFromTarget maps Unknown to NULL for partial upserts.
 func nullStringFromTarget(t Target) sql.NullString {
 	switch t {
 	case TargetOff:
@@ -37,9 +35,6 @@ func targetFromNullString(n sql.NullString) Target {
 	}
 }
 
-// int32OrDefault returns n's value when set, else def. Source-config columns
-// whose defaults live in code (not as DB column defaults) surface as NULL and
-// resolve through here.
 func int32OrDefault(n sql.NullInt32, def int32) int32 {
 	if !n.Valid {
 		return def

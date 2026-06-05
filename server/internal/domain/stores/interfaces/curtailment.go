@@ -188,13 +188,8 @@ type CurtailmentStore interface {
 		eventUUID uuid.UUID,
 	) (*models.Event, error)
 
-	// BeginRecurtailTransition is the inverse: flips a restoring event back to
-	// 'active' and re-curtails its restore targets (desired_state='curtailed',
-	// state='pending', cleared cursors) in one transaction — including ones that
-	// already resolved/failed. If another non-terminal event now holds any target,
-	// the transaction rolls back and returns AlreadyExists so callers can retry
-	// while the event remains restoring. Idempotent on non-restoring non-terminal
-	// events; terminal events return FailedPrecondition.
+	// BeginRecurtailTransition flips a restoring event back to active and resets
+	// restore targets. Target overlap rolls back and returns AlreadyExists.
 	BeginRecurtailTransition(
 		ctx context.Context,
 		orgID int64,

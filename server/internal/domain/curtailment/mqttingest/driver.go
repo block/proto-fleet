@@ -12,19 +12,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
-// curtailmentService is the subset of curtailment.Service the driver
-// needs. Narrow interface keeps the driver testable with a fake.
+// curtailmentService is the subset of curtailment.Service the driver needs.
 type curtailmentService interface {
 	Start(ctx context.Context, req curtailment.StartRequest) (*curtailment.Plan, error)
 	Stop(ctx context.Context, req curtailment.StopRequest) (*models.Event, error)
-	// ListActive returns all non-terminal events for the org. The driver
-	// matches source_actor_id to find this source's event among concurrent
-	// per-scope events (GetActive returns only the most-recent, which can be
-	// another source's).
+	// ListActive returns all non-terminal events; source_actor_id identifies
+	// this MQTT source among concurrent per-scope events.
 	ListActive(ctx context.Context, orgID int64) ([]*models.Event, error)
-	// Recurtail flips a restoring event back to active and re-curtails its
-	// in-flight targets in place; the watchdog uses it to re-assert OFF without
-	// starting a fresh event (which would replay the restoring one).
+	// Recurtail flips a restoring event back to active in place.
 	Recurtail(ctx context.Context, req curtailment.RecurtailRequest) (*models.Event, error)
 }
 
@@ -38,8 +33,7 @@ type EdgeOutcome struct {
 	DispatchedAt time.Time
 }
 
-// Driver translates edge decisions into Service.Start / Service.Stop
-// invocations against the curtailment service.
+// Driver translates MQTT edges into curtailment service calls.
 type Driver struct {
 	svc curtailmentService
 	now func() time.Time
@@ -54,12 +48,8 @@ func NewDriver(svc curtailmentService, now func() time.Time) *Driver {
 	return &Driver{svc: svc, now: now}
 }
 
-// Dispatch routes an edge to the appropriate curtailment-service call
-// and returns the resulting EventUUID. EdgeNone is a no-op that
-// returns a zero outcome. The optional priorEdgeAt is the previous edge's
-// anchor; it salts the message-driven external_reference so two OFF edges
-// sharing a publisher second don't collide (see startExternalReference).
-// Callers that don't need it (tests) may omit it.
+// Dispatch routes an edge and returns the event it created, resumed, or stopped.
+// priorEdgeAt salts message-driven OFF external references.
 func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time, priorEdgeAt ...time.Time) (EdgeOutcome, error) {
 	var prior time.Time
 	if len(priorEdgeAt) > 0 {
@@ -95,9 +85,6 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 }
 
 func (d *Driver) dispatchCurtail(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, error) {
-	// OFF means "curtail now" even if a previous ON has already started
-	// restoring this source's event. Reuse the source event when it exists so
-	// we do not fight the in-flight restore with a fresh Start.
 	active, err := d.ActiveSourceEvent(ctx, src)
 	if err != nil {
 		return uuid.Nil, err
@@ -151,21 +138,16 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 
 	plan, err := d.svc.Start(ctx, req)
 	if err != nil {
-		// Errors (including a device-overlap AlreadyExists race) propagate so
-		// the worker logs and retries on the next message or watchdog tick.
-		// Idempotent re-deliveries are not errors — they return plan.ReplayEvent.
+		// Retryable errors stay retryable; idempotent re-deliveries return
+		// plan.ReplayEvent instead.
 		return uuid.Nil, fmt.Errorf("mqttingest: dispatch Start: %w", err)
 	}
 	if plan == nil {
 		return uuid.Nil, errors.New("mqttingest: curtailment service returned nil plan on Start")
 	}
-	// Replay path: the partial unique index hit; the persisted event is
-	// returned verbatim.
 	if plan.ReplayEvent != nil {
 		return plan.ReplayEvent.EventUUID, nil
 	}
-	// Insufficient load: surface as an error so the subscriber doesn't
-	// commit an edge that curtailed nothing.
 	if plan.InsufficientLoadDetail != nil {
 		return uuid.Nil, fmt.Errorf("mqttingest: curtailment service rejected Start (insufficient load): %+v", plan.InsufficientLoadDetail)
 	}
@@ -176,9 +158,6 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 }
 
 func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Event, error) {
-	// Stop only the event this source created; a nil or foreign active event
-	// is not this OFF→ON's to stop, so treat it as a benign no-op (the source
-	// still advances to ON).
 	active, err := d.ActiveSourceEvent(ctx, src)
 	if err != nil {
 		return nil, err
@@ -192,14 +171,8 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	}
 	event, err := d.svc.Stop(ctx, stopReq)
 	if err != nil {
-		// The event can go terminal between ActiveSourceEvent listing it and Stop
-		// running (admin terminate, or its own restore completing); Stop rejects a
-		// terminal event. If this source no longer has a non-terminal event there
-		// is nothing left to stop, so treat it like ErrNoActiveEvent — the OFF→ON
-		// still advances and the watchdog won't re-curtail a restored source. A
-		// still-active event is a real failure (e.g. the min-curtailed-duration
-		// gate, which also reports FailedPrecondition) — propagate it so the
-		// worker retries rather than wrongly settling ON.
+		// If the event went terminal between lookup and Stop, ON can settle.
+		// A still non-terminal event means Stop genuinely failed and must retry.
 		if active2, rerr := d.ActiveSourceEvent(ctx, src); rerr == nil && active2 == nil {
 			return nil, ErrNoActiveEvent
 		}
@@ -211,17 +184,12 @@ func (d *Driver) dispatchStop(ctx context.Context, src SourceConfig) (*models.Ev
 	return event, nil
 }
 
-// ActiveSourceEvent returns the non-terminal curtailment event this source
-// created, or nil when none exists or the active event belongs to another
-// actor (a manual or cross-source curtailment).
+// ActiveSourceEvent returns this source's non-terminal event, if any.
 func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*models.Event, error) {
 	events, err := d.svc.ListActive(ctx, src.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: ListActive: %w", err)
 	}
-	// Multiple events can be active per org (one per disjoint scope); match
-	// source_actor_id so this source's event is found even when it isn't the
-	// most-recent.
 	want := sourceActorIDFor(src)
 	for _, ev := range events {
 		if ev != nil && ev.SourceActorID != nil && *ev.SourceActorID == want {
@@ -231,10 +199,7 @@ func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*mode
 	return nil, nil
 }
 
-// ResumeSourceEvent re-asserts curtailment on this source's restoring event
-// (an out-of-band Stop began a restore while the publisher still signals OFF),
-// flipping it back to active in place. Preferred over a fresh WATCHDOG_OFF
-// Start, which would replay the restoring event instead of re-curtailing.
+// ResumeSourceEvent re-curtails a restoring source event in place.
 func (d *Driver) ResumeSourceEvent(ctx context.Context, event *models.Event) error {
 	if _, err := d.svc.Recurtail(ctx, curtailment.RecurtailRequest{
 		OrgID:     event.OrgID,
@@ -275,12 +240,7 @@ func clampToInt32Seconds(d time.Duration) int32 {
 	return int32(secs)
 }
 
-// startExternalReference synthesizes the per-edge external_reference used
-// for the curtailment service's idempotency (partial-unique index).
-// Watchdog references are quantized to the staleness threshold so
-// back-to-back 1 s ticks in one stale episode share a reference and
-// replay, instead of triggering a fresh selector pass each tick. Only
-// called for ON->OFF and WATCHDOG_OFF.
+// startExternalReference builds the idempotency key for OFF dispatches.
 func startExternalReference(source string, direction EdgeDirection, edgeAt, priorEdgeAt time.Time, stalenessThreshold time.Duration) string {
 	if direction == EdgeWatchdogOff {
 		thresholdSec := int64(stalenessThreshold / time.Second)
@@ -290,23 +250,14 @@ func startExternalReference(source string, direction EdgeDirection, edgeAt, prio
 		windowStart := (edgeAt.Unix() / thresholdSec) * thresholdSec
 		return fmt.Sprintf("%s:watchdog:%d", source, windowStart)
 	}
-	// Salt the message-driven reference with the prior edge's second. Wire
-	// stamps are seconds-precision, so an OFF→ON→OFF burst stamped in one second
-	// but received outside the debounce window would otherwise give both OFFs
-	// the same source:<second> reference; Stop leaves the first event
-	// `restoring` (still covered by the unique index), so the second OFF would
-	// be treated as a replay and dropped. The prior anchor is persisted state
-	// (LastEdgeAt) and stays fixed across a redelivery of the same edge, so the
-	// reference is still stable. Cold start (no prior edge) keeps the bare form.
+	// Salt with the prior edge so same-second OFF bursts do not replay each other.
 	if priorEdgeAt.IsZero() {
 		return fmt.Sprintf("%s:%d", source, edgeAt.Unix())
 	}
 	return fmt.Sprintf("%s:%d:%d", source, edgeAt.Unix(), priorEdgeAt.Unix())
 }
 
-// startReason builds the operator-facing reason recorded on the event,
-// with distinct phrasing for publisher-OFF vs. watchdog triggers. Only
-// called for ON->OFF and WATCHDOG_OFF.
+// startReason builds the operator-facing event reason.
 func startReason(source string, direction EdgeDirection, edgeAt time.Time) string {
 	if direction == EdgeWatchdogOff {
 		return fmt.Sprintf("MQTT watchdog — source %s, last message before %s", source, edgeAt.Format(time.RFC3339))
@@ -314,18 +265,12 @@ func startReason(source string, direction EdgeDirection, edgeAt time.Time) strin
 	return fmt.Sprintf("MQTT OFF target — source %s", source)
 }
 
-// sourceActorIDFor is the source_actor_id the driver stamps on every event it
-// starts; the OFF→ON path uses it to confirm an active event belongs to this
-// source before stopping it.
+// sourceActorIDFor is stamped on events this MQTT source owns.
 func sourceActorIDFor(src SourceConfig) string {
 	return fmt.Sprintf("mqtt:%s", src.SourceName)
 }
 
-// modeForSource builds the curtailment mode and kW params from the source's
-// curtail_mode. FULL_FLEET curtails every eligible device in scope with no kW
-// target; FIXED_KW (the default) sheds the contracted target with a 5%
-// undershoot tolerance. With a device_list scope, FULL_FLEET means "stop this
-// whole site."
+// modeForSource maps source config to curtailment mode parameters.
 func modeForSource(src SourceConfig) (mode models.Mode, targetKW, toleranceKW float64) {
 	if models.Mode(src.CurtailMode) == models.ModeFullFleet {
 		return models.ModeFullFleet, 0, 0
@@ -334,9 +279,7 @@ func modeForSource(src SourceConfig) (mode models.Mode, targetKW, toleranceKW fl
 	return models.ModeFixedKw, kw, kw * 0.05
 }
 
-// scopeForSource builds the curtailment Scope from the source config. Supports
-// whole_org and device_list; device_sets is rejected (the curtailment core
-// returns Unimplemented for it).
+// scopeForSource maps source config to a curtailment scope.
 func scopeForSource(src SourceConfig) (curtailment.Scope, error) {
 	switch src.ScopeType {
 	case string(models.ScopeTypeWholeOrg), "":

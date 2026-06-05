@@ -400,10 +400,7 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: ResumeCurtailmentFromRestoring :one
--- Inverse of BeginCurtailmentRestoration: a restoring event re-asserts its
--- curtailment in place (an out-of-band Stop began a restore while the source's
--- signal still requires OFF). The WHERE state-guard is the concurrency control;
--- the loser sees zero rows and the store re-reads to route by the latest state.
+-- Restore reversal: state guard lets the store route concurrent transitions.
 UPDATE curtailment_event
 SET state = 'active'
 WHERE id = sqlc.arg('id')
@@ -411,17 +408,8 @@ WHERE id = sqlc.arg('id')
 RETURNING *;
 
 -- name: ResetCurtailmentTargetsForRecurtail :one
--- Inverse of ResetCurtailmentTargetsForRestore: flips this event's restore
--- targets back to desired_state='curtailed' (cursors cleared) so the reconciler
--- re-curtails them. Includes targets that already resolved/restore_failed before
--- the watchdog fired — skipping them would flip the event to 'active' with those
--- devices left restored, and the watchdog (no longer seeing a restoring event)
--- stops retrying. Such a target has left this event's per-device lock, so it is
--- reset only when no other non-terminal event holds the device (preserving the
--- per-device single-writer rule). The returned counts let the store reject any
--- partial reset and roll back the event-state flip. In-flight restore targets
--- are still locked here, so the guard is a no-op for them. 'released' targets
--- (device removed from the event) are untouched.
+-- Reopen restore targets for curtailment. Counts let the store reject partial
+-- resets when another non-terminal event already holds a resolved target.
 WITH recurtail_candidates AS MATERIALIZED (
     SELECT ct.curtailment_event_id, ct.device_identifier
     FROM curtailment_target AS ct

@@ -17,8 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// newTestWorker wires a sourceWorker for direct-method exercise. The
-// fake store and service let tests inspect persistence + dispatch.
+// newTestWorker wires a sourceWorker for direct method tests.
 func newTestWorker(t *testing.T, store *fakeStore, svc *fakeService, src SourceConfig) *sourceWorker {
 	t.Helper()
 	cfg := Config{
@@ -58,8 +57,7 @@ func workerSource() SourceConfig {
 	}
 }
 
-// Regression: handleWatchdog dispatched WATCHDOG_OFF but never advanced
-// LastTarget, so EvaluateWatchdog kept firing every tick.
+// Watchdog OFF must settle state after dispatch.
 func TestWorker_HandleWatchdog_PersistsTargetOff(t *testing.T) {
 	t.Parallel()
 
@@ -107,8 +105,7 @@ func TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSourceStateNotFound, "failed dispatch must not persist state")
 }
 
-// A failed Start must not advance LastTarget, or the next identical
-// observation reads as a no-op repeat and the site silently uncurtails.
+// Failed Start must not settle LastTarget.
 func TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget(t *testing.T) {
 	t.Parallel()
 
@@ -135,9 +132,7 @@ func TestWorker_HandleMessage_DispatchFailure_KeepsLastTarget(t *testing.T) {
 	assert.Equal(t, w.primaryHost, next.LastReceivedBroker)
 }
 
-// A transient dispatch failure must not advance LastTargetAt: a QoS-1
-// redelivery of the same payload has to retry the failed Start, not be
-// suppressed as an already-processed duplicate.
+// Failed dispatch must not suppress a redelivery retry.
 func TestWorker_HandleMessage_FailedDispatch_RedeliveryRetries(t *testing.T) {
 	t.Parallel()
 
@@ -149,8 +144,7 @@ func TestWorker_HandleMessage_FailedDispatch_RedeliveryRetries(t *testing.T) {
 	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
 	require.NoError(t, err)
 
-	// ON settled at an earlier stamp; the edge anchor is old enough that the OFF
-	// is outside the debounce window.
+	// Old edge anchor: the OFF is outside debounce.
 	prior := SourceState{
 		SourceConfigID: w.source.ID,
 		LastTarget:     TargetOn,
@@ -175,8 +169,7 @@ func TestWorker_HandleMessage_FailedDispatch_RedeliveryRetries(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget, "the retry settles OFF")
 }
 
-// Regression: an OFF→ON edge with no in-flight event (ErrNoActiveEvent)
-// must advance to ON, not wedge in OFF and re-attempt Stop every message.
+// ON with no source event still settles ON.
 func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	t.Parallel()
 
@@ -205,21 +198,15 @@ func TestWorker_HandleMessage_OffToOn_NoActiveEvent_AdvancesToOn(t *testing.T) {
 	require.Len(t, svc.listActiveCalls, 1, "repeat ON must not retry the OFF→ON dispatch")
 }
 
-// A terminal stop race — the event goes terminal between ActiveSourceEvent
-// listing it and Stop running — must still advance OFF→ON. Otherwise LastTarget
-// stays OFF after the publisher restored and the next watchdog tick re-curtails
-// a source that should be ON.
+// A terminal stop race after lookup must still settle ON.
 func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	mine := "mqtt:site-a" // workerSource() is "site-a"
 	eventUUID := uuid.New()
 	svc := &fakeService{
-		// Found on the dispatchStop lookup, gone on the post-failure re-check
-		// because it went terminal in between; Stop rejects the terminal event.
 		listActiveResults: [][]*models.Event{
-			{{EventUUID: eventUUID, SourceActorID: &mine}},
+			{testSourceEvent(workerSource(), eventUUID, models.EventStateActive)},
 			nil,
 		},
 		stopErr: fleeterror.NewFailedPreconditionErrorf(
@@ -231,7 +218,6 @@ func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T
 	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
 	require.NoError(t, err)
 
-	// Settled OFF, old edge anchor → the ON is a real, non-debounced OFF→ON.
 	prior := SourceState{
 		SourceConfigID: w.source.ID,
 		LastTarget:     TargetOff,
@@ -248,8 +234,7 @@ func TestWorker_HandleMessage_OffToOn_TerminalStopRace_AdvancesToOn(t *testing.T
 	assert.Len(t, svc.listActiveCalls, 2, "a failed Stop re-checks the active event to detect the terminal race")
 }
 
-// A flip absorbed by the debounce window must leave LastTarget untouched
-// so a later genuine opposite edge still fires.
+// Debounced flips do not settle LastTarget.
 func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
 	t.Parallel()
 
@@ -261,8 +246,7 @@ func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
 	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
 	require.NoError(t, err)
 
-	// Curtailed (OFF) with a very recent edge so the OFF→ON flip lands
-	// inside DebounceWindow (5 s).
+	// Recent edge: the ON lands inside debounce.
 	prior := SourceState{
 		SourceConfigID: w.source.ID,
 		LastTarget:     TargetOff,
@@ -279,25 +263,23 @@ func TestWorker_HandleMessage_DebouncedFlip_DoesNotAdvance(t *testing.T) {
 	assert.Equal(t, now, next.LastReceivedAt, "freshness still advances")
 }
 
-// Regression: a debounced OFF→ON flip advances LastTargetAt to that payload's
-// publisher stamp while LastTarget stays OFF. A later QoS-1 redelivery of the
-// same payload (equal stamp) arriving after the debounce window must not be
-// read as a fresh edge and Stop the curtailment — the publisher sent no new ON.
+// Redelivery of a debounced flip must remain a duplicate.
 func TestWorker_HandleMessage_DebouncedFlipRedelivery_DoesNotStop(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
-	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID}}}
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(workerSource(), uuid.New(), models.EventStateActive),
+		},
+	}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	published := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC) // the debounced ON's stamp
 	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": published.Unix()})
 	require.NoError(t, err)
 
-	// Post-debounce state: the ON flip was absorbed (LastTarget still OFF) but
-	// its stamp + target landed in LastTargetAt / LastProcessedTarget; the edge
-	// anchor is old, so the next arrival is well outside the 5 s debounce window.
+	// The prior ON was debounced but recorded for duplicate suppression.
 	prior := SourceState{
 		SourceConfigID:      w.source.ID,
 		LastTarget:          TargetOff,
@@ -315,9 +297,7 @@ func TestWorker_HandleMessage_DebouncedFlipRedelivery_DoesNotStop(t *testing.T) 
 	assert.Equal(t, TargetOff, next.LastTarget, "state stays OFF — no new publisher ON")
 }
 
-// A genuine same-second target change must still dispatch: wire stamps are
-// seconds-precision, so a real ON→OFF flip can share the prior ON's Unix-second
-// (equal stamp) yet differ in target — it is not a redelivery.
+// Same-second target changes are not duplicate redeliveries.
 func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
 	t.Parallel()
 
@@ -348,9 +328,7 @@ func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
-// A dispatched edge must persist LastProcessedTarget so the redelivery dedup
-// guard survives a restart; this also guards the fake store's fidelity to the
-// real sqlc store, which round-trips the column.
+// LastProcessedTarget must persist for restart-safe dedup.
 func TestWorker_HandleMessage_PersistsProcessedTarget(t *testing.T) {
 	t.Parallel()
 
@@ -379,27 +357,24 @@ func TestWorker_HandleMessage_PersistsProcessedTarget(t *testing.T) {
 		"a dispatched edge must persist LastProcessedTarget for restart-safe dedup")
 }
 
-// Regression: a future-dated publisher stamp must not push the out-of-order
-// cutoff ahead of real time. The future-dated OFF must still curtail, and a
-// later real-stamped signal must not be dropped as stale behind it.
-// isStalePayload caps the cutoff at receive-time; LastTargetAt keeps the raw
-// stamp for the duplicate guard.
+// Future-dated payloads must not pin ordering ahead of receive time.
 func TestWorker_HandleMessage_FutureDatedStamp_DoesNotSuppressLaterSignal(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
 	offUUID := uuid.New()
-	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
 	svc := &fakeService{
-		startResult:      &curtailment.Plan{EventUUID: &offUUID},
-		listActiveResult: []*models.Event{{EventUUID: offUUID, SourceActorID: &actorID}},
-		stopResult:       &models.Event{EventUUID: offUUID},
+		startResult: &curtailment.Plan{EventUUID: &offUUID},
+		listActiveResults: [][]*models.Event{
+			nil,
+			{testSourceEvent(workerSource(), offUUID, models.EventStateActive)},
+		},
+		stopResult: &models.Event{EventUUID: offUUID},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	recvOff := time.Now().UTC()
-	// Valid OFF (inside the decoder's ±24 h window) but stamped 12 h ahead of
-	// receive-time: a clock-skewed/hostile publisher or a stale retained message.
+	// Valid but future-dated within the decoder sanity window.
 	futureStamp := recvOff.Add(12 * time.Hour)
 	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": futureStamp.Unix()})
 	require.NoError(t, err)
@@ -420,9 +395,7 @@ func TestWorker_HandleMessage_FutureDatedStamp_DoesNotSuppressLaterSignal(t *tes
 	assert.True(t, afterOff.LastTargetAt.After(recvOff),
 		"LastTargetAt keeps the raw future stamp (the dedup guard needs it); ordering is capped at read-time")
 
-	// A later legitimate ON (real stamp, earlier than the future OFF stamp)
-	// arriving outside the debounce window must be honored, not dropped as
-	// out-of-order behind a future-pinned watermark.
+	// A later real-stamped ON must not be hidden by the future stamp.
 	recvOn := recvOff.Add(10 * time.Second)
 	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": recvOn.Unix()})
 	require.NoError(t, err)
@@ -435,20 +408,16 @@ func TestWorker_HandleMessage_FutureDatedStamp_DoesNotSuppressLaterSignal(t *tes
 	require.Len(t, svc.stopCalls, 1, "the ON must dispatch a Stop")
 }
 
-// Companion to the future-timestamp fix: the duplicate guard must keep working
-// for future-dated payloads. A future-dated ON absorbed by the debounce window
-// advances LastProcessedTarget=ON; a later redelivery of that exact payload
-// must still be recognized as a duplicate, not dispatched as a Stop that
-// restores load with no genuine new ON. The guard compares against the raw
-// LastTargetAt, so clamping that stored field would break this.
+// Future-dated duplicate suppression still uses the raw processed stamp.
 func TestWorker_HandleMessage_FutureDatedDebouncedFlip_RedeliverySuppressed(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	actorID := "mqtt:site-a"
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID}},
-		stopResult:       &models.Event{EventUUID: uuid.New()},
+		listActiveResult: []*models.Event{
+			testSourceEvent(workerSource(), uuid.New(), models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: uuid.New()},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
@@ -457,8 +426,7 @@ func TestWorker_HandleMessage_FutureDatedDebouncedFlip_RedeliverySuppressed(t *t
 	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": futureStamp.Unix()})
 	require.NoError(t, err)
 
-	// Curtailed (OFF) with a recent edge anchor, so the incoming ON lands inside
-	// the 5 s debounce window and is absorbed.
+	// Recent edge: the future-dated ON is debounced.
 	prior := SourceState{
 		SourceConfigID:      w.source.ID,
 		LastTarget:          TargetOff,
@@ -475,16 +443,14 @@ func TestWorker_HandleMessage_FutureDatedDebouncedFlip_RedeliverySuppressed(t *t
 	require.Equal(t, TargetOn, afterFlip.LastProcessedTarget)
 	require.Empty(t, svc.stopCalls, "a debounced flip must not dispatch Stop")
 
-	// Redelivery of the exact same ON, now outside the debounce window: it must
-	// be recognized as a duplicate and suppressed, not restore load.
+	// Redelivery outside debounce must still be a duplicate.
 	afterRedelivery := w.handleMessage(context.Background(), afterFlip,
 		observation{broker: w.primaryHost, payload: onBody, receivedAt: base.Add(10 * time.Second)})
 	assert.Equal(t, TargetOff, afterRedelivery.LastTarget, "redelivered duplicate must not flip state to ON")
 	assert.Empty(t, svc.stopCalls, "redelivered duplicate of a debounced future-dated ON must not Stop the curtailment")
 }
 
-// Guards the debounce fix from over-suppressing: a cold-start ON (no prior
-// target) is not a flip and must record ON.
+// Cold-start ON is not a debounced flip.
 func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
 	t.Parallel()
 
@@ -506,8 +472,7 @@ func TestWorker_HandleMessage_ColdStartOn_AdvancesToOn(t *testing.T) {
 	assert.Empty(t, svc.stopCalls)
 }
 
-// A transient state-load error must not kill the worker: it degrades to
-// cold-start and the watchdog still fires WATCHDOG_OFF (fail-safe).
+// State-load errors degrade to cold start, preserving fail-safe OFF.
 func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 	t.Parallel()
 
@@ -533,14 +498,16 @@ func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 	}
 }
 
-// A watchdog tick while OFF must NOT re-dispatch when the curtailment
-// event still holds (active).
+// A held source event satisfies OFF.
 func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
-	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID, State: models.EventStateActive}}}
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(workerSource(), uuid.New(), models.EventStateActive),
+		},
+	}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
@@ -551,18 +518,17 @@ func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
 	require.Len(t, svc.listActiveCalls, 1)
 }
 
-// A watchdog tick while OFF must re-curtail when this source's event is
-// restoring: Stop moved it to `restoring` (stopped out-of-band), so devices are
-// ramping back to full power — that no longer satisfies the OFF signal.
+// A restoring source event no longer satisfies OFF.
 func TestWorker_HandleWatchdog_Off_RestoringEvent_Recurtails(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	actorID := "mqtt:site-a"
 	eventUUID := uuid.New()
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{EventUUID: eventUUID, OrgID: 7, SourceActorID: &actorID, State: models.EventStateRestoring}},
-		recurtailResult:  &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+		listActiveResult: []*models.Event{
+			testSourceEvent(workerSource(), eventUUID, models.EventStateRestoring),
+		},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
@@ -575,8 +541,7 @@ func TestWorker_HandleWatchdog_Off_RestoringEvent_Recurtails(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
-// A watchdog tick while OFF must re-curtail when the event was terminated
-// out-of-band — the source must stay curtailed.
+// A missing source event while OFF starts a fresh curtailment.
 func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
 	t.Parallel()
 
@@ -598,22 +563,16 @@ func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
 	assert.Equal(t, TargetOff, persisted.LastTarget)
 }
 
-// An OFF message must re-curtail immediately when the previous ON has already
-// moved this source's event into restoring. A fresh Start would collide with
-// the in-flight restore instead of reversing it.
+// OFF during restore re-curtails the restoring event in place.
 func TestWorker_HandleMessage_OffWhileRestoring_Recurtails(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	actorID := "mqtt:site-a"
 	eventUUID := uuid.New()
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{
-			EventUUID:     eventUUID,
-			OrgID:         7,
-			SourceActorID: &actorID,
-			State:         models.EventStateRestoring,
-		}},
+		listActiveResult: []*models.Event{
+			testSourceEvent(workerSource(), eventUUID, models.EventStateRestoring),
+		},
 		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
@@ -639,8 +598,7 @@ func TestWorker_HandleMessage_OffWhileRestoring_Recurtails(t *testing.T) {
 	assert.Equal(t, eventUUID.String(), next.LastEdgeEventUUID)
 }
 
-// A failed active-event check while OFF must no-op (retry next tick), not
-// re-curtail blindly or advance state.
+// Failed active-event checks retry on the next tick.
 func TestWorker_HandleWatchdog_Off_CheckError_NoOp(t *testing.T) {
 	t.Parallel()
 
@@ -655,9 +613,7 @@ func TestWorker_HandleWatchdog_Off_CheckError_NoOp(t *testing.T) {
 	assert.Empty(t, svc.startCalls, "check failed — do not re-curtail blindly")
 }
 
-// On a message-driven edge the synthetic external_reference must use the
-// publisher's timestamp (stable across the dual-broker duplicate), not the
-// local receive time; LastEdgeAt (the debounce anchor) stays receive-time.
+// Message-driven OFF idempotency uses publisher time.
 func TestWorker_HandleMessage_OnToOff_ReferenceUsesPublishedAt(t *testing.T) {
 	t.Parallel()
 
@@ -682,8 +638,7 @@ func TestWorker_HandleMessage_OnToOff_ReferenceUsesPublishedAt(t *testing.T) {
 	assert.Equal(t, received, next.LastEdgeAt, "debounce anchor stays receive-time")
 }
 
-// A stale/out-of-order payload (publisher timestamp older than the last one
-// acted on) must be ignored, not allowed to Stop the active curtailment.
+// Out-of-order payloads cannot stop curtailment.
 func TestWorker_HandleMessage_StalePayload_Ignored(t *testing.T) {
 	t.Parallel()
 
@@ -713,10 +668,7 @@ func TestWorker_HandleMessage_StalePayload_Ignored(t *testing.T) {
 	assert.Equal(t, processedAt, next.LastTargetAt, "stale payload must not advance the processed timestamp")
 }
 
-// A retained/backlog payload whose publisher stamp is already older than the
-// staleness threshold must not be treated as fresh on cold start: it must not
-// advance LastTarget or reset the watchdog freshness clock, so the watchdog
-// fails safe instead of idling a full threshold on stale data.
+// Age-stale retained payloads do not refresh cold-start liveness.
 func TestWorker_HandleMessage_AgeStalePayload_Ignored(t *testing.T) {
 	t.Parallel()
 
@@ -742,10 +694,7 @@ func TestWorker_HandleMessage_AgeStalePayload_Ignored(t *testing.T) {
 	assert.Empty(t, svc.stopCalls)
 }
 
-// On cold start, an age-stale winner on the precedence broker must be evicted
-// and re-resolved against the other broker, so a live broker's fresh signal is
-// honored instead of masked (and the cold-start watchdog doesn't curtail a
-// source a live broker is reporting ON).
+// Cold-start age-stale primary must not mask a live secondary.
 func TestWorker_HandleMessage_EvictsAgeStaleWinner_ThenProcessesFresh(t *testing.T) {
 	t.Parallel()
 
@@ -754,8 +703,7 @@ func TestWorker_HandleMessage_EvictsAgeStaleWinner_ThenProcessesFresh(t *testing
 	w := newTestWorker(t, store, svc, workerSource()) // StalenessThreshold = 240 s
 
 	now := time.Now().UTC()
-	// Primary holds a retained ON published well past the staleness threshold,
-	// received now — so it wins precedence by receive-time but is age-stale.
+	// Primary wins by receive-time but is age-stale.
 	w.lastObs[BrokerPrimary] = &Observation{
 		Broker:     w.primaryHost,
 		Role:       BrokerPrimary,
@@ -777,9 +725,7 @@ func TestWorker_HandleMessage_EvictsAgeStaleWinner_ThenProcessesFresh(t *testing
 	assert.Empty(t, svc.startCalls, "cold-start ON is not an edge — no curtail")
 }
 
-// A stale observation that wins precedence by receive-time must be evicted so
-// it stops masking the other broker's current data; the fresh OFF is acted on
-// immediately rather than after the freshness window.
+// Stale precedence winners must not mask a fresh OFF.
 func TestWorker_HandleMessage_EvictsStaleWinner_ThenProcessesFresh(t *testing.T) {
 	t.Parallel()
 
@@ -790,8 +736,7 @@ func TestWorker_HandleMessage_EvictsStaleWinner_ThenProcessesFresh(t *testing.T)
 
 	now := time.Now().UTC()
 	t0 := now.Add(-20 * time.Second) // last processed; source is ON
-	// Primary has a stale ON cached with a recent receive time, so it wins
-	// precedence by receive-time but is stale by publisher time.
+	// Primary wins by receive-time but is stale by publisher time.
 	w.lastObs[BrokerPrimary] = &Observation{
 		Broker:     w.primaryHost,
 		Role:       BrokerPrimary,
@@ -812,17 +757,15 @@ func TestWorker_HandleMessage_EvictsStaleWinner_ThenProcessesFresh(t *testing.T)
 	assert.False(t, primaryStillCached, "stale primary observation must be evicted from the cache")
 }
 
-// A non-OFF loaded state is reconciled to OFF when this source already has a
-// pending/active curtailment event (recovery after a state-read or persist
-// failure), so a later ON stops it instead of being a cold-start no-op. A
-// restoring event is not evidence of OFF; it means an ON was already accepted.
-// A foreign or absent active event leaves the loaded state untouched.
+// Startup reconciles only held source events to OFF.
 func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 	t.Parallel()
 
 	eventUUID := uuid.New()
-	mine := "mqtt:site-a" // workerSource() is "site-a"
 	foreign := "user:42"
+	sourceEvent := func(state models.EventState) *models.Event {
+		return testSourceEvent(workerSource(), eventUUID, state)
+	}
 
 	cases := []struct {
 		name        string
@@ -831,13 +774,13 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 		wantTarget  Target
 		wantEventID string
 	}{
-		{"cold + own active event reconciles to OFF", nil, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateActive}, TargetOff, eventUUID.String()},
-		{"persisted ON + own active event reconciles to OFF", &SourceState{LastTarget: TargetOn}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateActive}, TargetOff, eventUUID.String()},
-		{"cold + own restoring event stays cold", nil, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateRestoring}, TargetUnknown, ""},
-		{"persisted ON + own restoring event preserves ON", &SourceState{LastTarget: TargetOn}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateRestoring}, TargetOn, ""},
+		{"cold + own active event reconciles to OFF", nil, sourceEvent(models.EventStateActive), TargetOff, eventUUID.String()},
+		{"persisted ON + own active event reconciles to OFF", &SourceState{LastTarget: TargetOn}, sourceEvent(models.EventStateActive), TargetOff, eventUUID.String()},
+		{"cold + own restoring event stays cold", nil, sourceEvent(models.EventStateRestoring), TargetUnknown, ""},
+		{"persisted ON + own restoring event preserves ON", &SourceState{LastTarget: TargetOn}, sourceEvent(models.EventStateRestoring), TargetOn, ""},
 		{"cold + no active event stays cold", nil, nil, TargetUnknown, ""},
 		{"cold + foreign active event stays cold", nil, &models.Event{EventUUID: uuid.New(), SourceActorID: &foreign, State: models.EventStateActive}, TargetUnknown, ""},
-		{"persisted OFF left as-is", &SourceState{LastTarget: TargetOff}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateActive}, TargetOff, ""},
+		{"persisted OFF left as-is", &SourceState{LastTarget: TargetOff}, sourceEvent(models.EventStateActive), TargetOff, ""},
 	}
 
 	for _, tc := range cases {
@@ -867,18 +810,16 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 	}
 }
 
-// Recovery must seed ordering/debounce anchors from the active event. Without
-// them LastTargetAt/LastEdgeAt stay zero, so a retained payload published
-// before the curtailment began — but received inside the staleness window — is
-// processed as a fresh edge and stops the recovered curtailment.
+// Recovery seeds anchors so retained pre-event ON does not stop curtailment.
 func TestWorker_LoadInitialState_SeedsAnchorsFromActiveEvent(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()                              // cold start: GetSourceState returns NotFound
 	eventStart := time.Now().UTC().Add(-2 * time.Minute) // curtailment began 2 min ago
-	mine := "mqtt:site-a"                                // workerSource() is "site-a"
+	active := testSourceEvent(workerSource(), uuid.New(), models.EventStateActive)
+	active.CreatedAt = eventStart
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &mine, State: models.EventStateActive, CreatedAt: eventStart}},
+		listActiveResult: []*models.Event{active},
 		stopResult:       &models.Event{EventUUID: uuid.New()},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
@@ -888,9 +829,7 @@ func TestWorker_LoadInitialState_SeedsAnchorsFromActiveEvent(t *testing.T) {
 	assert.Equal(t, eventStart, recovered.LastTargetAt, "ordering anchor seeded from the active event")
 	assert.Equal(t, eventStart, recovered.LastEdgeAt, "debounce anchor seeded from the active event")
 
-	// A retained ON published before the event began, received recently (younger
-	// than the staleness window), must be dropped — not dispatched as a Stop that
-	// un-curtails the recovered curtailment.
+	// Retained pre-event ON must not stop the recovered curtailment.
 	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": eventStart.Add(-30 * time.Second).Unix()})
 	require.NoError(t, err)
 	after := w.handleMessage(context.Background(), recovered,
@@ -900,9 +839,7 @@ func TestWorker_LoadInitialState_SeedsAnchorsFromActiveEvent(t *testing.T) {
 	assert.Empty(t, svc.stopCalls, "stale retained ON must not dispatch Stop")
 }
 
-// An OFF whose Start hits a device-overlap AlreadyExists (a concurrent event
-// already curtails one of this scope's devices) is a retryable failure, not a
-// satisfied OFF: LastTarget must not advance so the next message/tick retries.
+// Device-overlap AlreadyExists leaves OFF unsettled for retry.
 func TestWorker_HandleMessage_OnToOff_AlreadyExists_DoesNotRecordOff(t *testing.T) {
 	t.Parallel()
 
@@ -922,8 +859,7 @@ func TestWorker_HandleMessage_OnToOff_AlreadyExists_DoesNotRecordOff(t *testing.
 		"a device-overlap AlreadyExists is a retryable failure — LastTarget must not advance to OFF")
 }
 
-// A broker whose Connect blocks must not stall the other broker's
-// subscription or the fail-safe watchdog — connects run concurrently.
+// One blocked broker must not stall the other broker or watchdog.
 func TestWorker_Run_BrokerConnectBlocked_WatchdogStillFires(t *testing.T) {
 	t.Parallel()
 

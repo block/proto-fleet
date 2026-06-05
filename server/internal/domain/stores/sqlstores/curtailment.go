@@ -659,14 +659,9 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 	})
 }
 
-// BeginRecurtailTransition is the inverse of BeginRestoreTransition: it flips a
-// restoring event back to 'active' and re-curtails its restore targets in one
-// tx. Recurtail is all-or-retry: if another non-terminal event holds any target,
-// the transaction rolls back so this event stays restoring for the watchdog's
-// next retry.
-// Non-restoring states are idempotent no-ops (active/pending are already
-// curtailing or bound to it); terminal events are FailedPrecondition. The
-// UPDATE's state guard catches a concurrent transition between pre-read and write.
+// BeginRecurtailTransition flips a restoring event back to active and resets
+// restore targets in one transaction. Any target overlap rolls back so the
+// watchdog can retry while the event remains restoring.
 func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	ctx context.Context,
 	orgID int64,
@@ -692,14 +687,11 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 			)
 		}
 		if state != models.EventStateRestoring {
-			// active/pending: already curtailing or bound to it — nothing to undo.
 			return convertEventRow(current), nil
 		}
 
 		updated, err := q.ResumeCurtailmentFromRestoring(ctx, current.ID)
 		if errors.Is(err, sql.ErrNoRows) {
-			// Concurrent transition between pre-read and update: re-read and route
-			// by the latest state so terminal races don't silently echo success.
 			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 				EventUuid: eventUUID,
 				OrgID:     orgID,
@@ -713,7 +705,6 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 					eventUUID, latest.State,
 				)
 			}
-			// active/pending (someone else resumed, or it never left): idempotent.
 			return convertEventRow(latest), nil
 		}
 		if err != nil {

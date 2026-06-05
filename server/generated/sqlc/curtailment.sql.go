@@ -1305,17 +1305,8 @@ type ResetCurtailmentTargetsForRecurtailRow struct {
 	ResetCount  int64
 }
 
-// Inverse of ResetCurtailmentTargetsForRestore: flips this event's restore
-// targets back to desired_state='curtailed' (cursors cleared) so the reconciler
-// re-curtails them. Includes targets that already resolved/restore_failed before
-// the watchdog fired — skipping them would flip the event to 'active' with those
-// devices left restored, and the watchdog (no longer seeing a restoring event)
-// stops retrying. Such a target has left this event's per-device lock, so it is
-// reset only when no other non-terminal event holds the device (preserving the
-// per-device single-writer rule). The returned counts let the store reject any
-// partial reset and roll back the event-state flip. In-flight restore targets
-// are still locked here, so the guard is a no-op for them. 'released' targets
-// (device removed from the event) are untouched.
+// Reopen restore targets for curtailment. Counts let the store reject partial
+// resets when another non-terminal event already holds a resolved target.
 func (q *Queries) ResetCurtailmentTargetsForRecurtail(ctx context.Context, curtailmentEventID int64) (ResetCurtailmentTargetsForRecurtailRow, error) {
 	row := q.queryRow(ctx, q.resetCurtailmentTargetsForRecurtailStmt, resetCurtailmentTargetsForRecurtail, curtailmentEventID)
 	var i ResetCurtailmentTargetsForRecurtailRow
@@ -1352,10 +1343,7 @@ WHERE id = $1
 RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
 `
 
-// Inverse of BeginCurtailmentRestoration: a restoring event re-asserts its
-// curtailment in place (an out-of-band Stop began a restore while the source's
-// signal still requires OFF). The WHERE state-guard is the concurrency control;
-// the loser sees zero rows and the store re-reads to route by the latest state.
+// Restore reversal: state guard lets the store route concurrent transitions.
 func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.resumeCurtailmentFromRestoringStmt, resumeCurtailmentFromRestoring, id)
 	var i CurtailmentEvent

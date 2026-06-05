@@ -8,14 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
-// sourceWorker owns the runtime for one MQTT source: two broker clients,
-// an observation cache for precedence dedup, and the watchdog ticker. One
-// goroutine per worker; broker handlers feed a single channel its main
-// loop drains.
+// sourceWorker owns one source's broker clients, observation cache, and watchdog.
 type sourceWorker struct {
 	cfg           Config
 	source        SourceConfig
@@ -28,19 +23,15 @@ type sourceWorker struct {
 	lastObs map[BrokerRole]*Observation
 }
 
-// observation arrives from a broker handler into the worker's inbound
-// channel; broker is the source host, used to tag the BrokerRole.
+// observation is the raw broker callback payload queued into the worker loop.
 type observation struct {
 	broker     string
 	payload    []byte
 	receivedAt time.Time
 }
 
-// observationChannelBuffer bounds the per-source inbound queue. Dispatch
-// normally drains faster than the ~30 s publisher cadence; the buffer
-// absorbs a transient slow dispatch. On saturation the newest message is
-// dropped (Warn) — repeated publisher sends and the watchdog are the
-// backstop.
+// observationChannelBuffer absorbs transient dispatch slowness; publisher
+// retries and the watchdog backstop dropped messages.
 const observationChannelBuffer = 256
 
 func (w *sourceWorker) run(ctx context.Context) {
@@ -55,12 +46,8 @@ func (w *sourceWorker) run(ctx context.Context) {
 	defer primaryClient.Disconnect(w.cfg.ShutdownDeadline)
 	defer secondaryClient.Disconnect(w.cfg.ShutdownDeadline)
 
-	// Connect to both brokers concurrently. MQTTClient.Connect blocks until
-	// connected (it retries with backoff), so a serial connect would let one
-	// down broker stall the other broker's subscription and the fail-safe
-	// watchdog. Each connect only feeds the shared channel; the loop below
-	// stays the sole goroutine that touches source state. Wait for them on
-	// exit so a connect finishes before the worker's password is cleared.
+	// Connect concurrently so one down broker cannot stall the other broker or
+	// the fail-safe watchdog.
 	var connectWG sync.WaitGroup
 	for _, bc := range []struct {
 		client MQTTClient
@@ -97,14 +84,9 @@ func (w *sourceWorker) run(ctx context.Context) {
 	}
 }
 
-// loadInitialState reads the persisted state, degrading to cold-start on a
-// read error so a transient DB blip doesn't take the fail-safe watchdog down
-// with it. If the loaded target is non-OFF but this source already has a
-// pending/active curtailment event — a prior OFF started one and the state read
-// or a post-Start persist failed — it reconciles to OFF, so a later ON stops
-// that event instead of being a cold-start no-op. A restoring event is not
-// evidence of OFF: it means an ON was already accepted and restore is in
-// progress, so preserve the loaded source target.
+// loadInitialState recovers persisted source state, then reconciles to OFF only
+// when this source already has a pending/active event. A restoring event means
+// ON was accepted and restore is in progress.
 func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
@@ -127,11 +109,8 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 		case eventHoldsCurtailment(active):
 			state.LastTarget = TargetOff
 			state.LastEdgeEventUUID = active.EventUUID.String()
-			// Seed the ordering + debounce anchors from the event so a
-			// retained/backlog payload published before this curtailment began
-			// can't be processed as a fresh edge and stop it. Without an anchor
-			// LastTargetAt/LastEdgeAt stay zero, and a pre-event ON received
-			// inside the staleness window would dispatch Stop and un-curtail.
+			// Anchor ordering/debounce to the event so retained pre-event ON
+			// payloads cannot stop the recovered curtailment.
 			state.LastTargetAt = active.CreatedAt
 			state.LastEdgeAt = active.CreatedAt
 			w.cfg.Logger.Info("mqttingest: reconciled to active curtailment",
@@ -150,7 +129,6 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 		select {
 		case messages <- observation{broker: host, payload: payload, receivedAt: receivedAt}:
 		default:
-			// Channel full; drop with a Warn (metric counter is follow-on).
 			w.cfg.Logger.Warn("mqttingest: message channel full, dropping",
 				slog.String("source", w.source.SourceName),
 				slog.String("broker", host))
@@ -158,10 +136,8 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 	})
 }
 
-// handleMessage decodes an observation, resolves canonical state via
-// precedence, dispatches any implied edge, and persists state. Freshness
-// fields always advance on a decoded message; LastTarget advances only
-// when the owed dispatch landed — never on a debounced flip.
+// handleMessage resolves the canonical signal, dispatches owed edges, and
+// persists only state that safely settled.
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
 	payload, err := w.decoder.Decode(obs.payload, obs.receivedAt)
 	if err != nil {
@@ -186,11 +162,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	canonical, canonicalOK := CanonicalFromPair(primaryObs, secondaryObs, w.cfg.BrokerFreshness)
 
-	// Drop a stale precedence winner and re-resolve against the other broker so
-	// a stale cached observation can't mask the survivor's current data. Stale =
-	// published before the last processed stamp (out-of-order redelivery), or
-	// older than the staleness threshold at receipt (retained/backlog, which a
-	// live broker may outrank — also the cold-start guard, LastTargetAt zero).
+	// Evict stale winners so retained/backlog payloads cannot mask a live broker.
 	for canonicalOK && w.isStalePayload(prior, canonical) {
 		w.cfg.Logger.Warn("mqttingest: evicting stale payload",
 			slog.String("source", w.source.SourceName),
@@ -212,11 +184,8 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 
-	// Ignore a redelivery of an already-processed payload (a recent QoS-1 or
-	// dual-broker copy that survives the eviction loop above): same publisher
-	// stamp AND same target. A genuine same-second target change — equal stamp
-	// but a differing target, since wire stamps are seconds-precision — is not a
-	// duplicate and must still drive its edge.
+	// Same stamp + same target is a duplicate; same stamp + different target is
+	// a real flip because wire timestamps are seconds-precision.
 	if !prior.LastTargetAt.IsZero() && !canonical.PublishedAt.After(prior.LastTargetAt) &&
 		canonical.Target == prior.LastProcessedTarget {
 		direction = EdgeNone
@@ -224,28 +193,17 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
 
-	// LastReceivedAt/Broker track liveness for the watchdog — advance on every
-	// decoded message, even on a failed dispatch (we did hear the publisher).
+	// Freshness advances even when dispatch fails because the publisher was live.
 	state.LastReceivedAt = canonical.ReceivedAt
 	state.LastReceivedBroker = canonical.Broker
 
-	// LastTargetAt is the raw last *processed* publisher stamp. The duplicate
-	// guard above compares the incoming stamp against it to recognize a
-	// redelivery, so it must be the exact stamp, never clamped. Advance it only
-	// when the edge settled; on a failed dispatch leave it so a redelivery
-	// retries instead of being suppressed as a duplicate. (isStalePayload caps
-	// it at receive-time for *ordering*, so a future-dated stamp still can't pin
-	// the out-of-order cutoff ahead of real time.)
+	// Advance the duplicate-suppression anchor only after the edge settles.
 	if dispatched {
 		state.LastTargetAt = canonical.PublishedAt
 		state.LastProcessedTarget = canonical.Target
 	}
 
-	// LastTarget advances only when the owed dispatch landed: a failed
-	// dispatch must not read as a settled transition (the next identical
-	// observation would be a no-op repeat). A debounced flip (EdgeNone
-	// against a known, differing prior target) likewise must not advance,
-	// so a later genuine edge still fires; repeats and cold-start do.
+	// Failed dispatches and debounced flips must not settle the source target.
 	debouncedFlip := direction == EdgeNone &&
 		canonical.Target != prior.LastTarget &&
 		prior.LastTarget != TargetUnknown
@@ -257,22 +215,11 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	return state
 }
 
-// handleWatchdog enforces OFF when needed. On staleness (no message within the
-// threshold while not already OFF) it dispatches WATCHDOG_OFF. When the last
-// signal was OFF it re-asserts curtailment if this source's event stopped
-// holding: resuming a restoring event in place, or — when the event is gone
-// (terminated out-of-band) — dispatching a fresh WATCHDOG_OFF. Records
-// LastTarget=OFF after a successful WATCHDOG_OFF dispatch.
+// handleWatchdog enforces fail-safe OFF on stale or externally restored sources.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	now := w.cfg.Clock()
 
 	if prior.LastTarget.IsOff() {
-		// OFF means this source must stay curtailed. An active/pending event
-		// still holds → idle. A restoring event is being undone by an
-		// out-of-band Stop, so re-assert curtailment in place. A missing event
-		// was terminated out-of-band → fall through to a fresh WATCHDOG_OFF.
-		// Another source's event doesn't satisfy this source — each curtails
-		// its own scope.
 		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
 		if err != nil {
 			w.cfg.Logger.Warn("mqttingest: watchdog active-event check failed",
@@ -281,9 +228,7 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 			return prior
 		}
 		if active != nil {
-			if active.State == models.EventStateRestoring {
-				// Flip restoring → active and re-curtail its targets in place,
-				// rather than a fresh Start that would just replay this event.
+			if eventIsRestoring(active) {
 				if err := w.cfg.Driver.ResumeSourceEvent(ctx, active); err != nil {
 					w.cfg.Logger.Warn("mqttingest: watchdog re-curtail failed",
 						slog.String("source", w.source.SourceName),
@@ -299,7 +244,6 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	canonical := CanonicalState{Target: TargetOff, ReceivedAt: now}
 	state, dispatched := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
 	if !dispatched {
-		// Dispatch failed; leave LastTarget so the next tick retries.
 		return prior
 	}
 	state.LastTarget = TargetOff
@@ -307,20 +251,14 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	return state
 }
 
-// applyEdge dispatches the implied edge, returning (state, true) on
-// success (EdgeNone short-circuits to (prior, true) — no work owed) or
-// (prior, false) on dispatch failure.
+// applyEdge dispatches the implied edge and reports whether it settled.
 func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonical CanonicalState, direction EdgeDirection) (SourceState, bool) {
 	if direction == EdgeNone {
 		return prior, true
 	}
 
-	// The dispatch timestamp drives the synthetic external_reference: use the
-	// publisher's stamp (stable across the dual-broker duplicate and QoS-1
-	// redelivery) for message-driven edges; the watchdog edge has no stamp and
-	// falls back to receive-time. prior.LastEdgeAt salts that reference so two
-	// OFF edges sharing a publisher second (a burst received apart) don't
-	// collide; it also stays the debounce anchor tracking local timing.
+	// Message-driven OFF references use publisher time; watchdog OFF falls back
+	// to receive time. prior.LastEdgeAt disambiguates same-second OFF bursts.
 	dispatchAt := canonical.ReceivedAt
 	if !canonical.PublishedAt.IsZero() {
 		dispatchAt = canonical.PublishedAt
@@ -328,10 +266,6 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, dispatchAt, prior.LastEdgeAt)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveEvent) {
-			// OFF→ON with no in-flight event to stop (curtailment already
-			// ended elsewhere): the transition still happened, so advance
-			// bookkeeping and report success — otherwise every later ON
-			// re-dispatches Stop in a loop.
 			state := prior
 			state.LastEdgeAt = canonical.ReceivedAt
 			return state, true
@@ -377,17 +311,7 @@ func (w *sourceWorker) persistState(ctx context.Context, s SourceState) {
 	}
 }
 
-// isStalePayload reports whether a canonical observation must be dropped from
-// edge detection and re-resolved against the other broker: published before the
-// last processed stamp (out-of-order redelivery), or older than the staleness
-// threshold at receipt (retained / reconnect-backlog data that doesn't prove
-// the publisher is live). The latter also covers cold start (LastTargetAt zero).
-//
-// The out-of-order cutoff caps the last processed stamp at its receive time
-// (LastReceivedAt) so a future-dated publisher stamp can't push the cutoff
-// ahead of real time and flag later genuine payloads as stale. LastTargetAt
-// itself stays the raw stamp — the duplicate guard needs it to match a
-// redelivery of that same payload.
+// isStalePayload rejects out-of-order and retained/backlog observations.
 func (w *sourceWorker) isStalePayload(prior SourceState, c CanonicalState) bool {
 	cutoff := prior.LastTargetAt
 	if !prior.LastReceivedAt.IsZero() && prior.LastReceivedAt.Before(cutoff) {

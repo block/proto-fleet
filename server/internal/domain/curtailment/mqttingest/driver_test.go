@@ -17,11 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// fakeService captures Start/Stop/ListActive calls so tests can assert
-// the driver's translation of edges into curtailment-service requests.
-// Methods take the mutex so the subscriber test can safely poll
-// startCalls from a different goroutine than the worker that drives
-// dispatch.
+// fakeService captures driver service calls. Methods are mutexed for subscriber tests.
 type fakeService struct {
 	mu              sync.Mutex
 	startCalls      []curtailment.StartRequest
@@ -85,15 +81,12 @@ func (f *fakeService) Recurtail(_ context.Context, req curtailment.RecurtailRequ
 	return res, err
 }
 
-// startCallsLen is the lock-protected read the subscriber test uses
-// to poll for dispatch completion.
 func (f *fakeService) startCallsLen() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.startCalls)
 }
 
-// startCallAt returns a copy of the i-th captured Start request.
 func (f *fakeService) startCallAt(i int) curtailment.StartRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -109,6 +102,16 @@ func sampleSource() SourceConfig {
 		ContractedCurtailmentKw: 12500,
 		StalenessThreshold:      240 * time.Second,
 		MinCurtailedDuration:    600 * time.Second,
+	}
+}
+
+func testSourceEvent(src SourceConfig, eventUUID uuid.UUID, state models.EventState) *models.Event {
+	actorID := sourceActorIDFor(src)
+	return &models.Event{
+		EventUUID:     eventUUID,
+		OrgID:         src.OrganizationID,
+		SourceActorID: &actorID,
+		State:         state,
 	}
 }
 
@@ -168,14 +171,10 @@ func TestDriver_Dispatch_OffSignal_RecurtailsRestoringSourceEvent(t *testing.T) 
 			t.Parallel()
 
 			eventUUID := uuid.New()
-			actorID := "mqtt:site-a"
 			svc := &fakeService{
-				listActiveResult: []*models.Event{{
-					EventUUID:     eventUUID,
-					OrgID:         7,
-					SourceActorID: &actorID,
-					State:         models.EventStateRestoring,
-				}},
+				listActiveResult: []*models.Event{
+					testSourceEvent(sampleSource(), eventUUID, models.EventStateRestoring),
+				},
 				recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
 			}
 			d := NewDriver(svc, nil)
@@ -195,14 +194,10 @@ func TestDriver_Dispatch_OffSignal_ExistingActiveSourceEventIsAlreadyCurtailing(
 	t.Parallel()
 
 	eventUUID := uuid.New()
-	actorID := "mqtt:site-a"
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{
-			EventUUID:     eventUUID,
-			OrgID:         7,
-			SourceActorID: &actorID,
-			State:         models.EventStateActive,
-		}},
+		listActiveResult: []*models.Event{
+			testSourceEvent(sampleSource(), eventUUID, models.EventStateActive),
+		},
 	}
 	d := NewDriver(svc, nil)
 
@@ -214,8 +209,7 @@ func TestDriver_Dispatch_OffSignal_ExistingActiveSourceEventIsAlreadyCurtailing(
 	assert.Empty(t, svc.recurtailCalls)
 }
 
-// A FULL_FLEET source dispatches Mode=FULL_FLEET with no kW target — the
-// "stop the whole scope" path — instead of FIXED_KW sized to contracted kW.
+// FULL_FLEET dispatches without a kW target.
 func TestDriver_Dispatch_OnToOff_FullFleet(t *testing.T) {
 	t.Parallel()
 
@@ -264,8 +258,7 @@ func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	assert.Equal(t, "site-a:watchdog:"+itoa(wantWindow), *start.ExternalReference)
 }
 
-// Back-to-back watchdog ticks in one staleness window must share an
-// external_reference so the partial-unique index dedupes them as replays.
+// Watchdog ticks in one stale window must share an idempotency key.
 func TestDriver_Dispatch_WatchdogOff_QuantizesWithinWindow(t *testing.T) {
 	t.Parallel()
 
@@ -293,12 +286,7 @@ func TestDriver_Dispatch_WatchdogOff_QuantizesWithinWindow(t *testing.T) {
 	assert.NotEqual(t, refA, refC, "ticks in different staleness windows must diverge")
 }
 
-// Two OFF edges sharing a publisher Unix-second but following different prior
-// edges (an OFF→ON→OFF burst received outside the debounce window) must get
-// distinct external_references — otherwise Stop leaves the first event
-// `restoring` (still covered by the unique index) and the second OFF is
-// swallowed as a replay. A redelivery of the same edge (same prior anchor)
-// must reuse the reference so genuine duplicates still dedupe.
+// Same-second OFF bursts need distinct keys; redelivery of one edge reuses it.
 func TestDriver_Dispatch_SameSecondOffEdges_DistinctReferences(t *testing.T) {
 	t.Parallel()
 
@@ -369,10 +357,11 @@ func TestDriver_Dispatch_OffToOn(t *testing.T) {
 	t.Parallel()
 
 	activeUUID := uuid.New()
-	actorID := "mqtt:site-a" // this source's own event (sampleSource is "site-a")
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{EventUUID: activeUUID, SourceActorID: &actorID}},
-		stopResult:       &models.Event{EventUUID: activeUUID},
+		listActiveResult: []*models.Event{
+			testSourceEvent(sampleSource(), activeUUID, models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: activeUUID},
 	}
 	d := NewDriver(svc, nil)
 
@@ -404,8 +393,7 @@ func TestDriver_Dispatch_OffToOn_NoActiveEvent(t *testing.T) {
 	assert.Empty(t, svc.stopCalls)
 }
 
-// An active event owned by a different actor (a manual curtailment or another
-// source) must not be stopped by this source's OFF→ON edge.
+// Foreign events must not be stopped by this source's ON edge.
 func TestDriver_Dispatch_OffToOn_ForeignEvent_NotStopped(t *testing.T) {
 	t.Parallel()
 
@@ -434,9 +422,7 @@ func TestDriver_Dispatch_EdgeNoneIsNoOp(t *testing.T) {
 	assert.Empty(t, svc.listActiveCalls)
 }
 
-// A device-overlap AlreadyExists (a concurrent event grabbed one of this
-// scope's devices) is a retryable dispatch error, not a satisfied OFF: each
-// source curtails its own scope, so another event never satisfies it.
+// Device overlap is retryable, not a satisfied OFF.
 func TestDriver_Dispatch_OnToOff_AlreadyExistsPropagates(t *testing.T) {
 	t.Parallel()
 
@@ -449,19 +435,16 @@ func TestDriver_Dispatch_OnToOff_AlreadyExistsPropagates(t *testing.T) {
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "AlreadyExists must propagate so the worker retries")
 }
 
-// With multiple concurrent events per org (one per disjoint scope),
-// ActiveSourceEvent must find THIS source's event even when it isn't the
-// most-recent, so OFF→ON stops the right one.
+// ActiveSourceEvent must find this source among concurrent events.
 func TestDriver_Dispatch_OffToOn_FindsSourceEventAmongConcurrent(t *testing.T) {
 	t.Parallel()
 
 	other := "mqtt:site-b"
-	mine := "mqtt:site-a" // sampleSource is "site-a"
 	myUUID := uuid.New()
 	svc := &fakeService{
 		listActiveResult: []*models.Event{
 			{EventUUID: uuid.New(), SourceActorID: &other}, // another site's event
-			{EventUUID: myUUID, SourceActorID: &mine},
+			testSourceEvent(sampleSource(), myUUID, models.EventStateActive),
 		},
 		stopResult: &models.Event{EventUUID: myUUID},
 	}
@@ -475,8 +458,7 @@ func TestDriver_Dispatch_OffToOn_FindsSourceEventAmongConcurrent(t *testing.T) {
 	assert.Equal(t, myUUID, svc.stopCalls[0].EventUUID, "must stop this source's event, not another site's")
 }
 
-// A device_list source dispatches a device_list scope carrying its configured
-// identifiers (a "site" expressed as an explicit device list).
+// device_list sources carry configured identifiers into the scope.
 func TestDriver_Dispatch_OnToOff_DeviceListScope(t *testing.T) {
 	t.Parallel()
 
@@ -495,7 +477,7 @@ func TestDriver_Dispatch_OnToOff_DeviceListScope(t *testing.T) {
 	assert.Equal(t, []string{"miner-1", "miner-2"}, svc.startCalls[0].Scope.DeviceIdentifiers)
 }
 
-// A device_list source with no identifiers is a config error caught before Start.
+// Empty device_list scope is rejected before Start.
 func TestDriver_Dispatch_DeviceListScopeRequiresIdentifiers(t *testing.T) {
 	t.Parallel()
 
@@ -511,8 +493,7 @@ func TestDriver_Dispatch_DeviceListScopeRequiresIdentifiers(t *testing.T) {
 	assert.Empty(t, svc.startCalls, "an invalid scope must not reach Start")
 }
 
-// ResumeSourceEvent re-curtails a restoring event in place via Recurtail,
-// passing the event's org + UUID — not a fresh Start.
+// ResumeSourceEvent uses Recurtail instead of Start.
 func TestDriver_ResumeSourceEvent(t *testing.T) {
 	t.Parallel()
 

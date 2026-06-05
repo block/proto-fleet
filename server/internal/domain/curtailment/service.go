@@ -1406,13 +1406,8 @@ type RecurtailRequest struct {
 	EventUUID uuid.UUID
 }
 
-// Recurtail flips a restoring event back to active and re-curtails its restore
-// targets, including already resolved/failed restore targets that can be safely
-// reclaimed. The MQTT subscriber's watchdog uses it to re-assert OFF when an
-// out-of-band Stop began a restore while the source still signals OFF, rather
-// than waiting for the restore to complete. Idempotent on a non-restoring
-// non-terminal event (already curtailing or bound to it); terminal events
-// return FailedPrecondition.
+// Recurtail flips a restoring event back to active and reclaims restore targets.
+// Non-restoring non-terminal events are idempotent; terminal events fail.
 func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.Event, error) {
 	if req.OrgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")

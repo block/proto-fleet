@@ -9,28 +9,17 @@ import (
 	"time"
 )
 
-// MQTTClient is the interface the subscriber depends on; the production
-// (paho) binding is a separate adapter so tests can use a fake and the
-// package compiles without an MQTT library. One client per (source,
-// broker), never shared across goroutines.
+// MQTTClient is one broker connection for one source.
 type MQTTClient interface {
-	// Connect establishes a session, retrying transient failures with
-	// backoff; returns when connected or ctx is canceled.
 	Connect(ctx context.Context, host string, port int32, username, password string) error
-	// Subscribe registers a handler for the topic at QoS 1. The handler
-	// runs on the client's read goroutine and must not block.
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
-	// Disconnect tears down the session within shutdownDeadline.
 	Disconnect(shutdownDeadline time.Duration)
 }
 
-// MQTTClientFactory builds a fresh MQTTClient per (source, broker).
-// Tests inject a factory that returns a fake; production uses paho.
+// MQTTClientFactory builds a fresh client per source/broker.
 type MQTTClientFactory func() MQTTClient
 
-// PasswordDecryptor unwraps the encrypted credential stored on the
-// source-config row. The production adapter wraps
-// infrastructure/encrypt.Service; tests inject a pass-through.
+// PasswordDecryptor unwraps encrypted source credentials.
 type PasswordDecryptor interface {
 	Decrypt(encrypted string) ([]byte, error)
 }
@@ -48,16 +37,14 @@ type Config struct {
 	ShutdownDeadline  time.Duration
 }
 
-// Subscriber owns per-source workers. Construct with NewSubscriber,
-// call Run from the fleetd boot wiring, and Stop on shutdown.
+// Subscriber owns per-source workers.
 type Subscriber struct {
 	cfg     Config
 	workers map[int64]*sourceWorker
 	mu      sync.Mutex
 }
 
-// NewSubscriber validates the supplied config and returns a ready
-// subscriber. Returns an error when required deps are nil.
+// NewSubscriber validates dependencies and applies runtime defaults.
 func NewSubscriber(cfg Config) (*Subscriber, error) {
 	if cfg.Store == nil {
 		return nil, errors.New("mqttingest: Store is required")
@@ -92,10 +79,7 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	}, nil
 }
 
-// Run reads the enabled-source list once, starts a worker per source,
-// and blocks until ctx is canceled. Sources added or disabled while
-// Run is in flight do not take effect until the next Run invocation.
-// Hot reconfiguration is not yet supported.
+// Run starts enabled sources once and blocks until ctx is canceled.
 func (s *Subscriber) Run(ctx context.Context) error {
 	sources, err := s.cfg.Store.ListEnabledSources(ctx)
 	if err != nil {
@@ -135,18 +119,14 @@ func (s *Subscriber) Run(ctx context.Context) error {
 	return nil
 }
 
-// startWorker boots one source's worker goroutine. The worker runs
-// until ctx is canceled or its panic boundary trips.
+// startWorker boots one source's worker goroutine.
 func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, error) {
 	primary, secondary, ok := ResolveBrokerRoles(src.BrokerPrimaryHost, src.BrokerSecondaryHost)
 	if !ok {
 		return nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)
 	}
 
-	// The driver dispatches emergency curtailment under this source's service
-	// user with admin controls, so that user must belong to the org it curtails.
-	// Gate here (before decrypting the password) so a misconfigured cross-org
-	// service_user_id can't start a worker.
+	// The service user must belong to the org it can curtail.
 	member, err := s.cfg.Store.UserBelongsToOrg(ctx, src.ServiceUserID, src.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
@@ -174,9 +154,7 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 		secondaryHost: secondary,
 		password:      string(password),
 	}
-	// string(password) copied the plaintext into w.password (cleared on worker
-	// exit); zero the decrypted slice so that extra copy doesn't linger in the
-	// heap until GC.
+	// Bound plaintext credentials to the worker lifetime.
 	clear(password)
 
 	wg.Add(1)
@@ -188,7 +166,6 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 					slog.String("source", src.SourceName),
 					slog.Any("panic", r))
 			}
-			// Bound plaintext credentials to the worker lifetime.
 			w.password = ""
 		}()
 		w.run(ctx)
