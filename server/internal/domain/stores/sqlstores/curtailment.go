@@ -661,8 +661,9 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 
 // BeginRecurtailTransition is the inverse of BeginRestoreTransition: it flips a
 // restoring event back to 'active' and re-curtails its restore targets in one
-// tx (including ones that already resolved/failed, unless another non-terminal
-// event now holds the device — see ResetCurtailmentTargetsForRecurtail).
+// tx. Recurtail is all-or-retry: if another non-terminal event holds any target,
+// the transaction rolls back so this event stays restoring for the watchdog's
+// next retry.
 // Non-restoring states are idempotent no-ops (active/pending are already
 // curtailing or bound to it); terminal events are FailedPrecondition. The
 // UPDATE's state guard catches a concurrent transition between pre-read and write.
@@ -719,8 +720,23 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 			return nil, fleeterror.NewInternalErrorf("failed to resume curtailment from restoring: %v", err)
 		}
 
-		if err := q.ResetCurtailmentTargetsForRecurtail(ctx, current.ID); err != nil {
+		reset, err := q.ResetCurtailmentTargetsForRecurtail(ctx, current.ID)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation &&
+				pgErr.ConstraintName == deviceNonTerminalUniqueIndex {
+				return nil, fleeterror.NewAlreadyExistsError(
+					"one or more curtailment targets are already in a non-terminal curtailment; retry",
+				)
+			}
 			return nil, fleeterror.NewInternalErrorf("failed to reset curtailment targets for re-curtail: %v", err)
+		}
+		if reset.ResetCount != reset.TargetCount {
+			return nil, fleeterror.NewAlreadyExistsErrorf(
+				"re-curtail reset %d of %d targets; one or more targets are already in a non-terminal curtailment; retry",
+				reset.ResetCount,
+				reset.TargetCount,
+			)
 		}
 
 		return convertEventRow(updated), nil
