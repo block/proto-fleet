@@ -411,13 +411,16 @@ WHERE id = sqlc.arg('id')
 RETURNING *;
 
 -- name: ResetCurtailmentTargetsForRecurtail :exec
--- Inverse of ResetCurtailmentTargetsForRestore: flips the in-flight restore
--- targets back to desired_state='curtailed' and clears phase-local cursors so
--- the reconciler re-curtails them. Only targets still being restored
--- (non-terminal) are touched — a target that already resolved has left this
--- event's per-device lock, so re-claiming it here could double-write a device
--- another event may have taken. Sub-second watchdog detection means none have
--- resolved yet in practice.
+-- Inverse of ResetCurtailmentTargetsForRestore: flips this event's restore
+-- targets back to desired_state='curtailed' (cursors cleared) so the reconciler
+-- re-curtails them. Includes targets that already resolved/restore_failed before
+-- the watchdog fired — skipping them would flip the event to 'active' with those
+-- devices left restored, and the watchdog (no longer seeing a restoring event)
+-- stops retrying. Such a target has left this event's per-device lock, so it is
+-- re-curtailed only when no other non-terminal event holds the device
+-- (preserving the per-device single-writer rule); in-flight restore targets are
+-- still locked here, so the guard is a no-op for them. 'released' targets
+-- (device removed from the event) are untouched.
 UPDATE curtailment_target
 SET desired_state      = 'curtailed',
     state              = 'pending',
@@ -426,9 +429,19 @@ SET desired_state      = 'curtailed',
     last_batch_uuid    = NULL,
     confirmed_at       = NULL,
     last_error         = NULL
-WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
-  AND desired_state = 'active'
-  AND state NOT IN ('resolved', 'restore_failed', 'released');
+WHERE curtailment_target.curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND curtailment_target.desired_state = 'active'
+  AND curtailment_target.state <> 'released'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM curtailment_target other_target
+      JOIN curtailment_event other_event
+          ON other_event.id = other_target.curtailment_event_id
+      WHERE other_target.device_identifier = curtailment_target.device_identifier
+        AND other_target.curtailment_event_id <> sqlc.arg('curtailment_event_id')
+        AND other_event.state IN ('pending', 'active', 'restoring')
+        AND other_target.state NOT IN ('resolved', 'restore_failed', 'released')
+  );
 
 -- name: UpdateCurtailmentTargetState :execrows
 -- Reconciler patch. COALESCE preserves un-supplied columns; empty

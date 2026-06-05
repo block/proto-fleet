@@ -660,11 +660,12 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 }
 
 // BeginRecurtailTransition is the inverse of BeginRestoreTransition: it flips a
-// restoring event back to 'active' and re-curtails its in-flight restore
-// targets in one tx. Non-restoring states are idempotent no-ops (active/pending
-// are already curtailing or bound to it); terminal events are FailedPrecondition.
-// The UPDATE's state guard catches a concurrent transition between pre-read and
-// write.
+// restoring event back to 'active' and re-curtails its restore targets in one
+// tx (including ones that already resolved/failed, unless another non-terminal
+// event now holds the device — see ResetCurtailmentTargetsForRecurtail).
+// Non-restoring states are idempotent no-ops (active/pending are already
+// curtailing or bound to it); terminal events are FailedPrecondition. The
+// UPDATE's state guard catches a concurrent transition between pre-read and write.
 func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	ctx context.Context,
 	orgID int64,

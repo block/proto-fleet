@@ -189,10 +189,11 @@ type CurtailmentStore interface {
 	) (*models.Event, error)
 
 	// BeginRecurtailTransition is the inverse: flips a restoring event back to
-	// 'active' and re-curtails its in-flight restore targets (desired_state=
-	// 'curtailed', state='pending', cleared cursors) in one transaction.
-	// Idempotent on non-restoring non-terminal events; terminal events return
-	// FailedPrecondition.
+	// 'active' and re-curtails its restore targets (desired_state='curtailed',
+	// state='pending', cleared cursors) in one transaction — including ones that
+	// already resolved/failed, except where another non-terminal event now holds
+	// the device. Idempotent on non-restoring non-terminal events; terminal
+	// events return FailedPrecondition.
 	BeginRecurtailTransition(
 		ctx context.Context,
 		orgID int64,
