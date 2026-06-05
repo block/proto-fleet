@@ -353,6 +353,42 @@ func TestSubscriber_StartWorker_RejectsServiceUserWithoutIngestPermission(t *tes
 	assert.Contains(t, err.Error(), "lacks curtailment:ingest")
 }
 
+func TestSubscriber_StartWorker_RejectsUnsupportedSiteScopeAtStartup(t *testing.T) {
+	t.Parallel()
+
+	siteID := int64(42)
+	src := SourceConfig{
+		ID:                  1,
+		OrganizationID:      7,
+		ServiceUserID:       99,
+		SourceName:          "site-a",
+		BrokerPrimaryHost:   "10.0.0.1",
+		BrokerSecondaryHost: "10.0.0.2",
+		ScopeType:           "site",
+		ScopeSiteID:         &siteID,
+		Enabled:             true,
+	}
+	store := newFakeStore(src)
+
+	cfg := Config{
+		Store:            store,
+		Driver:           NewDriver(&fakeService{}, nil),
+		NewClient:        func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor:        passthroughDecryptor{},
+		Logger:           slog.New(slog.DiscardHandler),
+		ShutdownDeadline: time.Second,
+	}
+	sub, err := NewSubscriber(cfg)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	w, err := sub.startWorker(context.Background(), src, &wg)
+
+	require.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "unsupported scope type")
+}
+
 func TestValidateBrokerTransport_TCPAllowsPrivateMaestroHosts(t *testing.T) {
 	t.Parallel()
 

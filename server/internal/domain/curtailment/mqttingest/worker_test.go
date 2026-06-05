@@ -315,6 +315,107 @@ func TestWorker_HandleMessage_NewerOnClearsPendingOff(t *testing.T) {
 	assert.Equal(t, TargetOn, persisted.LastTarget)
 }
 
+func TestWorker_HandleMessage_PendingClearPersistFailureKeepsPendingInMemory(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.upsertErr = errors.New("db down")
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onAt := pendingAt.Add(time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": onAt.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   pendingAt.Add(-time.Minute),
+		LastReceivedAt: pendingAt,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: onAt})
+
+	require.NotNil(t, next.PendingEdge,
+		"failed persistence of a pending-edge clear must not make the cancellation look settled in memory")
+	assert.Equal(t, TargetOff, next.PendingEdge.Target)
+	assert.Equal(t, TargetOn, next.LastTarget)
+	assert.Empty(t, svc.startCalls, "the stale pending OFF must not dispatch while the clear write is failing")
+}
+
+func TestWorker_HandleMessage_RechecksAuthBeforeDispatch(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.nonIngestUsers = map[userOrgKey]bool{{userID: 99, orgID: 7}: true}
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-time.Minute),
+		LastEdgeAt:     now.Add(-time.Minute),
+	}
+
+	pending := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: now})
+
+	assert.Equal(t, 0, svc.startCallsLen(), "revoked ingest permission must block side effects")
+	assert.Equal(t, TargetOn, pending.LastTarget)
+	require.NotNil(t, pending.PendingEdge, "blocked edge remains pending so it can retry after permission is restored")
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge)
+
+	store.nonIngestUsers = nil
+	settled := w.handleWatchdog(context.Background(), pending)
+
+	assert.Equal(t, 1, svc.startCallsLen(), "pending edge retries after permission is restored")
+	assert.Nil(t, settled.PendingEdge)
+	assert.Equal(t, TargetOff, settled.LastTarget)
+}
+
+func TestWorker_HandleWatchdog_RechecksAuthBeforeRecurtail(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.nonIngestUsers = map[userOrgKey]bool{{userID: 99, orgID: 7}: true}
+	eventUUID := uuid.New()
+	src := workerSource()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(src, eventUUID, models.EventStateRestoring),
+		},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOff,
+		LastReceivedAt: time.Now().UTC(),
+	}
+
+	next := w.handleWatchdog(context.Background(), prior)
+
+	assert.Equal(t, prior, next)
+	assert.Empty(t, svc.recurtailCalls, "revoked ingest permission must block watchdog re-curtail side effects")
+}
+
 func TestWorker_LoadInitialState_PendingOffAfterStartFailureSettlesExistingEvent(t *testing.T) {
 	t.Parallel()
 

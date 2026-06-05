@@ -191,6 +191,9 @@ func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTC
 // handleMessage resolves the canonical signal, dispatches owed edges, and
 // persists only state that safely settled.
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
+	original := prior
+	pendingSuperseded := false
+
 	payload, err := w.decoder.Decode(obs.payload, obs.receivedAt)
 	if err != nil {
 		w.cfg.Logger.Warn("mqttingest: malformed payload, ignoring",
@@ -239,6 +242,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 			slog.String("pending_target", prior.PendingEdge.Target.String()),
 			slog.String("canonical_target", canonical.Target.String()))
 		prior.PendingEdge = nil
+		pendingSuperseded = true
 	}
 
 	priorTarget := prior.LastTarget
@@ -274,7 +278,9 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		state.LastEmptyFullFleetWatchdogRef = ""
 	}
 
-	w.persistState(ctx, state)
+	if !w.persistState(ctx, state) && pendingSuperseded && original.PendingEdge != nil && state.PendingEdge == nil {
+		return original
+	}
 	return state
 }
 
@@ -300,6 +306,9 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 		}
 		if active != nil {
 			if eventIsRestoring(active) {
+				if !w.ensureCanDispatch(ctx) {
+					return prior
+				}
 				if err := w.cfg.Driver.ResumeSourceEvent(ctx, active); err != nil {
 					w.cfg.Logger.Warn("mqttingest: watchdog re-curtail failed",
 						slog.String("source", w.source.SourceName),
@@ -344,6 +353,9 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	if !w.persistState(ctx, pendingState) {
 		return pendingState, false
 	}
+	if !w.ensureCanDispatch(ctx) {
+		return pendingState, false
+	}
 	return w.dispatchPendingEdge(ctx, pendingState)
 }
 
@@ -362,6 +374,9 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 	pending := prior.PendingEdge
 	if pending == nil {
 		return prior, true
+	}
+	if !w.ensureCanDispatch(ctx) {
+		return prior, false
 	}
 
 	// Message-driven OFF references use publisher time; watchdog OFF falls back
@@ -459,6 +474,26 @@ func (w *sourceWorker) persistState(ctx context.Context, s SourceState) bool {
 		w.cfg.Logger.Error("mqttingest: persist source state failed",
 			slog.String("source", w.source.SourceName),
 			slog.Any("error", err))
+		return false
+	}
+	return true
+}
+
+func (w *sourceWorker) ensureCanDispatch(ctx context.Context) bool {
+	canIngest, err := w.cfg.Store.UserCanIngestCurtailment(ctx, w.source.ServiceUserID, w.source.OrganizationID)
+	if err != nil {
+		w.cfg.Logger.Error("mqttingest: service-user authorization check failed",
+			slog.String("source", w.source.SourceName),
+			slog.Int64("service_user_id", w.source.ServiceUserID),
+			slog.Int64("org_id", w.source.OrganizationID),
+			slog.Any("error", err))
+		return false
+	}
+	if !canIngest {
+		w.cfg.Logger.Warn("mqttingest: service user lacks curtailment ingest permission",
+			slog.String("source", w.source.SourceName),
+			slog.Int64("service_user_id", w.source.ServiceUserID),
+			slog.Int64("org_id", w.source.OrganizationID))
 		return false
 	}
 	return true

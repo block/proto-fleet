@@ -177,6 +177,9 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 	if err := validateBrokerTransport(src, primary, secondary); err != nil {
 		return nil, err
 	}
+	if _, err := scopeForSource(src); err != nil {
+		return nil, fmt.Errorf("mqttingest: source %s invalid scope: %w", src.SourceName, err)
+	}
 
 	// The service user must hold the machine-ingest permission for the org it can curtail.
 	canIngest, err := s.cfg.Store.UserCanIngestCurtailment(ctx, src.ServiceUserID, src.OrganizationID)
