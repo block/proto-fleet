@@ -9,7 +9,9 @@ import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 import { useHasPermission } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 
 const LIST_WRAPPER = "pt-6";
@@ -52,19 +54,15 @@ const FleetSitesPage = () => {
 
   const inlineError =
     sitesError && sitesLoaded ? (
-      <div
-        className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-        data-testid="fleet-sites-inline-error"
-      >
-        <span className="text-300 text-text-primary-70">Couldn&apos;t refresh sites: {sitesError}</span>
-        <Button
-          variant={variants.secondary}
-          size={sizes.compact}
-          text="Retry"
-          onClick={refetchSites}
-          testId="fleet-sites-inline-retry"
-        />
-      </div>
+      <Callout
+        intent="danger"
+        prefixIcon={<Alert />}
+        title="Couldn't refresh sites"
+        subtitle={sitesError}
+        buttonText="Retry"
+        buttonOnClick={refetchSites}
+        testId="fleet-sites-inline-error"
+      />
     ) : null;
 
   // Empty state always wins over the picker branches below: after the

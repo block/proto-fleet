@@ -5,8 +5,9 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
-import { ChevronDown, Ellipsis } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 
 interface SiteSettingsSingleViewProps {
@@ -143,19 +144,15 @@ const SiteSettingsSingleView = ({
           />
         </div>
         {buildingsError ? (
-          <div
-            className="flex items-center justify-between gap-3 rounded-xl border border-border-5 p-4"
-            data-testid="site-settings-buildings-error"
-          >
-            <span className="text-300 text-text-primary-70">Couldn&apos;t load buildings: {buildingsError}</span>
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Retry"
-              onClick={fetchBuildings}
-              testId="site-settings-buildings-retry"
-            />
-          </div>
+          <Callout
+            intent="danger"
+            prefixIcon={<Alert />}
+            title="Couldn't load buildings"
+            subtitle={buildingsError}
+            buttonText="Retry"
+            buttonOnClick={fetchBuildings}
+            testId="site-settings-buildings-error"
+          />
         ) : displayBuildings === undefined ? (
           <div className="text-300 text-text-primary-50">Loading…</div>
         ) : displayBuildings.length === 0 ? (

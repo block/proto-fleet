@@ -12,7 +12,9 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { useHasPermission } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import { usePoll } from "@/shared/hooks/usePoll";
 
@@ -186,36 +188,26 @@ const FleetBuildingsPage = () => {
     <>
       <FilterRow testId="fleet-buildings-page">
         {sitesError ? (
-          <div
-            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-            data-testid="fleet-buildings-sites-error"
-          >
-            <span className="text-300 text-text-primary-70">
-              Couldn&apos;t load sites for the Site column: {sitesError}
-            </span>
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Retry"
-              onClick={refetchSites}
-              testId="fleet-buildings-sites-retry"
-            />
-          </div>
+          <Callout
+            intent="danger"
+            prefixIcon={<Alert />}
+            title="Couldn't load sites for the Site column"
+            subtitle={sitesError}
+            buttonText="Retry"
+            buttonOnClick={refetchSites}
+            testId="fleet-buildings-sites-error"
+          />
         ) : null}
         {buildingsError ? (
-          <div
-            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-            data-testid="fleet-buildings-inline-error"
-          >
-            <span className="text-300 text-text-primary-70">Couldn&apos;t refresh buildings: {buildingsError}</span>
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Retry"
-              onClick={fetchBuildings}
-              testId="fleet-buildings-inline-retry"
-            />
-          </div>
+          <Callout
+            intent="danger"
+            prefixIcon={<Alert />}
+            title="Couldn't refresh buildings"
+            subtitle={buildingsError}
+            buttonText="Retry"
+            buttonOnClick={fetchBuildings}
+            testId="fleet-buildings-inline-error"
+          />
         ) : null}
         <div className="flex items-center justify-end">{addBuildingButton}</div>
       </FilterRow>

@@ -9,7 +9,9 @@ import BuildingModals from "@/protoFleet/features/buildings/components/BuildingM
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { useHasPermission } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 
@@ -111,19 +113,15 @@ const SiteDetailPage = () => {
     <>
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="site-detail-page">
         {error ? (
-          <div
-            className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-            data-testid="site-detail-inline-error"
-          >
-            <span className="text-300 text-text-primary-70">Couldn&apos;t refresh site: {error}</span>
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Retry"
-              onClick={handleRetry}
-              testId="site-detail-inline-retry"
-            />
-          </div>
+          <Callout
+            intent="danger"
+            prefixIcon={<Alert />}
+            title="Couldn't refresh site"
+            subtitle={error}
+            buttonText="Retry"
+            buttonOnClick={handleRetry}
+            testId="site-detail-inline-error"
+          />
         ) : null}
         <div className="flex items-start justify-between gap-4">
           <Header title={site.site.name} titleSize="text-heading-300" subtitle={address || undefined} />

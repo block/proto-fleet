@@ -11,7 +11,9 @@ import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -176,19 +178,15 @@ const SitesPage = () => {
         // Post-init sites failure: keep the last-good list rendered below
         // and surface the failure as an inline retry banner so the
         // operator sees both the data and the issue at once.
-        <div
-          className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-          data-testid="sites-page-sites-error"
-        >
-          <span className="text-300 text-text-primary-70">Couldn&apos;t refresh sites: {sitesError}</span>
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            text="Retry"
-            onClick={fetchSites}
-            testId="sites-page-sites-retry"
-          />
-        </div>
+        <Callout
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Couldn't refresh sites"
+          subtitle={sitesError}
+          buttonText="Retry"
+          buttonOnClick={fetchSites}
+          testId="sites-page-sites-error"
+        />
       ) : null}
       {sites.length === 0 ? (
         <SitesEmptyState onAddSite={modals.openCreate} />
@@ -204,19 +202,15 @@ const SitesPage = () => {
       ) : (
         <div className="flex flex-col gap-12">
           {buildingsError ? (
-            <div
-              className="flex items-center justify-between rounded-xl border border-border-5 p-4"
-              data-testid="sites-page-buildings-error"
-            >
-              <span className="text-300 text-text-primary-70">Couldn&apos;t load buildings: {buildingsError}</span>
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                text="Retry"
-                onClick={fetchBuildings}
-                testId="sites-page-buildings-retry"
-              />
-            </div>
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Couldn't load buildings"
+              subtitle={buildingsError}
+              buttonText="Retry"
+              buttonOnClick={fetchBuildings}
+              testId="sites-page-buildings-error"
+            />
           ) : null}
           {visibleSites.map((site) => {
             const siteId = (site.site?.id ?? 0n).toString();
