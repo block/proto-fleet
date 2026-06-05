@@ -16,8 +16,12 @@ import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage"
 type FleetTabId = "sites" | "buildings" | "racks" | "miners";
 
 const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED ? ["sites", "buildings", "racks", "miners"] : ["racks", "miners"];
+// Absolute last-resort fallback when TAB_ORDER somehow contains no visible
+// tabs. The real waterfall comes from `visibleTabs[0]` below.
 const DEFAULT_TAB: FleetTabId = MULTI_SITE_ENABLED ? "sites" : "racks";
-const DEFAULT_TAB_NO_SITES: FleetTabId = MULTI_SITE_ENABLED ? "buildings" : "racks";
+// When site access is blocked entirely, fall to Miners specifically — Racks
+// can also be permission-gated (rack:read), so picking the first visible
+// tab isn't safe enough for the access-blocked branch.
 const DEFAULT_TAB_NO_SITES_ACCESS: FleetTabId = "miners";
 const LAST_TAB_KEY = "fleet:lastActiveTab";
 
@@ -32,7 +36,6 @@ const tabLabel: Record<FleetTabId, string> = {
 // flag-on session isn't discarded as garbage when the flag flips.
 const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners"]);
 const isFleetTabId = (s: string): s is FleetTabId => ALL_TAB_IDS.has(s as FleetTabId);
-const isVisibleFleetTabId = (s: string): s is FleetTabId => (TAB_ORDER as string[]).includes(s);
 
 const tabFromPath = (pathname: string): FleetTabId | undefined => {
   const m = pathname.match(/^\/fleet\/([^/]+)/);
@@ -97,60 +100,47 @@ const FleetLayout = () => {
   const currentTab = tabFromPath(location.pathname);
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
-  const fallback = sitesAccessBlocked
-    ? DEFAULT_TAB_NO_SITES_ACCESS
-    : sitesTabHidden
-      ? DEFAULT_TAB_NO_SITES
-      : DEFAULT_TAB;
+
+  // Source of truth for "which tabs are reachable right now." Hide-rule
+  // changes only need to touch this filter; the redirect effect, the tab
+  // strip, and the lastTab guard all derive from it.
+  const visibleTabs = useMemo(
+    () =>
+      TAB_ORDER.filter((t) => {
+        if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
+        if (t === "buildings" && sitesAccessBlocked) return false;
+        return true;
+      }),
+    [sitesTabHidden, sitesAccessBlocked],
+  );
+
+  // Fallback waterfall mirrors the legacy DEFAULT_TAB_* ordering: prefer the
+  // first visible tab, but force Miners when site access is blocked since
+  // Racks may also be permission-gated for that role.
+  const fallbackTab = sitesAccessBlocked ? DEFAULT_TAB_NO_SITES_ACCESS : (visibleTabs[0] ?? DEFAULT_TAB);
+  const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
+  const targetTab = usableLastTab ?? fallbackTab;
 
   // Defer redirect until the initial sites load resolves so a stale
   // single-site picker selection doesn't briefly hide the Sites tab before
   // useActiveSite's known-id validation can reset it.
   useEffect(() => {
     if (sites === undefined) return;
-    const safeLastTab = lastTab && isVisibleFleetTabId(lastTab) ? lastTab : undefined;
-    const lastTabUsable =
-      safeLastTab &&
-      (safeLastTab === "sites" ? !sitesTabHidden && !sitesAccessBlocked : true) &&
-      (safeLastTab === "buildings" ? !sitesAccessBlocked : true);
-    const usableLastTab = lastTabUsable ? safeLastTab : undefined;
-    if (location.pathname === "/fleet" || location.pathname === "/fleet/") {
-      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
+
+    // Special shortcut: a pinned single-site picker on /fleet/sites lands on
+    // that site's management detail page so legacy "Manage sites" entry
+    // points stay useful.
+    if (currentTab === "sites" && sitesTabHidden && activeSite.kind === "site") {
+      navigate(`/sites/${activeSite.id}`, { replace: true });
       return;
     }
-    if (currentTab && !isVisibleFleetTabId(currentTab)) {
-      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
-      return;
+
+    const onBareFleet = location.pathname === "/fleet" || location.pathname === "/fleet/";
+    const currentTabHidden = currentTab !== undefined && !visibleTabs.includes(currentTab);
+    if (onBareFleet || currentTabHidden) {
+      navigate(`/fleet/${targetTab}`, { replace: true });
     }
-    if (currentTab === "sites" && sitesTabHidden) {
-      // Single-site picker — treat /fleet/sites as a shortcut to that site's
-      // management surface so legacy "Manage sites" entry points still land
-      // somewhere useful.
-      if (activeSite.kind === "site") {
-        navigate(`/sites/${activeSite.id}`, { replace: true });
-        return;
-      }
-      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
-      return;
-    }
-    if (currentTab === "sites" && sitesAccessBlocked) {
-      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
-      return;
-    }
-    if (currentTab === "buildings" && sitesAccessBlocked) {
-      navigate(`/fleet/${usableLastTab ?? fallback}`, { replace: true });
-    }
-  }, [
-    sites,
-    location.pathname,
-    currentTab,
-    sitesTabHidden,
-    sitesAccessBlocked,
-    activeSite,
-    lastTab,
-    navigate,
-    fallback,
-  ]);
+  }, [sites, location.pathname, currentTab, sitesTabHidden, activeSite, visibleTabs, targetTab, navigate]);
 
   useEffect(() => {
     if (currentTab && currentTab !== lastTab) {
@@ -164,12 +154,6 @@ const FleetLayout = () => {
     },
     [navigate],
   );
-
-  const visibleTabs = TAB_ORDER.filter((t) => {
-    if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
-    if (t === "buildings" && sitesAccessBlocked) return false;
-    return true;
-  });
 
   const outletContext: FleetOutletContext = useMemo(
     () => ({ sites, sitesError, sitesLoaded, refetchSites: fetchSites }),
