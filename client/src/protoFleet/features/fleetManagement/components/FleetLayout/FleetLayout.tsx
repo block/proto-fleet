@@ -53,6 +53,11 @@ const FleetLayout = () => {
   // Reading from the catalog (instead of inferring from a failed RPC) keeps
   // transient transport errors out of the access-blocked branch.
   const canReadSites = useHasPermission("site:read");
+  // CompleteSetup calls ListMinerStateSnapshots (gated on PermMinerRead) via
+  // useAuthNeededMiners + usePoolNeededCount before deciding whether to show.
+  // Skip the banner entirely for roles without miner:read so they don't get
+  // permission-denied toasts just by opening a non-miner Fleet tab.
+  const canReadMiners = useHasPermission("miner:read");
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
@@ -117,9 +122,11 @@ const FleetLayout = () => {
 
   // Fallback waterfall mirrors the legacy DEFAULT_TAB_* ordering: prefer the
   // first visible tab, but force Miners when site access is blocked since
-  // Racks may also be permission-gated for that role.
+  // Racks may also be permission-gated (rack:read) for that role. Stored
+  // lastTab is ignored in the access-blocked branch for the same reason —
+  // a persisted "racks" pick must not override the Miners safe path.
   const fallbackTab = sitesAccessBlocked ? DEFAULT_TAB_NO_SITES_ACCESS : (visibleTabs[0] ?? DEFAULT_TAB);
-  const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
+  const usableLastTab = !sitesAccessBlocked && lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
   const targetTab = usableLastTab ?? fallbackTab;
 
   // Defer redirect until the initial sites load resolves so a stale
@@ -180,11 +187,13 @@ const FleetLayout = () => {
     <div className="flex h-full flex-col" data-testid="fleet-layout">
       <div className="sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10">
         <h1 className="text-heading-300 text-text-primary">Fleet</h1>
-        <CompleteSetup
-          lastPairingCompletedAt={lastPairingCompletedAt}
-          onPairingCompleted={notifyPairingCompleted}
-          onRefetchMiners={notifyMinersChanged}
-        />
+        {canReadMiners ? (
+          <CompleteSetup
+            lastPairingCompletedAt={lastPairingCompletedAt}
+            onPairingCompleted={notifyPairingCompleted}
+            onRefetchMiners={notifyMinersChanged}
+          />
+        ) : null}
         <TabStrip activeId={currentTab} onSelect={onSelect} ariaLabel="Fleet sections">
           {visibleTabs.map((tab) => (
             <TabStripItem key={tab} id={tab} label={tabLabel[tab]} testId={`fleet-tab-${tab}`} />

@@ -48,7 +48,7 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
 // Mock useHasPermission so site:read returns true by default — most tests
 // pin the full-access path. Individual tests can override by setting
 // `hasPermissionMock.current` before render.
-const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string) => true }));
+const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string): boolean => true }));
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (key: string) => hasPermissionMock.current(key),
   useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
@@ -56,8 +56,9 @@ vi.mock("@/protoFleet/store", () => ({
 
 // CompleteSetup renders inside FleetLayout's chrome but isn't under test
 // here — stub it so we don't pull in onboarding's RPC/zustand surface area.
+// The sentinel lets us assert the miner:read gate keeps it from mounting.
 vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
-  default: () => null,
+  default: () => <div data-testid="complete-setup-mock" />,
 }));
 
 const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>
@@ -180,6 +181,33 @@ describe("FleetLayout scoped-permission fallback", () => {
     });
     renderAt("/fleet");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+  });
+
+  test("ignores stored lastTab=racks when site access is blocked", async () => {
+    // A persisted "racks" pick must not override the Miners safe path —
+    // rack:read can be denied for the same role that lacks site:read,
+    // and landing on /fleet/racks would just show another permission error.
+    localStorage.setItem("fleet:lastActiveTab", JSON.stringify("racks"));
+    hasPermissionMock.current = (key: string) => key !== "site:read";
+    renderAt("/fleet");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+  });
+});
+
+describe("FleetLayout CompleteSetup gate", () => {
+  test("renders CompleteSetup when miner:read is held", async () => {
+    renderAt("/fleet/miners");
+    await waitFor(() => expect(screen.getByTestId("complete-setup-mock")).toBeInTheDocument());
+  });
+
+  test("hides CompleteSetup when miner:read is denied", async () => {
+    // useAuthNeededMiners and usePoolNeededCount inside CompleteSetup call
+    // ListMinerStateSnapshots (PermMinerRead). Roles without miner:read
+    // shouldn't get permission-denied toasts just from opening a non-miner tab.
+    hasPermissionMock.current = (key: string) => key !== "miner:read";
+    renderAt("/fleet/racks");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+    expect(screen.queryByTestId("complete-setup-mock")).not.toBeInTheDocument();
   });
 });
 
