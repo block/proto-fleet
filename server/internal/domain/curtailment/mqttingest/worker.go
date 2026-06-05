@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
 // sourceWorker owns the runtime for one MQTT source: two broker clients,
@@ -255,17 +257,18 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 // handleWatchdog dispatches a WATCHDOG_OFF curtail when needed: on
 // staleness (no message within the threshold while not already OFF), or —
-// when the last signal was OFF — if the event was terminated out-of-band
-// and the source must be re-curtailed. After a successful dispatch it
-// records LastTarget=OFF.
+// when the last signal was OFF — if the source's event is gone or restoring
+// (terminated out-of-band, or being undone) so the source must be
+// re-curtailed. After a successful dispatch it records LastTarget=OFF.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	now := w.cfg.Clock()
 
 	if prior.LastTarget.IsOff() {
-		// OFF means this source must stay curtailed; re-curtail only if this
-		// source's own event is gone (admin terminate, or its restore
-		// completed), not while it still holds. Another source's event doesn't
-		// satisfy this source — each curtails its own scope.
+		// OFF means this source must stay curtailed; re-curtail unless its own
+		// event is still holding. A restoring event is being undone (devices
+		// ramping back to full power) and a missing event was terminated
+		// out-of-band — neither satisfies OFF, so re-curtail. Another source's
+		// event doesn't satisfy this source — each curtails its own scope.
 		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
 		if err != nil {
 			w.cfg.Logger.Warn("mqttingest: watchdog active-event check failed",
@@ -273,7 +276,7 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 				slog.Any("error", err))
 			return prior
 		}
-		if active != nil {
+		if active != nil && active.State != models.EventStateRestoring {
 			return prior
 		}
 	} else if EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold) == WatchdogIdle {

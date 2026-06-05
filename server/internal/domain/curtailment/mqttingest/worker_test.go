@@ -534,13 +534,13 @@ func TestWorker_Run_StateLoadError_StartsColdAndWatchdogFires(t *testing.T) {
 }
 
 // A watchdog tick while OFF must NOT re-dispatch when the curtailment
-// event still holds.
+// event still holds (active).
 func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
 	actorID := "mqtt:site-a" // workerSource() is "site-a" — this source's own event
-	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID}}}
+	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID, State: models.EventStateActive}}}
 	w := newTestWorker(t, store, svc, workerSource())
 
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
@@ -549,6 +549,28 @@ func TestWorker_HandleWatchdog_Off_ActiveEvent_Idle(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 	assert.Empty(t, svc.startCalls, "this source's event still holds — no re-curtail")
 	require.Len(t, svc.listActiveCalls, 1)
+}
+
+// A watchdog tick while OFF must re-curtail when this source's event is
+// restoring: Stop moved it to `restoring` (stopped out-of-band), so devices are
+// ramping back to full power — that no longer satisfies the OFF signal.
+func TestWorker_HandleWatchdog_Off_RestoringEvent_Recurtails(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	actorID := "mqtt:site-a"
+	newUUID := uuid.New()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID, State: models.EventStateRestoring}},
+		startResult:      &curtailment.Plan{EventUUID: &newUUID},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
+	next := w.handleWatchdog(context.Background(), prior)
+
+	require.Equal(t, 1, svc.startCallsLen(), "a restoring event is being undone — must re-curtail to hold OFF")
+	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
 // A watchdog tick while OFF must re-curtail when the event was terminated
