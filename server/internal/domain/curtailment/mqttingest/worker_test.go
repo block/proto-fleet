@@ -416,7 +416,7 @@ func TestWorker_HandleWatchdog_RechecksAuthBeforeRecurtail(t *testing.T) {
 	assert.Empty(t, svc.recurtailCalls, "revoked ingest permission must block watchdog re-curtail side effects")
 }
 
-func TestWorker_LoadInitialState_PendingOffAfterStartFailureSettlesExistingEvent(t *testing.T) {
+func TestWorker_LoadInitialState_PendingOffRehydratesUntilWatchdogRetry(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
@@ -459,9 +459,15 @@ func TestWorker_LoadInitialState_PendingOffAfterStartFailureSettlesExistingEvent
 	recovered, ok := w.loadInitialState(context.Background())
 	require.True(t, ok)
 
-	assert.Equal(t, TargetOff, recovered.LastTarget)
-	assert.Nil(t, recovered.PendingEdge)
-	assert.Equal(t, 1, svc.startCallsLen(), "recovery must settle the existing event without a duplicate Start")
+	assert.Equal(t, TargetOn, recovered.LastTarget)
+	require.NotNil(t, recovered.PendingEdge)
+	assert.Equal(t, 1, svc.startCallsLen(), "state load must not replay pending edges before MQTT subscription")
+
+	settled := w.handleWatchdog(context.Background(), recovered)
+
+	assert.Equal(t, TargetOff, settled.LastTarget)
+	assert.Nil(t, settled.PendingEdge)
+	assert.Equal(t, 1, svc.startCallsLen(), "watchdog retry must settle the existing event without a duplicate Start")
 }
 
 func TestWorker_LoadInitialState_ReadErrorRetriesWithoutColdStart(t *testing.T) {
@@ -587,10 +593,17 @@ func TestWorker_LoadInitialState_PendingOnAfterStopFailureSettlesWithoutRecurtai
 	recovered, ok := w.loadInitialState(context.Background())
 	require.True(t, ok)
 
-	assert.Equal(t, TargetOn, recovered.LastTarget)
-	assert.Nil(t, recovered.PendingEdge)
-	assert.Equal(t, 1, svc.stopCallsLen(), "recovery must not Stop the already-restoring event again")
+	assert.Equal(t, TargetOff, recovered.LastTarget)
+	require.NotNil(t, recovered.PendingEdge)
+	assert.Equal(t, 1, svc.stopCallsLen(), "state load must not replay pending edges before MQTT subscription")
 	assert.Empty(t, svc.recurtailCalls, "recovery must not undo the accepted ON")
+
+	settled := w.handleWatchdog(context.Background(), recovered)
+
+	assert.Equal(t, TargetOn, settled.LastTarget)
+	assert.Nil(t, settled.PendingEdge)
+	assert.Equal(t, 1, svc.stopCallsLen(), "watchdog retry must not Stop the already-restoring event again")
+	assert.Empty(t, svc.recurtailCalls, "watchdog retry must not undo the accepted ON")
 	persisted, err = store.GetSourceState(context.Background(), src.ID)
 	require.NoError(t, err)
 	assert.Equal(t, TargetOn, persisted.LastTarget)
@@ -1010,6 +1023,92 @@ func TestWorker_Run_RetriesInitialReconcileBeforeProcessingOn(t *testing.T) {
 	primary.deliver(body, now)
 
 	assertEventually(t, 2*time.Second, func() bool { return svc.stopCallsLen() == 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}
+
+func TestWorker_Run_SubscriptionSupersedesStartupPendingOnBeforeReplay(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	store := newFakeStore()
+	store.state[src.ID] = SourceState{
+		SourceConfigID:      src.ID,
+		LastTarget:          TargetOff,
+		LastTargetAt:        pendingAt.Add(-time.Minute),
+		LastReceivedAt:      pendingAt,
+		LastReceivedBroker:  src.BrokerPrimaryHost,
+		LastEdgeAt:          pendingAt.Add(-time.Minute),
+		LastEdgeEventUUID:   uuid.NewString(),
+		LastProcessedTarget: TargetOff,
+		LastProcessedTargets: []Target{
+			TargetOff,
+		},
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOffToOn,
+			Target:         TargetOn,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: src.BrokerPrimaryHost,
+			PriorEdgeAt:    pendingAt.Add(-time.Minute),
+		},
+	}
+
+	eventUUID := uuid.New()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(src, eventUUID, models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: eventUUID},
+	}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond
+
+	clients := make(chan *fakeMQTTClient, 2)
+	w.cfg.NewClient = func() MQTTClient {
+		c := newFakeMQTTClient()
+		clients <- c
+		return c
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	var primary *fakeMQTTClient
+	select {
+	case primary = <-clients:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not create primary client")
+	}
+	select {
+	case <-clients:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not create secondary client")
+	}
+
+	offAt := pendingAt.Add(time.Second)
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": offAt.Unix()})
+	require.NoError(t, err)
+	primary.deliver(offBody, offAt)
+
+	assertEventually(t, 2*time.Second, func() bool {
+		state, err := store.GetSourceState(context.Background(), src.ID)
+		return err == nil &&
+			state.PendingEdge == nil &&
+			state.LastTarget == TargetOff &&
+			state.LastReceivedAt.Equal(offAt)
+	})
+	time.Sleep(3 * w.cfg.WatchdogTickEvery)
+	assert.Equal(t, 0, svc.stopCallsLen(), "newer OFF must supersede startup pending ON before restore can replay")
+	assert.Empty(t, svc.recurtailCalls, "newer OFF must not be treated as a restore-then-recurtail race")
 
 	cancel()
 	select {

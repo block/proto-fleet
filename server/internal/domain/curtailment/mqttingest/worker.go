@@ -43,6 +43,9 @@ func (w *sourceWorker) run(ctx context.Context) {
 	}
 
 	messages := make(chan observation, observationChannelBuffer)
+	subscriptions := make(chan struct{}, 2)
+	deferStartupPending := state.PendingEdge != nil
+	startupPendingReadyAt := time.Time{}
 
 	primaryClient := w.cfg.NewClient()
 	secondaryClient := w.cfg.NewClient()
@@ -62,7 +65,7 @@ func (w *sourceWorker) run(ctx context.Context) {
 		connectWG.Add(1)
 		go func(client MQTTClient, host string) {
 			defer connectWG.Done()
-			w.connectAndSubscribe(ctx, client, host, messages)
+			w.connectAndSubscribe(ctx, client, host, messages, subscriptions)
 		}(bc.client, bc.host)
 	}
 	defer connectWG.Wait()
@@ -74,10 +77,27 @@ func (w *sourceWorker) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-subscriptions:
+			if deferStartupPending && startupPendingReadyAt.IsZero() {
+				// Give retained/live payloads a chance to supersede durable
+				// retry state before replaying a possibly stale startup edge.
+				startupPendingReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
+			}
 		case obs := <-messages:
 			state = w.handleMessage(ctx, state, obs)
+			if state.PendingEdge == nil {
+				deferStartupPending = false
+				startupPendingReadyAt = time.Time{}
+			}
 		case <-watchdog.C:
+			if deferStartupPending && (startupPendingReadyAt.IsZero() || w.cfg.Clock().Before(startupPendingReadyAt)) {
+				continue
+			}
 			state = w.handleWatchdog(ctx, state)
+			if state.PendingEdge == nil {
+				deferStartupPending = false
+				startupPendingReadyAt = time.Time{}
+			}
 		}
 	}
 }
@@ -101,8 +121,9 @@ func (w *sourceWorker) waitForInitialState(ctx context.Context) (SourceState, bo
 }
 
 // loadInitialState recovers persisted source state, then reconciles to OFF only
-// when this source already has a pending/active event. A restoring event means
-// ON was accepted and restore is in progress.
+// when this source already has an active event. Pending edges are rehydrated
+// without replay because a newer retained/live payload may supersede them after
+// subscription.
 func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool) {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
@@ -118,7 +139,7 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool)
 	}
 
 	if state.PendingEdge != nil {
-		return w.retryPendingEdge(ctx, state)
+		return state, true
 	}
 
 	if state.LastTarget != TargetOff {
@@ -150,7 +171,7 @@ func (w *sourceWorker) startupRetryEvery() time.Duration {
 	return time.Second
 }
 
-func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation) {
+func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation, subscriptions chan<- struct{}) {
 	retryEvery := w.startupRetryEvery()
 	for {
 		if err := w.connectAndSubscribeOnce(ctx, client, host, messages); err != nil {
@@ -171,6 +192,10 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 			case <-timer.C:
 			}
 			continue
+		}
+		select {
+		case subscriptions <- struct{}{}:
+		case <-ctx.Done():
 		}
 		return
 	}
