@@ -218,17 +218,15 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	state.LastReceivedAt = canonical.ReceivedAt
 	state.LastReceivedBroker = canonical.Broker
 
-	// LastTargetAt is the last *processed* publisher stamp (ordering + duplicate
-	// suppression); advance it only when the edge settled. On a failed dispatch
-	// leave it so a redelivery of the same stamp retries instead of being
-	// suppressed as a duplicate. Clamp to receive-time so a future-dated stamp
-	// can't pin the watermark ahead of real time and suppress later signals as
-	// out-of-order; the raw stamp still drives the external_reference.
+	// LastTargetAt is the raw last *processed* publisher stamp. The duplicate
+	// guard above compares the incoming stamp against it to recognize a
+	// redelivery, so it must be the exact stamp, never clamped. Advance it only
+	// when the edge settled; on a failed dispatch leave it so a redelivery
+	// retries instead of being suppressed as a duplicate. (isStalePayload caps
+	// it at receive-time for *ordering*, so a future-dated stamp still can't pin
+	// the out-of-order cutoff ahead of real time.)
 	if dispatched {
 		state.LastTargetAt = canonical.PublishedAt
-		if canonical.PublishedAt.After(canonical.ReceivedAt) {
-			state.LastTargetAt = canonical.ReceivedAt
-		}
 		state.LastProcessedTarget = canonical.Target
 	}
 
@@ -361,8 +359,18 @@ func (w *sourceWorker) persistState(ctx context.Context, s SourceState) {
 // last processed stamp (out-of-order redelivery), or older than the staleness
 // threshold at receipt (retained / reconnect-backlog data that doesn't prove
 // the publisher is live). The latter also covers cold start (LastTargetAt zero).
+//
+// The out-of-order cutoff caps the last processed stamp at its receive time
+// (LastReceivedAt) so a future-dated publisher stamp can't push the cutoff
+// ahead of real time and flag later genuine payloads as stale. LastTargetAt
+// itself stays the raw stamp — the duplicate guard needs it to match a
+// redelivery of that same payload.
 func (w *sourceWorker) isStalePayload(prior SourceState, c CanonicalState) bool {
-	if !prior.LastTargetAt.IsZero() && c.PublishedAt.Before(prior.LastTargetAt) {
+	cutoff := prior.LastTargetAt
+	if !prior.LastReceivedAt.IsZero() && prior.LastReceivedAt.Before(cutoff) {
+		cutoff = prior.LastReceivedAt
+	}
+	if !prior.LastTargetAt.IsZero() && c.PublishedAt.Before(cutoff) {
 		return true
 	}
 	return c.ReceivedAt.Sub(c.PublishedAt) >= w.source.StalenessThreshold

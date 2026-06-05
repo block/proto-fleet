@@ -336,13 +336,12 @@ func TestWorker_HandleMessage_PersistsProcessedTarget(t *testing.T) {
 		"a dispatched edge must persist LastProcessedTarget for restart-safe dedup")
 }
 
-// Regression: a future-dated publisher stamp must not pin the ordering
-// watermark ahead of receive-time. Before the clamp, an OFF stamped in the
-// future advanced LastTargetAt to that future stamp, so every later
-// real-stamped signal read as out-of-order (isStalePayload) and was dropped
-// until wall-clock caught up — the site stayed curtailed. The watermark clamps
-// to receive-time; the future-dated OFF still curtails.
-func TestWorker_HandleMessage_FutureDatedStamp_ClampsWatermark(t *testing.T) {
+// Regression: a future-dated publisher stamp must not push the out-of-order
+// cutoff ahead of real time. The future-dated OFF must still curtail, and a
+// later real-stamped signal must not be dropped as stale behind it.
+// isStalePayload caps the cutoff at receive-time; LastTargetAt keeps the raw
+// stamp for the duplicate guard.
+func TestWorker_HandleMessage_FutureDatedStamp_DoesNotSuppressLaterSignal(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
@@ -375,8 +374,8 @@ func TestWorker_HandleMessage_FutureDatedStamp_ClampsWatermark(t *testing.T) {
 
 	require.Equal(t, 1, svc.startCallsLen(), "the future-dated OFF must still curtail")
 	require.Equal(t, TargetOff, afterOff.LastTarget)
-	assert.Equal(t, recvOff, afterOff.LastTargetAt,
-		"watermark must clamp to receive-time, not the 12 h-future publisher stamp")
+	assert.True(t, afterOff.LastTargetAt.After(recvOff),
+		"LastTargetAt keeps the raw future stamp (the dedup guard needs it); ordering is capped at read-time")
 
 	// A later legitimate ON (real stamp, earlier than the future OFF stamp)
 	// arriving outside the debounce window must be honored, not dropped as
@@ -391,6 +390,54 @@ func TestWorker_HandleMessage_FutureDatedStamp_ClampsWatermark(t *testing.T) {
 	assert.Equal(t, TargetOn, afterOn.LastTarget,
 		"a later real ON must not be suppressed behind a future-dated watermark")
 	require.Len(t, svc.stopCalls, 1, "the ON must dispatch a Stop")
+}
+
+// Companion to the future-timestamp fix: the duplicate guard must keep working
+// for future-dated payloads. A future-dated ON absorbed by the debounce window
+// advances LastProcessedTarget=ON; a later redelivery of that exact payload
+// must still be recognized as a duplicate, not dispatched as a Stop that
+// restores load with no genuine new ON. The guard compares against the raw
+// LastTargetAt, so clamping that stored field would break this.
+func TestWorker_HandleMessage_FutureDatedDebouncedFlip_RedeliverySuppressed(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	actorID := "mqtt:site-a"
+	svc := &fakeService{
+		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &actorID}},
+		stopResult:       &models.Event{EventUUID: uuid.New()},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	base := time.Now().UTC()
+	futureStamp := base.Add(1 * time.Hour) // publisher clock ahead, still inside ±24 h
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": futureStamp.Unix()})
+	require.NoError(t, err)
+
+	// Curtailed (OFF) with a recent edge anchor, so the incoming ON lands inside
+	// the 5 s debounce window and is absorbed.
+	prior := SourceState{
+		SourceConfigID:      w.source.ID,
+		LastTarget:          TargetOff,
+		LastProcessedTarget: TargetOff,
+		LastTargetAt:        base.Add(-2 * time.Second),
+		LastReceivedAt:      base.Add(-2 * time.Second),
+		LastEdgeAt:          base.Add(-2 * time.Second),
+	}
+
+	// Debounced future-dated ON: absorbed (no Stop), advances LastProcessedTarget=ON.
+	afterFlip := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: base})
+	require.Equal(t, TargetOff, afterFlip.LastTarget, "the ON flip is debounced — state stays OFF")
+	require.Equal(t, TargetOn, afterFlip.LastProcessedTarget)
+	require.Empty(t, svc.stopCalls, "a debounced flip must not dispatch Stop")
+
+	// Redelivery of the exact same ON, now outside the debounce window: it must
+	// be recognized as a duplicate and suppressed, not restore load.
+	afterRedelivery := w.handleMessage(context.Background(), afterFlip,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: base.Add(10 * time.Second)})
+	assert.Equal(t, TargetOff, afterRedelivery.LastTarget, "redelivered duplicate must not flip state to ON")
+	assert.Empty(t, svc.stopCalls, "redelivered duplicate of a debounced future-dated ON must not Stop the curtailment")
 }
 
 // Guards the debounce fix from over-suppressing: a cold-start ON (no prior
