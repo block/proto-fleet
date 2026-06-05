@@ -94,10 +94,11 @@ type Store interface {
 	GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error)
 	UpsertSourceState(ctx context.Context, update StateUpdate) error
 	ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, error)
-	// UserBelongsToOrg reports whether userID is a (non-deleted) member of
-	// orgID. The subscriber gates each source's service user through this
-	// before starting its worker, so a misconfigured row can't drive
-	// emergency curtailment for an org the user doesn't belong to.
+	// UserBelongsToOrg reports whether userID is an active (non-deleted) user
+	// and a current member of orgID. The subscriber gates each source's service
+	// user through this before starting its worker, so a misconfigured or
+	// deactivated row can't drive emergency curtailment for an org the user
+	// doesn't belong to.
 	UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error)
 }
 
@@ -193,6 +194,17 @@ func (s *sqlcStore) ListSourcesForWatchdog(ctx context.Context) ([]WatchdogRow, 
 }
 
 func (s *sqlcStore) UserBelongsToOrg(ctx context.Context, userID, orgID int64) (bool, error) {
+	// The user row must still be active. SoftDeleteUser only sets
+	// "user".deleted_at and leaves the user_organization row, so the membership
+	// query below (which filters only user_organization.deleted_at) would
+	// otherwise pass for a deactivated service user. GetUserById filters
+	// "user".deleted_at, so a deactivated user surfaces as ErrNoRows.
+	if _, err := s.queries.GetUserById(ctx, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get user: %w", err)
+	}
 	if _, err := s.queries.GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
 		UserID:         userID,
 		OrganizationID: orgID,
