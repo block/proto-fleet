@@ -152,6 +152,68 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 	assert.Equal(t, "mqtt:site-a", *start.SourceActorID)
 }
 
+func TestDriver_Dispatch_OffSignal_RecurtailsRestoringSourceEvent(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		direction EdgeDirection
+	}{
+		{"message OFF", EdgeOnToOff},
+		{"watchdog OFF", EdgeWatchdogOff},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			eventUUID := uuid.New()
+			actorID := "mqtt:site-a"
+			svc := &fakeService{
+				listActiveResult: []*models.Event{{
+					EventUUID:     eventUUID,
+					OrgID:         7,
+					SourceActorID: &actorID,
+					State:         models.EventStateRestoring,
+				}},
+				recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+			}
+			d := NewDriver(svc, nil)
+
+			outcome, err := d.Dispatch(context.Background(), sampleSource(), tc.direction, time.Now())
+
+			require.NoError(t, err)
+			assert.Equal(t, eventUUID, outcome.EventUUID)
+			require.Len(t, svc.recurtailCalls, 1)
+			assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
+			assert.Empty(t, svc.startCalls, "OFF must re-curtail the restoring source event, not Start a competing event")
+		})
+	}
+}
+
+func TestDriver_Dispatch_OffSignal_ExistingActiveSourceEventIsAlreadyCurtailing(t *testing.T) {
+	t.Parallel()
+
+	eventUUID := uuid.New()
+	actorID := "mqtt:site-a"
+	svc := &fakeService{
+		listActiveResult: []*models.Event{{
+			EventUUID:     eventUUID,
+			OrgID:         7,
+			SourceActorID: &actorID,
+			State:         models.EventStateActive,
+		}},
+	}
+	d := NewDriver(svc, nil)
+
+	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, eventUUID, outcome.EventUUID)
+	assert.Empty(t, svc.startCalls, "an existing active source event already satisfies OFF")
+	assert.Empty(t, svc.recurtailCalls)
+}
+
 // A FULL_FLEET source dispatches Mode=FULL_FLEET with no kW target — the
 // "stop the whole scope" path — instead of FIXED_KW sized to contracted kW.
 func TestDriver_Dispatch_OnToOff_FullFleet(t *testing.T) {

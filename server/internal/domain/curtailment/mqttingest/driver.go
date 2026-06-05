@@ -70,7 +70,7 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 		return EdgeOutcome{}, nil
 
 	case EdgeOnToOff, EdgeWatchdogOff:
-		eventUUID, err := d.dispatchStart(ctx, src, direction, edgeAt, prior)
+		eventUUID, err := d.dispatchCurtail(ctx, src, direction, edgeAt, prior)
 		if err != nil {
 			return EdgeOutcome{}, err
 		}
@@ -92,6 +92,26 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 	default:
 		return EdgeOutcome{}, fmt.Errorf("mqttingest: unknown edge direction %d", direction)
 	}
+}
+
+func (d *Driver) dispatchCurtail(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, error) {
+	// OFF means "curtail now" even if a previous ON has already started
+	// restoring this source's event. Reuse the source event when it exists so
+	// we do not fight the in-flight restore with a fresh Start.
+	active, err := d.ActiveSourceEvent(ctx, src)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	switch {
+	case eventIsRestoring(active):
+		if err := d.ResumeSourceEvent(ctx, active); err != nil {
+			return uuid.Nil, err
+		}
+		return active.EventUUID, nil
+	case eventHoldsCurtailment(active):
+		return active.EventUUID, nil
+	}
+	return d.dispatchStart(ctx, src, direction, edgeAt, priorEdgeAt)
 }
 
 func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, error) {
@@ -223,6 +243,17 @@ func (d *Driver) ResumeSourceEvent(ctx context.Context, event *models.Event) err
 		return fmt.Errorf("mqttingest: recurtail: %w", err)
 	}
 	return nil
+}
+
+func eventHoldsCurtailment(event *models.Event) bool {
+	if event == nil {
+		return false
+	}
+	return event.State == models.EventStatePending || event.State == models.EventStateActive
+}
+
+func eventIsRestoring(event *models.Event) bool {
+	return event != nil && event.State == models.EventStateRestoring
 }
 
 // ErrNoActiveEvent is returned by Dispatch on OFF→ON when no

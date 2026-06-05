@@ -588,7 +588,7 @@ func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
 	prior := SourceState{SourceConfigID: w.source.ID, LastTarget: TargetOff}
 	next := w.handleWatchdog(context.Background(), prior)
 
-	require.Len(t, svc.listActiveCalls, 1)
+	require.NotEmpty(t, svc.listActiveCalls, "watchdog must check whether this source still has a non-terminal event")
 	require.Equal(t, 1, svc.startCallsLen(), "event gone while OFF — must re-curtail")
 	assert.Equal(t, models.PriorityEmergency, svc.startCallAt(0).Priority)
 	assert.Equal(t, TargetOff, next.LastTarget)
@@ -596,6 +596,47 @@ func TestWorker_HandleWatchdog_Off_NoActiveEvent_Recurtails(t *testing.T) {
 	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
 	require.NoError(t, err)
 	assert.Equal(t, TargetOff, persisted.LastTarget)
+}
+
+// An OFF message must re-curtail immediately when the previous ON has already
+// moved this source's event into restoring. A fresh Start would collide with
+// the in-flight restore instead of reversing it.
+func TestWorker_HandleMessage_OffWhileRestoring_Recurtails(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	actorID := "mqtt:site-a"
+	eventUUID := uuid.New()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{{
+			EventUUID:     eventUUID,
+			OrgID:         7,
+			SourceActorID: &actorID,
+			State:         models.EventStateRestoring,
+		}},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	now := time.Now().UTC()
+	body, err := json.Marshal(map[string]any{"target": 0, "timestamp": now.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-30 * time.Second),
+		LastEdgeAt:     now.Add(-30 * time.Second),
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: body, receivedAt: now})
+
+	require.Len(t, svc.recurtailCalls, 1, "OFF must re-curtail the restoring source event in place")
+	assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
+	assert.Empty(t, svc.startCalls, "OFF while restoring must not Start a competing event")
+	assert.Equal(t, TargetOff, next.LastTarget)
+	assert.Equal(t, eventUUID.String(), next.LastEdgeEventUUID)
 }
 
 // A failed active-event check while OFF must no-op (retry next tick), not
@@ -771,10 +812,11 @@ func TestWorker_HandleMessage_EvictsStaleWinner_ThenProcessesFresh(t *testing.T)
 	assert.False(t, primaryStillCached, "stale primary observation must be evicted from the cache")
 }
 
-// A non-OFF loaded state is reconciled to OFF when this source already has an
-// active curtailment event (recovery after a state-read or persist failure),
-// so a later ON stops it instead of being a cold-start no-op. A foreign or
-// absent active event leaves the loaded state untouched.
+// A non-OFF loaded state is reconciled to OFF when this source already has a
+// pending/active curtailment event (recovery after a state-read or persist
+// failure), so a later ON stops it instead of being a cold-start no-op. A
+// restoring event is not evidence of OFF; it means an ON was already accepted.
+// A foreign or absent active event leaves the loaded state untouched.
 func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 	t.Parallel()
 
@@ -789,11 +831,13 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 		wantTarget  Target
 		wantEventID string
 	}{
-		{"cold + own active event reconciles to OFF", nil, &models.Event{EventUUID: eventUUID, SourceActorID: &mine}, TargetOff, eventUUID.String()},
-		{"persisted ON + own active event reconciles to OFF", &SourceState{LastTarget: TargetOn}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine}, TargetOff, eventUUID.String()},
+		{"cold + own active event reconciles to OFF", nil, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateActive}, TargetOff, eventUUID.String()},
+		{"persisted ON + own active event reconciles to OFF", &SourceState{LastTarget: TargetOn}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateActive}, TargetOff, eventUUID.String()},
+		{"cold + own restoring event stays cold", nil, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateRestoring}, TargetUnknown, ""},
+		{"persisted ON + own restoring event preserves ON", &SourceState{LastTarget: TargetOn}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateRestoring}, TargetOn, ""},
 		{"cold + no active event stays cold", nil, nil, TargetUnknown, ""},
-		{"cold + foreign active event stays cold", nil, &models.Event{EventUUID: uuid.New(), SourceActorID: &foreign}, TargetUnknown, ""},
-		{"persisted OFF left as-is", &SourceState{LastTarget: TargetOff}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine}, TargetOff, ""},
+		{"cold + foreign active event stays cold", nil, &models.Event{EventUUID: uuid.New(), SourceActorID: &foreign, State: models.EventStateActive}, TargetUnknown, ""},
+		{"persisted OFF left as-is", &SourceState{LastTarget: TargetOff}, &models.Event{EventUUID: eventUUID, SourceActorID: &mine, State: models.EventStateActive}, TargetOff, ""},
 	}
 
 	for _, tc := range cases {
@@ -834,7 +878,7 @@ func TestWorker_LoadInitialState_SeedsAnchorsFromActiveEvent(t *testing.T) {
 	eventStart := time.Now().UTC().Add(-2 * time.Minute) // curtailment began 2 min ago
 	mine := "mqtt:site-a"                                // workerSource() is "site-a"
 	svc := &fakeService{
-		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &mine, CreatedAt: eventStart}},
+		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &mine, State: models.EventStateActive, CreatedAt: eventStart}},
 		stopResult:       &models.Event{EventUUID: uuid.New()},
 	}
 	w := newTestWorker(t, store, svc, workerSource())

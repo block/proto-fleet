@@ -99,10 +99,12 @@ func (w *sourceWorker) run(ctx context.Context) {
 
 // loadInitialState reads the persisted state, degrading to cold-start on a
 // read error so a transient DB blip doesn't take the fail-safe watchdog down
-// with it. If the loaded target is non-OFF but this source already has an
-// active curtailment event — a prior OFF started one and the state read or a
-// post-Start persist failed — it reconciles to OFF, so a later ON stops that
-// event instead of being a cold-start no-op.
+// with it. If the loaded target is non-OFF but this source already has a
+// pending/active curtailment event — a prior OFF started one and the state read
+// or a post-Start persist failed — it reconciles to OFF, so a later ON stops
+// that event instead of being a cold-start no-op. A restoring event is not
+// evidence of OFF: it means an ON was already accepted and restore is in
+// progress, so preserve the loaded source target.
 func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
@@ -122,7 +124,7 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 			w.cfg.Logger.Warn("mqttingest: active-event reconcile failed",
 				slog.String("source", w.source.SourceName),
 				slog.Any("error", aerr))
-		case active != nil:
+		case eventHoldsCurtailment(active):
 			state.LastTarget = TargetOff
 			state.LastEdgeEventUUID = active.EventUUID.String()
 			// Seed the ordering + debounce anchors from the event so a
