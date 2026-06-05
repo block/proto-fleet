@@ -232,6 +232,15 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		return prior
 	}
 
+	if pendingEdgeSupersededBy(prior.PendingEdge, canonical) {
+		w.cfg.Logger.Info("mqttingest: pending edge superseded by newer payload",
+			slog.String("source", w.source.SourceName),
+			slog.String("pending_direction", prior.PendingEdge.Direction.String()),
+			slog.String("pending_target", prior.PendingEdge.Target.String()),
+			slog.String("canonical_target", canonical.Target.String()))
+		prior.PendingEdge = nil
+	}
+
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
@@ -478,6 +487,14 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 	if prior.LastTargetAt.IsZero() || !c.PublishedAt.Equal(prior.LastTargetAt) {
 		return false
 	}
+	if c.Target != prior.LastTarget {
+		if c.Target == TargetOff {
+			return false
+		}
+		return prior.LastTarget != TargetUnknown &&
+			prior.LastProcessedTarget == c.Target &&
+			prior.LastProcessedTarget != prior.LastTarget
+	}
 	for _, target := range prior.LastProcessedTargets {
 		if target == c.Target {
 			return true
@@ -502,6 +519,21 @@ func recordProcessedTarget(state *SourceState, c CanonicalState) {
 		}
 	}
 	state.LastProcessedTargets = append(state.LastProcessedTargets, c.Target)
+}
+
+func pendingEdgeSupersededBy(edge *PendingEdge, c CanonicalState) bool {
+	if edge == nil || edge.Target == c.Target {
+		return false
+	}
+	if !edge.TargetAt.IsZero() && !c.PublishedAt.IsZero() {
+		switch {
+		case c.PublishedAt.After(edge.TargetAt):
+			return true
+		case c.PublishedAt.Before(edge.TargetAt):
+			return false
+		}
+	}
+	return c.ReceivedAt.After(edge.ReceivedAt)
 }
 
 func (p PendingEdge) canonical() CanonicalState {

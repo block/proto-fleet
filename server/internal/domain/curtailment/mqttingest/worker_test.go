@@ -276,6 +276,45 @@ func TestWorker_HandleWatchdog_RetriesPendingMessageEdge(t *testing.T) {
 	assert.Equal(t, TargetOff, settled.LastTarget)
 }
 
+func TestWorker_HandleMessage_NewerOnClearsPendingOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onAt := pendingAt.Add(time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": onAt.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   pendingAt.Add(-time.Minute),
+		LastReceivedAt: pendingAt,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: onAt})
+
+	assert.Nil(t, next.PendingEdge, "newer ON must cancel the stale pending OFF")
+	assert.Equal(t, TargetOn, next.LastTarget)
+	assert.Empty(t, svc.startCalls, "canceling the stale pending OFF must not curtail")
+
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	assert.Nil(t, persisted.PendingEdge, "cleared pending edge must persist")
+	assert.Equal(t, TargetOn, persisted.LastTarget)
+}
+
 func TestWorker_LoadInitialState_PendingOffAfterStartFailureSettlesExistingEvent(t *testing.T) {
 	t.Parallel()
 
@@ -322,6 +361,20 @@ func TestWorker_LoadInitialState_PendingOffAfterStartFailureSettlesExistingEvent
 	assert.Equal(t, TargetOff, recovered.LastTarget)
 	assert.Nil(t, recovered.PendingEdge)
 	assert.Equal(t, 1, svc.startCallsLen(), "recovery must settle the existing event without a duplicate Start")
+}
+
+func TestWorker_LoadInitialState_ReadErrorRetriesWithoutColdStart(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.getStateErr = errors.New("db down")
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	_, ok := w.loadInitialState(context.Background())
+
+	assert.False(t, ok, "state read errors must retry instead of cold-starting")
+	assert.Equal(t, 0, svc.listActiveCallsLen(), "read failure must not continue into active-event reconciliation")
 }
 
 // ON with no source event still settles ON.
@@ -574,9 +627,9 @@ func TestWorker_HandleMessage_SameSecondTargetChange_Dispatches(t *testing.T) {
 	assert.Equal(t, TargetOff, next.LastTarget)
 }
 
-// Once both target values have been processed for a seconds-precision publisher
-// timestamp, a later QoS redelivery of the old value must not replay it.
-func TestWorker_HandleMessage_SameSecondOffRedeliveryAfterOn_DoesNotRecurtail(t *testing.T) {
+// Same-second OFF->ON->OFF sequences must honor the latest OFF. This can be
+// indistinguishable from an old OFF redelivery, so fail safe toward curtailment.
+func TestWorker_HandleMessage_SameSecondOffAfterOn_Recurtails(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
@@ -587,8 +640,13 @@ func TestWorker_HandleMessage_SameSecondOffRedeliveryAfterOn_DoesNotRecurtail(t 
 		listActiveResults: [][]*models.Event{
 			nil,
 			{testSourceEvent(src, eventUUID, models.EventStateActive)},
+			{testSourceEvent(src, eventUUID, models.EventStateRestoring)},
 		},
 		stopResult: &models.Event{EventUUID: eventUUID},
+		recurtailResult: &models.Event{
+			EventUUID: eventUUID,
+			State:     models.EventStateActive,
+		},
 	}
 	w := newTestWorker(t, store, svc, src)
 
@@ -614,11 +672,13 @@ func TestWorker_HandleMessage_SameSecondOffRedeliveryAfterOn_DoesNotRecurtail(t 
 	require.Equal(t, TargetOn, afterOn.LastTarget)
 	require.Equal(t, 1, svc.stopCallsLen())
 
-	afterRedelivery := w.handleMessage(context.Background(), afterOn,
+	afterSecondOff := w.handleMessage(context.Background(), afterOn,
 		observation{broker: w.primaryHost, payload: offBody, receivedAt: published.Add(20 * time.Second)})
 
-	assert.Equal(t, TargetOn, afterRedelivery.LastTarget, "old OFF redelivery must not undo the accepted ON")
-	assert.Equal(t, 1, svc.startCallsLen(), "redelivered OFF must not dispatch a second Start")
+	assert.Equal(t, TargetOff, afterSecondOff.LastTarget, "latest OFF must abort restore even with the same publisher second")
+	assert.Equal(t, 1, svc.startCallsLen(), "restoring source event should be re-curtailed, not started again")
+	require.Len(t, svc.recurtailCalls, 1)
+	assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
 }
 
 // LastProcessedTarget must persist for restart-safe dedup.
