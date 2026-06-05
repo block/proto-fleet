@@ -144,13 +144,37 @@ enum PairOutcome {
 message FleetNodePairResult {
     string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     PairOutcome outcome      = 2;
-    // Identity learned during pairing; populated on PAIRED. Never carries credentials.
+    // Identity learned during pairing; populated on PAIRED.
     string serial_number     = 3 [(buf.validate.field).string.max_len = 255];
     string mac_address       = 4 [(buf.validate.field).string.max_len = 64];
     string model             = 5 [(buf.validate.field).string.max_len = 255];
     string manufacturer      = 6 [(buf.validate.field).string.max_len = 255];
     string firmware_version  = 7 [(buf.validate.field).string.max_len = 255];
     string error_message     = 8 [(buf.validate.field).string.max_len = 4096];
+
+    // Flat scalars couldn't distinguish a basic-auth credential with an empty
+    // username/password from an absent one, so a successful empty-credential
+    // pairing was persisted with no auth material. Replaced by used_credentials,
+    // whose message presence carries that distinction.
+    reserved 9, 10;
+    reserved "used_username", "used_password";
+
+    // The credentials the node authenticated with. Set for basic-auth drivers
+    // (operator-supplied OR plugin defaults) and absent for asymmetric-auth
+    // drivers, which pair with the node's signing key and carry no credentials.
+    // Presence is meaningful: a present message -- even with an empty username or
+    // password -- means the cloud must persist it as the device's auth material;
+    // absent means store nothing.
+    UsedCredentials used_credentials = 11;
+}
+
+// UsedCredentials carries the basic-auth credentials a node authenticated with,
+// echoed so the cloud can persist working auth material for the device. Capped to
+// bound the ReportPairedDevices payload. The node refuses to pair (reports ERROR)
+// rather than authenticate with a credential it cannot report within these caps.
+message UsedCredentials {
+    string username = 1 [(buf.validate.field).string.max_len = 255];
+    string password = 2 [(buf.validate.field).string.max_len = 1024];
 }
 
 message ReportPairedDevicesRequest {

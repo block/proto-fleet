@@ -1820,6 +1820,35 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 	return items, nil
 }
 
+const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
+INSERT INTO device_pairing (
+    device_id,
+    pairing_status,
+    paired_at
+) VALUES (
+    $1,
+    'AUTHENTICATION_NEEDED'::pairing_status_enum,
+    CURRENT_TIMESTAMP
+)
+ON CONFLICT (device_id) DO UPDATE SET
+    pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum,
+    paired_at = CURRENT_TIMESTAMP,
+    unpaired_at = NULL
+WHERE device_pairing.pairing_status IS DISTINCT FROM 'PAIRED'::pairing_status_enum
+`
+
+// Mark a device AUTHENTICATION_NEEDED without ever downgrading a PAIRED row: the
+// WHERE guard no-ops the write when the row is already PAIRED, closing the race
+// where a concurrent pair commits PAIRED between the caller's read and this write
+// (the DO UPDATE branch re-reads the latest committed row). Zero rows means PAIRED won.
+func (q *Queries) SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error) {
+	result, err := q.exec(ctx, q.setDevicePairingAuthNeededIfNotPairedStmt, setDevicePairingAuthNeededIfNotPaired, deviceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const softDeleteDevices = `-- name: SoftDeleteDevices :execrows
 UPDATE device SET deleted_at = NOW()
 WHERE device_identifier = ANY($1::text[])
@@ -1895,7 +1924,10 @@ const updateDeviceInfo = `-- name: UpdateDeviceInfo :exec
 UPDATE device
 SET
     mac_address = COALESCE(NULLIF($1::text, ''), mac_address),
-    serial_number = $2
+    -- Preserve a previously learned serial when the report omits it (e.g. an
+    -- AUTH_NEEDED/AUTH_FAILED retry, or a plugin that returns only a MAC), matching
+    -- mac_address above; a blank arg must not erase the stored serial.
+    serial_number = COALESCE(NULLIF($2::text, ''), serial_number)
 WHERE device_identifier = $3
   AND org_id = $4
   AND deleted_at IS NULL
@@ -1903,7 +1935,7 @@ WHERE device_identifier = $3
 
 type UpdateDeviceInfoParams struct {
 	MacAddress       string
-	SerialNumber     sql.NullString
+	SerialNumber     string
 	DeviceIdentifier string
 	OrgID            int64
 }

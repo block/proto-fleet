@@ -12,6 +12,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
 func TestReportDiscoveredDevices_RejectsMissingCommandID(t *testing.T) {
@@ -64,7 +65,7 @@ func TestReportDiscoveredDevices_PublishesBatchToInFlightCommand(t *testing.T) {
 
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "operator-cmd"}, nil)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "operator-cmd"}, nil, control.ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -104,7 +105,7 @@ func TestReportDiscoveredDevices_PublishesOnlyAcceptedDevices(t *testing.T) {
 
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "partial-cmd"}, nil)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "partial-cmd"}, nil, control.ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -177,7 +178,7 @@ func TestReportDiscoveredDevices_DropsOutOfScopeDevices(t *testing.T) {
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
 	scope := func(ip, port string) bool { return ip == "10.0.0.50" && port == "4028" }
-	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "scoped-cmd"}, scope)
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "scoped-cmd"}, scope, control.ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing

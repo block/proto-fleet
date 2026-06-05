@@ -8,14 +8,10 @@ package discovery
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
 	"net/netip"
 	"strconv"
 	"time"
 
-	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -46,7 +42,7 @@ type nodeLister interface {
 // makes the coupling explicit and lets tests inject a fake without a Registry.
 type nodeRegistry interface {
 	ConnectedFleetNodeIDs() []int64
-	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope control.ReportScope) (*control.Session, error)
+	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
 }
 
 // Service runs discovery commands against connected fleet nodes.
@@ -96,9 +92,6 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 		return err
 	}
 
-	commandID := id.GenerateID()
-	// Discovery rides the shared AgentCommand envelope so the node can tell command
-	// kinds apart from the single ControlCommand.payload byte field.
 	payload, err := proto.Marshal(&pairingpb.AgentCommand{
 		Command: &pairingpb.AgentCommand_Discover{Discover: normalized},
 	})
@@ -106,107 +99,16 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, DiscoverCommandTimeout)
-	defer cancel()
-
-	session, err := s.registry.Send(ctx, fleetNodeID, &gatewaypb.ControlCommand{
-		CommandId: commandID,
-		Payload:   payload,
-	}, buildReportScope(normalized))
-	if err != nil {
-		if errors.Is(err, control.ErrNoActiveStream) {
-			return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
-		}
-		return err
-	}
-	defer session.Close()
-
-	// terminal=true stops the loop whether or not err is set; an OK/PARTIAL ack
-	// is terminal with a nil err.
-	handleEvent := func(ev control.CommandEvent) (terminal bool, err error) {
-		switch {
-		case ev.Batch != nil:
-			if sendErr := onBatch(ev.Batch); sendErr != nil {
-				return true, sendErr
-			}
-			return false, nil
-		case ev.Ack != nil:
-			// PARTIAL carries succeeded=false but its reports already streamed;
-			// treat it as a usable (incomplete) result, not a failure.
-			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
-				slog.Warn("fleet node discovery completed partially",
-					"fleet_node_id", fleetNodeID, "detail", ev.Ack.GetErrorMessage())
-				return true, nil
-			}
-			// Require the structured OK code, not just the boolean, so an
-			// inconsistent ack (succeeded=true with a non-OK/unset code) can't
-			// pass a failed scan off as success.
-			if ev.Ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK || !ev.Ack.GetSucceeded() {
-				return true, discoverAckFailure(ev.Ack)
-			}
-			return true, nil
-		default:
-			return false, nil
-		}
-	}
-
-	events := session.Events()
-	for {
-		select {
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("discovery command timed out after %s", DiscoverCommandTimeout))
-			}
-			// Caller (operator or fan-out) cancelled; report it as such rather
-			// than a server-side Internal failure.
-			return fleeterror.NewCanceledError()
-		case ev := <-events:
-			if terminal, err := handleEvent(ev); terminal {
-				return err
-			}
-		case <-session.Done():
-			// Stream died before an ack. Drain buffered events first (a final
-			// ack or last batch) so select randomness doesn't drop them.
-			for {
-				select {
-				case ev := <-events:
-					if terminal, err := handleEvent(ev); terminal {
-						return err
-					}
-				default:
-					return fleeterror.NewFailedPreconditionError("fleet node control stream closed before command completed")
+	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
+	return control.RunCommand(ctx, s.registry, fleetNodeID, cmd, buildReportScope(normalized), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+		func(ev control.CommandEvent) (terminal bool, err error) {
+			if ev.Batch != nil {
+				if sendErr := onBatch(ev.Batch); sendErr != nil {
+					return true, sendErr
 				}
 			}
-		}
-	}
-}
-
-// discoverAckFailure maps a non-OK ack to an operator-facing error, even when
-// error_message is empty. The structured AckCode drives the gRPC code so the
-// operator can tell a retryable condition (BUSY) and a capability gap
-// (AGENT_INCAPABLE) apart from a malformed request (BAD_REQUEST); anything else
-// is an opaque Internal failure.
-func discoverAckFailure(ack *gatewaypb.ControlAck) error {
-	reason := ack.GetErrorMessage()
-	if reason == "" {
-		reason = "code " + ack.GetCode().String()
-	}
-	// if/else (not switch) so the exhaustive linter doesn't demand a case per
-	// AckCode; everything outside these three is an opaque Internal failure.
-	code := ack.GetCode()
-	if code == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST {
-		return fleeterror.NewInvalidArgumentErrorf("fleet node rejected discovery command: %s", reason)
-	}
-	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
-		return fleeterror.NewPlainError(
-			fmt.Sprintf("fleet node is busy with another command; retry shortly: %s", reason),
-			connect.CodeResourceExhausted,
-		)
-	}
-	if code == gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE {
-		return fleeterror.NewFailedPreconditionErrorf("fleet node cannot service this discovery request; try another node: %s", reason)
-	}
-	return fleeterror.NewInternalErrorf("fleet node reported discovery failure: %s", reason)
+			return false, nil
+		})
 }
 
 func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.DiscoverRequest, error) {

@@ -410,6 +410,21 @@ func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, curso
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter, sortConfig)
 }
 
+// SetDevicePairingAuthNeededIfNotPaired mocks base method.
+func (m *MockDeviceStore) SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pairingv1.Device, orgID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDevicePairingAuthNeededIfNotPaired", ctx, device, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetDevicePairingAuthNeededIfNotPaired indicates an expected call of SetDevicePairingAuthNeededIfNotPaired.
+func (mr *MockDeviceStoreMockRecorder) SetDevicePairingAuthNeededIfNotPaired(ctx, device, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDevicePairingAuthNeededIfNotPaired", reflect.TypeOf((*MockDeviceStore)(nil).SetDevicePairingAuthNeededIfNotPaired), ctx, device, orgID)
+}
+
 // SoftDeleteDevices mocks base method.
 func (m *MockDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error) {
 	m.ctrl.T.Helper()

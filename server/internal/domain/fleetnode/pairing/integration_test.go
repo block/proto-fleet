@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -37,7 +39,10 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := fleetnodeenrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	pairingSvc := fleetnodepairing.NewService(pairingStore, enrollmentStore, transactor)
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
+	require.NoError(t, err)
+	pairingSvc := fleetnodepairing.NewService(pairingStore, enrollmentStore, transactor).
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, nil)
 
 	return db, 1, pairingSvc, enrollmentSvc
 }

@@ -466,6 +466,7 @@ type controlFakeBehavior struct {
 	rejectWithCode connect.Code
 	reportErr      error
 	pairReportErr  error
+	pairRejected   int64
 }
 
 type pendingCommand struct {
@@ -535,11 +536,15 @@ func (f *controlFakeGateway) ReportPairedDevices(_ context.Context, req *connect
 	f.mu.Lock()
 	f.pairReports = append(f.pairReports, req.Msg)
 	reportErr := f.behavior.pairReportErr
+	rejected := f.behavior.pairRejected
 	f.mu.Unlock()
 	if reportErr != nil {
 		return nil, reportErr
 	}
-	return connect.NewResponse(&pb.ReportPairedDevicesResponse{AcceptedCount: int64(len(req.Msg.GetResults()))}), nil
+	return connect.NewResponse(&pb.ReportPairedDevicesResponse{
+		AcceptedCount: int64(len(req.Msg.GetResults())) - rejected,
+		RejectedCount: rejected,
+	}), nil
 }
 
 func (f *controlFakeGateway) pairReportsCopy() []*pb.ReportPairedDevicesRequest {

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
+	"encoding/base64"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -59,14 +61,21 @@ func newControlHarness(t *testing.T) *controlHarness {
 	authStore := sqlstores.NewSQLFleetNodeAuthStore(db)
 	authSvc := auth.NewService(authStore, enrollmentStore, apiKeySvc)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
 	registry := control.NewRegistry()
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
+	require.NoError(t, err)
+	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor).
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
 
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)
 	require.NoError(t, err)
 	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey, signing)
+	require.NoError(t, err)
+	// Confirm the node so pairDeviceLocked (which requires CONFIRMED) can bind
+	// devices during ReportPairedDevices persistence.
+	_, _, err = enrollmentSvc.Confirm(t.Context(), agent.ID, 1)
 	require.NoError(t, err)
 
 	return &controlHarness{
@@ -169,7 +178,7 @@ func waitForSend(t *testing.T, r *control.Registry, fleetNodeID int64, commandID
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		session, err := r.Send(context.Background(), fleetNodeID, &pb.ControlCommand{CommandId: commandID, Payload: payload}, nil)
+		session, err := r.Send(context.Background(), fleetNodeID, &pb.ControlCommand{CommandId: commandID, Payload: payload}, nil, control.ReportKindDiscovery, nil)
 		if err == nil {
 			return session
 		}

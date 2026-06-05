@@ -110,6 +110,22 @@ SELECT EXISTS (
       )
 );
 
+-- name: DeviceHasActivePairing :one
+-- True when the device is PAIRED, regardless of whether it is cloud-dialed or
+-- bound to a fleet node. Used to refuse downgrading an already-PAIRED device to
+-- AUTHENTICATION_NEEDED on a non-PAIRED node report: between target resolution
+-- and persistence, another node (or the cloud) may have paired the device, and a
+-- stale AUTH_NEEDED result must not clobber that PAIRED status.
+SELECT EXISTS (
+    SELECT 1
+    FROM device_pairing dp
+    JOIN device d ON d.id = dp.device_id
+    WHERE dp.device_id = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+      AND dp.pairing_status = 'PAIRED'
+);
+
 -- name: TransferDiscoveredDeviceAttribution :execrows
 -- Pairing makes the fleet node the discovery owner so its future reports refresh
 -- the row (the upsert keys refreshability on discovered_by_fleet_node_id);
@@ -194,6 +210,27 @@ WHERE dd.org_id = $1
         AND dpp.pairing_status = 'PAIRED'
   )
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR dd.discovered_by_fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
+  -- pair-all without operator credentials can't satisfy AUTHENTICATION_NEEDED rows
+  -- (they were already attempted and need credentials). Excluding them keeps a
+  -- capped first page from filling with unsatisfiable rows and starving
+  -- never-attempted devices on re-issue for nodes with more than `limit`
+  -- candidates. NULL/false keeps them (listing for display, and pair-all WITH
+  -- credentials, which can retry them).
+  AND (
+    NOT COALESCE(sqlc.narg('exclude_auth_needed')::bool, FALSE)
+    OR NOT EXISTS (
+      SELECT 1
+      FROM device adn
+      JOIN device_pairing adp ON adp.device_id = adn.id
+      WHERE adn.discovered_device_id = dd.id
+        AND adn.deleted_at IS NULL
+        AND adp.pairing_status = 'AUTHENTICATION_NEEDED'
+    )
+  )
+  -- Explicit pairing passes the requested identifiers so only those rows are
+  -- scanned, not the whole org. NULL = no filter (listing + pair-all); an empty
+  -- non-nil array matches nothing (explicit selection of none).
+  AND (sqlc.narg('identifiers')::text[] IS NULL OR dd.device_identifier = ANY(sqlc.narg('identifiers')::text[]))
   AND (sqlc.narg('cursor_id')::bigint IS NULL OR dd.id > sqlc.narg('cursor_id')::bigint)
 ORDER BY dd.id ASC, d.id DESC NULLS LAST
 LIMIT sqlc.narg('limit')::bigint;

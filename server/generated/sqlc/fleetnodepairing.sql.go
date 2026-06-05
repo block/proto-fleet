@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const deletePairingsForFleetNode = `-- name: DeletePairingsForFleetNode :execrows
@@ -60,6 +62,35 @@ type DeviceHasActiveCloudPairingParams struct {
 // would strand the node unable to refresh its discovery endpoint.
 func (q *Queries) DeviceHasActiveCloudPairing(ctx context.Context, arg DeviceHasActiveCloudPairingParams) (bool, error) {
 	row := q.queryRow(ctx, q.deviceHasActiveCloudPairingStmt, deviceHasActiveCloudPairing, arg.DeviceID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const deviceHasActivePairing = `-- name: DeviceHasActivePairing :one
+SELECT EXISTS (
+    SELECT 1
+    FROM device_pairing dp
+    JOIN device d ON d.id = dp.device_id
+    WHERE dp.device_id = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+      AND dp.pairing_status = 'PAIRED'
+)
+`
+
+type DeviceHasActivePairingParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+// True when the device is PAIRED, regardless of whether it is cloud-dialed or
+// bound to a fleet node. Used to refuse downgrading an already-PAIRED device to
+// AUTHENTICATION_NEEDED on a non-PAIRED node report: between target resolution
+// and persistence, another node (or the cloud) may have paired the device, and a
+// stale AUTH_NEEDED result must not clobber that PAIRED status.
+func (q *Queries) DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error) {
+	row := q.queryRow(ctx, q.deviceHasActivePairingStmt, deviceHasActivePairing, arg.DeviceID, arg.OrgID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -160,16 +191,39 @@ WHERE dd.org_id = $1
         AND dpp.pairing_status = 'PAIRED'
   )
   AND ($2::bigint IS NULL OR dd.discovered_by_fleet_node_id = $2::bigint)
-  AND ($3::bigint IS NULL OR dd.id > $3::bigint)
+  -- pair-all without operator credentials can't satisfy AUTHENTICATION_NEEDED rows
+  -- (they were already attempted and need credentials). Excluding them keeps a
+  -- capped first page from filling with unsatisfiable rows and starving
+  -- never-attempted devices on re-issue for nodes with more than ` + "`" + `limit` + "`" + `
+  -- candidates. NULL/false keeps them (listing for display, and pair-all WITH
+  -- credentials, which can retry them).
+  AND (
+    NOT COALESCE($3::bool, FALSE)
+    OR NOT EXISTS (
+      SELECT 1
+      FROM device adn
+      JOIN device_pairing adp ON adp.device_id = adn.id
+      WHERE adn.discovered_device_id = dd.id
+        AND adn.deleted_at IS NULL
+        AND adp.pairing_status = 'AUTHENTICATION_NEEDED'
+    )
+  )
+  -- Explicit pairing passes the requested identifiers so only those rows are
+  -- scanned, not the whole org. NULL = no filter (listing + pair-all); an empty
+  -- non-nil array matches nothing (explicit selection of none).
+  AND ($4::text[] IS NULL OR dd.device_identifier = ANY($4::text[]))
+  AND ($5::bigint IS NULL OR dd.id > $5::bigint)
 ORDER BY dd.id ASC, d.id DESC NULLS LAST
-LIMIT $4::bigint
+LIMIT $6::bigint
 `
 
 type ListFleetNodeDiscoveredDevicesParams struct {
-	OrgID       int64
-	FleetNodeID sql.NullInt64
-	CursorID    sql.NullInt64
-	Limit       sql.NullInt64
+	OrgID             int64
+	FleetNodeID       sql.NullInt64
+	ExcludeAuthNeeded sql.NullBool
+	Identifiers       []string
+	CursorID          sql.NullInt64
+	Limit             sql.NullInt64
 }
 
 type ListFleetNodeDiscoveredDevicesRow struct {
@@ -202,6 +256,8 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 	rows, err := q.query(ctx, q.listFleetNodeDiscoveredDevicesStmt, listFleetNodeDiscoveredDevices,
 		arg.OrgID,
 		arg.FleetNodeID,
+		arg.ExcludeAuthNeeded,
+		pq.Array(arg.Identifiers),
 		arg.CursorID,
 		arg.Limit,
 	)

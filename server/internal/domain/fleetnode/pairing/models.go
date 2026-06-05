@@ -2,6 +2,14 @@ package pairing
 
 import "time"
 
+// device_pairing.pairing_status values this package writes. Mirror the
+// pairing_status_enum DB type (and internal/domain/pairing's constants).
+const (
+	StatusPaired               = "PAIRED"
+	StatusAuthenticationNeeded = "AUTHENTICATION_NEEDED"
+	StatusFailed               = "FAILED"
+)
+
 type DiscoveredDeviceReport struct {
 	DeviceIdentifier string
 	IPAddress        string

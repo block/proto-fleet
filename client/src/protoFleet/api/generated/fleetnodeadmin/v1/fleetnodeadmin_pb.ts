@@ -420,8 +420,8 @@ export type ListFleetNodeDiscoveredDevicesRequest =
     fleetNodeId: bigint;
 
     /**
-     * Max devices to return; 0 = no limit. A node can discover thousands of
-     * devices, so operators should page.
+     * Max devices to return; 0 = server default page size (1024, also the cap).
+     * A node can discover thousands of devices, so operators page via next_cursor.
      *
      * @generated from field: int32 limit = 2;
      */
