@@ -9,11 +9,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
-// withTx returns a new context that carries the given *sqlc.Queries
-func withTx(ctx context.Context, q *sqlc.Queries) context.Context {
-	return context.WithValue(ctx, txContextKey{}, q)
-}
-
 var _ interfaces.Transactor = &SQLTransactor{}
 
 type SQLTransactor struct {
@@ -41,7 +36,7 @@ func (f *SQLTransactor) RunInTxWithResult(ctx context.Context, action func(ctx c
 	}
 	// Pass the underlying *sql.DB to WithTransaction (which has its own retry logic)
 	return db.WithTransaction(ctx, f.conn.DB, func(q *sqlc.Queries) (any, error) {
-		txCtx := withTx(ctx, q)
+		txCtx := db.WithTxQueries(ctx, q)
 		return action(txCtx)
 	})
 }

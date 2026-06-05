@@ -161,6 +161,19 @@ func (s *Handler) DeactivateUser(ctx context.Context, req *connect.Request[pb.De
 	return connect.NewResponse(resp), nil
 }
 
+// UpdateUserRole swaps a team member's org-scope role assignment.
+func (s *Handler) UpdateUserRole(ctx context.Context, req *connect.Request[pb.UpdateUserRoleRequest]) (*connect.Response[pb.UpdateUserRoleResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermUserManage, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	resp, err := s.authSvc.UpdateUserRole(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 // VerifyCredentials verifies the current session user's password without creating a new session.
 func (s *Handler) VerifyCredentials(ctx context.Context, req *connect.Request[pb.VerifyCredentialsRequest]) (*connect.Response[pb.VerifyCredentialsResponse], error) {
 	if err := s.authSvc.VerifySessionCredentials(ctx, req.Msg.Username, req.Msg.Password); err != nil {

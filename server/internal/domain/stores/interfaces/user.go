@@ -23,12 +23,15 @@ type UserStore interface { //nolint:interfacebloat // GetUserByIDForUpdate is a 
 }
 
 // UserManagementStore provides multi-user account management operations
-type UserManagementStore interface { //nolint:interfacebloat // user mgmt store covers create + lookup + role lookup (incl. locking variant); splitting would fragment the call sites that need them together
+type UserManagementStore interface { //nolint:interfacebloat // user mgmt store covers create + lookup + role lookup (incl. locking variant) + role swap; splitting would fragment the call sites that need them together
 	CreateUser(ctx context.Context, externalUserID string, username string, passwordHash string, requiresPasswordChange bool) (int64, error)
 	CreateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, roleID int64) error
 	GetBuiltinRoleForOrg(ctx context.Context, organizationID int64, builtinKey string) (Role, error)
 	GetRoleByID(ctx context.Context, roleID int64) (Role, error)
 	GetRoleByIDForUpdate(ctx context.Context, roleID int64) (Role, error)
+	GetOrgScopeAssignmentForUser(ctx context.Context, userID int64, organizationID int64) (OrgScopeAssignment, error)
+	LockAndCountOrgScopeSuperAdmins(ctx context.Context, organizationID int64) (int64, error)
+	UpdateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, oldAssignmentID int64, newRoleID int64) error
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
 	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error
 	SoftDeleteUser(ctx context.Context, userID int64) error
@@ -36,6 +39,14 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	GetUserRoleName(ctx context.Context, userID int64, organizationID int64) (string, error)
 	ListPermissionKeysByRoleID(ctx context.Context, roleID int64) ([]string, error)
+}
+
+// OrgScopeAssignment is the live org-scope role assignment returned by
+// GetOrgScopeAssignmentForUser.
+type OrgScopeAssignment struct {
+	AssignmentID int64
+	RoleID       int64
+	BuiltinKey   string
 }
 
 type User struct {

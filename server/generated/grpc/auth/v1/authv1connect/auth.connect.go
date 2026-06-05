@@ -58,6 +58,9 @@ const (
 	// AuthServiceDeactivateUserProcedure is the fully-qualified name of the AuthService's
 	// DeactivateUser RPC.
 	AuthServiceDeactivateUserProcedure = "/auth.v1.AuthService/DeactivateUser"
+	// AuthServiceUpdateUserRoleProcedure is the fully-qualified name of the AuthService's
+	// UpdateUserRole RPC.
+	AuthServiceUpdateUserRoleProcedure = "/auth.v1.AuthService/UpdateUserRole"
 	// AuthServiceVerifyCredentialsProcedure is the fully-qualified name of the AuthService's
 	// VerifyCredentials RPC.
 	AuthServiceVerifyCredentialsProcedure = "/auth.v1.AuthService/VerifyCredentials"
@@ -87,6 +90,10 @@ type AuthServiceClient interface {
 	// DeactivateUser performs a soft delete on a user account (Super Admin only)
 	// Users cannot deactivate themselves
 	DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error)
+	// UpdateUserRole swaps a member's org-scope role assignment. Requires
+	// user:manage. The new role must live in the caller's org and must not
+	// be SUPER_ADMIN (ownership transfer is a separate flow). Idempotent.
+	UpdateUserRole(context.Context, *connect.Request[v1.UpdateUserRoleRequest]) (*connect.Response[v1.UpdateUserRoleResponse], error)
 	// VerifyCredentials verifies the provided username and password match the current session user,
 	// without creating a new session. Used for step-up authentication on sensitive operations
 	// (e.g., editing pools, managing security). Both username and password must match the
@@ -149,6 +156,11 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+AuthServiceDeactivateUserProcedure,
 			opts...,
 		),
+		updateUserRole: connect.NewClient[v1.UpdateUserRoleRequest, v1.UpdateUserRoleResponse](
+			httpClient,
+			baseURL+AuthServiceUpdateUserRoleProcedure,
+			opts...,
+		),
 		verifyCredentials: connect.NewClient[v1.VerifyCredentialsRequest, v1.VerifyCredentialsResponse](
 			httpClient,
 			baseURL+AuthServiceVerifyCredentialsProcedure,
@@ -168,6 +180,7 @@ type authServiceClient struct {
 	listUsers         *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
 	resetUserPassword *connect.Client[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse]
 	deactivateUser    *connect.Client[v1.DeactivateUserRequest, v1.DeactivateUserResponse]
+	updateUserRole    *connect.Client[v1.UpdateUserRoleRequest, v1.UpdateUserRoleResponse]
 	verifyCredentials *connect.Client[v1.VerifyCredentialsRequest, v1.VerifyCredentialsResponse]
 }
 
@@ -216,6 +229,11 @@ func (c *authServiceClient) DeactivateUser(ctx context.Context, req *connect.Req
 	return c.deactivateUser.CallUnary(ctx, req)
 }
 
+// UpdateUserRole calls auth.v1.AuthService.UpdateUserRole.
+func (c *authServiceClient) UpdateUserRole(ctx context.Context, req *connect.Request[v1.UpdateUserRoleRequest]) (*connect.Response[v1.UpdateUserRoleResponse], error) {
+	return c.updateUserRole.CallUnary(ctx, req)
+}
+
 // VerifyCredentials calls auth.v1.AuthService.VerifyCredentials.
 func (c *authServiceClient) VerifyCredentials(ctx context.Context, req *connect.Request[v1.VerifyCredentialsRequest]) (*connect.Response[v1.VerifyCredentialsResponse], error) {
 	return c.verifyCredentials.CallUnary(ctx, req)
@@ -245,6 +263,10 @@ type AuthServiceHandler interface {
 	// DeactivateUser performs a soft delete on a user account (Super Admin only)
 	// Users cannot deactivate themselves
 	DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error)
+	// UpdateUserRole swaps a member's org-scope role assignment. Requires
+	// user:manage. The new role must live in the caller's org and must not
+	// be SUPER_ADMIN (ownership transfer is a separate flow). Idempotent.
+	UpdateUserRole(context.Context, *connect.Request[v1.UpdateUserRoleRequest]) (*connect.Response[v1.UpdateUserRoleResponse], error)
 	// VerifyCredentials verifies the provided username and password match the current session user,
 	// without creating a new session. Used for step-up authentication on sensitive operations
 	// (e.g., editing pools, managing security). Both username and password must match the
@@ -303,6 +325,11 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		svc.DeactivateUser,
 		opts...,
 	)
+	authServiceUpdateUserRoleHandler := connect.NewUnaryHandler(
+		AuthServiceUpdateUserRoleProcedure,
+		svc.UpdateUserRole,
+		opts...,
+	)
 	authServiceVerifyCredentialsHandler := connect.NewUnaryHandler(
 		AuthServiceVerifyCredentialsProcedure,
 		svc.VerifyCredentials,
@@ -328,6 +355,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceResetUserPasswordHandler.ServeHTTP(w, r)
 		case AuthServiceDeactivateUserProcedure:
 			authServiceDeactivateUserHandler.ServeHTTP(w, r)
+		case AuthServiceUpdateUserRoleProcedure:
+			authServiceUpdateUserRoleHandler.ServeHTTP(w, r)
 		case AuthServiceVerifyCredentialsProcedure:
 			authServiceVerifyCredentialsHandler.ServeHTTP(w, r)
 		default:
@@ -373,6 +402,10 @@ func (UnimplementedAuthServiceHandler) ResetUserPassword(context.Context, *conne
 
 func (UnimplementedAuthServiceHandler) DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.DeactivateUser is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) UpdateUserRole(context.Context, *connect.Request[v1.UpdateUserRoleRequest]) (*connect.Response[v1.UpdateUserRoleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.UpdateUserRole is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) VerifyCredentials(context.Context, *connect.Request[v1.VerifyCredentialsRequest]) (*connect.Response[v1.VerifyCredentialsResponse], error) {

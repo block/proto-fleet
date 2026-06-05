@@ -19,8 +19,8 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -42,8 +42,9 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 			if !ok {
 				return
 			}
-			var req pairingpb.DiscoverRequest
-			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			req := env.GetDiscover()
 			ip := req.GetIpList().GetIpAddresses()
 			require.Equal(t, []string{"10.0.0.5"}, ip)
 
@@ -399,8 +400,9 @@ func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
 			if !ok {
 				return
 			}
-			var req pairingpb.DiscoverRequest
-			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			req := env.GetDiscover()
 			gotTarget <- req.GetNmap().GetTarget()
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-time.After(2 * time.Second):
@@ -469,8 +471,9 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 			if !ok {
 				return
 			}
-			var req pairingpb.DiscoverRequest
-			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			req := env.GetDiscover()
 			gotIPs <- req.GetIpList().GetIpAddresses()
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-time.After(2 * time.Second):
@@ -557,9 +560,9 @@ func TestDiscoverOnFleetNode_TimesOutWhenAgentNeverResponds(t *testing.T) {
 	// Arrange: register an agent stream but never publish batch or ack.
 	// Override DiscoverCommandTimeout to a short window so the test
 	// terminates quickly.
-	prev := admin.DiscoverCommandTimeout
-	admin.DiscoverCommandTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { admin.DiscoverCommandTimeout = prev })
+	prev := discovery.DiscoverCommandTimeout
+	discovery.DiscoverCommandTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { discovery.DiscoverCommandTimeout = prev })
 
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-timeout")

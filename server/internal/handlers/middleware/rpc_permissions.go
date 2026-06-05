@@ -85,6 +85,7 @@ var ProcedurePermissions = map[string]string{
 	authv1connect.AuthServiceCreateUserProcedure:        authz.PermUserManage,
 	authv1connect.AuthServiceDeactivateUserProcedure:    authz.PermUserManage,
 	authv1connect.AuthServiceResetUserPasswordProcedure: authz.PermUserManage,
+	authv1connect.AuthServiceUpdateUserRoleProcedure:    authz.PermUserManage,
 	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
 
 	// Buildings CRUD — site:read for reads, site:manage for writes.
@@ -209,8 +210,11 @@ var ProcedurePermissions = map[string]string{
 	minercommandv1connect.MinerCommandServiceGetCommandBatchLogBundleProcedure:     authz.PermMinerDownloadLogs,
 	minercommandv1connect.MinerCommandServiceStreamCommandBatchUpdatesProcedure:    authz.PermFleetRead,
 
-	// NetworkInfoService — site network discovery + nickname.
-	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure:        authz.PermSiteRead,
+	// NetworkInfoService — GetNetworkInfo returns the device's own
+	// IP/gateway/subnet (shown on Settings → General to every user with
+	// fleet:read, including FIELD_TECH). UpdateNetworkNickname mutates the
+	// site's network identity and stays on site:manage.
+	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure:        authz.PermFleetRead,
 	networkinfov1connect.NetworkInfoServiceUpdateNetworkNicknameProcedure: authz.PermSiteManage,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures

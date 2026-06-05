@@ -14,7 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 )
 
-// Fast-path gate tests for the four user-management handlers. These
+// Fast-path gate tests for the user-management handlers. These
 // run without a database — the authSvc is nil and the gate fails
 // before any service call. The PermissionDenied path is the only thing
 // under test; positive (gate-clears, body runs) coverage lives in the
@@ -59,6 +59,14 @@ func TestAuthHandler_userManagementGates_denyWithoutPermission(t *testing.T) {
 			permissions: []string{authz.PermUserRead},
 			call: func(h *Handler, ctx context.Context) error {
 				_, err := h.ResetUserPassword(ctx, connect.NewRequest(&pb.ResetUserPasswordRequest{UserId: "u"}))
+				return err
+			},
+		},
+		{
+			name:        "UpdateUserRole without user:manage",
+			permissions: []string{authz.PermUserRead},
+			call: func(h *Handler, ctx context.Context) error {
+				_, err := h.UpdateUserRole(ctx, connect.NewRequest(&pb.UpdateUserRoleRequest{UserId: "u", RoleId: "1"}))
 				return err
 			},
 		},

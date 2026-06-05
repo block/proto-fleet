@@ -19,6 +19,19 @@ export class SettingsTeamPage extends BasePage {
     await this.page.locator(`//input[@id='username']`).fill(username);
   }
 
+  private async pickRoleFromOpenModal(roleLabel: string) {
+    await this.page.getByRole("button", { name: "Role" }).click();
+    // The Select option's accessible name is "<label> <description>"
+    // (e.g. "Field Tech Field Tech role"), so we can't use `exact: true`
+    // — match the role label as the visible text inside the option's
+    // label slot, which uniquely identifies the row.
+    await this.page.getByRole("option").filter({ hasText: roleLabel }).click();
+  }
+
+  async selectMemberRole(roleLabel: string) {
+    await this.pickRoleFromOpenModal(roleLabel);
+  }
+
   async clickSaveTeamMember() {
     await this.clickButton("Save");
   }
@@ -63,8 +76,12 @@ export class SettingsTeamPage extends BasePage {
     await expect(this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`)).toBeVisible();
   }
 
-  async validateNoAdminRights() {
-    await expect(this.page.getByRole("button", { name: "Add team member" })).toBeHidden();
+  // FIELD_TECH (and any role without user:read) doesn't see the Team
+  // submenu in the Settings secondary nav at all — verifying the link's
+  // absence is a stronger and cheaper "no admin rights" check than
+  // landing on /team and asserting the Add button hidden.
+  async validateTeamSubmenuHidden() {
+    await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]')).toBeHidden();
   }
 
   async clickMemberActionsMenu(username: string) {
@@ -79,6 +96,18 @@ export class SettingsTeamPage extends BasePage {
 
   async clickResetPassword() {
     await this.clickButton("Reset Password");
+  }
+
+  async clickEditRole() {
+    await this.clickButton("Edit role");
+  }
+
+  async selectEditedRole(roleLabel: string) {
+    await this.pickRoleFromOpenModal(roleLabel);
+  }
+
+  async clickSaveEditedRole() {
+    await this.clickButton("Save");
   }
 
   async clickResetMemberPasswordConfirm() {

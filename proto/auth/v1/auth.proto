@@ -37,6 +37,11 @@ service AuthService {
     // Users cannot deactivate themselves
     rpc DeactivateUser(DeactivateUserRequest) returns (DeactivateUserResponse);
 
+    // UpdateUserRole swaps a member's org-scope role assignment. Requires
+    // user:manage. The new role must live in the caller's org and must not
+    // be SUPER_ADMIN (ownership transfer is a separate flow). Idempotent.
+    rpc UpdateUserRole(UpdateUserRoleRequest) returns (UpdateUserRoleResponse);
+
     // VerifyCredentials verifies the provided username and password match the current session user,
     // without creating a new session. Used for step-up authentication on sensitive operations
     // (e.g., editing pools, managing security). Both username and password must match the
@@ -190,6 +195,20 @@ message DeactivateUserRequest {
 }
 
 message DeactivateUserResponse {
+}
+
+message UpdateUserRoleRequest {
+    // External UUID of the user whose org-scope role should change. Must
+    // belong to the caller's organization.
+    string user_id = 1;
+
+    // Target role id (base-10 string, matches Role.role_id). Required —
+    // empty values are rejected with InvalidArgument. SUPER_ADMIN role
+    // ids are also rejected.
+    string role_id = 2;
+}
+
+message UpdateUserRoleResponse {
 }
 
 message VerifyCredentialsRequest {

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -66,6 +67,32 @@ func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	_, err := interceptor.authenticate(
 		context.Background(),
 		curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
+		header,
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// UpdateUserRole mutates RBAC state and must reject API-key auth — a leaked
+// user API key with user:manage would otherwise be able to escalate or
+// reassign roles outside an interactive session.
+func TestAuthInterceptor_UpdateUserRoleRejectsApiKeyAuth(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, SessionOnlyProcedures, authv1connect.AuthServiceUpdateUserRoleProcedure,
+		"UpdateUserRole must be session-only; role mutations should not be reachable via API key")
+
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer fleet_test_some_key")
+
+	_, err := interceptor.authenticate(
+		context.Background(),
+		authv1connect.AuthServiceUpdateUserRoleProcedure,
 		header,
 	)
 

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import AddTeamMemberModal from "@/protoFleet/features/settings/components/AddTeamMemberModal";
 import DeactivateUserDialog from "@/protoFleet/features/settings/components/DeactivateUserDialog";
+import EditRoleModal from "@/protoFleet/features/settings/components/EditRoleModal";
 import ResetPasswordModal from "@/protoFleet/features/settings/components/ResetPasswordModal";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
-import { useHasPermission } from "@/protoFleet/store";
-import { Lock, Trash } from "@/shared/assets/icons";
+import { useHasPermission, useRole, useUsername } from "@/protoFleet/store";
+import { Edit, Lock, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
@@ -34,9 +35,12 @@ const colTitles: ColTitles<UserColumns> = {
 const Team = () => {
   const { listUsers, resetUserPassword, deactivateUser } = useUserManagement();
   // Gate the team-management UI on user:manage; the server's parity
-  // check (authorizeCallerForNewUserWithRole) still bounds which roles
-  // a caller can assign at create time.
+  // check still bounds which roles a caller can assign at create or
+  // update time.
   const canAddTeamMembers = useHasPermission("user:manage");
+  const currentUsername = useUsername();
+  const currentRole = useRole();
+  const callerIsOwner = currentRole === "SUPER_ADMIN";
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -45,6 +49,7 @@ const Team = () => {
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [deactivateUserData, setDeactivateUserData] = useState<UserData | null>(null);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [editRoleUser, setEditRoleUser] = useState<UserData | null>(null);
 
   const fetchUsers = useCallback(() => {
     setIsLoading(true);
@@ -169,6 +174,21 @@ const Team = () => {
     });
   }, [deactivateUserData, deactivateUser, fetchUsers]);
 
+  const isSelf = useCallback((user: UserData) => user.username === currentUsername, [currentUsername]);
+
+  // Edit role is hidden on self (no self-demotion via this page) and on
+  // every SUPER_ADMIN row — ownership transfer is a separate flow.
+  const hideEditRoleFor = useCallback((user: UserData) => isSelf(user) || user.role === "SUPER_ADMIN", [isSelf]);
+
+  // Reset Password and Deactivate are hidden on self (the server rejects
+  // self-deactivation and self password change belongs in Settings → Auth)
+  // and on SUPER_ADMIN rows when the caller isn't also SUPER_ADMIN (server
+  // parity check would refuse).
+  const hideMemberMutationFor = useCallback(
+    (user: UserData) => isSelf(user) || (user.role === "SUPER_ADMIN" && !callerIsOwner),
+    [isSelf, callerIsOwner],
+  );
+
   const availableActions = useMemo(() => {
     if (!canAddTeamMembers) {
       return [];
@@ -176,18 +196,26 @@ const Team = () => {
 
     return [
       {
+        title: "Edit role",
+        icon: <Edit />,
+        actionHandler: (user: UserData) => setEditRoleUser(user),
+        hidden: hideEditRoleFor,
+      },
+      {
         title: "Reset Password",
         icon: <Lock />,
         actionHandler: handleResetPassword,
+        hidden: hideMemberMutationFor,
       },
       {
         title: "Deactivate",
         icon: <Trash />,
         variant: "destructive" as const,
         actionHandler: (user: UserData) => setDeactivateUserData(user),
+        hidden: hideMemberMutationFor,
       },
     ];
-  }, [canAddTeamMembers, handleResetPassword]);
+  }, [canAddTeamMembers, hideEditRoleFor, hideMemberMutationFor, handleResetPassword]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -246,6 +274,17 @@ const Team = () => {
         onConfirm={handleDeactivateConfirm}
         onDismiss={() => setDeactivateUserData(null)}
         isSubmitting={isDeactivating}
+      />
+      <EditRoleModal
+        open={!!editRoleUser}
+        userId={editRoleUser?.userId ?? ""}
+        username={editRoleUser?.username ?? ""}
+        currentRoleName={editRoleUser?.role ?? ""}
+        onDismiss={() => setEditRoleUser(null)}
+        onSuccess={() => {
+          fetchUsers();
+          setEditRoleUser(null);
+        }}
       />
     </div>
   );

@@ -12,7 +12,6 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
@@ -95,24 +94,171 @@ func TestRegistry_SendDeliversCommandAndRoutesAck(t *testing.T) {
 	assert.True(t, gotAck.Ack.GetSucceeded())
 }
 
-func TestRegistry_SecondCommandRejectedWhileInFlight(t *testing.T) {
+func TestRegistry_TerminalAckDeliveredWhenEventBufferFull(t *testing.T) {
+	// Arrange: a report-bearing command whose event buffer is filled to capacity
+	// with best-effort batches the operator has not drained.
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	require.Equal(t, "discover", recvCommandID(t, s))
+	for range commandEventBuffer {
+		r.PublishBatch(1, "discover", &pairingpb.DiscoverResponse{Devices: []*pairingpb.Device{{DeviceIdentifier: "d"}}})
+	}
+
+	// Act: the terminal ack arrives while the buffer is full.
+	s.PublishAck(&gatewaypb.ControlAck{CommandId: "discover", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+
+	// Assert: the ack survives (one best-effort batch is evicted to make room),
+	// rather than being dropped and stranding the operator until the timeout.
+	var acks, batches int
+	events := session.Events()
+drain:
+	for {
+		select {
+		case ev := <-events:
+			if ev.Ack != nil {
+				acks++
+				assert.True(t, ev.Ack.GetSucceeded())
+			}
+			if ev.Batch != nil {
+				batches++
+			}
+		default:
+			break drain
+		}
+	}
+	assert.Equal(t, 1, acks, "terminal ack must survive a full event buffer")
+	assert.Equal(t, commandEventBuffer-1, batches, "exactly one best-effort batch is evicted for the ack")
+}
+
+func TestRegistry_ConcurrentCommandsNotRejected(t *testing.T) {
+	// Arrange: a discovery is already in flight.
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	require.Equal(t, "discover", recvCommandID(t, s))
+
+	// Act: an ack-only command dispatches concurrently rather than being rejected.
+	results := make(chan cmdResult, 1)
+	go func() {
+		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+		results <- cmdResult{ack: ack, err: sendErr}
+	}()
+	require.Equal(t, "m1", recvCommandID(t, s)) // dispatched ⇒ registered
+
+	// Assert: its terminal ack resolves the blocked SendCommand.
+	s.PublishAck(&gatewaypb.ControlAck{CommandId: "m1", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+	res := recvResult(t, results)
+	require.NoError(t, res.err)
+	require.NotNil(t, res.ack)
+	assert.True(t, res.ack.GetSucceeded())
+}
+
+func TestRegistry_SendCommandWithoutStreamReturnsErrNoActiveStream(t *testing.T) {
+	// Act
+	_, err := NewRegistry().SendCommand(context.Background(), 9, &gatewaypb.ControlCommand{CommandId: "x"})
+
+	// Assert
+	assert.ErrorIs(t, err, ErrNoActiveStream)
+}
+
+func TestRegistry_SendCommandUnblocksOnDisconnect(t *testing.T) {
+	// Arrange: an ack-only command is in flight.
+	r := NewRegistry()
+	s := r.Register(1)
+	results := make(chan cmdResult, 1)
+	go func() {
+		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+		results <- cmdResult{ack: ack, err: sendErr}
+	}()
+	require.Equal(t, "m1", recvCommandID(t, s))
+
+	// Act: the stream disconnects before any ack.
+	s.Unregister()
+
+	// Assert
+	res := recvResult(t, results)
+	assert.ErrorIs(t, res.err, ErrNoActiveStream)
+	assert.Nil(t, res.ack)
+}
+
+func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	s := r.Register(1)
 	defer s.Unregister()
-	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "first"}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	results := make(chan cmdResult, 1)
+	go func() {
+		ack, sendErr := r.SendCommand(ctx, 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+		results <- cmdResult{ack: ack, err: sendErr}
+	}()
+	require.Equal(t, "m1", recvCommandID(t, s))
+
+	// Act: caller's context expires before the agent acks.
+	cancel()
+
+	// Assert: it returns an error and frees the slot for a re-send of the same id.
+	res := recvResult(t, results)
+	require.Error(t, res.err)
+	assert.Nil(t, res.ack)
+	_, err := r.SendCommand(canceledCtx(), 1, &gatewaypb.ControlCommand{CommandId: "m1"})
+	require.Error(t, err) // not errDuplicateCommandID; the slot was freed
+	assert.False(t, errors.Is(err, ErrNoActiveStream))
+}
+
+func TestRegistry_AckRoutesByKind(t *testing.T) {
+	// Arrange: an ack-only command in flight.
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+	results := make(chan cmdResult, 1)
+	go func() {
+		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "mk"})
+		results <- cmdResult{ack: ack, err: sendErr}
+	}()
+	require.Equal(t, "mk", recvCommandID(t, s))
+
+	// Assert: an ack-only command is not a report channel; the report path rejects it.
+	assert.ErrorIs(t, r.AdmitReport(1, "mk", 1), errNoInFlightCommand)
+	_, ok := r.ReportScopeFor(1, "mk")
+	assert.False(t, ok)
+
+	// Act + Assert: its ack is delivered to the SendCommand waiter, not dropped.
+	s.PublishAck(&gatewaypb.ControlAck{CommandId: "mk", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+	res := recvResult(t, results)
+	require.NoError(t, res.err)
+	require.NotNil(t, res.ack)
+}
+
+func TestRegistry_TeardownClosesAllInFlightCommands(t *testing.T) {
+	// Arrange: a discovery and an ack-only command are both in flight.
+	r := NewRegistry()
+	s := r.Register(1)
+	session, err := r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "discover"}, nil)
 	require.NoError(t, err)
-	defer session.Close()
-	// Drain the dispatched command so the second Send can proceed past
-	// the outgoing channel even if it were accepted.
-	<-s.Outgoing
+	require.Equal(t, "discover", recvCommandID(t, s))
+	results := make(chan cmdResult, 1)
+	go func() {
+		ack, sendErr := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "mk"})
+		results <- cmdResult{ack: ack, err: sendErr}
+	}()
+	require.Equal(t, "mk", recvCommandID(t, s))
 
-	// Act: a second command is rejected while one is in flight, even with a new id.
-	_, err = r.Send(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "second"}, nil)
+	// Act: re-register evicts the connection, tearing down every in-flight command.
+	s2 := r.Register(1)
+	defer s2.Unregister()
 
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	// Assert: the discovery session's Done closes and the ack-only waiter unblocks.
+	assertClosed(t, session.Done())
+	res := recvResult(t, results)
+	assert.ErrorIs(t, res.err, ErrNoActiveStream)
 }
 
 func TestRegistry_AdmitReportEnforcesQuota(t *testing.T) {
@@ -212,7 +358,7 @@ func TestPublish_DropsWhenChannelFullWithoutBlocking(t *testing.T) {
 
 // TestPublish_RaceWithCleanup exercises an agent's report/ack landing
 // concurrently with the operator's Session.Close freeing the command slot.
-// Run with `-race`: deliver reads conn.cmd under the mutex and never closes the
+// Run with `-race`: delivery looks up conn.cmds under the mutex and never closes the
 // events channel, so there is no "send on closed channel" hazard to trip.
 func TestPublish_RaceWithCleanup(t *testing.T) {
 	t.Parallel()
@@ -228,7 +374,7 @@ func TestPublish_RaceWithCleanup(t *testing.T) {
 		for range iters {
 			session, sendErr := r.Send(context.Background(), 101, &gatewaypb.ControlCommand{CommandId: "race-cmd"}, nil)
 			if sendErr != nil {
-				// Send fails if the single-in-flight guard fires; that's fine — race continues.
+				// Send only fails here if the connection was evicted mid-call; fine, race continues.
 				continue
 			}
 			<-s.Outgoing
@@ -326,4 +472,70 @@ func receive(t *testing.T, ch <-chan CommandEvent) CommandEvent {
 		t.Fatal("timed out waiting for event")
 		return CommandEvent{}
 	}
+}
+
+// cmdResult captures an async SendCommand outcome for a test goroutine.
+type cmdResult struct {
+	ack *gatewaypb.ControlAck
+	err error
+}
+
+// recvCommandID drains one dispatched command off the agent's outgoing channel and
+// returns its command_id. Receiving it proves the command was registered (addCmd runs
+// before the enqueue), so a subsequent PublishAck routes deterministically.
+func recvCommandID(t *testing.T, s *Stream) string {
+	t.Helper()
+	select {
+	case cmd, ok := <-s.Outgoing:
+		require.True(t, ok, "outgoing channel closed unexpectedly")
+		return cmd.GetCommandId()
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for dispatched command")
+		return ""
+	}
+}
+
+func recvResult(t *testing.T, ch <-chan cmdResult) cmdResult {
+	t.Helper()
+	select {
+	case res := <-ch:
+		return res
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SendCommand result")
+		return cmdResult{}
+	}
+}
+
+func assertClosed(t *testing.T, ch <-chan struct{}) {
+	t.Helper()
+	select {
+	case _, ok := <-ch:
+		assert.False(t, ok, "channel should be closed")
+	case <-time.After(time.Second):
+		t.Fatal("channel not closed within 1s")
+	}
+}
+
+func canceledCtx() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
+
+func TestConnectedFleetNodeIDs_ReflectsRegisterAndUnregister(t *testing.T) {
+	// Arrange
+	r := NewRegistry()
+	s1 := r.Register(1)
+	s2 := r.Register(2)
+
+	// Act + Assert: both connected.
+	assert.ElementsMatch(t, []int64{1, 2}, r.ConnectedFleetNodeIDs())
+
+	// Act + Assert: unregistering one drops it.
+	s1.Unregister()
+	assert.ElementsMatch(t, []int64{2}, r.ConnectedFleetNodeIDs())
+
+	// Act + Assert: empty once all are gone.
+	s2.Unregister()
+	assert.Empty(t, r.ConnectedFleetNodeIDs())
 }

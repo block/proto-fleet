@@ -286,6 +286,21 @@ func (mr *MockUserManagementStoreMockRecorder) GetBuiltinRoleForOrg(ctx, organiz
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBuiltinRoleForOrg", reflect.TypeOf((*MockUserManagementStore)(nil).GetBuiltinRoleForOrg), ctx, organizationID, builtinKey)
 }
 
+// GetOrgScopeAssignmentForUser mocks base method.
+func (m *MockUserManagementStore) GetOrgScopeAssignmentForUser(ctx context.Context, userID, organizationID int64) (interfaces.OrgScopeAssignment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgScopeAssignmentForUser", ctx, userID, organizationID)
+	ret0, _ := ret[0].(interfaces.OrgScopeAssignment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrgScopeAssignmentForUser indicates an expected call of GetOrgScopeAssignmentForUser.
+func (mr *MockUserManagementStoreMockRecorder) GetOrgScopeAssignmentForUser(ctx, userID, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgScopeAssignmentForUser", reflect.TypeOf((*MockUserManagementStore)(nil).GetOrgScopeAssignmentForUser), ctx, userID, organizationID)
+}
+
 // GetRoleByID mocks base method.
 func (m *MockUserManagementStore) GetRoleByID(ctx context.Context, roleID int64) (interfaces.Role, error) {
 	m.ctrl.T.Helper()
@@ -361,6 +376,21 @@ func (mr *MockUserManagementStoreMockRecorder) ListUsersForOrganization(ctx, org
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsersForOrganization", reflect.TypeOf((*MockUserManagementStore)(nil).ListUsersForOrganization), ctx, organizationID)
 }
 
+// LockAndCountOrgScopeSuperAdmins mocks base method.
+func (m *MockUserManagementStore) LockAndCountOrgScopeSuperAdmins(ctx context.Context, organizationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockAndCountOrgScopeSuperAdmins", ctx, organizationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockAndCountOrgScopeSuperAdmins indicates an expected call of LockAndCountOrgScopeSuperAdmins.
+func (mr *MockUserManagementStoreMockRecorder) LockAndCountOrgScopeSuperAdmins(ctx, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockAndCountOrgScopeSuperAdmins", reflect.TypeOf((*MockUserManagementStore)(nil).LockAndCountOrgScopeSuperAdmins), ctx, organizationID)
+}
+
 // SoftDeleteUser mocks base method.
 func (m *MockUserManagementStore) SoftDeleteUser(ctx context.Context, userID int64) error {
 	m.ctrl.T.Helper()
@@ -387,6 +417,20 @@ func (m *MockUserManagementStore) UpdateLastLogin(ctx context.Context, userID in
 func (mr *MockUserManagementStoreMockRecorder) UpdateLastLogin(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLastLogin", reflect.TypeOf((*MockUserManagementStore)(nil).UpdateLastLogin), ctx, userID)
+}
+
+// UpdateUserOrganizationRole mocks base method.
+func (m *MockUserManagementStore) UpdateUserOrganizationRole(ctx context.Context, userID, organizationID, oldAssignmentID, newRoleID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserOrganizationRole", ctx, userID, organizationID, oldAssignmentID, newRoleID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserOrganizationRole indicates an expected call of UpdateUserOrganizationRole.
+func (mr *MockUserManagementStoreMockRecorder) UpdateUserOrganizationRole(ctx, userID, organizationID, oldAssignmentID, newRoleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserOrganizationRole", reflect.TypeOf((*MockUserManagementStore)(nil).UpdateUserOrganizationRole), ctx, userID, organizationID, oldAssignmentID, newRoleID)
 }
 
 // UpdateUserPasswordAndClearPasswordChangeFlag mocks base method.

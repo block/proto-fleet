@@ -65,6 +65,7 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceListUsersProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
+	authv1connect.AuthServiceUpdateUserRoleProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
 	// AuthzService role management mutates RBAC state — granting, editing,
 	// or removing permission bundles assigned to users. A leaked API key

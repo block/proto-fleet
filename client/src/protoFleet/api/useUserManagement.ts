@@ -5,17 +5,17 @@ import type {
   CreateUserRequest,
   DeactivateUserRequest,
   ResetUserPasswordRequest,
+  UpdateUserRoleRequest,
 } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateUserProps {
   username: CreateUserRequest["username"];
-  // roleId is the role to assign on creation. Optional — when omitted the
-  // server applies the org's default role (currently ADMIN). When set, the
-  // server validates that the role belongs to the caller's org and is not
-  // SUPER_ADMIN before assigning.
-  roleId?: CreateUserRequest["roleId"];
+  // roleId is the role to assign on creation. Required — the server
+  // rejects an empty value with InvalidArgument. The role must belong
+  // to the caller's org and must not be SUPER_ADMIN.
+  roleId: CreateUserRequest["roleId"];
   onSuccess?: (userId: string, username: string, tempPassword: string) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -45,6 +45,14 @@ interface ResetUserPasswordProps {
 
 interface DeactivateUserProps {
   userId: DeactivateUserRequest["userId"];
+  onSuccess?: () => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface UpdateUserRoleProps {
+  userId: UpdateUserRoleRequest["userId"];
+  roleId: UpdateUserRoleRequest["roleId"];
   onSuccess?: () => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -155,11 +163,34 @@ const useUserManagement = () => {
     [handleAuthErrors],
   );
 
+  const updateUserRole = useCallback(
+    async ({ userId, roleId, onSuccess, onError, onFinally }: UpdateUserRoleProps) => {
+      await authClient
+        .updateUserRole({ userId, roleId })
+        .then(() => {
+          onSuccess?.();
+        })
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(getErrorMessage(err));
+            },
+          });
+        })
+        .finally(() => {
+          onFinally?.();
+        });
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createUser,
     listUsers,
     resetUserPassword,
     deactivateUser,
+    updateUserRole,
   };
 };
 

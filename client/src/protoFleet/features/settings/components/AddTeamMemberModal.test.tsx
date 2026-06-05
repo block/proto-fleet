@@ -1,5 +1,6 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pickRole, selectStubModule } from "./__testHelpers__/selectStub";
 import AddTeamMemberModal from "./AddTeamMemberModal";
 import { type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
@@ -16,15 +17,21 @@ vi.mock("@/shared/utils/utility", async () => {
   };
 });
 
+vi.mock("@/shared/components/Select", () => selectStubModule());
+
 const mockCreateUser = vi.fn();
 const mockListRoles = vi.fn();
 const mockOnDismiss = vi.fn();
 const mockOnSuccess = vi.fn();
 
+// Mirror the wire shape: server returns `role.name` as the seed identifier
+// ("ADMIN"/"FIELD_TECH"). The modal renders option labels through
+// formatRole(), so picker tests look up the formatted label
+// ("Admin"/"Field Tech").
 const fakeRoles: RoleItem[] = [
   {
     roleId: "role-admin",
-    name: "Admin",
+    name: "ADMIN",
     description: "Admin role",
     permissions: [],
     builtin: true,
@@ -34,7 +41,7 @@ const fakeRoles: RoleItem[] = [
   },
   {
     roleId: "role-field-tech",
-    name: "Field Tech",
+    name: "FIELD_TECH",
     description: "Field Tech role",
     permissions: [],
     builtin: true,
@@ -44,9 +51,7 @@ const fakeRoles: RoleItem[] = [
   },
 ];
 
-// Default mock: listRoles resolves synchronously with the canned role list so
-// Save becomes enabled (FIELD_TECH auto-selected). Individual tests override
-// this to exercise loading and error states.
+// listRoles resolves synchronously; tests must call pickRole() before Save.
 const mockListRolesSuccess = (roles: RoleItem[] = fakeRoles) =>
   mockListRoles.mockImplementation(({ onSuccess, onFinally }) => {
     onSuccess?.(roles);
@@ -61,6 +66,7 @@ beforeEach(() => {
     listUsers: vi.fn(),
     resetUserPassword: vi.fn(),
     deactivateUser: vi.fn(),
+    updateUserRole: vi.fn(),
   });
 
   vi.mocked(useRoleManagement).mockReturnValue({
@@ -91,9 +97,15 @@ describe("AddTeamMemberModal", () => {
     expect(usernameInput).toHaveFocus();
   });
 
-  it("enables Save once roles have loaded and a role is selected", async () => {
+  it("keeps Save disabled after roles load until a role is explicitly picked", async () => {
     const { getByText } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
 
+    await waitFor(() => {
+      const saveButton = getByText("Save").closest("button");
+      expect(saveButton).toBeDisabled();
+    });
+
+    pickRole("Field Tech");
     await waitFor(() => {
       const saveButton = getByText("Save").closest("button");
       expect(saveButton).not.toBeDisabled();
@@ -143,10 +155,12 @@ describe("AddTeamMemberModal", () => {
     expect(mockCreateUser).not.toHaveBeenCalled();
   });
 
-  it("shows validation error when saving empty username", async () => {
+  it("shows validation error when saving with whitespace-only username", async () => {
     const { getByLabelText, getByText } = render(
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
+
+    pickRole("Field Tech");
 
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "   " } });
@@ -159,7 +173,7 @@ describe("AddTeamMemberModal", () => {
     });
   });
 
-  it("calls createUser with trimmed username on save", async () => {
+  it("calls createUser with trimmed username and selected role on save", async () => {
     mockCreateUser.mockImplementation(({ onSuccess }) => {
       onSuccess("user-123", "testuser", "TempPass123");
     });
@@ -167,6 +181,8 @@ describe("AddTeamMemberModal", () => {
     const { getByLabelText, getByText } = render(
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
+
+    pickRole("Field Tech");
 
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "  testuser  " } });
@@ -178,6 +194,7 @@ describe("AddTeamMemberModal", () => {
       expect(mockCreateUser).toHaveBeenCalledWith(
         expect.objectContaining({
           username: "testuser",
+          roleId: "role-field-tech",
         }),
       );
     });
@@ -192,6 +209,7 @@ describe("AddTeamMemberModal", () => {
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
+    pickRole("Field Tech");
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "duplicate" } });
 
@@ -212,6 +230,7 @@ describe("AddTeamMemberModal", () => {
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
+    pickRole("Field Tech");
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "duplicate" } });
 
@@ -236,6 +255,7 @@ describe("AddTeamMemberModal", () => {
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
+    pickRole("Field Tech");
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "testuser" } });
 
@@ -262,6 +282,7 @@ describe("AddTeamMemberModal", () => {
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
+    pickRole("Field Tech");
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "testuser" } });
 
@@ -285,6 +306,7 @@ describe("AddTeamMemberModal", () => {
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
+    pickRole("Field Tech");
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "testuser" } });
 
@@ -310,6 +332,7 @@ describe("AddTeamMemberModal", () => {
       <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
+    pickRole("Field Tech");
     const usernameInput = getByLabelText("Username");
     fireEvent.change(usernameInput, { target: { value: "testuser" } });
 
@@ -325,6 +348,29 @@ describe("AddTeamMemberModal", () => {
 
     expect(mockOnSuccess).toHaveBeenCalled();
     expect(mockOnDismiss).toHaveBeenCalled();
+  });
+
+  it("passes the chosen role through to createUser when Admin is selected", async () => {
+    mockCreateUser.mockImplementation(({ onSuccess }) => {
+      onSuccess("user-123", "testuser", "TempPass123");
+    });
+
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
+    );
+
+    pickRole("Admin");
+    fireEvent.change(getByLabelText("Username"), { target: { value: "alice" } });
+    fireEvent.click(getByText("Save"));
+
+    await waitFor(() => {
+      expect(mockCreateUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          username: "alice",
+          roleId: "role-admin",
+        }),
+      );
+    });
   });
 
   it("calls onDismiss when clicking close button in step 1", async () => {
