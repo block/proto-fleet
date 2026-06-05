@@ -554,6 +554,23 @@ func TestDriver_Dispatch_DeviceListScopeRequiresIdentifiers(t *testing.T) {
 	assert.Empty(t, svc.startCalls, "an invalid scope must not reach Start")
 }
 
+func TestDriver_Dispatch_SiteScopeRejectedUntilCoreSupport(t *testing.T) {
+	t.Parallel()
+
+	svc := &fakeService{}
+	d := NewDriver(svc, nil)
+
+	siteID := int64(42)
+	src := sampleSource()
+	src.ScopeType = "site"
+	src.ScopeSiteID = &siteID
+
+	_, err := d.Dispatch(context.Background(), src, EdgeOnToOff, time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported scope type")
+	assert.Empty(t, svc.startCalls, "site scope must not reach Start until the curtailment core supports it")
+}
+
 // ResumeSourceEvent uses Recurtail instead of Start.
 func TestDriver_ResumeSourceEvent(t *testing.T) {
 	t.Parallel()

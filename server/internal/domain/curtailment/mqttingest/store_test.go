@@ -60,6 +60,19 @@ func TestSourceConfigFromRow_CarriesScope(t *testing.T) {
 	assert.Equal(t, []string{"miner-1", "miner-2"}, cfg.ScopeDeviceIdentifiers)
 }
 
+func TestSourceConfigFromRow_CarriesSiteScope(t *testing.T) {
+	t.Parallel()
+
+	siteID := int64(42)
+	cfg := sourceConfigFromRow(sqlc.CurtailmentMqttSourceConfig{
+		ScopeType:   "site",
+		ScopeSiteID: sql.NullInt64{Int64: siteID, Valid: true},
+	})
+
+	assert.Equal(t, "site", cfg.ScopeType)
+	assert.Equal(t, &siteID, cfg.ScopeSiteID)
+}
+
 // curtail_mode round-trips, and a NULL contracted_curtailment_kw (a full_fleet
 // source) surfaces as 0 in the domain shape.
 func TestSourceConfigFromRow_CarriesCurtailMode(t *testing.T) {

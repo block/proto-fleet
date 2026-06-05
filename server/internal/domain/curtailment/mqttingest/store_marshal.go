@@ -69,6 +69,14 @@ func int32OrDefault(n sql.NullInt32, def int32) int32 {
 	return n.Int32
 }
 
+func int64PtrFromNull(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
+}
+
 func nullTimeFrom(t time.Time) sql.NullTime {
 	if t.IsZero() {
 		return sql.NullTime{}

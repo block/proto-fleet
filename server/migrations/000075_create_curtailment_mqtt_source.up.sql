@@ -31,10 +31,14 @@ CREATE TABLE curtailment_mqtt_source_config (
     -- canonical (target, timestamp). Validated against the in-code decoder
     -- registry at startup, so a new integration needs no migration here.
     payload_format                  TEXT         NOT NULL DEFAULT 'target_timestamp',
-    -- Curtailment scope this source targets: 'whole_org' (all org devices) or
-    -- 'device_list' (scope_device_identifiers below). device_sets is not yet
-    -- supported by the curtailment core.
+    -- Curtailment scope this source targets: 'whole_org' (all org devices),
+    -- 'site' (scope_site_id below), or 'device_list'
+    -- (scope_device_identifiers below). device_sets is not yet supported by
+    -- the curtailment core.
     scope_type                      TEXT         NOT NULL DEFAULT 'whole_org',
+    -- Site target for scope_type='site'; NULL for other scopes. The subscriber
+    -- still rejects site scope until the curtailment core supports it.
+    scope_site_id                   BIGINT       NULL,
     -- Device identifiers for scope_type='device_list'; NULL for 'whole_org'.
     scope_device_identifiers        TEXT[]       NULL,
     -- Seconds of broker silence before the watchdog fires WATCHDOG_OFF.
@@ -53,6 +57,8 @@ CREATE TABLE curtailment_mqtt_source_config (
         REFERENCES organization(id) ON DELETE RESTRICT,
     CONSTRAINT fk_curtailment_mqtt_source_config_service_user FOREIGN KEY (service_user_id)
         REFERENCES "user"(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_curtailment_mqtt_source_config_site FOREIGN KEY (scope_site_id, organization_id)
+        REFERENCES site(id, org_id) ON DELETE RESTRICT,
     CONSTRAINT uq_curtailment_mqtt_source_config_org_name UNIQUE (organization_id, source_name),
     CONSTRAINT ck_curtailment_mqtt_source_config_source_name_nonempty
         CHECK (btrim(source_name) <> ''),
@@ -85,11 +91,17 @@ CREATE TABLE curtailment_mqtt_source_config (
         CHECK (min_curtailed_duration_sec IS NULL OR min_curtailed_duration_sec >= 0),
     CONSTRAINT ck_curtailment_mqtt_source_config_brokers_distinct
         CHECK (btrim(broker_primary_host) <> btrim(broker_secondary_host)),
-    -- whole_org carries no device list; device_list requires a non-empty one.
+    -- whole_org carries no scoped fields; site requires exactly a site id;
+    -- device_list requires a non-empty device list.
     CONSTRAINT ck_curtailment_mqtt_source_config_scope CHECK (
-        (scope_type = 'whole_org' AND scope_device_identifiers IS NULL)
+        (scope_type = 'whole_org' AND scope_site_id IS NULL
+            AND scope_device_identifiers IS NULL)
         OR
-        (scope_type = 'device_list' AND scope_device_identifiers IS NOT NULL
+        (scope_type = 'site' AND scope_site_id IS NOT NULL
+            AND scope_device_identifiers IS NULL)
+        OR
+        (scope_type = 'device_list' AND scope_site_id IS NULL
+            AND scope_device_identifiers IS NOT NULL
             AND cardinality(scope_device_identifiers) > 0)
     )
 );

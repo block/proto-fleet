@@ -460,6 +460,7 @@ type CurtailmentMqttSourceConfig struct {
 	CurtailMode             string
 	PayloadFormat           string
 	ScopeType               string
+	ScopeSiteID             sql.NullInt64
 	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
 	MinCurtailedDurationSec sql.NullInt32

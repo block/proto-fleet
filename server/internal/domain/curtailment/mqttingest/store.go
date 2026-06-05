@@ -29,8 +29,9 @@ type SourceConfig struct {
 	CurtailMode string
 	// PayloadFormat selects the source's decoder.
 	PayloadFormat string
-	// ScopeType is 'whole_org' or 'device_list'.
+	// ScopeType is 'whole_org', 'site', or 'device_list'.
 	ScopeType              string
+	ScopeSiteID            *int64
 	ScopeDeviceIdentifiers []string
 	StalenessThreshold     time.Duration
 	MinCurtailedDuration   time.Duration
@@ -186,6 +187,7 @@ func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 		CurtailMode:             r.CurtailMode,
 		PayloadFormat:           r.PayloadFormat,
 		ScopeType:               r.ScopeType,
+		ScopeSiteID:             int64PtrFromNull(r.ScopeSiteID),
 		ScopeDeviceIdentifiers:  r.ScopeDeviceIdentifiers,
 		StalenessThreshold:      time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
 		MinCurtailedDuration:    time.Duration(int32OrDefault(r.MinCurtailedDurationSec, defaultMinCurtailedDurationSec)) * time.Second,

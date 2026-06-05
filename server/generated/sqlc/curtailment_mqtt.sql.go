@@ -60,6 +60,7 @@ INSERT INTO curtailment_mqtt_source_config (
     curtail_mode,
     payload_format,
     scope_type,
+    scope_site_id,
     scope_device_identifiers,
     staleness_threshold_sec,
     min_curtailed_duration_sec,
@@ -82,9 +83,10 @@ INSERT INTO curtailment_mqtt_source_config (
     $15,
     $16,
     $17,
-    $18
+    $18,
+    $19
 )
-RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_site_id, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 `
 
 type InsertMQTTSourceConfigParams struct {
@@ -102,6 +104,7 @@ type InsertMQTTSourceConfigParams struct {
 	CurtailMode             string
 	PayloadFormat           string
 	ScopeType               string
+	ScopeSiteID             sql.NullInt64
 	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
 	MinCurtailedDurationSec sql.NullInt32
@@ -126,6 +129,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		arg.CurtailMode,
 		arg.PayloadFormat,
 		arg.ScopeType,
+		arg.ScopeSiteID,
 		pq.Array(arg.ScopeDeviceIdentifiers),
 		arg.StalenessThresholdSec,
 		arg.MinCurtailedDurationSec,
@@ -148,6 +152,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		&i.CurtailMode,
 		&i.PayloadFormat,
 		&i.ScopeType,
+		&i.ScopeSiteID,
 		pq.Array(&i.ScopeDeviceIdentifiers),
 		&i.StalenessThresholdSec,
 		&i.MinCurtailedDurationSec,
@@ -159,7 +164,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 }
 
 const listEnabledMQTTSources = `-- name: ListEnabledMQTTSources :many
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_site_id, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
 FROM curtailment_mqtt_source_config
 WHERE enabled = TRUE
 ORDER BY id
@@ -192,6 +197,7 @@ func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqtt
 			&i.CurtailMode,
 			&i.PayloadFormat,
 			&i.ScopeType,
+			&i.ScopeSiteID,
 			pq.Array(&i.ScopeDeviceIdentifiers),
 			&i.StalenessThresholdSec,
 			&i.MinCurtailedDurationSec,
