@@ -191,14 +191,14 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 			src.SourceName, src.ServiceUserID, src.OrganizationID)
 	}
 
-	password, err := s.cfg.Decryptor.Decrypt(src.MQTTPasswordEncrypted)
-	if err != nil {
-		return nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)
-	}
-
 	decoder, err := decoderForFormat(src.PayloadFormat)
 	if err != nil {
 		return nil, fmt.Errorf("mqttingest: source %s: %w", src.SourceName, err)
+	}
+
+	password, err := s.cfg.Decryptor.Decrypt(src.MQTTPasswordEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)
 	}
 
 	w := &sourceWorker{

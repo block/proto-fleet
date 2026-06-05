@@ -124,7 +124,7 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 	got, err := store.BeginRecurtailTransition(ctx, user.OrganizationID, sourceEventUUID)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, models.EventStateActive, got.State)
+	assert.Equal(t, models.EventStatePending, got.State)
 
 	var targetDesiredState, targetState string
 	var retryCount int32

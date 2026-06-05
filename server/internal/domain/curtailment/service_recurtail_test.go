@@ -16,7 +16,7 @@ func TestService_Recurtail_HappyPath(t *testing.T) {
 
 	got, err := f.svc.Recurtail(t.Context(), RecurtailRequest{OrgID: 1, EventUUID: f.event.EventUUID})
 	require.NoError(t, err)
-	assert.Equal(t, models.EventStateActive, got.State, "a restoring event resumes to active")
+	assert.Equal(t, models.EventStatePending, got.State, "a restoring event resumes through pending dispatch")
 	assert.Equal(t, 1, f.store.beginRecurtailCalls)
 	assert.Equal(t, f.event.EventUUID, f.store.beginRecurtailLastEventID)
 }

@@ -19,7 +19,7 @@ type curtailmentService interface {
 	// ListActive returns all non-terminal events; source_actor_id identifies
 	// this MQTT source among concurrent per-scope events.
 	ListActive(ctx context.Context, orgID int64) ([]*models.Event, error)
-	// Recurtail flips a restoring event back to active in place.
+	// Recurtail routes a restoring event back through curtail dispatch.
 	Recurtail(ctx context.Context, req curtailment.RecurtailRequest) (*models.Event, error)
 }
 

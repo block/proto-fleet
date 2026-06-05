@@ -400,9 +400,10 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: ResumeCurtailmentFromRestoring :one
--- Restore reversal: state guard lets the store route concurrent transitions.
+-- Restore reversal: go back through pending so the curtail dispatcher picks
+-- up reset targets.
 UPDATE curtailment_event
-SET state = 'active'
+SET state = 'pending'
 WHERE id = sqlc.arg('id')
   AND state = 'restoring'
 RETURNING *;

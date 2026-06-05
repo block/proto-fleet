@@ -439,7 +439,7 @@ func TestWorker_HandleWatchdog_RechecksAuthBeforeRecurtail(t *testing.T) {
 		listActiveResult: []*models.Event{
 			testSourceEvent(src, eventUUID, models.EventStateRestoring),
 		},
-		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
 	}
 	w := newTestWorker(t, store, svc, src)
 
@@ -798,7 +798,7 @@ func TestWorker_HandleMessage_SameSecondOffAfterOn_Recurtails(t *testing.T) {
 		stopResult: &models.Event{EventUUID: eventUUID},
 		recurtailResult: &models.Event{
 			EventUUID: eventUUID,
-			State:     models.EventStateActive,
+			State:     models.EventStatePending,
 		},
 	}
 	w := newTestWorker(t, store, svc, src)
@@ -1305,7 +1305,7 @@ func TestWorker_HandleWatchdog_Off_RestoringEvent_Recurtails(t *testing.T) {
 		listActiveResult: []*models.Event{
 			testSourceEvent(workerSource(), eventUUID, models.EventStateRestoring),
 		},
-		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 
@@ -1372,7 +1372,7 @@ func TestWorker_HandleMessage_OffWhileRestoring_Recurtails(t *testing.T) {
 		listActiveResult: []*models.Event{
 			testSourceEvent(workerSource(), eventUUID, models.EventStateRestoring),
 		},
-		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
 	}
 	w := newTestWorker(t, store, svc, workerSource())
 

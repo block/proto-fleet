@@ -373,7 +373,7 @@ func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUU
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 	}
 	updated := *ev
-	updated.State = models.EventStateActive
+	updated.State = models.EventStatePending
 	return &updated, nil
 }
 

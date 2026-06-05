@@ -202,6 +202,15 @@ type passthroughDecryptor struct{}
 
 func (passthroughDecryptor) Decrypt(s string) ([]byte, error) { return []byte(s), nil }
 
+type countingDecryptor struct {
+	calls int
+}
+
+func (d *countingDecryptor) Decrypt(s string) ([]byte, error) {
+	d.calls++
+	return []byte(s), nil
+}
+
 func TestSubscriber_Run_DispatchesOnOffEdge(t *testing.T) {
 	t.Parallel()
 
@@ -385,6 +394,43 @@ func TestSubscriber_StartWorker_RejectsUnsupportedSiteScopeAtStartup(t *testing.
 	require.Error(t, err)
 	assert.Nil(t, w)
 	assert.Contains(t, err.Error(), "unsupported scope type")
+}
+
+func TestSubscriber_StartWorker_ValidatesDecoderBeforeDecrypt(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{
+		ID:                    1,
+		OrganizationID:        7,
+		ServiceUserID:         99,
+		SourceName:            "site-a",
+		BrokerPrimaryHost:     "10.0.0.1",
+		BrokerSecondaryHost:   "10.0.0.2",
+		PayloadFormat:         "nope",
+		MQTTPasswordEncrypted: "pw",
+		Enabled:               true,
+	}
+	store := newFakeStore(src)
+	decryptor := &countingDecryptor{}
+
+	cfg := Config{
+		Store:            store,
+		Driver:           NewDriver(&fakeService{}, nil),
+		NewClient:        func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor:        decryptor,
+		Logger:           slog.New(slog.DiscardHandler),
+		ShutdownDeadline: time.Second,
+	}
+	sub, err := NewSubscriber(cfg)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	w, err := sub.startWorker(context.Background(), src, &wg)
+
+	require.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "unknown payload_format")
+	assert.Zero(t, decryptor.calls, "invalid decoder config must fail before decrypting credentials")
 }
 
 func TestValidateBrokerTransport_TCPAllowsPrivateMaestroHosts(t *testing.T) {

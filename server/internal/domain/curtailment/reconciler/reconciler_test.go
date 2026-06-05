@@ -309,7 +309,7 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
-			ev.State = models.EventStateActive
+			ev.State = models.EventStatePending
 			return ev, nil
 		}
 	}

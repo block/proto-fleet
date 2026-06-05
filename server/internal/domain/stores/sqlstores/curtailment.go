@@ -659,8 +659,8 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 	})
 }
 
-// BeginRecurtailTransition flips a restoring event back to active and resets
-// restore targets in one transaction. Any target overlap rolls back so the
+// BeginRecurtailTransition flips a restoring event back to pending and resets
+// restore targets for Curtail dispatch. Any target overlap rolls back so the
 // watchdog can retry while the event remains restoring.
 func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	ctx context.Context,

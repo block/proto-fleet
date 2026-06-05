@@ -1406,8 +1406,9 @@ type RecurtailRequest struct {
 	EventUUID uuid.UUID
 }
 
-// Recurtail flips a restoring event back to active and reclaims restore targets.
-// Non-restoring non-terminal events are idempotent; terminal events fail.
+// Recurtail flips a restoring event back to pending and reclaims restore
+// targets. Non-restoring non-terminal events are idempotent; terminal events
+// fail.
 func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.Event, error) {
 	if req.OrgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")

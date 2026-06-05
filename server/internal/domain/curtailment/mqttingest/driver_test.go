@@ -204,7 +204,7 @@ func TestDriver_Dispatch_OffSignal_RecurtailsRestoringSourceEvent(t *testing.T) 
 				listActiveResult: []*models.Event{
 					testSourceEvent(sampleSource(), eventUUID, models.EventStateRestoring),
 				},
-				recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive},
+				recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
 			}
 			d := NewDriver(svc, nil)
 
@@ -576,7 +576,7 @@ func TestDriver_ResumeSourceEvent(t *testing.T) {
 	t.Parallel()
 
 	eventUUID := uuid.New()
-	svc := &fakeService{recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStateActive}}
+	svc := &fakeService{recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending}}
 	d := NewDriver(svc, nil)
 
 	err := d.ResumeSourceEvent(context.Background(), &models.Event{EventUUID: eventUUID, OrgID: 7})
