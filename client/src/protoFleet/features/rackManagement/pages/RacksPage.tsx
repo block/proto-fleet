@@ -12,6 +12,7 @@ import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "
 import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   AssignMinersModal,
@@ -529,7 +530,7 @@ const RacksPage = () => {
             renderMiners={renderMiners}
             renderSite={renderSite}
             renderBuilding={renderBuilding}
-            columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
+            columns={insideFleetShell && MULTI_SITE_ENABLED ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
             onSort={handleSort}
             itemName={{ singular: "rack", plural: "racks" }}
