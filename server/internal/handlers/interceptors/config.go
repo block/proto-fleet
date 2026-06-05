@@ -30,6 +30,9 @@ var RedactedRequestProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
+	// PairDiscoveredDevicesOnFleetNode carries miner credentials (username/password)
+	// in the request body.
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -92,6 +95,8 @@ var SessionOnlyProcedures = []string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDiscoveredDevicesProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
 	// AdminTerminateEvent forces a non-terminal event to a terminal state and
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
@@ -124,6 +129,7 @@ var FleetNodeAuthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure,
 }
 
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
@@ -140,5 +146,11 @@ var SensitiveBodyProcedures = map[string]bool{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure: true,
-	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:         true,
+	// ReportPairedDevices carries pair result error strings that can echo credential
+	// fragments from plugin/miner error responses.
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure: true,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:     true,
+	// PairDiscoveredDevicesOnFleetNode carries credentials in the request; response
+	// error strings from plugins/nodes can also echo secrets.
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: true,
 }

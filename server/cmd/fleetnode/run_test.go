@@ -59,6 +59,10 @@ func (s *stubGatewayClient) ReportDiscoveredDevices(_ context.Context, _ *connec
 	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{}), nil
 }
 
+func (s *stubGatewayClient) ReportPairedDevices(_ context.Context, _ *connect.Request[pb.ReportPairedDevicesRequest]) (*connect.Response[pb.ReportPairedDevicesResponse], error) {
+	return connect.NewResponse(&pb.ReportPairedDevicesResponse{}), nil
+}
+
 func (s *stubGatewayClient) ControlStream(_ context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse] {
 	return nil
 }

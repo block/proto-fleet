@@ -465,6 +465,7 @@ type controlFakeBehavior struct {
 	closeOnSignal  <-chan struct{}
 	rejectWithCode connect.Code
 	reportErr      error
+	pairReportErr  error
 }
 
 type pendingCommand struct {
@@ -475,12 +476,13 @@ type pendingCommand struct {
 type controlFakeGateway struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
-	mu       sync.Mutex
-	pending  []pendingCommand
-	hellos   int32
-	acks     []*pb.ControlAck
-	reports  []*pb.ReportDiscoveredDevicesRequest
-	behavior controlFakeBehavior
+	mu          sync.Mutex
+	pending     []pendingCommand
+	hellos      int32
+	acks        []*pb.ControlAck
+	reports     []*pb.ReportDiscoveredDevicesRequest
+	pairReports []*pb.ReportPairedDevicesRequest
+	behavior    controlFakeBehavior
 }
 
 func (f *controlFakeGateway) queue(payload []byte) {
@@ -527,6 +529,25 @@ func (f *controlFakeGateway) ReportDiscoveredDevices(_ context.Context, req *con
 		return nil, reportErr
 	}
 	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{AcceptedCount: int64(len(req.Msg.GetDevices()))}), nil
+}
+
+func (f *controlFakeGateway) ReportPairedDevices(_ context.Context, req *connect.Request[pb.ReportPairedDevicesRequest]) (*connect.Response[pb.ReportPairedDevicesResponse], error) {
+	f.mu.Lock()
+	f.pairReports = append(f.pairReports, req.Msg)
+	reportErr := f.behavior.pairReportErr
+	f.mu.Unlock()
+	if reportErr != nil {
+		return nil, reportErr
+	}
+	return connect.NewResponse(&pb.ReportPairedDevicesResponse{AcceptedCount: int64(len(req.Msg.GetResults()))}), nil
+}
+
+func (f *controlFakeGateway) pairReportsCopy() []*pb.ReportPairedDevicesRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*pb.ReportPairedDevicesRequest, len(f.pairReports))
+	copy(out, f.pairReports)
+	return out
 }
 
 func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {

@@ -28,6 +28,7 @@ type Store interface {
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
+	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID, cursorID, limit *int64) ([]FleetNodeDiscoveredDevice, error)
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 }
@@ -112,6 +113,25 @@ func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgI
 		return nil, fleeterror.LogInternal(component, "list pairs for fleet node", clientErrList, err)
 	}
 	return pairs, nil
+}
+
+// ListDiscoveredDevicesForFleetNode lists fleet-node-discovered devices not yet
+// paired to their node. A nil fleetNodeID returns all such devices in the org.
+// Results page by ascending id: pass the previous nextCursor as cursorID and a
+// positive limit. A nil limit returns every candidate (the pairing batch path
+// needs the full set). nextCursor is non-nil only when a full page was returned
+// and more rows may remain.
+func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID int64, fleetNodeID, cursorID, limit *int64) ([]FleetNodeDiscoveredDevice, *int64, error) {
+	devices, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, fleetNodeID, cursorID, limit)
+	if err != nil {
+		return nil, nil, fleeterror.LogInternal(component, "list discovered devices", clientErrList, err)
+	}
+	var nextCursor *int64
+	if limit != nil && *limit > 0 && int64(len(devices)) == *limit {
+		last := devices[len(devices)-1].ID
+		nextCursor = &last
+	}
+	return devices, nextCursor, nil
 }
 
 // UpsertDiscoveredDevices validates the whole batch up front, then runs
