@@ -288,8 +288,15 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
 `
 
+// Returns identifiers of cloud-dialed paired devices only. Excludes fleet-node-owned
+// devices (those with a fleet_node_device row): the node owns their I/O and the cloud
+// has no direct route, so they must not enter the telemetry polling loop.
 func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, error) {
 	rows, err := q.query(ctx, q.getAllPairedDeviceIdentifiersStmt, getAllPairedDeviceIdentifiers)
 	if err != nil {
