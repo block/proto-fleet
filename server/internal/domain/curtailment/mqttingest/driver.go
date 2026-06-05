@@ -52,14 +52,21 @@ func NewDriver(svc curtailmentService, now func() time.Time) *Driver {
 
 // Dispatch routes an edge to the appropriate curtailment-service call
 // and returns the resulting EventUUID. EdgeNone is a no-op that
-// returns a zero outcome.
-func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time) (EdgeOutcome, error) {
+// returns a zero outcome. The optional priorEdgeAt is the previous edge's
+// anchor; it salts the message-driven external_reference so two OFF edges
+// sharing a publisher second don't collide (see startExternalReference).
+// Callers that don't need it (tests) may omit it.
+func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time, priorEdgeAt ...time.Time) (EdgeOutcome, error) {
+	var prior time.Time
+	if len(priorEdgeAt) > 0 {
+		prior = priorEdgeAt[0]
+	}
 	switch direction {
 	case EdgeNone:
 		return EdgeOutcome{}, nil
 
 	case EdgeOnToOff, EdgeWatchdogOff:
-		eventUUID, err := d.dispatchStart(ctx, src, direction, edgeAt)
+		eventUUID, err := d.dispatchStart(ctx, src, direction, edgeAt, prior)
 		if err != nil {
 			return EdgeOutcome{}, err
 		}
@@ -83,13 +90,13 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 	}
 }
 
-func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt time.Time) (uuid.UUID, error) {
+func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction EdgeDirection, edgeAt, priorEdgeAt time.Time) (uuid.UUID, error) {
 	scope, err := scopeForSource(src)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	externalRef := startExternalReference(src.SourceName, direction, edgeAt, src.StalenessThreshold)
+	externalRef := startExternalReference(src.SourceName, direction, edgeAt, priorEdgeAt, src.StalenessThreshold)
 	reason := startReason(src.SourceName, direction, edgeAt)
 
 	externalSource := src.SourceName
@@ -214,7 +221,7 @@ func clampToInt32Seconds(d time.Duration) int32 {
 // back-to-back 1 s ticks in one stale episode share a reference and
 // replay, instead of triggering a fresh selector pass each tick. Only
 // called for ON->OFF and WATCHDOG_OFF.
-func startExternalReference(source string, direction EdgeDirection, edgeAt time.Time, stalenessThreshold time.Duration) string {
+func startExternalReference(source string, direction EdgeDirection, edgeAt, priorEdgeAt time.Time, stalenessThreshold time.Duration) string {
 	if direction == EdgeWatchdogOff {
 		thresholdSec := int64(stalenessThreshold / time.Second)
 		if thresholdSec <= 0 {
@@ -223,7 +230,18 @@ func startExternalReference(source string, direction EdgeDirection, edgeAt time.
 		windowStart := (edgeAt.Unix() / thresholdSec) * thresholdSec
 		return fmt.Sprintf("%s:watchdog:%d", source, windowStart)
 	}
-	return fmt.Sprintf("%s:%d", source, edgeAt.Unix())
+	// Salt the message-driven reference with the prior edge's second. Wire
+	// stamps are seconds-precision, so an OFF→ON→OFF burst stamped in one second
+	// but received outside the debounce window would otherwise give both OFFs
+	// the same source:<second> reference; Stop leaves the first event
+	// `restoring` (still covered by the unique index), so the second OFF would
+	// be treated as a replay and dropped. The prior anchor is persisted state
+	// (LastEdgeAt) and stays fixed across a redelivery of the same edge, so the
+	// reference is still stable. Cold start (no prior edge) keeps the bare form.
+	if priorEdgeAt.IsZero() {
+		return fmt.Sprintf("%s:%d", source, edgeAt.Unix())
+	}
+	return fmt.Sprintf("%s:%d:%d", source, edgeAt.Unix(), priorEdgeAt.Unix())
 }
 
 // startReason builds the operator-facing reason recorded on the event,

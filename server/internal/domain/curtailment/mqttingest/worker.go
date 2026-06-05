@@ -297,13 +297,14 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	// The dispatch timestamp drives the synthetic external_reference: use the
 	// publisher's stamp (stable across the dual-broker duplicate and QoS-1
 	// redelivery) for message-driven edges; the watchdog edge has no stamp and
-	// falls back to receive-time. LastEdgeAt stays receive-time below — it is
-	// the debounce anchor and tracks local timing.
+	// falls back to receive-time. prior.LastEdgeAt salts that reference so two
+	// OFF edges sharing a publisher second (a burst received apart) don't
+	// collide; it also stays the debounce anchor tracking local timing.
 	dispatchAt := canonical.ReceivedAt
 	if !canonical.PublishedAt.IsZero() {
 		dispatchAt = canonical.PublishedAt
 	}
-	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, dispatchAt)
+	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, direction, dispatchAt, prior.LastEdgeAt)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveEvent) {
 			// OFF→ON with no in-flight event to stop (curtailment already

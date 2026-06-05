@@ -206,6 +206,42 @@ func TestDriver_Dispatch_WatchdogOff_QuantizesWithinWindow(t *testing.T) {
 	assert.NotEqual(t, refA, refC, "ticks in different staleness windows must diverge")
 }
 
+// Two OFF edges sharing a publisher Unix-second but following different prior
+// edges (an OFF→ON→OFF burst received outside the debounce window) must get
+// distinct external_references — otherwise Stop leaves the first event
+// `restoring` (still covered by the unique index) and the second OFF is
+// swallowed as a replay. A redelivery of the same edge (same prior anchor)
+// must reuse the reference so genuine duplicates still dedupe.
+func TestDriver_Dispatch_SameSecondOffEdges_DistinctReferences(t *testing.T) {
+	t.Parallel()
+
+	newUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
+	d := NewDriver(svc, nil)
+
+	src := sampleSource()
+	edgeAt := time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC) // shared publisher second
+	priorFirst := edgeAt.Add(-30 * time.Second)             // anchor before the first OFF
+	priorSecond := edgeAt.Add(-6 * time.Second)             // the intervening ON's anchor
+
+	_, err := d.Dispatch(context.Background(), src, EdgeOnToOff, edgeAt, priorFirst)
+	require.NoError(t, err)
+	_, err = d.Dispatch(context.Background(), src, EdgeOnToOff, edgeAt, priorSecond)
+	require.NoError(t, err)
+	// Redelivery of the second OFF: same edge + same prior anchor.
+	_, err = d.Dispatch(context.Background(), src, EdgeOnToOff, edgeAt, priorSecond)
+	require.NoError(t, err)
+
+	require.Len(t, svc.startCalls, 3)
+	refFirst := *svc.startCalls[0].ExternalReference
+	refSecond := *svc.startCalls[1].ExternalReference
+	refRedelivery := *svc.startCalls[2].ExternalReference
+	assert.NotEqual(t, refFirst, refSecond,
+		"same-second OFFs after different prior edges must not collide")
+	assert.Equal(t, refSecond, refRedelivery,
+		"a redelivery (same prior anchor) must reuse the reference for idempotency")
+}
+
 func TestDriver_Dispatch_ReplayUsesPersistedEventUUID(t *testing.T) {
 	t.Parallel()
 
