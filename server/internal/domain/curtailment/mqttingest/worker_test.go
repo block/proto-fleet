@@ -756,6 +756,39 @@ func TestWorker_LoadInitialState_ReconcilesWithActiveSourceEvent(t *testing.T) {
 	}
 }
 
+// Recovery must seed ordering/debounce anchors from the active event. Without
+// them LastTargetAt/LastEdgeAt stay zero, so a retained payload published
+// before the curtailment began — but received inside the staleness window — is
+// processed as a fresh edge and stops the recovered curtailment.
+func TestWorker_LoadInitialState_SeedsAnchorsFromActiveEvent(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()                              // cold start: GetSourceState returns NotFound
+	eventStart := time.Now().UTC().Add(-2 * time.Minute) // curtailment began 2 min ago
+	mine := "mqtt:site-a"                                // workerSource() is "site-a"
+	svc := &fakeService{
+		listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &mine, CreatedAt: eventStart}},
+		stopResult:       &models.Event{EventUUID: uuid.New()},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	recovered := w.loadInitialState(context.Background())
+	require.Equal(t, TargetOff, recovered.LastTarget, "an active own event reconciles to OFF")
+	assert.Equal(t, eventStart, recovered.LastTargetAt, "ordering anchor seeded from the active event")
+	assert.Equal(t, eventStart, recovered.LastEdgeAt, "debounce anchor seeded from the active event")
+
+	// A retained ON published before the event began, received recently (younger
+	// than the staleness window), must be dropped — not dispatched as a Stop that
+	// un-curtails the recovered curtailment.
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": eventStart.Add(-30 * time.Second).Unix()})
+	require.NoError(t, err)
+	after := w.handleMessage(context.Background(), recovered,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: time.Now().UTC()})
+
+	assert.Equal(t, TargetOff, after.LastTarget, "a retained pre-event ON must not lift the recovered curtailment")
+	assert.Empty(t, svc.stopCalls, "stale retained ON must not dispatch Stop")
+}
+
 // An OFF whose Start hits a device-overlap AlreadyExists (a concurrent event
 // already curtails one of this scope's devices) is a retryable failure, not a
 // satisfied OFF: LastTarget must not advance so the next message/tick retries.

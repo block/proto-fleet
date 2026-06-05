@@ -123,6 +123,13 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) SourceState {
 		case active != nil:
 			state.LastTarget = TargetOff
 			state.LastEdgeEventUUID = active.EventUUID.String()
+			// Seed the ordering + debounce anchors from the event so a
+			// retained/backlog payload published before this curtailment began
+			// can't be processed as a fresh edge and stop it. Without an anchor
+			// LastTargetAt/LastEdgeAt stay zero, and a pre-event ON received
+			// inside the staleness window would dispatch Stop and un-curtail.
+			state.LastTargetAt = active.CreatedAt
+			state.LastEdgeAt = active.CreatedAt
 			w.cfg.Logger.Info("mqttingest: reconciled to active curtailment",
 				slog.String("source", w.source.SourceName),
 				slog.String("event_uuid", state.LastEdgeEventUUID))
