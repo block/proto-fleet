@@ -150,8 +150,8 @@ var catalog = []CatalogEntry{
 
 	{PermServerlogRead, "View server-side logs.", ResourceServerLog},
 
-	{PermCurtailmentRead, "View curtailment policies and preview impact.", ResourceCurtailment},
-	{PermCurtailmentManage, "Create, edit, and delete curtailment policies.", ResourceCurtailment},
+	{PermCurtailmentRead, "View curtailment status, events, and policies.", ResourceCurtailment},
+	{PermCurtailmentManage, "Preview, start, stop, and manage curtailment policies.", ResourceCurtailment},
 	{PermCurtailmentIngest, "Accept curtailment dispatch signals from external providers (QSE bridge, aggregator, OpenADR VTN).", ResourceCurtailment},
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
