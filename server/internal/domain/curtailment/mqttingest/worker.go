@@ -36,6 +36,7 @@ type observation struct {
 // broker callback backpressures instead of accepting and losing a state signal.
 const observationChannelBuffer = 256
 const initialBrokerRetryMax = 30 * time.Second
+const pendingInsufficientLoadRetryEvery = 30 * time.Second
 
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
@@ -222,6 +223,13 @@ func (w *sourceWorker) startupRetryEvery() time.Duration {
 	return time.Second
 }
 
+func (w *sourceWorker) pendingInsufficientLoadRetryEvery() time.Duration {
+	if w.source.StalenessThreshold > 0 && w.source.StalenessThreshold < pendingInsufficientLoadRetryEvery {
+		return w.source.StalenessThreshold
+	}
+	return pendingInsufficientLoadRetryEvery
+}
+
 func mqttClientIdentity(src SourceConfig, host string) string {
 	return fmt.Sprintf("%d|%s|%s|%d|%s", src.ID, src.SourceName, host, src.BrokerPort, src.Topic)
 }
@@ -355,6 +363,12 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		pendingSuperseded = true
 	}
 
+	if prior.PendingEdge != nil && !w.pendingEdgeRetryReady(prior.PendingEdge) {
+		state := w.advanceLiveness(prior, canonical, liveness)
+		w.persistState(ctx, state)
+		return state
+	}
+
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
@@ -470,6 +484,9 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	canonical := CanonicalState{Target: TargetOff, ReceivedAt: now}
 	state, dispatched := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
 	if !dispatched {
+		if state.PendingEdge != nil && !state.PendingEdge.RetryAt.IsZero() {
+			return state
+		}
 		return prior
 	}
 	w.persistState(ctx, state)
@@ -501,8 +518,14 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 }
 
 func (w *sourceWorker) retryPendingEdge(ctx context.Context, prior SourceState) (SourceState, bool) {
+	if !w.pendingEdgeRetryReady(prior.PendingEdge) {
+		return prior, false
+	}
 	state, dispatched := w.dispatchPendingEdge(ctx, prior)
 	if !dispatched {
+		if pendingRetryUpdated(prior.PendingEdge, state.PendingEdge) {
+			return state, true
+		}
 		return prior, false
 	}
 	if !w.persistState(ctx, state) {
@@ -515,6 +538,9 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 	pending := prior.PendingEdge
 	if pending == nil {
 		return prior, true
+	}
+	if !w.pendingEdgeRetryReady(pending) {
+		return prior, false
 	}
 	if !w.ensureCanDispatch(ctx) {
 		return prior, false
@@ -547,6 +573,10 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 		if errors.Is(err, ErrNoActiveEvent) {
 			return w.settlePendingEdge(prior, pending, pending.Target, uuid.Nil, false, dispatchAt), true
 		}
+		var insufficientLoad *StartInsufficientLoadError
+		if errors.As(err, &insufficientLoad) {
+			return w.deferPendingRetry(ctx, prior, pending, err), false
+		}
 		w.cfg.Logger.Error("mqttingest: edge dispatch failed",
 			slog.String("source", w.source.SourceName),
 			slog.String("direction", pending.Direction.String()),
@@ -560,6 +590,35 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 		slog.String("direction", pending.Direction.String()),
 		slog.String("event_uuid", state.LastEdgeEventUUID))
 	return state, true
+}
+
+func (w *sourceWorker) pendingEdgeRetryReady(pending *PendingEdge) bool {
+	return pending == nil || pending.RetryAt.IsZero() || !w.cfg.Clock().Before(pending.RetryAt)
+}
+
+func pendingRetryUpdated(before, after *PendingEdge) bool {
+	if before == nil || after == nil {
+		return false
+	}
+	return !after.RetryAt.IsZero() && !after.RetryAt.Equal(before.RetryAt)
+}
+
+func (w *sourceWorker) deferPendingRetry(ctx context.Context, prior SourceState, pending *PendingEdge, err error) SourceState {
+	state := prior
+	next := *pending
+	retryAfter := w.pendingInsufficientLoadRetryEvery()
+	next.RetryAt = w.cfg.Clock().Add(retryAfter).UTC()
+	state.PendingEdge = &next
+	if !w.persistState(ctx, state) {
+		return prior
+	}
+	w.cfg.Logger.Warn("mqttingest: edge dispatch deferred",
+		slog.String("source", w.source.SourceName),
+		slog.String("direction", pending.Direction.String()),
+		slog.Duration("retry_after", retryAfter),
+		slog.Time("retry_at", next.RetryAt),
+		slog.Any("error", err))
+	return state
 }
 
 func (w *sourceWorker) settlePendingEdge(

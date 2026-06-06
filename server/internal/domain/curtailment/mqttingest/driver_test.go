@@ -432,7 +432,12 @@ func TestDriver_Dispatch_InsufficientLoadIsError(t *testing.T) {
 	_, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
 
 	require.Error(t, err)
+	var insufficient *StartInsufficientLoadError
+	require.ErrorAs(t, err, &insufficient)
 	assert.Contains(t, err.Error(), "insufficient load")
+	require.NotNil(t, insufficient.Detail)
+	assert.Equal(t, 1000.0, insufficient.Detail.AvailableKW)
+	assert.Equal(t, 12500.0, insufficient.Detail.RequestedKW)
 }
 
 func TestDriver_Dispatch_OffToOn(t *testing.T) {

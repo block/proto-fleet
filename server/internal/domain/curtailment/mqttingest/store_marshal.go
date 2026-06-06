@@ -128,6 +128,7 @@ func pendingEdgeFromRow(
 	receivedAt sql.NullTime,
 	receivedBroker sql.NullString,
 	priorEdgeAt sql.NullTime,
+	retryAt sql.NullTime,
 ) *PendingEdge {
 	d := edgeDirectionFromNullString(direction)
 	t := targetFromNullString(target)
@@ -141,6 +142,7 @@ func pendingEdgeFromRow(
 		ReceivedAt:     timeFromNullTime(receivedAt),
 		ReceivedBroker: stringFromNullString(receivedBroker),
 		PriorEdgeAt:    timeFromNullTime(priorEdgeAt),
+		RetryAt:        timeFromNullTime(retryAt),
 	}
 }
 
