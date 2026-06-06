@@ -82,8 +82,41 @@ func TestService_Start_EmitsBaseAuditRowOnSuccess(t *testing.T) {
 		"default SourceActorUser must map to ActorUser")
 	require.NotNil(t, events[0].Metadata)
 	assert.Equal(t, plan.EventUUID.String(), events[0].Metadata["event_uuid"])
+	assert.Equal(t, string(models.ModeFixedKw), events[0].Metadata["mode"])
+	assert.Equal(t, float64(2), events[0].Metadata["target_kw"])
+	assert.Equal(t, req.ToleranceKW, events[0].Metadata["tolerance_kw"])
 	assert.Equal(t, false, events[0].Metadata["allow_unbounded"])
 	assert.Equal(t, false, events[0].Metadata["force_include_maintenance"])
+}
+
+// TestService_Start_FullFleetAuditOmitsTargetKW: target_kw is only meaningful
+// for FIXED_KW. FULL_FLEET still records mode so a grouped audit entry can be
+// interpreted without inspecting the persisted event.
+func TestService_Start_FullFleetAuditOmitsTargetKW(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	req := validStartRequest(orgID)
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ToleranceKW = 0
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].Metadata)
+	assert.Equal(t, string(models.ModeFullFleet), events[0].Metadata["mode"])
+	assert.NotContains(t, events[0].Metadata, "target_kw")
+	assert.NotContains(t, events[0].Metadata, "tolerance_kw")
 }
 
 // TestService_Start_MapsSchedulerActorType: a Start initiated by the

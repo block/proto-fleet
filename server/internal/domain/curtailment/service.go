@@ -493,16 +493,25 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 // a transient audit failure increments IncAuditWriteFailure but doesn't
 // roll back the committed Start.
 func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, plan *Plan) {
+	mode := req.Mode
+	if mode == "" {
+		mode = models.ModeFixedKw
+	}
 	metadata := map[string]any{
 		"strategy":                  string(req.Strategy),
 		"level":                     string(req.Level),
 		"priority":                  string(req.Priority),
 		"scope_type":                string(req.Scope.Type),
+		"mode":                      string(mode),
 		"selected_count":            len(plan.Selected),
 		"skipped_count":             len(plan.Skipped),
 		"allow_unbounded":           req.AllowUnbounded,
 		"force_include_maintenance": req.ForceIncludeMaintenance,
 		"source_actor":              string(req.SourceActorType),
+	}
+	if mode == models.ModeFixedKw {
+		metadata["target_kw"] = req.TargetKW
+		metadata["tolerance_kw"] = req.ToleranceKW
 	}
 	if plan.EventUUID != nil {
 		metadata["event_uuid"] = plan.EventUUID.String()
