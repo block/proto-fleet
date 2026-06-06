@@ -279,11 +279,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentEventByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByUUID: %w", err)
 	}
+	if q.getCurtailmentEventDetailByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventDetailByUUID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentEventDetailByUUID: %w", err)
+	}
 	if q.getCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, getCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentOrgConfig: %w", err)
 	}
 	if q.getCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, getCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentReconcilerHeartbeat: %w", err)
+	}
+	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
 	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
@@ -1516,6 +1522,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getCurtailmentEventByUUIDStmt: %w", cerr)
 		}
 	}
+	if q.getCurtailmentEventDetailByUUIDStmt != nil {
+		if cerr := q.getCurtailmentEventDetailByUUIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentEventDetailByUUIDStmt: %w", cerr)
+		}
+	}
 	if q.getCurtailmentOrgConfigStmt != nil {
 		if cerr := q.getCurtailmentOrgConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentOrgConfigStmt: %w", cerr)
@@ -1524,6 +1535,11 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentReconcilerHeartbeatStmt != nil {
 		if cerr := q.getCurtailmentReconcilerHeartbeatStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentReconcilerHeartbeatStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentTargetRollupByEventStmt != nil {
+		if cerr := q.getCurtailmentTargetRollupByEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentTargetRollupByEventStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
@@ -2985,8 +3001,10 @@ type Queries struct {
 	getCurtailmentEventByExternalReferenceStmt          *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt             *sql.Stmt
 	getCurtailmentEventByUUIDStmt                       *sql.Stmt
+	getCurtailmentEventDetailByUUIDStmt                 *sql.Stmt
 	getCurtailmentOrgConfigStmt                         *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt               *sql.Stmt
+	getCurtailmentTargetRollupByEventStmt               *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
 	getDeviceDeviceSetsStmt                             *sql.Stmt
@@ -3345,8 +3363,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentEventByExternalReferenceStmt:          q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:             q.getCurtailmentEventByIdempotencyKeyStmt,
 		getCurtailmentEventByUUIDStmt:                       q.getCurtailmentEventByUUIDStmt,
+		getCurtailmentEventDetailByUUIDStmt:                 q.getCurtailmentEventDetailByUUIDStmt,
 		getCurtailmentOrgConfigStmt:                         q.getCurtailmentOrgConfigStmt,
 		getCurtailmentReconcilerHeartbeatStmt:               q.getCurtailmentReconcilerHeartbeatStmt,
+		getCurtailmentTargetRollupByEventStmt:               q.getCurtailmentTargetRollupByEventStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
 		getDeviceDeviceSetsStmt:                             q.getDeviceDeviceSetsStmt,

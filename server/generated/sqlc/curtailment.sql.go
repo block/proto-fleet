@@ -543,6 +543,130 @@ func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailm
 	return i, err
 }
 
+const getCurtailmentEventDetailByUUID = `-- name: GetCurtailmentEventDetailByUUID :one
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    CASE
+        WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
+            jsonb_set(
+                decision_snapshot_jsonb - 'skipped',
+                '{skipped_aggregate}',
+                COALESCE(
+                    (
+                        SELECT jsonb_object_agg(reason, skipped_count)
+                        FROM (
+                            SELECT skipped_entry->>'reason' AS reason, count(*) AS skipped_count
+                            FROM jsonb_array_elements(decision_snapshot_jsonb->'skipped') AS skipped_entry
+                            WHERE skipped_entry->>'reason' <> ''
+                            GROUP BY skipped_entry->>'reason'
+                        ) skipped_counts
+                    ),
+                    '{}'::JSONB
+                ),
+                true
+            )
+        ELSE decision_snapshot_jsonb
+    END::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE event_uuid = $1
+    AND org_id = $2
+`
+
+type GetCurtailmentEventDetailByUUIDParams struct {
+	EventUuid uuid.UUID
+	OrgID     int64
+}
+
+type GetCurtailmentEventDetailByUUIDRow struct {
+	ID                      int64
+	EventUuid               uuid.UUID
+	OrgID                   int64
+	State                   string
+	Mode                    string
+	Strategy                string
+	Level                   string
+	Priority                string
+	LoopType                string
+	ScopeType               string
+	ScopeJsonb              json.RawMessage
+	ModeParamsJsonb         json.RawMessage
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	EffectiveBatchSize      sql.NullInt32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      sql.NullInt32
+	AllowUnbounded          bool
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	DecisionSnapshotJsonb   json.RawMessage
+	SourceActorType         string
+	SourceActorID           sql.NullString
+	ExternalSource          sql.NullString
+	ExternalReference       sql.NullString
+	IdempotencyKey          sql.NullString
+	SupersedesEventID       sql.NullInt64
+	Reason                  string
+	ScheduledStartAt        sql.NullTime
+	StartedAt               sql.NullTime
+	EndedAt                 sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	CreatedByUserID         int64
+}
+
+// Detail reads keep target rows paginated; collapse per-device skipped
+// candidates at the SQL boundary so a single large event cannot force a
+// fleet-sized JSON snapshot through the handler.
+func (q *Queries) GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCurtailmentEventDetailByUUIDParams) (GetCurtailmentEventDetailByUUIDRow, error) {
+	row := q.queryRow(ctx, q.getCurtailmentEventDetailByUUIDStmt, getCurtailmentEventDetailByUUID, arg.EventUuid, arg.OrgID)
+	var i GetCurtailmentEventDetailByUUIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const getCurtailmentOrgConfig = `-- name: GetCurtailmentOrgConfig :one
 SELECT
     org_id,
@@ -586,6 +710,57 @@ func (q *Queries) GetCurtailmentReconcilerHeartbeat(ctx context.Context) (Curtai
 		&i.LastTickUuid,
 		&i.LastTickDurationMs,
 		&i.ActiveEventCount,
+	)
+	return i, err
+}
+
+const getCurtailmentTargetRollupByEvent = `-- name: GetCurtailmentTargetRollupByEvent :one
+SELECT
+    COUNT(ct.id) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
+    COUNT(ct.id) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
+    COUNT(ct.id)::BIGINT AS total
+FROM curtailment_event ce
+LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+WHERE ce.org_id = $1
+    AND ce.event_uuid = $2
+GROUP BY ce.id
+`
+
+type GetCurtailmentTargetRollupByEventParams struct {
+	OrgID     int64
+	EventUuid uuid.UUID
+}
+
+type GetCurtailmentTargetRollupByEventRow struct {
+	Pending       int64
+	Dispatched    int64
+	Confirmed     int64
+	Drifted       int64
+	Resolved      int64
+	Released      int64
+	RestoreFailed int64
+	Total         int64
+}
+
+// Org-scoped aggregate for paginated event detail. Target pages can be
+// partial, but the rollup must describe the whole event.
+func (q *Queries) GetCurtailmentTargetRollupByEvent(ctx context.Context, arg GetCurtailmentTargetRollupByEventParams) (GetCurtailmentTargetRollupByEventRow, error) {
+	row := q.queryRow(ctx, q.getCurtailmentTargetRollupByEventStmt, getCurtailmentTargetRollupByEvent, arg.OrgID, arg.EventUuid)
+	var i GetCurtailmentTargetRollupByEventRow
+	err := row.Scan(
+		&i.Pending,
+		&i.Dispatched,
+		&i.Confirmed,
+		&i.Drifted,
+		&i.Resolved,
+		&i.Released,
+		&i.RestoreFailed,
+		&i.Total,
 	)
 	return i, err
 }

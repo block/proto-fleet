@@ -214,6 +214,20 @@ func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, e
 	return convertEventRow(row), nil
 }
 
+func (s *SQLCurtailmentStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentEventDetailByUUID(ctx, sqlc.GetCurtailmentEventDetailByUUIDParams{
+		EventUuid: eventUUID,
+		OrgID:     orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get curtailment event detail: %v", err)
+	}
+	return convertEventRow(sqlc.CurtailmentEvent(row)), nil
+}
+
 func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error) {
 	row, err := s.GetQueries(ctx).GetActiveCurtailmentEvent(ctx, orgID)
 	if err != nil {
@@ -530,6 +544,29 @@ func (s *SQLCurtailmentStore) ListTargetsByEventPage(ctx context.Context, params
 		targets = append(targets, convertTargetRow(row))
 	}
 	return targets, nextToken, nil
+}
+
+func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentTargetRollupByEvent(ctx, sqlc.GetCurtailmentTargetRollupByEventParams{
+		OrgID:     orgID,
+		EventUuid: eventUUID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup: %v", err)
+	}
+	return &models.TargetRollup{
+		Pending:       row.Pending,
+		Dispatched:    row.Dispatched,
+		Confirmed:     row.Confirmed,
+		Drifted:       row.Drifted,
+		Resolved:      row.Resolved,
+		Released:      row.Released,
+		RestoreFailed: row.RestoreFailed,
+		Total:         row.Total,
+	}, nil
 }
 
 func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error) {

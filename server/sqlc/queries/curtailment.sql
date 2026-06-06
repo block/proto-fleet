@@ -151,6 +151,45 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: GetCurtailmentEventDetailByUUID :one
+-- Detail reads keep target rows paginated; collapse per-device skipped
+-- candidates at the SQL boundary so a single large event cannot force a
+-- fleet-sized JSON snapshot through the handler.
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    CASE
+        WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
+            jsonb_set(
+                decision_snapshot_jsonb - 'skipped',
+                '{skipped_aggregate}',
+                COALESCE(
+                    (
+                        SELECT jsonb_object_agg(reason, skipped_count)
+                        FROM (
+                            SELECT skipped_entry->>'reason' AS reason, count(*) AS skipped_count
+                            FROM jsonb_array_elements(decision_snapshot_jsonb->'skipped') AS skipped_entry
+                            WHERE skipped_entry->>'reason' <> ''
+                            GROUP BY skipped_entry->>'reason'
+                        ) skipped_counts
+                    ),
+                    '{}'::JSONB
+                ),
+                true
+            )
+        ELSE decision_snapshot_jsonb
+    END::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE event_uuid = sqlc.arg('event_uuid')
+    AND org_id = sqlc.arg('org_id');
+
 -- name: GetCurtailmentEventByIdempotencyKey :one
 -- Idempotent replay lookup; state filter mirrors the partial unique
 -- index so a retry of a long-completed event is treated as a fresh Start.
@@ -394,6 +433,24 @@ WHERE ce.org_id = sqlc.arg('org_id')
     )
 ORDER BY ct.device_identifier
 LIMIT sqlc.arg('row_limit')::BIGINT;
+
+-- name: GetCurtailmentTargetRollupByEvent :one
+-- Org-scoped aggregate for paginated event detail. Target pages can be
+-- partial, but the rollup must describe the whole event.
+SELECT
+    COUNT(ct.id) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
+    COUNT(ct.id) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
+    COUNT(ct.id) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
+    COUNT(ct.id)::BIGINT AS total
+FROM curtailment_event ce
+LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.event_uuid = sqlc.arg('event_uuid')
+GROUP BY ce.id;
 
 -- name: GetCurtailmentReconcilerHeartbeat :one
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count

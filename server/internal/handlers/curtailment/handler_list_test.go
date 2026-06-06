@@ -36,7 +36,9 @@ type listStubStore struct {
 	events               []*models.Event
 	activeEvents         []*models.Event
 	eventByUUID          map[uuid.UUID]*models.Event
+	eventDetailByUUID    map[uuid.UUID]*models.Event
 	targetsByUUID        map[uuid.UUID][]*models.Target
+	targetRollupByUUID   map[uuid.UUID]*models.TargetRollup
 	nextPageToken        string
 	targetNextPageToken  string
 	err                  error
@@ -81,6 +83,18 @@ func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID
 	}
 	return ev, nil
 }
+func (s *listStubStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	s.lastGetOrgID = orgID
+	s.lastGetUUID = eventUUID
+	if s.eventDetailByUUID == nil {
+		return s.GetEventByUUID(ctx, orgID, eventUUID)
+	}
+	ev, ok := s.eventDetailByUUID[eventUUID]
+	if !ok {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	return ev, nil
+}
 func (s *listStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised by List handler tests")
 }
@@ -99,6 +113,37 @@ func (s *listStubStore) ListTargetsByEventPage(_ context.Context, params interfa
 		panic("ListTargetsByEventPage not exercised by List handler tests")
 	}
 	return s.targetsByUUID[params.EventUUID], s.targetNextPageToken, nil
+}
+func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
+	if s.targetRollupByUUID != nil {
+		if rollup, ok := s.targetRollupByUUID[eventUUID]; ok {
+			return rollup, nil
+		}
+	}
+	if s.targetsByUUID == nil {
+		panic("GetTargetRollupByEvent not exercised by List handler tests")
+	}
+	rollup := &models.TargetRollup{}
+	for _, target := range s.targetsByUUID[eventUUID] {
+		switch target.State {
+		case models.TargetStatePending:
+			rollup.Pending++
+		case models.TargetStateDispatching, models.TargetStateDispatched:
+			rollup.Dispatched++
+		case models.TargetStateConfirmed:
+			rollup.Confirmed++
+		case models.TargetStateDrifted:
+			rollup.Drifted++
+		case models.TargetStateResolved:
+			rollup.Resolved++
+		case models.TargetStateReleased:
+			rollup.Released++
+		case models.TargetStateRestoreFailed:
+			rollup.RestoreFailed++
+		}
+	}
+	rollup.Total = int64(len(s.targetsByUUID[eventUUID]))
+	return rollup, nil
 }
 func (s *listStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by List handler tests")
@@ -337,6 +382,96 @@ func TestHandler_GetCurtailmentEvent_ReturnsTargetsWithPhaseSummaries(t *testing
 		PageSize:  1,
 		PageToken: targetCursorFixture,
 	}, store.lastTargetPageParams)
+}
+
+func TestHandler_GetCurtailmentEvent_UsesBoundedSnapshotAndFullTargetRollup(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	largeSkipped := make([]map[string]string, 2048)
+	for i := range largeSkipped {
+		largeSkipped[i] = map[string]string{
+			"device_identifier": "miner-skipped",
+			"reason":            "maintenance",
+		}
+	}
+	unboundedSnapshotJSON, err := json.Marshal(map[string]any{
+		"selected_count": 1,
+		"skipped":        largeSkipped,
+	})
+	require.NoError(t, err)
+	boundedSnapshotJSON, err := json.Marshal(map[string]any{
+		"selected_count": 1,
+		"skipped_aggregate": map[string]int{
+			"maintenance": len(largeSkipped),
+		},
+	})
+	require.NoError(t, err)
+
+	rawEvent := &models.Event{
+		ID:                      1,
+		EventUUID:               eventUUID,
+		OrgID:                   42,
+		State:                   models.EventStateCompletedWithFailures,
+		Mode:                    models.ModeFullFleet,
+		Strategy:                models.StrategyLeastEfficientFirst,
+		Level:                   models.LevelFull,
+		Priority:                models.PriorityNormal,
+		RestoreBatchSize:        10,
+		RestoreBatchIntervalSec: 120,
+		DecisionSnapshotJSON:    unboundedSnapshotJSON,
+		Reason:                  "test",
+	}
+	detailEvent := *rawEvent
+	detailEvent.DecisionSnapshotJSON = boundedSnapshotJSON
+	store := &listStubStore{
+		eventByUUID: map[uuid.UUID]*models.Event{
+			eventUUID: rawEvent,
+		},
+		eventDetailByUUID: map[uuid.UUID]*models.Event{
+			eventUUID: &detailEvent,
+		},
+		targetsByUUID: map[uuid.UUID][]*models.Target{
+			eventUUID: {
+				{
+					DeviceIdentifier: "miner-1",
+					TargetType:       "miner",
+					State:            models.TargetStateResolved,
+					DesiredState:     models.DesiredStateActive,
+				},
+			},
+		},
+		targetRollupByUUID: map[uuid.UUID]*models.TargetRollup{
+			eventUUID: {
+				Resolved:      1,
+				RestoreFailed: 1,
+				Total:         2,
+			},
+		},
+		targetNextPageToken: "next-target-page",
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.GetCurtailmentEvent(sessionCtx(42), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+		EventUuid:      eventUUID.String(),
+		TargetPageSize: 1,
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	require.Len(t, resp.Msg.Event.Targets, 1)
+	assert.Equal(t, "next-target-page", resp.Msg.NextTargetPageToken)
+
+	rollup := resp.Msg.Event.TargetRollup
+	require.NotNil(t, rollup)
+	assert.Equal(t, int32(1), rollup.Resolved)
+	assert.Equal(t, int32(1), rollup.RestoreFailed)
+	assert.Equal(t, int32(2), rollup.Total)
+
+	require.NotNil(t, resp.Msg.Event.DecisionSnapshot)
+	snapshot := resp.Msg.Event.DecisionSnapshot.AsMap()
+	assert.NotContains(t, snapshot, "skipped")
+	aggregate, ok := snapshot["skipped_aggregate"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(len(largeSkipped)), aggregate["maintenance"])
 }
 
 func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {

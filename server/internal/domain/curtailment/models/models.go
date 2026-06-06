@@ -169,6 +169,21 @@ type Event struct {
 	CreatedByUserID         int64
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	TargetRollup            *TargetRollup
+}
+
+// TargetRollup summarizes all target rows for an event. Counts stay int64 at
+// the domain boundary because SQL COUNT returns int64; handlers clamp to the
+// proto int32 fields when rendering.
+type TargetRollup struct {
+	Pending       int64
+	Dispatched    int64
+	Confirmed     int64
+	Drifted       int64
+	Resolved      int64
+	Released      int64
+	RestoreFailed int64
+	Total         int64
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
