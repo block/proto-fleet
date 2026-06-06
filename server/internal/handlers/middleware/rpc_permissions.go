@@ -294,11 +294,13 @@ var ProceduresPendingMigration = map[string]string{
 	authv1connect.AuthServiceVerifyCredentialsProcedure: "authenticated self-read, no role check",
 	authv1connect.AuthServiceLogoutProcedure:            "session-only; FailedPrecondition guard in handler",
 
-	// CurtailmentService — Start/Stop/Preview gate conditionally on
-	// override fields / force; the unconditional codepath remains
-	// ungated. Pending the curtailment authz redesign that swaps these
-	// to RequirePermission with the right resource context.
-	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set or AllowUnbounded; otherwise any authenticated user can start",
+	// CurtailmentService — Start gates conditionally on high-blast
+	// FULL_FLEET whole-org starts and override fields; Stop/Preview
+	// gate conditionally on force/override fields. Lower-blast start
+	// paths remain authenticated-only pending the curtailment authz
+	// redesign that swaps these to RequirePermission with the right
+	// resource context.
+	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: curtailment:manage for FULL_FLEET whole_org; requireAdminFromContext when CandidateMinPowerWOverride set, AllowUnbounded, or ForceIncludeMaintenance; otherwise any authenticated user can start",
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
 

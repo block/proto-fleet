@@ -73,6 +73,11 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 			return nil, err
 		}
 	}
+	if requiresHighBlastCurtailmentManage(req.Msg) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StartCurtailment")
 	}
@@ -102,6 +107,14 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	}
 
 	return connect.NewResponse(toStartResponse(plan, req.Msg)), nil
+}
+
+func requiresHighBlastCurtailmentManage(msg *pb.StartCurtailmentRequest) bool {
+	if msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
+		return false
+	}
+	_, wholeOrg := msg.GetScope().(*pb.StartCurtailmentRequest_WholeOrg)
+	return wholeOrg
 }
 
 func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {
