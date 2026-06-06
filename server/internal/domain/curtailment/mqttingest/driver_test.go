@@ -395,6 +395,29 @@ func TestDriver_Dispatch_ReplayUsesPersistedEventUUID(t *testing.T) {
 	assert.Equal(t, replayUUID, outcome.EventUUID)
 }
 
+func TestDriver_Dispatch_RestoringReplayRecurtails(t *testing.T) {
+	t.Parallel()
+
+	src := sampleSource()
+	eventUUID := uuid.New()
+	svc := &fakeService{
+		startResult: &curtailment.Plan{
+			ReplayEvent: testSourceEvent(src, eventUUID, models.EventStateRestoring),
+		},
+		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
+	}
+	d := NewDriver(svc, nil)
+
+	outcome, err := d.Dispatch(context.Background(), src, EdgeOnToOff, time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, eventUUID, outcome.EventUUID)
+	require.Len(t, svc.startCalls, 1, "replay still comes from Start idempotency lookup")
+	require.Len(t, svc.recurtailCalls, 1, "restoring replay must be re-curtailed before OFF settles")
+	assert.Equal(t, eventUUID, svc.recurtailCalls[0].EventUUID)
+	assert.Equal(t, src.OrganizationID, svc.recurtailCalls[0].OrgID)
+}
+
 func TestDriver_Dispatch_InsufficientLoadIsError(t *testing.T) {
 	t.Parallel()
 

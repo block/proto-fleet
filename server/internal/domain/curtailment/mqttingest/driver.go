@@ -149,6 +149,11 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 		return uuid.Nil, false, errors.New("mqttingest: curtailment service returned nil plan on Start")
 	}
 	if plan.ReplayEvent != nil {
+		if eventIsRestoring(plan.ReplayEvent) {
+			if err := d.ResumeSourceEvent(ctx, plan.ReplayEvent); err != nil {
+				return uuid.Nil, false, err
+			}
+		}
 		return plan.ReplayEvent.EventUUID, false, nil
 	}
 	if plan.InsufficientLoadDetail != nil {
