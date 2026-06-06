@@ -72,6 +72,10 @@ func (s *updateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID u
 	return s.event, nil
 }
 
+func (s *updateStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("GetEventDetailByUUID not exercised by Update handler tests")
+}
+
 func (s *updateStubStore) UpdateOperatorFields(_ context.Context, eventID, orgID int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	s.updateCalls++
 	s.lastUpdateID = eventID
@@ -135,6 +139,12 @@ func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Ev
 }
 func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	return s.targets, s.targetsErr
+}
+func (s *updateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	panic("ListTargetsByEventPage not exercised by Update handler tests")
+}
+func (s *updateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
+	panic("GetTargetRollupByEvent not exercised by Update handler tests")
 }
 func (s *updateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by Update handler tests")

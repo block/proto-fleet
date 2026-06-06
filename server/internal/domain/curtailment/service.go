@@ -789,18 +789,6 @@ func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*mod
 	})
 }
 
-type targetPageStore interface {
-	ListTargetsByEventPage(ctx context.Context, params interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error)
-}
-
-type eventDetailStore interface {
-	GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
-}
-
-type targetRollupStore interface {
-	GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error)
-}
-
 // GetEventWithTargets returns a single historical or active event with a page
 // of durable target phase summaries. ListEvents intentionally omits this heavy
 // payload; activity detail views fetch it by event_uuid.
@@ -816,41 +804,24 @@ func (s *Service) GetEventWithTargets(ctx context.Context, req GetEventWithTarge
 			"target_page_size must be >= 0, got %d", req.TargetPageSize,
 		)
 	}
-	var (
-		event *models.Event
-		err   error
-	)
-	if detailStore, ok := s.store.(eventDetailStore); ok {
-		event, err = detailStore.GetEventDetailByUUID(ctx, req.OrgID, req.EventUUID)
-	} else {
-		event, err = s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
-	}
+	event, err := s.store.GetEventDetailByUUID(ctx, req.OrgID, req.EventUUID)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	if rollupStore, ok := s.store.(targetRollupStore); ok {
-		event.TargetRollup, err = rollupStore.GetTargetRollupByEvent(ctx, req.OrgID, req.EventUUID)
-		if err != nil {
-			return nil, nil, "", err
-		}
-	}
-	if pager, ok := s.store.(targetPageStore); ok {
-		targets, nextToken, err := pager.ListTargetsByEventPage(ctx, interfaces.ListTargetsByEventPageParams{
-			OrgID:     req.OrgID,
-			EventUUID: req.EventUUID,
-			PageSize:  req.TargetPageSize,
-			PageToken: req.TargetPageToken,
-		})
-		if err != nil {
-			return nil, nil, "", err
-		}
-		return event, targets, nextToken, nil
-	}
-	targets, err := s.store.ListTargetsByEvent(ctx, req.OrgID, req.EventUUID)
+	event.TargetRollup, err = s.store.GetTargetRollupByEvent(ctx, req.OrgID, req.EventUUID)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	return event, targets, "", nil
+	targets, nextToken, err := s.store.ListTargetsByEventPage(ctx, interfaces.ListTargetsByEventPageParams{
+		OrgID:     req.OrgID,
+		EventUUID: req.EventUUID,
+		PageSize:  req.TargetPageSize,
+		PageToken: req.TargetPageToken,
+	})
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return event, targets, nextToken, nil
 }
 
 func (s *Service) GetActiveWithTargets(ctx context.Context, orgID int64) (*models.Event, []*models.Target, error) {

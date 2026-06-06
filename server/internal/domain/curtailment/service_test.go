@@ -178,6 +178,10 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UU
 	return ev, nil
 }
 
+func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	return f.GetEventByUUID(ctx, orgID, eventUUID)
+}
+
 func (f *fakeStore) GetActiveEvent(_ context.Context, _ int64) (*models.Event, error) {
 	if f.activeEventErr != nil {
 		return nil, f.activeEventErr
@@ -197,6 +201,35 @@ func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uui
 		return nil, f.listTargetsErr
 	}
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
+}
+
+func (f *fakeStore) ListTargetsByEventPage(ctx context.Context, params interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	targets, err := f.ListTargetsByEvent(ctx, params.OrgID, params.EventUUID)
+	return targets, "", err
+}
+
+func (f *fakeStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
+	targets := f.targetsByEventUUID[eventUUID]
+	rollup := &models.TargetRollup{Total: int64(len(targets))}
+	for _, target := range targets {
+		switch target.State {
+		case models.TargetStatePending:
+			rollup.Pending++
+		case models.TargetStateDispatching, models.TargetStateDispatched:
+			rollup.Dispatched++
+		case models.TargetStateConfirmed:
+			rollup.Confirmed++
+		case models.TargetStateDrifted:
+			rollup.Drifted++
+		case models.TargetStateResolved:
+			rollup.Resolved++
+		case models.TargetStateReleased:
+			rollup.Released++
+		case models.TargetStateRestoreFailed:
+			rollup.RestoreFailed++
+		}
+	}
+	return rollup, nil
 }
 
 func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {

@@ -336,7 +336,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 			}
 			claim = append(claim, t)
 			if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
-				if !r.dispatchCurtailBatch(ctx, ev, claim, models.TargetStatePending) {
+				if !r.dispatchCurtailBatch(ctx, ev, claim, state) {
 					return false
 				}
 				claim = make([]*models.Target, 0, batchSize)
@@ -345,7 +345,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		if len(claim) == 0 {
 			return true
 		}
-		return r.dispatchCurtailBatch(ctx, ev, claim, models.TargetStatePending)
+		return r.dispatchCurtailBatch(ctx, ev, claim, state)
 	}
 
 	if !dispatchByState(models.TargetStateDispatching) {

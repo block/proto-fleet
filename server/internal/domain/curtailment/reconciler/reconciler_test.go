@@ -94,6 +94,9 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 	}
 	return nil, nil
 }
+func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	return f.GetEventByUUID(ctx, orgID, eventUUID)
+}
 func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised")
 }
@@ -122,6 +125,15 @@ func (f *fakeStore) ListTargetsByEvent(ctx context.Context, _ int64, eventUUID u
 		}
 	}
 	return nil, nil
+}
+
+func (f *fakeStore) ListTargetsByEventPage(ctx context.Context, params interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	targets, err := f.ListTargetsByEvent(ctx, params.OrgID, params.EventUUID)
+	return targets, "", err
+}
+
+func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
+	panic("GetTargetRollupByEvent not exercised by reconciler tests")
 }
 
 func (f *fakeStore) ListCandidates(_ context.Context, _ int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
@@ -614,6 +626,94 @@ func TestReconciler_PendingDispatchesLargeEventInBoundedBatches(t *testing.T) {
 	for _, target := range store.targetsByEventID[eventID] {
 		assert.Equal(t, models.TargetStateDispatched, target.State)
 	}
+}
+
+func TestReconciler_DispatchingFailureDoesNotRetryAgainAsPendingInSameTick(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{curtailErr: errors.New("queue unavailable")}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	effBatch := int32(3)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-orphan",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"failed DISPATCHING recovery must not be re-claimed by the same tick's PENDING pass")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatching, final.State,
+		"failed DISPATCHING recovery must remain DISPATCHING for the next tick")
+	assert.Equal(t, int32(1), final.RetryCount,
+		"failed DISPATCHING recovery must consume only one retry slot per tick")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "queue unavailable")
+}
+
+func TestReconciler_CurtailBatchRecordsSkippedAndNotEnqueuedFailures(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		curtailResultOverride: &command.CommandResult{
+			BatchIdentifier:             "batch-partial",
+			DispatchedDeviceIdentifiers: []string{"miner-dispatched"},
+			Skipped: []command.SkippedDevice{
+				{DeviceIdentifier: "miner-skipped", Reason: "maintenance mode"},
+			},
+		},
+	}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	effBatch := int32(3)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-dispatched", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-skipped", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-missing", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls)
+	byID := map[string]*models.Target{}
+	for _, target := range store.targetsByEventID[eventID] {
+		byID[target.DeviceIdentifier] = target
+	}
+
+	dispatched := byID["miner-dispatched"]
+	require.NotNil(t, dispatched)
+	assert.Equal(t, models.TargetStateDispatched, dispatched.State)
+	require.NotNil(t, dispatched.LastBatchUUID)
+	assert.Equal(t, "batch-partial", *dispatched.LastBatchUUID)
+
+	skipped := byID["miner-skipped"]
+	require.NotNil(t, skipped)
+	assert.Equal(t, models.TargetStatePending, skipped.State)
+	assert.Equal(t, int32(1), skipped.RetryCount)
+	require.NotNil(t, skipped.LastError)
+	assert.Equal(t, "maintenance mode", *skipped.LastError)
+
+	missing := byID["miner-missing"]
+	require.NotNil(t, missing)
+	assert.Equal(t, models.TargetStatePending, missing.State)
+	assert.Equal(t, int32(1), missing.RetryCount)
+	require.NotNil(t, missing.LastError)
+	assert.Equal(t, "curtail command did not enqueue device", *missing.LastError)
 }
 
 func TestReconciler_TargetPhaseSummariesCaptureCurtailAndRestoreCycle(t *testing.T) {

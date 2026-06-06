@@ -438,14 +438,14 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- Org-scoped aggregate for paginated event detail. Target pages can be
 -- partial, but the rollup must describe the whole event.
 SELECT
-    COUNT(ct.id) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
-    COUNT(ct.id) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
-    COUNT(ct.id) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
-    COUNT(ct.id) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
-    COUNT(ct.id) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
-    COUNT(ct.id) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
-    COUNT(ct.id) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
-    COUNT(ct.id)::BIGINT AS total
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
+    COUNT(ct.device_identifier)::BIGINT AS total
 FROM curtailment_event ce
 LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
 WHERE ce.org_id = sqlc.arg('org_id')

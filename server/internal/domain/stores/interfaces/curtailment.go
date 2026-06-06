@@ -108,6 +108,7 @@ type CurtailmentStore interface {
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
+	GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
 	// GetActiveEvent returns the most-recent non-terminal event for the org,
 	// or nil. Multiple non-terminal events can coexist (one per disjoint
@@ -145,6 +146,8 @@ type CurtailmentStore interface {
 	AdminTerminateEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (event *models.Event, transitioned bool, err error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
+	ListTargetsByEventPage(ctx context.Context, params ListTargetsByEventPageParams) ([]*models.Target, string, error)
+	GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error)
 
 	// InsertEventWithTargets writes the event + every target row in one
 	// transaction. Callers leave CurtailmentEventID zero (store fills it)
