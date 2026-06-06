@@ -70,6 +70,22 @@ service CurtailmentService {
     // an in-flight event echoes, post-terminal fires fresh.
     rpc IngestCurtailmentSignal(IngestCurtailmentSignalRequest)
         returns (IngestCurtailmentSignalResponse);
+
+    // MQTT curtailment source settings. These RPCs manage broker
+    // configuration only; MQTT OFF/ON dispatch still flows through the
+    // in-process subscriber/driver path.
+    rpc ListMqttCurtailmentSources(ListMqttCurtailmentSourcesRequest)
+        returns (ListMqttCurtailmentSourcesResponse);
+    rpc GetMqttCurtailmentSource(GetMqttCurtailmentSourceRequest)
+        returns (GetMqttCurtailmentSourceResponse);
+    rpc CreateMqttCurtailmentSource(CreateMqttCurtailmentSourceRequest)
+        returns (CreateMqttCurtailmentSourceResponse);
+    rpc UpdateMqttCurtailmentSource(UpdateMqttCurtailmentSourceRequest)
+        returns (UpdateMqttCurtailmentSourceResponse);
+    rpc SetMqttCurtailmentSourceEnabled(SetMqttCurtailmentSourceEnabledRequest)
+        returns (SetMqttCurtailmentSourceEnabledResponse);
+    rpc DeleteMqttCurtailmentSource(DeleteMqttCurtailmentSourceRequest)
+        returns (DeleteMqttCurtailmentSourceResponse);
 }
 
 // --- Enums ---
@@ -710,3 +726,164 @@ message IngestCurtailmentSignalResponse {
     // Soft adapter warnings; hard rejections return InvalidArgument instead.
     repeated string adapter_warnings = 3;
 }
+
+// --- MQTT source settings ---
+
+enum MqttCurtailmentSourceScopeType {
+    MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_UNSPECIFIED = 0;
+    MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG   = 1;
+    MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_SITE        = 2;
+    MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_DEVICE_LIST = 3;
+}
+
+enum MqttCurtailmentSourceRuntimeState {
+    MQTT_CURTAILMENT_SOURCE_RUNTIME_STATE_UNSPECIFIED = 0;
+    MQTT_CURTAILMENT_SOURCE_RUNTIME_STATE_DISABLED    = 1;
+    MQTT_CURTAILMENT_SOURCE_RUNTIME_STATE_STOPPED     = 2;
+    MQTT_CURTAILMENT_SOURCE_RUNTIME_STATE_STARTING    = 3;
+    MQTT_CURTAILMENT_SOURCE_RUNTIME_STATE_RUNNING     = 4;
+    MQTT_CURTAILMENT_SOURCE_RUNTIME_STATE_ERROR       = 5;
+}
+
+message MqttCurtailmentSourceScope {
+    MqttCurtailmentSourceScopeType type = 1 [(buf.validate.field).enum.defined_only = true];
+
+    // Reserved for #404. Until site scope lands, requests with SITE are rejected
+    // by the handler/service even though the storage column already exists.
+    optional int64 site_id = 2 [(buf.validate.field).int64.gt = 0];
+
+    repeated string device_identifiers = 3 [(buf.validate.field).repeated = {
+        max_items: 10000
+        items: { string: { min_len: 1, max_len: 256 } }
+    }];
+}
+
+message MqttCurtailmentSource {
+    int64 source_id = 1;
+    string source_name = 2;
+    string topic = 3;
+    string broker_primary_host = 4;
+    string broker_secondary_host = 5;
+    int32 broker_port = 6;
+    string broker_transport = 7;
+    string mqtt_username = 8;
+    bool has_password = 9;
+
+    string curtail_mode = 10;
+    optional int32 contracted_curtailment_kw = 11;
+    string payload_format = 12;
+    MqttCurtailmentSourceScope scope = 13;
+    uint32 staleness_threshold_sec = 14;
+    uint32 min_curtailed_duration_sec = 15;
+    bool enabled = 16;
+
+    int64 service_user_id = 17;
+    google.protobuf.Timestamp created_at = 18;
+    google.protobuf.Timestamp updated_at = 19;
+
+    MqttCurtailmentSourceStatus status = 30;
+}
+
+message MqttCurtailmentSourceStatus {
+    MqttCurtailmentSourceRuntimeState runtime_state = 1;
+    string last_runtime_error = 2;
+    int32 running_broker_count = 3;
+    int32 subscribed_broker_count = 4;
+    bool stale = 5;
+
+    string last_target = 10;
+    google.protobuf.Timestamp last_target_at = 11;
+    google.protobuf.Timestamp last_received_at = 12;
+    string last_received_broker = 13;
+    google.protobuf.Timestamp last_edge_at = 14;
+    string last_edge_event_uuid = 15;
+
+    string pending_direction = 20;
+    string pending_target = 21;
+    google.protobuf.Timestamp pending_target_at = 22;
+    google.protobuf.Timestamp pending_received_at = 23;
+    string pending_received_broker = 24;
+    google.protobuf.Timestamp pending_prior_edge_at = 25;
+    google.protobuf.Timestamp pending_retry_at = 26;
+}
+
+message ListMqttCurtailmentSourcesRequest {}
+
+message ListMqttCurtailmentSourcesResponse {
+    repeated MqttCurtailmentSource sources = 1;
+}
+
+message GetMqttCurtailmentSourceRequest {
+    int64 source_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetMqttCurtailmentSourceResponse {
+    MqttCurtailmentSource source = 1;
+}
+
+message CreateMqttCurtailmentSourceRequest {
+    string source_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    string topic = 2 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    string broker_primary_host = 3 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    string broker_secondary_host = 4 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    int32 broker_port = 5 [(buf.validate.field).int32 = { gte: 0, lt: 65536 }];
+    string broker_transport = 6 [(buf.validate.field).string.max_len = 8];
+    string mqtt_username = 7 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    string mqtt_password = 8 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
+
+    string curtail_mode = 9 [(buf.validate.field).string.max_len = 32];
+    optional int32 contracted_curtailment_kw = 10 [(buf.validate.field).int32 = { gt: 0, lte: 1000000 }];
+    string payload_format = 11 [(buf.validate.field).string.max_len = 64];
+    MqttCurtailmentSourceScope scope = 12;
+    uint32 staleness_threshold_sec = 13;
+    uint32 min_curtailed_duration_sec = 14;
+    bool enabled = 15;
+    int64 service_user_id = 16 [(buf.validate.field).int64.gt = 0];
+}
+
+message CreateMqttCurtailmentSourceResponse {
+    MqttCurtailmentSource source = 1;
+}
+
+message UpdateMqttCurtailmentSourceRequest {
+    int64 source_id = 1 [(buf.validate.field).int64.gt = 0];
+
+    optional string source_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    optional string topic = 3 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    optional string broker_primary_host = 4 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    optional string broker_secondary_host = 5 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    optional int32 broker_port = 6 [(buf.validate.field).int32 = { gte: 0, lt: 65536 }];
+    optional string broker_transport = 7 [(buf.validate.field).string = { min_len: 1, max_len: 8 }];
+    optional string mqtt_username = 8 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    optional string mqtt_password = 9 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
+
+    optional string curtail_mode = 10 [(buf.validate.field).string = { min_len: 1, max_len: 32 }];
+    optional int32 contracted_curtailment_kw = 11 [(buf.validate.field).int32 = { gt: 0, lte: 1000000 }];
+    optional bool clear_contracted_curtailment_kw = 12;
+    optional string payload_format = 13 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    MqttCurtailmentSourceScope scope = 14;
+    optional uint32 staleness_threshold_sec = 15;
+    optional bool clear_staleness_threshold_sec = 16;
+    optional uint32 min_curtailed_duration_sec = 17;
+    optional bool clear_min_curtailed_duration_sec = 18;
+    optional int64 service_user_id = 19 [(buf.validate.field).int64.gt = 0];
+}
+
+message UpdateMqttCurtailmentSourceResponse {
+    MqttCurtailmentSource source = 1;
+}
+
+message SetMqttCurtailmentSourceEnabledRequest {
+    int64 source_id = 1 [(buf.validate.field).int64.gt = 0];
+    bool enabled = 2;
+}
+
+message SetMqttCurtailmentSourceEnabledResponse {
+    MqttCurtailmentSource source = 1;
+}
+
+message DeleteMqttCurtailmentSourceRequest {
+    int64 source_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteMqttCurtailmentSourceResponse {}

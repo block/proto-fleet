@@ -33,6 +33,8 @@ type fakeStore struct {
 	upsertErrs     []error
 	nonMembers     map[int64]bool // user IDs treated as not belonging to their org
 	nonIngestUsers map[userOrgKey]bool
+	listCalls      int
+	listNotify     chan int
 }
 
 type userOrgKey struct {
@@ -44,15 +46,37 @@ func newFakeStore(sources ...SourceConfig) *fakeStore {
 	return &fakeStore{sources: sources, state: make(map[int64]SourceState)}
 }
 
-func (f *fakeStore) ListEnabledSources(_ context.Context) ([]SourceConfig, error) {
+func (f *fakeStore) setSources(sources ...SourceConfig) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.sources = sources
+}
+
+func (f *fakeStore) ListEnabledSources(_ context.Context) ([]SourceConfig, error) {
+	f.mu.Lock()
 	if f.listSourcesErr != nil {
+		f.mu.Unlock()
 		return nil, f.listSourcesErr
 	}
+	f.listCalls++
+	call := f.listCalls
+	notify := f.listNotify
 	cp := make([]SourceConfig, len(f.sources))
 	copy(cp, f.sources)
+	f.mu.Unlock()
+	if notify != nil {
+		select {
+		case notify <- call:
+		default:
+		}
+	}
 	return cp, nil
+}
+
+func (f *fakeStore) setListNotify(notify chan int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listNotify = notify
 }
 
 func (f *fakeStore) GetSourceState(_ context.Context, id int64) (SourceState, error) {
@@ -128,17 +152,18 @@ func clonePendingEdge(edge *PendingEdge) *PendingEdge {
 // fakeMQTTClient records Connect / Subscribe and routes deliver() calls through
 // the subscribed handler.
 type fakeMQTTClient struct {
-	mu            sync.Mutex
-	host          string
-	subscribed    bool
-	connectBlocks bool
-	connectErrs   []error
-	connectCalls  int
-	connected     bool
-	disconnect    chan struct{}
-	handler       func(payload []byte, receivedAt time.Time)
-	ready         chan struct{}
-	readyClosed   bool
+	mu             sync.Mutex
+	host           string
+	subscribed     bool
+	connectBlocks  bool
+	connectErrs    []error
+	connectCalls   int
+	connected      bool
+	disconnect     chan struct{}
+	disconnectGate <-chan struct{}
+	handler        func(payload []byte, receivedAt time.Time)
+	ready          chan struct{}
+	readyClosed    bool
 }
 
 func newFakeMQTTClient() *fakeMQTTClient {
@@ -196,6 +221,9 @@ func (f *fakeMQTTClient) Disconnect(_ time.Duration) {
 	case <-f.disconnect:
 	default:
 		close(f.disconnect)
+	}
+	if f.disconnectGate != nil {
+		<-f.disconnectGate
 	}
 }
 
@@ -335,6 +363,187 @@ func TestSubscriber_Run_DispatchesOnOffEdge(t *testing.T) {
 	assert.Equal(t, newUUID.String(), s.LastEdgeEventUUID)
 }
 
+func TestSubscriber_Reconcile_StartsAndStopsSources(t *testing.T) {
+	src := SourceConfig{
+		ID:                    1,
+		OrganizationID:        7,
+		ServiceUserID:         99,
+		SourceName:            "site-a",
+		Topic:                 "vendor/target",
+		BrokerPrimaryHost:     "10.0.0.1",
+		BrokerSecondaryHost:   "10.0.0.2",
+		BrokerPort:            1883,
+		MQTTUsername:          "user",
+		MQTTPasswordEncrypted: "pw",
+		StalenessThreshold:    240 * time.Second,
+		MinCurtailedDuration:  600 * time.Second,
+		Enabled:               true,
+	}
+	store := newFakeStore()
+	driver := NewDriver(&fakeService{})
+
+	var clientsMu sync.Mutex
+	var clients []*fakeMQTTClient
+	factory := func() MQTTClient {
+		c := newFakeMQTTClient()
+		clientsMu.Lock()
+		clients = append(clients, c)
+		clientsMu.Unlock()
+		return c
+	}
+
+	sub, err := NewSubscriber(Config{
+		Store:             store,
+		Driver:            driver,
+		NewClient:         factory,
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		WatchdogTickEvery: 24 * time.Hour,
+		ShutdownDeadline:  50 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, sub.Start(ctx))
+	defer sub.Stop()
+
+	store.setSources(src)
+	require.NoError(t, sub.Reconcile(ctx))
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 2
+	}, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		status := sub.SourceRuntimeStatus(src.ID)
+		return status.State == RuntimeStateRunning &&
+			status.RunningBrokerCount == 2 &&
+			status.SubscribedBrokerCount == 2
+	}, time.Second, 10*time.Millisecond)
+
+	store.setSources()
+	require.NoError(t, sub.Reconcile(ctx))
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		if len(clients) != 2 {
+			return false
+		}
+		for _, client := range clients {
+			select {
+			case <-client.disconnect:
+				return true
+			default:
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+	assert.Equal(t, RuntimeStateStopped, sub.SourceRuntimeStatus(src.ID).State)
+}
+
+func TestSubscriber_Reconcile_WaitsForReplacementWorkerToDrain(t *testing.T) {
+	src := SourceConfig{
+		ID:                    1,
+		OrganizationID:        7,
+		ServiceUserID:         99,
+		SourceName:            "site-a",
+		Topic:                 "vendor/target",
+		BrokerPrimaryHost:     "10.0.0.1",
+		BrokerSecondaryHost:   "10.0.0.2",
+		BrokerPort:            1883,
+		MQTTUsername:          "user",
+		MQTTPasswordEncrypted: "pw",
+		StalenessThreshold:    240 * time.Second,
+		MinCurtailedDuration:  600 * time.Second,
+		Enabled:               true,
+	}
+	store := newFakeStore(src)
+	listNotify := make(chan int, 4)
+	store.setListNotify(listNotify)
+	driver := NewDriver(&fakeService{})
+
+	oldDisconnectReleased := make(chan struct{})
+	var releaseOldDisconnect sync.Once
+	releaseOld := func() {
+		releaseOldDisconnect.Do(func() {
+			close(oldDisconnectReleased)
+		})
+	}
+	defer releaseOld()
+	var clientsMu sync.Mutex
+	var clients []*fakeMQTTClient
+	factory := func() MQTTClient {
+		c := newFakeMQTTClient()
+		clientsMu.Lock()
+		if len(clients) < 2 {
+			c.disconnectGate = oldDisconnectReleased
+		}
+		clients = append(clients, c)
+		clientsMu.Unlock()
+		return c
+	}
+
+	sub, err := NewSubscriber(Config{
+		Store:             store,
+		Driver:            driver,
+		NewClient:         factory,
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		WatchdogTickEvery: 24 * time.Hour,
+		ShutdownDeadline:  time.Second,
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, sub.Start(ctx))
+	defer sub.Stop()
+
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 2
+	}, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return sub.SourceRuntimeStatus(src.ID).State == RuntimeStateRunning
+	}, time.Second, 10*time.Millisecond)
+
+	next := src
+	next.Topic = "vendor/target/v2"
+	store.setSources(next)
+
+	reconciled := make(chan error, 1)
+	go func() {
+		reconciled <- sub.Reconcile(ctx)
+	}()
+
+	require.Eventually(t, func() bool {
+		select {
+		case call := <-listNotify:
+			return call >= 2
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) > 2
+	}, 100*time.Millisecond, 10*time.Millisecond)
+
+	releaseOld()
+	select {
+	case err := <-reconciled:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("reconcile did not finish after old worker was released")
+	}
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 4
+	}, time.Second, 10*time.Millisecond)
+}
+
 // A source whose service user lacks curtailment:ingest is rejected at startup:
 // the worker is not started, so any org member cannot drive emergency
 // curtailment just by being referenced from the source row.
@@ -366,7 +575,7 @@ func TestSubscriber_StartWorker_RejectsServiceUserWithoutIngestPermission(t *tes
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	w, err := sub.startWorker(context.Background(), src, &wg)
+	w, _, err := sub.startWorker(context.Background(), src, &wg)
 
 	require.Error(t, err)
 	assert.Nil(t, w)
@@ -402,7 +611,7 @@ func TestSubscriber_StartWorker_RejectsUnsupportedSiteScopeAtStartup(t *testing.
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	w, err := sub.startWorker(context.Background(), src, &wg)
+	w, _, err := sub.startWorker(context.Background(), src, &wg)
 
 	require.Error(t, err)
 	assert.Nil(t, w)
@@ -438,7 +647,7 @@ func TestSubscriber_StartWorker_ValidatesDecoderBeforeDecrypt(t *testing.T) {
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	w, err := sub.startWorker(context.Background(), src, &wg)
+	w, _, err := sub.startWorker(context.Background(), src, &wg)
 
 	require.Error(t, err)
 	assert.Nil(t, w)

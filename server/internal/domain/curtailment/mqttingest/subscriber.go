@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +26,16 @@ type PasswordDecryptor interface {
 	Decrypt(encrypted string) ([]byte, error)
 }
 
+type RuntimeStatusUpdate struct {
+	SourceID   int64
+	Broker     string
+	Connected  bool
+	Subscribed bool
+	Error      string
+}
+
+type RuntimeStatusReporter func(RuntimeStatusUpdate)
+
 const (
 	brokerTransportTCP = "tcp"
 	brokerTransportTLS = "tls"
@@ -43,15 +54,33 @@ type Config struct {
 	WatchdogTickEvery time.Duration
 	BrokerFreshness   time.Duration
 	ShutdownDeadline  time.Duration
+	StatusReporter    RuntimeStatusReporter
+}
+
+type sourceWorkerHandle struct {
+	worker      *sourceWorker
+	cancel      context.CancelFunc
+	done        <-chan struct{}
+	fingerprint string
+}
+
+type brokerRuntimeStatus struct {
+	connected  bool
+	subscribed bool
+	lastError  string
 }
 
 // Subscriber owns per-source workers.
 type Subscriber struct {
-	cfg     Config
-	workers map[int64]*sourceWorker
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	mu      sync.Mutex
+	cfg            Config
+	runDone        <-chan struct{}
+	workers        map[int64]*sourceWorkerHandle
+	statuses       map[int64]RuntimeStatus
+	brokerStatuses map[int64]map[string]brokerRuntimeStatus
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	mu             sync.Mutex
+	reconcileMu    sync.Mutex
 }
 
 // NewSubscriber validates dependencies and applies runtime defaults.
@@ -83,14 +112,23 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	if cfg.ShutdownDeadline <= 0 {
 		cfg.ShutdownDeadline = 10 * time.Second
 	}
-	return &Subscriber{
-		cfg:     cfg,
-		workers: make(map[int64]*sourceWorker),
-	}, nil
+	s := &Subscriber{
+		cfg:            cfg,
+		workers:        make(map[int64]*sourceWorkerHandle),
+		statuses:       make(map[int64]RuntimeStatus),
+		brokerStatuses: make(map[int64]map[string]brokerRuntimeStatus),
+	}
+	externalReporter := cfg.StatusReporter
+	s.cfg.StatusReporter = func(update RuntimeStatusUpdate) {
+		s.recordRuntimeStatus(update)
+		if externalReporter != nil {
+			externalReporter(update)
+		}
+	}
+	return s, nil
 }
 
-// Start starts enabled sources once. Enable/disable changes take effect after
-// restart; per-source startup errors are logged so other sources can still run.
+// Start starts the runtime and performs the initial source reconciliation.
 func (s *Subscriber) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.cancel != nil {
@@ -98,50 +136,27 @@ func (s *Subscriber) Start(ctx context.Context) error {
 		return errors.New("mqttingest: subscriber already started")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
+	s.runDone = runCtx.Done()
 	s.cancel = cancel
-	s.workers = make(map[int64]*sourceWorker)
+	s.workers = make(map[int64]*sourceWorkerHandle)
 	s.mu.Unlock()
 
-	sources, err := s.cfg.Store.ListEnabledSources(runCtx)
-	if err != nil {
+	if _, _, err := s.reconcile(runCtx, true); err != nil {
 		cancel()
 		s.mu.Lock()
+		s.runDone = nil
 		s.cancel = nil
+		s.workers = make(map[int64]*sourceWorkerHandle)
 		s.mu.Unlock()
-		return fmt.Errorf("mqttingest: list enabled sources: %w", err)
+		return err
 	}
-
-	s.cfg.Logger.Info("mqttingest subscriber starting", slog.Int("source_count", len(sources)))
-
-	started := 0
-	var firstStartErr error
-	for _, src := range sources {
-		w, err := s.startWorker(runCtx, src, &s.wg)
-		if err != nil {
-			if firstStartErr == nil {
-				firstStartErr = err
-			}
-			s.cfg.Logger.Error("mqttingest: start worker failed",
-				slog.String("source", src.SourceName),
-				slog.Any("error", err))
-			continue
-		}
-		started++
-		s.mu.Lock()
-		s.workers[src.ID] = w
-		s.mu.Unlock()
-	}
-
-	if len(sources) > 0 && started == 0 {
-		cancel()
-		s.mu.Lock()
-		s.cancel = nil
-		s.workers = make(map[int64]*sourceWorker)
-		s.mu.Unlock()
-		return fmt.Errorf("mqttingest: no enabled sources started (source_count=%d): %w", len(sources), firstStartErr)
-	}
-
 	return nil
+}
+
+// Reconcile applies enabled-source settings to the running subscriber.
+func (s *Subscriber) Reconcile(ctx context.Context) error {
+	_, _, err := s.reconcile(ctx, false)
+	return err
 }
 
 // Stop cancels all workers and waits up to ShutdownDeadline for them to drain.
@@ -152,9 +167,17 @@ func (s *Subscriber) Stop() {
 		s.mu.Unlock()
 		return
 	}
+	handles := make([]*sourceWorkerHandle, 0, len(s.workers))
+	for _, handle := range s.workers {
+		handles = append(handles, handle)
+	}
+	s.runDone = nil
 	s.cancel = nil
 	s.mu.Unlock()
 
+	for _, handle := range handles {
+		handle.cancel()
+	}
 	cancel()
 	s.cfg.Logger.Info("mqttingest subscriber draining workers",
 		slog.Duration("deadline", s.cfg.ShutdownDeadline))
@@ -171,7 +194,11 @@ func (s *Subscriber) Stop() {
 	}
 
 	s.mu.Lock()
-	s.workers = make(map[int64]*sourceWorker)
+	for sourceID := range s.workers {
+		s.setSourceStatusLocked(sourceID, RuntimeStateStopped, "")
+	}
+	s.workers = make(map[int64]*sourceWorkerHandle)
+	s.brokerStatuses = make(map[int64]map[string]brokerRuntimeStatus)
 	s.mu.Unlock()
 }
 
@@ -185,37 +212,189 @@ func (s *Subscriber) Run(ctx context.Context) error {
 	return nil
 }
 
+func (s *Subscriber) SourceRuntimeStatus(sourceID int64) RuntimeStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := s.statuses[sourceID]
+	return status
+}
+
+func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int, int, error) {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+
+	s.mu.Lock()
+	runDone := s.runDone
+	existing := make(map[int64]*sourceWorkerHandle, len(s.workers))
+	for id, handle := range s.workers {
+		existing[id] = handle
+	}
+	s.mu.Unlock()
+	if runDone == nil {
+		return 0, 0, errors.New("mqttingest: subscriber is not started")
+	}
+
+	sources, err := s.cfg.Store.ListEnabledSources(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("mqttingest: list enabled sources: %w", err)
+	}
+	s.cfg.Logger.Info("mqttingest subscriber reconciling", slog.Int("source_count", len(sources)))
+
+	desired := make(map[int64]SourceConfig, len(sources))
+	for _, src := range sources {
+		desired[src.ID] = src
+	}
+	stopping := make([]*sourceWorkerHandle, 0)
+	for sourceID, handle := range existing {
+		src, ok := desired[sourceID]
+		if ok && sourceConfigFingerprint(src) == handle.fingerprint {
+			continue
+		}
+		handle.cancel()
+		s.mu.Lock()
+		if current, stillCurrent := s.workers[sourceID]; stillCurrent && current == handle {
+			delete(s.workers, sourceID)
+			delete(s.brokerStatuses, sourceID)
+		}
+		s.mu.Unlock()
+		stopping = append(stopping, handle)
+	}
+	for _, handle := range stopping {
+		if err := s.waitForHandleStopped(ctx, handle); err != nil {
+			s.recordSourceError(handle.worker.source.ID, err.Error())
+			return 0, len(sources), err
+		}
+		s.mu.Lock()
+		if _, stillCurrent := s.workers[handle.worker.source.ID]; !stillCurrent {
+			s.setSourceStatusLocked(handle.worker.source.ID, RuntimeStateStopped, "")
+		}
+		s.mu.Unlock()
+	}
+
+	started := 0
+	var firstStartErr error
+	for _, src := range sources {
+		fingerprint := sourceConfigFingerprint(src)
+		s.mu.Lock()
+		current, ok := s.workers[src.ID]
+		if ok && current.fingerprint == fingerprint {
+			s.mu.Unlock()
+			continue
+		}
+		s.setSourceStatusLocked(src.ID, RuntimeStateStarting, "")
+		s.brokerStatuses[src.ID] = make(map[string]brokerRuntimeStatus)
+		s.mu.Unlock()
+
+		workerCtx, workerCancel := contextWithDone(runDone)
+		w, done, err := s.startWorker(workerCtx, src, &s.wg)
+		if err != nil {
+			workerCancel()
+			if firstStartErr == nil {
+				firstStartErr = err
+			}
+			s.recordSourceError(src.ID, err.Error())
+			s.cfg.Logger.Error("mqttingest: start worker failed",
+				slog.String("source", src.SourceName),
+				slog.Any("error", err))
+			continue
+		}
+
+		handle := &sourceWorkerHandle{
+			worker:      w,
+			cancel:      workerCancel,
+			done:        done,
+			fingerprint: fingerprint,
+		}
+		s.mu.Lock()
+		if s.runDone != runDone {
+			s.mu.Unlock()
+			workerCancel()
+			continue
+		}
+		if previous, ok := s.workers[src.ID]; ok {
+			previous.cancel()
+		}
+		s.workers[src.ID] = handle
+		s.mu.Unlock()
+		started++
+	}
+
+	if failIfNoneStarted && len(sources) > 0 {
+		s.mu.Lock()
+		runningCount := len(s.workers)
+		s.mu.Unlock()
+		if runningCount == 0 {
+			if firstStartErr == nil {
+				return started, len(sources), fmt.Errorf("mqttingest: no enabled sources started (source_count=%d)", len(sources))
+			}
+			return started, len(sources), fmt.Errorf("mqttingest: no enabled sources started (source_count=%d): %w", len(sources), firstStartErr)
+		}
+	}
+	return started, len(sources), nil
+}
+
+func contextWithDone(done <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
+func (s *Subscriber) waitForHandleStopped(ctx context.Context, handle *sourceWorkerHandle) error {
+	if handle == nil || handle.done == nil {
+		return nil
+	}
+	timer := time.NewTimer(s.cfg.ShutdownDeadline)
+	defer timer.Stop()
+	select {
+	case <-handle.done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("mqttingest: stop source %s: %w", handle.worker.source.SourceName, ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("mqttingest: source %s worker did not stop within %s",
+			handle.worker.source.SourceName,
+			s.cfg.ShutdownDeadline,
+		)
+	}
+}
+
 // startWorker boots one source's worker goroutine.
-func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, error) {
+func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, <-chan struct{}, error) {
 	primary, secondary, ok := ResolveBrokerRoles(src.BrokerPrimaryHost, src.BrokerSecondaryHost)
 	if !ok {
-		return nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)
+		return nil, nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)
 	}
 	if err := validateBrokerTransport(src, primary, secondary); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := scopeForSource(src); err != nil {
-		return nil, fmt.Errorf("mqttingest: source %s invalid scope: %w", src.SourceName, err)
+		return nil, nil, fmt.Errorf("mqttingest: source %s invalid scope: %w", src.SourceName, err)
 	}
 
 	// The service user must hold the machine-ingest permission for the org it can curtail.
 	canIngest, err := s.cfg.Store.UserCanIngestCurtailment(ctx, src.ServiceUserID, src.OrganizationID)
 	if err != nil {
-		return nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
+		return nil, nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
 	}
 	if !canIngest {
-		return nil, fmt.Errorf("mqttingest: source %s service user %d lacks curtailment:ingest in org %d",
+		return nil, nil, fmt.Errorf("mqttingest: source %s service user %d lacks curtailment:ingest in org %d",
 			src.SourceName, src.ServiceUserID, src.OrganizationID)
 	}
 
 	decoder, err := decoderForFormat(src.PayloadFormat)
 	if err != nil {
-		return nil, fmt.Errorf("mqttingest: source %s: %w", src.SourceName, err)
+		return nil, nil, fmt.Errorf("mqttingest: source %s: %w", src.SourceName, err)
 	}
 
 	password, err := s.cfg.Decryptor.Decrypt(src.MQTTPasswordEncrypted)
 	if err != nil {
-		return nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)
+		return nil, nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)
 	}
 
 	workerPassword := string(password)
@@ -229,9 +408,13 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 	// Bound plaintext credentials to the worker lifetime.
 	clear(password)
 
+	done := make(chan struct{})
 	wg.Add(1)
-	go s.superviseWorker(ctx, src, decoder, primary, secondary, workerPassword, wg)
-	return w, nil
+	go func() {
+		defer close(done)
+		s.superviseWorker(ctx, src, decoder, primary, secondary, workerPassword, wg)
+	}()
+	return w, done, nil
 }
 
 func (s *Subscriber) superviseWorker(
@@ -283,6 +466,7 @@ func (s *Subscriber) runWorkerOnce(ctx context.Context, w *sourceWorker) (panick
 	defer func() {
 		if r := recover(); r != nil {
 			panicked = true
+			s.recordSourceError(w.source.ID, fmt.Sprintf("source worker panic: %v", r))
 			s.cfg.Logger.Error("mqttingest: source worker panic",
 				slog.String("source", w.source.SourceName),
 				slog.Any("panic", r))
@@ -290,6 +474,68 @@ func (s *Subscriber) runWorkerOnce(ctx context.Context, w *sourceWorker) (panick
 	}()
 	w.run(ctx)
 	return false
+}
+
+func (s *Subscriber) recordRuntimeStatus(update RuntimeStatusUpdate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if update.SourceID <= 0 || update.Broker == "" {
+		return
+	}
+	if s.brokerStatuses[update.SourceID] == nil {
+		s.brokerStatuses[update.SourceID] = make(map[string]brokerRuntimeStatus)
+	}
+	s.brokerStatuses[update.SourceID][update.Broker] = brokerRuntimeStatus{
+		connected:  update.Connected,
+		subscribed: update.Subscribed,
+		lastError:  update.Error,
+	}
+	running := 0
+	subscribed := 0
+	lastError := ""
+	for _, broker := range s.brokerStatuses[update.SourceID] {
+		if broker.connected {
+			running++
+		}
+		if broker.subscribed {
+			subscribed++
+		}
+		if broker.lastError != "" {
+			lastError = broker.lastError
+		}
+	}
+	state := RuntimeStateRunning
+	if running == 0 {
+		state = RuntimeStateStarting
+		if lastError != "" {
+			state = RuntimeStateError
+		}
+	}
+	status := s.statuses[update.SourceID]
+	status.State = state
+	status.LastError = lastError
+	status.RunningBrokerCount = running
+	status.SubscribedBrokerCount = subscribed
+	status.UpdatedAt = s.cfg.Clock()
+	s.statuses[update.SourceID] = status
+}
+
+func (s *Subscriber) recordSourceError(sourceID int64, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setSourceStatusLocked(sourceID, RuntimeStateError, message)
+}
+
+func (s *Subscriber) setSourceStatusLocked(sourceID int64, state RuntimeState, message string) {
+	status := s.statuses[sourceID]
+	status.State = state
+	status.LastError = message
+	if state == RuntimeStateStarting || state == RuntimeStateStopped || state == RuntimeStateDisabled {
+		status.RunningBrokerCount = 0
+		status.SubscribedBrokerCount = 0
+	}
+	status.UpdatedAt = s.cfg.Clock()
+	s.statuses[sourceID] = status
 }
 
 func startupRetryEveryFor(tick time.Duration) time.Duration {
@@ -325,4 +571,31 @@ func validateBrokerTransport(src SourceConfig, hosts ...string) error {
 	default:
 		return fmt.Errorf("mqttingest: source %s has unsupported broker_transport %q", src.SourceName, src.BrokerTransport)
 	}
+}
+
+func sourceConfigFingerprint(src SourceConfig) string {
+	siteID := ""
+	if src.ScopeSiteID != nil {
+		siteID = fmt.Sprintf("%d", *src.ScopeSiteID)
+	}
+	return strings.Join([]string{
+		fmt.Sprintf("%d", src.OrganizationID),
+		fmt.Sprintf("%d", src.ServiceUserID),
+		src.SourceName,
+		src.Topic,
+		src.BrokerPrimaryHost,
+		src.BrokerSecondaryHost,
+		fmt.Sprintf("%d", src.BrokerPort),
+		src.BrokerTransport,
+		src.MQTTUsername,
+		src.MQTTPasswordEncrypted,
+		fmt.Sprintf("%d", src.ContractedCurtailmentKw),
+		src.CurtailMode,
+		src.PayloadFormat,
+		src.ScopeType,
+		siteID,
+		strings.Join(src.ScopeDeviceIdentifiers, "\x1f"),
+		fmt.Sprintf("%d", int64(src.StalenessThreshold/time.Second)),
+		fmt.Sprintf("%d", int64(src.MinCurtailedDuration/time.Second)),
+	}, "\x1e")
 }

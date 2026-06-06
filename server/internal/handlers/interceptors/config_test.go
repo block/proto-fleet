@@ -22,6 +22,15 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 	assert.True(t, SensitiveBodyProcedures[procedure])
 }
 
+func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, RedactedRequestProcedures,
+		curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure)
+	assert.Contains(t, RedactedRequestProcedures,
+		curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure)
+}
+
 // AdminTerminateEvent is the operator-of-last-resort recovery RPC and must
 // reject API-key auth. The other curtailment write RPCs remain API-key-
 // accessible so external integrations can drive curtailment via the public API.

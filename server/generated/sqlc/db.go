@@ -180,6 +180,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
 	}
+	if q.deleteDisabledMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, deleteDisabledMQTTSourceConfigByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteDisabledMQTTSourceConfigByOrg: %w", err)
+	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -425,6 +428,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
+	}
+	if q.getMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, getMQTTSourceConfigByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMQTTSourceConfigByOrg: %w", err)
 	}
 	if q.getMQTTSourceStateByIDStmt, err = db.PrepareContext(ctx, getMQTTSourceStateByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMQTTSourceStateByID: %w", err)
@@ -678,6 +684,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
 	}
+	if q.listMQTTSourceConfigsByOrgStmt, err = db.PrepareContext(ctx, listMQTTSourceConfigsByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMQTTSourceConfigsByOrg: %w", err)
+	}
+	if q.listMQTTSourceStatesByOrgStmt, err = db.PrepareContext(ctx, listMQTTSourceStatesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMQTTSourceStatesByOrg: %w", err)
+	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
@@ -843,6 +855,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
 	}
+	if q.setMQTTSourceConfigEnabledStmt, err = db.PrepareContext(ctx, setMQTTSourceConfigEnabled); err != nil {
+		return nil, fmt.Errorf("error preparing query SetMQTTSourceConfigEnabled: %w", err)
+	}
 	if q.setRackBuildingPositionStmt, err = db.PrepareContext(ctx, setRackBuildingPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackBuildingPosition: %w", err)
 	}
@@ -998,6 +1013,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateLastLoginStmt, err = db.PrepareContext(ctx, updateLastLogin); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateLastLogin: %w", err)
+	}
+	if q.updateMQTTSourceConfigStmt, err = db.PrepareContext(ctx, updateMQTTSourceConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateMQTTSourceConfig: %w", err)
 	}
 	if q.updateMessageAfterFailureStmt, err = db.PrepareContext(ctx, updateMessageAfterFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageAfterFailure: %w", err)
@@ -1355,6 +1373,11 @@ func (q *Queries) Close() error {
 	if q.curtailmentEventHasInFlightTargetsStmt != nil {
 		if cerr := q.curtailmentEventHasInFlightTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deleteDisabledMQTTSourceConfigByOrgStmt != nil {
+		if cerr := q.deleteDisabledMQTTSourceConfigByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteDisabledMQTTSourceConfigByOrgStmt: %w", cerr)
 		}
 	}
 	if q.deleteExpiredSessionsStmt != nil {
@@ -1765,6 +1788,11 @@ func (q *Queries) Close() error {
 	if q.getLatestDeviceMetricsStmt != nil {
 		if cerr := q.getLatestDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
+		}
+	}
+	if q.getMQTTSourceConfigByOrgStmt != nil {
+		if cerr := q.getMQTTSourceConfigByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMQTTSourceConfigByOrgStmt: %w", cerr)
 		}
 	}
 	if q.getMQTTSourceStateByIDStmt != nil {
@@ -2187,6 +2215,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.listMQTTSourceConfigsByOrgStmt != nil {
+		if cerr := q.listMQTTSourceConfigsByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMQTTSourceConfigsByOrgStmt: %w", cerr)
+		}
+	}
+	if q.listMQTTSourceStatesByOrgStmt != nil {
+		if cerr := q.listMQTTSourceStatesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMQTTSourceStatesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
@@ -2462,6 +2500,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
 		}
 	}
+	if q.setMQTTSourceConfigEnabledStmt != nil {
+		if cerr := q.setMQTTSourceConfigEnabledStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setMQTTSourceConfigEnabledStmt: %w", cerr)
+		}
+	}
 	if q.setRackBuildingPositionStmt != nil {
 		if cerr := q.setRackBuildingPositionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setRackBuildingPositionStmt: %w", cerr)
@@ -2722,6 +2765,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateLastLoginStmt: %w", cerr)
 		}
 	}
+	if q.updateMQTTSourceConfigStmt != nil {
+		if cerr := q.updateMQTTSourceConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateMQTTSourceConfigStmt: %w", cerr)
+		}
+	}
 	if q.updateMessageAfterFailureStmt != nil {
 		if cerr := q.updateMessageAfterFailureStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMessageAfterFailureStmt: %w", cerr)
@@ -2968,6 +3016,7 @@ type Queries struct {
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt              *sql.Stmt
+	deleteDisabledMQTTSourceConfigByOrgStmt             *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePairingsForFleetNodeStmt                      *sql.Stmt
@@ -3050,6 +3099,7 @@ type Queries struct {
 	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
+	getMQTTSourceConfigByOrgStmt                        *sql.Stmt
 	getMQTTSourceStateByIDStmt                          *sql.Stmt
 	getMaxPriorityStmt                                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
@@ -3134,6 +3184,8 @@ type Queries struct {
 	listFleetNodeDevicesStmt                            *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                  *sql.Stmt
 	listFleetNodesForOrganizationStmt                   *sql.Stmt
+	listMQTTSourceConfigsByOrgStmt                      *sql.Stmt
+	listMQTTSourceStatesByOrgStmt                       *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
@@ -3189,6 +3241,7 @@ type Queries struct {
 	revokePermissionFromRoleStmt                        *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                    *sql.Stmt
+	setMQTTSourceConfigEnabledStmt                      *sql.Stmt
 	setRackBuildingPositionStmt                         *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
@@ -3241,6 +3294,7 @@ type Queries struct {
 	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
 	updateFleetNodeLastSeenAtStmt                       *sql.Stmt
 	updateLastLoginStmt                                 *sql.Stmt
+	updateMQTTSourceConfigStmt                          *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessagePermanentlyFailedStmt                  *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
@@ -3330,6 +3384,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:              q.curtailmentEventHasInFlightTargetsStmt,
+		deleteDisabledMQTTSourceConfigByOrgStmt:             q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePairingsForFleetNodeStmt:                      q.deletePairingsForFleetNodeStmt,
@@ -3412,6 +3467,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
+		getMQTTSourceConfigByOrgStmt:                        q.getMQTTSourceConfigByOrgStmt,
 		getMQTTSourceStateByIDStmt:                          q.getMQTTSourceStateByIDStmt,
 		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
@@ -3496,6 +3552,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetNodeDevicesStmt:                            q.listFleetNodeDevicesStmt,
 		listFleetNodeDiscoveredDevicesStmt:                  q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,
+		listMQTTSourceConfigsByOrgStmt:                      q.listMQTTSourceConfigsByOrgStmt,
+		listMQTTSourceStatesByOrgStmt:                       q.listMQTTSourceStatesByOrgStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                q.listNonTerminalCurtailmentEventsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
@@ -3551,6 +3609,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokePermissionFromRoleStmt:                        q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setFleetNodeEnrollmentStatusStmt:                    q.setFleetNodeEnrollmentStatusStmt,
+		setMQTTSourceConfigEnabledStmt:                      q.setMQTTSourceConfigEnabledStmt,
 		setRackBuildingPositionStmt:                         q.setRackBuildingPositionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
@@ -3603,6 +3662,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateFleetNodeLastSeenAtStmt:                       q.updateFleetNodeLastSeenAtStmt,
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
+		updateMQTTSourceConfigStmt:                          q.updateMQTTSourceConfigStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessagePermanentlyFailedStmt:                  q.updateMessagePermanentlyFailedStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,

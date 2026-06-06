@@ -21,6 +21,8 @@ var RedactedRequestProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,

@@ -1,15 +1,34 @@
 -- name: ListEnabledMQTTSources :many
--- Enabled MQTT sources, read once at subscriber startup. Enable/disable
--- takes effect on the next start (no hot reload).
+-- Enabled MQTT sources for subscriber reconciliation.
 SELECT *
 FROM curtailment_mqtt_source_config
 WHERE enabled = TRUE
 ORDER BY id;
 
+-- name: ListMQTTSourceConfigsByOrg :many
+SELECT *
+FROM curtailment_mqtt_source_config
+WHERE organization_id = sqlc.arg('organization_id')
+ORDER BY id;
+
+-- name: GetMQTTSourceConfigByOrg :one
+SELECT *
+FROM curtailment_mqtt_source_config
+WHERE id = sqlc.arg('id')
+  AND organization_id = sqlc.arg('organization_id');
+
 -- name: GetMQTTSourceStateByID :one
 SELECT *
 FROM curtailment_mqtt_source_state
 WHERE source_config_id = sqlc.arg('source_config_id');
+
+-- name: ListMQTTSourceStatesByOrg :many
+SELECT st.*
+FROM curtailment_mqtt_source_state st
+JOIN curtailment_mqtt_source_config cfg
+  ON cfg.id = st.source_config_id
+WHERE cfg.organization_id = sqlc.arg('organization_id')
+ORDER BY st.source_config_id;
 
 -- name: UpsertMQTTSourceState :exec
 -- Subscriber upserts state on each successful message receive (after
@@ -71,8 +90,6 @@ SET
     last_empty_full_fleet_watchdog_ref = EXCLUDED.last_empty_full_fleet_watchdog_ref;
 
 -- name: InsertMQTTSourceConfig :one
--- Used by tests and operator-supplied DML. Production source rows are
--- seeded via migration data until the CRUD RPC lands.
 INSERT INTO curtailment_mqtt_source_config (
     organization_id,
     service_user_id,
@@ -115,3 +132,40 @@ INSERT INTO curtailment_mqtt_source_config (
     sqlc.arg('enabled')
 )
 RETURNING *;
+
+-- name: UpdateMQTTSourceConfig :one
+UPDATE curtailment_mqtt_source_config
+SET
+    service_user_id = sqlc.arg('service_user_id'),
+    source_name = sqlc.arg('source_name'),
+    topic = sqlc.arg('topic'),
+    broker_primary_host = sqlc.arg('broker_primary_host'),
+    broker_secondary_host = sqlc.arg('broker_secondary_host'),
+    broker_port = sqlc.narg('broker_port'),
+    broker_transport = sqlc.arg('broker_transport'),
+    mqtt_username = sqlc.arg('mqtt_username'),
+    mqtt_password_enc = sqlc.arg('mqtt_password_enc'),
+    contracted_curtailment_kw = sqlc.narg('contracted_curtailment_kw'),
+    curtail_mode = sqlc.arg('curtail_mode'),
+    payload_format = sqlc.arg('payload_format'),
+    scope_type = sqlc.arg('scope_type'),
+    scope_site_id = sqlc.narg('scope_site_id'),
+    scope_device_identifiers = sqlc.narg('scope_device_identifiers'),
+    staleness_threshold_sec = sqlc.narg('staleness_threshold_sec'),
+    min_curtailed_duration_sec = sqlc.narg('min_curtailed_duration_sec')
+WHERE id = sqlc.arg('id')
+  AND organization_id = sqlc.arg('organization_id')
+RETURNING *;
+
+-- name: SetMQTTSourceConfigEnabled :one
+UPDATE curtailment_mqtt_source_config
+SET enabled = sqlc.arg('enabled')
+WHERE id = sqlc.arg('id')
+  AND organization_id = sqlc.arg('organization_id')
+RETURNING *;
+
+-- name: DeleteDisabledMQTTSourceConfigByOrg :execrows
+DELETE FROM curtailment_mqtt_source_config
+WHERE id = sqlc.arg('id')
+  AND organization_id = sqlc.arg('organization_id')
+  AND enabled = FALSE;

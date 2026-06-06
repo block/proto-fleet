@@ -264,6 +264,13 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 			if ctx.Err() != nil {
 				return
 			}
+			w.reportRuntimeStatus(RuntimeStatusUpdate{
+				SourceID:   w.source.ID,
+				Broker:     host,
+				Connected:  false,
+				Subscribed: false,
+				Error:      err.Error(),
+			})
 			client.Disconnect(w.cfg.ShutdownDeadline)
 			retryAfter := jitterRetryDelay(retryEvery, rng)
 			w.cfg.Logger.Warn("mqttingest: broker connect failed, retrying",
@@ -281,6 +288,12 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 			retryEvery = nextInitialBrokerRetry(retryEvery)
 			continue
 		}
+		w.reportRuntimeStatus(RuntimeStatusUpdate{
+			SourceID:   w.source.ID,
+			Broker:     host,
+			Connected:  true,
+			Subscribed: true,
+		})
 		select {
 		case subscriptions <- struct{}{}:
 		case <-ctx.Done():
@@ -299,6 +312,12 @@ func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTC
 		return err
 	}
 	return client.Connect(ctx, host, w.source.BrokerPort, w.source.BrokerTransport, w.source.MQTTUsername, w.password, mqttClientIdentity(w.source, host))
+}
+
+func (w *sourceWorker) reportRuntimeStatus(update RuntimeStatusUpdate) {
+	if w.cfg.StatusReporter != nil {
+		w.cfg.StatusReporter(update)
+	}
 }
 
 // handleMessage resolves the canonical signal, dispatches owed edges, and

@@ -464,9 +464,10 @@ type CurtailmentMqttSourceConfig struct {
 	ScopeDeviceIdentifiers  []string
 	StalenessThresholdSec   sql.NullInt32
 	MinCurtailedDurationSec sql.NullInt32
-	Enabled                 bool
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	// Whether this MQTT source is actively ingested. New settings-created sources default disabled; existing rows are not backfilled.
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type CurtailmentMqttSourceState struct {

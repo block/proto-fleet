@@ -13,6 +13,68 @@ import (
 	"github.com/lib/pq"
 )
 
+const deleteDisabledMQTTSourceConfigByOrg = `-- name: DeleteDisabledMQTTSourceConfigByOrg :execrows
+DELETE FROM curtailment_mqtt_source_config
+WHERE id = $1
+  AND organization_id = $2
+  AND enabled = FALSE
+`
+
+type DeleteDisabledMQTTSourceConfigByOrgParams struct {
+	ID             int64
+	OrganizationID int64
+}
+
+func (q *Queries) DeleteDisabledMQTTSourceConfigByOrg(ctx context.Context, arg DeleteDisabledMQTTSourceConfigByOrgParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteDisabledMQTTSourceConfigByOrgStmt, deleteDisabledMQTTSourceConfigByOrg, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getMQTTSourceConfigByOrg = `-- name: GetMQTTSourceConfigByOrg :one
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_site_id, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+FROM curtailment_mqtt_source_config
+WHERE id = $1
+  AND organization_id = $2
+`
+
+type GetMQTTSourceConfigByOrgParams struct {
+	ID             int64
+	OrganizationID int64
+}
+
+func (q *Queries) GetMQTTSourceConfigByOrg(ctx context.Context, arg GetMQTTSourceConfigByOrgParams) (CurtailmentMqttSourceConfig, error) {
+	row := q.queryRow(ctx, q.getMQTTSourceConfigByOrgStmt, getMQTTSourceConfigByOrg, arg.ID, arg.OrganizationID)
+	var i CurtailmentMqttSourceConfig
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ServiceUserID,
+		&i.SourceName,
+		&i.Topic,
+		&i.BrokerPrimaryHost,
+		&i.BrokerSecondaryHost,
+		&i.BrokerPort,
+		&i.BrokerTransport,
+		&i.MqttUsername,
+		&i.MqttPasswordEnc,
+		&i.ContractedCurtailmentKw,
+		&i.CurtailMode,
+		&i.PayloadFormat,
+		&i.ScopeType,
+		&i.ScopeSiteID,
+		pq.Array(&i.ScopeDeviceIdentifiers),
+		&i.StalenessThresholdSec,
+		&i.MinCurtailedDurationSec,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getMQTTSourceStateByID = `-- name: GetMQTTSourceStateByID :one
 SELECT source_config_id, last_target, last_target_at, last_processed_target, last_processed_targets, last_received_at, last_received_broker, last_edge_at, last_edge_event_uuid, pending_direction, pending_target, pending_target_at, pending_received_at, pending_received_broker, pending_prior_edge_at, last_empty_full_fleet_watchdog_ref, updated_at, pending_retry_at
 FROM curtailment_mqtt_source_state
@@ -112,8 +174,6 @@ type InsertMQTTSourceConfigParams struct {
 	Enabled                 bool
 }
 
-// Used by tests and operator-supplied DML. Production source rows are
-// seeded via migration data until the CRUD RPC lands.
 func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
 	row := q.queryRow(ctx, q.insertMQTTSourceConfigStmt, insertMQTTSourceConfig,
 		arg.OrganizationID,
@@ -171,8 +231,7 @@ WHERE enabled = TRUE
 ORDER BY id
 `
 
-// Enabled MQTT sources, read once at subscriber startup. Enable/disable
-// takes effect on the next start (no hot reload).
+// Enabled MQTT sources for subscriber reconciliation.
 func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error) {
 	rows, err := q.query(ctx, q.listEnabledMQTTSourcesStmt, listEnabledMQTTSources)
 	if err != nil {
@@ -217,6 +276,251 @@ func (q *Queries) ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqtt
 		return nil, err
 	}
 	return items, nil
+}
+
+const listMQTTSourceConfigsByOrg = `-- name: ListMQTTSourceConfigsByOrg :many
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_site_id, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+FROM curtailment_mqtt_source_config
+WHERE organization_id = $1
+ORDER BY id
+`
+
+func (q *Queries) ListMQTTSourceConfigsByOrg(ctx context.Context, organizationID int64) ([]CurtailmentMqttSourceConfig, error) {
+	rows, err := q.query(ctx, q.listMQTTSourceConfigsByOrgStmt, listMQTTSourceConfigsByOrg, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentMqttSourceConfig
+	for rows.Next() {
+		var i CurtailmentMqttSourceConfig
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ServiceUserID,
+			&i.SourceName,
+			&i.Topic,
+			&i.BrokerPrimaryHost,
+			&i.BrokerSecondaryHost,
+			&i.BrokerPort,
+			&i.BrokerTransport,
+			&i.MqttUsername,
+			&i.MqttPasswordEnc,
+			&i.ContractedCurtailmentKw,
+			&i.CurtailMode,
+			&i.PayloadFormat,
+			&i.ScopeType,
+			&i.ScopeSiteID,
+			pq.Array(&i.ScopeDeviceIdentifiers),
+			&i.StalenessThresholdSec,
+			&i.MinCurtailedDurationSec,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMQTTSourceStatesByOrg = `-- name: ListMQTTSourceStatesByOrg :many
+SELECT st.source_config_id, st.last_target, st.last_target_at, st.last_processed_target, st.last_processed_targets, st.last_received_at, st.last_received_broker, st.last_edge_at, st.last_edge_event_uuid, st.pending_direction, st.pending_target, st.pending_target_at, st.pending_received_at, st.pending_received_broker, st.pending_prior_edge_at, st.last_empty_full_fleet_watchdog_ref, st.updated_at, st.pending_retry_at
+FROM curtailment_mqtt_source_state st
+JOIN curtailment_mqtt_source_config cfg
+  ON cfg.id = st.source_config_id
+WHERE cfg.organization_id = $1
+ORDER BY st.source_config_id
+`
+
+func (q *Queries) ListMQTTSourceStatesByOrg(ctx context.Context, organizationID int64) ([]CurtailmentMqttSourceState, error) {
+	rows, err := q.query(ctx, q.listMQTTSourceStatesByOrgStmt, listMQTTSourceStatesByOrg, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentMqttSourceState
+	for rows.Next() {
+		var i CurtailmentMqttSourceState
+		if err := rows.Scan(
+			&i.SourceConfigID,
+			&i.LastTarget,
+			&i.LastTargetAt,
+			&i.LastProcessedTarget,
+			pq.Array(&i.LastProcessedTargets),
+			&i.LastReceivedAt,
+			&i.LastReceivedBroker,
+			&i.LastEdgeAt,
+			&i.LastEdgeEventUuid,
+			&i.PendingDirection,
+			&i.PendingTarget,
+			&i.PendingTargetAt,
+			&i.PendingReceivedAt,
+			&i.PendingReceivedBroker,
+			&i.PendingPriorEdgeAt,
+			&i.LastEmptyFullFleetWatchdogRef,
+			&i.UpdatedAt,
+			&i.PendingRetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMQTTSourceConfigEnabled = `-- name: SetMQTTSourceConfigEnabled :one
+UPDATE curtailment_mqtt_source_config
+SET enabled = $1
+WHERE id = $2
+  AND organization_id = $3
+RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_site_id, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+`
+
+type SetMQTTSourceConfigEnabledParams struct {
+	Enabled        bool
+	ID             int64
+	OrganizationID int64
+}
+
+func (q *Queries) SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (CurtailmentMqttSourceConfig, error) {
+	row := q.queryRow(ctx, q.setMQTTSourceConfigEnabledStmt, setMQTTSourceConfigEnabled, arg.Enabled, arg.ID, arg.OrganizationID)
+	var i CurtailmentMqttSourceConfig
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ServiceUserID,
+		&i.SourceName,
+		&i.Topic,
+		&i.BrokerPrimaryHost,
+		&i.BrokerSecondaryHost,
+		&i.BrokerPort,
+		&i.BrokerTransport,
+		&i.MqttUsername,
+		&i.MqttPasswordEnc,
+		&i.ContractedCurtailmentKw,
+		&i.CurtailMode,
+		&i.PayloadFormat,
+		&i.ScopeType,
+		&i.ScopeSiteID,
+		pq.Array(&i.ScopeDeviceIdentifiers),
+		&i.StalenessThresholdSec,
+		&i.MinCurtailedDurationSec,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateMQTTSourceConfig = `-- name: UpdateMQTTSourceConfig :one
+UPDATE curtailment_mqtt_source_config
+SET
+    service_user_id = $1,
+    source_name = $2,
+    topic = $3,
+    broker_primary_host = $4,
+    broker_secondary_host = $5,
+    broker_port = $6,
+    broker_transport = $7,
+    mqtt_username = $8,
+    mqtt_password_enc = $9,
+    contracted_curtailment_kw = $10,
+    curtail_mode = $11,
+    payload_format = $12,
+    scope_type = $13,
+    scope_site_id = $14,
+    scope_device_identifiers = $15,
+    staleness_threshold_sec = $16,
+    min_curtailed_duration_sec = $17
+WHERE id = $18
+  AND organization_id = $19
+RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, contracted_curtailment_kw, curtail_mode, payload_format, scope_type, scope_site_id, scope_device_identifiers, staleness_threshold_sec, min_curtailed_duration_sec, enabled, created_at, updated_at
+`
+
+type UpdateMQTTSourceConfigParams struct {
+	ServiceUserID           int64
+	SourceName              string
+	Topic                   string
+	BrokerPrimaryHost       string
+	BrokerSecondaryHost     string
+	BrokerPort              sql.NullInt32
+	BrokerTransport         string
+	MqttUsername            string
+	MqttPasswordEnc         string
+	ContractedCurtailmentKw sql.NullInt32
+	CurtailMode             string
+	PayloadFormat           string
+	ScopeType               string
+	ScopeSiteID             sql.NullInt64
+	ScopeDeviceIdentifiers  []string
+	StalenessThresholdSec   sql.NullInt32
+	MinCurtailedDurationSec sql.NullInt32
+	ID                      int64
+	OrganizationID          int64
+}
+
+func (q *Queries) UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
+	row := q.queryRow(ctx, q.updateMQTTSourceConfigStmt, updateMQTTSourceConfig,
+		arg.ServiceUserID,
+		arg.SourceName,
+		arg.Topic,
+		arg.BrokerPrimaryHost,
+		arg.BrokerSecondaryHost,
+		arg.BrokerPort,
+		arg.BrokerTransport,
+		arg.MqttUsername,
+		arg.MqttPasswordEnc,
+		arg.ContractedCurtailmentKw,
+		arg.CurtailMode,
+		arg.PayloadFormat,
+		arg.ScopeType,
+		arg.ScopeSiteID,
+		pq.Array(arg.ScopeDeviceIdentifiers),
+		arg.StalenessThresholdSec,
+		arg.MinCurtailedDurationSec,
+		arg.ID,
+		arg.OrganizationID,
+	)
+	var i CurtailmentMqttSourceConfig
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ServiceUserID,
+		&i.SourceName,
+		&i.Topic,
+		&i.BrokerPrimaryHost,
+		&i.BrokerSecondaryHost,
+		&i.BrokerPort,
+		&i.BrokerTransport,
+		&i.MqttUsername,
+		&i.MqttPasswordEnc,
+		&i.ContractedCurtailmentKw,
+		&i.CurtailMode,
+		&i.PayloadFormat,
+		&i.ScopeType,
+		&i.ScopeSiteID,
+		pq.Array(&i.ScopeDeviceIdentifiers),
+		&i.StalenessThresholdSec,
+		&i.MinCurtailedDurationSec,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertMQTTSourceState = `-- name: UpsertMQTTSourceState :exec
