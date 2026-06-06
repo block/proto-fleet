@@ -268,6 +268,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	if !canonicalOK {
 		return prior
 	}
+	liveness := w.latestFreshObservation(prior, primaryObs, secondaryObs)
 
 	if pendingEdgeSupersededBy(prior.PendingEdge, canonical) {
 		w.cfg.Logger.Info("mqttingest: pending edge superseded by newer payload",
@@ -275,6 +276,9 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 			slog.String("pending_direction", prior.PendingEdge.Direction.String()),
 			slog.String("pending_target", prior.PendingEdge.Target.String()),
 			slog.String("canonical_target", canonical.Target.String()))
+		if prior.PendingEdge.Target == TargetOff && canonical.Target == TargetOn {
+			return w.applySupersedingPendingOff(ctx, prior, original, canonical, liveness)
+		}
 		prior.PendingEdge = nil
 		pendingSuperseded = true
 	}
@@ -293,8 +297,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
 
 	// Freshness advances even when dispatch fails because the publisher was live.
-	state.LastReceivedAt = canonical.ReceivedAt
-	state.LastReceivedBroker = canonical.Broker
+	state = w.advanceLiveness(state, canonical, liveness)
 
 	// Advance the duplicate-suppression anchor only after the edge settles.
 	if dispatched {
@@ -314,6 +317,48 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	if !w.persistState(ctx, state) && pendingSuperseded && original.PendingEdge != nil && state.PendingEdge == nil {
 		return original
+	}
+	return state
+}
+
+func (w *sourceWorker) applySupersedingPendingOff(
+	ctx context.Context,
+	prior SourceState,
+	original SourceState,
+	canonical CanonicalState,
+	liveness *Observation,
+) SourceState {
+	prior.PendingEdge = nil
+	pendingState := prior
+	pendingState.PendingEdge = &PendingEdge{
+		Direction:      EdgeOffToOn,
+		Target:         canonical.Target,
+		TargetAt:       canonical.PublishedAt,
+		ReceivedAt:     canonical.ReceivedAt,
+		ReceivedBroker: canonical.Broker,
+		PriorEdgeAt:    prior.LastEdgeAt,
+	}
+	if !w.persistState(ctx, pendingState) {
+		return original
+	}
+
+	state, dispatched := w.dispatchPendingEdge(ctx, pendingState)
+	state = w.advanceLiveness(state, canonical, liveness)
+	if dispatched {
+		recordProcessedTarget(&state, canonical)
+		state.LastTarget = canonical.Target
+		state.LastEmptyFullFleetWatchdogRef = ""
+	}
+	w.persistState(ctx, state)
+	return state
+}
+
+func (w *sourceWorker) advanceLiveness(state SourceState, canonical CanonicalState, latest *Observation) SourceState {
+	state.LastReceivedAt = canonical.ReceivedAt
+	state.LastReceivedBroker = canonical.Broker
+	if latest != nil && latest.ReceivedAt.After(state.LastReceivedAt) {
+		state.LastReceivedAt = latest.ReceivedAt
+		state.LastReceivedBroker = latest.Broker
 	}
 	return state
 }
@@ -545,6 +590,19 @@ func (w *sourceWorker) isStalePayload(prior SourceState, c CanonicalState) bool 
 		return true
 	}
 	return c.ReceivedAt.Sub(c.PublishedAt) >= w.source.StalenessThreshold
+}
+
+func (w *sourceWorker) latestFreshObservation(prior SourceState, observations ...*Observation) *Observation {
+	var latest *Observation
+	for _, obs := range observations {
+		if obs == nil || w.isStalePayload(prior, canonical(*obs)) {
+			continue
+		}
+		if latest == nil || obs.ReceivedAt.After(latest.ReceivedAt) {
+			latest = obs
+		}
+	}
+	return latest
 }
 
 func (w *sourceWorker) brokerRole(host string) BrokerRole {

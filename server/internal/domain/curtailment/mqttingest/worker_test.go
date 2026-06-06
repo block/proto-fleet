@@ -315,6 +315,53 @@ func TestWorker_HandleMessage_NewerOnClearsPendingOff(t *testing.T) {
 	assert.Equal(t, TargetOn, persisted.LastTarget)
 }
 
+func TestWorker_HandleMessage_NewerOnSupersedingPendingOffStopsActiveEvent(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	src := workerSource()
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(src, eventUUID, models.EventStateActive),
+		},
+		stopResult: testSourceEvent(src, eventUUID, models.EventStateRestoring),
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onAt := pendingAt.Add(time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": onAt.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   pendingAt.Add(-time.Minute),
+		LastReceivedAt: pendingAt,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: onAt})
+
+	require.Equal(t, 1, svc.stopCallsLen(), "newer ON must restore an active event left by the superseded pending OFF")
+	assert.Nil(t, next.PendingEdge)
+	assert.Equal(t, TargetOn, next.LastTarget)
+	assert.Equal(t, eventUUID.String(), next.LastEdgeEventUUID)
+
+	persisted, err := store.GetSourceState(context.Background(), src.ID)
+	require.NoError(t, err)
+	assert.Nil(t, persisted.PendingEdge)
+	assert.Equal(t, TargetOn, persisted.LastTarget)
+}
+
 func TestWorker_HandleMessage_CorrectedClockOnClearsFutureDatedPendingOff(t *testing.T) {
 	t.Parallel()
 
@@ -1541,6 +1588,41 @@ func TestWorker_HandleMessage_EvictsAgeStaleWinner_ThenProcessesFresh(t *testing
 	assert.Equal(t, TargetOn, next.LastTarget, "the live secondary ON must be honored, not masked")
 	assert.Equal(t, now, next.LastReceivedAt, "freshness advances from the live secondary, so the watchdog stays idle")
 	assert.Empty(t, svc.startCalls, "cold-start ON is not an edge — no curtail")
+}
+
+func TestWorker_HandleMessage_FreshSecondaryAdvancesLivenessWhenPrimaryWins(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	src := workerSource()
+	src.StalenessThreshold = 10 * time.Second
+	w := newTestWorker(t, store, svc, src) // BrokerFreshness = 60 s
+
+	now := time.Now().UTC()
+	primaryAt := now.Add(-30 * time.Second)
+	w.lastObs[BrokerPrimary] = &Observation{
+		Broker:     w.primaryHost,
+		Role:       BrokerPrimary,
+		Payload:    Payload{Target: TargetOn, PublishedAt: primaryAt},
+		ReceivedAt: primaryAt,
+	}
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   primaryAt,
+		LastReceivedAt: primaryAt,
+	}
+
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.secondaryHost, payload: onBody, receivedAt: now})
+
+	assert.Equal(t, TargetOn, next.LastTarget)
+	assert.Equal(t, now, next.LastReceivedAt, "live secondary traffic must keep the watchdog freshness clock current")
+	assert.Equal(t, w.secondaryHost, next.LastReceivedBroker)
+	assert.Empty(t, svc.startCalls)
 }
 
 // Stale precedence winners must not mask a fresh OFF.
