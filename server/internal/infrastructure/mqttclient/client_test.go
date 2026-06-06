@@ -3,7 +3,28 @@ package mqttclient
 import (
 	"strings"
 	"testing"
+
+	paho "github.com/eclipse/paho.mqtt.golang"
 )
+
+type subscribeCall struct {
+	topic    string
+	qos      byte
+	callback paho.MessageHandler
+}
+
+type replayClient struct {
+	calls []subscribeCall
+}
+
+func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHandler) paho.Token {
+	r.calls = append(r.calls, subscribeCall{
+		topic:    topic,
+		qos:      qos,
+		callback: callback,
+	})
+	return nil
+}
 
 func TestBrokerOptions_TCP(t *testing.T) {
 	t.Parallel()
@@ -59,5 +80,30 @@ func TestCopyPayloadCopiesAcceptedPayload(t *testing.T) {
 	got[0] = 'X'
 	if in[0] == 'X' {
 		t.Fatal("payload was not copied")
+	}
+}
+
+func TestReplaySubscriptionsResubscribesStoredTopics(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	handler := func(_ paho.Client, _ paho.Message) {}
+	client.subscriptions["curtailment/source"] = handler
+
+	replay := &replayClient{}
+	client.replaySubscriptions(replay)
+
+	if len(replay.calls) != 1 {
+		t.Fatalf("replayed %d subscriptions, want 1", len(replay.calls))
+	}
+	call := replay.calls[0]
+	if call.topic != "curtailment/source" {
+		t.Fatalf("topic = %q, want curtailment/source", call.topic)
+	}
+	if call.qos != subscribeQoS {
+		t.Fatalf("qos = %d, want %d", call.qos, subscribeQoS)
+	}
+	if call.callback == nil {
+		t.Fatal("callback was not replayed")
 	}
 }

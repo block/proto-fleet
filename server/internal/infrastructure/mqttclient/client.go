@@ -24,8 +24,13 @@ const (
 
 // Client adapts Eclipse Paho to the curtailment MQTT ingest interface.
 type Client struct {
-	mu     sync.Mutex
-	client paho.Client
+	mu            sync.Mutex
+	client        paho.Client
+	subscriptions map[string]paho.MessageHandler
+}
+
+type subscriptionClient interface {
+	Subscribe(topic string, qos byte, callback paho.MessageHandler) paho.Token
 }
 
 var _ interface {
@@ -35,7 +40,9 @@ var _ interface {
 } = (*Client)(nil)
 
 func New() *Client {
-	return &Client{}
+	return &Client{
+		subscriptions: make(map[string]paho.MessageHandler),
+	}
 }
 
 func (c *Client) Connect(ctx context.Context, host string, port int32, transport string, username, password string) error {
@@ -54,6 +61,7 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 		SetPassword(password).
 		SetAutoReconnect(true).
 		SetResumeSubs(true).
+		SetOnConnectHandler(c.resubscribe).
 		SetOrderMatters(false).
 		SetProtocolVersion(4)
 	if tlsConfig != nil {
@@ -83,17 +91,47 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 		return errors.New("mqttclient: subscribe before connect")
 	}
 
-	token := client.Subscribe(topic, subscribeQoS, func(_ paho.Client, msg paho.Message) {
+	messageHandler := func(_ paho.Client, msg paho.Message) {
 		payload, ok := copyPayload(msg.Payload())
 		if !ok {
 			return
 		}
 		handler(payload, time.Now().UTC())
-	})
+	}
+
+	token := client.Subscribe(topic, subscribeQoS, messageHandler)
 	if err := waitToken(ctx, token); err != nil {
 		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
 	}
+
+	c.mu.Lock()
+	if c.subscriptions == nil {
+		c.subscriptions = make(map[string]paho.MessageHandler)
+	}
+	c.subscriptions[topic] = messageHandler
+	c.mu.Unlock()
 	return nil
+}
+
+func (c *Client) resubscribe(client paho.Client) {
+	c.replaySubscriptions(client)
+}
+
+func (c *Client) replaySubscriptions(client subscriptionClient) {
+	for topic, handler := range c.subscriptionSnapshot() {
+		client.Subscribe(topic, subscribeQoS, handler)
+	}
+}
+
+func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	snapshot := make(map[string]paho.MessageHandler, len(c.subscriptions))
+	for topic, handler := range c.subscriptions {
+		snapshot[topic] = handler
+	}
+	return snapshot
 }
 
 func copyPayload(payload []byte) ([]byte, bool) {
@@ -121,6 +159,7 @@ func (c *Client) Disconnect(shutdownDeadline time.Duration) {
 	c.mu.Lock()
 	client := c.client
 	c.client = nil
+	c.subscriptions = make(map[string]paho.MessageHandler)
 	c.mu.Unlock()
 	if client == nil {
 		return
