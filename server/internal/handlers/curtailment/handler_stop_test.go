@@ -13,11 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // stopStubStore is a focused fake for Stop handler tests. Only the methods
@@ -147,18 +149,28 @@ func newStopStubStore() *stopStubStore {
 	}
 }
 
+func stopSessionCtxWithPerms(t *testing.T, orgID int64, role string, perms ...string) context.Context {
+	t.Helper()
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           role,
+	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}}))
+}
+
 func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	store := newStopStubStore()
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "OPERATOR",
-	})
+	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 
 	resp, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
 		EventUuid: store.event.EventUUID.String(),
@@ -173,6 +185,35 @@ func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Pending)
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Total)
 	assert.Equal(t, 1, store.beginRestoreCalls)
+}
+
+func TestHandler_StopCurtailment_RequiresCurtailmentManage(t *testing.T) {
+	t.Parallel()
+	store := newStopStubStore()
+	h := NewHandler(curtailment.NewService(store))
+
+	for _, tc := range []struct {
+		name        string
+		permissions []string
+	}{
+		{"caller without curtailment:manage is rejected", []string{authz.PermCurtailmentRead}},
+		{"empty permissions set is rejected", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := h.StopCurtailment(
+				stopSessionCtxWithPerms(t, 42, "OPERATOR", tc.permissions...),
+				connect.NewRequest(&pb.StopCurtailmentRequest{EventUuid: store.event.EventUUID.String()}),
+			)
+
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+			assert.Equal(t, 0, store.beginRestoreCalls)
+		})
+	}
 }
 
 func TestHandler_StopCurtailment_RejectsMissingSession(t *testing.T) {
@@ -195,12 +236,7 @@ func TestHandler_StopCurtailment_RejectsMalformedUUID(t *testing.T) {
 	store := newStopStubStore()
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "OPERATOR",
-	})
+	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 
 	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
 		EventUuid: "not-a-uuid",
@@ -216,12 +252,7 @@ func TestHandler_StopCurtailment_ForceRequiresAdmin(t *testing.T) {
 	store := newStopStubStore()
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "OPERATOR", // non-Admin
-	})
+	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR" /* non-Admin */, authz.PermCurtailmentManage)
 
 	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
 		EventUuid: store.event.EventUUID.String(),
@@ -243,12 +274,7 @@ func TestHandler_StopCurtailment_AdminForcePassesThrough(t *testing.T) {
 	store.event.StartedAt = &startedAt
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "ADMIN",
-	})
+	ctx := stopSessionCtxWithPerms(t, 42, "ADMIN", authz.PermCurtailmentManage)
 
 	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
 		EventUuid: store.event.EventUUID.String(),
@@ -269,12 +295,7 @@ func TestHandler_StopCurtailment_ListTargetsErrorPropagates(t *testing.T) {
 	store.listTargetsErr = errors.New("simulated targets read failure")
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "OPERATOR",
-	})
+	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 
 	resp, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
 		EventUuid: store.event.EventUUID.String(),

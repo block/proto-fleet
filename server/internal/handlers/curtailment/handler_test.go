@@ -22,11 +22,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// Non-admin-gated routes are wired and return CodeUnimplemented when
-// called without override fields. AdminTerminateEvent's Unimplemented body
-// is covered by TestHandler_AdminTerminateEventPermissionGate (admin/super-admin
-// subcases), since its admin-role gate fires before the body.
-func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
+// Stubbed routes are wired. Ungated/read routes reach CodeUnimplemented
+// when service=nil; permission-gated routes can fail earlier when the
+// request lacks authentication.
+func TestHandler_StubbedRPCsReturnExpectedAuthOrUnimplemented(t *testing.T) {
 	t.Parallel()
 
 	mux := http.NewServeMux()
@@ -40,8 +39,9 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 	client := curtailmentv1connect.NewCurtailmentServiceClient(http.DefaultClient, server.URL)
 
 	cases := []struct {
-		name string
-		call func() error
+		name     string
+		call     func() error
+		wantCode connect.Code
 	}{
 		{
 			"PreviewCurtailmentPlan",
@@ -49,6 +49,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{}))
 				return err
 			},
+			connect.CodeUnauthenticated,
 		},
 		{
 			"StartCurtailment",
@@ -56,6 +57,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.StartCurtailment(t.Context(), connect.NewRequest(&pb.StartCurtailmentRequest{}))
 				return err
 			},
+			connect.CodeUnauthenticated,
 		},
 		{
 			"UpdateCurtailmentEvent",
@@ -63,6 +65,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.UpdateCurtailmentEvent(t.Context(), connect.NewRequest(&pb.UpdateCurtailmentEventRequest{}))
 				return err
 			},
+			connect.CodeUnimplemented,
 		},
 		{
 			"StopCurtailment",
@@ -70,6 +73,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.StopCurtailment(t.Context(), connect.NewRequest(&pb.StopCurtailmentRequest{}))
 				return err
 			},
+			connect.CodeUnauthenticated,
 		},
 		{
 			"GetActiveCurtailment",
@@ -77,6 +81,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.GetActiveCurtailment(t.Context(), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 				return err
 			},
+			connect.CodeUnimplemented,
 		},
 		{
 			"ListCurtailmentEvents",
@@ -84,6 +89,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.ListCurtailmentEvents(t.Context(), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 				return err
 			},
+			connect.CodeUnimplemented,
 		},
 		{
 			"ListActiveCurtailments",
@@ -91,6 +97,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 				_, err := client.ListActiveCurtailments(t.Context(), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
 				return err
 			},
+			connect.CodeUnimplemented,
 		},
 	}
 
@@ -101,7 +108,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 			require.Error(t, err)
 			var connectErr *connect.Error
 			require.ErrorAs(t, err, &connectErr, "expected connect.Error, got %T", err)
-			assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
+			assert.Equal(t, tc.wantCode, connectErr.Code())
 		})
 	}
 }
@@ -122,7 +129,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 		require.Error(t, err)
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
+		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
 	})
 
 	t.Run("Preview rejects HIGH", func(t *testing.T) {
@@ -181,7 +188,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 		require.Error(t, err)
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
+		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
 	})
 
 	t.Run("Start rejects HIGH", func(t *testing.T) {
@@ -513,6 +520,11 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 				Role:       tc.role,
 				AuthMethod: tc.authMethod,
 			})
+			ctx = middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+				AssignmentID: 1,
+				ScopeType:    authz.ScopeOrg,
+				Permissions:  []string{authz.PermCurtailmentManage},
+			}}))
 
 			err := tc.invoke(ctx)
 
@@ -524,37 +536,75 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 }
 
-// Without an override field, Preview/Start/Stop skip the role gate and
-// reach Unimplemented — preserves API-key-accessible reads.
-func TestHandler_NoOverrideSkipsRoleGate(t *testing.T) {
+// Preview/Start/Stop require curtailment:manage even when no legacy
+// admin-only override field is set.
+func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler(nil)
 
-	previewNoOverride := connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-		Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
-		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
-		ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
-			FixedKw: &pb.FixedKwParams{TargetKw: 50},
+	cases := []struct {
+		name   string
+		invoke func(context.Context) error
+	}{
+		{
+			name: "PreviewCurtailmentPlan",
+			invoke: func(ctx context.Context) error {
+				_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+					Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+					Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+					ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+						FixedKw: &pb.FixedKwParams{TargetKw: 50},
+					},
+				}))
+				return err
+			},
 		},
-	})
-	stopNoOverride := connect.NewRequest(&pb.StopCurtailmentRequest{
-		EventUuid: "00000000-0000-0000-0000-000000000001",
-	})
+		{
+			name: "StartCurtailment",
+			invoke: func(ctx context.Context) error {
+				_, err := h.StartCurtailment(ctx, connect.NewRequest(validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)))
+				return err
+			},
+		},
+		{
+			name: "StopCurtailment",
+			invoke: func(ctx context.Context) error {
+				_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+					EventUuid: "00000000-0000-0000-0000-000000000001",
+				}))
+				return err
+			},
+		},
+	}
 
-	// No session info in context — would fail role gate if invoked. The fact
-	// that these reach Unimplemented proves the gate is skipped when no
-	// override field is set.
-	_, err := h.PreviewCurtailmentPlan(t.Context(), previewNoOverride)
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode, "Preview without override must skip role gate")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = h.StopCurtailment(t.Context(), stopNoOverride)
-	require.Error(t, err)
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode, "Stop without override must skip role gate")
+			base := authn.SetInfo(t.Context(), &session.Info{})
+			withoutManage := middleware.WithEffectivePermissions(base, authz.NewEffectivePermissions([]authz.Assignment{{
+				AssignmentID: 1,
+				ScopeType:    authz.ScopeOrg,
+				Permissions:  []string{authz.PermCurtailmentRead},
+			}}))
+			err := tc.invoke(withoutManage)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+			withManage := middleware.WithEffectivePermissions(base, authz.NewEffectivePermissions([]authz.Assignment{{
+				AssignmentID: 1,
+				ScopeType:    authz.ScopeOrg,
+				Permissions:  []string{authz.PermCurtailmentManage},
+			}}))
+			err = tc.invoke(withManage)
+			require.Error(t, err)
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode)
+		})
+	}
 }
 
 // AdminTerminateEvent rejects a request with no session info in context.

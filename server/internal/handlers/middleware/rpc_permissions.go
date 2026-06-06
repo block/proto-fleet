@@ -104,12 +104,15 @@ var ProcedurePermissions = map[string]string{
 	// entry is the primary gate (site:read = "can see this building").
 	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
 
-	// CurtailmentService — reads + AdminTerminateEvent + UpdateCurtailmentEvent
-	// + IngestCurtailmentSignal. Start/Stop/Preview retain conditional inline
-	// gates pending the broader curtailment authz redesign.
+	// CurtailmentService — reads use curtailment:read; user-facing preview
+	// and mutation flows use curtailment:manage; external signal ingest uses
+	// curtailment:ingest.
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:   authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:    authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:  authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure:  authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:        authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:         authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure:  authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure: authz.PermCurtailmentIngest,
@@ -293,16 +296,6 @@ var ProceduresPendingMigration = map[string]string{
 	authv1connect.AuthServiceUpdateUsernameProcedure:    "authenticated self-write, no role check",
 	authv1connect.AuthServiceVerifyCredentialsProcedure: "authenticated self-read, no role check",
 	authv1connect.AuthServiceLogoutProcedure:            "session-only; FailedPrecondition guard in handler",
-
-	// CurtailmentService — Start gates conditionally on high-blast
-	// FULL_FLEET whole-org starts and override fields; Stop/Preview
-	// gate conditionally on force/override fields. Lower-blast start
-	// paths remain authenticated-only pending the curtailment authz
-	// redesign that swaps these to RequirePermission with the right
-	// resource context.
-	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: curtailment:manage for FULL_FLEET whole_org; requireAdminFromContext when CandidateMinPowerWOverride set, AllowUnbounded, or ForceIncludeMaintenance; otherwise any authenticated user can start",
-	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
-	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
 
 	// AuthzService — assignment trio is not implemented yet. The Roles
 	// management surface (Settings → Roles) does not need these; they

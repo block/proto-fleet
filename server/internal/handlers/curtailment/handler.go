@@ -16,13 +16,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// Action verb for requireAdminFromContext error messages on the conditional
-// override gates in Start/Stop/Preview. AdminTerminateEvent uses
-// RequirePermission instead.
+// Action verb for requireAdminFromContext error messages on the legacy
+// admin-only override checks that run after the curtailment:manage gate.
 const actionSupplyOverrideFields = "supply curtailment override fields"
 
 // Handler implements the curtailment RPC surface; service=nil keeps
-// every RPC at Unimplemented (test stubs).
+// RPC bodies at Unimplemented after any entry auth gates run.
 type Handler struct {
 	service *curtailment.Service
 }
@@ -34,6 +33,10 @@ func NewHandler(service *curtailment.Service) *Handler {
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.CandidateMinPowerWOverride != nil {
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
@@ -41,11 +44,6 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("PreviewCurtailmentPlan")
-	}
-
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 
 	previewReq, err := toPreviewRequest(req.Msg, info.OrganizationID)
@@ -66,6 +64,10 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.AllowUnbounded || req.Msg.ForceIncludeMaintenance {
 		// force_include_maintenance is safety-critical (curtails miners
 		// under physical maintenance), so the same admin gate applies.
@@ -73,18 +75,8 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 			return nil, err
 		}
 	}
-	if requiresHighBlastCurtailmentManage(req.Msg) {
-		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
-			return nil, err
-		}
-	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StartCurtailment")
-	}
-
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 
 	startReq, err := toStartRequest(req.Msg, info)
@@ -107,14 +99,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	}
 
 	return connect.NewResponse(toStartResponse(plan, req.Msg)), nil
-}
-
-func requiresHighBlastCurtailmentManage(msg *pb.StartCurtailmentRequest) bool {
-	if msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
-		return false
-	}
-	_, wholeOrg := msg.GetScope().(*pb.StartCurtailmentRequest_WholeOrg)
-	return wholeOrg
 }
 
 func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {
@@ -144,6 +128,10 @@ func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.StopCurtailmentRequest]) (*connect.Response[pb.StopCurtailmentResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.GetForce() {
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
@@ -151,11 +139,6 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StopCurtailment")
-	}
-
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 
 	stopReq, err := toStopRequest(req.Msg, info.OrganizationID)
