@@ -267,8 +267,10 @@ func (s *SQLCurtailmentStore) GetEventByExternalReference(ctx context.Context, o
 }
 
 const (
-	curtailmentEventsDefaultPageSize int32 = 50
-	curtailmentEventsMaxPageSize     int32 = 200
+	curtailmentEventsDefaultPageSize  int32 = 50
+	curtailmentEventsMaxPageSize      int32 = 200
+	curtailmentTargetsDefaultPageSize int32 = 500
+	curtailmentTargetsMaxPageSize     int32 = 1000
 )
 
 func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
@@ -479,6 +481,55 @@ func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int6
 		targets = append(targets, convertTargetRow(row))
 	}
 	return targets, nil
+}
+
+func (s *SQLCurtailmentStore) ListTargetsByEventPage(ctx context.Context, params interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	cursor, err := decodeCurtailmentTargetCursor(params.PageToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = curtailmentTargetsDefaultPageSize
+	}
+	if pageSize > curtailmentTargetsMaxPageSize {
+		pageSize = curtailmentTargetsMaxPageSize
+	}
+
+	var cursorDeviceIdentifier string
+	if cursor != nil {
+		if cursor.OrgID != params.OrgID || cursor.EventUUID != params.EventUUID {
+			return nil, "", fleeterror.NewInvalidArgumentError("target_page_token does not match org_id or event_uuid")
+		}
+		cursorDeviceIdentifier = cursor.DeviceIdentifier
+	}
+
+	rows, err := s.GetQueries(ctx).ListCurtailmentTargetsByEventPage(ctx, sqlc.ListCurtailmentTargetsByEventPageParams{
+		OrgID:                  params.OrgID,
+		EventUuid:              params.EventUUID,
+		CursorDeviceIdentifier: cursorDeviceIdentifier,
+		RowLimit:               int64(pageSize) + 1,
+	})
+	if err != nil {
+		return nil, "", fleeterror.NewInternalErrorf("failed to list curtailment target page: %v", err)
+	}
+
+	var nextToken string
+	if int64(len(rows)) > int64(pageSize) {
+		rows = rows[:pageSize]
+		nextToken = encodeCurtailmentTargetCursor(&curtailmentTargetCursor{
+			OrgID:            params.OrgID,
+			EventUUID:        params.EventUUID,
+			DeviceIdentifier: rows[len(rows)-1].DeviceIdentifier,
+		})
+	}
+
+	targets := make([]*models.Target, 0, len(rows))
+	for _, row := range rows {
+		targets = append(targets, convertTargetRow(row))
+	}
+	return targets, nextToken, nil
 }
 
 func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
@@ -811,6 +862,35 @@ func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 		RetryCount:            row.RetryCount,
 		LastError:             nullStringToPtr(row.LastError),
 		SelectorRationaleJSON: nullRawMessageToBytes(row.SelectorRationaleJsonb),
+		CurtailPhase: models.TargetPhaseSummary{
+			Phase:        models.TargetPhaseCurtail,
+			State:        models.TargetState(row.CurtailState),
+			StartedAt:    &row.AddedAt,
+			DispatchedAt: nullTimeToPtr(row.CurtailDispatchedAt),
+			BatchUUID:    nullStringToPtr(row.CurtailBatchUuid),
+			CompletedAt:  nullTimeToPtr(row.CurtailCompletedAt),
+			RetryCount:   row.CurtailRetryCount,
+			FailureCount: row.CurtailFailureCount,
+			LastError:    nullStringToPtr(row.CurtailLastError),
+		},
+		RestorePhase: restorePhaseFromTargetRow(row),
+	}
+}
+
+func restorePhaseFromTargetRow(row sqlc.CurtailmentTarget) *models.TargetPhaseSummary {
+	if !row.RestoreState.Valid {
+		return nil
+	}
+	return &models.TargetPhaseSummary{
+		Phase:        models.TargetPhaseRestore,
+		State:        models.TargetState(row.RestoreState.String),
+		StartedAt:    nullTimeToPtr(row.RestoreStartedAt),
+		DispatchedAt: nullTimeToPtr(row.RestoreDispatchedAt),
+		BatchUUID:    nullStringToPtr(row.RestoreBatchUuid),
+		CompletedAt:  nullTimeToPtr(row.RestoreCompletedAt),
+		RetryCount:   row.RestoreRetryCount,
+		FailureCount: row.RestoreFailureCount,
+		LastError:    nullStringToPtr(row.RestoreLastError),
 	}
 }
 

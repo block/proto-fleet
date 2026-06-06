@@ -834,6 +834,40 @@ func toTargetProto(target *models.Target) *pb.CurtailmentTarget {
 	if target.LastError != nil {
 		out.LastError = *target.LastError
 	}
+	if phase := toTargetPhaseSummaryProto(target.CurtailPhase); phase != nil {
+		out.CurtailPhase = phase
+	}
+	if target.RestorePhase != nil {
+		out.RestorePhase = toTargetPhaseSummaryProto(*target.RestorePhase)
+	}
+	return out
+}
+
+func toTargetPhaseSummaryProto(summary models.TargetPhaseSummary) *pb.CurtailmentTargetPhaseSummary {
+	if summary.Phase == "" && summary.State == "" {
+		return nil
+	}
+	out := &pb.CurtailmentTargetPhaseSummary{
+		Phase:        targetPhaseProto(summary.Phase),
+		State:        targetStateProto(summary.State),
+		RetryCount:   uint32Saturating(summary.RetryCount),
+		FailureCount: uint32Saturating(summary.FailureCount),
+	}
+	if summary.StartedAt != nil {
+		out.StartedAt = timestamppb.New(*summary.StartedAt)
+	}
+	if summary.DispatchedAt != nil {
+		out.DispatchedAt = timestamppb.New(*summary.DispatchedAt)
+	}
+	if summary.BatchUUID != nil {
+		out.BatchUuid = *summary.BatchUUID
+	}
+	if summary.CompletedAt != nil {
+		out.CompletedAt = timestamppb.New(*summary.CompletedAt)
+	}
+	if summary.LastError != nil {
+		out.LastError = *summary.LastError
+	}
 	return out
 }
 
@@ -939,6 +973,16 @@ func desiredStateProto(s string) pb.CurtailmentTargetDesiredState {
 		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE
 	}
 	return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED
+}
+
+func targetPhaseProto(s models.TargetPhase) pb.CurtailmentTargetPhase {
+	switch s {
+	case models.TargetPhaseCurtail:
+		return pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_CURTAIL
+	case models.TargetPhaseRestore:
+		return pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_RESTORE
+	}
+	return pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_UNSPECIFIED
 }
 
 func modeProto(m models.Mode) pb.CurtailmentMode {

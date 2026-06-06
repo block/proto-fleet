@@ -80,6 +80,10 @@ func TestService_Start_EmitsBaseAuditRowOnSuccess(t *testing.T) {
 	assert.Equal(t, activitymodels.ResultSuccess, events[0].Result)
 	assert.Equal(t, activitymodels.ActorUser, events[0].ActorType,
 		"default SourceActorUser must map to ActorUser")
+	require.NotNil(t, events[0].ScopeType)
+	assert.Equal(t, string(models.ScopeTypeWholeOrg), *events[0].ScopeType)
+	require.NotNil(t, events[0].ScopeCount)
+	assert.Equal(t, 1, *events[0].ScopeCount)
 	require.NotNil(t, events[0].Metadata)
 	assert.Equal(t, plan.EventUUID.String(), events[0].Metadata["event_uuid"])
 	assert.Equal(t, string(models.ModeFixedKw), events[0].Metadata["mode"])
@@ -176,10 +180,10 @@ func TestService_Start_CoercesAPIKeyActorTypeToUser(t *testing.T) {
 		"SourceActorAPIKey currently coerces to ActorUser pending an ActorAPIKey activity type")
 }
 
-// TestService_Start_EmitsUnboundedAuditRowWhenAllowUnbounded: a Start
-// with allow_unbounded=true emits the base row plus a typed
-// curtailment_unbounded_start row.
-func TestService_Start_EmitsUnboundedAuditRowWhenAllowUnbounded(t *testing.T) {
+// TestService_Start_RecordsAllowUnboundedOnBaseAuditRow: a Start with
+// allow_unbounded=true stays on one curtailment_started row and carries the
+// override in metadata.
+func TestService_Start_RecordsAllowUnboundedOnBaseAuditRow(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
 	store := newFakeStore()
@@ -200,16 +204,15 @@ func TestService_Start_EmitsUnboundedAuditRowWhenAllowUnbounded(t *testing.T) {
 	require.NoError(t, err)
 
 	events := audit.snapshot()
-	require.Len(t, events, 2)
+	require.Len(t, events, 1)
 	assert.Equal(t, ActivityTypeStarted, events[0].Type)
-	assert.Equal(t, ActivityTypeStartedUnbounded, events[1].Type)
-	assert.Equal(t, true, events[1].Metadata["allow_unbounded"])
+	assert.Equal(t, true, events[0].Metadata["allow_unbounded"])
 }
 
-// TestService_Start_EmitsForceMaintenanceAuditRowAndMetric: a Start
-// with force_include_maintenance=true emits the base row plus the
-// override-specific row AND increments IncMaintenanceOverride.
-func TestService_Start_EmitsForceMaintenanceAuditRowAndMetric(t *testing.T) {
+// TestService_Start_RecordsForceMaintenanceOnBaseAuditRowAndMetric: a Start
+// with force_include_maintenance=true stays on one curtailment_started row and
+// increments IncMaintenanceOverride.
+func TestService_Start_RecordsForceMaintenanceOnBaseAuditRowAndMetric(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
 	store := newFakeStore()
@@ -233,10 +236,9 @@ func TestService_Start_EmitsForceMaintenanceAuditRowAndMetric(t *testing.T) {
 	require.NoError(t, err)
 
 	events := audit.snapshot()
-	require.Len(t, events, 2)
+	require.Len(t, events, 1)
 	assert.Equal(t, ActivityTypeStarted, events[0].Type)
-	assert.Equal(t, ActivityTypeStartedForceMaintenance, events[1].Type)
-	assert.Equal(t, true, events[1].Metadata["force_include_maintenance"])
+	assert.Equal(t, true, events[0].Metadata["force_include_maintenance"])
 
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()

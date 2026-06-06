@@ -222,7 +222,39 @@ RETURNING curtailment_event.*;
 -- mutability rides on state + per-write timestamps.)
 UPDATE curtailment_target
 SET state      = 'restore_failed',
-    last_error = sqlc.arg('last_error')::TEXT
+    last_error = sqlc.arg('last_error')::TEXT,
+    curtail_state = CASE
+        WHEN desired_state = 'curtailed' THEN 'restore_failed'
+        ELSE curtail_state
+    END,
+    curtail_completed_at = CASE
+        WHEN desired_state = 'curtailed' THEN CURRENT_TIMESTAMP
+        ELSE curtail_completed_at
+    END,
+    curtail_failure_count = CASE
+        WHEN desired_state = 'curtailed' THEN curtail_failure_count + 1
+        ELSE curtail_failure_count
+    END,
+    curtail_last_error = CASE
+        WHEN desired_state = 'curtailed' THEN sqlc.arg('last_error')::TEXT
+        ELSE curtail_last_error
+    END,
+    restore_state = CASE
+        WHEN desired_state = 'active' THEN 'restore_failed'
+        ELSE restore_state
+    END,
+    restore_completed_at = CASE
+        WHEN desired_state = 'active' THEN CURRENT_TIMESTAMP
+        ELSE restore_completed_at
+    END,
+    restore_failure_count = CASE
+        WHEN desired_state = 'active' THEN restore_failure_count + 1
+        ELSE restore_failure_count
+    END,
+    restore_last_error = CASE
+        WHEN desired_state = 'active' THEN sqlc.arg('last_error')::TEXT
+        ELSE restore_last_error
+    END
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
     AND state NOT IN ('resolved', 'restore_failed', 'released');
 
@@ -349,6 +381,20 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.event_uuid = sqlc.arg('event_uuid')
 ORDER BY ct.device_identifier;
 
+-- name: ListCurtailmentTargetsByEventPage :many
+-- Org-scoped, cursor-paginated target detail for large activity expansion.
+SELECT ct.*
+FROM curtailment_target ct
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.event_uuid = sqlc.arg('event_uuid')
+    AND (
+        sqlc.arg('cursor_device_identifier')::TEXT = ''
+        OR ct.device_identifier > sqlc.arg('cursor_device_identifier')::TEXT
+    )
+ORDER BY ct.device_identifier
+LIMIT sqlc.arg('row_limit')::BIGINT;
+
 -- name: GetCurtailmentReconcilerHeartbeat :one
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count
 FROM curtailment_reconciler_heartbeat
@@ -395,7 +441,15 @@ SET desired_state      = 'active',
     last_dispatched_at = NULL,
     last_batch_uuid    = NULL,
     confirmed_at       = NULL,
-    last_error         = NULL
+    last_error         = NULL,
+    restore_state      = 'pending',
+    restore_started_at = CURRENT_TIMESTAMP,
+    restore_dispatched_at = NULL,
+    restore_batch_uuid    = NULL,
+    restore_completed_at  = NULL,
+    restore_retry_count   = 0,
+    restore_failure_count = 0,
+    restore_last_error    = NULL
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
@@ -427,7 +481,14 @@ reset_targets AS (
         last_dispatched_at = NULL,
         last_batch_uuid    = NULL,
         confirmed_at       = NULL,
-        last_error         = NULL
+        last_error         = NULL,
+        curtail_state      = 'pending',
+        curtail_dispatched_at = NULL,
+        curtail_batch_uuid    = NULL,
+        curtail_completed_at  = NULL,
+        curtail_retry_count   = 0,
+        curtail_failure_count = 0,
+        curtail_last_error    = NULL
     FROM recurtail_candidates candidate
     WHERE target.curtailment_event_id = candidate.curtailment_event_id
       AND target.device_identifier = candidate.device_identifier
@@ -478,6 +539,70 @@ SET state              = sqlc.arg('state'),
     last_error         = CASE
         WHEN sqlc.narg('last_error')::text IS NULL THEN last_error
         ELSE NULLIF(sqlc.narg('last_error')::text, '')
+    END,
+    curtail_state = CASE
+        WHEN desired_state = 'curtailed' THEN sqlc.arg('state')
+        ELSE curtail_state
+    END,
+    curtail_dispatched_at = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE(sqlc.narg('last_dispatched_at'), curtail_dispatched_at)
+        ELSE curtail_dispatched_at
+    END,
+    curtail_batch_uuid = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE(sqlc.narg('last_batch_uuid'), curtail_batch_uuid)
+        ELSE curtail_batch_uuid
+    END,
+    curtail_completed_at = CASE
+        WHEN desired_state = 'curtailed'
+             AND sqlc.arg('state') IN ('confirmed', 'released', 'restore_failed') THEN
+            COALESCE(sqlc.narg('confirmed_at'), CURRENT_TIMESTAMP)
+        ELSE curtail_completed_at
+    END,
+    curtail_retry_count = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE(sqlc.narg('retry_count'), curtail_retry_count)
+        ELSE curtail_retry_count
+    END,
+    curtail_failure_count = CASE
+        WHEN desired_state = 'curtailed'
+             AND NULLIF(sqlc.narg('last_error')::text, '') IS NOT NULL THEN curtail_failure_count + 1
+        ELSE curtail_failure_count
+    END,
+    curtail_last_error = CASE
+        WHEN desired_state = 'curtailed'
+             AND NULLIF(sqlc.narg('last_error')::text, '') IS NOT NULL THEN NULLIF(sqlc.narg('last_error')::text, '')
+        ELSE curtail_last_error
+    END,
+    restore_state = CASE
+        WHEN desired_state = 'active' THEN sqlc.arg('state')
+        ELSE restore_state
+    END,
+    restore_dispatched_at = CASE
+        WHEN desired_state = 'active' THEN COALESCE(sqlc.narg('last_dispatched_at'), restore_dispatched_at)
+        ELSE restore_dispatched_at
+    END,
+    restore_batch_uuid = CASE
+        WHEN desired_state = 'active' THEN COALESCE(sqlc.narg('last_batch_uuid'), restore_batch_uuid)
+        ELSE restore_batch_uuid
+    END,
+    restore_completed_at = CASE
+        WHEN desired_state = 'active'
+             AND sqlc.arg('state') IN ('resolved', 'released', 'restore_failed') THEN
+            COALESCE(sqlc.narg('confirmed_at'), CURRENT_TIMESTAMP)
+        ELSE restore_completed_at
+    END,
+    restore_retry_count = CASE
+        WHEN desired_state = 'active' THEN COALESCE(sqlc.narg('retry_count'), restore_retry_count)
+        ELSE restore_retry_count
+    END,
+    restore_failure_count = CASE
+        WHEN desired_state = 'active'
+             AND NULLIF(sqlc.narg('last_error')::text, '') IS NOT NULL THEN restore_failure_count + 1
+        ELSE restore_failure_count
+    END,
+    restore_last_error = CASE
+        WHEN desired_state = 'active'
+             AND NULLIF(sqlc.narg('last_error')::text, '') IS NOT NULL THEN NULLIF(sqlc.narg('last_error')::text, '')
+        ELSE restore_last_error
     END
 FROM locked_event
 WHERE curtailment_event_id = locked_event.id
@@ -491,7 +616,15 @@ WHERE curtailment_event_id = locked_event.id
 -- still lands on the next successful state-change write. EXISTS guard
 -- → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
 UPDATE curtailment_target
-SET retry_count = retry_count + 1
+SET retry_count = retry_count + 1,
+    curtail_retry_count = CASE
+        WHEN desired_state = 'curtailed' THEN curtail_retry_count + 1
+        ELSE curtail_retry_count
+    END,
+    restore_retry_count = CASE
+        WHEN desired_state = 'active' THEN restore_retry_count + 1
+        ELSE restore_retry_count
+    END
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND device_identifier    = sqlc.arg('device_identifier')
   AND EXISTS (

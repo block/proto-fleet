@@ -86,6 +86,13 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 			},
 		},
 		{
+			"GetCurtailmentEvent",
+			func() error {
+				_, err := client.GetCurtailmentEvent(t.Context(), connect.NewRequest(&pb.GetCurtailmentEventRequest{}))
+				return err
+			},
+		},
+		{
 			"ListActiveCurtailments",
 			func() error {
 				_, err := client.ListActiveCurtailments(t.Context(), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))

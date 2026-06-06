@@ -33,11 +33,17 @@ const listHandlerTestCursorFixture = "opaque-next-cursor"
 // handler tests. ListEvents is the only method tests configure; the rest
 // panic so an unintended path is loud rather than silently default-valuing.
 type listStubStore struct {
-	events        []*models.Event
-	activeEvents  []*models.Event
-	nextPageToken string
-	err           error
-	lastParams    interfaces.ListEventsParams
+	events               []*models.Event
+	activeEvents         []*models.Event
+	eventByUUID          map[uuid.UUID]*models.Event
+	targetsByUUID        map[uuid.UUID][]*models.Target
+	nextPageToken        string
+	targetNextPageToken  string
+	err                  error
+	lastParams           interfaces.ListEventsParams
+	lastTargetPageParams interfaces.ListTargetsByEventPageParams
+	lastGetOrgID         int64
+	lastGetUUID          uuid.UUID
 }
 
 func (s *listStubStore) ListEvents(_ context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
@@ -63,8 +69,17 @@ func (s *listStubStore) ListCandidates(context.Context, int64, []string) ([]*mod
 func (s *listStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by List handler tests")
 }
-func (s *listStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
-	panic("GetEventByUUID not exercised by List handler tests")
+func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	s.lastGetOrgID = orgID
+	s.lastGetUUID = eventUUID
+	if s.eventByUUID == nil {
+		panic("GetEventByUUID not exercised by List handler tests")
+	}
+	ev, ok := s.eventByUUID[eventUUID]
+	if !ok {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	return ev, nil
 }
 func (s *listStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised by List handler tests")
@@ -72,8 +87,18 @@ func (s *listStubStore) GetActiveEvent(context.Context, int64) (*models.Event, e
 func (s *listStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	return s.activeEvents, nil
 }
-func (s *listStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
-	panic("ListTargetsByEvent not exercised by List handler tests")
+func (s *listStubStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	if s.targetsByUUID == nil {
+		panic("ListTargetsByEvent not exercised by List handler tests")
+	}
+	return s.targetsByUUID[eventUUID], nil
+}
+func (s *listStubStore) ListTargetsByEventPage(_ context.Context, params interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	s.lastTargetPageParams = params
+	if s.targetsByUUID == nil {
+		panic("ListTargetsByEventPage not exercised by List handler tests")
+	}
+	return s.targetsByUUID[params.EventUUID], s.targetNextPageToken, nil
 }
 func (s *listStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by List handler tests")
@@ -222,6 +247,96 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	assert.Empty(t, resp.Msg.Events[0].ExternalSource)
 	assert.Empty(t, resp.Msg.Events[0].ExternalReference)
 	assert.Empty(t, resp.Msg.Events[0].IdempotencyKey)
+}
+
+func TestHandler_GetCurtailmentEvent_ReturnsTargetsWithPhaseSummaries(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	addedAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	curtailDispatchedAt := addedAt.Add(time.Minute)
+	curtailCompletedAt := addedAt.Add(2 * time.Minute)
+	restoreStartedAt := addedAt.Add(10 * time.Minute)
+	restoreDispatchedAt := addedAt.Add(11 * time.Minute)
+	restoreCompletedAt := addedAt.Add(12 * time.Minute)
+	curtailBatch := "batch-curtail"
+	restoreBatch := "batch-restore"
+	targetCursorFixture := "opaque-target-cursor"
+	nextTargetCursorFixture := "opaque-next-target-cursor"
+
+	store := &listStubStore{
+		targetNextPageToken: nextTargetCursorFixture,
+		eventByUUID: map[uuid.UUID]*models.Event{
+			eventUUID: {
+				ID:                      1,
+				EventUUID:               eventUUID,
+				OrgID:                   42,
+				State:                   models.EventStateCompleted,
+				Mode:                    models.ModeFullFleet,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "test",
+			},
+		},
+		targetsByUUID: map[uuid.UUID][]*models.Target{
+			eventUUID: {
+				{
+					DeviceIdentifier: "miner-1",
+					TargetType:       "miner",
+					State:            models.TargetStateResolved,
+					DesiredState:     models.DesiredStateActive,
+					AddedAt:          addedAt,
+					CurtailPhase: models.TargetPhaseSummary{
+						Phase:        models.TargetPhaseCurtail,
+						State:        models.TargetStateConfirmed,
+						StartedAt:    &addedAt,
+						DispatchedAt: &curtailDispatchedAt,
+						BatchUUID:    &curtailBatch,
+						CompletedAt:  &curtailCompletedAt,
+					},
+					RestorePhase: &models.TargetPhaseSummary{
+						Phase:        models.TargetPhaseRestore,
+						State:        models.TargetStateResolved,
+						StartedAt:    &restoreStartedAt,
+						DispatchedAt: &restoreDispatchedAt,
+						BatchUUID:    &restoreBatch,
+						CompletedAt:  &restoreCompletedAt,
+					},
+				},
+			},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.GetCurtailmentEvent(sessionCtx(42), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+		EventUuid:       eventUUID.String(),
+		TargetPageSize:  1,
+		TargetPageToken: targetCursorFixture,
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	require.Len(t, resp.Msg.Event.Targets, 1)
+	target := resp.Msg.Event.Targets[0]
+	assert.Equal(t, "miner-1", target.DeviceIdentifier)
+	require.NotNil(t, target.CurtailPhase)
+	assert.Equal(t, pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_CURTAIL, target.CurtailPhase.Phase)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED, target.CurtailPhase.State)
+	assert.Equal(t, curtailBatch, target.CurtailPhase.BatchUuid)
+	require.NotNil(t, target.RestorePhase)
+	assert.Equal(t, pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_RESTORE, target.RestorePhase.Phase)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED, target.RestorePhase.State)
+	assert.Equal(t, restoreBatch, target.RestorePhase.BatchUuid)
+	assert.Equal(t, nextTargetCursorFixture, resp.Msg.NextTargetPageToken)
+	assert.Equal(t, int64(42), store.lastGetOrgID)
+	assert.Equal(t, eventUUID, store.lastGetUUID)
+	assert.Equal(t, interfaces.ListTargetsByEventPageParams{
+		OrgID:     42,
+		EventUUID: eventUUID,
+		PageSize:  1,
+		PageToken: targetCursorFixture,
+	}, store.lastTargetPageParams)
 }
 
 func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {

@@ -73,6 +73,15 @@ type ListEventsParams struct {
 	StateFilters []models.EventState
 }
 
+// ListTargetsByEventPageParams configures cursor-paginated target detail for
+// one curtailment event. PageToken empty = first page.
+type ListTargetsByEventPageParams struct {
+	OrgID     int64
+	EventUUID uuid.UUID
+	PageSize  int32
+	PageToken string
+}
+
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event

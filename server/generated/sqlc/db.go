@@ -639,6 +639,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
 	}
+	if q.listCurtailmentTargetsByEventPageStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEventPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEventPage: %w", err)
+	}
 	if q.listCustomRolesForOrgStmt, err = db.PrepareContext(ctx, listCustomRolesForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCustomRolesForOrg: %w", err)
 	}
@@ -2113,6 +2116,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentTargetsByEventStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentTargetsByEventPageStmt != nil {
+		if cerr := q.listCurtailmentTargetsByEventPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentTargetsByEventPageStmt: %w", cerr)
+		}
+	}
 	if q.listCustomRolesForOrgStmt != nil {
 		if cerr := q.listCustomRolesForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCustomRolesForOrgStmt: %w", cerr)
@@ -3097,6 +3105,7 @@ type Queries struct {
 	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
 	listCurtailmentEventsForOrgStmt                     *sql.Stmt
 	listCurtailmentTargetsByEventStmt                   *sql.Stmt
+	listCurtailmentTargetsByEventPageStmt               *sql.Stmt
 	listCustomRolesForOrgStmt                           *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
@@ -3456,6 +3465,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentEventsForOrgStmt:                     q.listCurtailmentEventsForOrgStmt,
 		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
+		listCurtailmentTargetsByEventPageStmt:               q.listCurtailmentTargetsByEventPageStmt,
 		listCustomRolesForOrgStmt:                           q.listCustomRolesForOrgStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,

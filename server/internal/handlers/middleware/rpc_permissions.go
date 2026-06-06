@@ -108,6 +108,7 @@ var ProcedurePermissions = map[string]string{
 	// + IngestCurtailmentSignal. Start/Stop/Preview retain conditional inline
 	// gates pending the broader curtailment authz redesign.
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:   authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentEventProcedure:     authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:    authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:  authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure:  authz.PermCurtailmentManage,

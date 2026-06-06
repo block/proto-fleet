@@ -235,6 +235,31 @@ type Target struct {
 	RetryCount            int32
 	LastError             *string
 	SelectorRationaleJSON []byte
+	CurtailPhase          TargetPhaseSummary
+	RestorePhase          *TargetPhaseSummary
+}
+
+// TargetPhase identifies the durable per-phase target summary that backs
+// historical activity expansion.
+type TargetPhase string
+
+const (
+	TargetPhaseCurtail TargetPhase = "curtail"
+	TargetPhaseRestore TargetPhase = "restore"
+)
+
+// TargetPhaseSummary preserves the outcome of a curtail or restore phase even
+// when the rolling target state/cursor columns are reset for the next phase.
+type TargetPhaseSummary struct {
+	Phase        TargetPhase
+	State        TargetState
+	StartedAt    *time.Time
+	DispatchedAt *time.Time
+	BatchUUID    *string
+	CompletedAt  *time.Time
+	RetryCount   int32
+	FailureCount int32
+	LastError    *string
 }
 
 // InsertTargetParams captures the fields a caller supplies when inserting a

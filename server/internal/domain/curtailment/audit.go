@@ -20,13 +20,11 @@ type NoOpAuditLogger struct{}
 func (NoOpAuditLogger) Log(context.Context, activitymodels.Event)             {}
 func (NoOpAuditLogger) LogStrict(context.Context, activitymodels.Event) error { return nil }
 
-// Curtailment activity event types. Distinct rows for unbounded /
-// force-maintenance flags so an audit feed filter by type is sufficient.
+// Curtailment activity event types. Start override flags are metadata on
+// ActivityTypeStarted so one curtailment cycle appears as one activity row.
 const (
-	ActivityTypeStarted                 = "curtailment_started"
-	ActivityTypeStartedUnbounded        = "curtailment_unbounded_start"
-	ActivityTypeStartedForceMaintenance = "curtailment_force_include_maintenance"
-	ActivityTypeAdminTerminated         = "curtailment_admin_terminated"
+	ActivityTypeStarted         = "curtailment_started"
+	ActivityTypeAdminTerminated = "curtailment_admin_terminated"
 	// ActivityTypeAdminTerminatedReplay fires when AdminTerminate echoes
 	// an already-terminal event in the requested state — preserves the
 	// race-loser's reason + actor in the audit feed.
