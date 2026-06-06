@@ -23,14 +23,13 @@ type curtailmentService interface {
 	Recurtail(ctx context.Context, req curtailment.RecurtailRequest) (*models.Event, error)
 }
 
-// EdgeOutcome reports the result of dispatching one edge; the subscriber
-// uses it to update last_edge_at and last_edge_event_uuid.
+// EdgeOutcome reports the result of dispatching one edge. The subscriber uses
+// EventUUID for last_edge_event_uuid and derives last_edge_at from pending
+// edge receive time.
 type EdgeOutcome struct {
 	// EventUUID is the curtailment event the edge created (ON→OFF and
 	// WATCHDOG_OFF) or stopped (OFF→ON). Zero for EdgeNone.
 	EventUUID uuid.UUID
-	// DispatchedAt is the wall-clock time the edge was dispatched.
-	DispatchedAt time.Time
 	// EmptyFullFleetNoop means Start completed immediately with no targets.
 	EmptyFullFleetNoop bool
 }
@@ -38,16 +37,11 @@ type EdgeOutcome struct {
 // Driver translates MQTT edges into curtailment service calls.
 type Driver struct {
 	svc curtailmentService
-	now func() time.Time
 }
 
-// NewDriver returns a driver wired to the given service. `now` is the
-// clock for stamping outcomes (time.Now in prod, injected in tests).
-func NewDriver(svc curtailmentService, now func() time.Time) *Driver {
-	if now == nil {
-		now = time.Now
-	}
-	return &Driver{svc: svc, now: now}
+// NewDriver returns a driver wired to the given service.
+func NewDriver(svc curtailmentService) *Driver {
+	return &Driver{svc: svc}
 }
 
 // Dispatch routes an edge and returns the event it created, resumed, or stopped.
@@ -68,7 +62,6 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 		}
 		return EdgeOutcome{
 			EventUUID:          eventUUID,
-			DispatchedAt:       d.now().UTC(),
 			EmptyFullFleetNoop: emptyFullFleetNoop,
 		}, nil
 
@@ -78,8 +71,7 @@ func (d *Driver) Dispatch(ctx context.Context, src SourceConfig, direction EdgeD
 			return EdgeOutcome{}, err
 		}
 		return EdgeOutcome{
-			EventUUID:    event.EventUUID,
-			DispatchedAt: d.now().UTC(),
+			EventUUID: event.EventUUID,
 		}, nil
 
 	default:

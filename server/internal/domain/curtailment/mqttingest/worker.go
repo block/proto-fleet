@@ -3,7 +3,9 @@ package mqttingest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -33,6 +35,7 @@ type observation struct {
 // observationChannelBuffer absorbs transient dispatch slowness. Once full, the
 // broker callback backpressures instead of accepting and losing a state signal.
 const observationChannelBuffer = 256
+const initialBrokerRetryMax = 30 * time.Second
 
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
@@ -44,11 +47,18 @@ func (w *sourceWorker) run(ctx context.Context) {
 
 	messages := make(chan observation, observationChannelBuffer)
 	subscriptions := make(chan struct{}, 2)
+	startedAt := w.cfg.Clock()
 	deferStartupPending := state.PendingEdge != nil
 	startupPendingReadyAt := time.Time{}
 	startupPendingSubscribed := false
 	if deferStartupPending {
-		startupPendingReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
+		startupPendingReadyAt = startedAt.Add(w.startupRetryEvery())
+	}
+	deferStartupWatchdog := shouldDeferStartupWatchdog(state, startedAt, w.source.StalenessThreshold)
+	startupWatchdogReadyAt := time.Time{}
+	startupWatchdogSubscribed := false
+	if deferStartupWatchdog {
+		startupWatchdogReadyAt = startedAt.Add(w.source.StalenessThreshold)
 	}
 
 	primaryClient := w.cfg.NewClient()
@@ -90,6 +100,13 @@ func (w *sourceWorker) run(ctx context.Context) {
 				// broker ever subscribes.
 				startupPendingReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
 			}
+			if deferStartupWatchdog && !startupWatchdogSubscribed {
+				startupWatchdogSubscribed = true
+				// Give retained/live payloads one dispatch tick to arrive after
+				// subscription. If no broker ever subscribes, the staleness
+				// threshold bound above still fails safe.
+				startupWatchdogReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
+			}
 		case obs := <-messages:
 			state = w.handleMessage(ctx, state, obs)
 			if state.PendingEdge == nil {
@@ -97,8 +114,17 @@ func (w *sourceWorker) run(ctx context.Context) {
 				startupPendingReadyAt = time.Time{}
 				startupPendingSubscribed = false
 			}
+			if deferStartupWatchdog && startupWatchdogSatisfied(state, startedAt) {
+				deferStartupWatchdog = false
+				startupWatchdogReadyAt = time.Time{}
+				startupWatchdogSubscribed = false
+			}
 		case <-watchdog.C:
-			if deferStartupPending && w.cfg.Clock().Before(startupPendingReadyAt) {
+			now := w.cfg.Clock()
+			if deferStartupPending && now.Before(startupPendingReadyAt) {
+				continue
+			}
+			if deferStartupWatchdog && now.Before(startupWatchdogReadyAt) {
 				continue
 			}
 			state = w.handleWatchdog(ctx, state)
@@ -107,8 +133,24 @@ func (w *sourceWorker) run(ctx context.Context) {
 				startupPendingReadyAt = time.Time{}
 				startupPendingSubscribed = false
 			}
+			if deferStartupWatchdog && startupWatchdogSatisfied(state, startedAt) {
+				deferStartupWatchdog = false
+				startupWatchdogReadyAt = time.Time{}
+				startupWatchdogSubscribed = false
+			}
 		}
 	}
+}
+
+func shouldDeferStartupWatchdog(state SourceState, now time.Time, threshold time.Duration) bool {
+	if state.PendingEdge != nil || state.LastTarget.IsOff() {
+		return false
+	}
+	return EvaluateWatchdog(state.LastReceivedAt, state.LastTarget, now, threshold) == WatchdogFire
+}
+
+func startupWatchdogSatisfied(state SourceState, startedAt time.Time) bool {
+	return state.LastTarget.IsOff() || state.LastReceivedAt.After(startedAt)
 }
 
 func (w *sourceWorker) waitForInitialState(ctx context.Context) (SourceState, bool) {
@@ -180,26 +222,55 @@ func (w *sourceWorker) startupRetryEvery() time.Duration {
 	return time.Second
 }
 
+func mqttClientIdentity(src SourceConfig, host string) string {
+	return fmt.Sprintf("%d|%s|%s|%d|%s", src.ID, src.SourceName, host, src.BrokerPort, src.Topic)
+}
+
+func nextInitialBrokerRetry(current time.Duration) time.Duration {
+	next := current * 2
+	if next <= 0 {
+		return time.Second
+	}
+	if next > initialBrokerRetryMax {
+		return initialBrokerRetryMax
+	}
+	return next
+}
+
+func jitterRetryDelay(base time.Duration, rng *rand.Rand) time.Duration {
+	if base <= 0 || rng == nil {
+		return base
+	}
+	jitterMax := int64(base / 5)
+	if jitterMax <= 0 {
+		return base
+	}
+	return base + time.Duration(rng.Int63n(jitterMax+1))
+}
+
 func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation, subscriptions chan<- struct{}) {
 	retryEvery := w.startupRetryEvery()
+	rng := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec // jitter only; not security-sensitive
 	for {
 		if err := w.connectAndSubscribeOnce(ctx, client, host, messages); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
 			client.Disconnect(w.cfg.ShutdownDeadline)
+			retryAfter := jitterRetryDelay(retryEvery, rng)
 			w.cfg.Logger.Warn("mqttingest: broker connect failed, retrying",
 				slog.String("source", w.source.SourceName),
 				slog.String("broker", host),
-				slog.Duration("retry_after", retryEvery),
+				slog.Duration("retry_after", retryAfter),
 				slog.Any("error", err))
-			timer := time.NewTimer(retryEvery)
+			timer := time.NewTimer(retryAfter)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
 				return
 			case <-timer.C:
 			}
+			retryEvery = nextInitialBrokerRetry(retryEvery)
 			continue
 		}
 		select {
@@ -211,15 +282,15 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 }
 
 func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {
-	if err := client.Connect(ctx, host, w.source.BrokerPort, w.source.BrokerTransport, w.source.MQTTUsername, w.password); err != nil {
-		return err
-	}
-	return client.Subscribe(ctx, w.source.Topic, func(payload []byte, receivedAt time.Time) {
+	if err := client.Subscribe(ctx, w.source.Topic, func(payload []byte, receivedAt time.Time) {
 		select {
 		case messages <- observation{broker: host, payload: payload, receivedAt: receivedAt}:
 		case <-ctx.Done():
 		}
-	})
+	}); err != nil {
+		return err
+	}
+	return client.Connect(ctx, host, w.source.BrokerPort, w.source.BrokerTransport, w.source.MQTTUsername, w.password, mqttClientIdentity(w.source, host))
 }
 
 // handleMessage resolves the canonical signal, dispatches owed edges, and
@@ -269,8 +340,9 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		return prior
 	}
 	liveness := w.latestFreshObservation(prior, primaryObs, secondaryObs)
+	alreadyProcessed := w.alreadyProcessedTarget(prior, canonical)
 
-	if pendingEdgeSupersededBy(prior.PendingEdge, canonical) {
+	if pendingEdgeSupersededBy(prior.PendingEdge, canonical, alreadyProcessed) {
 		w.cfg.Logger.Info("mqttingest: pending edge superseded by newer payload",
 			slog.String("source", w.source.SourceName),
 			slog.String("pending_direction", prior.PendingEdge.Direction.String()),
@@ -290,7 +362,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	// Each target value may be processed once per seconds-precision publisher
 	// timestamp. This keeps a real same-second flip, but suppresses a later QoS
 	// redelivery of an older target at that same stamp.
-	if w.alreadyProcessedTarget(prior, canonical) {
+	if alreadyProcessed {
 		direction = EdgeNone
 	}
 
@@ -299,19 +371,15 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	// Freshness advances even when dispatch fails because the publisher was live.
 	state = w.advanceLiveness(state, canonical, liveness)
 
-	// Advance the duplicate-suppression anchor only after the edge settles.
-	if dispatched {
+	if dispatched && direction == EdgeNone {
 		recordProcessedTarget(&state, canonical)
-	}
 
-	// Failed dispatches and debounced flips must not settle the source target.
-	debouncedFlip := direction == EdgeNone &&
-		canonical.Target != prior.LastTarget &&
-		prior.LastTarget != TargetUnknown
-	if dispatched && !debouncedFlip {
-		state.LastTarget = canonical.Target
-	}
-	if dispatched {
+		// Failed dispatches and debounced flips must not settle the source target.
+		debouncedFlip := canonical.Target != prior.LastTarget &&
+			prior.LastTarget != TargetUnknown
+		if !debouncedFlip {
+			state.LastTarget = canonical.Target
+		}
 		state.LastEmptyFullFleetWatchdogRef = ""
 	}
 
@@ -342,13 +410,8 @@ func (w *sourceWorker) applySupersedingPendingOff(
 		return original
 	}
 
-	state, dispatched := w.dispatchPendingEdge(ctx, pendingState)
+	state, _ := w.dispatchPendingEdge(ctx, pendingState)
 	state = w.advanceLiveness(state, canonical, liveness)
-	if dispatched {
-		recordProcessedTarget(&state, canonical)
-		state.LastTarget = canonical.Target
-		state.LastEmptyFullFleetWatchdogRef = ""
-	}
 	w.persistState(ctx, state)
 	return state
 }
@@ -409,7 +472,6 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	if !dispatched {
 		return prior
 	}
-	state.LastTarget = TargetOff
 	w.persistState(ctx, state)
 	return state
 }
@@ -473,32 +535,17 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 			return prior, false
 		}
 		if active == nil || eventIsRestoring(active) {
-			state := prior
-			state.PendingEdge = nil
-			state.LastEdgeAt = pending.ReceivedAt
-			state.LastReceivedAt = pending.ReceivedAt
-			state.LastReceivedBroker = pending.ReceivedBroker
-			state.LastTarget = TargetOn
-			state.LastEmptyFullFleetWatchdogRef = ""
+			eventUUID := uuid.Nil
 			if active != nil {
-				state.LastEdgeEventUUID = active.EventUUID.String()
+				eventUUID = active.EventUUID
 			}
-			recordProcessedTarget(&state, pending.canonical())
-			return state, true
+			return w.settlePendingEdge(prior, pending, TargetOn, eventUUID, false, dispatchAt), true
 		}
 	}
 	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, pending.Direction, dispatchAt, pending.PriorEdgeAt)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveEvent) {
-			state := prior
-			state.PendingEdge = nil
-			state.LastEdgeAt = pending.ReceivedAt
-			state.LastReceivedAt = pending.ReceivedAt
-			state.LastReceivedBroker = pending.ReceivedBroker
-			state.LastTarget = pending.Target
-			state.LastEmptyFullFleetWatchdogRef = ""
-			recordProcessedTarget(&state, pending.canonical())
-			return state, true
+			return w.settlePendingEdge(prior, pending, pending.Target, uuid.Nil, false, dispatchAt), true
 		}
 		w.cfg.Logger.Error("mqttingest: edge dispatch failed",
 			slog.String("source", w.source.SourceName),
@@ -507,16 +554,32 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 		return prior, false
 	}
 
+	state := w.settlePendingEdge(prior, pending, pending.Target, outcome.EventUUID, outcome.EmptyFullFleetNoop, dispatchAt)
+	w.cfg.Logger.Info("mqttingest: edge dispatched",
+		slog.String("source", w.source.SourceName),
+		slog.String("direction", pending.Direction.String()),
+		slog.String("event_uuid", state.LastEdgeEventUUID))
+	return state, true
+}
+
+func (w *sourceWorker) settlePendingEdge(
+	prior SourceState,
+	pending *PendingEdge,
+	target Target,
+	eventUUID uuid.UUID,
+	emptyFullFleetNoop bool,
+	dispatchAt time.Time,
+) SourceState {
 	state := prior
 	state.PendingEdge = nil
 	state.LastEdgeAt = pending.ReceivedAt
 	state.LastReceivedAt = pending.ReceivedAt
 	state.LastReceivedBroker = pending.ReceivedBroker
-	state.LastTarget = pending.Target
-	if outcome.EventUUID != uuid.Nil {
-		state.LastEdgeEventUUID = outcome.EventUUID.String()
+	state.LastTarget = target
+	if eventUUID != uuid.Nil {
+		state.LastEdgeEventUUID = eventUUID.String()
 	}
-	if outcome.EmptyFullFleetNoop && pending.Direction == EdgeWatchdogOff {
+	if emptyFullFleetNoop && pending.Direction == EdgeWatchdogOff {
 		state.LastEmptyFullFleetWatchdogRef = startExternalReference(
 			w.source.SourceName,
 			EdgeWatchdogOff,
@@ -528,11 +591,7 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 		state.LastEmptyFullFleetWatchdogRef = ""
 	}
 	recordProcessedTarget(&state, pending.canonical())
-	w.cfg.Logger.Info("mqttingest: edge dispatched",
-		slog.String("source", w.source.SourceName),
-		slog.String("direction", pending.Direction.String()),
-		slog.String("event_uuid", state.LastEdgeEventUUID))
-	return state, true
+	return state
 }
 
 func (w *sourceWorker) persistState(ctx context.Context, s SourceState) bool {
@@ -655,9 +714,17 @@ func recordProcessedTarget(state *SourceState, c CanonicalState) {
 	state.LastProcessedTargets = append(state.LastProcessedTargets, c.Target)
 }
 
-func pendingEdgeSupersededBy(edge *PendingEdge, c CanonicalState) bool {
+func pendingEdgeSupersededBy(edge *PendingEdge, c CanonicalState, alreadyProcessed bool) bool {
 	if edge == nil || edge.Target == c.Target {
 		return false
+	}
+	if edge.Target == TargetOff && c.Target == TargetOn {
+		if alreadyProcessed {
+			return false
+		}
+		if !edge.TargetAt.IsZero() && !c.PublishedAt.IsZero() && c.PublishedAt.Equal(edge.TargetAt) {
+			return false
+		}
 	}
 	if !edge.TargetAt.IsZero() && !c.PublishedAt.IsZero() {
 		switch {

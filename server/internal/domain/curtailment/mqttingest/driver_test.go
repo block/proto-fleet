@@ -150,8 +150,7 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 	svc := &fakeService{
 		startResult: &curtailment.Plan{EventUUID: &newUUID},
 	}
-	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
-	d := NewDriver(svc, func() time.Time { return now })
+	d := NewDriver(svc)
 
 	src := sampleSource()
 	src.CurtailMode = string(models.ModeFixedKw)
@@ -161,7 +160,6 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, newUUID, outcome.EventUUID)
-	assert.Equal(t, now, outcome.DispatchedAt)
 
 	require.Len(t, svc.startCalls, 1)
 	start := svc.startCalls[0]
@@ -206,7 +204,7 @@ func TestDriver_Dispatch_OffSignal_RecurtailsRestoringSourceEvent(t *testing.T) 
 				},
 				recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
 			}
-			d := NewDriver(svc, nil)
+			d := NewDriver(svc)
 
 			outcome, err := d.Dispatch(context.Background(), sampleSource(), tc.direction, time.Now())
 
@@ -228,7 +226,7 @@ func TestDriver_Dispatch_OffSignal_ExistingActiveSourceEventIsAlreadyCurtailing(
 			testSourceEvent(sampleSource(), eventUUID, models.EventStateActive),
 		},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
 
@@ -256,7 +254,7 @@ func TestDriver_Dispatch_OnToOff_FullFleet(t *testing.T) {
 
 			newUUID := uuid.New()
 			svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-			d := NewDriver(svc, nil)
+			d := NewDriver(svc)
 
 			src := sampleSource()
 			src.CurtailMode = tc.mode
@@ -280,7 +278,7 @@ func TestDriver_Dispatch_FullFleetEmptyReportsNoop(t *testing.T) {
 
 	newUUID := uuid.New()
 	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	src := sampleSource()
 	src.CurtailMode = string(models.ModeFullFleet)
@@ -300,7 +298,7 @@ func TestDriver_Dispatch_WatchdogOff(t *testing.T) {
 	svc := &fakeService{
 		startResult: &curtailment.Plan{EventUUID: &newUUID},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	src := sampleSource()
 	// Pick a timestamp mid-window so the quantization is observable.
@@ -325,7 +323,7 @@ func TestDriver_Dispatch_WatchdogOff_QuantizesWithinWindow(t *testing.T) {
 
 	newUUID := uuid.New()
 	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	src := sampleSource() // StalenessThreshold = 240 s
 	tickA := time.Date(2026, 5, 28, 11, 52, 5, 0, time.UTC)
@@ -353,7 +351,7 @@ func TestDriver_Dispatch_SameSecondOffEdges_DistinctReferences(t *testing.T) {
 
 	newUUID := uuid.New()
 	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	src := sampleSource()
 	edgeAt := time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC) // shared publisher second
@@ -387,7 +385,7 @@ func TestDriver_Dispatch_ReplayUsesPersistedEventUUID(t *testing.T) {
 			ReplayEvent: &models.Event{EventUUID: replayUUID},
 		},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
 
@@ -406,7 +404,7 @@ func TestDriver_Dispatch_RestoringReplayRecurtails(t *testing.T) {
 		},
 		recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	outcome, err := d.Dispatch(context.Background(), src, EdgeOnToOff, time.Now())
 
@@ -429,7 +427,7 @@ func TestDriver_Dispatch_InsufficientLoadIsError(t *testing.T) {
 			},
 		},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	_, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
 
@@ -447,7 +445,7 @@ func TestDriver_Dispatch_OffToOn(t *testing.T) {
 		},
 		stopResult: &models.Event{EventUUID: activeUUID},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOffToOn, time.Now())
 
@@ -468,7 +466,7 @@ func TestDriver_Dispatch_OffToOn_NoActiveEvent(t *testing.T) {
 	svc := &fakeService{
 		listActiveResult: nil,
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	_, err := d.Dispatch(context.Background(), sampleSource(), EdgeOffToOn, time.Now())
 
@@ -483,7 +481,7 @@ func TestDriver_Dispatch_OffToOn_ForeignEvent_NotStopped(t *testing.T) {
 
 	foreign := "user:42"
 	svc := &fakeService{listActiveResult: []*models.Event{{EventUUID: uuid.New(), SourceActorID: &foreign}}}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	_, err := d.Dispatch(context.Background(), sampleSource(), EdgeOffToOn, time.Now())
 
@@ -495,7 +493,7 @@ func TestDriver_Dispatch_EdgeNoneIsNoOp(t *testing.T) {
 	t.Parallel()
 
 	svc := &fakeService{}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeNone, time.Now())
 
@@ -511,7 +509,7 @@ func TestDriver_Dispatch_OnToOff_AlreadyExistsPropagates(t *testing.T) {
 	t.Parallel()
 
 	svc := &fakeService{startErr: fleeterror.NewAlreadyExistsError("a selected device is already in a non-terminal curtailment")}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	_, err := d.Dispatch(context.Background(), sampleSource(), EdgeOnToOff, time.Now())
 
@@ -532,7 +530,7 @@ func TestDriver_Dispatch_OffToOn_FindsSourceEventAmongConcurrent(t *testing.T) {
 		},
 		stopResult: &models.Event{EventUUID: myUUID},
 	}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	outcome, err := d.Dispatch(context.Background(), sampleSource(), EdgeOffToOn, time.Now())
 
@@ -548,7 +546,7 @@ func TestDriver_Dispatch_OnToOff_DeviceListScope(t *testing.T) {
 
 	newUUID := uuid.New()
 	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	src := sampleSource()
 	src.ScopeType = "device_list"
@@ -566,7 +564,7 @@ func TestDriver_Dispatch_DeviceListScopeRequiresIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	svc := &fakeService{}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	src := sampleSource()
 	src.ScopeType = "device_list" // no identifiers
@@ -581,7 +579,7 @@ func TestDriver_Dispatch_SiteScopeRejectedUntilCoreSupport(t *testing.T) {
 	t.Parallel()
 
 	svc := &fakeService{}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	siteID := int64(42)
 	src := sampleSource()
@@ -600,7 +598,7 @@ func TestDriver_ResumeSourceEvent(t *testing.T) {
 
 	eventUUID := uuid.New()
 	svc := &fakeService{recurtailResult: &models.Event{EventUUID: eventUUID, State: models.EventStatePending}}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	err := d.ResumeSourceEvent(context.Background(), &models.Event{EventUUID: eventUUID, OrgID: 7})
 
@@ -615,7 +613,7 @@ func TestDriver_ResumeSourceEvent_PropagatesError(t *testing.T) {
 	t.Parallel()
 
 	svc := &fakeService{recurtailErr: errors.New("svc down")}
-	d := NewDriver(svc, nil)
+	d := NewDriver(svc)
 
 	err := d.ResumeSourceEvent(context.Background(), &models.Event{EventUUID: uuid.New(), OrgID: 7})
 	require.Error(t, err)

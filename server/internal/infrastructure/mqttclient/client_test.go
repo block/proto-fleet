@@ -3,6 +3,7 @@ package mqttclient
 import (
 	"strings"
 	"testing"
+	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
@@ -24,6 +25,19 @@ func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHa
 		callback: callback,
 	})
 	return nil
+}
+
+type routeCall struct {
+	topic    string
+	callback paho.MessageHandler
+}
+
+type routeRecorder struct {
+	calls []routeCall
+}
+
+func (r *routeRecorder) AddRoute(topic string, callback paho.MessageHandler) {
+	r.calls = append(r.calls, routeCall{topic: topic, callback: callback})
 }
 
 func TestBrokerOptions_TCP(t *testing.T) {
@@ -105,5 +119,65 @@ func TestReplaySubscriptionsResubscribesStoredTopics(t *testing.T) {
 	}
 	if call.callback == nil {
 		t.Fatal("callback was not replayed")
+	}
+}
+
+func TestSubscribeBeforeConnectStagesRoute(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	err := client.Subscribe(t.Context(), "curtailment/source", func(_ []byte, _ time.Time) {})
+	if err != nil {
+		t.Fatalf("Subscribe before Connect returned error: %v", err)
+	}
+
+	recorder := &routeRecorder{}
+	client.addRoutes(recorder)
+
+	if len(recorder.calls) != 1 {
+		t.Fatalf("routes added = %d, want 1", len(recorder.calls))
+	}
+	if recorder.calls[0].topic != "curtailment/source" {
+		t.Fatalf("topic = %q, want curtailment/source", recorder.calls[0].topic)
+	}
+	if recorder.calls[0].callback == nil {
+		t.Fatal("callback was not staged")
+	}
+}
+
+func TestClientOptions_DurableOrderedSession(t *testing.T) {
+	t.Parallel()
+
+	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil)
+
+	if opts.CleanSession {
+		t.Fatal("CleanSession must be false so broker QoS1 queues survive fleetd restarts")
+	}
+	if !opts.ResumeSubs {
+		t.Fatal("ResumeSubs must stay enabled for reconnect subscribe replay")
+	}
+	if !opts.Order {
+		t.Fatal("OrderMatters must be true for curtailment signal ordering")
+	}
+	if opts.ClientID == "" || len(opts.ClientID) > 23 {
+		t.Fatalf("ClientID = %q, want non-empty MQTT 3.1-compatible ID", opts.ClientID)
+	}
+	if opts.ClientID != clientID("source|broker|topic") {
+		t.Fatalf("ClientID = %q, want deterministic clientID helper output", opts.ClientID)
+	}
+}
+
+func TestClientID_DeterministicAndScoped(t *testing.T) {
+	t.Parallel()
+
+	left := clientID("source-a|broker-a|topic")
+	if got := clientID("source-a|broker-a|topic"); got != left {
+		t.Fatalf("clientID not deterministic: %q then %q", left, got)
+	}
+	if right := clientID("source-a|broker-b|topic"); right == left {
+		t.Fatal("different broker identities must not share the same client ID")
+	}
+	if len(left) > 23 {
+		t.Fatalf("clientID length = %d, want <= 23", len(left))
 	}
 }

@@ -28,6 +28,7 @@ type fakeStore struct {
 	listSourcesErr error
 	getStateErr    error
 	getStateErrs   []error
+	getStatePanics int
 	upsertErr      error
 	upsertErrs     []error
 	nonMembers     map[int64]bool // user IDs treated as not belonging to their org
@@ -57,6 +58,10 @@ func (f *fakeStore) ListEnabledSources(_ context.Context) ([]SourceConfig, error
 func (f *fakeStore) GetSourceState(_ context.Context, id int64) (SourceState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.getStatePanics > 0 {
+		f.getStatePanics--
+		panic("fake get source state panic")
+	}
 	if f.getStateErr != nil {
 		return SourceState{}, f.getStateErr
 	}
@@ -129,9 +134,11 @@ type fakeMQTTClient struct {
 	connectBlocks bool
 	connectErrs   []error
 	connectCalls  int
+	connected     bool
 	disconnect    chan struct{}
 	handler       func(payload []byte, receivedAt time.Time)
 	ready         chan struct{}
+	readyClosed   bool
 }
 
 func newFakeMQTTClient() *fakeMQTTClient {
@@ -141,7 +148,7 @@ func newFakeMQTTClient() *fakeMQTTClient {
 	}
 }
 
-func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ string, _ string, _ string) error {
+func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ string, _ string, _ string, _ string) error {
 	if f.connectBlocks {
 		<-ctx.Done()
 		return fmt.Errorf("fake mqtt connect canceled: %w", ctx.Err())
@@ -157,19 +164,25 @@ func (f *fakeMQTTClient) Connect(ctx context.Context, host string, _ int32, _ st
 		}
 	}
 	f.host = host
+	f.connected = true
+	f.markReadyLocked()
 	return nil
 }
 
 func (f *fakeMQTTClient) Subscribe(_ context.Context, _ string, handler func(payload []byte, receivedAt time.Time)) error {
 	f.mu.Lock()
-	alreadySubscribed := f.subscribed
 	f.subscribed = true
 	f.handler = handler
+	f.markReadyLocked()
 	f.mu.Unlock()
-	if !alreadySubscribed {
-		close(f.ready)
-	}
 	return nil
+}
+
+func (f *fakeMQTTClient) markReadyLocked() {
+	if f.connected && f.subscribed && !f.readyClosed {
+		close(f.ready)
+		f.readyClosed = true
+	}
 }
 
 func (f *fakeMQTTClient) connectCallsLen() int {
@@ -235,7 +248,7 @@ func TestSubscriber_Run_DispatchesOnOffEdge(t *testing.T) {
 
 	newUUID := uuid.New()
 	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &newUUID}}
-	driver := NewDriver(svc, nil)
+	driver := NewDriver(svc)
 
 	// Two fake clients — primary and secondary. We deliver the OFF
 	// message on the primary; precedence dedup makes it canonical.
@@ -343,7 +356,7 @@ func TestSubscriber_StartWorker_RejectsServiceUserWithoutIngestPermission(t *tes
 
 	cfg := Config{
 		Store:            store,
-		Driver:           NewDriver(&fakeService{}, nil),
+		Driver:           NewDriver(&fakeService{}),
 		NewClient:        func() MQTTClient { return newFakeMQTTClient() },
 		Decryptor:        passthroughDecryptor{},
 		Logger:           slog.New(slog.DiscardHandler),
@@ -379,7 +392,7 @@ func TestSubscriber_StartWorker_RejectsUnsupportedSiteScopeAtStartup(t *testing.
 
 	cfg := Config{
 		Store:            store,
-		Driver:           NewDriver(&fakeService{}, nil),
+		Driver:           NewDriver(&fakeService{}),
 		NewClient:        func() MQTTClient { return newFakeMQTTClient() },
 		Decryptor:        passthroughDecryptor{},
 		Logger:           slog.New(slog.DiscardHandler),
@@ -415,7 +428,7 @@ func TestSubscriber_StartWorker_ValidatesDecoderBeforeDecrypt(t *testing.T) {
 
 	cfg := Config{
 		Store:            store,
-		Driver:           NewDriver(&fakeService{}, nil),
+		Driver:           NewDriver(&fakeService{}),
 		NewClient:        func() MQTTClient { return newFakeMQTTClient() },
 		Decryptor:        decryptor,
 		Logger:           slog.New(slog.DiscardHandler),
@@ -471,7 +484,7 @@ func TestSubscriber_Start_ReturnsListSourcesError(t *testing.T) {
 	store.listSourcesErr = errors.New("db down")
 	sub, err := NewSubscriber(Config{
 		Store:     store,
-		Driver:    NewDriver(&fakeService{}, nil),
+		Driver:    NewDriver(&fakeService{}),
 		NewClient: func() MQTTClient { return newFakeMQTTClient() },
 		Decryptor: passthroughDecryptor{},
 		Logger:    slog.New(slog.DiscardHandler),
@@ -485,11 +498,85 @@ func TestSubscriber_Start_ReturnsListSourcesError(t *testing.T) {
 	sub.Stop()
 }
 
+func TestSubscriber_Start_ReturnsErrorWhenAllSourcesFail(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{
+		ID:                  1,
+		OrganizationID:      7,
+		ServiceUserID:       99,
+		SourceName:          "site-a",
+		BrokerPrimaryHost:   "10.0.0.1",
+		BrokerSecondaryHost: "10.0.0.1",
+		Enabled:             true,
+	}
+	store := newFakeStore(src)
+	sub, err := NewSubscriber(Config{
+		Store:     store,
+		Driver:    NewDriver(&fakeService{}),
+		NewClient: func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor: passthroughDecryptor{},
+		Logger:    slog.New(slog.DiscardHandler),
+	})
+	require.NoError(t, err)
+
+	err = sub.Start(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no enabled sources started")
+	assert.Nil(t, sub.cancel)
+}
+
+func TestSubscriber_WorkerPanicRestartsSource(t *testing.T) {
+	t.Parallel()
+
+	src := SourceConfig{
+		ID:                      1,
+		OrganizationID:          7,
+		ServiceUserID:           99,
+		SourceName:              "site-a",
+		Topic:                   "vendor/target",
+		BrokerPrimaryHost:       "10.0.0.1",
+		BrokerSecondaryHost:     "10.0.0.2",
+		BrokerPort:              1883,
+		ContractedCurtailmentKw: 12500,
+		StalenessThreshold:      240 * time.Second,
+		MinCurtailedDuration:    600 * time.Second,
+		Enabled:                 true,
+	}
+	store := newFakeStore(src)
+	store.getStatePanics = 1
+	store.state[src.ID] = SourceState{SourceConfigID: src.ID, LastTarget: TargetOff}
+	eventUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &eventUUID}}
+	sub, err := NewSubscriber(Config{
+		Store:  store,
+		Driver: NewDriver(svc),
+		NewClient: func() MQTTClient {
+			c := newFakeMQTTClient()
+			c.connectBlocks = true
+			return c
+		},
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		WatchdogTickEvery: 10 * time.Millisecond,
+		ShutdownDeadline:  time.Second,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, sub.Start(context.Background()))
+	defer sub.Stop()
+
+	assertEventually(t, 2*time.Second, func() bool {
+		return svc.startCallsLen() >= 1
+	})
+}
+
 func TestSubscriber_NewSubscriber_RejectsMissingDeps(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
-	driver := NewDriver(&fakeService{}, nil)
+	driver := NewDriver(&fakeService{})
 	factory := func() MQTTClient { return newFakeMQTTClient() }
 
 	cases := []struct {
@@ -551,7 +638,7 @@ func TestNewSubscriber_NonPositiveDurationsDefault(t *testing.T) {
 
 	cfg := Config{
 		Store:             newFakeStore(),
-		Driver:            NewDriver(&fakeService{}, nil),
+		Driver:            NewDriver(&fakeService{}),
 		NewClient:         func() MQTTClient { return newFakeMQTTClient() },
 		Decryptor:         passthroughDecryptor{},
 		WatchdogTickEvery: -1 * time.Second,

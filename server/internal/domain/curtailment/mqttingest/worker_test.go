@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -22,7 +23,7 @@ func newTestWorker(t *testing.T, store *fakeStore, svc *fakeService, src SourceC
 	t.Helper()
 	cfg := Config{
 		Store:             store,
-		Driver:            NewDriver(svc, nil),
+		Driver:            NewDriver(svc),
 		NewClient:         func() MQTTClient { return newFakeMQTTClient() },
 		Decryptor:         passthroughDecryptor{},
 		Logger:            slog.New(slog.DiscardHandler),
@@ -315,6 +316,78 @@ func TestWorker_HandleMessage_NewerOnClearsPendingOff(t *testing.T) {
 	assert.Equal(t, TargetOn, persisted.LastTarget)
 }
 
+func TestWorker_HandleMessage_SameSecondOnDoesNotClearPendingOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": pendingAt.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   pendingAt.Add(-time.Minute),
+		LastReceivedAt: pendingAt,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: pendingAt.Add(500 * time.Millisecond)})
+
+	require.NotNil(t, next.PendingEdge, "same-second ON must not cancel a pending OFF")
+	assert.Equal(t, TargetOff, next.PendingEdge.Target)
+	assert.Equal(t, TargetOn, next.LastTarget)
+	assert.Empty(t, svc.startCalls)
+	assert.Empty(t, svc.stopCalls)
+}
+
+func TestWorker_HandleMessage_DuplicateOnDoesNotClearPendingOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onAt := pendingAt.Add(time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": onAt.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID:       w.source.ID,
+		LastTarget:           TargetOn,
+		LastTargetAt:         onAt,
+		LastProcessedTarget:  TargetOn,
+		LastProcessedTargets: []Target{TargetOn},
+		LastReceivedAt:       pendingAt,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: onAt.Add(time.Second)})
+
+	require.NotNil(t, next.PendingEdge, "known duplicate ON must not cancel a pending OFF")
+	assert.Equal(t, TargetOff, next.PendingEdge.Target)
+	assert.Empty(t, svc.startCalls)
+	assert.Empty(t, svc.stopCalls)
+}
+
 func TestWorker_HandleMessage_NewerOnSupersedingPendingOffStopsActiveEvent(t *testing.T) {
 	t.Parallel()
 
@@ -360,6 +433,60 @@ func TestWorker_HandleMessage_NewerOnSupersedingPendingOffStopsActiveEvent(t *te
 	require.NoError(t, err)
 	assert.Nil(t, persisted.PendingEdge)
 	assert.Equal(t, TargetOn, persisted.LastTarget)
+}
+
+func TestWorker_HandleMessage_NewerOnSupersedingPendingOffStopFailureRetries(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	src := workerSource()
+	active := testSourceEvent(src, eventUUID, models.EventStateActive)
+	svc := &fakeService{
+		listActiveResult: []*models.Event{active},
+		stopErr:          errors.New("stop failed"),
+	}
+	w := newTestWorker(t, store, svc, src)
+
+	pendingAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	onAt := pendingAt.Add(time.Second)
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": onAt.Unix()})
+	require.NoError(t, err)
+
+	prior := SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   pendingAt.Add(-time.Minute),
+		LastReceivedAt: pendingAt,
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			TargetAt:       pendingAt,
+			ReceivedAt:     pendingAt,
+			ReceivedBroker: w.primaryHost,
+		},
+	}
+
+	next := w.handleMessage(context.Background(), prior,
+		observation{broker: w.primaryHost, payload: onBody, receivedAt: onAt})
+
+	require.Equal(t, 1, svc.stopCallsLen(), "superseding ON must attempt Stop")
+	require.NotNil(t, next.PendingEdge, "failed Stop must keep replacement ON pending")
+	assert.Equal(t, EdgeOffToOn, next.PendingEdge.Direction)
+	assert.Equal(t, TargetOn, next.PendingEdge.Target)
+
+	persisted, err := store.GetSourceState(context.Background(), src.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge, "replacement pending ON must be durable")
+	assert.Equal(t, EdgeOffToOn, persisted.PendingEdge.Direction)
+
+	svc.stopErr = nil
+	svc.stopResult = testSourceEvent(src, eventUUID, models.EventStateRestoring)
+	settled := w.handleWatchdog(context.Background(), next)
+
+	assert.Equal(t, 2, svc.stopCallsLen(), "watchdog must retry the pending Stop")
+	assert.Nil(t, settled.PendingEdge)
+	assert.Equal(t, TargetOn, settled.LastTarget)
 }
 
 func TestWorker_HandleMessage_CorrectedClockOnClearsFutureDatedPendingOff(t *testing.T) {
@@ -1285,6 +1412,95 @@ func TestWorker_Run_ReplaysStartupPendingOffWhenBrokersStayDown(t *testing.T) {
 	}
 }
 
+func TestWorker_Run_StartupWatchdogGraceAllowsRetainedOn(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	src.StalenessThreshold = time.Hour
+	store := newFakeStore()
+	store.state[src.ID] = SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastReceivedAt: time.Now().UTC().Add(-2 * time.Hour),
+	}
+	svc := &fakeService{}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.WatchdogTickEvery = 50 * time.Millisecond
+
+	clients := make(chan *fakeMQTTClient, 2)
+	w.cfg.NewClient = func() MQTTClient {
+		c := newFakeMQTTClient()
+		clients <- c
+		return c
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	var primary *fakeMQTTClient
+	select {
+	case primary = <-clients:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not create primary client")
+	}
+	select {
+	case <-clients:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not create secondary client")
+	}
+
+	now := time.Now().UTC()
+	onBody, err := json.Marshal(map[string]any{"target": 100, "timestamp": now.Unix()})
+	require.NoError(t, err)
+	primary.deliver(onBody, now)
+
+	time.Sleep(3 * w.cfg.WatchdogTickEvery)
+	assert.Equal(t, 0, svc.startCallsLen(), "fresh ON during startup grace must prevent a spurious watchdog curtail")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}
+
+func TestWorker_Run_BrokersNeverConnectStartupGraceEventuallyFailsSafe(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	src.StalenessThreshold = 80 * time.Millisecond
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	svc := &fakeService{startResult: &curtailment.Plan{EventUUID: &eventUUID}}
+	w := newTestWorker(t, store, svc, src)
+	w.cfg.WatchdogTickEvery = 10 * time.Millisecond
+	w.cfg.NewClient = func() MQTTClient {
+		c := newFakeMQTTClient()
+		c.connectBlocks = true
+		return c
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.run(ctx); close(done) }()
+
+	time.Sleep(src.StalenessThreshold / 2)
+	assert.Equal(t, 0, svc.startCallsLen(), "startup grace must not curtail before the staleness bound")
+
+	assertEventually(t, 2*time.Second, func() bool { return svc.startCallsLen() >= 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop after cancel")
+	}
+}
+
 func TestWorker_Run_RetriesInitialBrokerConnect(t *testing.T) {
 	t.Parallel()
 
@@ -1339,6 +1555,30 @@ func TestWorker_Run_RetriesInitialBrokerConnect(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker did not stop after cancel")
 	}
+}
+
+func TestInitialBrokerRetryBackoff(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 20*time.Millisecond, nextInitialBrokerRetry(10*time.Millisecond))
+	assert.Equal(t, initialBrokerRetryMax, nextInitialBrokerRetry(initialBrokerRetryMax))
+	assert.Equal(t, initialBrokerRetryMax, nextInitialBrokerRetry(initialBrokerRetryMax+time.Second))
+
+	base := 100 * time.Millisecond
+	got := jitterRetryDelay(base, rand.New(rand.NewSource(1)))
+	assert.GreaterOrEqual(t, got, base)
+	assert.LessOrEqual(t, got, base+base/5)
+}
+
+func TestMQTTClientIdentityIncludesBrokerPort(t *testing.T) {
+	t.Parallel()
+
+	src := workerSource()
+	left := mqttClientIdentity(src, src.BrokerPrimaryHost)
+	src.BrokerPort++
+	right := mqttClientIdentity(src, src.BrokerPrimaryHost)
+
+	assert.NotEqual(t, left, right)
 }
 
 // A held source event satisfies OFF.

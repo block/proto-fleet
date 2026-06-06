@@ -2,16 +2,18 @@ package mqttclient
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
-	"github.com/google/uuid"
 )
 
 const subscribeQoS byte = 1
@@ -33,8 +35,12 @@ type subscriptionClient interface {
 	Subscribe(topic string, qos byte, callback paho.MessageHandler) paho.Token
 }
 
+type routeClient interface {
+	AddRoute(topic string, callback paho.MessageHandler)
+}
+
 var _ interface {
-	Connect(ctx context.Context, host string, port int32, transport string, username, password string) error
+	Connect(ctx context.Context, host string, port int32, transport string, username, password, clientIdentity string) error
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
 	Disconnect(shutdownDeadline time.Duration)
 } = (*Client)(nil)
@@ -45,7 +51,7 @@ func New() *Client {
 	}
 }
 
-func (c *Client) Connect(ctx context.Context, host string, port int32, transport string, username, password string) error {
+func (c *Client) Connect(ctx context.Context, host string, port int32, transport string, username, password, clientIdentity string) error {
 	if port <= 0 {
 		return fmt.Errorf("mqttclient: invalid broker port %d", port)
 	}
@@ -54,21 +60,15 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 	if err != nil {
 		return err
 	}
-	opts := paho.NewClientOptions().
-		AddBroker(brokerURL).
-		SetClientID(clientID()).
-		SetUsername(username).
-		SetPassword(password).
-		SetAutoReconnect(true).
-		SetResumeSubs(true).
-		SetOnConnectHandler(c.resubscribe).
-		SetOrderMatters(false).
-		SetProtocolVersion(4)
-	if tlsConfig != nil {
-		opts.SetTLSConfig(tlsConfig)
-	}
+	initialConnectComplete := &atomic.Bool{}
+	opts := clientOptions(brokerURL, tlsConfig, username, password, clientIdentity, func(client paho.Client) {
+		if initialConnectComplete.Load() {
+			c.resubscribe(client)
+		}
+	})
 
 	client := paho.NewClient(opts)
+	c.addRoutes(client)
 	if err := waitToken(ctx, client.Connect()); err != nil {
 		client.Disconnect(0)
 		return fmt.Errorf("mqttclient: connect %s: %w", broker, err)
@@ -77,6 +77,18 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 	c.mu.Lock()
 	c.client = client
 	c.mu.Unlock()
+	for topic, handler := range c.subscriptionSnapshot() {
+		if err := waitToken(ctx, client.Subscribe(topic, subscribeQoS, handler)); err != nil {
+			client.Disconnect(0)
+			c.mu.Lock()
+			if c.client == client {
+				c.client = nil
+			}
+			c.mu.Unlock()
+			return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
+		}
+	}
+	initialConnectComplete.Store(true)
 	return nil
 }
 
@@ -87,9 +99,6 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	c.mu.Lock()
 	client := c.client
 	c.mu.Unlock()
-	if client == nil {
-		return errors.New("mqttclient: subscribe before connect")
-	}
 
 	messageHandler := func(_ paho.Client, msg paho.Message) {
 		payload, ok := copyPayload(msg.Payload())
@@ -99,9 +108,14 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 		handler(payload, time.Now().UTC())
 	}
 
-	token := client.Subscribe(topic, subscribeQoS, messageHandler)
-	if err := waitToken(ctx, token); err != nil {
-		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
+	if client == nil {
+		c.mu.Lock()
+		if c.subscriptions == nil {
+			c.subscriptions = make(map[string]paho.MessageHandler)
+		}
+		c.subscriptions[topic] = messageHandler
+		c.mu.Unlock()
+		return nil
 	}
 
 	c.mu.Lock()
@@ -110,6 +124,11 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	}
 	c.subscriptions[topic] = messageHandler
 	c.mu.Unlock()
+
+	token := client.Subscribe(topic, subscribeQoS, messageHandler)
+	if err := waitToken(ctx, token); err != nil {
+		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
+	}
 	return nil
 }
 
@@ -120,6 +139,12 @@ func (c *Client) resubscribe(client paho.Client) {
 func (c *Client) replaySubscriptions(client subscriptionClient) {
 	for topic, handler := range c.subscriptionSnapshot() {
 		client.Subscribe(topic, subscribeQoS, handler)
+	}
+}
+
+func (c *Client) addRoutes(client routeClient) {
+	for topic, handler := range c.subscriptionSnapshot() {
+		client.AddRoute(topic, handler)
 	}
 }
 
@@ -155,6 +180,31 @@ func brokerOptions(host, broker, transport string) (string, *tls.Config, error) 
 	}
 }
 
+func clientOptions(
+	brokerURL string,
+	tlsConfig *tls.Config,
+	username string,
+	password string,
+	clientIdentity string,
+	onConnect paho.OnConnectHandler,
+) *paho.ClientOptions {
+	opts := paho.NewClientOptions().
+		AddBroker(brokerURL).
+		SetClientID(clientID(clientIdentity)).
+		SetUsername(username).
+		SetPassword(password).
+		SetAutoReconnect(true).
+		SetResumeSubs(true).
+		SetCleanSession(false).
+		SetOnConnectHandler(onConnect).
+		SetOrderMatters(true).
+		SetProtocolVersion(4)
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
+	return opts
+}
+
 func (c *Client) Disconnect(shutdownDeadline time.Duration) {
 	c.mu.Lock()
 	client := c.client
@@ -179,12 +229,9 @@ func waitToken(ctx context.Context, token paho.Token) error {
 	}
 }
 
-func clientID() string {
-	id := uuid.NewString()
-	if len(id) > 12 {
-		id = id[:12]
-	}
-	return "protofleet-" + id
+func clientID(identity string) string {
+	sum := sha256.Sum256([]byte(identity))
+	return "protofleet-" + hex.EncodeToString(sum[:])[:12]
 }
 
 func quiesceMillis(d time.Duration) uint {

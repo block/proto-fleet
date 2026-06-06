@@ -12,7 +12,7 @@ import (
 
 // MQTTClient is one broker connection for one source.
 type MQTTClient interface {
-	Connect(ctx context.Context, host string, port int32, transport string, username, password string) error
+	Connect(ctx context.Context, host string, port int32, transport string, username, password, clientIdentity string) error
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
 	Disconnect(shutdownDeadline time.Duration)
 }
@@ -29,6 +29,8 @@ const (
 	brokerTransportTCP = "tcp"
 	brokerTransportTLS = "tls"
 )
+
+const workerRestartBackoffMax = 30 * time.Second
 
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
@@ -111,17 +113,32 @@ func (s *Subscriber) Start(ctx context.Context) error {
 
 	s.cfg.Logger.Info("mqttingest subscriber starting", slog.Int("source_count", len(sources)))
 
+	started := 0
+	var firstStartErr error
 	for _, src := range sources {
 		w, err := s.startWorker(runCtx, src, &s.wg)
 		if err != nil {
+			if firstStartErr == nil {
+				firstStartErr = err
+			}
 			s.cfg.Logger.Error("mqttingest: start worker failed",
 				slog.String("source", src.SourceName),
 				slog.Any("error", err))
 			continue
 		}
+		started++
 		s.mu.Lock()
 		s.workers[src.ID] = w
 		s.mu.Unlock()
+	}
+
+	if len(sources) > 0 && started == 0 {
+		cancel()
+		s.mu.Lock()
+		s.cancel = nil
+		s.workers = make(map[int64]*sourceWorker)
+		s.mu.Unlock()
+		return fmt.Errorf("mqttingest: no enabled sources started (source_count=%d): %w", len(sources), firstStartErr)
 	}
 
 	return nil
@@ -201,31 +218,96 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 		return nil, fmt.Errorf("mqttingest: decrypt password for %s: %w", src.SourceName, err)
 	}
 
+	workerPassword := string(password)
 	w := &sourceWorker{
 		cfg:           s.cfg,
 		source:        src,
 		decoder:       decoder,
 		primaryHost:   primary,
 		secondaryHost: secondary,
-		password:      string(password),
 	}
 	// Bound plaintext credentials to the worker lifetime.
 	clear(password)
 
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				s.cfg.Logger.Error("mqttingest: source worker panic",
-					slog.String("source", src.SourceName),
-					slog.Any("panic", r))
-			}
-			w.password = ""
-		}()
-		w.run(ctx)
-	}()
+	go s.superviseWorker(ctx, src, decoder, primary, secondary, workerPassword, wg)
 	return w, nil
+}
+
+func (s *Subscriber) superviseWorker(
+	ctx context.Context,
+	src SourceConfig,
+	decoder PayloadDecoder,
+	primary string,
+	secondary string,
+	password string,
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+	defer func() {
+		password = ""
+	}()
+
+	backoff := startupRetryEveryFor(s.cfg.WatchdogTickEvery)
+	for {
+		w := &sourceWorker{
+			cfg:           s.cfg,
+			source:        src,
+			decoder:       decoder,
+			primaryHost:   primary,
+			secondaryHost: secondary,
+			password:      password,
+		}
+		panicked := s.runWorkerOnce(ctx, w)
+		w.password = ""
+		if !panicked || ctx.Err() != nil {
+			return
+		}
+
+		retryAfter := backoff
+		s.cfg.Logger.Warn("mqttingest: restarting source worker after panic",
+			slog.String("source", src.SourceName),
+			slog.Duration("retry_after", retryAfter))
+		timer := time.NewTimer(retryAfter)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		backoff = nextWorkerRestartBackoff(backoff)
+	}
+}
+
+func (s *Subscriber) runWorkerOnce(ctx context.Context, w *sourceWorker) (panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicked = true
+			s.cfg.Logger.Error("mqttingest: source worker panic",
+				slog.String("source", w.source.SourceName),
+				slog.Any("panic", r))
+		}
+	}()
+	w.run(ctx)
+	return false
+}
+
+func startupRetryEveryFor(tick time.Duration) time.Duration {
+	if tick > 0 && tick < time.Second {
+		return tick
+	}
+	return time.Second
+}
+
+func nextWorkerRestartBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next <= 0 {
+		return time.Second
+	}
+	if next > workerRestartBackoffMax {
+		return workerRestartBackoffMax
+	}
+	return next
 }
 
 func validateBrokerTransport(src SourceConfig, hosts ...string) error {
