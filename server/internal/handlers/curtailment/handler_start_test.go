@@ -371,6 +371,38 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	assert.Empty(t, store.lastTargets)
 }
 
+func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{
+		miner("offline", "OFFLINE", "PAIRED", 0, 0, 40),
+		miner("updating", "UPDATING", "PAIRED", 0, 0, 40),
+	}
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 1,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
+
+	req := validStartRequestBuilder()
+	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
+	req.ModeParams = nil
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "insufficient curtailable load")
+	assert.Contains(t, err.Error(), "unreachable_residual_load=1")
+	assert.Contains(t, err.Error(), "updating=1")
+	assert.Empty(t, store.lastTargets, "all-skipped full_fleet must not persist a completed event")
+}
+
 // TestHandler_StartCurtailment_RejectsMissingSession pins the auth gate:
 // without session.Info in context, Start must fail with Unauthenticated
 // (not crash on a nil-dereference of OrganizationID).

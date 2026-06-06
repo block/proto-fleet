@@ -175,8 +175,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		// Defense-in-depth; FIXED_KW's validator + selector prevent this.
 		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
 	}
-	// FULL_FLEET with an empty eligible set is valid (nothing curtailable ==
+	// FULL_FLEET with a genuinely empty scope is valid (nothing curtailable ==
 	// vacuously off); it persists directly COMPLETED with no targets below.
+	// runSelector rejects the unsafe non-empty/all-skipped case before this
+	// point so automation cannot interpret "nothing actionable curtailed" as
+	// satisfied.
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
 	// Bounds-check the normalized value so a misconfigured default surfaces
@@ -878,7 +881,47 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
+	if req.Mode == models.ModeFullFleet && len(plan.Selected) == 0 && len(plan.Skipped) > 0 {
+		detail := fullFleetAllSkippedDetail(plan.Skipped, minPowerW)
+		plan.Outcome = modes.OutcomeInsufficientLoad
+		plan.InsufficientLoadDetail = &detail
+	}
 	return &plan, minPowerW, orgConfig, nil
+}
+
+func fullFleetAllSkippedDetail(skipped []SkippedDevice, minPowerW int32) modes.InsufficientLoadDetail {
+	detail := modes.InsufficientLoadDetail{CandidateMinPowerW: minPowerW}
+	for _, skip := range skipped {
+		switch skip.Reason {
+		case SkipBelowThreshold:
+			detail.ExcludedBelowThreshold++
+		case SkipPhantomLoadNoHash:
+			detail.ExcludedPhantomLoad++
+		case SkipPowerTelemetryUnreliable:
+			detail.ExcludedDeadMonitor++
+		case SkipUnreachableResidualLoad:
+			detail.ExcludedOffline++
+		case SkipMaintenance:
+			detail.ExcludedMaintenance++
+		case SkipUpdating:
+			detail.ExcludedUpdating++
+		case SkipRebootRequired:
+			detail.ExcludedRebootRequired++
+		case SkipStaleTelemetry:
+			detail.ExcludedStale++
+		case SkipNonActionableStatus:
+			detail.ExcludedNonActionable++
+		case SkipPairing:
+			detail.ExcludedPairing++
+		case SkipCooldown:
+			detail.ExcludedCooldown++
+		case SkipActiveEvent:
+			detail.ExcludedActiveEvent++
+		case SkipCurtailFullUnsupported:
+			detail.ExcludedCapabilityMiss++
+		}
+	}
+	return detail
 }
 
 // buildMode constructs the selection mode from the request. FULL_FLEET takes

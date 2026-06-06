@@ -15,6 +15,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -151,6 +152,38 @@ func TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, persisted.PendingEdge, "failed dispatch must persist pending retry state")
 	assert.Equal(t, EdgeWatchdogOff, persisted.PendingEdge.Direction)
+}
+
+func TestWorker_HandleWatchdog_AllSkippedFullFleetKeepsOffPending(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{
+		startResult: &curtailment.Plan{
+			InsufficientLoadDetail: &modes.InsufficientLoadDetail{
+				ExcludedStale: 1,
+			},
+		},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+
+	stale := time.Now().Add(-5 * time.Minute)
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastReceivedAt: stale,
+	}
+
+	next := w.handleWatchdog(context.Background(), prior)
+
+	require.Equal(t, 1, svc.startCallsLen(), "watchdog must attempt full_fleet Start")
+	assert.Equal(t, TargetOn, next.LastTarget, "all-skipped full_fleet must not settle OFF")
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge, "all-skipped full_fleet must remain retryable")
+	assert.Equal(t, EdgeWatchdogOff, persisted.PendingEdge.Direction)
+	assert.Empty(t, persisted.LastEmptyFullFleetWatchdogRef,
+		"all-skipped is not a genuinely empty full_fleet no-op window")
 }
 
 // Failed Start must not settle LastTarget.
