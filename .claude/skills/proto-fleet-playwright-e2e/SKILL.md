@@ -65,11 +65,13 @@ Keep PR scope tight.
 
 Allowed by default:
 - add `data-testid` or similar element attributes when they fit existing patterns
-- extend simulated/fake miners if they do not yet support the feature under test
 
-Before making other product/source changes, stop and ask briefly:
+Before making other product/source changes, or when touching shared fake miner fixtures under `server/fake-antminer/` or `server/fake-proto-rig/`, stop and ask briefly:
 - what you plan to change
 - why the test needs it
+- what shared surfaces may be affected
+
+If fake miner changes are approved, call out the shared impact and run the relevant follow-up checks, such as `just test-contract`, before calling the work finished.
 
 Do not broaden into product refactors unless the user explicitly asks.
 
@@ -153,7 +155,8 @@ Prefer:
 - whole touched spec file second
 - broader runs only if clearly needed
 
-Run targeted `npx eslint ...` and `npx playwright ...` commands from `client/`.
+Run targeted `npx eslint ...` commands from `client/`.
+Run targeted Playwright commands from the suite directory, such as `client/e2eTests/protoFleet` or `client/e2eTests/protoOS`, and include an explicit project like `--project=desktop` unless you intentionally need another one.
 From the repo root, prefer the canonical broader commands from `justfile`, such as `just test-e2e-fleet` and `just test-e2e-protoos`.
 
 Repo-specific note:
@@ -220,7 +223,8 @@ Common commands:
 - `git status --short --branch`
 - `git diff -- <file>`
 - `cd client && npx eslint <touched files>`
-- `cd client && npx playwright test <spec> --grep "scenario"`
+- `cd client/e2eTests/protoFleet && npx playwright test spec/<spec>.ts --project=desktop --grep "scenario"`
+- `cd client/e2eTests/protoOS && npx playwright test spec/<spec>.ts --project=desktop --grep "scenario"`
 - `just test-e2e-fleet`
 - `just test-e2e-protoos`
 
