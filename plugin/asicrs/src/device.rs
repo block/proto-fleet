@@ -1102,29 +1102,25 @@ fn message_into_error(m: MinerMessage) -> pb::MinerError {
 fn message_into_severity(m: MinerMessage) -> pb::Severity {
     let lower = m.message.to_lowercase();
 
-    if [
+    let critical_keywords = [
         "over temperature",
         "short",
         "protection",
         "fault",
         "failed",
         "overcurrent",
-    ]
-    .iter()
-    .any(|kw| lower.contains(kw))
-    {
-        pb::Severity::Critical
-    } else if ["deviation", "warning", "ambient", "low"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::Severity::Minor
-    } else {
-        match m.severity {
-            MessageSeverity::Error => pb::Severity::Critical,
-            MessageSeverity::Warning => pb::Severity::Minor,
-            MessageSeverity::Info => pb::Severity::Info,
+    ];
+
+    match m.severity {
+        MessageSeverity::Error => {
+            if critical_keywords.iter().any(|kw| lower.contains(kw)) {
+                pb::Severity::Critical
+            } else {
+                pb::Severity::Major
+            }
         }
+        MessageSeverity::Warning => pb::Severity::Minor,
+        MessageSeverity::Info => pb::Severity::Info,
     }
 }
 
@@ -1243,7 +1239,7 @@ mod tests {
 
         let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::PsuFaultGeneric));
-        assert!(matches!(severity, pb::Severity::Critical));
+        assert!(matches!(severity, pb::Severity::Major));
         assert!(matches!(component, pb::ComponentType::Psu));
     }
 
@@ -1294,6 +1290,24 @@ mod tests {
         };
 
         let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_missing_from_component_and_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Hashboard 1 not present".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::HashboardNotPresent));
         assert!(matches!(component, pb::ComponentType::HashBoard));
     }
@@ -1310,7 +1324,7 @@ mod tests {
 
         let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
-        assert!(matches!(severity, pb::Severity::Critical));
+        assert!(matches!(severity, pb::Severity::Major));
         assert!(matches!(component, pb::ComponentType::Unspecified));
     }
 
