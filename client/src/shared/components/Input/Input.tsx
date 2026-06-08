@@ -17,7 +17,7 @@ import useValueWidth from "./useValueWidth";
 import { DismissCircle, Eye } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Tooltip from "@/shared/components/Tooltip";
-import { positions } from "@/shared/constants";
+import { type Position, positions } from "@/shared/constants";
 
 interface InputProps {
   autoFocus?: boolean;
@@ -39,7 +39,7 @@ interface InputProps {
   onChangeBlur?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
   testId?: string;
-  tooltip?: { header: string; body: string };
+  tooltip?: { header?: string; body: string; position?: Position; widthClassName?: string };
   type?: string;
   statusIcon?: ReactNode;
   onFocus?: () => void;
@@ -254,8 +254,13 @@ const Input = ({
           {label}
         </label>
         {tooltip ? (
-          <div className="absolute top-7 right-4 -translate-y-1/2 transform">
-            <Tooltip header={tooltip.header} body={tooltip.body} position={positions["top left"]} />
+          <div className="absolute top-7 right-4 z-50 -translate-y-1/2 transform">
+            <Tooltip
+              header={tooltip.header}
+              body={tooltip.body}
+              position={tooltip.position ?? positions["top left"]}
+              widthClassName={tooltip.widthClassName}
+            />
           </div>
         ) : null}
         {dismiss && length(value) && !compact ? (
