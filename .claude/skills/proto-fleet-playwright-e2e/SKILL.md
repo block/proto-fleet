@@ -1,8 +1,6 @@
 ---
 name: proto-fleet-playwright-e2e
 description: Use when adding, fixing, or reviewing Playwright E2E coverage in the block/proto-fleet monorepo, especially after a feature is already implemented. Covers scenario design, spec and page-object changes, local env-aware verification, simulator-safe cleanup, and follow-up on E2E PR comments or CI failures.
-metadata:
-  status: beta
 ---
 
 # Proto Fleet Playwright E2E
@@ -155,6 +153,9 @@ Prefer:
 - whole touched spec file second
 - broader runs only if clearly needed
 
+Run targeted `npx eslint ...` and `npx playwright ...` commands from `client/`.
+From the repo root, prefer the canonical broader commands from `justfile`, such as `just test-e2e-fleet` and `just test-e2e-protoos`.
+
 Repo-specific note:
 - In this repo, E2E TypeScript files can still fail CI typecheck on unused imports/locals even when touched-file ESLint does not fail. Do not ignore ESLint warnings about unused symbols in `e2eTests/**`. If the change adds new imports/helpers or the file shape changed meaningfully, consider running the client typecheck before calling the work finished.
 
@@ -218,8 +219,10 @@ Common commands:
 - `sed -n`
 - `git status --short --branch`
 - `git diff -- <file>`
-- `npx eslint <touched files>`
-- `npx playwright test <spec> --grep "scenario"`
+- `cd client && npx eslint <touched files>`
+- `cd client && npx playwright test <spec> --grep "scenario"`
+- `just test-e2e-fleet`
+- `just test-e2e-protoos`
 
 Use `apply_patch` for edits.
 Do not create git worktrees.
