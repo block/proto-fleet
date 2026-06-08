@@ -517,12 +517,12 @@ func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *t
 	}
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
 		UserID:         9,
 		Role:           "OPERATOR",
-	})
+	}, authz.PermCurtailmentManage)
 
 	req := validStartRequestBuilder()
 	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
