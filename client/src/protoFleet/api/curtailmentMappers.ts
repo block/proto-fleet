@@ -2,6 +2,7 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
+  CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
@@ -16,7 +17,7 @@ import {
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const wattsPerKilowatt = 1000;
 
@@ -48,6 +49,10 @@ function formatPositiveNumberField(value: number | undefined): string {
   }
 
   return String(value);
+}
+
+function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): CurtailmentMode {
+  return event.mode === ProtoCurtailmentMode.FULL_FLEET ? "fullFleet" : "fixedKwReduction";
 }
 
 function mapCurtailmentEventScopeToFormValues(
@@ -86,7 +91,7 @@ export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): C
   return {
     ...mapCurtailmentEventScopeToFormValues(event),
     responseProfileId: "customPlan",
-    curtailmentMode: "fixedKwReduction",
+    curtailmentMode: mapCurtailmentModeToFormValue(event),
     minerSelectionStrategy: "leastEfficientFirst",
     targetKw: fixedKwTarget !== undefined ? String(fixedKwTarget) : "",
     toleranceKw: fixedKwTolerance !== undefined ? String(fixedKwTolerance) : "",

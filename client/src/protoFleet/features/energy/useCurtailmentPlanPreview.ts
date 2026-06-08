@@ -29,6 +29,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "scopeId"
   | "deviceSetIds"
   | "deviceIdentifiers"
+  | "curtailmentMode"
   | "targetKw"
   | "toleranceKw"
   | "priority"
@@ -137,10 +138,25 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
 export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
-  const targetKw = parsePositiveNumber(values.targetKw);
   const scope = buildScope(values);
 
-  if (targetKw === undefined || scope === undefined) {
+  if (scope === undefined) {
+    return undefined;
+  }
+
+  if (values.curtailmentMode === "fullFleet") {
+    return create(PreviewCurtailmentPlanRequestSchema, {
+      scope,
+      mode: CurtailmentMode.FULL_FLEET,
+      priority: toApiPriority(values.priority),
+      includeMaintenance: values.includeMaintenance,
+      forceIncludeMaintenance: values.includeMaintenance,
+    });
+  }
+
+  const targetKw = parsePositiveNumber(values.targetKw);
+
+  if (targetKw === undefined) {
     return undefined;
   }
 
@@ -283,10 +299,15 @@ function toCurtailmentPlanPreview(
   values: CurtailmentFormValues,
 ): CurtailmentPlanPreview {
   const fixedKw = response.modeParams.case === "fixedKw" ? response.modeParams.value : undefined;
+  const targetKw =
+    fixedKw?.targetKw ??
+    (values.curtailmentMode === "fullFleet" && Number.isFinite(response.estimatedReductionKw)
+      ? response.estimatedReductionKw
+      : undefined);
 
   return createCurtailmentPlanPreview(values, {
     selectedMinerCount: response.candidates.length,
-    targetKw: fixedKw?.targetKw,
+    targetKw,
     estimatedReductionKw: response.estimatedReductionKw,
   });
 }
@@ -305,6 +326,7 @@ export function useCurtailmentPlanPreview({
       scopeId: values.scopeId,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
+      curtailmentMode: values.curtailmentMode,
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
       priority: values.priority,
@@ -313,6 +335,7 @@ export function useCurtailmentPlanPreview({
     [
       values.deviceSetIds,
       values.deviceIdentifiers,
+      values.curtailmentMode,
       values.includeMaintenance,
       values.priority,
       values.scopeId,

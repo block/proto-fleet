@@ -194,6 +194,30 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it("maps full-fleet active events to full-fleet form values", async () => {
+    const activeEvent = curtailmentEvent({
+      mode: CurtailmentMode.FULL_FLEET,
+      modeParams: { case: undefined },
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        toleranceKw: "",
+      }),
+    );
+    expect(result.current.activeEvent?.targetKw).toBeUndefined();
+  });
+
   it("estimates observed reduction from confirmed targets when telemetry is absent", async () => {
     const activeEvent = curtailmentEvent({
       targetRollup: create(CurtailmentTargetRollupSchema, {
@@ -1402,6 +1426,31 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent?.state).toBe("restoring");
 
     window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+  });
+
+  it("starts full-fleet curtailment without fixed-kW mode params", async () => {
+    const startedEvent = curtailmentEvent({ mode: CurtailmentMode.FULL_FLEET, modeParams: { case: undefined } });
+    mockStartCurtailment.mockResolvedValueOnce({ event: startedEvent });
+    mockGetActiveCurtailment.mockResolvedValue({ event: startedEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [startedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.startCurtailment({
+        ...baseSubmitValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        toleranceKw: "",
+      });
+    });
+
+    expect(mockStartCurtailment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        modeParams: expect.objectContaining({ case: undefined }),
+      }),
+    );
   });
 
   it("updates active curtailment fields and refreshes listeners", async () => {

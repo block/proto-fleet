@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CurtailmentMode } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
@@ -26,6 +27,29 @@ const baseValues: CurtailmentSubmitValues = {
 };
 
 describe("curtailmentRequestBuilders", () => {
+  it("builds fixed-kW start requests with fixed-kW mode params", () => {
+    const request = buildStartCurtailmentRequest(baseValues);
+
+    expect(request.mode).toBe(CurtailmentMode.FIXED_KW);
+    expect(request.modeParams.case).toBe("fixedKw");
+    if (request.modeParams.case !== "fixedKw") {
+      throw new Error("Expected fixedKw mode params");
+    }
+    expect(request.modeParams.value.targetKw).toBe(40);
+  });
+
+  it("builds full-fleet start requests without fixed-kW mode params", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      toleranceKw: "",
+    });
+
+    expect(request.mode).toBe(CurtailmentMode.FULL_FLEET);
+    expect(request.modeParams.case).toBeUndefined();
+  });
+
   it("builds optional uint32-backed settings from valid whole-number inputs", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,

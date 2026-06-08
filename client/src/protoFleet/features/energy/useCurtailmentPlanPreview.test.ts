@@ -65,6 +65,16 @@ function previewResponse(candidateCount = 3) {
   });
 }
 
+function fullFleetPreviewResponse(candidateCount = 3) {
+  return create(PreviewCurtailmentPlanResponseSchema, {
+    candidates: Array.from({ length: candidateCount }, (_, index) =>
+      create(CurtailmentCandidateSchema, { deviceIdentifier: `miner-${index + 1}` }),
+    ),
+    estimatedReductionKw: 45,
+    mode: CurtailmentMode.FULL_FLEET,
+  });
+}
+
 function renderPreviewHook(initialValues: CurtailmentFormValues = baseValues) {
   return renderHook(
     ({ values }) =>
@@ -114,6 +124,21 @@ describe("useCurtailmentPlanPreview", () => {
     expect(minerRequest.scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
     expect(minerRequest.includeMaintenance).toBe(false);
     expect(minerRequest.forceIncludeMaintenance).toBe(false);
+  });
+
+  it("builds full-fleet preview requests without requiring fixed-kW params", () => {
+    const request = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      toleranceKw: "",
+    });
+
+    expect(request?.scope.case).toBe("wholeOrg");
+    expect(request?.mode).toBe(CurtailmentMode.FULL_FLEET);
+    expect(request?.modeParams.case).toBeUndefined();
+    expect(request?.includeMaintenance).toBe(true);
+    expect(request?.forceIncludeMaintenance).toBe(true);
   });
 
   it("does not build a request until target and scope are valid", () => {
@@ -171,6 +196,40 @@ describe("useCurtailmentPlanPreview", () => {
       expect.objectContaining({
         includeMaintenance: true,
         forceIncludeMaintenance: true,
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("maps full-fleet previews against the estimated fleet reduction", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(fullFleetPreviewResponse());
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      toleranceKw: "",
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview).toEqual(
+        expect.objectContaining({
+          selectedMinerCount: 3,
+          targetKw: 45,
+          estimatedReductionKw: 45,
+          curtailEstimate: "5 minutes - 30 minutes",
+          restoreEstimate: "Immediately",
+          scopeLabel: "across the fleet",
+        }),
+      );
+    });
+
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        modeParams: expect.objectContaining({ case: undefined }),
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal),

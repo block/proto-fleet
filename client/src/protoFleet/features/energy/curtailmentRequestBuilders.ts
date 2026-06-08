@@ -126,17 +126,27 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
 }
 
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
+  const fixedKwModeFields =
+    values.curtailmentMode === "fixedKwReduction"
+      ? {
+          mode: ProtoCurtailmentMode.FIXED_KW,
+          modeParams: {
+            case: "fixedKw" as const,
+            value: buildFixedKwParams(values),
+          },
+        }
+      : {
+          mode: ProtoCurtailmentMode.FULL_FLEET,
+          modeParams: { case: undefined },
+        };
+
   return {
     scope: buildScope(values),
-    mode: ProtoCurtailmentMode.FIXED_KW,
+    ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
-    modeParams: {
-      case: "fixedKw",
-      value: buildFixedKwParams(values),
-    },
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
   };

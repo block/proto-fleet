@@ -151,11 +151,12 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByLabelText("Reason")).toBeInTheDocument();
     expect(screen.getByText("Curtail behavior")).toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeInTheDocument();
+    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeInTheDocument();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("type", "text");
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("inputmode", "decimal");
     expect(screen.queryByRole("button", { name: "Profile" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Curtailment mode" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Miner selection strategy" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Min duration (sec)")).toBeInTheDocument();
     expect(screen.getByLabelText("Max duration (sec)")).toBeInTheDocument();
@@ -525,6 +526,39 @@ describe("CurtailmentStartModal", () => {
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
+  it("submits full-fleet curtailment without requiring a target reduction", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        minDurationSec: "300",
+        maxDurationSec: "1800",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "120",
+        reason: "Grid response",
+        includeMaintenance: false,
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(startButton).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Full fleet"));
+
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
+    expect(screen.getByText("Curtail every eligible miner in the selected scope.")).toBeInTheDocument();
+    expect(startButton).toBeEnabled();
+
+    await user.click(startButton);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+      }),
+    );
+  });
+
   it("submits default curtailment options without rendering single-option dropdowns", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
@@ -532,7 +566,8 @@ describe("CurtailmentStartModal", () => {
 
     expect(startButton).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Profile" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Curtailment mode" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeInTheDocument();
+    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Miner selection strategy" })).not.toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
