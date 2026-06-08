@@ -67,6 +67,7 @@ type PendingEdge struct {
 	ReceivedAt     time.Time
 	ReceivedBroker string
 	PriorEdgeAt    time.Time
+	RetryAt        time.Time
 }
 
 // StateUpdate replaces a source state row. Zero values map to SQL NULL, which
@@ -149,6 +150,7 @@ func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) e
 		params.PendingReceivedAt = nullTimeFrom(update.PendingEdge.ReceivedAt)
 		params.PendingReceivedBroker = nullStringFrom(update.PendingEdge.ReceivedBroker)
 		params.PendingPriorEdgeAt = nullTimeFrom(update.PendingEdge.PriorEdgeAt)
+		params.PendingRetryAt = nullTimeFrom(update.PendingEdge.RetryAt)
 	}
 	if err := s.queries.UpsertMQTTSourceState(ctx, params); err != nil {
 		return fmt.Errorf("upsert mqtt source state: %w", err)
@@ -213,6 +215,7 @@ func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 			r.PendingReceivedAt,
 			r.PendingReceivedBroker,
 			r.PendingPriorEdgeAt,
+			r.PendingRetryAt,
 		),
 		LastEmptyFullFleetWatchdogRef: stringFromNullString(r.LastEmptyFullFleetWatchdogRef),
 	}

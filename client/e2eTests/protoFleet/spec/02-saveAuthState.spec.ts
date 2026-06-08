@@ -7,15 +7,17 @@ import { test } from "../fixtures/pageFixtures";
 const specDir = path.dirname(fileURLToPath(import.meta.url));
 const adminStorageStatePath = path.join(specDir, "..", "playwright", ".auth", "admin.json");
 
-test("save admin auth storage state @setup", async ({ page, authPage }) => {
-  await page.goto("/");
+test.describe("Proto Fleet - Save Auth State", () => {
+  test("save admin auth storage state @setup", async ({ page, authPage }) => {
+    await page.goto("/");
 
-  await authPage.inputUsername(testConfig.users.admin.username);
-  await authPage.inputPassword(testConfig.users.admin.password);
-  await authPage.clickLogin();
-  await authPage.validateLoggedIn();
+    await authPage.inputUsername(testConfig.users.admin.username);
+    await authPage.inputPassword(testConfig.users.admin.password);
+    await authPage.clickLogin();
+    await authPage.validateLoggedIn();
 
-  // playwright/.auth/ is gitignored and absent on fresh checkouts.
-  await fs.mkdir(path.dirname(adminStorageStatePath), { recursive: true });
-  await page.context().storageState({ path: adminStorageStatePath });
+    // playwright/.auth/ is gitignored and absent on fresh checkouts.
+    await fs.mkdir(path.dirname(adminStorageStatePath), { recursive: true });
+    await page.context().storageState({ path: adminStorageStatePath });
+  });
 });

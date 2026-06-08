@@ -14,7 +14,7 @@ import (
 )
 
 const getMQTTSourceStateByID = `-- name: GetMQTTSourceStateByID :one
-SELECT source_config_id, last_target, last_target_at, last_processed_target, last_processed_targets, last_received_at, last_received_broker, last_edge_at, last_edge_event_uuid, pending_direction, pending_target, pending_target_at, pending_received_at, pending_received_broker, pending_prior_edge_at, last_empty_full_fleet_watchdog_ref, updated_at
+SELECT source_config_id, last_target, last_target_at, last_processed_target, last_processed_targets, last_received_at, last_received_broker, last_edge_at, last_edge_event_uuid, pending_direction, pending_target, pending_target_at, pending_received_at, pending_received_broker, pending_prior_edge_at, last_empty_full_fleet_watchdog_ref, updated_at, pending_retry_at
 FROM curtailment_mqtt_source_state
 WHERE source_config_id = $1
 `
@@ -40,6 +40,7 @@ func (q *Queries) GetMQTTSourceStateByID(ctx context.Context, sourceConfigID int
 		&i.PendingPriorEdgeAt,
 		&i.LastEmptyFullFleetWatchdogRef,
 		&i.UpdatedAt,
+		&i.PendingRetryAt,
 	)
 	return i, err
 }
@@ -235,6 +236,7 @@ INSERT INTO curtailment_mqtt_source_state (
     pending_received_at,
     pending_received_broker,
     pending_prior_edge_at,
+    pending_retry_at,
     last_empty_full_fleet_watchdog_ref
 ) VALUES (
     $1,
@@ -252,7 +254,8 @@ INSERT INTO curtailment_mqtt_source_state (
     $13,
     $14,
     $15,
-    $16
+    $16,
+    $17
 )
 ON CONFLICT (source_config_id) DO UPDATE
 SET
@@ -270,6 +273,7 @@ SET
     pending_received_at    = EXCLUDED.pending_received_at,
     pending_received_broker = EXCLUDED.pending_received_broker,
     pending_prior_edge_at  = EXCLUDED.pending_prior_edge_at,
+    pending_retry_at       = EXCLUDED.pending_retry_at,
     last_empty_full_fleet_watchdog_ref = EXCLUDED.last_empty_full_fleet_watchdog_ref
 `
 
@@ -289,6 +293,7 @@ type UpsertMQTTSourceStateParams struct {
 	PendingReceivedAt             sql.NullTime
 	PendingReceivedBroker         sql.NullString
 	PendingPriorEdgeAt            sql.NullTime
+	PendingRetryAt                sql.NullTime
 	LastEmptyFullFleetWatchdogRef sql.NullString
 }
 
@@ -311,6 +316,7 @@ func (q *Queries) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourc
 		arg.PendingReceivedAt,
 		arg.PendingReceivedBroker,
 		arg.PendingPriorEdgeAt,
+		arg.PendingRetryAt,
 		arg.LastEmptyFullFleetWatchdogRef,
 	)
 	return err

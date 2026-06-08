@@ -10,6 +10,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
 // curtailmentService is the subset of curtailment.Service the driver needs.
@@ -149,7 +150,7 @@ func (d *Driver) dispatchStart(ctx context.Context, src SourceConfig, direction 
 		return plan.ReplayEvent.EventUUID, false, nil
 	}
 	if plan.InsufficientLoadDetail != nil {
-		return uuid.Nil, false, fmt.Errorf("mqttingest: curtailment service rejected Start (insufficient load): %+v", plan.InsufficientLoadDetail)
+		return uuid.Nil, false, &StartInsufficientLoadError{Detail: plan.InsufficientLoadDetail}
 	}
 	if plan.EventUUID == nil {
 		return uuid.Nil, false, errors.New("mqttingest: curtailment service returned plan with no event UUID")
@@ -227,6 +228,17 @@ func eventIsRestoring(event *models.Event) bool {
 // non-terminal event exists. Caller treats this as a benign no-op
 // (the subscriber's edge bookkeeping still moves to ON).
 var ErrNoActiveEvent = errors.New("mqttingest: no active event to stop")
+
+// StartInsufficientLoadError means Start evaluated successfully but selected no
+// dispatchable load. MQTT ingest keeps the pending OFF retryable, but callers
+// can throttle this stable outcome separately from transient service failures.
+type StartInsufficientLoadError struct {
+	Detail *modes.InsufficientLoadDetail
+}
+
+func (e *StartInsufficientLoadError) Error() string {
+	return fmt.Sprintf("mqttingest: curtailment service rejected Start (insufficient load): %+v", e.Detail)
+}
 
 // clampToInt32Seconds converts a duration to int32 seconds, saturating
 // rather than wrapping on an outsized (operator-typo) value.

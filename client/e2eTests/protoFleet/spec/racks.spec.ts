@@ -3,6 +3,13 @@ import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
 import { PROTO_RIG_MODEL } from "../helpers/minerModels";
+import {
+  addSelectableMinersToSlots,
+  addSelectableRigMinersToSlots,
+  createZoneName,
+  expectGridRackLabels,
+  expectListRackLabels,
+} from "../helpers/racksHelpers";
 import { generateRandomText } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
@@ -98,70 +105,6 @@ test.describe("Racks", () => {
       await racksPage.waitForRackListToLoad();
       rackNames = await racksPage.listRackNames();
     }
-  }
-
-  function createZoneName(prefix: "A" | "B") {
-    const suffix = Math.random()
-      .toString(36)
-      .replace(/[^a-z]+/g, "")
-      .slice(0, 6);
-    return `${prefix}-${suffix || "zone"}`;
-  }
-
-  async function addSelectableMinersToSlots(
-    racksPage: RacksPage,
-    minerCount: number,
-    slotNumbers: readonly number[],
-  ): Promise<RackSelectorMiner[]> {
-    test.expect(slotNumbers).toHaveLength(minerCount);
-
-    await racksPage.clickAddMiners();
-    await racksPage.waitForMinerSelectorListToLoad();
-
-    const selectableMinerIndexes = await racksPage.getSelectableMinerIndexes(minerCount);
-    const selectedMiners = await racksPage.getMinersFromSelector(selectableMinerIndexes);
-    await racksPage.selectMinersInSelectorByIndex(selectableMinerIndexes);
-    await racksPage.clickContinueInMinerSelector();
-
-    for (let i = 0; i < selectedMiners.length; i++) {
-      await racksPage.selectRackMiner(selectedMiners[i].ipAddress);
-      await racksPage.clickRackSlot(slotNumbers[i]);
-    }
-
-    return selectedMiners;
-  }
-
-  async function addSelectableRigMinersToSlots(
-    racksPage: RacksPage,
-    minerCount: number,
-    slotNumbers: readonly number[],
-  ): Promise<RackSelectorMiner[]> {
-    test.expect(slotNumbers).toHaveLength(minerCount);
-
-    await racksPage.clickAddMiners();
-    await racksPage.waitForMinerSelectorListToLoad();
-    await racksPage.filterModalType(PROTO_RIG_MODEL);
-    await racksPage.waitForMinerSelectorListToLoad();
-
-    const selectableMinerIndexes = await racksPage.getSelectableMinerIndexes(minerCount);
-    const selectedMiners = await racksPage.getMinersFromSelector(selectableMinerIndexes);
-    await racksPage.selectMinersInSelectorByIndex(selectableMinerIndexes);
-    await racksPage.clickContinueInMinerSelector();
-
-    for (let i = 0; i < selectedMiners.length; i++) {
-      await racksPage.selectRackMiner(selectedMiners[i].ipAddress);
-      await racksPage.clickRackSlot(slotNumbers[i]);
-    }
-
-    return selectedMiners;
-  }
-
-  async function expectGridRackLabels(racksPage: RacksPage, expectedLabels: string[]) {
-    await test.expect.poll(async () => await racksPage.getGridRackLabels()).toEqual(expectedLabels);
-  }
-
-  async function expectListRackLabels(racksPage: RacksPage, expectedLabels: string[]) {
-    await test.expect.poll(async () => await racksPage.listRackNames()).toEqual(expectedLabels);
   }
 
   test("Create rack with miners assigned by name", async ({ racksPage }) => {

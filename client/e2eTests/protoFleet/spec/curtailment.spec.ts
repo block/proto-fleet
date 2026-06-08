@@ -40,8 +40,8 @@ test.describe("Proto Fleet - Curtailment", () => {
         await energyPage.validateEnergyPageOpened();
       });
 
-      let startRequestPromise!: ReturnType<typeof page.waitForRequest>;
-      let startResponsePromise!: ReturnType<typeof page.waitForResponse>;
+      let startRequest!: Awaited<ReturnType<typeof page.waitForRequest>>;
+      let startResponse!: Awaited<ReturnType<typeof page.waitForResponse>>;
 
       await test.step("Start a whole-fleet curtailment", async () => {
         await energyPage.openCurtailmentPlanner();
@@ -52,18 +52,18 @@ test.describe("Proto Fleet - Curtailment", () => {
         });
         await energyPage.waitForPreview(targetKw);
         startedCurtailment = { reason: curtailmentReason };
-        startRequestPromise = page.waitForRequest(/StartCurtailment/);
-        startResponsePromise = page.waitForResponse(/StartCurtailment/);
-        await energyPage.startCurtailment();
+        [startRequest, startResponse] = await Promise.all([
+          page.waitForRequest(/StartCurtailment/),
+          page.waitForResponse(/StartCurtailment/),
+          energyPage.startCurtailment(),
+        ]);
       });
 
       await test.step("Validate the StartCurtailment request", async () => {
-        const request = await startRequestPromise;
-        const response = await startResponsePromise;
-        const requestBody = getStartCurtailmentRequestBody(request);
-        const responseBody = await getStartCurtailmentResponseBody(response);
+        const requestBody = getStartCurtailmentRequestBody(startRequest);
+        const responseBody = await getStartCurtailmentResponseBody(startResponse);
 
-        expect(request.method()).toBe("POST");
+        expect(startRequest.method()).toBe("POST");
         expect(requestBody.reason).toBe(curtailmentReason);
         expect(requestBody.mode).toBe("CURTAILMENT_MODE_FIXED_KW");
         expect(requestBody.fixedKw?.targetKw).toBe(Number(targetKw));
@@ -71,7 +71,7 @@ test.describe("Proto Fleet - Curtailment", () => {
         expect(requestBody.includeMaintenance).toBe(true);
         expect(requestBody.forceIncludeMaintenance).toBe(true);
         expect(requestBody.restoreBatchIntervalSec).toBe(Number(restoreBatchIntervalSec));
-        expect(response.status()).toBe(200);
+        expect(startResponse.status()).toBe(200);
         expect(responseBody.event?.eventUuid).toEqual(expect.any(String));
         expect(responseBody.event?.reason).toBe(curtailmentReason);
         startedCurtailment = {

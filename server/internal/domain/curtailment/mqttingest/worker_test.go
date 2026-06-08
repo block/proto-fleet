@@ -15,6 +15,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -151,6 +152,95 @@ func TestWorker_HandleWatchdog_DispatchFailure_DoesNotAdvance(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, persisted.PendingEdge, "failed dispatch must persist pending retry state")
 	assert.Equal(t, EdgeWatchdogOff, persisted.PendingEdge.Direction)
+}
+
+func TestWorker_HandleWatchdog_AllSkippedFullFleetKeepsOffPending(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{
+		startResult: &curtailment.Plan{
+			InsufficientLoadDetail: &modes.InsufficientLoadDetail{
+				ExcludedStale: 1,
+			},
+		},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	w.cfg.Clock = func() time.Time { return now }
+
+	stale := now.Add(-5 * time.Minute)
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastReceivedAt: stale,
+	}
+
+	next := w.handleWatchdog(context.Background(), prior)
+
+	require.Equal(t, 1, svc.startCallsLen(), "watchdog must attempt full_fleet Start")
+	assert.Equal(t, TargetOn, next.LastTarget, "all-skipped full_fleet must not settle OFF")
+	persisted, err := store.GetSourceState(context.Background(), w.source.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.PendingEdge, "all-skipped full_fleet must remain retryable")
+	assert.Equal(t, EdgeWatchdogOff, persisted.PendingEdge.Direction)
+	assert.Equal(t, now.Add(pendingInsufficientLoadRetryEvery), persisted.PendingEdge.RetryAt,
+		"stable all-skipped outcomes should be retried on a coarser durable cadence")
+	assert.Empty(t, persisted.LastEmptyFullFleetWatchdogRef,
+		"all-skipped is not a genuinely empty full_fleet no-op window")
+}
+
+func TestWorker_HandleWatchdog_AllSkippedFullFleetThrottlesPendingRetry(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := &fakeService{
+		startResult: &curtailment.Plan{
+			InsufficientLoadDetail: &modes.InsufficientLoadDetail{
+				ExcludedMaintenance: 10,
+			},
+		},
+	}
+	w := newTestWorker(t, store, svc, workerSource())
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	w.cfg.Clock = func() time.Time { return now }
+
+	prior := SourceState{
+		SourceConfigID: w.source.ID,
+		LastTarget:     TargetOn,
+		LastReceivedAt: now.Add(-5 * time.Minute),
+	}
+
+	first := w.handleWatchdog(context.Background(), prior)
+
+	require.Equal(t, 1, svc.startCallsLen(), "first stale watchdog tick must attempt Start")
+	require.NotNil(t, first.PendingEdge)
+	firstRetryAt := first.PendingEdge.RetryAt
+	require.Equal(t, now.Add(pendingInsufficientLoadRetryEvery), firstRetryAt)
+
+	second := w.handleWatchdog(context.Background(), first)
+
+	assert.Equal(t, 1, svc.startCallsLen(), "pending retry must not dispatch before retry_at")
+	require.NotNil(t, second.PendingEdge)
+	assert.Equal(t, firstRetryAt, second.PendingEdge.RetryAt)
+
+	duplicateAt := now.Add(time.Second)
+	offBody, err := json.Marshal(map[string]any{"target": 0, "timestamp": duplicateAt.Unix()})
+	require.NoError(t, err)
+	afterDuplicate := w.handleMessage(context.Background(), second,
+		observation{broker: w.primaryHost, payload: offBody, receivedAt: duplicateAt})
+
+	assert.Equal(t, 1, svc.startCallsLen(), "duplicate OFF payload must also wait for retry_at")
+	require.NotNil(t, afterDuplicate.PendingEdge)
+	assert.Equal(t, firstRetryAt, afterDuplicate.PendingEdge.RetryAt)
+	assert.Equal(t, duplicateAt, afterDuplicate.LastReceivedAt)
+
+	now = firstRetryAt.Add(time.Nanosecond)
+	third := w.handleWatchdog(context.Background(), afterDuplicate)
+
+	assert.Equal(t, 2, svc.startCallsLen(), "pending retry should dispatch once retry_at has passed")
+	require.NotNil(t, third.PendingEdge)
+	assert.True(t, third.PendingEdge.RetryAt.After(firstRetryAt))
 }
 
 // Failed Start must not settle LastTarget.

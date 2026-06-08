@@ -30,6 +30,7 @@ INSERT INTO curtailment_mqtt_source_state (
     pending_received_at,
     pending_received_broker,
     pending_prior_edge_at,
+    pending_retry_at,
     last_empty_full_fleet_watchdog_ref
 ) VALUES (
     sqlc.arg('source_config_id'),
@@ -47,6 +48,7 @@ INSERT INTO curtailment_mqtt_source_state (
     sqlc.narg('pending_received_at'),
     sqlc.narg('pending_received_broker'),
     sqlc.narg('pending_prior_edge_at'),
+    sqlc.narg('pending_retry_at'),
     sqlc.narg('last_empty_full_fleet_watchdog_ref')
 )
 ON CONFLICT (source_config_id) DO UPDATE
@@ -65,6 +67,7 @@ SET
     pending_received_at    = EXCLUDED.pending_received_at,
     pending_received_broker = EXCLUDED.pending_received_broker,
     pending_prior_edge_at  = EXCLUDED.pending_prior_edge_at,
+    pending_retry_at       = EXCLUDED.pending_retry_at,
     last_empty_full_fleet_watchdog_ref = EXCLUDED.last_empty_full_fleet_watchdog_ref;
 
 -- name: InsertMQTTSourceConfig :one

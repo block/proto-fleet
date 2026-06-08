@@ -1,67 +1,6 @@
 import { test } from "../fixtures/pageFixtures";
+import { formatPowerFilterSummary, getFirstVisibleIpv4MinerIp, toSubnet24 } from "../helpers/minersFiltersViews";
 import { generateRandomText } from "../helpers/testDataHelper";
-
-function parseIpv4(ip: string) {
-  const normalizedIp = ip.trim();
-  const octets = normalizedIp.split(".");
-
-  if (octets.length !== 4) {
-    return null;
-  }
-
-  const numericOctets = octets.map((octet) => Number(octet));
-  const isValidIpv4 = numericOctets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255);
-
-  if (!isValidIpv4) {
-    return null;
-  }
-
-  return normalizedIp;
-}
-
-async function getFirstVisibleIpv4MinerIp(minersPage: {
-  getMinersCount(): Promise<number>;
-  getMinerIpAddressByIndex(index: number): Promise<string>;
-}) {
-  const minerCount = await minersPage.getMinersCount();
-
-  for (let index = 0; index < minerCount; index++) {
-    const ipAddress = await minersPage.getMinerIpAddressByIndex(index);
-    const parsedIp = parseIpv4(ipAddress);
-
-    if (parsedIp !== null) {
-      return parsedIp;
-    }
-  }
-
-  throw new Error("Subnet filter coverage requires at least one visible IPv4 miner.");
-}
-
-function toSubnet24(ip: string) {
-  const parsedIp = parseIpv4(ip);
-  if (parsedIp === null) {
-    throw new Error(`Expected a valid IPv4 address, got "${ip}".`);
-  }
-
-  const [first, second, third] = parsedIp.split(".");
-  return `${first}.${second}.${third}.0/24`;
-}
-
-function formatPowerFilterSummary(min: number | undefined, max: number | undefined) {
-  if (min !== undefined && max !== undefined) {
-    return `${min} kW - ${max} kW`;
-  }
-
-  if (min !== undefined) {
-    return `≥ ${min} kW`;
-  }
-
-  if (max !== undefined) {
-    return `≤ ${max} kW`;
-  }
-
-  return "";
-}
 
 test.describe("Proto Fleet - Miners filters and saved views", () => {
   test.beforeEach(async ({ page }) => {
@@ -124,9 +63,12 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
     });
 
-    await test.step("Drive the filtered empty state and clear filters", async () => {
+    await test.step("Apply a strict power filter and validate the empty state", async () => {
       await minersPage.applyPowerFilter(50, 50);
       await minersPage.validateNoResultsEmptyState();
+    });
+
+    await test.step("Clear the filters and validate the full list returns", async () => {
       await minersPage.clickClearAllFilters();
       await minersPage.waitForMinersListToLoad();
 
@@ -226,19 +168,24 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       await minersPage.validateMinerInList(updatedMinerIp);
     });
 
-    await test.step("Update the saved view to the new subnet", async () => {
+    await test.step("Update the saved view to include the power filter", async () => {
       await minersPage.clickUpdateViewAction(viewName);
       await minersPage.validateViewModalOpened("Update view");
       await minersPage.updateSavedView();
     });
 
-    await test.step("Reload, leave the view, and reopen it", async () => {
+    await test.step("Reload the page and wait for the miners view to stabilize", async () => {
       await minersPage.reloadPage();
       await minersPage.waitForMinersTitle();
       await minersPage.waitForMinersListToLoad();
+    });
 
+    await test.step("Switch back to All miners before reopening the saved view", async () => {
       await minersPage.clickViewTab("All miners");
       await minersPage.waitForMinersListToLoad();
+    });
+
+    await test.step("Reopen the updated saved view", async () => {
       await minersPage.clickViewTab(viewName);
       await minersPage.waitForMinersListToLoad();
     });

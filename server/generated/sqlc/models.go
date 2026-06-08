@@ -487,6 +487,8 @@ type CurtailmentMqttSourceState struct {
 	PendingPriorEdgeAt            sql.NullTime
 	LastEmptyFullFleetWatchdogRef sql.NullString
 	UpdatedAt                     time.Time
+	// Earliest retry time for durable pending MQTT edge dispatches that intentionally throttle retryable outcomes.
+	PendingRetryAt sql.NullTime
 }
 
 type CurtailmentOrgConfig struct {

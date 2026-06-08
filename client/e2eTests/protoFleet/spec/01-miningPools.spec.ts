@@ -26,65 +26,68 @@ test.describe("Mining Pools", () => {
     await page.goto("/");
   });
 
-  test.afterAll("CLEANUP: Add default pool to miners", async ({ browser }, testInfo) => {
-    const isMobile = testInfo.project.use?.isMobile ?? false;
-    const context = await browser.newContext({ baseURL: testConfig.baseUrl });
-    try {
-      const page = await context.newPage();
-      await page.goto("/");
+  test.afterAll(
+    "CLEANUP: Restore the default pool assignment and remove temporary pools",
+    async ({ browser }, testInfo) => {
+      const isMobile = testInfo.project.use?.isMobile ?? false;
+      const context = await browser.newContext({ baseURL: testConfig.baseUrl });
+      try {
+        const page = await context.newPage();
+        await page.goto("/");
 
-      const authPage = new AuthPage(page, isMobile);
-      const minersPage = new MinersPage(page, isMobile);
-      const editPoolPage = new EditPoolPage(page, isMobile);
-      const newPoolModal = new NewPoolModalPage(page, isMobile);
-      const loginModal = new LoginModalComponent(page, isMobile);
-      const settingsPage = new SettingsPage(page, isMobile);
-      const settingsPoolsPage = new SettingsPoolsPage(page, isMobile);
-      const commonSteps = new CommonSteps(authPage, minersPage);
+        const authPage = new AuthPage(page, isMobile);
+        const minersPage = new MinersPage(page, isMobile);
+        const editPoolPage = new EditPoolPage(page, isMobile);
+        const newPoolModal = new NewPoolModalPage(page, isMobile);
+        const loginModal = new LoginModalComponent(page, isMobile);
+        const settingsPage = new SettingsPage(page, isMobile);
+        const settingsPoolsPage = new SettingsPoolsPage(page, isMobile);
+        const commonSteps = new CommonSteps(authPage, minersPage);
 
-      await commonSteps.loginAsAdmin();
+        await commonSteps.loginAsAdmin();
 
-      await commonSteps.goToMinersPage();
+        await commonSteps.goToMinersPage();
 
-      const amountOfMiners = await minersPage.getMinersCount();
-      if (amountOfMiners > 0) {
-        await minersPage.clickSelectAllCheckbox();
-        await minersPage.clickActionsMenuButton();
-        await minersPage.clickEditMiningPoolButton();
-        await loginModal.loginAsAdmin();
+        const amountOfMiners = await minersPage.getMinersCount();
+        if (amountOfMiners > 0) {
+          await minersPage.clickSelectAllCheckbox();
+          await minersPage.clickActionsMenuButton();
+          await minersPage.clickEditMiningPoolButton();
+          await loginModal.loginAsAdmin();
 
-        await editPoolPage.clickAddPoolButton();
-        await editPoolPage.clickAddNewPool();
-        await newPoolModal.inputPoolName("PoolNameDefault");
-        await newPoolModal.inputPoolUrl(validPoolUrl);
+          await editPoolPage.clickAddPoolButton();
+          await editPoolPage.clickAddNewPool();
+          await newPoolModal.inputPoolName("PoolNameDefault");
+          await newPoolModal.inputPoolUrl(validPoolUrl);
 
-        await newPoolModal.inputPoolUsername(generateRandomText("Afterhook"));
-        // await newPoolModal.inputPoolUsername(validUsername); // use when DASH-1407 is fixed
-        await newPoolModal.clickSaveNewPool();
-        await editPoolPage.clickAssignToXMiners(amountOfMiners);
-        await editPoolPage.validateTextInToastGroup("Assigned pools");
-      }
-
-      await settingsPage.navigateToMiningPoolsSettings();
-      await settingsPoolsPage.validateMiningPoolsPageOpened();
-
-      const poolRows = page.getByTestId("pool-row");
-      const poolCount = await poolRows.count();
-
-      for (let i = poolCount - 1; i >= 0; i--) {
-        const row = poolRows.nth(i);
-        const poolNameElement = row.getByTestId("pool-name");
-        const poolName = await poolNameElement.textContent();
-
-        if (poolName && poolName.startsWith("PoolName")) {
-          await row.getByRole("button", { name: "Options menu", exact: true }).click();
-          await settingsPoolsPage.clickButton("Delete pool");
+          await newPoolModal.inputPoolUsername(generateRandomText("Afterhook"));
+          // await newPoolModal.inputPoolUsername(validUsername); // use when DASH-1407 is fixed
+          await newPoolModal.clickSaveNewPool();
+          await editPoolPage.clickAssignToXMiners(amountOfMiners);
+          await editPoolPage.validateTextInToastGroup("Assigned pools");
         }
+
+        await settingsPage.navigateToMiningPoolsSettings();
+        await settingsPoolsPage.validateMiningPoolsPageOpened();
+
+        const poolRows = page.getByTestId("pool-row");
+        const poolCount = await poolRows.count();
+
+        for (let i = poolCount - 1; i >= 0; i--) {
+          const row = poolRows.nth(i);
+          const poolNameElement = row.getByTestId("pool-name");
+          const poolName = await poolNameElement.textContent();
+
+          if (poolName && poolName.startsWith("PoolName")) {
+            await row.getByRole("button", { name: "Options menu", exact: true }).click();
+            await settingsPoolsPage.clickButton("Delete pool");
+          }
+        }
+      } finally {
+        await context.close();
       }
-    } finally {
-      await context.close();
-    }
-  });
+    },
+  );
 
   const validPoolUrl = "stratum+tcp://mine.ocean.xyz:3334";
   // When DASH-1407 is fixed, use a real wallet, so that real miners always have it configured

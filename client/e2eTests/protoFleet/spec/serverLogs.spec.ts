@@ -1,13 +1,7 @@
-import { create, fromJsonString, toJsonString } from "@bufbuild/protobuf";
-import { TimestampSchema } from "@bufbuild/protobuf/wkt";
-import { type Route } from "@playwright/test";
+import { fromJsonString } from "@bufbuild/protobuf";
 import { expect, test } from "../fixtures/pageFixtures";
-import {
-  ListServerLogsRequestSchema,
-  ListServerLogsResponseSchema,
-  LogEntrySchema,
-  LogLevel,
-} from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
+import { createServerLogEntry, fulfillServerLogs, parseServerLogsRequest } from "../helpers/serverLogsMocks";
+import { ListServerLogsRequestSchema, LogLevel } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
 
 const serverLogsRpcPattern = /ServerLogService\/ListServerLogs/;
 const loadErrorMessage = "Polling failed for test";
@@ -149,51 +143,3 @@ test.describe("Proto Fleet - Server Logs", () => {
     await serverLogsPage.validateExportErrorCallout(exportErrorMessage);
   });
 });
-
-function createServerLogEntry({
-  id,
-  level,
-  message,
-  source,
-  time,
-  attrs = [],
-}: {
-  id: bigint;
-  level: LogLevel;
-  message: string;
-  source: string;
-  time: Date;
-  attrs?: Array<{ key: string; value: string }>;
-}) {
-  return create(LogEntrySchema, {
-    id,
-    level,
-    message,
-    source,
-    attrs,
-    time: create(TimestampSchema, {
-      seconds: BigInt(Math.floor(time.getTime() / 1000)),
-      nanos: 0,
-    }),
-  });
-}
-
-function parseServerLogsRequest(route: Route) {
-  return fromJsonString(ListServerLogsRequestSchema, route.request().postData() ?? "{}");
-}
-
-function fulfillServerLogs(route: Route, entries: typeof initialEntries, latestId: bigint) {
-  return route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: toJsonString(
-      ListServerLogsResponseSchema,
-      create(ListServerLogsResponseSchema, {
-        entries,
-        latestId,
-        bufferSize: entries.length,
-        truncated: false,
-      }),
-    ),
-  });
-}
