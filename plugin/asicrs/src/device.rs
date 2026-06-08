@@ -1290,7 +1290,7 @@ mod tests {
         };
 
         let (error, _, component) = classify_error(message);
-        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
+        assert!(matches!(error, pb::MinerError::HashboardNotPresent));
         assert!(matches!(component, pb::ComponentType::HashBoard));
     }
 
