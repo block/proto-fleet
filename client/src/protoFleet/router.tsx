@@ -23,6 +23,7 @@ import {
   importServerLogsPage,
   importSettingsApiKeys,
   importSettingsAuth,
+  importSettingsCurtailment,
   importSettingsFirmware,
   importSettingsGeneral,
   importSettingsLayout,
@@ -64,6 +65,7 @@ const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsTeam = lazy(importSettingsTeam);
 const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
+const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const SitesPage = lazy(importSitesPage);
 const SettingsSitesPage = lazy(importSettingsSitesPage);
@@ -202,6 +204,12 @@ const router = createBrowserRouter([
     "/settings/schedules",
     <SettingsLayout>
       <SettingsSchedules />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/curtailment",
+    <SettingsLayout>
+      <SettingsCurtailment />
     </SettingsLayout>,
   ),
   createRoute(
