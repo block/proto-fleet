@@ -1,4 +1,4 @@
-export type CurtailmentHealth = "connected" | "stale" | "offline";
+export type CurtailmentHealth = "connected" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
 
 export type CurtailmentSource = {
@@ -14,10 +14,20 @@ export type CurtailmentSource = {
   username: string;
   scope: string;
   curtailmentMode: string;
-  lastTarget: 0 | 100;
+  lastTarget: string;
   lastSeen: string;
   health: CurtailmentHealth;
   enabled: boolean;
+};
+
+export type CurtailmentSourceFormValues = {
+  name: string;
+  brokerPrimaryHost: string;
+  brokerSecondaryHost: string;
+  brokerPort: string;
+  topic: string;
+  username: string;
+  password: string;
 };
 
 export type ResponseProfile = {

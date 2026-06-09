@@ -1,8 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import clsx from "clsx";
 
-import type { CurtailmentHealth, CurtailmentSource } from "@/protoFleet/features/settings/components/Curtailment/types";
+import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
+import type {
+  CurtailmentHealth,
+  CurtailmentSource,
+  CurtailmentSourceFormValues,
+} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -13,8 +18,10 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Switch from "@/shared/components/Switch";
 import { positions } from "@/shared/constants";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { classNameToSelectors } from "@/shared/utils/cssUtils";
 import "./CurtailmentSettingsPage.css";
 
@@ -66,15 +73,64 @@ const curtailmentSourcesTableClassName = [
 
 const sourceHealthDotClassName: Record<CurtailmentHealth, string> = {
   connected: "bg-intent-success-fill",
-  stale: "bg-intent-warning-fill",
+  noSignal: "bg-intent-warning-fill",
   offline: "bg-intent-critical-fill",
 };
 
-const formatSourceHealth = (health: CurtailmentSource["health"]) =>
-  health
-    .split("-")
-    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
-    .join(" ");
+const emptySourceFormValues: CurtailmentSourceFormValues = {
+  name: "",
+  brokerPrimaryHost: "",
+  brokerSecondaryHost: "",
+  brokerPort: "",
+  topic: "",
+  username: "",
+  password: "",
+};
+
+const emptyCurtailmentSources: CurtailmentSource[] = [];
+
+const sourceInputIds = {
+  name: "source-name",
+  brokerPrimaryHost: "source-host-primary",
+  brokerSecondaryHost: "source-host-backup",
+  brokerPort: "source-port",
+  topic: "source-topic",
+  username: "source-username",
+  password: "source-password",
+} as const;
+
+const sourceInputIdToFormKey: Record<string, keyof CurtailmentSourceFormValues> = {
+  [sourceInputIds.name]: "name",
+  [sourceInputIds.brokerPrimaryHost]: "brokerPrimaryHost",
+  [sourceInputIds.brokerSecondaryHost]: "brokerSecondaryHost",
+  [sourceInputIds.brokerPort]: "brokerPort",
+  [sourceInputIds.topic]: "topic",
+  [sourceInputIds.username]: "username",
+  [sourceInputIds.password]: "password",
+};
+
+const isPositiveInteger = (value: string) => /^[1-9]\d*$/.test(value.trim());
+
+const isSourceFormValid = (values: CurtailmentSourceFormValues) =>
+  values.name.trim() !== "" &&
+  values.brokerPrimaryHost.trim() !== "" &&
+  values.brokerSecondaryHost.trim() !== "" &&
+  values.topic.trim() !== "" &&
+  values.username.trim() !== "" &&
+  values.password !== "" &&
+  isPositiveInteger(values.brokerPort) &&
+  Number(values.brokerPort) <= 65535;
+
+const getErrorMessage = (error: unknown, fallbackMessage: string) =>
+  error instanceof Error && error.message ? error.message : fallbackMessage;
+
+const sourceHealthLabel: Record<CurtailmentHealth, string> = {
+  connected: "Connected",
+  noSignal: "No signal",
+  offline: "Offline",
+};
+
+const formatSourceHealth = (health: CurtailmentSource["health"]) => sourceHealthLabel[health];
 
 const SOURCES_INFO_TRIGGER_CLASS_NAME = "curtailment-sources-info-trigger";
 
@@ -124,65 +180,157 @@ const SourcesEmptyState = () => (
   </div>
 );
 
-const SourceModal = ({ open, onDismiss }: { open: boolean; onDismiss: () => void }) => (
-  <Modal
-    open={open}
-    title="Add source"
-    description={SOURCES_DESCRIPTION}
-    onDismiss={onDismiss}
-    size={modalSizes.standard}
-    divider={false}
-    testId="curtailment-source-modal"
-    buttons={[
-      {
-        text: "Test connection",
-        variant: variants.secondary,
-        className: "whitespace-nowrap overflow-clip",
-        testId: "curtailment-source-test-connection-button",
-      },
-      {
-        text: "Save",
-        variant: variants.primary,
-      },
-    ]}
-    bodyClassName="text-text-primary"
-  >
-    <div className="grid gap-3 pb-2">
-      <div className="grid gap-4 laptop:grid-cols-2">
-        <Input id="source-name" label="Configuration name" />
-        <Input id="source-type" label="Source type" initValue="MQTT" disabled />
-      </div>
-      <div className="grid gap-4 laptop:grid-cols-2">
-        <Input id="source-host-primary" label="Broker host 1" />
-        <Input id="source-host-backup" label="Broker host 2" />
-      </div>
-      <div className="grid gap-4 laptop:grid-cols-2">
-        <Input
-          id="source-port"
-          label="Port"
-          type="number"
-          tooltip={{
-            body: "Default MQTT port is 1883.",
-            position: positions["top right"],
-            widthClassName: "w-72",
-          }}
-        />
-        <Input
-          id="source-topic"
-          label="Topic"
-          tooltip={{
-            body: "The MQTT topic to subscribe to for curtailment signals.",
-            widthClassName: "w-72",
-          }}
-        />
-      </div>
-      <div className="grid gap-4 laptop:grid-cols-2">
-        <Input id="source-username" label="Username" />
-        <Input id="source-password" label="Password" type="password" />
-      </div>
-    </div>
-  </Modal>
+const SourcesLoadingState = () => (
+  <div className="flex min-h-[220px] w-full items-center justify-center py-14">
+    <ProgressCircular indeterminate />
+  </div>
 );
+
+const SourcesErrorState = ({ message }: { message: string }) => (
+  <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+    <div className="text-heading-200 text-text-primary">Unable to load sources</div>
+    <p className="mt-1 text-400 text-text-primary-70">{message}</p>
+  </div>
+);
+
+type SourceModalProps = {
+  open: boolean;
+  onDismiss: () => void;
+  onSave?: (values: CurtailmentSourceFormValues) => Promise<void>;
+  saving?: boolean;
+};
+
+const SourceModal = ({ open, onDismiss, onSave, saving = false }: SourceModalProps) => {
+  const [values, setValues] = useState<CurtailmentSourceFormValues>(emptySourceFormValues);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const canSave = isSourceFormValid(values);
+
+  const updateSourceValue = useCallback((value: string, id: string) => {
+    const formKey = sourceInputIdToFormKey[id];
+    if (!formKey) {
+      return;
+    }
+
+    setValues((currentValues) => ({
+      ...currentValues,
+      [formKey]: value,
+    }));
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!canSave || saving) {
+      return;
+    }
+
+    try {
+      setSaveError(null);
+      await onSave?.(values);
+      onDismiss();
+    } catch (error) {
+      setSaveError(getErrorMessage(error, "Failed to save source."));
+    }
+  }, [canSave, onDismiss, onSave, saving, values]);
+
+  return (
+    <Modal
+      open={open}
+      title="Add source"
+      description={SOURCES_DESCRIPTION}
+      onDismiss={onDismiss}
+      size={modalSizes.standard}
+      divider={false}
+      testId="curtailment-source-modal"
+      buttons={[
+        {
+          text: "Test connection",
+          variant: variants.secondary,
+          className: "whitespace-nowrap overflow-clip",
+          testId: "curtailment-source-test-connection-button",
+          disabled: true,
+          dismissModalOnClick: false,
+        },
+        {
+          text: "Save",
+          variant: variants.primary,
+          disabled: !canSave || saving,
+          loading: saving,
+          dismissModalOnClick: false,
+          onClick: () => void handleSave(),
+        },
+      ]}
+      bodyClassName="text-text-primary"
+    >
+      <div className="grid gap-3 pb-2">
+        {saveError ? (
+          <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{saveError}</div>
+        ) : null}
+        <div className="grid gap-4 laptop:grid-cols-2">
+          <Input
+            id={sourceInputIds.name}
+            label="Configuration name"
+            initValue={values.name}
+            onChange={updateSourceValue}
+          />
+          <Input id="source-type" label="Source type" initValue="MQTT" disabled />
+        </div>
+        <div className="grid gap-4 laptop:grid-cols-2">
+          <Input
+            id={sourceInputIds.brokerPrimaryHost}
+            label="Broker host 1"
+            initValue={values.brokerPrimaryHost}
+            onChange={updateSourceValue}
+          />
+          <Input
+            id={sourceInputIds.brokerSecondaryHost}
+            label="Broker host 2"
+            initValue={values.brokerSecondaryHost}
+            onChange={updateSourceValue}
+          />
+        </div>
+        <div className="grid gap-4 laptop:grid-cols-2">
+          <Input
+            id={sourceInputIds.brokerPort}
+            label="Port"
+            type="number"
+            inputMode="numeric"
+            initValue={values.brokerPort}
+            onChange={updateSourceValue}
+            tooltip={{
+              body: "Default MQTT port is 1883.",
+              position: positions["top right"],
+              widthClassName: "w-72",
+            }}
+          />
+          <Input
+            id={sourceInputIds.topic}
+            label="Topic"
+            initValue={values.topic}
+            onChange={updateSourceValue}
+            tooltip={{
+              body: "The MQTT topic to subscribe to for curtailment signals.",
+              widthClassName: "w-72",
+            }}
+          />
+        </div>
+        <div className="grid gap-4 laptop:grid-cols-2">
+          <Input
+            id={sourceInputIds.username}
+            label="Username"
+            initValue={values.username}
+            onChange={updateSourceValue}
+          />
+          <Input
+            id={sourceInputIds.password}
+            label="Password"
+            type="password"
+            initValue={values.password}
+            onChange={updateSourceValue}
+          />
+        </div>
+      </div>
+    </Modal>
+  );
+};
 
 const SectionHeader = ({
   title,
@@ -212,8 +360,10 @@ const SectionHeader = ({
 
 const createCurtailmentSourceColConfig = ({
   onToggle,
+  updatingSourceIds,
 }: {
   onToggle: (sourceId: string) => void;
+  updatingSourceIds: Set<string>;
 }): ColConfig<CurtailmentSource, string, CurtailmentSourceColumn> => ({
   [curtailmentSourceCols.name]: {
     component: (source) => (
@@ -241,7 +391,11 @@ const createCurtailmentSourceColConfig = ({
   [curtailmentSourceCols.enabled]: {
     component: (source) => (
       <div className="flex justify-end" data-interactive>
-        <Switch checked={source.enabled} setChecked={() => onToggle(source.id)} />
+        <Switch
+          checked={source.enabled}
+          setChecked={() => onToggle(source.id)}
+          disabled={updatingSourceIds.has(source.id)}
+        />
       </div>
     ),
     width: "w-[6%] phone:w-9",
@@ -251,27 +405,80 @@ const createCurtailmentSourceColConfig = ({
 type CurtailmentSettingsContentProps = {
   initialSources?: CurtailmentSource[];
   initialSourceModalOpen?: boolean;
+  sources?: CurtailmentSource[];
+  isLoadingSources?: boolean;
+  loadSourcesError?: string | null;
+  isSavingSource?: boolean;
+  updatingSourceIds?: Set<string>;
+  onCreateSource?: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource | void>;
+  onToggleSource?: (source: CurtailmentSource, enabled: boolean) => Promise<CurtailmentSource | void>;
 };
 
 export const CurtailmentSettingsContent = ({
-  initialSources = [],
+  initialSources = emptyCurtailmentSources,
   initialSourceModalOpen = false,
+  sources: controlledSources,
+  isLoadingSources = false,
+  loadSourcesError = null,
+  isSavingSource = false,
+  updatingSourceIds = new Set<string>(),
+  onCreateSource,
+  onToggleSource,
 }: CurtailmentSettingsContentProps) => {
-  const [sources, setSources] = useState<CurtailmentSource[]>(() => [...initialSources]);
+  const [localSources, setLocalSources] = useState<CurtailmentSource[]>(() => [...initialSources]);
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(initialSourceModalOpen);
+  const sources = controlledSources ?? localSources;
 
-  const toggleSource = useCallback((sourceId: string) => {
-    setSources((current) =>
-      current.map((source) => (source.id === sourceId ? { ...source, enabled: !source.enabled } : source)),
-    );
-  }, []);
+  const toggleSource = useCallback(
+    (sourceId: string) => {
+      const source = sources.find((currentSource) => currentSource.id === sourceId);
+      if (!source) {
+        return;
+      }
+
+      const nextEnabled = !source.enabled;
+      if (onToggleSource) {
+        void onToggleSource(source, nextEnabled);
+        return;
+      }
+
+      setLocalSources((currentSources) =>
+        currentSources.map((currentSource) =>
+          currentSource.id === sourceId ? { ...currentSource, enabled: nextEnabled } : currentSource,
+        ),
+      );
+    },
+    [onToggleSource, sources],
+  );
+
+  const handleCreateSource = useCallback(
+    async (values: CurtailmentSourceFormValues) => {
+      const createdSource = await onCreateSource?.(values);
+      if (!controlledSources && createdSource) {
+        setLocalSources((currentSources) => [
+          ...currentSources.filter((currentSource) => currentSource.id !== createdSource.id),
+          createdSource,
+        ]);
+      }
+    },
+    [controlledSources, onCreateSource],
+  );
 
   const colConfig = useMemo(
     () =>
       createCurtailmentSourceColConfig({
         onToggle: toggleSource,
+        updatingSourceIds,
       }),
-    [toggleSource],
+    [toggleSource, updatingSourceIds],
+  );
+
+  const emptyStateRow = loadSourcesError ? (
+    <SourcesErrorState message={loadSourcesError} />
+  ) : isLoadingSources ? (
+    <SourcesLoadingState />
+  ) : (
+    <SourcesEmptyState />
   );
 
   return (
@@ -294,24 +501,80 @@ export const CurtailmentSettingsContent = ({
           isRowDisabled={(source) => !source.enabled}
           columnsExemptFromDisabledStyling={curtailmentSourceColumnsExemptFromDisabledStyling}
           tableClassName={curtailmentSourcesTableClassName}
-          emptyStateRow={<SourcesEmptyState />}
+          emptyStateRow={emptyStateRow}
           applyColumnWidthsToCells
         />
       </section>
 
-      <SourceModal open={isSourceModalOpen} onDismiss={() => setIsSourceModalOpen(false)} />
+      <SourceModal
+        key={isSourceModalOpen ? "source-modal-open" : "source-modal-closed"}
+        open={isSourceModalOpen}
+        onDismiss={() => setIsSourceModalOpen(false)}
+        onSave={handleCreateSource}
+        saving={isSavingSource}
+      />
     </div>
   );
 };
 
 const CurtailmentSettingsPage = () => {
   const canManageCurtailment = useHasPermission("curtailment:manage");
+  const { sources, isLoading, isCreating, updatingSourceIds, loadError, createSource, setSourceEnabled } =
+    useMqttCurtailmentSources(canManageCurtailment);
+
+  useEffect(() => {
+    if (!loadError) {
+      return;
+    }
+
+    pushToast({
+      message: loadError,
+      status: STATUSES.error,
+    });
+  }, [loadError]);
+
+  const handleCreateSource = useCallback(
+    async (values: CurtailmentSourceFormValues) => {
+      const source = await createSource(values);
+      pushToast({
+        message: "Source added",
+        status: STATUSES.success,
+      });
+      return source;
+    },
+    [createSource],
+  );
+
+  const handleToggleSource = useCallback(
+    async (source: CurtailmentSource, enabled: boolean) => {
+      try {
+        return await setSourceEnabled(source.id, enabled);
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to update source."),
+          status: STATUSES.error,
+        });
+        throw error;
+      }
+    },
+    [setSourceEnabled],
+  );
 
   if (!canManageCurtailment) {
     return <Navigate to="/settings/general" replace />;
   }
 
-  return <CurtailmentSettingsContent />;
+  return (
+    <CurtailmentSettingsContent
+      sources={sources}
+      isLoadingSources={isLoading}
+      loadSourcesError={loadError}
+      isSavingSource={isCreating}
+      updatingSourceIds={updatingSourceIds}
+      onCreateSource={handleCreateSource}
+      onToggleSource={handleToggleSource}
+    />
+  );
 };
 
 export default CurtailmentSettingsPage;
