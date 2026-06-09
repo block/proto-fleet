@@ -74,6 +74,7 @@ const curtailmentSourcesTableClassName = [
 
 const sourceHealthDotClassName: Record<CurtailmentHealth, string> = {
   connected: "bg-intent-success-fill",
+  waitingForSignal: "bg-intent-warning-fill",
   noSignal: "bg-intent-warning-fill",
   offline: "bg-intent-critical-fill",
 };
@@ -181,6 +182,7 @@ function getErrorMessage(error: unknown, fallbackMessage: string): string {
 
 const sourceHealthLabel: Record<CurtailmentHealth, string> = {
   connected: "Connected",
+  waitingForSignal: "Waiting for signal",
   noSignal: "No signal",
   offline: "Offline",
 };

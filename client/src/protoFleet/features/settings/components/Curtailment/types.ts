@@ -1,4 +1,4 @@
-export type CurtailmentHealth = "connected" | "noSignal" | "offline";
+export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
 
 export type CurtailmentSource = {

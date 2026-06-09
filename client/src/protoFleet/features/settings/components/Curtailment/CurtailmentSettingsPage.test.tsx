@@ -31,17 +31,17 @@ vi.mock("@/shared/features/toaster", () => ({
 
 const testSources: CurtailmentSource[] = [
   {
-    id: "kati-maestro",
-    name: "Kati MaestroOS",
+    id: "site-alpha-mqtt",
+    name: "Site Alpha MQTT",
     triggerType: "MQTT",
-    site: "Kati",
-    brokerHosts: ["10.155.0.3", "10.155.0.4"],
-    port: 1883,
-    topic: "maestro/target",
+    site: "Site Alpha",
+    brokerHosts: ["site-alpha-primary.broker.test", "site-alpha-secondary.broker.test"],
+    port: 11883,
+    topic: "curtailment/site-alpha/target",
     protocol: "MQTT 3.1.1",
     qos: 1,
-    username: "soluna-kati",
-    scope: "Kati",
+    username: "curtailment-alpha",
+    scope: "Site Alpha",
     curtailmentMode: "Curtail entire site",
     lastTarget: "0",
     lastSeen: "38 seconds ago",
@@ -49,21 +49,39 @@ const testSources: CurtailmentSource[] = [
     enabled: true,
   },
   {
-    id: "dorothy-2-maestro",
-    name: "Dorothy 2 MaestroOS",
+    id: "site-beta-mqtt",
+    name: "Site Beta MQTT",
     triggerType: "MQTT",
-    site: "Dorothy 2",
-    brokerHosts: ["10.144.0.3", "10.144.0.4"],
-    port: 1883,
-    topic: "maestro/target",
+    site: "Site Beta",
+    brokerHosts: ["site-beta-primary.broker.test", "site-beta-secondary.broker.test"],
+    port: 11884,
+    topic: "curtailment/site-beta/target",
     protocol: "MQTT 3.1.1",
     qos: 1,
-    username: "soluna-dorothy",
-    scope: "Dorothy 2",
+    username: "curtailment-beta",
+    scope: "Site Beta",
     curtailmentMode: "Curtail entire site",
     lastTarget: "100",
     lastSeen: "24 seconds ago",
     health: "connected",
+    enabled: true,
+  },
+  {
+    id: "site-gamma-mqtt",
+    name: "Site Gamma MQTT",
+    triggerType: "MQTT",
+    site: "Site Gamma",
+    brokerHosts: ["site-gamma-primary.broker.test", "site-gamma-secondary.broker.test"],
+    port: 11885,
+    topic: "curtailment/site-gamma/target",
+    protocol: "MQTT 3.1.1",
+    qos: 1,
+    username: "curtailment-gamma",
+    scope: "Site Gamma",
+    curtailmentMode: "Curtail entire site",
+    lastTarget: "-",
+    lastSeen: "-",
+    health: "waitingForSignal",
     enabled: true,
   },
 ];
@@ -77,12 +95,12 @@ const apiSources: CurtailmentSource[] = [
 ];
 
 const testSourceFormValues: CurtailmentSourceFormValues = {
-  name: "Kati MaestroOS",
-  brokerPrimaryHost: "10.155.0.3",
-  brokerSecondaryHost: "10.155.0.4",
-  brokerPort: "1883",
-  topic: "maestro/target",
-  username: "soluna-kati",
+  name: "Site Alpha MQTT",
+  brokerPrimaryHost: "site-alpha-primary.broker.test",
+  brokerSecondaryHost: "site-alpha-secondary.broker.test",
+  brokerPort: "11883",
+  topic: "curtailment/site-alpha/target",
+  username: "curtailment-alpha",
   password: "secret",
 };
 
@@ -168,8 +186,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.queryByRole("columnheader", { name: "Last target" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Type" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Broker hosts" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Kati MaestroOS")).not.toBeInTheDocument();
-    expect(screen.queryByText("Dorothy 2 MaestroOS")).not.toBeInTheDocument();
+    expect(screen.queryByText("Site Alpha MQTT")).not.toBeInTheDocument();
+    expect(screen.queryByText("Site Beta MQTT")).not.toBeInTheDocument();
     expect(screen.getByTestId("list-empty-row")).toBeInTheDocument();
     expect(screen.getByText("No sources configured")).toBeVisible();
     expect(screen.getByText("Add a source to receive curtailment signals via MQTT.")).toBeVisible();
@@ -185,15 +203,15 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Kati MaestroOS")).toBeVisible();
+    expect(screen.getByText("Site Alpha MQTT")).toBeVisible();
     expect(screen.getByText("38 seconds ago")).toBeVisible();
   });
 
   it("renders provided sources with the current table styling", () => {
     render(<CurtailmentSettingsContent initialSources={testSources} />);
 
-    expect(screen.getByText("Kati MaestroOS")).toBeVisible();
-    expect(screen.getByText("Dorothy 2 MaestroOS")).toBeVisible();
+    expect(screen.getByText("Site Alpha MQTT")).toBeVisible();
+    expect(screen.getByText("Site Beta MQTT")).toBeVisible();
     expect(screen.getByText("38 seconds ago")).toBeVisible();
     expect(screen.getByText("24 seconds ago")).toBeVisible();
     const connectedLabels = screen.getAllByText("Connected");
@@ -201,6 +219,8 @@ describe("CurtailmentSettingsPage", () => {
     for (const connectedLabel of connectedLabels) {
       expect(connectedLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-success-fill");
     }
+    const waitingLabel = screen.getByText("Waiting for signal");
+    expect(waitingLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-warning-fill");
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
   });
 
@@ -289,15 +309,15 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(getSourceRow("Kati MaestroOS"));
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
 
     expect(screen.getByText("Edit source")).toBeInTheDocument();
-    expect(screen.getByLabelText("Configuration name")).toHaveValue("Kati MaestroOS");
-    expect(screen.getByLabelText("Broker host 1")).toHaveValue("10.155.0.3");
-    expect(screen.getByLabelText("Broker host 2")).toHaveValue("10.155.0.4");
-    expect(screen.getByLabelText("Port")).toHaveValue(1883);
-    expect(screen.getByLabelText("Topic")).toHaveValue("maestro/target");
-    expect(screen.getByLabelText("Username")).toHaveValue("soluna-kati");
+    expect(screen.getByLabelText("Configuration name")).toHaveValue("Site Alpha MQTT");
+    expect(screen.getByLabelText("Broker host 1")).toHaveValue("site-alpha-primary.broker.test");
+    expect(screen.getByLabelText("Broker host 2")).toHaveValue("site-alpha-secondary.broker.test");
+    expect(screen.getByLabelText("Port")).toHaveValue(11883);
+    expect(screen.getByLabelText("Topic")).toHaveValue("curtailment/site-alpha/target");
+    expect(screen.getByLabelText("Username")).toHaveValue("curtailment-alpha");
     expect(screen.getByLabelText("Password")).toHaveValue("");
 
     const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
@@ -319,7 +339,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(getSourceRow("Kati MaestroOS"));
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
 
     const passwordInput = screen.getByLabelText("Password");
     expect(passwordInput).toHaveValue("......");
@@ -336,12 +356,12 @@ describe("CurtailmentSettingsPage", () => {
 
     await waitFor(() =>
       expect(updateSourceMock).toHaveBeenCalledWith("11", {
-        name: "Kati MaestroOS",
-        brokerPrimaryHost: "10.155.0.3",
-        brokerSecondaryHost: "10.155.0.4",
-        brokerPort: "1883",
-        topic: "maestro/target",
-        username: "soluna-kati",
+        name: "Site Alpha MQTT",
+        brokerPrimaryHost: "site-alpha-primary.broker.test",
+        brokerSecondaryHost: "site-alpha-secondary.broker.test",
+        brokerPort: "11883",
+        topic: "curtailment/site-alpha/target",
+        username: "curtailment-alpha",
         password: "updated-secret",
       }),
     );
@@ -349,7 +369,7 @@ describe("CurtailmentSettingsPage", () => {
 
   it("updates a source through the API hook from the routed page", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
-    updateSourceMock.mockResolvedValue({ ...apiSources[0], name: "Kati MaestroOS updated" });
+    updateSourceMock.mockResolvedValue({ ...apiSources[0], name: "Site Alpha MQTT updated" });
     mockSourcesApi({ sources: apiSources, updateSource: updateSourceMock });
 
     render(
@@ -358,18 +378,18 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(getSourceRow("Kati MaestroOS"));
-    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Kati MaestroOS updated" } });
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
+    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Site Alpha MQTT updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(updateSourceMock).toHaveBeenCalledWith("11", {
-        name: "Kati MaestroOS updated",
-        brokerPrimaryHost: "10.155.0.3",
-        brokerSecondaryHost: "10.155.0.4",
-        brokerPort: "1883",
-        topic: "maestro/target",
-        username: "soluna-kati",
+        name: "Site Alpha MQTT updated",
+        brokerPrimaryHost: "site-alpha-primary.broker.test",
+        brokerSecondaryHost: "site-alpha-secondary.broker.test",
+        brokerPort: "11883",
+        topic: "curtailment/site-alpha/target",
+        username: "curtailment-alpha",
         password: "",
       }),
     );
@@ -392,7 +412,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(getSourceRow("Kati MaestroOS"));
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleteSourceMock).toHaveBeenCalledWith("11"));
@@ -436,12 +456,12 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    const katiSwitch = within(getSourceRow("Kati MaestroOS")).getByRole("checkbox");
-    expect(katiSwitch).toBeChecked();
+    const alphaSwitch = within(getSourceRow("Site Alpha MQTT")).getByRole("checkbox");
+    expect(alphaSwitch).toBeChecked();
 
-    fireEvent.click(katiSwitch);
+    fireEvent.click(alphaSwitch);
 
-    expect(katiSwitch).not.toBeChecked();
+    expect(alphaSwitch).not.toBeChecked();
   });
 
   it("persists source enablement through the API hook on the routed page", () => {
@@ -455,7 +475,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(within(getSourceRow("Kati MaestroOS")).getByRole("checkbox"));
+    fireEvent.click(within(getSourceRow("Site Alpha MQTT")).getByRole("checkbox"));
 
     expect(setSourceEnabledMock).toHaveBeenCalledWith("11", false);
   });
