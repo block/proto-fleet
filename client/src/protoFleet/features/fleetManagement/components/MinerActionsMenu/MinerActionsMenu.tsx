@@ -8,6 +8,7 @@ import BulkRenameModal from "./BulkRenameModal";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
 import MinerActionModalStack from "./MinerActionModalStack";
+import MinerReparentPicker from "./MinerReparentPicker";
 import { useMinerActions } from "./useMinerActions";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
@@ -15,9 +16,6 @@ import {
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useSites } from "@/protoFleet/api/sites";
-import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ChevronDown, Edit, MiningPools, Plus } from "@/shared/assets/icons";
@@ -25,7 +23,6 @@ import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
-import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface MinerActionsMenuProps {
@@ -375,73 +372,19 @@ const MinerActionsMenu = ({
         getWorkerNameCredentials={getWorkerNameCredentials}
         onDismiss={handleWorkerNameFlowComplete}
       />
-      <ReparentPicker
-        kind={reparentKind}
-        selectedMinerIds={selectedMiners}
-        onClose={() => setReparentKind(null)}
-        onRefetchMiners={onRefetchMiners}
-      />
+      {reparentKind ? (
+        <MinerReparentPicker
+          kind={reparentKind}
+          deviceIdentifiers={selectedMiners}
+          sourceLabel={`${selectedMiners.length} ${selectedMiners.length === 1 ? "miner" : "miners"}`}
+          successMessage={(count, target) =>
+            target === "site" ? `Moved ${count} miners to selected site.` : `Added ${count} miners to selected rack.`
+          }
+          onClose={() => setReparentKind(null)}
+          onRefetchMiners={onRefetchMiners}
+        />
+      ) : null}
     </PopoverProvider>
-  );
-};
-
-// Re-parent picker + dispatcher pair. Split out as a child so the
-// hooks for sites / device_set APIs only mount when a re-parent action
-// fires (otherwise idle in every MinerActionsMenu render).
-interface ReparentPickerProps {
-  kind: "rack" | "site" | null;
-  selectedMinerIds: string[];
-  onClose: () => void;
-  onRefetchMiners?: () => void;
-}
-
-const ReparentPicker = ({ kind, selectedMinerIds, onClose, onRefetchMiners }: ReparentPickerProps) => {
-  const { reassignDevicesToSite } = useSites();
-  const { addDevicesToDeviceSet } = useDeviceSets();
-
-  const sourceLabel = `${selectedMinerIds.length} ${selectedMinerIds.length === 1 ? "miner" : "miners"}`;
-
-  if (!kind) return null;
-
-  return (
-    <ParentPickerModal
-      kind={kind}
-      show
-      selectionMode="single"
-      sourceLabel={sourceLabel}
-      onDismiss={onClose}
-      onConfirm={(targetIds) => {
-        const targetId = targetIds[0];
-        onClose();
-        if (targetId === undefined) return;
-        if (selectedMinerIds.length === 0) {
-          pushToast({ message: "No miners selected.", status: STATUSES.queued });
-          return;
-        }
-        if (kind === "site") {
-          void reassignDevicesToSite({
-            targetSiteId: targetId,
-            deviceIdentifiers: selectedMinerIds,
-            onSuccess: (count) => {
-              pushToast({ message: `Moved ${count} miners to selected site.`, status: STATUSES.success });
-              onRefetchMiners?.();
-            },
-            onError: (msg) => pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error }),
-          });
-          return;
-        }
-        // kind === "rack"
-        void addDevicesToDeviceSet({
-          deviceSetId: targetId,
-          deviceIdentifiers: selectedMinerIds,
-          onSuccess: (count) => {
-            pushToast({ message: `Added ${count} miners to selected rack.`, status: STATUSES.success });
-            onRefetchMiners?.();
-          },
-          onError: (msg) => pushToast({ message: `Couldn't add miners to rack: ${msg}`, status: STATUSES.error }),
-        });
-      }}
-    />
   );
 };
 

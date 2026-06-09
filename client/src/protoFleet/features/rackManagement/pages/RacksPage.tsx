@@ -689,37 +689,38 @@ const RacksPage = () => {
           onSave={handleAssignMinersSave}
         />
       ) : null}
-      <ParentPickerModal
-        kind="building"
-        show={!!reparentTarget}
-        selectionMode="single"
-        sourceLabel={reparentTarget?.label || "rack"}
-        description={
-          reparentTarget && reparentTarget.deviceCount > 0
-            ? `${reparentTarget.deviceCount} ${reparentTarget.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
-            : undefined
-        }
-        excludeId={
-          reparentTarget?.typeDetails.case === "rackInfo" ? reparentTarget.typeDetails.value.buildingId : undefined
-        }
-        onDismiss={() => setReparentTarget(null)}
-        onConfirm={(buildingIds) => {
-          const buildingId = buildingIds[0];
-          const rack = reparentTarget;
-          if (!rack || buildingId === undefined) return;
-          const rackName = rack.label || "rack";
-          setReparentTarget(null);
-          void assignRackToBuilding({
-            rackId: rack.id,
-            buildingId,
-            onSuccess: () => {
-              pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
-              resetAndFetch();
-            },
-            onError: (msg) => pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error }),
-          });
-        }}
-      />
+      {reparentTarget ? (
+        <ParentPickerModal
+          kind="building"
+          show
+          selectionMode="single"
+          sourceLabel={reparentTarget.label || "rack"}
+          description={
+            reparentTarget.deviceCount > 0
+              ? `${reparentTarget.deviceCount} ${reparentTarget.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
+              : undefined
+          }
+          excludeId={
+            reparentTarget.typeDetails.case === "rackInfo" ? reparentTarget.typeDetails.value.buildingId : undefined
+          }
+          onDismiss={() => setReparentTarget(null)}
+          onConfirm={(buildingIds) => {
+            const buildingId = buildingIds[0];
+            if (buildingId === undefined) return;
+            const rackName = reparentTarget.label || "rack";
+            setReparentTarget(null);
+            void assignRackToBuilding({
+              rackId: reparentTarget.id,
+              buildingId,
+              onSuccess: () => {
+                pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
+                resetAndFetch();
+              },
+              onError: (msg) => pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error }),
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 };

@@ -49,21 +49,11 @@ interface FleetGroupActionsMenuProps {
   scope: GroupScope;
   ariaLabel: string;
   testIdPrefix?: string;
-  // Non-bulk row actions (view *, add *, ...) rendered below the
-  // wired bulk-action group with a divider in between. The host page
-  // composes these (navigation, modal callbacks) since they're not
-  // part of the miner bulk-action vocabulary.
+  // Host-composed row actions (view / edit / add) rendered between the
+  // wired top + bottom bulk clusters.
   extraActions?: RowAction[];
 }
 
-// Bulk actions wired through useMinerActions. Order matches Figma.
-// Each entry resolves a popoverActions row at click time — the hook
-// owns its label, icon, confirmation copy, dispatcher, modal flow,
-// and per-device progress toast — so this list only ships ordering
-// + local label/icon overrides (Figma wants "Sleep miners" instead
-// of the hook's miner-list-flavored "Sleep"). Split into top + bottom
-// clusters so the host's extras (View / Edit / Add / Assign) can land
-// between them, matching the Figma menu shape.
 const TOP_WIRED_KEYS = [
   deviceActions.shutdown,
   deviceActions.wakeUp,
@@ -74,18 +64,10 @@ const TOP_WIRED_KEYS = [
   settingsActions.miningPool,
 ] as const;
 
-// Bottom cluster runs below the host's view / edit extras. "Add to group"
-// leads (re-parents the row's descendant miners into a group via the same
-// modal as the miner-list bulk action). Manage security + Unpair close out
-// the menu, separated by a divider so they read as a distinct cluster.
 const BOTTOM_WIRED_KEYS = [groupActions.addToGroup, settingsActions.security, deviceActions.unpair] as const;
 
 type WiredActionKey = (typeof TOP_WIRED_KEYS)[number] | (typeof BOTTOM_WIRED_KEYS)[number];
 
-// Render a thick divider above any key whose entry is in this set.
-// Mirrors the figma grouping: separates "destructive" from
-// "perf/settings" in the top cluster, and "add to group" from
-// "security/unpair" in the bottom cluster.
 const DIVIDER_BEFORE_KEY: ReadonlySet<WiredActionKey> = new Set<WiredActionKey>([
   performanceActions.managePower,
   settingsActions.security,
@@ -142,24 +124,17 @@ const FleetGroupActionsMenuInner = ({
     ignoreSelectors: [".popover-content"],
   });
 
-  // Device IDs land here once the first action click resolves the
-  // listMinerStateSnapshots fetch. Stored as state so useMinerActions
-  // rebuilds its popoverActions handlers against the freshly-loaded
-  // selection; the ref tracks "have we fetched yet" so repeat clicks
-  // skip the network.
+  // Lazy-fetched on first action click; ref tracks "fetched yet" so
+  // repeat clicks skip the network.
   const [ids, setIds] = useState<string[]>([]);
   const idsLoadedRef = useRef(false);
   const [isBusy, setIsBusy] = useState(false);
 
-  // Pending action set by handleTrigger; cleared once the operator
-  // resolves the resulting modal (confirms / cancels / dismisses).
-  // useEffect dispatch can't capture the latest popoverActions
-  // closure synchronously, so we defer via state — by the time the
-  // effect fires, popoverActions has been rebuilt and finds an
-  // actionHandler bound to the right deviceSelector. Doubles as the
-  // gate for BulkActionConfirmDialog (confirm-only actions) so the
-  // dialog stays open between the handler firing currentAction and
-  // the user clicking Confirm / Cancel.
+  // Action is deferred via state because useMinerActions rebuilds
+  // popoverActions asynchronously after `ids` lands — the effect below
+  // resolves a fresh handler once both have caught up. Also gates
+  // BulkActionConfirmDialog so the dialog stays open until the operator
+  // confirms or cancels.
   const [pendingAction, setPendingAction] = useState<WiredActionKey | null>(null);
   const firedActionRef = useRef<WiredActionKey | null>(null);
 
@@ -200,10 +175,6 @@ const FleetGroupActionsMenuInner = ({
     return collected;
   }, [ids, scope.id, scope.kind]);
 
-  // Fire the queued action once popoverActions reflects the loaded
-  // selection. The hook rebuilds popoverActions whenever
-  // selectedMiners changes, so the find() below resolves to a fresh
-  // actionHandler closed over the right deviceSelector.
   useEffect(() => {
     if (!pendingAction) {
       firedActionRef.current = null;
@@ -244,8 +215,7 @@ const FleetGroupActionsMenuInner = ({
         pushToast({ message: `No miners in ${scope.name}.`, status: STATUSES.queued });
         return;
       }
-      // Re-arm the effect even if the previous click was the same
-      // action — clearing the ref lets the dispatcher run again.
+      // Re-arm even if same action — lets the dispatcher run again.
       firedActionRef.current = null;
       setPendingAction(key);
     },
@@ -257,9 +227,6 @@ const FleetGroupActionsMenuInner = ({
     firedActionRef.current = null;
   }, []);
 
-  // Confirmation-dialog handlers (Sleep / Wake / Reboot). The hook's
-  // handleConfirmation runs the dispatch + batch stream + toast
-  // updates internally.
   const handleConfirmClick = useCallback(() => {
     clearPendingAction();
     void minerActions.handleConfirmation();
@@ -270,10 +237,8 @@ const FleetGroupActionsMenuInner = ({
     minerActions.handleCancel();
   }, [clearPendingAction, minerActions]);
 
-  // Pool flow keeps its own dismiss + complete wrappers because
-  // PoolSelectionPageWrapper is rendered inline here (not by the shared
-  // modal stack — its selectedMiners / poolNeededCount props vary per
-  // callsite, see MinerActionModalStack).
+  // Pool flow stays inline because PoolSelectionPageWrapper's
+  // selectedMiners / poolNeededCount vary per callsite.
   const handlePoolFlowDismiss = useCallback(() => {
     clearPendingAction();
     minerActions.handleCancel();
@@ -287,12 +252,9 @@ const FleetGroupActionsMenuInner = ({
     [clearPendingAction, minerActions],
   );
 
-  // Resolve the action entries that actually exist in the hook's
-  // popoverActions (some entries depend on selection state — for
-  // example wakeUp only surfaces when at least one miner is INACTIVE
-  // in the per-miner case; in subset mode both sleep + wake show).
-  // Falls back to local label + icon when the hook hasn't seen
-  // selectedMiners yet (ids haven't loaded) so the menu still renders.
+  // Before ids load we render all wired entries from local label/icon
+  // tables; once loaded we honor the hook's selection-derived filter
+  // (e.g. wakeUp drops when no miners are INACTIVE).
   const popoverActions = minerActions.popoverActions;
   const popoverActionByKey = useMemo(() => {
     const map = new Map<SupportedAction, (typeof popoverActions)[number]>();
@@ -378,11 +340,9 @@ const FleetGroupActionsMenuInner = ({
               ) : null}
             </Fragment>
           ))}
-          {/* No always-on divider between extras and bottom: the host's
-              extras end with the edit/add cluster, and addToGroup (the
-              first bottom entry) belongs to that same cluster.
-              DIVIDER_BEFORE_KEY handles the separator before security so
-              the destructive cluster still reads distinct. */}
+          {/* Only insert this divider when there are no extras to flow into
+              the bottom cluster — Edit + Add-to-group share a cluster by
+              design. */}
           {bottomWiredEntries.length > 0 && visibleExtraActions.length === 0 && topWiredEntries.length > 0 ? (
             <Divider dividerStyle="thick" />
           ) : null}
@@ -408,9 +368,6 @@ const FleetGroupActionsMenuInner = ({
         </Popover>
       ) : null}
 
-      {/* Modal surfaces driven by useMinerActions internal state.
-          currentAction guards mirror the SingleMinerActionsMenu
-          pattern so a stale modal can't bleed between actions. */}
       <UnsupportedMinersModal
         open={minerActions.unsupportedMinersInfo.visible}
         unsupportedGroups={minerActions.unsupportedMinersInfo.unsupportedGroups}

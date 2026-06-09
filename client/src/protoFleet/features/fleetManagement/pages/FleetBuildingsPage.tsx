@@ -273,30 +273,32 @@ const FleetBuildingsPage = () => {
         onSelect={handleSiteSelected}
         onDismiss={() => setShowSiteSelect(false)}
       />
-      <ParentPickerModal
-        kind="site"
-        show={!!reparentTarget}
-        selectionMode="single"
-        sourceLabel={reparentTarget?.building?.name || "building"}
-        excludeId={reparentTarget?.building?.siteId}
-        onDismiss={() => setReparentTarget(null)}
-        onConfirm={(siteIds) => {
-          const targetSiteId = siteIds[0];
-          const row = reparentTarget;
-          if (!row?.building || targetSiteId === undefined) return;
-          const name = row.building.name || "building";
-          setReparentTarget(null);
-          void assignBuildingToSite({
-            buildingId: row.building.id,
-            targetSiteId,
-            onSuccess: () => {
-              pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });
-              fetchBuildings();
-            },
-            onError: (msg) => pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error }),
-          });
-        }}
-      />
+      {reparentTarget?.building ? (
+        <ParentPickerModal
+          kind="site"
+          show
+          selectionMode="single"
+          sourceLabel={reparentTarget.building.name || "building"}
+          excludeId={reparentTarget.building.siteId}
+          onDismiss={() => setReparentTarget(null)}
+          onConfirm={(siteIds) => {
+            const targetSiteId = siteIds[0];
+            if (targetSiteId === undefined || !reparentTarget.building) return;
+            const name = reparentTarget.building.name || "building";
+            const buildingId = reparentTarget.building.id;
+            setReparentTarget(null);
+            void assignBuildingToSite({
+              buildingId,
+              targetSiteId,
+              onSuccess: () => {
+                pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });
+                fetchBuildings();
+              },
+              onError: (msg) => pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error }),
+            });
+          }}
+        />
+      ) : null}
     </>
   );
 };

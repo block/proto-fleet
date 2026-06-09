@@ -21,48 +21,26 @@ export type PickerKind = "site" | "building" | "rack" | "group";
 type PickerItem = {
   id: string;
   label: string;
-  // Right-column hint that varies per kind: group/site = "<N> miners",
-  // building = parent site name, rack = parent building name.
   hint: string;
 };
 
 interface ParentPickerModalProps {
   kind: PickerKind;
   show: boolean;
-  // "single" enforces at-most-one selection (re-parent flows where a
-  // child can only have one parent); "multi" allows N (add-to-group
-  // where a miner can belong to multiple groups).
   selectionMode: "single" | "multi";
-  // Hide one id from the candidate list. Use to exclude the current
-  // parent (operator clicking "Add to building" shouldn't see the
-  // building the rack is already in). Ignored in multi-select.
+  // Hidden from candidates. Used to drop the row's current parent from
+  // re-parent flows. Ignored in multi-select.
   excludeId?: bigint;
-  // Display string for the source — "Rack 17" / "12 miners". Surfaces
-  // in the title + description so the operator knows what they're
-  // assigning.
   sourceLabel: string;
-  // Optional info line rendered under the title. Used to surface
-  // cascade impact ("N miners will move with this rack") so the
-  // operator sees what gets carried along with the re-parent.
   description?: string;
-  // Optional inline "Create new" row. When provided, the picker renders
-  // a checkbox + name input at the top; on Save it calls `onCreateNew`
-  // (in addition to onConfirm for any selected existing rows). Group
-  // re-parent uses this today.
+  // When set, an inline create-new row appears. `onCreateNew` fires on
+  // Save alongside any `onConfirm` for existing selections.
   createNewLabel?: string;
   onCreateNew?: (name: string) => Promise<void>;
   onDismiss: () => void;
-  // Picker collects selections + delegates dispatch to the host.
-  // Single-select kinds always pass a 1-element array; multi-select
-  // passes 0+.
   onConfirm: (targetIds: bigint[]) => void | Promise<void>;
 }
 
-// Picker for "Add <miners|rack|building> to <site|building|rack|group>"
-// flows. Replaces the standalone AddToGroupModal + the prior
-// List-component-based ParentPickerModal — same checkbox-row layout
-// across all four kinds, with selection mode + optional "Create new"
-// gated by props.
 const ParentPickerModal = ({
   kind,
   show,
@@ -97,9 +75,8 @@ const ParentPickerModal = ({
       setSaving(false);
     });
 
-    // excludeId only applies in single-select (re-parent). In
-    // multi-select the operator may want to see the current parent in
-    // the list so they can leave it checked.
+    // Multi-select keeps the current parent visible so the operator
+    // sees the existing membership state.
     const exclude = selectionMode === "single" && excludeId !== undefined ? excludeId.toString() : null;
     const toRows = (rows: PickerItem[]) => rows.filter((row) => row.id !== exclude);
 
@@ -136,8 +113,6 @@ const ParentPickerModal = ({
     }
 
     if (kind === "building") {
-      // Buildings need parent-site labels for the hint column. Load
-      // sites in parallel and join client-side.
       const sitesPromise = new Promise<SiteWithCounts[]>((resolve, reject) => {
         void listSites({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
       });
@@ -166,7 +141,6 @@ const ParentPickerModal = ({
       return;
     }
 
-    // kind === "rack"
     const buildingsPromise = new Promise<BuildingWithCounts[]>((resolve, reject) => {
       void listAllBuildings({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
     });
@@ -205,8 +179,6 @@ const ParentPickerModal = ({
     (id: string) => {
       setSelectedIds((prev) => {
         if (selectionMode === "single") {
-          // Toggle off when clicking the already-selected row; otherwise
-          // replace the selection so at most one is held.
           if (prev.has(id) && prev.size === 1) return new Set();
           return new Set([id]);
         }
@@ -316,9 +288,8 @@ const ParentPickerModal = ({
                 initValue={newName}
                 onChange={(value) => {
                   setNewName(value);
-                  // No existing items + create-new is the only path —
-                  // implicitly enable the create branch as the operator
-                  // types so canSave flips on without an extra click.
+                  // Empty list + create-new is the only path — auto-arm
+                  // so the Save button enables on first keystroke.
                   if (!createNewChecked) setCreateNewChecked(true);
                 }}
                 autoFocus
@@ -327,8 +298,7 @@ const ParentPickerModal = ({
           ) : null}
           {hasItems ? (
             <div className="flex items-center gap-6 border-b border-border-5 pb-2 text-emphasis-300 text-text-primary">
-              {/* Spacer matches the row checkbox column so the label
-                  column lines up with the checkbox-less header text. */}
+              {/* Spacer aligns Name column over the row's checkbox/radio. */}
               <div className="w-[18px] shrink-0" aria-hidden />
               <span className="w-1/2 truncate">Name</span>
               <span className="w-1/2 truncate">{hintHeader}</span>

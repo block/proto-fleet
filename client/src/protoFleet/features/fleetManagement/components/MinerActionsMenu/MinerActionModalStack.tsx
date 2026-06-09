@@ -18,26 +18,12 @@ interface MinerActionModalStackProps {
   minerActions: MinerActions;
   selectedMinerIds: string[];
   selectionMode: SelectionMode;
-  // Falls back to selectedMinerIds.length when omitted. MinerActionsMenu
-  // passes through to the bulk display count which can differ from the
-  // local subset (e.g. "all" mode).
   displayCount?: number;
-  // Pre-handler hook fired before each modal's dismiss / confirm
-  // delegates to minerActions. FleetGroupActionsMenu uses this to clear
-  // its pendingAction state so a re-fired action can run again.
+  // Fires before each modal's dismiss / confirm. Lets FleetGroupActionsMenu
+  // clear its pendingAction state without owning the modal callbacks.
   onActionBoundary?: () => void;
 }
 
-// Six action-driven modals shared by MinerActionsMenu, SingleMinerActionsMenu,
-// and FleetGroupActionsMenu. State + handlers all come from useMinerActions
-// — callers wire the hook into whatever shell they own and forward it in.
-//
-// Excluded by design: PoolSelectionPageWrapper (selectedMiners + count
-// vary per callsite), BulkActionConfirmDialog + UnsupportedMinersModal
-// (gating differs across menus), the second AuthenticateFleetModal used
-// only for workerNames in MinerActionsMenu, and miner-list-specific
-// modals (BulkRename, BulkWorkerName, RenameMinerDialog,
-// UpdateWorkerNameDialog).
 const MinerActionModalStack = ({
   minerActions,
   selectedMinerIds,
@@ -46,19 +32,19 @@ const MinerActionModalStack = ({
   onActionBoundary,
 }: MinerActionModalStackProps) => {
   const { addDevicesToDeviceSet, createGroup } = useDeviceSets();
+  // Identity-preserved when no boundary so child modals don't see new
+  // handler closures every render.
   const wrap = useCallback(
     <Args extends unknown[]>(handler: (...args: Args) => void) =>
-      (...args: Args) => {
-        onActionBoundary?.();
-        handler(...args);
-      },
+      onActionBoundary
+        ? (...args: Args) => {
+            onActionBoundary();
+            handler(...args);
+          }
+        : handler,
     [onActionBoundary],
   );
 
-  // "all"-mode means "every miner matching the current server filter"
-  // — handed to the device-set RPCs via allDevices=true rather than an
-  // explicit identifier list. Subset (incl. single-row) passes the
-  // resolved ids straight through.
   const allDevices = selectionMode === "all";
   const deviceIdentifiers = allDevices ? undefined : selectedMinerIds;
   const minerCount = allDevices ? (displayCount ?? selectedMinerIds.length) : selectedMinerIds.length;

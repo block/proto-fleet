@@ -7,6 +7,7 @@ import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
 import { deviceActions, groupActions, settingsActions, SupportedAction } from "./constants";
 import MinerActionModalStack from "./MinerActionModalStack";
+import MinerReparentPicker from "./MinerReparentPicker";
 import RenameMinerDialog from "./RenameMinerDialog";
 import UpdateWorkerNameDialog from "./UpdateWorkerNameDialog";
 import { type MinerSelection, useMinerActions } from "./useMinerActions";
@@ -16,11 +17,8 @@ import type {
   UpdateWorkerNamesResponse,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useSites } from "@/protoFleet/api/sites";
-import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
-import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, Ellipsis, MiningPools, Plus } from "@/shared/assets/icons";
@@ -430,67 +428,21 @@ const SingleMinerActionsMenu = ({
         handleUpdateWorkerNameConfirm={handleUpdateWorkerNameConfirm}
         handleUpdateWorkerNameDismiss={handleUpdateWorkerNameDismiss}
       />
-      <ReparentPicker
-        kind={reparentKind}
-        deviceIdentifier={deviceIdentifier}
-        minerName={minerName}
-        onClose={() => setReparentKind(null)}
-        onRefetchMiners={onRefetchMiners}
-      />
+      {reparentKind ? (
+        <MinerReparentPicker
+          kind={reparentKind}
+          deviceIdentifiers={[deviceIdentifier]}
+          sourceLabel={minerName || "miner"}
+          successMessage={(_count, target) =>
+            target === "site"
+              ? `Moved "${minerName || "miner"}" to selected site.`
+              : `Added "${minerName || "miner"}" to selected rack.`
+          }
+          onClose={() => setReparentKind(null)}
+          onRefetchMiners={onRefetchMiners}
+        />
+      ) : null}
     </PopoverProvider>
-  );
-};
-
-// Single-miner re-parent picker. Same shape as MinerActionsMenu's
-// ReparentPicker but bound to one device id; split out for the same
-// reason — hooks only mount on open.
-interface SingleReparentPickerProps {
-  kind: "rack" | "site" | null;
-  deviceIdentifier: string;
-  minerName?: string;
-  onClose: () => void;
-  onRefetchMiners?: () => void;
-}
-
-const ReparentPicker = ({ kind, deviceIdentifier, minerName, onClose, onRefetchMiners }: SingleReparentPickerProps) => {
-  const { reassignDevicesToSite } = useSites();
-  const { addDevicesToDeviceSet } = useDeviceSets();
-  const sourceLabel = minerName || "miner";
-  if (!kind) return null;
-  return (
-    <ParentPickerModal
-      kind={kind}
-      show
-      selectionMode="single"
-      sourceLabel={sourceLabel}
-      onDismiss={onClose}
-      onConfirm={(targetIds) => {
-        const targetId = targetIds[0];
-        onClose();
-        if (targetId === undefined) return;
-        if (kind === "site") {
-          void reassignDevicesToSite({
-            targetSiteId: targetId,
-            deviceIdentifiers: [deviceIdentifier],
-            onSuccess: () => {
-              pushToast({ message: `Moved "${sourceLabel}" to selected site.`, status: TOAST_STATUSES.success });
-              onRefetchMiners?.();
-            },
-            onError: (msg) => pushToast({ message: `Couldn't move miner: ${msg}`, status: TOAST_STATUSES.error }),
-          });
-          return;
-        }
-        void addDevicesToDeviceSet({
-          deviceSetId: targetId,
-          deviceIdentifiers: [deviceIdentifier],
-          onSuccess: () => {
-            pushToast({ message: `Added "${sourceLabel}" to selected rack.`, status: TOAST_STATUSES.success });
-            onRefetchMiners?.();
-          },
-          onError: (msg) => pushToast({ message: `Couldn't add miner to rack: ${msg}`, status: TOAST_STATUSES.error }),
-        });
-      }}
-    />
   );
 };
 
