@@ -66,6 +66,18 @@ export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly strin
   // rack:manage). Require both up front so a rack:manage-only role
   // doesn't enter a flow that 403s on the first list request.
   [groupActions.addToGroup]: ["rack:manage", "rack:read"],
+  // Add-to-rack lists racks (rack:read) and writes membership via
+  // DeviceSetService.AddDevicesToDeviceSet (rack:manage). Same pattern
+  // as addToGroup since racks are device_sets server-side.
+  [groupActions.addToRack]: ["rack:manage", "rack:read"],
+  // Add-to-building list buildings (site:read covers building list in
+  // the current schema) and writes via BuildingService — gated by
+  // site:manage. Surfaces today on rack-list rows only; miner→building
+  // is deferred pending a dedicated reassign RPC.
+  [groupActions.addToBuilding]: ["site:manage", "site:read"],
+  // Add-to-site lists sites (site:read) and reassigns devices via
+  // SiteService.ReassignDevicesToSite (site:manage).
+  [groupActions.addToSite]: ["site:manage", "site:read"],
 };
 
 // hasAllRequired returns true when every required key is present in

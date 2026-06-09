@@ -4,14 +4,10 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { type BulkAction } from "../BulkActions/types";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
-import AddToGroupModal from "./AddToGroupModal";
 import BulkRenameModal from "./BulkRenameModal";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
-import CoolingModeModal from "./CoolingModeModal";
-import FirmwareUpdateModal from "./FirmwareUpdateModal";
-import ManagePowerModal from "./ManagePowerModal";
-import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
+import MinerActionModalStack from "./MinerActionModalStack";
 import { useMinerActions } from "./useMinerActions";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
@@ -19,13 +15,17 @@ import {
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useSites } from "@/protoFleet/api/sites";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { ChevronDown, Edit, MiningPools } from "@/shared/assets/icons";
+import { ChevronDown, Edit, MiningPools, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface MinerActionsMenuProps {
@@ -81,6 +81,10 @@ const MinerActionsMenu = ({
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [bulkWorkerNameTarget, setBulkWorkerNameTarget] = useState<BulkWorkerNameTarget | null>(null);
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
+  // Re-parent picker target. null = closed; otherwise the picker is
+  // open for that kind. Dispatch fires on confirm against the selected
+  // miners (or full-set when selectionMode === "all").
+  const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
@@ -94,48 +98,7 @@ const MinerActionsMenu = ({
   const selectionIncludesUnauthenticatedMiner =
     selectionIncludesUnauthenticatedMinerOverride ?? selectedIdsIncludeUnauthenticatedMiner;
 
-  const {
-    currentAction,
-    popoverActions,
-    handleConfirmation,
-    handleCancel,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
-    showPoolSelectionPage,
-    poolFilteredDeviceIds,
-    fleetCredentials,
-    showManagePowerModal,
-    handleManagePowerConfirm,
-    handleManagePowerDismiss,
-    showFirmwareUpdateModal,
-    handleFirmwareUpdateConfirm,
-    handleFirmwareUpdateDismiss,
-    showCoolingModeModal,
-    coolingModeCount,
-    currentCoolingMode,
-    handleCoolingModeConfirm,
-    handleCoolingModeDismiss,
-    showAuthenticateFleetModal,
-    authenticationPurpose,
-    showUpdatePasswordModal,
-    hasThirdPartyMiners,
-    handleFleetAuthenticated,
-    handlePasswordConfirm,
-    handlePasswordDismiss,
-    handleAuthDismiss,
-    withCapabilityCheck,
-    unsupportedMinersInfo,
-    handleUnsupportedMinersContinue,
-    handleUnsupportedMinersDismiss,
-    showManageSecurityModal,
-    minerGroups,
-    handleUpdateGroup,
-    handleSecurityModalClose,
-    showAddToGroupModal,
-    handleAddToGroupDismiss,
-    displayCount,
-  } = useMinerActions({
+  const minerActionsResult = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
     totalCount,
@@ -148,6 +111,28 @@ const MinerActionsMenu = ({
     onActionStart,
     onActionComplete,
   });
+  // Modals shared with FleetGroupActionsMenu + SingleMinerActionsMenu are
+  // rendered by MinerActionModalStack via the full hook result. Local
+  // destructure pulls only the fields this shell still references
+  // directly (popover wiring, pool flow, capability check, unsupported
+  // miners modal, worker-name auth flow).
+  const {
+    currentAction,
+    popoverActions,
+    handleConfirmation,
+    handleCancel,
+    handleMiningPoolSuccess,
+    handleMiningPoolError,
+    handleMiningPoolWarning,
+    showPoolSelectionPage,
+    poolFilteredDeviceIds,
+    fleetCredentials,
+    withCapabilityCheck,
+    unsupportedMinersInfo,
+    handleUnsupportedMinersContinue,
+    handleUnsupportedMinersDismiss,
+    displayCount,
+  } = minerActionsResult;
 
   const handleWorkerNameFlowComplete = useCallback(() => {
     setShowBulkWorkerNameModal(false);
@@ -197,23 +182,49 @@ const MinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
+    // Re-parent openers — opening the picker only; dispatch happens
+    // on confirm against the current selection. Inserted before
+    // addToGroup so the cluster reads site → rack → group (the
+    // canonical order; building is deferred pending backend RPC).
+    const addToRackAction: BulkAction<SupportedAction> = {
+      action: groupActions.addToRack,
+      title: "Add to rack",
+      icon: <Plus />,
+      actionHandler: () => setReparentKind("rack"),
+      requiresConfirmation: false,
+    };
+    const addToSiteAction: BulkAction<SupportedAction> = {
+      action: groupActions.addToSite,
+      title: "Add to site",
+      icon: <Plus />,
+      actionHandler: () => setReparentKind("site"),
+      requiresConfirmation: false,
+    };
+
     const actions = insertActionAfter(popoverActions, settingsActions.miningPool, updateWorkerNamesAction);
     const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
 
+    const baseActions = actionsWithRenameBeforeGroup !== actions ? actionsWithRenameBeforeGroup : actions;
+    // Order is enforced by inserting rack first, then site before
+    // rack — addToGroup remains the trailing entry (its existing
+    // showGroupDivider closes the cluster).
+    const withAddToRack = insertActionBefore(baseActions, groupActions.addToGroup, addToRackAction);
+    const withAddToSite = insertActionBefore(withAddToRack, groupActions.addToRack, addToSiteAction);
+
     if (actionsWithRenameBeforeGroup !== actions) {
-      return actionsWithRenameBeforeGroup;
+      return withAddToSite;
     }
 
-    const actionsWithRenameBeforeSecurity = insertActionBefore(actions, settingsActions.security, {
+    const actionsWithRenameBeforeSecurity = insertActionBefore(withAddToSite, settingsActions.security, {
       ...renameAction,
       showGroupDivider: true,
     });
 
-    if (actionsWithRenameBeforeSecurity !== actions) {
+    if (actionsWithRenameBeforeSecurity !== withAddToSite) {
       return actionsWithRenameBeforeSecurity;
     }
 
-    return [...actions, renameAction];
+    return [...withAddToSite, renameAction];
   }, [handleBulkWorkerNamesOpen, onActionStart, popoverActions]);
 
   // Hide actions whose backing RPC the caller can't invoke. The server
@@ -316,29 +327,14 @@ const MinerActionsMenu = ({
         onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
-      <ManagePowerModal
-        open={currentAction === performanceActions.managePower ? showManagePowerModal : false}
-        onConfirm={handleManagePowerConfirm}
-        onDismiss={handleManagePowerDismiss}
+      <MinerActionModalStack
+        minerActions={minerActionsResult}
+        selectedMinerIds={selectedMiners}
+        selectionMode={selectionMode}
+        displayCount={displayCount}
       />
-      <FirmwareUpdateModal
-        open={currentAction === deviceActions.firmwareUpdate ? showFirmwareUpdateModal : false}
-        onConfirm={handleFirmwareUpdateConfirm}
-        onDismiss={handleFirmwareUpdateDismiss}
-      />
-      <CoolingModeModal
-        open={currentAction === settingsActions.coolingMode ? showCoolingModeModal : false}
-        minerCount={coolingModeCount}
-        initialCoolingMode={currentCoolingMode}
-        onConfirm={handleCoolingModeConfirm}
-        onDismiss={handleCoolingModeDismiss}
-      />
-      <AuthenticateFleetModal
-        open={showAuthenticateFleetModal}
-        purpose={authenticationPurpose ?? undefined}
-        onAuthenticated={handleFleetAuthenticated}
-        onDismiss={handleAuthDismiss}
-      />
+      {/* The second AuthenticateFleetModal is specific to the worker-name
+          flow, which only this menu hosts — keep it inline. */}
       <AuthenticateFleetModal
         open={showWorkerNameAuthenticateModal}
         purpose="workerNames"
@@ -348,26 +344,6 @@ const MinerActionsMenu = ({
           setShowBulkWorkerNameModal(true);
         }}
         onDismiss={handleWorkerNameFlowComplete}
-      />
-      <ManageSecurityModal
-        open={showManageSecurityModal}
-        minerGroups={minerGroups}
-        onUpdateGroup={handleUpdateGroup}
-        onDismiss={handleSecurityModalClose}
-        onDone={handleSecurityModalClose}
-      />
-      <UpdateMinerPasswordModal
-        open={showUpdatePasswordModal}
-        hasThirdPartyMiners={hasThirdPartyMiners}
-        onConfirm={handlePasswordConfirm}
-        onDismiss={handlePasswordDismiss}
-      />
-      <AddToGroupModal
-        open={currentAction === groupActions.addToGroup ? showAddToGroupModal : false}
-        onDismiss={handleAddToGroupDismiss}
-        selectedMiners={selectedMiners}
-        selectionMode={selectionMode}
-        displayCount={displayCount ?? selectedMiners.length}
       />
       <BulkRenameModal
         open={showBulkRenameModal}
@@ -399,7 +375,73 @@ const MinerActionsMenu = ({
         getWorkerNameCredentials={getWorkerNameCredentials}
         onDismiss={handleWorkerNameFlowComplete}
       />
+      <ReparentPicker
+        kind={reparentKind}
+        selectedMinerIds={selectedMiners}
+        onClose={() => setReparentKind(null)}
+        onRefetchMiners={onRefetchMiners}
+      />
     </PopoverProvider>
+  );
+};
+
+// Re-parent picker + dispatcher pair. Split out as a child so the
+// hooks for sites / device_set APIs only mount when a re-parent action
+// fires (otherwise idle in every MinerActionsMenu render).
+interface ReparentPickerProps {
+  kind: "rack" | "site" | null;
+  selectedMinerIds: string[];
+  onClose: () => void;
+  onRefetchMiners?: () => void;
+}
+
+const ReparentPicker = ({ kind, selectedMinerIds, onClose, onRefetchMiners }: ReparentPickerProps) => {
+  const { reassignDevicesToSite } = useSites();
+  const { addDevicesToDeviceSet } = useDeviceSets();
+
+  const sourceLabel = `${selectedMinerIds.length} ${selectedMinerIds.length === 1 ? "miner" : "miners"}`;
+
+  if (!kind) return null;
+
+  return (
+    <ParentPickerModal
+      kind={kind}
+      show
+      selectionMode="single"
+      sourceLabel={sourceLabel}
+      onDismiss={onClose}
+      onConfirm={(targetIds) => {
+        const targetId = targetIds[0];
+        onClose();
+        if (targetId === undefined) return;
+        if (selectedMinerIds.length === 0) {
+          pushToast({ message: "No miners selected.", status: STATUSES.queued });
+          return;
+        }
+        if (kind === "site") {
+          void reassignDevicesToSite({
+            targetSiteId: targetId,
+            deviceIdentifiers: selectedMinerIds,
+            onSuccess: (count) => {
+              pushToast({ message: `Moved ${count} miners to selected site.`, status: STATUSES.success });
+              onRefetchMiners?.();
+            },
+            onError: (msg) => pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error }),
+          });
+          return;
+        }
+        // kind === "rack"
+        void addDevicesToDeviceSet({
+          deviceSetId: targetId,
+          deviceIdentifiers: selectedMinerIds,
+          onSuccess: (count) => {
+            pushToast({ message: `Added ${count} miners to selected rack.`, status: STATUSES.success });
+            onRefetchMiners?.();
+          },
+          onError: (msg) => pushToast({ message: `Couldn't add miners to rack: ${msg}`, status: STATUSES.error }),
+        });
+      }}
+    />
   );
 };
 

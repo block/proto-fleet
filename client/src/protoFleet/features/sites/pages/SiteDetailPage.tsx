@@ -4,7 +4,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import SiteModals from "../components/SiteModals";
 import { useSiteModals } from "../hooks/useSiteModals";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { parseBigIntId, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, parseBigIntId, useSites } from "@/protoFleet/api/sites";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
@@ -48,6 +49,20 @@ const SiteDetailPage = () => {
   const handleRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
 
   useEffect(() => fetchSites(), [fetchSites, retryCounter]);
+
+  // Bounce to the fleet shell when the operator picks a different site
+  // from the SitePicker while looking at this site's detail page. The
+  // detail page is scoped to a single site; switching the picker means
+  // the operator is asking to navigate away. "All sites" / "Unassigned"
+  // selections stay put — those don't conflict with viewing a specific
+  // site. FleetLayout picks the right tab based on the new picker state.
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+  useEffect(() => {
+    if (activeSite.kind !== "site") return;
+    if (activeSite.id === targetId) return;
+    navigate("/fleet", { replace: true });
+  }, [activeSite, navigate, targetId]);
 
   const site = useMemo(() => {
     if (!sites) return undefined;

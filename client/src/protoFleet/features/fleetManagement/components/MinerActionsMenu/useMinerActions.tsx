@@ -60,11 +60,11 @@ import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
   Fan,
-  Groups,
   LEDIndicator,
   Lock,
   MiningPools,
   Play,
+  Plus,
   Power,
   Reboot,
   Settings,
@@ -1489,15 +1489,19 @@ export const useMinerActions = ({
         requiresConfirmation: false,
         showGroupDivider: true, // End of performance/settings group
       },
+      // Add-to-group sits last in the re-parent cluster (site → rack →
+      // group is the canonical order; building is N/A for miners).
+      // Callers (MinerActionsMenu / SingleMinerActionsMenu) inject
+      // addToSite + addToRack ahead of this entry, so the trailing
+      // showGroupDivider here marks the end of the whole cluster.
       {
         action: groupActions.addToGroup,
         title: "Add to group",
-        icon: <Groups />,
+        icon: <Plus />,
         actionHandler: handleAddToGroup,
         requiresConfirmation: false,
         showGroupDivider: true,
       },
-      // TODO: Implement Add to rack action - when implemented, move showGroupDivider from add-to-group to add-to-rack (last in organization group)
       // Security and dangerous actions (same group)
       {
         action: settingsActions.security,

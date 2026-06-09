@@ -171,7 +171,7 @@ vi.mock("../BulkActions/BulkActionConfirmDialog", () => ({
   default: mockBulkActionConfirmDialog,
 }));
 
-vi.mock("./AddToGroupModal", () => ({
+vi.mock("@/protoFleet/components/ParentPickerModal", () => ({
   default: vi.fn(() => null),
 }));
 

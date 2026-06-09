@@ -133,7 +133,7 @@ const FleetSitesPage = () => {
         {addSiteButton}
       </FilterRow>
       <div className={LIST_WRAPPER}>
-        <SiteList sites={sites} />
+        <SiteList sites={sites} onEditSite={canManageSites ? modals.openManageEdit : undefined} />
       </div>
       <SiteModals modals={modals} sites={sites} />
     </>

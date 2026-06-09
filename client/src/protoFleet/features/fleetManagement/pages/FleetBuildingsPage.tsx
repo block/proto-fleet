@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
@@ -6,8 +7,9 @@ import { useFleetOutletContext } from "../components/FleetLayout";
 import SiteSelectModal from "../components/SiteSelectModal";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
@@ -16,6 +18,7 @@ import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const LIST_WRAPPER = "pt-6";
@@ -51,14 +54,33 @@ const FleetBuildingsPage = () => {
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
 
+  // Per-row "View buildings" deep links carry `?site=<id>` rather than
+  // mutating the SitePicker, so it can scope the list without racing
+  // FleetLayout's single-site redirect. URL filter wins when present;
+  // otherwise the SitePicker selection still drives the visible set.
+  const [searchParams] = useSearchParams();
+  const urlSiteIds = useMemo(
+    () =>
+      new Set(
+        searchParams
+          .getAll("site")
+          .map((value) => value.trim())
+          .filter((value) => value !== "" && /^\d+$/.test(value)),
+      ),
+    [searchParams],
+  );
+
   const visibleBuildings = useMemo(() => {
     if (!buildings) return [];
+    if (urlSiteIds.size > 0) {
+      return buildings.filter((b) => urlSiteIds.has((b.building?.siteId ?? 0n).toString()));
+    }
     if (activeSite.kind === "all") return buildings;
     if (activeSite.kind === "unassigned") {
       return buildings.filter((b) => !b.building?.siteId || b.building.siteId === 0n);
     }
     return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
-  }, [buildings, activeSite]);
+  }, [buildings, activeSite, urlSiteIds]);
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
   const [showSiteSelect, setShowSiteSelect] = useState(false);
@@ -94,6 +116,31 @@ const FleetBuildingsPage = () => {
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.
   const canManageBuildings = useHasPermission("site:manage");
+
+  // Edit-building flow. The row click opens ManageBuildingModal for the
+  // chosen building — mirroring the "Edit building" header button on
+  // /buildings/:id so both entry points land on the same surface.
+  // siteName is resolved from the sites cache so the modal can render
+  // the parent label without a follow-up fetch.
+  const siteNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sites ?? []) {
+      if (s.site) map.set(s.site.id.toString(), s.site.name);
+    }
+    return map;
+  }, [sites]);
+  const openEditBuilding = useCallback(
+    (row: BuildingWithCounts) => {
+      const siteId = row.building?.siteId;
+      const siteName = siteId ? siteNameById.get(siteId.toString()) : undefined;
+      buildingModals.openManage(row, siteName);
+    },
+    [buildingModals, siteNameById],
+  );
+
+  const { assignBuildingToSite } = useSites();
+  const [reparentTarget, setReparentTarget] = useState<BuildingWithCounts | null>(null);
+  const handleAddBuildingToSite = useCallback((row: BuildingWithCounts) => setReparentTarget(row), []);
 
   if (buildings === undefined || sites === undefined) {
     return (
@@ -212,7 +259,12 @@ const FleetBuildingsPage = () => {
         <div className="flex items-center justify-end">{addBuildingButton}</div>
       </FilterRow>
       <div className={LIST_WRAPPER}>
-        <BuildingList buildings={visibleBuildings} sites={sites} />
+        <BuildingList
+          buildings={visibleBuildings}
+          sites={sites}
+          onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
+          onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
+        />
       </div>
       <BuildingModals modals={buildingModals} />
       <SiteSelectModal
@@ -220,6 +272,30 @@ const FleetBuildingsPage = () => {
         sites={sites}
         onSelect={handleSiteSelected}
         onDismiss={() => setShowSiteSelect(false)}
+      />
+      <ParentPickerModal
+        kind="site"
+        show={!!reparentTarget}
+        selectionMode="single"
+        sourceLabel={reparentTarget?.building?.name || "building"}
+        excludeId={reparentTarget?.building?.siteId}
+        onDismiss={() => setReparentTarget(null)}
+        onConfirm={(siteIds) => {
+          const targetSiteId = siteIds[0];
+          const row = reparentTarget;
+          if (!row?.building || targetSiteId === undefined) return;
+          const name = row.building.name || "building";
+          setReparentTarget(null);
+          void assignBuildingToSite({
+            buildingId: row.building.id,
+            targetSiteId,
+            onSuccess: () => {
+              pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });
+              fetchBuildings();
+            },
+            onError: (msg) => pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error }),
+          });
+        }}
       />
     </>
   );

@@ -128,6 +128,17 @@ interface ReassignDevicesToSiteProps {
   onFinally?: () => void;
 }
 
+interface AssignBuildingToSiteProps {
+  buildingId: bigint;
+  // Unset moves the building to "Unassigned"; row actions always supply
+  // a target so this is set in practice.
+  targetSiteId?: bigint;
+  signal?: AbortSignal;
+  onSuccess?: (reassignedRackCount: bigint, reassignedDeviceCount: bigint) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 const useSites = () => {
   const { handleAuthErrors } = useAuthErrors();
 
@@ -288,7 +299,34 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  return { listSites, createSite, updateSite, deleteSite, reassignDevicesToSite };
+  const assignBuildingToSite = useCallback(
+    async ({ buildingId, targetSiteId, signal, onSuccess, onError, onFinally }: AssignBuildingToSiteProps) => {
+      try {
+        const response = await sitesClient.assignBuildingToSite(
+          {
+            buildingId,
+            targetSiteId,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        onSuccess?.(response.reassignedRackCount, response.reassignedDeviceCount);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  return { listSites, createSite, updateSite, deleteSite, reassignDevicesToSite, assignBuildingToSite };
 };
 
 export { useSites };

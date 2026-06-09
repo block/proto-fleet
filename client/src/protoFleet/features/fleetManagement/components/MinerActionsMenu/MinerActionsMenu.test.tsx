@@ -163,7 +163,7 @@ vi.mock("./BulkWorkerNameModal", () => ({
   default: mockBulkWorkerNameModal,
 }));
 
-vi.mock("./AddToGroupModal", () => ({
+vi.mock("@/protoFleet/components/ParentPickerModal", () => ({
   default: mockAddToGroupModal,
 }));
 
@@ -489,12 +489,16 @@ describe("MinerActionsMenu", () => {
       settingsActions.updateWorkerNames,
       settingsActions.coolingMode,
       settingsActions.rename,
+      groupActions.addToSite,
+      groupActions.addToRack,
       groupActions.addToGroup,
       settingsActions.security,
     ]);
     expect(actions[2].showGroupDivider).toBe(true);
     expect(actions[3].showGroupDivider).toBeUndefined();
-    expect(actions[4].showGroupDivider).toBe(true);
+    // addToGroup remains the trailing entry; its showGroupDivider
+    // closes the whole site → rack → group re-parent cluster.
+    expect(actions[6].showGroupDivider).toBe(true);
   });
 
   test("requests credentials before opening update worker names modal", async () => {

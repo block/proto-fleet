@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -12,8 +13,10 @@ import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "
 import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import {
   AssignMinersModal,
   type RackFormData,
@@ -28,7 +31,7 @@ import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/r
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
-import { Alert, ChevronDown, Racks } from "@/shared/assets/icons";
+import { Alert, ArrowRight, ChevronDown, Edit, Plus, Racks } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
@@ -68,12 +71,19 @@ const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
-  const { listAllBuildings } = useBuildings();
+  const { listAllBuildings, assignRackToBuilding } = useBuildings();
+  // Re-parent picker target. When set, ParentPickerModal opens with the
+  // rack as the source; on confirm we dispatch AssignRackToBuilding.
+  const [reparentTarget, setReparentTarget] = useState<DeviceSet | null>(null);
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pathname } = useLocation();
   const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
+  // When set, RackSettingsModal opens in edit mode against this row.
+  // Cleared on dismiss alongside the show flag so the next "Add rack"
+  // CTA starts from a clean create-mode slate.
+  const [editingRack, setEditingRack] = useState<DeviceSet | null>(null);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
@@ -316,17 +326,66 @@ const RacksPage = () => {
     });
   }, [assignMinersRackId, deleteGroup, resetAndFetch, fetchZones]);
 
+  const handleEditRack = useCallback((rack: DeviceSet) => {
+    setEditingRack(rack);
+    setShowRackSettingsModal(true);
+  }, []);
+
+  // Extras appended below FleetGroupActionsMenu's wired bulk cluster.
+  // Mirrors the Sites / Buildings menus: navigate, then edit. Re-parenting
+  // (Add to building / site) lives in Phase 2 — not surfaced yet.
+  const buildRackExtraActions = useCallback(
+    (rack: DeviceSet) => [
+      {
+        label: "View rack",
+        icon: <ArrowRight />,
+        onClick: () => navigate(`/racks/${rack.id}`),
+      },
+      {
+        label: "View miners",
+        icon: <ArrowRight />,
+        onClick: () => navigate(`/miners?rack=${rack.id}`),
+        showGroupDivider: true,
+      },
+      {
+        label: "Edit rack",
+        icon: <Edit />,
+        onClick: () => handleEditRack(rack),
+      },
+      {
+        label: "Add to building",
+        icon: <Plus />,
+        onClick: () => setReparentTarget(rack),
+      },
+    ],
+    [navigate, handleEditRack],
+  );
+
   const renderName = useCallback(
-    (item: DeviceSetListItem) => (
-      <button
-        type="button"
-        className="text-left hover:underline"
-        onClick={() => navigate(`/racks/${item.deviceSet.id}`)}
-      >
-        {item.deviceSet.label}
-      </button>
-    ),
-    [navigate],
+    (item: DeviceSetListItem) => {
+      const rack = item.deviceSet;
+      const label = rack.label || "(unnamed)";
+      return (
+        <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
+          <button
+            type="button"
+            className="truncate text-left hover:underline"
+            onClick={() => navigate(`/racks/${rack.id}`)}
+          >
+            {label}
+          </button>
+          {rack.id !== undefined && rack.id !== 0n ? (
+            <FleetGroupActionsMenu
+              scope={{ kind: "rack", id: rack.id, name: label }}
+              ariaLabel={`Actions for ${label}`}
+              testIdPrefix={`rack-list-row-${rack.id.toString()}-actions`}
+              extraActions={buildRackExtraActions(rack)}
+            />
+          ) : null}
+        </div>
+      );
+    },
+    [navigate, buildRackExtraActions],
   );
 
   const renderMiners = useCallback((item: DeviceSetListItem) => <span>{item.deviceSet.deviceCount}</span>, []);
@@ -612,7 +671,11 @@ const RacksPage = () => {
         <RackSettingsModal
           show={showRackSettingsModal}
           existingRacks={racks}
-          onDismiss={() => setShowRackSettingsModal(false)}
+          rack={editingRack ?? undefined}
+          onDismiss={() => {
+            setShowRackSettingsModal(false);
+            setEditingRack(null);
+          }}
           onContinue={handleRackSettingsContinue}
         />
       ) : null}
@@ -626,6 +689,37 @@ const RacksPage = () => {
           onSave={handleAssignMinersSave}
         />
       ) : null}
+      <ParentPickerModal
+        kind="building"
+        show={!!reparentTarget}
+        selectionMode="single"
+        sourceLabel={reparentTarget?.label || "rack"}
+        description={
+          reparentTarget && reparentTarget.deviceCount > 0
+            ? `${reparentTarget.deviceCount} ${reparentTarget.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
+            : undefined
+        }
+        excludeId={
+          reparentTarget?.typeDetails.case === "rackInfo" ? reparentTarget.typeDetails.value.buildingId : undefined
+        }
+        onDismiss={() => setReparentTarget(null)}
+        onConfirm={(buildingIds) => {
+          const buildingId = buildingIds[0];
+          const rack = reparentTarget;
+          if (!rack || buildingId === undefined) return;
+          const rackName = rack.label || "rack";
+          setReparentTarget(null);
+          void assignRackToBuilding({
+            rackId: rack.id,
+            buildingId,
+            onSuccess: () => {
+              pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
+              resetAndFetch();
+            },
+            onError: (msg) => pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error }),
+          });
+        }}
+      />
     </div>
   );
 };
