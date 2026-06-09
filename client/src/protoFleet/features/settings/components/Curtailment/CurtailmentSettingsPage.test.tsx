@@ -84,6 +84,24 @@ const testSources: CurtailmentSource[] = [
     health: "waitingForSignal",
     enabled: true,
   },
+  {
+    id: "site-delta-mqtt",
+    name: "Site Delta MQTT",
+    triggerType: "MQTT",
+    site: "Site Delta",
+    brokerHosts: ["site-delta-primary.broker.test", "site-delta-secondary.broker.test"],
+    port: 11886,
+    topic: "curtailment/site-delta/target",
+    protocol: "MQTT 3.1.1",
+    qos: 1,
+    username: "curtailment-delta",
+    scope: "Site Delta",
+    curtailmentMode: "Curtail entire site",
+    lastTarget: "-",
+    lastSeen: "12 minutes ago",
+    health: "noSignal",
+    enabled: true,
+  },
 ];
 
 const apiSources: CurtailmentSource[] = [
@@ -221,6 +239,8 @@ describe("CurtailmentSettingsPage", () => {
     }
     const waitingLabel = screen.getByText("Waiting for signal");
     expect(waitingLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-warning-fill");
+    const noSignalLabel = screen.getByText("No signal");
+    expect(noSignalLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-critical-fill");
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
   });
 

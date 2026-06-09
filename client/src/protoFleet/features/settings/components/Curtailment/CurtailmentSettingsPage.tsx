@@ -75,7 +75,7 @@ const curtailmentSourcesTableClassName = [
 const sourceHealthDotClassName: Record<CurtailmentHealth, string> = {
   connected: "bg-intent-success-fill",
   waitingForSignal: "bg-intent-warning-fill",
-  noSignal: "bg-intent-warning-fill",
+  noSignal: "bg-intent-critical-fill",
   offline: "bg-intent-critical-fill",
 };
 
