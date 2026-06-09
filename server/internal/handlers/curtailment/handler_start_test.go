@@ -63,7 +63,11 @@ func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(_ context.Context,
 	return nil, nil
 }
 
-func (s *startStubStore) ListCandidates(_ context.Context, _ int64, _ []string) ([]*models.Candidate, error) {
+func (s *startStubStore) SiteBelongsToOrg(_ context.Context, _, _ int64) (bool, error) {
+	return true, nil
+}
+
+func (s *startStubStore) ListCandidates(_ context.Context, _ interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	return s.candidates, nil
 }
 

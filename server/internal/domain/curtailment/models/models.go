@@ -83,6 +83,7 @@ type ScopeType string
 
 const (
 	ScopeTypeWholeOrg   ScopeType = "whole_org"
+	ScopeTypeSite       ScopeType = "site"
 	ScopeTypeDeviceSets ScopeType = "device_sets"
 	ScopeTypeDeviceList ScopeType = "device_list"
 )

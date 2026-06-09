@@ -10,6 +10,7 @@ import {
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
   ScopeDeviceListSchema,
+  ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -27,6 +28,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   CurtailmentFormValues,
   | "scopeType"
   | "scopeId"
+  | "siteId"
   | "deviceSetIds"
   | "deviceIdentifiers"
   | "curtailmentMode"
@@ -119,6 +121,14 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
         case: "wholeOrg",
         value: create(ScopeWholeOrgSchema, {}),
       };
+    case "site":
+      if (!values.siteId) {
+        return undefined;
+      }
+      return {
+        case: "site",
+        value: create(ScopeSiteSchema, { siteId: BigInt(values.siteId) }),
+      };
     case "deviceSet":
       return undefined;
     case "explicitMiners":
@@ -194,6 +204,8 @@ function formatSelectedScopeLabel(count: number, singular: string): string {
 
 function formatScopeLabel(values: CurtailmentFormValues): string {
   switch (values.scopeType) {
+    case "site":
+      return values.siteId ? `at site ${values.siteId}` : "at one site";
     case "deviceSet":
       if (values.scopeId === "racks") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");

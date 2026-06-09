@@ -24,7 +24,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
 
 export type CurtailmentPriority = "normal" | "emergency";
-export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
+export type CurtailmentScopeType = "wholeOrg" | "site" | "deviceSet" | "explicitMiners";
 export type ResponseProfileId = "customPlan";
 export type CurtailmentMode = "fixedKwReduction" | "fullFleet";
 export type MinerSelectionStrategy = "leastEfficientFirst";
@@ -33,6 +33,7 @@ export type CurtailmentStartModalMode = "create" | "edit";
 export interface CurtailmentFormValues {
   scopeType: CurtailmentScopeType;
   scopeId?: string;
+  siteId?: string;
   deviceSetIds: string[];
   deviceIdentifiers: string[];
   responseProfileId: ResponseProfileId;
@@ -114,6 +115,7 @@ type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreIntervalSe
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
+  siteId: "",
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
@@ -399,6 +401,13 @@ function getApplyToTarget(
     return {
       label: "Miners",
       value: getTargetButtonLabel(getSelectedMinerIds(values).length, "miner"),
+    };
+  }
+
+  if (values.scopeType === "site") {
+    return {
+      label: "Site",
+      value: values.siteId ? `Site ${values.siteId}` : "Site",
     };
   }
 

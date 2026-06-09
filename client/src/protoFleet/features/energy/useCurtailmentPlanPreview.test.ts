@@ -35,6 +35,7 @@ vi.mock("@/protoFleet/store", () => ({
 const baseValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
+  siteId: "",
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
@@ -124,6 +125,19 @@ describe("useCurtailmentPlanPreview", () => {
     expect(minerRequest.scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
     expect(minerRequest.includeMaintenance).toBe(false);
     expect(minerRequest.forceIncludeMaintenance).toBe(false);
+
+    const siteRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-42",
+      siteId: "42",
+    });
+
+    expect(siteRequest?.scope.case).toBe("site");
+    if (siteRequest?.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(siteRequest.scope.value.siteId).toBe(42n);
   });
 
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {

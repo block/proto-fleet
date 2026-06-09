@@ -8,6 +8,7 @@ import {
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
   ScopeDeviceListSchema,
+  ScopeSiteSchema,
   ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
@@ -110,6 +111,11 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
   switch (values.scopeType) {
     case "wholeOrg":
       return { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) };
+    case "site":
+      if (values.siteId) {
+        return { case: "site", value: create(ScopeSiteSchema, { siteId: BigInt(values.siteId) }) };
+      }
+      break;
     case "explicitMiners":
       if (values.deviceIdentifiers.length > 0) {
         return {

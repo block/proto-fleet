@@ -82,6 +82,14 @@ type ListTargetsByEventPageParams struct {
 	PageToken string
 }
 
+// ListCandidatesParams scopes selector candidate reads. A nil SiteID and
+// empty DeviceIdentifiers means whole-org.
+type ListCandidatesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+	SiteID            *int64
+}
+
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event
@@ -106,6 +114,7 @@ type CurtailmentStore interface {
 	// Selector exclusion sets — org-scoped device IDs subtracted from candidates.
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
+	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 	GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
@@ -163,9 +172,10 @@ type CurtailmentStore interface {
 
 	// ListCandidates returns per-device state for the selector. Nil
 	// deviceIdentifiers returns the whole org (callers normalize empty
-	// slice → nil). Devices without recent telemetry return nil power /
-	// hash; the service treats those as stale.
-	ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error)
+	// slice → nil). SiteID restricts candidates to one live site in the
+	// org. Devices without recent telemetry return nil power / hash; the
+	// service treats those as stale.
+	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 
 	// ListNonTerminalEvents returns pending/active/restoring events across
 	// all orgs. Reconciler-only — MUST NOT be exposed through any RPC handler.

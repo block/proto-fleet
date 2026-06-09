@@ -243,6 +243,7 @@ message CurtailmentEvent {
         ScopeWholeOrg   whole_org           = 7;
         ScopeDeviceSets device_set_ids      = 8;
         ScopeDeviceList device_identifiers  = 9;
+        ScopeSite       site                = 25;
     }
     oneof mode_params {
         FixedKwParams      fixed_kw       = 10;
@@ -369,7 +370,7 @@ message PreviewCurtailmentPlanRequest {
     option (buf.validate.message).cel = {
         id: "scope_required"
         message: "exactly one scope must be set"
-        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers)"
+        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site)"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -386,6 +387,7 @@ message PreviewCurtailmentPlanRequest {
         ScopeWholeOrg   whole_org           = 1;
         ScopeDeviceSets device_set_ids      = 2;
         ScopeDeviceList device_identifiers  = 3;
+        ScopeSite       site                = 27;
     }
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
@@ -456,7 +458,7 @@ message StartCurtailmentRequest {
     option (buf.validate.message).cel = {
         id: "scope_required"
         message: "exactly one scope must be set"
-        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers)"
+        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site)"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -473,6 +475,7 @@ message StartCurtailmentRequest {
         ScopeWholeOrg   whole_org           = 1;
         ScopeDeviceSets device_set_ids      = 2;
         ScopeDeviceList device_identifiers  = 3;
+        ScopeSite       site                = 28;
     }
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
@@ -709,4 +712,9 @@ message IngestCurtailmentSignalResponse {
 
     // Soft adapter warnings; hard rejections return InvalidArgument instead.
     repeated string adapter_warnings = 3;
+}
+
+// ScopeSite selects every miner assigned to one site in the caller organization.
+message ScopeSite {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
 }

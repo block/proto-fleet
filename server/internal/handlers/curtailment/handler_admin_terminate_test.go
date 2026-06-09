@@ -64,7 +64,10 @@ func (s *adminTerminateStubStore) ListActiveCurtailedDevices(context.Context, in
 func (s *adminTerminateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) ListCandidates(context.Context, int64, []string) ([]*models.Candidate, error) {
+func (s *adminTerminateStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) ListCandidates(context.Context, interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	panic("ListCandidates not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {

@@ -46,7 +46,10 @@ func (s *stopStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]st
 func (s *stopStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Stop handler tests")
 }
-func (s *stopStubStore) ListCandidates(context.Context, int64, []string) ([]*models.Candidate, error) {
+func (s *stopStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised by Stop handler tests")
+}
+func (s *stopStubStore) ListCandidates(context.Context, interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	panic("ListCandidates not exercised by Stop handler tests")
 }
 func (s *stopStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {

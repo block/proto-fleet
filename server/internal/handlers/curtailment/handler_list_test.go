@@ -65,7 +65,10 @@ func (s *listStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]st
 func (s *listStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by List handler tests")
 }
-func (s *listStubStore) ListCandidates(context.Context, int64, []string) ([]*models.Candidate, error) {
+func (s *listStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised by List handler tests")
+}
+func (s *listStubStore) ListCandidates(context.Context, interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	panic("ListCandidates not exercised by List handler tests")
 }
 func (s *listStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
