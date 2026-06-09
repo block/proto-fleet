@@ -1,0 +1,48 @@
+services:
+  mqtt-sim-primary:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./devtools/mqttsim/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-sim-primary-data:/mosquitto/data
+    networks:
+      fleet-network:
+        ipv4_address: 192.168.2.240
+
+  mqtt-sim-secondary:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1884:1883"
+    volumes:
+      - ./devtools/mqttsim/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-sim-secondary-data:/mosquitto/data
+    networks:
+      fleet-network:
+        ipv4_address: 192.168.2.241
+
+  mqtt-sim-ui:
+    build:
+      context: .
+      dockerfile: devtools/mqttsim/Dockerfile
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":4183"
+      MQTT_BROKERS: "primary=tcp://mqtt-sim-primary:1883,secondary=tcp://mqtt-sim-secondary:1883"
+      MQTT_DEFAULT_TOPIC: "maestro/target"
+      MQTT_DEFAULT_INTERVAL: "30s"
+      PROTO_FLEET_BASE_URL: "${PROTO_FLEET_BASE_URL:-http://localhost:5173}"
+      PROTO_FLEET_CURTAILMENT_SETTINGS_PATH: "${PROTO_FLEET_CURTAILMENT_SETTINGS_PATH:-/settings/curtailment}"
+    depends_on:
+      - mqtt-sim-primary
+      - mqtt-sim-secondary
+    ports:
+      - "4183:4183"
+    networks:
+      - fleet-network
+
+volumes:
+  mqtt-sim-primary-data:
+  mqtt-sim-secondary-data:

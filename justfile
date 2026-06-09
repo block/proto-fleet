@@ -147,6 +147,26 @@ test-e2e-protoos-headed: (_e2e "protoOS" "--headed" "--project=desktop")
 # run ProtoOS WIP E2E tests
 test-e2e-protoos-wip: (_e2e "protoOS" "--headed" "--grep" "@wip" "--project=desktop")
 
+# start MQTT simulator brokers and browser control UI
+[working-directory: 'server']
+mqtt-sim-up:
+  just mqtt-sim-up
+
+# rebuild and restart MQTT simulator services
+[working-directory: 'server']
+mqtt-sim-rebuild:
+  just mqtt-sim-rebuild
+
+# stop MQTT simulator services
+[working-directory: 'server']
+mqtt-sim-down:
+  just mqtt-sim-down
+
+# follow MQTT simulator logs
+[working-directory: 'server']
+mqtt-sim-logs:
+  just mqtt-sim-logs
+
 # --- Dependency management ---
 
 # update all Go dependencies across workspace

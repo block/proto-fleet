@@ -102,6 +102,42 @@ _run: db-up install
 seed-telemetry *args:
     go run ./devtools/seedtelemetry {{args}}
 
+# start MQTT simulator brokers and browser control UI
+mqtt-sim-up:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml up -d --build mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui
+  for port in 1883 1884 4183; do
+    ready=false
+    for _ in $(seq 1 60); do
+      if (echo >"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1; then
+        ready=true
+        break
+      fi
+      sleep 0.25
+    done
+    if [ "${ready}" != true ]; then
+      echo "MQTT simulator did not become ready on 127.0.0.1:${port}" >&2
+      docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml logs --tail=120 mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui >&2 || true
+      exit 1
+    fi
+  done
+  echo "MQTT simulator UI: http://localhost:4183"
+  echo "Proto Fleet Docker source config: primary=192.168.2.240 secondary=192.168.2.241 port=1883 topic=maestro/target"
+
+# rebuild and restart MQTT simulator services
+mqtt-sim-rebuild:
+  docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml up -d --build --force-recreate mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui
+
+# stop MQTT simulator services
+mqtt-sim-down:
+  docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml stop mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui
+  docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml rm -f mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui
+
+# follow MQTT simulator logs
+mqtt-sim-logs:
+  docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml logs -f mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui
+
 # wipe and rebuild all docker compose services from scratch (includes plugin rebuild)
 rebuild-all: _build-plugins-docker rebuild-services
 
