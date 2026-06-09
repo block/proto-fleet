@@ -26,6 +26,7 @@ server/fake-antminer/fake-antminer
 server/fake-proto-rig/fake-proto-rig
 server/miner-debug-cli
 server/devtools/seedtelemetry/seedtelemetry
+server/.fleet/
 
 # Plugin binaries (built artifacts should not be committed)
 plugin/proto/proto-plugin

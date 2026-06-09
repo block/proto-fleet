@@ -1,0 +1,192 @@
+{
+  "services": {
+    "fleetmanagement.v1.FleetManagementService": {
+      "group": "miners",
+      "auth": "bearer"
+    },
+    "networkinfo.v1.NetworkInfoService": {
+      "group": "networkinfo",
+      "auth": "bearer"
+    },
+    "schedule.v1.ScheduleService": {
+      "group": "schedule",
+      "auth": "bearer",
+      "all_methods": true
+    },
+    "pools.v1.PoolsService": {
+      "group": "pools",
+      "auth": "bearer",
+      "all_methods": true
+    },
+    "minercommand.v1.MinerCommandService": {
+      "group": "minercommand",
+      "auth": "bearer",
+      "all_methods": true
+    }
+  },
+  "methods": {
+    "fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots": {
+      "command": "list"
+    },
+    "networkinfo.v1.NetworkInfoService/GetNetworkInfo": {
+      "command": "get"
+    },
+    "networkinfo.v1.NetworkInfoService/UpdateNetworkNickname": {
+      "command": "set-nickname"
+    },
+    "minercommand.v1.MinerCommandService/StartMining": {
+      "command": "start"
+    },
+    "minercommand.v1.MinerCommandService/StopMining": {
+      "command": "stop"
+    },
+    "minercommand.v1.MinerCommandService/SetPowerTarget": {
+      "command": "set-power-target"
+    },
+    "minercommand.v1.MinerCommandService/UpdateMiningPools": {
+      "command": "update-pools"
+    },
+    "minercommand.v1.MinerCommandService/CheckCommandCapabilities": {
+      "command": "check-capabilities"
+    },
+    "minercommand.v1.MinerCommandService/SetCoolingMode": {
+      "command": "set-cooling-mode"
+    },
+    "minercommand.v1.MinerCommandService/FirmwareUpdate": {
+      "command": "firmware-update"
+    },
+    "minercommand.v1.MinerCommandService/UpdateMinerPassword": {
+      "command": "update-password"
+    }
+  },
+  "commands": [
+    {
+      "method": "/collection.v1.DeviceCollectionService/ListCollections",
+      "group": "groups",
+      "command": "list",
+      "usage": "List groups",
+      "fixed_fields": {
+        "type": "group"
+      },
+      "ignore_fields": ["type", "zones"]
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetCollection",
+      "group": "groups",
+      "command": "get",
+      "usage": "Get a group by id"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/CreateCollection",
+      "group": "groups",
+      "command": "create",
+      "usage": "Create a group",
+      "fixed_fields": {
+        "type": "group"
+      },
+      "ignore_fields": ["type"]
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/UpdateCollection",
+      "group": "groups",
+      "command": "update",
+      "usage": "Update a group"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/DeleteCollection",
+      "group": "groups",
+      "command": "delete",
+      "usage": "Delete a group"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/ListCollectionMembers",
+      "group": "groups",
+      "command": "members",
+      "usage": "List group members"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetDeviceCollections",
+      "group": "groups",
+      "command": "device",
+      "usage": "List groups for a device identifier",
+      "fixed_fields": {
+        "type": "group"
+      },
+      "ignore_fields": ["type"]
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetCollectionStats",
+      "group": "groups",
+      "command": "stats",
+      "usage": "Get aggregated stats for one or more groups"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/ListCollections",
+      "group": "racks",
+      "command": "list",
+      "usage": "List racks",
+      "fixed_fields": {
+        "type": "rack"
+      },
+      "ignore_fields": ["type"]
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetCollection",
+      "group": "racks",
+      "command": "get",
+      "usage": "Get a rack by id"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/SaveRack",
+      "group": "racks",
+      "command": "save",
+      "usage": "Create or update a rack"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/DeleteCollection",
+      "group": "racks",
+      "command": "delete",
+      "usage": "Delete a rack"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/ListCollectionMembers",
+      "group": "racks",
+      "command": "members",
+      "usage": "List rack members"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetRackSlots",
+      "group": "racks",
+      "command": "slots",
+      "usage": "List occupied rack slots"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/ListRackZones",
+      "group": "racks",
+      "command": "zones",
+      "usage": "List all rack zones"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/ListRackTypes",
+      "group": "racks",
+      "command": "types",
+      "usage": "List all rack layouts"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetDeviceCollections",
+      "group": "racks",
+      "command": "device",
+      "usage": "List racks for a device identifier",
+      "fixed_fields": {
+        "type": "rack"
+      },
+      "ignore_fields": ["type"]
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/GetCollectionStats",
+      "group": "racks",
+      "command": "stats",
+      "usage": "Get aggregated stats for one or more racks"
+    }
+  ]
+}
