@@ -141,7 +141,7 @@ func (f *fakeStore) UserCanIngestCurtailment(ctx context.Context, userID, orgID 
 	f.mu.Unlock()
 	if block {
 		<-ctx.Done()
-		return false, ctx.Err()
+		return false, fmt.Errorf("fake ingest permission check canceled: %w", ctx.Err())
 	}
 	if nonIngest {
 		return false, nil
