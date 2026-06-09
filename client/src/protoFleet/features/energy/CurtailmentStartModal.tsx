@@ -513,6 +513,7 @@ function CurtailmentStartModalContent({
 
   const hasBlockingValidationError =
     previewState.previewError !== undefined ||
+    previewState.isPreviewLoading ||
     Object.keys(localErrors).length > 0 ||
     Object.keys(errors ?? {}).length > 0;
   const hasEditableChanges = !isEditMode || hasEditableCurtailmentChanges(values, initialFormValues);

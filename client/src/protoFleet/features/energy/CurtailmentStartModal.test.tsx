@@ -420,6 +420,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getAllByText("Curtailment target reduction")).toHaveLength(2);
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Start curtailment" })).toBeDisabled();
     expect(screen.queryByLabelText("Loading curtailment preview")).not.toBeInTheDocument();
     expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
   });

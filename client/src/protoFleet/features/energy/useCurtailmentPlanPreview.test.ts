@@ -281,7 +281,7 @@ describe("useCurtailmentPlanPreview", () => {
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the previous preview visible with its request labels while a valid refresh is debounced", async () => {
+  it("hides the previous preview while a valid refresh is debounced", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse()).mockReturnValueOnce(new Promise(() => {}));
 
     const { result, rerender } = renderHook(
@@ -315,14 +315,49 @@ describe("useCurtailmentPlanPreview", () => {
       expect(result.current.isPreviewLoading).toBe(true);
     });
 
-    expect(result.current.preview).toEqual(
-      expect.objectContaining({
-        selectedMinerCount: 3,
-        scopeLabel: "across the fleet",
-        targetKw: 40,
-      }),
-    );
+    expect(result.current.preview).toBeUndefined();
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides fixed-kW previews immediately after switching to full-fleet mode", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse()).mockReturnValueOnce(new Promise(() => {}));
+
+    const { result, rerender } = renderHook(
+      ({ values, debounceMs }) =>
+        useCurtailmentPlanPreview({
+          open: true,
+          values,
+          debounceMs,
+        }),
+      {
+        initialProps: { values: baseValues, debounceMs: 0 },
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.preview).toEqual(expect.objectContaining({ targetKw: 40 }));
+    });
+
+    rerender({
+      values: {
+        ...baseValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        toleranceKw: "",
+      },
+      debounceMs: 1,
+    });
+
+    expect(result.current).toEqual({
+      preview: undefined,
+      previewError: undefined,
+      isPreviewLoading: true,
+    });
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("aborts in-flight previews when the request changes", async () => {

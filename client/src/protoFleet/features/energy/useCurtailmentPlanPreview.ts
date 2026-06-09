@@ -449,9 +449,10 @@ export function useCurtailmentPlanPreview({
     };
   }
 
-  const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
-  const renderableResponse = requestState !== undefined ? state.response : undefined;
   const hasCurrentResponse = requestState !== undefined && state.responseRequestKey === requestState.requestKey;
+  const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
+  const isCurrentPreviewLoading = requestState !== undefined && (!hasCurrentPreviewState || state.isPreviewLoading);
+  const renderableResponse = hasCurrentResponse ? state.response : undefined;
   const previewValues =
     hasCurrentResponse || state.responseRequestValues === undefined
       ? values
@@ -460,6 +461,6 @@ export function useCurtailmentPlanPreview({
   return {
     preview: renderableResponse !== undefined ? toCurtailmentPlanPreview(renderableResponse, previewValues) : undefined,
     previewError: hasCurrentPreviewState ? state.previewError : undefined,
-    isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
+    isPreviewLoading: isCurrentPreviewLoading,
   };
 }
