@@ -116,6 +116,7 @@ describe("useMqttCurtailmentSources", () => {
       health: "connected",
       hasPassword: true,
     });
+    expect(result.current.sources[0].lastSeen).toMatch(/:\d{2}:00(?:AM|PM)$/);
     expect(result.current.isLoading).toBe(false);
 
     await act(async () => {
@@ -127,6 +128,7 @@ describe("useMqttCurtailmentSources", () => {
       lastTarget: "100",
       health: "connected",
     });
+    expect(result.current.sources[0].lastSeen).toMatch(/:\d{2}:30(?:AM|PM)$/);
     expect(result.current.isLoading).toBe(false);
   });
 

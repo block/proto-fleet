@@ -3,6 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
 import type { CurtailmentSource } from "./types";
 
+import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
+
+const formatStorySignalUpdate = (isoString: string): string =>
+  formatTimestamp(isoToEpochSeconds(isoString), { includeSeconds: true });
+
 const storySources: CurtailmentSource[] = [
   {
     id: "site-alpha-mqtt",
@@ -18,7 +23,7 @@ const storySources: CurtailmentSource[] = [
     scope: "Site Alpha",
     curtailmentMode: "Curtail entire site",
     lastTarget: "0",
-    lastSeen: "38 seconds ago",
+    lastSeen: formatStorySignalUpdate("2026-06-09T15:10:00Z"),
     health: "connected",
     enabled: true,
   },
@@ -36,7 +41,7 @@ const storySources: CurtailmentSource[] = [
     scope: "Site Beta",
     curtailmentMode: "Curtail entire site",
     lastTarget: "100",
-    lastSeen: "24 seconds ago",
+    lastSeen: formatStorySignalUpdate("2026-06-09T15:10:30Z"),
     health: "connected",
     enabled: true,
   },
@@ -54,7 +59,7 @@ const storySources: CurtailmentSource[] = [
     scope: "Site Gamma",
     curtailmentMode: "Curtail entire site",
     lastTarget: "0",
-    lastSeen: "12 minutes ago",
+    lastSeen: formatStorySignalUpdate("2026-06-09T14:58:00Z"),
     health: "noSignal",
     enabled: true,
   },

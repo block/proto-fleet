@@ -1,12 +1,16 @@
 export const isoToEpochSeconds = (isoString: string): number => Math.floor(new Date(isoString).getTime() / 1000);
 
+type FormatTimestampOptions = {
+  includeSeconds?: boolean;
+};
+
 /**
- * Format timestamp as "M/D/YY at h:mmA"
+ * Format timestamp as "M/D/YY at h:mmA" or "M/D/YY at h:mm:ssA"
  *
  * @param timestamp - Unix timestamp in seconds
  * @returns Formatted date string or empty string if no timestamp
  */
-export const formatTimestamp = (timestamp?: number): string => {
+export const formatTimestamp = (timestamp?: number, options: FormatTimestampOptions = {}): string => {
   if (!timestamp) return "";
 
   const date = new Date(timestamp * 1000);
@@ -17,10 +21,12 @@ export const formatTimestamp = (timestamp?: number): string => {
 
   let hours = date.getHours();
   const minutes = date.getMinutes().toString().padStart(2, "0");
+  const seconds = date.getSeconds().toString().padStart(2, "0");
   const ampm = hours >= 12 ? "PM" : "AM";
   hours = hours % 12 || 12;
 
-  return `${month}/${day}/${year} at ${hours}:${minutes}${ampm}`;
+  const secondsSegment = options.includeSeconds ? `:${seconds}` : "";
+  return `${month}/${day}/${year} at ${hours}:${minutes}${secondsSegment}${ampm}`;
 };
 
 /**
