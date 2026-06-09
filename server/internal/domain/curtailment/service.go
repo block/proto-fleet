@@ -293,6 +293,15 @@ type ListEventsRequest struct {
 	StateFilters []models.EventState
 }
 
+// GetEventWithTargetsRequest is the service-level shape for an expanded
+// curtailment activity. TargetPageToken is empty for the first target page.
+type GetEventWithTargetsRequest struct {
+	OrgID           int64
+	EventUUID       uuid.UUID
+	TargetPageSize  int32
+	TargetPageToken string
+}
+
 // UpdateRequest is the service-level shape of an UpdateCurtailmentEvent
 // call. Pointer fields use "nil = preserve, non-nil = write" semantics.
 // CanUseAdminControls gates restore_batch_interval_sec above the
@@ -491,8 +500,9 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	return updated, nil
 }
 
-// emitStartAuditTrail emits curtailment_started plus one row per
-// override (allow_unbounded, force_include_maintenance). Best-effort:
+// emitStartAuditTrail emits one curtailment_started row. Override flags ride
+// on metadata so one curtailment cycle appears as one expandable activity row.
+// Best-effort:
 // a transient audit failure increments IncAuditWriteFailure but doesn't
 // roll back the committed Start.
 func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, plan *Plan) {
@@ -534,11 +544,15 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 
 	actorType := mapSourceActorTypeToActivity(req.SourceActorType)
 	emit := func(eventType, description string) {
+		scopeType := string(req.Scope.Type)
+		scopeCount := len(plan.Selected)
 		event := activitymodels.Event{
 			Category:    activitymodels.CategoryCurtailment,
 			Type:        eventType,
 			Description: description,
 			Result:      activitymodels.ResultSuccess,
+			ScopeType:   &scopeType,
+			ScopeCount:  &scopeCount,
 			Metadata:    metadata,
 			ActorType:   actorType,
 		}
@@ -551,12 +565,6 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 	}
 
 	emit(ActivityTypeStarted, "Curtailment event started")
-	if req.AllowUnbounded {
-		emit(ActivityTypeStartedUnbounded, "Curtailment event started with allow_unbounded override")
-	}
-	if req.ForceIncludeMaintenance {
-		emit(ActivityTypeStartedForceMaintenance, "Curtailment event started with force_include_maintenance override")
-	}
 }
 
 // emitAdminTerminateAuditTrail emits AdminTerminated when transitioned=true
@@ -782,6 +790,41 @@ func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*mod
 		PageToken:    req.PageToken,
 		StateFilters: req.StateFilters,
 	})
+}
+
+// GetEventWithTargets returns a single historical or active event with a page
+// of durable target phase summaries. ListEvents intentionally omits this heavy
+// payload; activity detail views fetch it by event_uuid.
+func (s *Service) GetEventWithTargets(ctx context.Context, req GetEventWithTargetsRequest) (*models.Event, []*models.Target, string, error) {
+	if req.OrgID <= 0 {
+		return nil, nil, "", fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return nil, nil, "", fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	if req.TargetPageSize < 0 {
+		return nil, nil, "", fleeterror.NewInvalidArgumentErrorf(
+			"target_page_size must be >= 0, got %d", req.TargetPageSize,
+		)
+	}
+	event, err := s.store.GetEventDetailByUUID(ctx, req.OrgID, req.EventUUID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	event.TargetRollup, err = s.store.GetTargetRollupByEvent(ctx, req.OrgID, req.EventUUID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	targets, nextToken, err := s.store.ListTargetsByEventPage(ctx, interfaces.ListTargetsByEventPageParams{
+		OrgID:     req.OrgID,
+		EventUUID: req.EventUUID,
+		PageSize:  req.TargetPageSize,
+		PageToken: req.TargetPageToken,
+	})
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return event, targets, nextToken, nil
 }
 
 func (s *Service) GetActiveWithTargets(ctx context.Context, orgID int64) (*models.Event, []*models.Target, error) {

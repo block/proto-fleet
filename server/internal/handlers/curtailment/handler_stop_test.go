@@ -58,6 +58,9 @@ func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) 
 	}
 	return s.event, nil
 }
+func (s *stopStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("GetEventDetailByUUID not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetActiveEvent(_ context.Context, _ int64) (*models.Event, error) {
 	if s.getActiveErr != nil {
 		return nil, s.getActiveErr
@@ -72,6 +75,12 @@ func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([
 		return nil, s.listTargetsErr
 	}
 	return s.targets, nil
+}
+func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	panic("ListTargetsByEventPage not exercised by Stop handler tests")
+}
+func (s *stopStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
+	panic("GetTargetRollupByEvent not exercised by Stop handler tests")
 }
 func (s *stopStubStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
 	panic("ListEvents not exercised by Stop handler tests")

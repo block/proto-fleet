@@ -315,6 +315,16 @@ func lenToInt32Saturating(n int) int32 {
 	return int32(n) // #nosec G115 -- bounds-checked above
 }
 
+func int64ToInt32Saturating(n int64) int32 {
+	if n < 0 {
+		return 0
+	}
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(n) // #nosec G115 -- bounds-checked above
+}
+
 // effectiveMaxDurationSeconds prefers the persisted value (Service.Start
 // resolves "use org default") so the response reflects the resolved cap;
 // nil → allow_unbounded → 0.
@@ -706,6 +716,7 @@ func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.
 	populateEventModeParams(out, event)
 	populateEventDecisionSnapshot(out, event)
 	populateEventTargets(out, targets)
+	populateEventTargetRollup(out, event)
 	return out
 }
 
@@ -771,29 +782,49 @@ func populateEventDecisionSnapshot(out *pb.CurtailmentEvent, event *models.Event
 
 func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
 	out.Targets = make([]*pb.CurtailmentTarget, 0, len(targets))
-	rollup := &pb.CurtailmentTargetRollup{}
+	pageRollup := &models.TargetRollup{}
 	for _, target := range targets {
 		out.Targets = append(out.Targets, toTargetProto(target))
 		switch target.State {
 		case models.TargetStatePending:
-			rollup.Pending++
+			pageRollup.Pending++
 		case models.TargetStateDispatching, models.TargetStateDispatched:
 			// Operator rollups conflate the pre-command transient with DISPATCHED.
-			rollup.Dispatched++
+			pageRollup.Dispatched++
 		case models.TargetStateConfirmed:
-			rollup.Confirmed++
+			pageRollup.Confirmed++
 		case models.TargetStateDrifted:
-			rollup.Drifted++
+			pageRollup.Drifted++
 		case models.TargetStateResolved:
-			rollup.Resolved++
+			pageRollup.Resolved++
 		case models.TargetStateReleased:
-			rollup.Released++
+			pageRollup.Released++
 		case models.TargetStateRestoreFailed:
-			rollup.RestoreFailed++
+			pageRollup.RestoreFailed++
 		}
 	}
-	rollup.Total = lenToInt32Saturating(len(targets))
-	out.TargetRollup = rollup
+	pageRollup.Total = int64(len(targets))
+	out.TargetRollup = targetRollupProto(pageRollup)
+}
+
+func populateEventTargetRollup(out *pb.CurtailmentEvent, event *models.Event) {
+	if event.TargetRollup == nil {
+		return
+	}
+	out.TargetRollup = targetRollupProto(event.TargetRollup)
+}
+
+func targetRollupProto(rollup *models.TargetRollup) *pb.CurtailmentTargetRollup {
+	return &pb.CurtailmentTargetRollup{
+		Pending:       int64ToInt32Saturating(rollup.Pending),
+		Dispatched:    int64ToInt32Saturating(rollup.Dispatched),
+		Confirmed:     int64ToInt32Saturating(rollup.Confirmed),
+		Drifted:       int64ToInt32Saturating(rollup.Drifted),
+		Resolved:      int64ToInt32Saturating(rollup.Resolved),
+		Released:      int64ToInt32Saturating(rollup.Released),
+		RestoreFailed: int64ToInt32Saturating(rollup.RestoreFailed),
+		Total:         int64ToInt32Saturating(rollup.Total),
+	}
 }
 
 func toTargetProto(target *models.Target) *pb.CurtailmentTarget {
@@ -833,6 +864,40 @@ func toTargetProto(target *models.Target) *pb.CurtailmentTarget {
 	}
 	if target.LastError != nil {
 		out.LastError = *target.LastError
+	}
+	if phase := toTargetPhaseSummaryProto(target.CurtailPhase); phase != nil {
+		out.CurtailPhase = phase
+	}
+	if target.RestorePhase != nil {
+		out.RestorePhase = toTargetPhaseSummaryProto(*target.RestorePhase)
+	}
+	return out
+}
+
+func toTargetPhaseSummaryProto(summary models.TargetPhaseSummary) *pb.CurtailmentTargetPhaseSummary {
+	if summary.Phase == "" && summary.State == "" {
+		return nil
+	}
+	out := &pb.CurtailmentTargetPhaseSummary{
+		Phase:        targetPhaseProto(summary.Phase),
+		State:        targetStateProto(summary.State),
+		RetryCount:   uint32Saturating(summary.RetryCount),
+		FailureCount: uint32Saturating(summary.FailureCount),
+	}
+	if summary.StartedAt != nil {
+		out.StartedAt = timestamppb.New(*summary.StartedAt)
+	}
+	if summary.DispatchedAt != nil {
+		out.DispatchedAt = timestamppb.New(*summary.DispatchedAt)
+	}
+	if summary.BatchUUID != nil {
+		out.BatchUuid = *summary.BatchUUID
+	}
+	if summary.CompletedAt != nil {
+		out.CompletedAt = timestamppb.New(*summary.CompletedAt)
+	}
+	if summary.LastError != nil {
+		out.LastError = *summary.LastError
 	}
 	return out
 }
@@ -939,6 +1004,16 @@ func desiredStateProto(s string) pb.CurtailmentTargetDesiredState {
 		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE
 	}
 	return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED
+}
+
+func targetPhaseProto(s models.TargetPhase) pb.CurtailmentTargetPhase {
+	switch s {
+	case models.TargetPhaseCurtail:
+		return pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_CURTAIL
+	case models.TargetPhaseRestore:
+		return pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_RESTORE
+	}
+	return pb.CurtailmentTargetPhase_CURTAILMENT_TARGET_PHASE_UNSPECIFIED
 }
 
 func modeProto(m models.Mode) pb.CurtailmentMode {

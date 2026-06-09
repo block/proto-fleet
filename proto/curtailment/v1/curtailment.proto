@@ -41,6 +41,10 @@ service CurtailmentService {
     rpc ListCurtailmentEvents(ListCurtailmentEventsRequest)
         returns (ListCurtailmentEventsResponse);
 
+    // Get one historical or active event with full per-target cycle detail.
+    rpc GetCurtailmentEvent(GetCurtailmentEventRequest)
+        returns (GetCurtailmentEventResponse);
+
     // Admin recovery RPC: force a non-terminal event to a terminal state.
     // Session-only, Admin role; reason required (min_len=1, max_len=256).
     //
@@ -165,6 +169,13 @@ enum CurtailmentTargetDesiredState {
     CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED = 0;
     CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED   = 1;
     CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE      = 2;
+}
+
+// CurtailmentTargetPhase identifies a durable per-target phase summary.
+enum CurtailmentTargetPhase {
+    CURTAILMENT_TARGET_PHASE_UNSPECIFIED = 0;
+    CURTAILMENT_TARGET_PHASE_CURTAIL     = 1;
+    CURTAILMENT_TARGET_PHASE_RESTORE     = 2;
 }
 
 // --- Scope wrappers ---
@@ -310,6 +321,28 @@ message CurtailmentTarget {
 
     uint32 retry_count = 13;
     string last_error  = 14;
+
+    // Durable phase summaries preserve the curtail and restore outcomes even
+    // when the rolling state/cursor fields above are reset between phases.
+    CurtailmentTargetPhaseSummary curtail_phase = 20;
+    CurtailmentTargetPhaseSummary restore_phase = 21;
+}
+
+// CurtailmentTargetPhaseSummary is the compact per-miner cycle record used by
+// historical detail views. failure_count counts dispatch/confirm failures for
+// the phase; last_error is retained even if a later retry succeeds.
+message CurtailmentTargetPhaseSummary {
+    CurtailmentTargetPhase phase = 1;
+    CurtailmentTargetState state = 2;
+
+    google.protobuf.Timestamp started_at    = 3;
+    google.protobuf.Timestamp dispatched_at = 4;
+    string                    batch_uuid    = 5;
+    google.protobuf.Timestamp completed_at  = 6;
+
+    uint32 retry_count   = 7;
+    uint32 failure_count = 8;
+    string last_error    = 9;
 }
 
 // CurtailmentCandidate is one selected preview candidate.
@@ -545,7 +578,7 @@ message GetActiveCurtailmentResponse {
 // ListActiveCurtailments returns every non-terminal event for the caller's
 // org. Multiple can be active when they target disjoint device scopes (e.g.
 // one per site). Each event carries its metadata, scope, and mode params but
-// omits per-device targets and the decision snapshot; use GetActiveCurtailment
+// omits per-device targets and the decision snapshot; use GetCurtailmentEvent
 // for full per-target detail.
 message ListActiveCurtailmentsRequest {}
 
@@ -559,7 +592,7 @@ message ListActiveCurtailmentsResponse {
 // (`external_source`, `external_reference`, `idempotency_key`), and
 // ships a trimmed `decision_snapshot` where the per-device `skipped`
 // array is collapsed into `skipped_aggregate` (reason → count). Use
-// GetActiveCurtailment for the full per-target shape and untrimmed
+// GetCurtailmentEvent for the full per-target shape and untrimmed
 // trigger attribution.
 message ListCurtailmentEventsRequest {
     int32 page_size = 1 [(buf.validate.field).int32 = {
@@ -588,6 +621,28 @@ message ListCurtailmentEventsResponse {
 
     // Empty when no further pages remain.
     string next_page_token = 2;
+}
+
+message GetCurtailmentEventRequest {
+    string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
+
+    // Number of targets to return in event.targets. Zero uses the server
+    // default; capped to keep large fleet activity expansion responsive.
+    int32 target_page_size = 2 [(buf.validate.field).int32 = {
+        gte: 0
+        lte: 1000
+    }];
+
+    // Opaque target cursor; empty for first page. Reuse with the same
+    // event_uuid only.
+    string target_page_token = 3 [(buf.validate.field).string.max_len = 1024];
+}
+
+message GetCurtailmentEventResponse {
+    CurtailmentEvent event = 1;
+
+    // Empty when all targets for this event have been returned.
+    string next_target_page_token = 2;
 }
 
 message AdminTerminateEventRequest {

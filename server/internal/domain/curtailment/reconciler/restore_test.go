@@ -205,6 +205,7 @@ func TestReconciler_Restoring_ClaimDispatchesUncurtailBatch(t *testing.T) {
 	require.Equal(t, 1, disp.uncurtailCalls,
 		"one Uncurtail call must cover the whole batch (shared batch_uuid)")
 	assert.ElementsMatch(t, []string{"m1", "m2"}, disp.uncurtailLastIDs)
+	assert.True(t, disp.uncurtailLastSuppressed, "curtailment-owned restore batches must suppress command activity")
 	// Both targets transition to dispatched.
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][1].State)

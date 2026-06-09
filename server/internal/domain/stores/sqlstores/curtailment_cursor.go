@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"slices"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -92,5 +94,51 @@ func decodeCurtailmentEventCursor(encoded string) (*curtailmentEventCursor, erro
 		cursor.StateFilters = []models.EventState{cursor.StateFilter}
 	}
 	cursor.StateFilters = normalizeCurtailmentEventStateFilters(cursor.StateFilters)
+	return &cursor, nil
+}
+
+// curtailmentTargetCursor carries pagination state for targets inside one
+// event. It is bound to org/event so a token cannot silently skip targets when
+// reused against a different expanded activity.
+type curtailmentTargetCursor struct {
+	OrgID            int64     `json:"org_id"`
+	EventUUID        uuid.UUID `json:"event_uuid"`
+	DeviceIdentifier string    `json:"device_identifier"`
+}
+
+func encodeCurtailmentTargetCursor(c *curtailmentTargetCursor) string {
+	if c == nil {
+		return ""
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		slog.Error("failed to encode curtailment target cursor",
+			"error", err, "org_id", c.OrgID, "event_uuid", c.EventUUID)
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+func decodeCurtailmentTargetCursor(encoded string) (*curtailmentTargetCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid target_page_token encoding: %v", err)
+	}
+	var cursor curtailmentTargetCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid target_page_token format: %v", err)
+	}
+	if cursor.OrgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid target_page_token: org_id must be > 0, got %d", cursor.OrgID)
+	}
+	if cursor.EventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid target_page_token: event_uuid must be set")
+	}
+	if cursor.DeviceIdentifier == "" {
+		return nil, fleeterror.NewInvalidArgumentError("invalid target_page_token: device_identifier must be set")
+	}
 	return &cursor, nil
 }

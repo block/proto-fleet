@@ -73,6 +73,9 @@ func (s *adminTerminateStubStore) InsertEventWithTargets(context.Context, models
 func (s *adminTerminateStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("GetEventDetailByUUID not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised by AdminTerminate handler tests")
 }
@@ -81,6 +84,12 @@ func (s *adminTerminateStubStore) ListActiveEvents(context.Context, int64) ([]*m
 }
 func (s *adminTerminateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	return s.targets, s.targetsErr
+}
+func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	panic("ListTargetsByEventPage not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
+	panic("GetTargetRollupByEvent not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by AdminTerminate handler tests")

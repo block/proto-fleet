@@ -304,25 +304,54 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// Liveness check; per-target race-closure happens in dispatchOneCurtail.
+	// Liveness check; per-target race-closure happens in dispatchCurtailBatch.
 	// DISPATCHING is included alongside PENDING because ticks are serial,
 	// so any DISPATCHING seen here is from an interrupted prior tick — safe
 	// to redispatch (Curtail is device-idempotent).
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
-	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
-	for _, t := range targets {
-		if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
-			continue
-		}
-		r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStatePending)
-	}
+	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 
 	// Confirm just-dispatched targets via current telemetry before deciding
 	// whether the event itself can flip to active.
 	r.confirmDispatched(ctx, ev, targets)
 	r.maybeMarkActive(ctx, ev, targets)
+}
+
+// dispatchPendingCurtailBatches drains pending-event Curtail work in bounded
+// command batches. Orphaned DISPATCHING rows from an interrupted prior tick
+// are recovered before fresh PENDING rows, but unlike restore we do not pace
+// Curtail across reconciler intervals: an OFF signal should enqueue all
+// selected devices on a best-effort basis as quickly as the command queue can
+// accept bounded batches.
+func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
+	batchSize := batchSizeForEvent(ev)
+	dispatchByState := func(state models.TargetState) bool {
+		claim := make([]*models.Target, 0, batchSize)
+		for _, t := range targets {
+			if t.State != state {
+				continue
+			}
+			claim = append(claim, t)
+			if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
+				if !r.dispatchCurtailBatch(ctx, ev, claim, state) {
+					return false
+				}
+				claim = make([]*models.Target, 0, batchSize)
+			}
+		}
+		if len(claim) == 0 {
+			return true
+		}
+		return r.dispatchCurtailBatch(ctx, ev, claim, state)
+	}
+
+	if !dispatchByState(models.TargetStateDispatching) {
+		return
+	}
+	_ = dispatchByState(models.TargetStatePending)
 }
 
 // confirmDispatched promotes Dispatched → Confirmed when telemetry
@@ -364,80 +393,132 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // target in DISPATCHING; the next tick redispatches via
 // nonTerminalFailureState (Curtail is device-idempotent).
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
+	_ = r.dispatchCurtailBatch(ctx, ev, []*models.Target{t}, nonTerminalFailureState)
+}
+
+// dispatchCurtailBatch issues one Curtail command for every device in claim and
+// records per-target dispatched/skipped/failed outcomes.
+func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState) bool {
+	if len(claim) == 0 {
+		return true
+	}
+	if !r.eventStillDispatchable(ctx, ev) {
+		return false
+	}
 	// last_dispatched_at is *not* stamped here — only successful enqueues
 	// advance it (used by the restore-batch interval gate).
-	dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
-		State: models.TargetStateDispatching,
-	}
-	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
-		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			return
+	dispatchSet := make([]*models.Target, 0, len(claim))
+	for _, t := range claim {
+		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
+			State: models.TargetStateDispatching,
 		}
-		slog.Error("curtailment reconciler: dispatching pre-write failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-		// Symmetric to dispatchRestoreBatch: burn one retry slot so a
-		// row-specific persistent write failure escalates to terminal
-		// after MaxRetries instead of stalling the event indefinitely.
-		r.recordDispatchFailure(ctx, ev, t, err.Error(), nonTerminalFailureState)
-		return
+		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
+			if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				return false
+			}
+			slog.Error("curtailment reconciler: dispatching pre-write failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			// Symmetric to dispatchRestoreBatch: burn one retry slot so a
+			// row-specific persistent write failure escalates to terminal
+			// after MaxRetries instead of stalling the event indefinitely.
+			r.recordDispatchFailure(ctx, ev, t, err.Error(), nonTerminalFailureState)
+			continue
+		}
+		t.State = models.TargetStateDispatching
+		dispatchSet = append(dispatchSet, t)
 	}
-	t.State = models.TargetStateDispatching
+	if len(dispatchSet) == 0 {
+		return true
+	}
 
+	deviceIDs := make([]string, 0, len(dispatchSet))
+	for _, t := range dispatchSet {
+		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
+	}
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{
-				DeviceIdentifiers: []string{t.DeviceIdentifier},
+				DeviceIdentifiers: deviceIDs,
 			},
 		},
 	}
 	result, dispatchErr := r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
-		slog.Error("curtailment reconciler: dispatch failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", dispatchErr)
-		r.recordDispatchFailure(ctx, ev, t, errMsg, nonTerminalFailureState)
-		return
+		slog.Error("curtailment reconciler: curtail batch dispatch failed",
+			"event_id", ev.ID, "batch_size", len(dispatchSet), "error", dispatchErr)
+		for _, t := range dispatchSet {
+			r.recordDispatchFailure(ctx, ev, t, errMsg, nonTerminalFailureState)
+		}
+		return true
 	}
-	if skipReason, skipped := skipReasonForDevice(result, t.DeviceIdentifier); skipped {
-		slog.Warn("curtailment reconciler: dispatch filter-skipped",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", skipReason)
-		r.recordDispatchFailure(ctx, ev, t, skipReason, nonTerminalFailureState)
-		return
+
+	skippedSet := make(map[string]string)
+	if result != nil {
+		skippedSet = make(map[string]string, len(result.Skipped))
+		for _, s := range result.Skipped {
+			skippedSet[s.DeviceIdentifier] = skippedDeviceReason(s)
+		}
 	}
-	// Empty BatchIdentifier = no device resolved (unpaired / deleted).
 	if result == nil || result.BatchIdentifier == "" {
 		const reason = "command produced no batch (no live devices to dispatch)"
-		slog.Warn("curtailment reconciler: dispatch produced empty batch",
-			"event_id", ev.ID, "device", t.DeviceIdentifier)
-		r.recordDispatchFailure(ctx, ev, t, reason, nonTerminalFailureState)
-		return
+		slog.Warn("curtailment reconciler: curtail batch produced empty result",
+			"event_id", ev.ID, "batch_size", len(dispatchSet))
+		for _, t := range dispatchSet {
+			if skipReason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
+				r.recordDispatchFailure(ctx, ev, t, skipReason, nonTerminalFailureState)
+				continue
+			}
+			r.recordDispatchFailure(ctx, ev, t, reason, nonTerminalFailureState)
+		}
+		return true
+	}
+	dispatchedSet := make(map[string]struct{}, len(result.DispatchedDeviceIdentifiers))
+	for _, deviceID := range result.DispatchedDeviceIdentifiers {
+		dispatchedSet[deviceID] = struct{}{}
 	}
 
 	now := r.now()
 	emptyErr := ""
 	batchID := result.BatchIdentifier
-	// Explicit dispatch direction at the call site; writeTargetState's
-	// auto-fill would derive the same value from ev.State.
 	desiredCurtailed := models.DesiredStateCurtailed
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:                models.TargetStateDispatched,
-		LastDispatchedAt:     &now,
-		LastError:            &emptyErr,
-		LastBatchUUID:        &batchID,
-		ExpectedDesiredState: &desiredCurtailed,
-	}
-	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: target dispatch update failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	for _, t := range dispatchSet {
+		if skipReason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
+			slog.Warn("curtailment reconciler: dispatch filter-skipped",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", skipReason)
+			r.recordDispatchFailure(ctx, ev, t, skipReason, nonTerminalFailureState)
+			continue
 		}
-		return
+		if _, dispatched := dispatchedSet[t.DeviceIdentifier]; !dispatched {
+			const reason = "curtail command did not enqueue device"
+			slog.Warn("curtailment reconciler: curtail device not dispatched",
+				"event_id", ev.ID, "device", t.DeviceIdentifier)
+			r.recordDispatchFailure(ctx, ev, t, reason, nonTerminalFailureState)
+			continue
+		}
+		// Explicit dispatch direction at the call site; writeTargetState's
+		// auto-fill would derive the same value from ev.State.
+		params := interfaces.UpdateCurtailmentTargetStateParams{
+			State:                models.TargetStateDispatched,
+			LastDispatchedAt:     &now,
+			LastError:            &emptyErr,
+			LastBatchUUID:        &batchID,
+			ExpectedDesiredState: &desiredCurtailed,
+		}
+		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: target dispatch update failed",
+					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			}
+			continue
+		}
+		// Mirror to the in-memory row for this tick's downstream phases.
+		t.State = models.TargetStateDispatched
+		t.LastDispatchedAt = &now
+		t.LastError = nil
+		t.LastBatchUUID = &batchID
 	}
-	// Mirror to the in-memory row for this tick's downstream phases.
-	t.State = models.TargetStateDispatched
-	t.LastDispatchedAt = &now
-	t.LastError = nil
-	t.LastBatchUUID = &batchID
+	return true
 }
 
 // recordDispatchFailure bumps retry_count; transitions to RestoreFailed
@@ -506,20 +587,6 @@ func skippedDeviceReason(s command.SkippedDevice) string {
 	}
 }
 
-// skipReasonForDevice returns the rendered skip reason for deviceID, or
-// ("", false) when the device was not in result.Skipped.
-func skipReasonForDevice(result *command.CommandResult, deviceID string) (string, bool) {
-	if result == nil {
-		return "", false
-	}
-	for _, s := range result.Skipped {
-		if s.DeviceIdentifier == deviceID {
-			return skippedDeviceReason(s), true
-		}
-	}
-	return "", false
-}
-
 // observeActive checks drift on confirmed targets and re-dispatches drifted
 // targets up to MaxRetries. ListCandidates over-fetches columns the drift
 // check ignores; acceptable at the per-tick fanout scale.
@@ -554,7 +621,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
-	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
@@ -802,6 +869,18 @@ func reconcilerContext(parent context.Context, orgID int64, userID int64) contex
 		Username:       reconcilerActorName,
 		Actor:          session.ActorCurtailment,
 	})
+}
+
+func reconcilerCommandContext(parent context.Context, orgID int64, userID int64) context.Context {
+	return command.WithCommandActivitySuppressed(reconcilerContext(parent, orgID, userID))
+}
+
+func batchSizeForEvent(ev *models.Event) int32 {
+	batchSize := int32(1)
+	if ev != nil && ev.EffectiveBatchSize != nil && *ev.EffectiveBatchSize > 0 {
+		batchSize = *ev.EffectiveBatchSize
+	}
+	return batchSize
 }
 
 // isCurtailed decides whether telemetry shows the target is curtailed.
@@ -1130,7 +1209,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	for _, t := range dispatchSet {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
 	}
-	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{

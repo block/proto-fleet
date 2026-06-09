@@ -55,6 +55,9 @@ const (
 	// CurtailmentServiceListCurtailmentEventsProcedure is the fully-qualified name of the
 	// CurtailmentService's ListCurtailmentEvents RPC.
 	CurtailmentServiceListCurtailmentEventsProcedure = "/curtailment.v1.CurtailmentService/ListCurtailmentEvents"
+	// CurtailmentServiceGetCurtailmentEventProcedure is the fully-qualified name of the
+	// CurtailmentService's GetCurtailmentEvent RPC.
+	CurtailmentServiceGetCurtailmentEventProcedure = "/curtailment.v1.CurtailmentService/GetCurtailmentEvent"
 	// CurtailmentServiceAdminTerminateEventProcedure is the fully-qualified name of the
 	// CurtailmentService's AdminTerminateEvent RPC.
 	CurtailmentServiceAdminTerminateEventProcedure = "/curtailment.v1.CurtailmentService/AdminTerminateEvent"
@@ -84,6 +87,8 @@ type CurtailmentServiceClient interface {
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
+	// Get one historical or active event with full per-target cycle detail.
+	GetCurtailmentEvent(context.Context, *connect.Request[v1.GetCurtailmentEventRequest]) (*connect.Response[v1.GetCurtailmentEventResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
 	// Session-only, Admin role; reason required (min_len=1, max_len=256).
 	//
@@ -153,6 +158,11 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceListCurtailmentEventsProcedure,
 			opts...,
 		),
+		getCurtailmentEvent: connect.NewClient[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse](
+			httpClient,
+			baseURL+CurtailmentServiceGetCurtailmentEventProcedure,
+			opts...,
+		),
 		adminTerminateEvent: connect.NewClient[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse](
 			httpClient,
 			baseURL+CurtailmentServiceAdminTerminateEventProcedure,
@@ -175,6 +185,7 @@ type curtailmentServiceClient struct {
 	getActiveCurtailment    *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
 	listActiveCurtailments  *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
 	listCurtailmentEvents   *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
+	getCurtailmentEvent     *connect.Client[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse]
 	adminTerminateEvent     *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
 	ingestCurtailmentSignal *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
 }
@@ -214,6 +225,11 @@ func (c *curtailmentServiceClient) ListCurtailmentEvents(ctx context.Context, re
 	return c.listCurtailmentEvents.CallUnary(ctx, req)
 }
 
+// GetCurtailmentEvent calls curtailment.v1.CurtailmentService.GetCurtailmentEvent.
+func (c *curtailmentServiceClient) GetCurtailmentEvent(ctx context.Context, req *connect.Request[v1.GetCurtailmentEventRequest]) (*connect.Response[v1.GetCurtailmentEventResponse], error) {
+	return c.getCurtailmentEvent.CallUnary(ctx, req)
+}
+
 // AdminTerminateEvent calls curtailment.v1.CurtailmentService.AdminTerminateEvent.
 func (c *curtailmentServiceClient) AdminTerminateEvent(ctx context.Context, req *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {
 	return c.adminTerminateEvent.CallUnary(ctx, req)
@@ -245,6 +261,8 @@ type CurtailmentServiceHandler interface {
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
+	// Get one historical or active event with full per-target cycle detail.
+	GetCurtailmentEvent(context.Context, *connect.Request[v1.GetCurtailmentEventRequest]) (*connect.Response[v1.GetCurtailmentEventResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
 	// Session-only, Admin role; reason required (min_len=1, max_len=256).
 	//
@@ -310,6 +328,11 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.ListCurtailmentEvents,
 		opts...,
 	)
+	curtailmentServiceGetCurtailmentEventHandler := connect.NewUnaryHandler(
+		CurtailmentServiceGetCurtailmentEventProcedure,
+		svc.GetCurtailmentEvent,
+		opts...,
+	)
 	curtailmentServiceAdminTerminateEventHandler := connect.NewUnaryHandler(
 		CurtailmentServiceAdminTerminateEventProcedure,
 		svc.AdminTerminateEvent,
@@ -336,6 +359,8 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceListActiveCurtailmentsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListCurtailmentEventsProcedure:
 			curtailmentServiceListCurtailmentEventsHandler.ServeHTTP(w, r)
+		case CurtailmentServiceGetCurtailmentEventProcedure:
+			curtailmentServiceGetCurtailmentEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceAdminTerminateEventProcedure:
 			curtailmentServiceAdminTerminateEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceIngestCurtailmentSignalProcedure:
@@ -375,6 +400,10 @@ func (UnimplementedCurtailmentServiceHandler) ListActiveCurtailments(context.Con
 
 func (UnimplementedCurtailmentServiceHandler) ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListCurtailmentEvents is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) GetCurtailmentEvent(context.Context, *connect.Request[v1.GetCurtailmentEventRequest]) (*connect.Response[v1.GetCurtailmentEventResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetCurtailmentEvent is not implemented"))
 }
 
 func (UnimplementedCurtailmentServiceHandler) AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error) {

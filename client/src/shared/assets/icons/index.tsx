@@ -7,6 +7,7 @@ import ArrowUp from "./ArrowUp";
 import Asic from "./Asic";
 import BankAccount from "./BankAccount";
 import Bitcoin from "./Bitcoin";
+import Building from "./Building";
 import C1Chip from "./C1Chip";
 import Calendar from "./Calendar";
 import Checkmark from "./Checkmark";
@@ -92,6 +93,7 @@ export {
   Asic,
   BankAccount,
   Bitcoin,
+  Building,
   C1Chip,
   Calendar,
   Checkmark,

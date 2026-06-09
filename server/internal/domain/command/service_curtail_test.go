@@ -60,6 +60,11 @@ func (f *fakeMessageQueue) MaxFailureRetries() int32 { return 0 }
 // newCurtailDispatchService builds a Service wired against in-memory test
 // doubles: stub DB-batch-save, no-op status routine, and a recording queue.
 func newCurtailDispatchService(t *testing.T) (*Service, *fakeMessageQueue) {
+	svc, q, _ := newCurtailDispatchServiceWithActivityStore(t)
+	return svc, q
+}
+
+func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMessageQueue, *recordingActivityStore) {
 	t.Helper()
 	q := &fakeMessageQueue{}
 	store := &recordingActivityStore{}
@@ -81,7 +86,7 @@ func newCurtailDispatchService(t *testing.T) (*Service, *fakeMessageQueue) {
 		return "test-batch-uuid", nil
 	}
 	svc.startStatusUpdateRoutineOverride = func(string, onFinishedCallbackFunc) {}
-	return svc, q
+	return svc, q, store
 }
 
 func TestCurtail_HappyPath_QueueReceivesCommand(t *testing.T) {
@@ -154,4 +159,33 @@ func TestUncurtail_DispatchedIdentifiersOnlyIncludeResolvedDevices(t *testing.T)
 	assert.Equal(t, 1, result.DispatchedCount)
 	assert.Equal(t, []string{"miner-2"}, result.DispatchedDeviceIdentifiers)
 	assert.Equal(t, []int64{202}, q.lastDeviceIDs)
+}
+
+func TestCurtail_ManualDispatchLogsCommandActivity(t *testing.T) {
+	svc, _, store := newCurtailDispatchServiceWithActivityStore(t)
+
+	_, err := svc.Curtail(manualSessionCtx(1), includeSelector("miner-1"), sdk.CurtailLevelFull)
+	require.NoError(t, err)
+
+	ev := findActivity(t, store, "curtail")
+	assert.Equal(t, "Curtail", ev.Description)
+	require.NotNil(t, ev.ScopeCount)
+	assert.Equal(t, 1, *ev.ScopeCount)
+}
+
+func TestCurtail_SuppressedActivityContextSkipsCommandActivity(t *testing.T) {
+	svc, _, store := newCurtailDispatchServiceWithActivityStore(t)
+	statusRoutineCalls := 0
+	var callback onFinishedCallbackFunc
+	svc.startStatusUpdateRoutineOverride = func(_ string, cb onFinishedCallbackFunc) {
+		statusRoutineCalls++
+		callback = cb
+	}
+
+	_, err := svc.Curtail(WithCommandActivitySuppressed(manualSessionCtx(1)), includeSelector("miner-1"), sdk.CurtailLevelFull)
+	require.NoError(t, err)
+
+	assert.Empty(t, store.inserts, "suppressed curtailment-owned dispatch must not write command activity rows")
+	assert.Equal(t, 1, statusRoutineCalls, "batch tracking must still run when activity is suppressed")
+	assert.Nil(t, callback, "activity completion finalizer must be omitted when activity is suppressed")
 }

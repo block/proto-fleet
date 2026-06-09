@@ -192,7 +192,15 @@ func (q *Queries) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInse
 
 const bumpCurtailmentTargetRetry = `-- name: BumpCurtailmentTargetRetry :execrows
 UPDATE curtailment_target
-SET retry_count = retry_count + 1
+SET retry_count = retry_count + 1,
+    curtail_retry_count = CASE
+        WHEN desired_state = 'curtailed' THEN curtail_retry_count + 1
+        ELSE curtail_retry_count
+    END,
+    restore_retry_count = CASE
+        WHEN desired_state = 'active' THEN restore_retry_count + 1
+        ELSE restore_retry_count
+    END
 WHERE curtailment_event_id = $1
   AND device_identifier    = $2
   AND EXISTS (
@@ -535,6 +543,130 @@ func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailm
 	return i, err
 }
 
+const getCurtailmentEventDetailByUUID = `-- name: GetCurtailmentEventDetailByUUID :one
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    CASE
+        WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
+            jsonb_set(
+                decision_snapshot_jsonb - 'skipped',
+                '{skipped_aggregate}',
+                COALESCE(
+                    (
+                        SELECT jsonb_object_agg(reason, skipped_count)
+                        FROM (
+                            SELECT skipped_entry->>'reason' AS reason, count(*) AS skipped_count
+                            FROM jsonb_array_elements(decision_snapshot_jsonb->'skipped') AS skipped_entry
+                            WHERE skipped_entry->>'reason' <> ''
+                            GROUP BY skipped_entry->>'reason'
+                        ) skipped_counts
+                    ),
+                    '{}'::JSONB
+                ),
+                true
+            )
+        ELSE decision_snapshot_jsonb
+    END::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE event_uuid = $1
+    AND org_id = $2
+`
+
+type GetCurtailmentEventDetailByUUIDParams struct {
+	EventUuid uuid.UUID
+	OrgID     int64
+}
+
+type GetCurtailmentEventDetailByUUIDRow struct {
+	ID                      int64
+	EventUuid               uuid.UUID
+	OrgID                   int64
+	State                   string
+	Mode                    string
+	Strategy                string
+	Level                   string
+	Priority                string
+	LoopType                string
+	ScopeType               string
+	ScopeJsonb              json.RawMessage
+	ModeParamsJsonb         json.RawMessage
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	EffectiveBatchSize      sql.NullInt32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      sql.NullInt32
+	AllowUnbounded          bool
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	DecisionSnapshotJsonb   json.RawMessage
+	SourceActorType         string
+	SourceActorID           sql.NullString
+	ExternalSource          sql.NullString
+	ExternalReference       sql.NullString
+	IdempotencyKey          sql.NullString
+	SupersedesEventID       sql.NullInt64
+	Reason                  string
+	ScheduledStartAt        sql.NullTime
+	StartedAt               sql.NullTime
+	EndedAt                 sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	CreatedByUserID         int64
+}
+
+// Detail reads keep target rows paginated; collapse per-device skipped
+// candidates at the SQL boundary so a single large event cannot force a
+// fleet-sized JSON snapshot through the handler.
+func (q *Queries) GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCurtailmentEventDetailByUUIDParams) (GetCurtailmentEventDetailByUUIDRow, error) {
+	row := q.queryRow(ctx, q.getCurtailmentEventDetailByUUIDStmt, getCurtailmentEventDetailByUUID, arg.EventUuid, arg.OrgID)
+	var i GetCurtailmentEventDetailByUUIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const getCurtailmentOrgConfig = `-- name: GetCurtailmentOrgConfig :one
 SELECT
     org_id,
@@ -578,6 +710,57 @@ func (q *Queries) GetCurtailmentReconcilerHeartbeat(ctx context.Context) (Curtai
 		&i.LastTickUuid,
 		&i.LastTickDurationMs,
 		&i.ActiveEventCount,
+	)
+	return i, err
+}
+
+const getCurtailmentTargetRollupByEvent = `-- name: GetCurtailmentTargetRollupByEvent :one
+SELECT
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
+    COUNT(ct.device_identifier)::BIGINT AS total
+FROM curtailment_event ce
+LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+WHERE ce.org_id = $1
+    AND ce.event_uuid = $2
+GROUP BY ce.id
+`
+
+type GetCurtailmentTargetRollupByEventParams struct {
+	OrgID     int64
+	EventUuid uuid.UUID
+}
+
+type GetCurtailmentTargetRollupByEventRow struct {
+	Pending       int64
+	Dispatched    int64
+	Confirmed     int64
+	Drifted       int64
+	Resolved      int64
+	Released      int64
+	RestoreFailed int64
+	Total         int64
+}
+
+// Org-scoped aggregate for paginated event detail. Target pages can be
+// partial, but the rollup must describe the whole event.
+func (q *Queries) GetCurtailmentTargetRollupByEvent(ctx context.Context, arg GetCurtailmentTargetRollupByEventParams) (GetCurtailmentTargetRollupByEventRow, error) {
+	row := q.queryRow(ctx, q.getCurtailmentTargetRollupByEventStmt, getCurtailmentTargetRollupByEvent, arg.OrgID, arg.EventUuid)
+	var i GetCurtailmentTargetRollupByEventRow
+	err := row.Scan(
+		&i.Pending,
+		&i.Dispatched,
+		&i.Confirmed,
+		&i.Drifted,
+		&i.Resolved,
+		&i.Released,
+		&i.RestoreFailed,
+		&i.Total,
 	)
 	return i, err
 }
@@ -1098,7 +1281,7 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 }
 
 const listCurtailmentTargetsByEvent = `-- name: ListCurtailmentTargetsByEvent :many
-SELECT ct.curtailment_event_id, ct.device_identifier, ct.target_type, ct.state, ct.desired_state, ct.baseline_power_w, ct.added_at, ct.released_at, ct.last_dispatched_at, ct.last_batch_uuid, ct.observed_power_w, ct.observed_at, ct.confirmed_at, ct.retry_count, ct.last_error, ct.selector_rationale_jsonb
+SELECT ct.curtailment_event_id, ct.device_identifier, ct.target_type, ct.state, ct.desired_state, ct.baseline_power_w, ct.added_at, ct.released_at, ct.last_dispatched_at, ct.last_batch_uuid, ct.observed_power_w, ct.observed_at, ct.confirmed_at, ct.retry_count, ct.last_error, ct.selector_rationale_jsonb, ct.curtail_state, ct.curtail_dispatched_at, ct.curtail_batch_uuid, ct.curtail_completed_at, ct.curtail_retry_count, ct.curtail_failure_count, ct.curtail_last_error, ct.restore_state, ct.restore_started_at, ct.restore_dispatched_at, ct.restore_batch_uuid, ct.restore_completed_at, ct.restore_retry_count, ct.restore_failure_count, ct.restore_last_error
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = $1
@@ -1138,6 +1321,103 @@ func (q *Queries) ListCurtailmentTargetsByEvent(ctx context.Context, arg ListCur
 			&i.RetryCount,
 			&i.LastError,
 			&i.SelectorRationaleJsonb,
+			&i.CurtailState,
+			&i.CurtailDispatchedAt,
+			&i.CurtailBatchUuid,
+			&i.CurtailCompletedAt,
+			&i.CurtailRetryCount,
+			&i.CurtailFailureCount,
+			&i.CurtailLastError,
+			&i.RestoreState,
+			&i.RestoreStartedAt,
+			&i.RestoreDispatchedAt,
+			&i.RestoreBatchUuid,
+			&i.RestoreCompletedAt,
+			&i.RestoreRetryCount,
+			&i.RestoreFailureCount,
+			&i.RestoreLastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCurtailmentTargetsByEventPage = `-- name: ListCurtailmentTargetsByEventPage :many
+SELECT ct.curtailment_event_id, ct.device_identifier, ct.target_type, ct.state, ct.desired_state, ct.baseline_power_w, ct.added_at, ct.released_at, ct.last_dispatched_at, ct.last_batch_uuid, ct.observed_power_w, ct.observed_at, ct.confirmed_at, ct.retry_count, ct.last_error, ct.selector_rationale_jsonb, ct.curtail_state, ct.curtail_dispatched_at, ct.curtail_batch_uuid, ct.curtail_completed_at, ct.curtail_retry_count, ct.curtail_failure_count, ct.curtail_last_error, ct.restore_state, ct.restore_started_at, ct.restore_dispatched_at, ct.restore_batch_uuid, ct.restore_completed_at, ct.restore_retry_count, ct.restore_failure_count, ct.restore_last_error
+FROM curtailment_target ct
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = $1
+    AND ce.event_uuid = $2
+    AND (
+        $3::TEXT = ''
+        OR ct.device_identifier > $3::TEXT
+    )
+ORDER BY ct.device_identifier
+LIMIT $4::BIGINT
+`
+
+type ListCurtailmentTargetsByEventPageParams struct {
+	OrgID                  int64
+	EventUuid              uuid.UUID
+	CursorDeviceIdentifier string
+	RowLimit               int64
+}
+
+// Org-scoped, cursor-paginated target detail for large activity expansion.
+func (q *Queries) ListCurtailmentTargetsByEventPage(ctx context.Context, arg ListCurtailmentTargetsByEventPageParams) ([]CurtailmentTarget, error) {
+	rows, err := q.query(ctx, q.listCurtailmentTargetsByEventPageStmt, listCurtailmentTargetsByEventPage,
+		arg.OrgID,
+		arg.EventUuid,
+		arg.CursorDeviceIdentifier,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentTarget
+	for rows.Next() {
+		var i CurtailmentTarget
+		if err := rows.Scan(
+			&i.CurtailmentEventID,
+			&i.DeviceIdentifier,
+			&i.TargetType,
+			&i.State,
+			&i.DesiredState,
+			&i.BaselinePowerW,
+			&i.AddedAt,
+			&i.ReleasedAt,
+			&i.LastDispatchedAt,
+			&i.LastBatchUuid,
+			&i.ObservedPowerW,
+			&i.ObservedAt,
+			&i.ConfirmedAt,
+			&i.RetryCount,
+			&i.LastError,
+			&i.SelectorRationaleJsonb,
+			&i.CurtailState,
+			&i.CurtailDispatchedAt,
+			&i.CurtailBatchUuid,
+			&i.CurtailCompletedAt,
+			&i.CurtailRetryCount,
+			&i.CurtailFailureCount,
+			&i.CurtailLastError,
+			&i.RestoreState,
+			&i.RestoreStartedAt,
+			&i.RestoreDispatchedAt,
+			&i.RestoreBatchUuid,
+			&i.RestoreCompletedAt,
+			&i.RestoreRetryCount,
+			&i.RestoreFailureCount,
+			&i.RestoreLastError,
 		); err != nil {
 			return nil, err
 		}
@@ -1279,7 +1559,14 @@ reset_targets AS (
         last_dispatched_at = NULL,
         last_batch_uuid    = NULL,
         confirmed_at       = NULL,
-        last_error         = NULL
+        last_error         = NULL,
+        curtail_state      = 'pending',
+        curtail_dispatched_at = NULL,
+        curtail_batch_uuid    = NULL,
+        curtail_completed_at  = NULL,
+        curtail_retry_count   = 0,
+        curtail_failure_count = 0,
+        curtail_last_error    = NULL
     FROM recurtail_candidates candidate
     WHERE target.curtailment_event_id = candidate.curtailment_event_id
       AND target.device_identifier = candidate.device_identifier
@@ -1323,7 +1610,15 @@ SET desired_state      = 'active',
     last_dispatched_at = NULL,
     last_batch_uuid    = NULL,
     confirmed_at       = NULL,
-    last_error         = NULL
+    last_error         = NULL,
+    restore_state      = 'pending',
+    restore_started_at = CURRENT_TIMESTAMP,
+    restore_dispatched_at = NULL,
+    restore_batch_uuid    = NULL,
+    restore_completed_at  = NULL,
+    restore_retry_count   = 0,
+    restore_failure_count = 0,
+    restore_last_error    = NULL
 WHERE curtailment_event_id = $1
   AND state NOT IN ('resolved', 'restore_failed', 'released')
 `
@@ -1391,7 +1686,39 @@ func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) 
 const sweepCurtailmentTargetsToRestoreFailed = `-- name: SweepCurtailmentTargetsToRestoreFailed :exec
 UPDATE curtailment_target
 SET state      = 'restore_failed',
-    last_error = $1::TEXT
+    last_error = $1::TEXT,
+    curtail_state = CASE
+        WHEN desired_state = 'curtailed' THEN 'restore_failed'
+        ELSE curtail_state
+    END,
+    curtail_completed_at = CASE
+        WHEN desired_state = 'curtailed' THEN CURRENT_TIMESTAMP
+        ELSE curtail_completed_at
+    END,
+    curtail_failure_count = CASE
+        WHEN desired_state = 'curtailed' THEN curtail_failure_count + 1
+        ELSE curtail_failure_count
+    END,
+    curtail_last_error = CASE
+        WHEN desired_state = 'curtailed' THEN $1::TEXT
+        ELSE curtail_last_error
+    END,
+    restore_state = CASE
+        WHEN desired_state = 'active' THEN 'restore_failed'
+        ELSE restore_state
+    END,
+    restore_completed_at = CASE
+        WHEN desired_state = 'active' THEN CURRENT_TIMESTAMP
+        ELSE restore_completed_at
+    END,
+    restore_failure_count = CASE
+        WHEN desired_state = 'active' THEN restore_failure_count + 1
+        ELSE restore_failure_count
+    END,
+    restore_last_error = CASE
+        WHEN desired_state = 'active' THEN $1::TEXT
+        ELSE restore_last_error
+    END
 WHERE curtailment_event_id = $2
     AND state NOT IN ('resolved', 'restore_failed', 'released')
 `
@@ -1540,6 +1867,70 @@ SET state              = $1,
     last_error         = CASE
         WHEN $8::text IS NULL THEN last_error
         ELSE NULLIF($8::text, '')
+    END,
+    curtail_state = CASE
+        WHEN desired_state = 'curtailed' THEN $1
+        ELSE curtail_state
+    END,
+    curtail_dispatched_at = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE($2, curtail_dispatched_at)
+        ELSE curtail_dispatched_at
+    END,
+    curtail_batch_uuid = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE($3, curtail_batch_uuid)
+        ELSE curtail_batch_uuid
+    END,
+    curtail_completed_at = CASE
+        WHEN desired_state = 'curtailed'
+             AND $1 IN ('confirmed', 'released', 'restore_failed') THEN
+            COALESCE($6, CURRENT_TIMESTAMP)
+        ELSE curtail_completed_at
+    END,
+    curtail_retry_count = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE($7, curtail_retry_count)
+        ELSE curtail_retry_count
+    END,
+    curtail_failure_count = CASE
+        WHEN desired_state = 'curtailed'
+             AND NULLIF($8::text, '') IS NOT NULL THEN curtail_failure_count + 1
+        ELSE curtail_failure_count
+    END,
+    curtail_last_error = CASE
+        WHEN desired_state = 'curtailed'
+             AND NULLIF($8::text, '') IS NOT NULL THEN NULLIF($8::text, '')
+        ELSE curtail_last_error
+    END,
+    restore_state = CASE
+        WHEN desired_state = 'active' THEN $1
+        ELSE restore_state
+    END,
+    restore_dispatched_at = CASE
+        WHEN desired_state = 'active' THEN COALESCE($2, restore_dispatched_at)
+        ELSE restore_dispatched_at
+    END,
+    restore_batch_uuid = CASE
+        WHEN desired_state = 'active' THEN COALESCE($3, restore_batch_uuid)
+        ELSE restore_batch_uuid
+    END,
+    restore_completed_at = CASE
+        WHEN desired_state = 'active'
+             AND $1 IN ('resolved', 'released', 'restore_failed') THEN
+            COALESCE($6, CURRENT_TIMESTAMP)
+        ELSE restore_completed_at
+    END,
+    restore_retry_count = CASE
+        WHEN desired_state = 'active' THEN COALESCE($7, restore_retry_count)
+        ELSE restore_retry_count
+    END,
+    restore_failure_count = CASE
+        WHEN desired_state = 'active'
+             AND NULLIF($8::text, '') IS NOT NULL THEN restore_failure_count + 1
+        ELSE restore_failure_count
+    END,
+    restore_last_error = CASE
+        WHEN desired_state = 'active'
+             AND NULLIF($8::text, '') IS NOT NULL THEN NULLIF($8::text, '')
+        ELSE restore_last_error
     END
 FROM locked_event
 WHERE curtailment_event_id = locked_event.id

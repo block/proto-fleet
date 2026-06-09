@@ -525,6 +525,21 @@ type CurtailmentTarget struct {
 	RetryCount             int32
 	LastError              sql.NullString
 	SelectorRationaleJsonb pqtype.NullRawMessage
+	CurtailState           string
+	CurtailDispatchedAt    sql.NullTime
+	CurtailBatchUuid       sql.NullString
+	CurtailCompletedAt     sql.NullTime
+	CurtailRetryCount      int32
+	CurtailFailureCount    int32
+	CurtailLastError       sql.NullString
+	RestoreState           sql.NullString
+	RestoreStartedAt       sql.NullTime
+	RestoreDispatchedAt    sql.NullTime
+	RestoreBatchUuid       sql.NullString
+	RestoreCompletedAt     sql.NullTime
+	RestoreRetryCount      int32
+	RestoreFailureCount    int32
+	RestoreLastError       sql.NullString
 }
 
 type Device struct {

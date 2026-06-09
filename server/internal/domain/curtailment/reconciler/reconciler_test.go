@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -93,6 +94,9 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 	}
 	return nil, nil
 }
+func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	return f.GetEventByUUID(ctx, orgID, eventUUID)
+}
 func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised")
 }
@@ -121,6 +125,15 @@ func (f *fakeStore) ListTargetsByEvent(ctx context.Context, _ int64, eventUUID u
 		}
 	}
 	return nil, nil
+}
+
+func (f *fakeStore) ListTargetsByEventPage(ctx context.Context, params interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	targets, err := f.ListTargetsByEvent(ctx, params.OrgID, params.EventUUID)
+	return targets, "", err
+}
+
+func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
+	panic("GetTargetRollupByEvent not exercised by reconciler tests")
 }
 
 func (f *fakeStore) ListCandidates(_ context.Context, _ int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
@@ -258,6 +271,7 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 					t.LastError = params.LastError
 				}
 			}
+			updateTargetPhaseSummary(t, params)
 		}
 	}
 	return nil
@@ -272,6 +286,7 @@ func (f *fakeStore) BumpTargetRetry(_ context.Context, eventID int64, deviceIden
 	for _, t := range f.targetsByEventID[eventID] {
 		if t.DeviceIdentifier == deviceIdentifier {
 			t.RetryCount++
+			bumpTargetPhaseRetry(t)
 			return nil
 		}
 	}
@@ -298,6 +313,26 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
 			ev.State = models.EventStateRestoring
+			now := time.Now()
+			for _, t := range f.targetsByEventID[ev.ID] {
+				if t.State == models.TargetStateResolved ||
+					t.State == models.TargetStateRestoreFailed ||
+					t.State == models.TargetStateReleased {
+					continue
+				}
+				t.DesiredState = models.DesiredStateActive
+				t.State = models.TargetStatePending
+				t.RetryCount = 0
+				t.LastDispatchedAt = nil
+				t.LastBatchUUID = nil
+				t.ConfirmedAt = nil
+				t.LastError = nil
+				t.RestorePhase = &models.TargetPhaseSummary{
+					Phase:     models.TargetPhaseRestore,
+					State:     models.TargetStatePending,
+					StartedAt: &now,
+				}
+			}
 			return ev, nil
 		}
 	}
@@ -310,10 +345,102 @@ func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUU
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
 			ev.State = models.EventStatePending
+			for _, t := range f.targetsByEventID[ev.ID] {
+				if t.RestorePhase == nil {
+					continue
+				}
+				t.DesiredState = models.DesiredStateCurtailed
+				t.State = models.TargetStatePending
+				t.RetryCount = 0
+				t.LastDispatchedAt = nil
+				t.LastBatchUUID = nil
+				t.ConfirmedAt = nil
+				t.LastError = nil
+				t.CurtailPhase = models.TargetPhaseSummary{
+					Phase: models.TargetPhaseCurtail,
+					State: models.TargetStatePending,
+				}
+			}
 			return ev, nil
 		}
 	}
 	return nil, nil
+}
+
+func updateTargetPhaseSummary(t *models.Target, params interfaces.UpdateCurtailmentTargetStateParams) {
+	desired := t.DesiredState
+	if desired == "" && params.ExpectedDesiredState != nil {
+		desired = *params.ExpectedDesiredState
+	}
+	var phase *models.TargetPhaseSummary
+	switch desired {
+	case models.DesiredStateCurtailed, "":
+		if t.CurtailPhase.Phase == "" {
+			t.CurtailPhase.Phase = models.TargetPhaseCurtail
+		}
+		if t.CurtailPhase.StartedAt == nil && !t.AddedAt.IsZero() {
+			started := t.AddedAt
+			t.CurtailPhase.StartedAt = &started
+		}
+		phase = &t.CurtailPhase
+	case models.DesiredStateActive:
+		if t.RestorePhase == nil {
+			t.RestorePhase = &models.TargetPhaseSummary{Phase: models.TargetPhaseRestore}
+		}
+		phase = t.RestorePhase
+	default:
+		return
+	}
+
+	phase.State = params.State
+	if params.LastDispatchedAt != nil {
+		phase.DispatchedAt = params.LastDispatchedAt
+	}
+	if params.LastBatchUUID != nil {
+		phase.BatchUUID = params.LastBatchUUID
+	}
+	if params.RetryCount != nil {
+		phase.RetryCount = *params.RetryCount
+	} else {
+		phase.RetryCount = t.RetryCount
+	}
+	if params.LastError != nil && *params.LastError != "" {
+		phase.FailureCount++
+		phase.LastError = params.LastError
+	}
+	if phaseCompleted(params.State, desired) {
+		if params.ConfirmedAt != nil {
+			phase.CompletedAt = params.ConfirmedAt
+			return
+		}
+		now := time.Now()
+		phase.CompletedAt = &now
+	}
+}
+
+func bumpTargetPhaseRetry(t *models.Target) {
+	switch t.DesiredState {
+	case models.DesiredStateActive:
+		if t.RestorePhase == nil {
+			t.RestorePhase = &models.TargetPhaseSummary{Phase: models.TargetPhaseRestore}
+		}
+		t.RestorePhase.RetryCount++
+	default:
+		t.CurtailPhase.RetryCount++
+	}
+}
+
+func phaseCompleted(state models.TargetState, desired string) bool {
+	switch desired {
+	case models.DesiredStateActive:
+		return state == models.TargetStateResolved ||
+			state == models.TargetStateReleased ||
+			state == models.TargetStateRestoreFailed
+	default:
+		return state == models.TargetStateConfirmed ||
+			state == models.TargetStateReleased ||
+			state == models.TargetStateRestoreFailed
+	}
 }
 
 // fakeDispatcher records Curtail / Uncurtail calls and returns the
@@ -325,9 +452,12 @@ type fakeDispatcher struct {
 	uncurtailResultOverride *command.CommandResult
 	curtailCalls            int
 	curtailLastIDs          []string
+	curtailCallIDs          [][]string
 	curtailLastActor        session.Actor
+	curtailLastSuppressed   bool
 	uncurtailCalls          int
 	uncurtailLastIDs        []string
+	uncurtailLastSuppressed bool
 	// curtailHook fires synchronously inside Curtail before the result is
 	// returned. Tests use it to inspect store state at the moment the
 	// command-service call happens (e.g., to verify the DISPATCHING
@@ -340,9 +470,11 @@ type fakeDispatcher struct {
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
 	f.curtailCalls++
 	f.curtailLastIDs = identifiersFromSelector(selector)
+	f.curtailCallIDs = append(f.curtailCallIDs, append([]string(nil), f.curtailLastIDs...))
 	if info, err := session.GetInfo(ctx); err == nil {
 		f.curtailLastActor = info.Actor
 	}
+	f.curtailLastSuppressed = command.CommandActivitySuppressed(ctx)
 	if f.curtailHook != nil {
 		f.curtailHook(f.curtailLastIDs)
 	}
@@ -355,9 +487,10 @@ func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelecto
 	return &command.CommandResult{BatchIdentifier: "batch-curtail", DispatchedCount: len(f.curtailLastIDs), DispatchedDeviceIdentifiers: f.curtailLastIDs}, nil
 }
 
-func (f *fakeDispatcher) Uncurtail(_ context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error) {
+func (f *fakeDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error) {
 	f.uncurtailCalls++
 	f.uncurtailLastIDs = identifiersFromSelector(selector)
+	f.uncurtailLastSuppressed = command.CommandActivitySuppressed(ctx)
 	if f.uncurtailHook != nil {
 		f.uncurtailHook(f.uncurtailLastIDs)
 	}
@@ -401,10 +534,11 @@ func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
+	effBatch := int32(2)
 	eventID := int64(10)
 	eventUUID := uuid.New()
 	store.events = []*models.Event{
-		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
@@ -414,18 +548,247 @@ func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	// One Curtail call per target.
-	assert.Equal(t, 2, disp.curtailCalls)
+	// One Curtail call covers the bounded initial batch.
+	assert.Equal(t, 1, disp.curtailCalls)
+	assert.ElementsMatch(t, []string{"miner-1", "miner-2"}, disp.curtailLastIDs)
 	assert.Equal(t, session.ActorCurtailment, disp.curtailLastActor)
+	assert.True(t, disp.curtailLastSuppressed, "curtailment-owned batches must suppress command activity")
 
 	// Both targets transitioned to dispatched.
 	require.Len(t, store.targetsByEventID[eventID], 2)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.targetsByEventID[eventID][0].LastBatchUUID)
+	require.NotNil(t, store.targetsByEventID[eventID][1].LastBatchUUID)
+	assert.Equal(t, *store.targetsByEventID[eventID][0].LastBatchUUID, *store.targetsByEventID[eventID][1].LastBatchUUID,
+		"batched Curtail targets must share one command batch UUID")
 
 	// Heartbeat upserted once.
 	assert.Equal(t, 1, store.heartbeatCalls)
 	assert.Equal(t, int32(1), store.lastHeartbeatActive)
+}
+
+func TestReconciler_PendingDispatchesAllTargetsInEffectiveBatches(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	effBatch := int32(2)
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-2", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-3", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 2, disp.curtailCalls)
+	require.Len(t, disp.curtailCallIDs, 2)
+	assert.ElementsMatch(t, []string{"miner-1", "miner-2"}, disp.curtailCallIDs[0])
+	assert.ElementsMatch(t, []string{"miner-3"}, disp.curtailCallIDs[1])
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][1].State)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][2].State)
+}
+
+func TestReconciler_PendingDispatchesLargeEventInBoundedBatches(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	effBatch := int32(100)
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+	}
+	for i := range 205 {
+		store.targetsByEventID[eventID] = append(store.targetsByEventID[eventID], &models.Target{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   fmt.Sprintf("miner-%03d", i),
+			State:              models.TargetStatePending,
+			BaselinePowerW:     ptrFloat64(3000),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 3, disp.curtailCalls)
+	require.Len(t, disp.curtailCallIDs, 3)
+	assert.Len(t, disp.curtailCallIDs[0], 100)
+	assert.Len(t, disp.curtailCallIDs[1], 100)
+	assert.Len(t, disp.curtailCallIDs[2], 5)
+	for _, target := range store.targetsByEventID[eventID] {
+		assert.Equal(t, models.TargetStateDispatched, target.State)
+	}
+}
+
+func TestReconciler_DispatchingFailureDoesNotRetryAgainAsPendingInSameTick(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{curtailErr: errors.New("queue unavailable")}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	effBatch := int32(3)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-orphan",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"failed DISPATCHING recovery must not be re-claimed by the same tick's PENDING pass")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatching, final.State,
+		"failed DISPATCHING recovery must remain DISPATCHING for the next tick")
+	assert.Equal(t, int32(1), final.RetryCount,
+		"failed DISPATCHING recovery must consume only one retry slot per tick")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "queue unavailable")
+}
+
+func TestReconciler_CurtailBatchRecordsSkippedAndNotEnqueuedFailures(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		curtailResultOverride: &command.CommandResult{
+			BatchIdentifier:             "batch-partial",
+			DispatchedDeviceIdentifiers: []string{"miner-dispatched"},
+			Skipped: []command.SkippedDevice{
+				{DeviceIdentifier: "miner-skipped", Reason: "maintenance mode"},
+			},
+		},
+	}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	effBatch := int32(3)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-dispatched", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-skipped", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-missing", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls)
+	byID := map[string]*models.Target{}
+	for _, target := range store.targetsByEventID[eventID] {
+		byID[target.DeviceIdentifier] = target
+	}
+
+	dispatched := byID["miner-dispatched"]
+	require.NotNil(t, dispatched)
+	assert.Equal(t, models.TargetStateDispatched, dispatched.State)
+	require.NotNil(t, dispatched.LastBatchUUID)
+	assert.Equal(t, "batch-partial", *dispatched.LastBatchUUID)
+
+	skipped := byID["miner-skipped"]
+	require.NotNil(t, skipped)
+	assert.Equal(t, models.TargetStatePending, skipped.State)
+	assert.Equal(t, int32(1), skipped.RetryCount)
+	require.NotNil(t, skipped.LastError)
+	assert.Equal(t, "maintenance mode", *skipped.LastError)
+
+	missing := byID["miner-missing"]
+	require.NotNil(t, missing)
+	assert.Equal(t, models.TargetStatePending, missing.State)
+	assert.Equal(t, int32(1), missing.RetryCount)
+	require.NotNil(t, missing.LastError)
+	assert.Equal(t, "curtail command did not enqueue device", *missing.LastError)
+}
+
+func TestReconciler_TargetPhaseSummariesCaptureCurtailAndRestoreCycle(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	effBatch := int32(1)
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	addedAt := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{
+			ID:                 eventID,
+			EventUUID:          eventUUID,
+			OrgID:              1,
+			State:              models.EventStatePending,
+			EffectiveBatchSize: &effBatch,
+		},
+	}
+	baseline := float64(3000)
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     &baseline,
+			AddedAt:            addedAt,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "miner-1",
+			LatestPowerW:     ptrFloat64(0),
+			LatestHashRateHS: ptrFloat64(0),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	target := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.EventStateActive, store.events[0].State)
+	assert.Equal(t, models.TargetStateConfirmed, target.CurtailPhase.State)
+	require.NotNil(t, target.CurtailPhase.DispatchedAt)
+	require.NotNil(t, target.CurtailPhase.BatchUUID)
+	assert.Equal(t, "batch-curtail", *target.CurtailPhase.BatchUUID)
+	require.NotNil(t, target.CurtailPhase.CompletedAt)
+	assert.Equal(t, int32(0), target.CurtailPhase.FailureCount)
+
+	_, err := store.BeginRestoreTransition(context.Background(), 1, eventUUID)
+	require.NoError(t, err)
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "miner-1",
+			LatestPowerW:     ptrFloat64(3100),
+			LatestHashRateHS: ptrFloat64(100),
+		},
+	}
+
+	r.runTick(context.Background())
+	target = store.targetsByEventID[eventID][0]
+	require.NotNil(t, target.RestorePhase)
+	assert.Equal(t, models.TargetStateDispatched, target.RestorePhase.State)
+	require.NotNil(t, target.RestorePhase.DispatchedAt)
+	require.NotNil(t, target.RestorePhase.BatchUUID)
+	assert.Equal(t, "batch-uncurtail", *target.RestorePhase.BatchUUID)
+
+	r.runTick(context.Background())
+	target = store.targetsByEventID[eventID][0]
+	require.NotNil(t, target.RestorePhase)
+	assert.Equal(t, models.EventStateCompleted, store.events[0].State)
+	assert.Equal(t, models.TargetStateResolved, target.RestorePhase.State)
+	require.NotNil(t, target.RestorePhase.CompletedAt)
+	assert.Equal(t, int32(0), target.RestorePhase.FailureCount)
 }
 
 func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {

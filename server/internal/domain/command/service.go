@@ -806,10 +806,13 @@ func (s *Service) finalizeDispatch(ctx context.Context, result *CommandResult, e
 	if result.BatchIdentifier == "" {
 		return
 	}
-	s.logCommandActivity(ctx, eventType, description, result.DispatchedCount, result.BatchIdentifier)
-	s.initializeStatusUpdateRoutine(result.BatchIdentifier,
-		s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, eventType, description))
-	if len(result.Skipped) > 0 {
+	var completedCallback onFinishedCallbackFunc
+	if !CommandActivitySuppressed(ctx) {
+		s.logCommandActivity(ctx, eventType, description, result.DispatchedCount, result.BatchIdentifier)
+		completedCallback = s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, eventType, description)
+	}
+	s.initializeStatusUpdateRoutine(result.BatchIdentifier, completedCallback)
+	if len(result.Skipped) > 0 && !CommandActivitySuppressed(ctx) {
 		s.logFilterSkips(ctx, eventType, result.DispatchedCount, result.Skipped)
 	}
 }

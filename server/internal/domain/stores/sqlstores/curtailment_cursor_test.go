@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -153,6 +154,47 @@ func TestCurtailmentEventCursor_BindingFieldsRoundTrip(t *testing.T) {
 				"OrgID must round-trip — ListEvents rejects cross-org tokens by comparing this field")
 			assert.Equal(t, normalizeCurtailmentEventStateFilters(tc.stateFilters), decoded.StateFilters,
 				"StateFilters must round-trip — ListEvents rejects cross-filter tokens by comparing this field")
+		})
+	}
+}
+
+func TestCurtailmentTargetCursor_RoundTrip(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	encoded := encodeCurtailmentTargetCursor(&curtailmentTargetCursor{
+		OrgID:            42,
+		EventUUID:        eventUUID,
+		DeviceIdentifier: "miner-9999",
+	})
+	require.NotEmpty(t, encoded)
+
+	decoded, err := decodeCurtailmentTargetCursor(encoded)
+	require.NoError(t, err)
+	require.NotNil(t, decoded)
+	assert.Equal(t, int64(42), decoded.OrgID)
+	assert.Equal(t, eventUUID, decoded.EventUUID)
+	assert.Equal(t, "miner-9999", decoded.DeviceIdentifier)
+}
+
+func TestCurtailmentTargetCursor_RejectsInvalidBindingFields(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"missing org", `{"event_uuid":"` + eventUUID.String() + `","device_identifier":"miner-1"}`, "org_id must be > 0"},
+		{"missing event", `{"org_id":42,"device_identifier":"miner-1"}`, "event_uuid must be set"},
+		{"missing device", `{"org_id":42,"event_uuid":"` + eventUUID.String() + `"}`, "device_identifier must be set"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			token := base64.StdEncoding.EncodeToString([]byte(tc.body))
+			_, err := decodeCurtailmentTargetCursor(token)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
 }

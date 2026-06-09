@@ -86,6 +86,10 @@ func (s *startStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*mod
 	panic("GetEventByUUID not exercised by handler Start tests")
 }
 
+func (s *startStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
+	panic("GetEventDetailByUUID not exercised by handler Start tests")
+}
+
 func (s *startStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised by handler Start tests")
 }
@@ -120,6 +124,14 @@ func (s *startStubStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUI
 		return nil, nil
 	}
 	return s.targetsByEventUUID[eventUUID], nil
+}
+
+func (s *startStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
+	panic("ListTargetsByEventPage not exercised by handler Start tests")
+}
+
+func (s *startStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
+	panic("GetTargetRollupByEvent not exercised by handler Start tests")
 }
 
 func (s *startStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -505,12 +517,12 @@ func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *t
 	}
 	h := NewHandler(curtailment.NewService(store))
 
-	ctx := authn.SetInfo(t.Context(), &session.Info{
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
 		UserID:         9,
 		Role:           "OPERATOR",
-	})
+	}, authz.PermCurtailmentManage)
 
 	req := validStartRequestBuilder()
 	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET

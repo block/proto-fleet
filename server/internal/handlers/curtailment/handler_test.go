@@ -92,6 +92,14 @@ func TestHandler_StubbedRPCsReturnExpectedAuthOrUnimplemented(t *testing.T) {
 			connect.CodeUnimplemented,
 		},
 		{
+			"GetCurtailmentEvent",
+			func() error {
+				_, err := client.GetCurtailmentEvent(t.Context(), connect.NewRequest(&pb.GetCurtailmentEventRequest{}))
+				return err
+			},
+			connect.CodeUnimplemented,
+		},
+		{
 			"ListActiveCurtailments",
 			func() error {
 				_, err := client.ListActiveCurtailments(t.Context(), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))

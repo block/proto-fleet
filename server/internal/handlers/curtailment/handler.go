@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
@@ -211,6 +212,33 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 	return connect.NewResponse(toListEventsResponse(events, nextToken)), nil
+}
+
+func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[pb.GetCurtailmentEventRequest]) (*connect.Response[pb.GetCurtailmentEventResponse], error) {
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("GetCurtailmentEvent")
+	}
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	eventUUID, err := uuid.Parse(req.Msg.GetEventUuid())
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("event_uuid must be a valid UUID: %v", err)
+	}
+	event, targets, nextTargetPageToken, err := h.service.GetEventWithTargets(ctx, curtailment.GetEventWithTargetsRequest{
+		OrgID:           info.OrganizationID,
+		EventUUID:       eventUUID,
+		TargetPageSize:  req.Msg.GetTargetPageSize(),
+		TargetPageToken: req.Msg.GetTargetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetCurtailmentEventResponse{
+		Event:               toEventProtoWithTargets(event, targets),
+		NextTargetPageToken: nextTargetPageToken,
+	}), nil
 }
 
 // AdminTerminateEvent forces a non-terminal event to terminal. Paired

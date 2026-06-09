@@ -169,6 +169,21 @@ type Event struct {
 	CreatedByUserID         int64
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	TargetRollup            *TargetRollup
+}
+
+// TargetRollup summarizes all target rows for an event. Counts stay int64 at
+// the domain boundary because SQL COUNT returns int64; handlers clamp to the
+// proto int32 fields when rendering.
+type TargetRollup struct {
+	Pending       int64
+	Dispatched    int64
+	Confirmed     int64
+	Drifted       int64
+	Resolved      int64
+	Released      int64
+	RestoreFailed int64
+	Total         int64
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
@@ -235,6 +250,31 @@ type Target struct {
 	RetryCount            int32
 	LastError             *string
 	SelectorRationaleJSON []byte
+	CurtailPhase          TargetPhaseSummary
+	RestorePhase          *TargetPhaseSummary
+}
+
+// TargetPhase identifies the durable per-phase target summary that backs
+// historical activity expansion.
+type TargetPhase string
+
+const (
+	TargetPhaseCurtail TargetPhase = "curtail"
+	TargetPhaseRestore TargetPhase = "restore"
+)
+
+// TargetPhaseSummary preserves the outcome of a curtail or restore phase even
+// when the rolling target state/cursor columns are reset for the next phase.
+type TargetPhaseSummary struct {
+	Phase        TargetPhase
+	State        TargetState
+	StartedAt    *time.Time
+	DispatchedAt *time.Time
+	BatchUUID    *string
+	CompletedAt  *time.Time
+	RetryCount   int32
+	FailureCount int32
+	LastError    *string
 }
 
 // InsertTargetParams captures the fields a caller supplies when inserting a
