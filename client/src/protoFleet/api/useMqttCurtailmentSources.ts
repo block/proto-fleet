@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
@@ -26,6 +26,7 @@ const DEFAULT_CURTAIL_MODE = "FULL_FLEET";
 const DEFAULT_PAYLOAD_FORMAT = "target_timestamp";
 const DEFAULT_STALENESS_THRESHOLD_SEC = 240;
 const DEFAULT_MIN_CURTAILED_DURATION_SEC = 600;
+const SOURCES_POLL_INTERVAL_MS = 10_000;
 
 const unsetDisplayValue = "-";
 
@@ -125,6 +126,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
   const [updatingSourceIds, setUpdatingSourceIds] = useState<Set<string>>(() => new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const hasLoadedSourcesRef = useRef(false);
 
   const handleFailure = useCallback(
     (error: unknown, fallbackMessage: string) => {
@@ -136,8 +138,11 @@ export default function useMqttCurtailmentSources(enabled = true) {
   );
 
   const listSources = useCallback(
-    async (signal?: AbortSignal) => {
-      setIsLoading(true);
+    async (signal?: AbortSignal, options: { silent?: boolean } = {}) => {
+      const shouldShowLoading = !options.silent && !hasLoadedSourcesRef.current;
+      if (shouldShowLoading) {
+        setIsLoading(true);
+      }
 
       try {
         assertNotAborted(signal);
@@ -149,6 +154,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
 
         const nextSources = response.sources.map(mapMqttCurtailmentSource);
         setSources(nextSources);
+        hasLoadedSourcesRef.current = true;
         setLoadError(null);
         return nextSources;
       } catch (error) {
@@ -160,7 +166,9 @@ export default function useMqttCurtailmentSources(enabled = true) {
         setLoadError(resolvedError.message);
         throw resolvedError;
       } finally {
-        setIsLoading(false);
+        if (shouldShowLoading) {
+          setIsLoading(false);
+        }
       }
     },
     [handleFailure],
@@ -171,14 +179,42 @@ export default function useMqttCurtailmentSources(enabled = true) {
       return;
     }
 
-    const abortController = new AbortController();
-    queueMicrotask(() => {
-      if (!abortController.signal.aborted) {
-        void listSources(abortController.signal).catch(() => undefined);
-      }
-    });
+    let isActive = true;
+    let pollTimerId: ReturnType<typeof setTimeout> | undefined;
+    let abortController: AbortController | undefined;
 
-    return () => abortController.abort();
+    const schedulePoll = () => {
+      if (!isActive) {
+        return;
+      }
+
+      pollTimerId = setTimeout(() => {
+        void refreshSources(true);
+      }, SOURCES_POLL_INTERVAL_MS);
+    };
+
+    const refreshSources = async (silent: boolean) => {
+      abortController?.abort();
+      abortController = new AbortController();
+
+      try {
+        await listSources(abortController.signal, { silent });
+      } catch {
+        // The page already exposes load errors; polling should continue retrying in the background.
+      } finally {
+        schedulePoll();
+      }
+    };
+
+    void refreshSources(false);
+
+    return () => {
+      isActive = false;
+      if (pollTimerId) {
+        clearTimeout(pollTimerId);
+      }
+      abortController?.abort();
+    };
   }, [enabled, listSources]);
 
   const createSource = useCallback(
