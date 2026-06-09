@@ -376,7 +376,14 @@ const MinerActionsMenu = ({
         <MinerReparentPicker
           kind={reparentKind}
           deviceIdentifiers={selectedMiners}
-          sourceLabel={`${selectedMiners.length} ${selectedMiners.length === 1 ? "miner" : "miners"}`}
+          selectionMode={selectionMode === "all" ? "all" : "subset"}
+          currentFilter={currentFilter}
+          totalCount={totalCount}
+          sourceLabel={
+            selectionMode === "all" && totalCount !== undefined
+              ? `${totalCount} ${totalCount === 1 ? "miner" : "miners"}`
+              : `${selectedMiners.length} ${selectedMiners.length === 1 ? "miner" : "miners"}`
+          }
           successMessage={(count, target) =>
             target === "site" ? `Moved ${count} miners to selected site.` : `Added ${count} miners to selected rack.`
           }

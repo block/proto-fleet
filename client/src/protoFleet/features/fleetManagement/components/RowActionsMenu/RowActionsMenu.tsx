@@ -26,21 +26,42 @@ export interface RowAction {
 interface RowActionsMenuProps {
   actions: RowAction[];
   ariaLabel?: string;
-  // Bakes into the trigger + popover testIds so multiple rows on the
-  // same page stay individually addressable (e.g. `<prefix>-trigger`,
-  // `<prefix>-popover`). Individual action testIds come from the action
-  // entries themselves.
+  // Bakes into the popover testId (`<prefix>-popover`) and acts as the
+  // default trigger testId (`<prefix>-trigger`). Individual action
+  // testIds come from the action entries themselves.
   testIdPrefix?: string;
+  // Override the trigger testId — used by `SingleMinerActionsMenu`,
+  // which historically exposed `single-miner-actions-menu-button` as
+  // the trigger handle. Falls back to `${testIdPrefix}-trigger` /
+  // `row-actions-menu-trigger`.
+  triggerTestId?: string;
+  // Disables the ellipsis trigger. Used by `FleetGroupActionsMenu`
+  // while the lazy device-id fetch is in flight so a second click
+  // doesn't double-trigger.
+  disabled?: boolean;
 }
 
-// Ellipsis-trigger row actions menu. Visual + interaction parity with
-// `SingleMinerActionsMenu` (Ellipsis button, portal-fixed popover,
-// `Row` items with optional thick dividers) but stripped of the
-// miner-specific batch/auth/confirmation machinery so non-fleet
-// surfaces can reuse the same affordance.
-const RowActionsMenu = ({ actions, ariaLabel = "Row actions", testIdPrefix }: RowActionsMenuProps) => (
+// Ellipsis-trigger row actions menu shared by the fleet-management
+// row menus (`SingleMinerActionsMenu`, `FleetGroupActionsMenu`, plus
+// the Sites / Buildings / Racks list rows). Owns the popover shell:
+// trigger button, portal-fixed popover, click-outside, row rendering
+// with optional thick dividers. Action state (confirmation dialogs,
+// modal stacks, batch wiring) stays in the caller.
+const RowActionsMenu = ({
+  actions,
+  ariaLabel = "Row actions",
+  testIdPrefix,
+  triggerTestId,
+  disabled,
+}: RowActionsMenuProps) => (
   <PopoverProvider>
-    <RowActionsMenuInner actions={actions} ariaLabel={ariaLabel} testIdPrefix={testIdPrefix} />
+    <RowActionsMenuInner
+      actions={actions}
+      ariaLabel={ariaLabel}
+      testIdPrefix={testIdPrefix}
+      triggerTestId={triggerTestId}
+      disabled={disabled}
+    />
   </PopoverProvider>
 );
 
@@ -48,15 +69,23 @@ const RowActionsMenuInner = ({
   actions,
   ariaLabel,
   testIdPrefix,
-}: Required<Pick<RowActionsMenuProps, "actions" | "ariaLabel">> & { testIdPrefix?: string }) => {
+  triggerTestId,
+  disabled,
+}: Required<Pick<RowActionsMenuProps, "actions" | "ariaLabel">> &
+  Pick<RowActionsMenuProps, "testIdPrefix" | "triggerTestId" | "disabled">) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [isOpen, setIsOpen] = useState(false);
 
-  // Portal-fixed mirrors SingleMinerActionsMenu — keeps the popover above
-  // the list's overflow scroll containers and out of the row click area.
+  // Portal-fixed keeps the popover above the list's overflow scroll
+  // containers and out of the row click area.
   useEffect(() => {
     setPopoverRenderMode("portal-fixed");
   }, [setPopoverRenderMode]);
+
+  // Treat disabled as a hard-close. Derived so a re-enable doesn't
+  // resurrect a previously open popover; the operator clicks the
+  // ellipsis again to reopen.
+  const open = isOpen && !disabled;
 
   const onClickOutside = useCallback(() => setIsOpen(false), []);
   useClickOutside({
@@ -68,7 +97,8 @@ const RowActionsMenuInner = ({
   const visibleActions = actions.filter((action) => !action.hidden);
   if (visibleActions.length === 0) return null;
 
-  const triggerTestId = testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger";
+  const resolvedTriggerTestId =
+    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
   const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
 
   return (
@@ -79,10 +109,11 @@ const RowActionsMenuInner = ({
         variant={variants.textOnly}
         prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
         ariaLabel={ariaLabel}
-        testId={triggerTestId}
+        testId={resolvedTriggerTestId}
+        disabled={disabled}
         onClick={() => setIsOpen((prev) => !prev)}
       />
-      {isOpen ? (
+      {open ? (
         <Popover
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
           position={positions["bottom right"]}

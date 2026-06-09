@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
-import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
+import { BulkAction } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
+import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
 import { deviceActions, groupActions, settingsActions, SupportedAction } from "./constants";
@@ -10,7 +11,7 @@ import MinerActionModalStack from "./MinerActionModalStack";
 import MinerReparentPicker from "./MinerReparentPicker";
 import RenameMinerDialog from "./RenameMinerDialog";
 import UpdateWorkerNameDialog from "./UpdateWorkerNameDialog";
-import { type MinerSelection, useMinerActions } from "./useMinerActions";
+import { useMinerActions } from "./useMinerActions";
 import { waitForWorkerNameBatchResult } from "./waitForWorkerNameBatchResult";
 import type {
   MinerStateSnapshot,
@@ -21,16 +22,8 @@ import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { ArrowRight, Edit, Ellipsis, MiningPools, Plus } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
-import Divider from "@/shared/components/Divider";
-import Popover, { popoverSizes } from "@/shared/components/Popover";
-import { PopoverProvider, usePopover } from "@/shared/components/Popover";
-import Row from "@/shared/components/Row";
-import { positions } from "@/shared/constants";
+import { ArrowRight, Edit, MiningPools, Plus } from "@/shared/assets/icons";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 type SingleMinerAction = SupportedAction | "viewMiner";
 
@@ -72,6 +65,7 @@ const SingleMinerActionsMenu = ({
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
   // Re-parent picker target. null = closed.
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
+  const [showWarnDialog, setShowWarnDialog] = useState(false);
 
   const minerActionsResult = useMinerActions({
     selectedMiners,
@@ -361,30 +355,22 @@ const SingleMinerActionsMenu = ({
     [permittedActions, needsAuthentication],
   );
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [showWarnDialog, setShowWarnDialog] = useState(false);
-
-  const onClickOutside = useCallback(() => {
-    setIsOpen(false);
-  }, []);
-
-  const handleAction = (action: BulkAction<SingleMinerAction>) => {
-    setIsOpen(false);
+  const handleAction = useCallback((action: BulkAction<SingleMinerAction>) => {
     if (action.requiresConfirmation) {
       setShowWarnDialog(true);
     }
     action.actionHandler();
-  };
+  }, []);
 
-  const handleConfirmationClick = () => {
+  const handleConfirmationClick = useCallback(() => {
     setShowWarnDialog(false);
     handleConfirmation();
-  };
+  }, [handleConfirmation]);
 
-  const handleCancelClick = () => {
+  const handleCancelClick = useCallback(() => {
     setShowWarnDialog(false);
     handleCancel();
-  };
+  }, [handleCancel]);
 
   // Prevent confirmation dialog flash when continuing from unsupported miners modal
   const handleUnsupportedMinersContinueWithReset = useCallback(() => {
@@ -392,188 +378,37 @@ const SingleMinerActionsMenu = ({
     handleUnsupportedMinersContinue();
   }, [handleUnsupportedMinersContinue]);
 
-  return (
-    <PopoverProvider>
-      <SingleMinerActionsMenuInner
-        isOpen={isOpen}
-        setIsOpen={setIsOpen}
-        showWarnDialog={showWarnDialog}
-        currentAction={currentAction}
-        popoverActions={visibleActions}
-        confirmationActions={actionsWithSingleNameFlows}
-        onClickOutside={onClickOutside}
-        handleAction={handleAction}
-        handleConfirmationClick={handleConfirmationClick}
-        handleCancelClick={handleCancelClick}
-        selectedMiners={selectedMiners}
-        minerActions={minerActionsResult}
-        showPoolSelectionPage={showPoolSelectionPage}
-        fleetCredentials={fleetCredentials}
-        handleMiningPoolSuccess={handleMiningPoolSuccess}
-        handleMiningPoolError={handleMiningPoolError}
-        handleMiningPoolWarning={handleMiningPoolWarning}
-        handleCancel={handleCancel}
-        unsupportedMinersInfo={unsupportedMinersInfo}
-        handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
-        handleUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
-        deviceIdentifier={deviceIdentifier}
-        minerName={minerName}
-        workerName={workerName}
-        showRenameDialog={showRenameDialog}
-        handleRenameConfirm={handleRenameConfirm}
-        handleRenameDismiss={handleRenameDismiss}
-        showWorkerNameAuthenticateModal={showWorkerNameAuthenticateModal}
-        handleUpdateWorkerNameAuthenticated={handleUpdateWorkerNameAuthenticated}
-        showUpdateWorkerNameDialog={showUpdateWorkerNameDialog}
-        handleUpdateWorkerNameConfirm={handleUpdateWorkerNameConfirm}
-        handleUpdateWorkerNameDismiss={handleUpdateWorkerNameDismiss}
-      />
-      {reparentKind ? (
-        <MinerReparentPicker
-          kind={reparentKind}
-          deviceIdentifiers={[deviceIdentifier]}
-          sourceLabel={minerName || "miner"}
-          successMessage={(_count, target) =>
-            target === "site"
-              ? `Moved "${minerName || "miner"}" to selected site.`
-              : `Added "${minerName || "miner"}" to selected rack.`
-          }
-          onClose={() => setReparentKind(null)}
-          onRefetchMiners={onRefetchMiners}
-        />
-      ) : null}
-    </PopoverProvider>
+  const rowActions: RowAction[] = useMemo(
+    () =>
+      visibleActions.map((action) => ({
+        label: action.title,
+        icon: action.icon,
+        showGroupDivider: action.showGroupDivider,
+        testId: `${action.action}-popover-button`,
+        onClick: () => handleAction(action),
+      })),
+    [visibleActions, handleAction],
   );
-};
-
-type SingleMinerActionsMenuInnerProps = {
-  isOpen: boolean;
-  setIsOpen: (value: boolean | ((prev: boolean) => boolean)) => void;
-  showWarnDialog: boolean;
-  currentAction: SupportedAction | null;
-  popoverActions: BulkAction<SingleMinerAction>[];
-  confirmationActions: BulkAction<SingleMinerAction>[];
-  onClickOutside: () => void;
-  handleAction: (action: BulkAction<SingleMinerAction>) => void;
-  handleConfirmationClick: () => void;
-  handleCancelClick: () => void;
-  selectedMiners: MinerSelection[];
-  // Full useMinerActions return — fed into the shared MinerActionModalStack
-  // so the inner doesn't need to forward every modal field individually.
-  minerActions: ReturnType<typeof useMinerActions>;
-  showPoolSelectionPage: boolean;
-  fleetCredentials: { username: string; password: string } | undefined;
-  handleMiningPoolSuccess: (batchIdentifier: string, dispatchedDeviceIdentifiers: string[]) => void;
-  handleMiningPoolError: (error: string) => void;
-  handleMiningPoolWarning: (warning: string) => void;
-  handleCancel: () => void;
-  unsupportedMinersInfo: UnsupportedMinersInfo;
-  handleUnsupportedMinersContinue: () => void;
-  handleUnsupportedMinersDismiss: () => void;
-  deviceIdentifier: string;
-  minerName?: string;
-  workerName?: string;
-  showRenameDialog: boolean;
-  handleRenameConfirm: (name: string) => void;
-  handleRenameDismiss: () => void;
-  showWorkerNameAuthenticateModal: boolean;
-  handleUpdateWorkerNameAuthenticated: (username: string, password: string) => void;
-  showUpdateWorkerNameDialog: boolean;
-  handleUpdateWorkerNameConfirm: (name: string) => void;
-  handleUpdateWorkerNameDismiss: () => void;
-};
-
-const SingleMinerActionsMenuInner = ({
-  isOpen,
-  setIsOpen,
-  showWarnDialog,
-  currentAction,
-  popoverActions,
-  confirmationActions,
-  onClickOutside,
-  handleAction,
-  handleConfirmationClick,
-  handleCancelClick,
-  selectedMiners,
-  minerActions,
-  showPoolSelectionPage,
-  fleetCredentials,
-  handleMiningPoolSuccess,
-  handleMiningPoolError,
-  handleMiningPoolWarning,
-  handleCancel,
-  unsupportedMinersInfo,
-  handleUnsupportedMinersContinue,
-  handleUnsupportedMinersDismiss,
-  deviceIdentifier,
-  minerName,
-  workerName,
-  showRenameDialog,
-  handleRenameConfirm,
-  handleRenameDismiss,
-  showWorkerNameAuthenticateModal,
-  handleUpdateWorkerNameAuthenticated,
-  showUpdateWorkerNameDialog,
-  handleUpdateWorkerNameConfirm,
-  handleUpdateWorkerNameDismiss,
-}: SingleMinerActionsMenuInnerProps) => {
-  const { triggerRef, setPopoverRenderMode } = usePopover();
-  useEffect(() => {
-    setPopoverRenderMode("portal-fixed");
-  }, [setPopoverRenderMode]);
-
-  useClickOutside({
-    ref: triggerRef,
-    onClickOutside,
-    ignoreSelectors: [".popover-content"],
-  });
 
   return (
-    <div className="relative" ref={triggerRef}>
-      <Button
-        className="-my-[10px] !p-[14px]"
-        size={sizes.compact}
-        variant={variants.textOnly}
-        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
-        testId="single-miner-actions-menu-button"
-        onClick={() => setIsOpen((prev) => !prev)}
+    <>
+      <RowActionsMenu
+        actions={rowActions}
+        ariaLabel="Miner actions"
+        testIdPrefix="single-miner-actions-popover"
+        // Original trigger testId predates the shared RowActionsMenu;
+        // tests address the button directly so keep the legacy id.
+        triggerTestId="single-miner-actions-menu-button"
       />
-      {isOpen ? (
-        <Popover
-          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
-          position={positions["bottom right"]}
-          size={popoverSizes.small}
-          offset={8}
-          testId="single-miner-actions-popover"
-        >
-          {popoverActions.map((action) => (
-            <Fragment key={action.title}>
-              <div className="px-4">
-                <Row
-                  className="text-emphasis-300"
-                  prefixIcon={action.icon}
-                  testId={action.action + "-popover-button"}
-                  onClick={() => handleAction(action)}
-                  compact
-                  divider={false}
-                >
-                  {action.title}
-                </Row>
-              </div>
-              {action.showGroupDivider ? <Divider dividerStyle="thick" /> : null}
-            </Fragment>
-          ))}
-        </Popover>
-      ) : null}
       <UnsupportedMinersModal
         open={unsupportedMinersInfo.visible}
         unsupportedGroups={unsupportedMinersInfo.unsupportedGroups}
         totalUnsupportedCount={unsupportedMinersInfo.totalUnsupportedCount}
         noneSupported={unsupportedMinersInfo.noneSupported}
-        onContinue={handleUnsupportedMinersContinue}
+        onContinue={handleUnsupportedMinersContinueWithReset}
         onDismiss={handleUnsupportedMinersDismiss}
       />
-      {confirmationActions
+      {actionsWithSingleNameFlows
         .filter((action) => action.requiresConfirmation)
         .map((action) => {
           if (action.confirmation === undefined) return null;
@@ -624,12 +459,27 @@ const SingleMinerActionsMenuInner = ({
         onDismiss={handleUpdateWorkerNameDismiss}
       />
       <MinerActionModalStack
-        minerActions={minerActions}
+        minerActions={minerActionsResult}
         selectedMinerIds={[deviceIdentifier]}
         selectionMode="subset"
         displayCount={1}
       />
-    </div>
+      {reparentKind ? (
+        <MinerReparentPicker
+          kind={reparentKind}
+          deviceIdentifiers={[deviceIdentifier]}
+          selectionMode="subset"
+          sourceLabel={minerName || "miner"}
+          successMessage={(_count, target) =>
+            target === "site"
+              ? `Moved "${minerName || "miner"}" to selected site.`
+              : `Added "${minerName || "miner"}" to selected rack.`
+          }
+          onClose={() => setReparentKind(null)}
+          onRefetchMiners={onRefetchMiners}
+        />
+      ) : null}
+    </>
   );
 };
 

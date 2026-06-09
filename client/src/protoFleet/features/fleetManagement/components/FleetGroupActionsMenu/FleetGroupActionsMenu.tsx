@@ -1,8 +1,9 @@
-import { Fragment, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
+import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
@@ -17,7 +18,6 @@ import MinerActionModalStack from "@/protoFleet/features/fleetManagement/compone
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import {
-  Ellipsis,
   Lock,
   MiningPools,
   Play,
@@ -29,15 +29,7 @@ import {
   Terminal,
   Unpair,
 } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
-import Divider from "@/shared/components/Divider";
-import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
-import Row from "@/shared/components/Row";
-import { type RowAction } from "@/shared/components/RowActionsMenu";
-import { positions } from "@/shared/constants";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 export type GroupScope = {
   kind: "site" | "building" | "rack";
@@ -68,6 +60,10 @@ const BOTTOM_WIRED_KEYS = [groupActions.addToGroup, settingsActions.security, de
 
 type WiredActionKey = (typeof TOP_WIRED_KEYS)[number] | (typeof BOTTOM_WIRED_KEYS)[number];
 
+// Keys that historically rendered a thick divider IMMEDIATELY BEFORE
+// their row. The merger below converts each such entry into a
+// `showGroupDivider: true` on the PREVIOUS row (since RowActionsMenu
+// renders dividers after, not before).
 const DIVIDER_BEFORE_KEY: ReadonlySet<WiredActionKey> = new Set<WiredActionKey>([
   performanceActions.managePower,
   settingsActions.security,
@@ -99,31 +95,7 @@ const ACTION_ICON: Record<WiredActionKey, ReactElement> = {
   [deviceActions.unpair]: <Unpair />,
 };
 
-const FleetGroupActionsMenu = (props: FleetGroupActionsMenuProps) => (
-  <PopoverProvider>
-    <FleetGroupActionsMenuInner {...props} />
-  </PopoverProvider>
-);
-
-const FleetGroupActionsMenuInner = ({
-  scope,
-  ariaLabel,
-  testIdPrefix,
-  extraActions = [],
-}: FleetGroupActionsMenuProps) => {
-  const { triggerRef, setPopoverRenderMode } = usePopover();
-  useEffect(() => {
-    setPopoverRenderMode("portal-fixed");
-  }, [setPopoverRenderMode]);
-
-  const [isOpen, setIsOpen] = useState(false);
-  const onClickOutside = useCallback(() => setIsOpen(false), []);
-  useClickOutside({
-    ref: triggerRef,
-    onClickOutside,
-    ignoreSelectors: [".popover-content"],
-  });
-
+const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = [] }: FleetGroupActionsMenuProps) => {
   // Lazy-fetched on first action click; ref tracks "fetched yet" so
   // repeat clicks skip the network.
   const [ids, setIds] = useState<string[]>([]);
@@ -190,7 +162,6 @@ const FleetGroupActionsMenuInner = ({
 
   const handleTrigger = useCallback(
     async (key: WiredActionKey) => {
-      setIsOpen(false);
       if (isBusy) return;
       setIsBusy(true);
       const loadingToast = pushToast({
@@ -272,102 +243,71 @@ const FleetGroupActionsMenuInner = ({
 
   const topWiredEntries = useMemo(() => TOP_WIRED_KEYS.filter(keepEntry), [keepEntry]);
   const bottomWiredEntries = useMemo(() => BOTTOM_WIRED_KEYS.filter(keepEntry), [keepEntry]);
-
   const visibleExtraActions = useMemo(() => extraActions.filter((entry) => !entry.hidden), [extraActions]);
 
-  const triggerTestId = testIdPrefix ? `${testIdPrefix}-trigger` : "fleet-group-actions-trigger";
-  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "fleet-group-actions-popover";
+  // Build the merged RowAction[] used by the shared RowActionsMenu.
+  // Cluster boundary rules:
+  //   - top → extras: divider if extras exist
+  //   - top → bottom: divider only when no extras (Edit + Add-to-group
+  //     share a cluster by design)
+  //   - extras → bottom: never (last extras `showGroupDivider` ignored)
+  //   - inside top/bottom: divider before any entry in DIVIDER_BEFORE_KEY
+  const rowActions: RowAction[] = useMemo(() => {
+    const entries: RowAction[] = [];
+    const fleetTestIdBase = testIdPrefix ?? "fleet-group-actions";
+
+    topWiredEntries.forEach((key, i) => {
+      const nextTop = topWiredEntries[i + 1];
+      const isLastTop = i === topWiredEntries.length - 1;
+      const dividerFromInternal = nextTop !== undefined && DIVIDER_BEFORE_KEY.has(nextTop);
+      const dividerFromClusterBoundary =
+        isLastTop &&
+        (visibleExtraActions.length > 0 || (bottomWiredEntries.length > 0 && visibleExtraActions.length === 0));
+      entries.push({
+        label: ACTION_LABEL[key],
+        icon: ACTION_ICON[key],
+        testId: `${fleetTestIdBase}-${key}`,
+        onClick: () => void handleTrigger(key),
+        showGroupDivider: dividerFromInternal || dividerFromClusterBoundary,
+      });
+    });
+
+    visibleExtraActions.forEach((action, i) => {
+      const isLastExtra = i === visibleExtraActions.length - 1;
+      entries.push({
+        label: action.label,
+        icon: action.icon,
+        testId: action.testId,
+        onClick: action.onClick,
+        // Suppress the trailing divider on the last extras entry so
+        // Edit + Add-to-group flow together visually.
+        showGroupDivider: !isLastExtra && !!action.showGroupDivider,
+      });
+    });
+
+    bottomWiredEntries.forEach((key, i) => {
+      const nextBottom = bottomWiredEntries[i + 1];
+      const dividerAfter = nextBottom !== undefined && DIVIDER_BEFORE_KEY.has(nextBottom);
+      entries.push({
+        label: ACTION_LABEL[key],
+        icon: ACTION_ICON[key],
+        testId: `${fleetTestIdBase}-${key}`,
+        onClick: () => void handleTrigger(key),
+        showGroupDivider: dividerAfter,
+      });
+    });
+
+    return entries;
+  }, [topWiredEntries, visibleExtraActions, bottomWiredEntries, handleTrigger, testIdPrefix]);
 
   return (
-    <div className="relative" ref={triggerRef}>
-      <Button
-        className="-my-[10px] !p-[14px]"
-        size={sizes.compact}
-        variant={variants.textOnly}
-        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+    <>
+      <RowActionsMenu
+        actions={rowActions}
         ariaLabel={ariaLabel}
-        testId={triggerTestId}
+        testIdPrefix={testIdPrefix ?? "fleet-group-actions"}
         disabled={isBusy}
-        onClick={() => setIsOpen((prev) => !prev)}
       />
-      {isOpen ? (
-        <Popover
-          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
-          position={positions["bottom right"]}
-          size={popoverSizes.small}
-          offset={8}
-          testId={popoverTestId}
-        >
-          {topWiredEntries.map((key) => (
-            <Fragment key={key}>
-              {DIVIDER_BEFORE_KEY.has(key) ? <Divider dividerStyle="thick" /> : null}
-              <div className="px-4">
-                <Row
-                  className="text-emphasis-300"
-                  prefixIcon={ACTION_ICON[key]}
-                  testId={`${testIdPrefix ?? "fleet-group-actions"}-${key}`}
-                  onClick={() => {
-                    void handleTrigger(key);
-                  }}
-                  compact
-                  divider={false}
-                >
-                  {ACTION_LABEL[key]}
-                </Row>
-              </div>
-            </Fragment>
-          ))}
-          {visibleExtraActions.length > 0 ? <Divider dividerStyle="thick" /> : null}
-          {visibleExtraActions.map((action, index) => (
-            <Fragment key={action.testId ?? action.label}>
-              <div className="px-4">
-                <Row
-                  className="text-emphasis-300"
-                  prefixIcon={action.icon}
-                  testId={action.testId}
-                  onClick={() => {
-                    setIsOpen(false);
-                    action.onClick();
-                  }}
-                  compact
-                  divider={false}
-                >
-                  {action.label}
-                </Row>
-              </div>
-              {action.showGroupDivider && index < visibleExtraActions.length - 1 ? (
-                <Divider dividerStyle="thick" />
-              ) : null}
-            </Fragment>
-          ))}
-          {/* Only insert this divider when there are no extras to flow into
-              the bottom cluster — Edit + Add-to-group share a cluster by
-              design. */}
-          {bottomWiredEntries.length > 0 && visibleExtraActions.length === 0 && topWiredEntries.length > 0 ? (
-            <Divider dividerStyle="thick" />
-          ) : null}
-          {bottomWiredEntries.map((key) => (
-            <Fragment key={key}>
-              {DIVIDER_BEFORE_KEY.has(key) ? <Divider dividerStyle="thick" /> : null}
-              <div className="px-4">
-                <Row
-                  className="text-emphasis-300"
-                  prefixIcon={ACTION_ICON[key]}
-                  testId={`${testIdPrefix ?? "fleet-group-actions"}-${key}`}
-                  onClick={() => {
-                    void handleTrigger(key);
-                  }}
-                  compact
-                  divider={false}
-                >
-                  {ACTION_LABEL[key]}
-                </Row>
-              </div>
-            </Fragment>
-          ))}
-        </Popover>
-      ) : null}
-
       <UnsupportedMinersModal
         open={minerActions.unsupportedMinersInfo.visible}
         unsupportedGroups={minerActions.unsupportedMinersInfo.unsupportedGroups}
@@ -412,7 +352,7 @@ const FleetGroupActionsMenuInner = ({
         displayCount={ids.length}
         onActionBoundary={clearPendingAction}
       />
-    </div>
+    </>
   );
 };
 

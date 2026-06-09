@@ -31,6 +31,10 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => ({
     listSites: mockListSites,
   }),
+  // SitePicker derives `knownSiteIds` via this helper; the mock factory
+  // returns an empty set so the picker renders without throwing while
+  // these tests focus on PageHeader's other rows.
+  buildKnownSiteIds: () => new Set<string>(),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({

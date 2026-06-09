@@ -2,12 +2,12 @@ import { type ReactNode, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
+import { type RowAction } from "../RowActionsMenu";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { ArrowRight, Edit, Plus } from "@/shared/assets/icons";
 import List from "@/shared/components/List";
 import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
-import { type RowAction } from "@/shared/components/RowActionsMenu";
 
 type BuildingListItem = {
   id: string;

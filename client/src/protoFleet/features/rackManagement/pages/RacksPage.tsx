@@ -29,6 +29,7 @@ import {
 } from "@/protoFleet/features/rackManagement/utils/buildingFilterUrl";
 import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
+import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 import { Alert, ArrowRight, ChevronDown, Edit, Plus, Racks } from "@/shared/assets/icons";
@@ -72,6 +73,11 @@ const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRackToBuilding } = useBuildings();
+  // Rack edit + AssignRackToBuilding are gated server-side; the UI gates
+  // mirror the BuildingList / SiteList pattern so 403-bound actions never
+  // surface in the row menu.
+  const canEditRack = useHasPermission("rack:manage");
+  const canAssignRackToBuilding = useHasPermission("site:manage");
   // Re-parent picker target. When set, ParentPickerModal opens with the
   // rack as the source; on confirm we dispatch AssignRackToBuilding.
   const [reparentTarget, setReparentTarget] = useState<DeviceSet | null>(null);
@@ -351,14 +357,16 @@ const RacksPage = () => {
         label: "Edit rack",
         icon: <Edit />,
         onClick: () => handleEditRack(rack),
+        hidden: !canEditRack,
       },
       {
         label: "Add to building",
         icon: <Plus />,
         onClick: () => setReparentTarget(rack),
+        hidden: !canAssignRackToBuilding,
       },
     ],
-    [navigate, handleEditRack],
+    [navigate, handleEditRack, canEditRack, canAssignRackToBuilding],
   );
 
   const renderName = useCallback(
