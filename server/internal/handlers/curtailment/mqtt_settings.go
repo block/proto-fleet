@@ -63,7 +63,7 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 	}
 	source := mqttingest.SourceConfig{
 		OrganizationID:          info.OrganizationID,
-		ServiceUserID:           req.Msg.GetServiceUserId(),
+		ServiceUserID:           info.UserID,
 		SourceName:              req.Msg.GetSourceName(),
 		Topic:                   req.Msg.GetTopic(),
 		BrokerPrimaryHost:       req.Msg.GetBrokerPrimaryHost(),
@@ -122,7 +122,6 @@ func (h *Handler) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.
 		PayloadFormat:       req.Msg.PayloadFormat,
 		ClearStaleness:      req.Msg.GetClearStalenessThresholdSec(),
 		ClearMinCurtailed:   req.Msg.GetClearMinCurtailedDurationSec(),
-		ServiceUserID:       req.Msg.ServiceUserId,
 	}
 	if req.Msg.Scope != nil {
 		scope := toMqttDomainScope(req.Msg.Scope)
@@ -222,7 +221,6 @@ func toMqttSourceProto(view mqttingest.SourceView) *pb.MqttCurtailmentSource {
 		StalenessThresholdSec:   durationSecondsToUint32(cfg.StalenessThreshold),
 		MinCurtailedDurationSec: durationSecondsToUint32(cfg.MinCurtailedDuration),
 		Enabled:                 cfg.Enabled,
-		ServiceUserId:           cfg.ServiceUserID,
 		CreatedAt:               mqttTimeProto(cfg.CreatedAt),
 		UpdatedAt:               mqttTimeProto(cfg.UpdatedAt),
 		Status:                  toMqttStatusProto(view),

@@ -366,6 +366,24 @@ func TestBackfill_Idempotent(t *testing.T) {
 	require.Len(t, assignments, 1, "running the backfill twice must produce exactly one assignment row")
 }
 
+func TestBackfill_AdminGetsCurtailmentIngestForMqttRuntime(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	// Simulate an upgraded org whose ADMIN role existed before the MQTT
+	// settings flow started using the session user as the runtime actor.
+	revokeOrgPermission(t, db, orgID, "ADMIN", authz.PermCurtailmentIngest)
+	require.NotContains(t, orgRolePermissionKeys(t, db, orgID, "ADMIN"), authz.PermCurtailmentIngest)
+
+	runAdminCurtailmentIngestBackfill(t, db)
+	runAdminCurtailmentIngestBackfill(t, db)
+
+	require.Contains(t, orgRolePermissionKeys(t, db, orgID, "ADMIN"), authz.PermCurtailmentIngest)
+	require.NotContains(t, orgRolePermissionKeys(t, db, orgID, "FIELD_TECH"), authz.PermCurtailmentIngest)
+}
+
 // ---------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------
@@ -380,6 +398,24 @@ func runBackfill(t *testing.T, db *sql.DB) {
 		ON CONFLICT (user_id, organization_id, role_id)
 		    WHERE scope_type = 'org' AND deleted_at IS NULL
 		    DO NOTHING
+	`)
+	require.NoError(t, err)
+}
+
+func runAdminCurtailmentIngestBackfill(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO permission (key, description) VALUES
+		    ('curtailment:ingest', 'Accept curtailment dispatch signals from external providers and configured MQTT sources.')
+		ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
+
+		INSERT INTO role_permission (role_id, permission_id)
+		SELECT r.id, p.id
+		FROM role r, permission p
+		WHERE r.builtin_key = 'ADMIN'
+		  AND r.deleted_at IS NULL
+		  AND p.key = 'curtailment:ingest'
+		ON CONFLICT (role_id, permission_id) DO NOTHING
 	`)
 	require.NoError(t, err)
 }

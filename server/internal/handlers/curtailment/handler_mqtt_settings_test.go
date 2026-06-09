@@ -34,8 +34,9 @@ func TestHandler_MqttSettingsRequireManage(t *testing.T) {
 func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T) {
 	t.Parallel()
 
+	store := &handlerMqttSettingsStore{}
 	settings, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
-		Store:  &handlerMqttSettingsStore{},
+		Store:  store,
 		Cipher: &handlerMqttCipher{},
 	})
 	require.NoError(t, err)
@@ -54,7 +55,6 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 			PayloadFormat:           "target_timestamp",
 			StalenessThresholdSec:   240,
 			MinCurtailedDurationSec: 600,
-			ServiceUserId:           99,
 			Scope: &pb.MqttCurtailmentSourceScope{
 				Type: pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG,
 			},
@@ -67,6 +67,8 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 	assert.True(t, source.GetHasPassword())
 	assert.Equal(t, "operator", source.GetMqttUsername())
 	assert.False(t, source.GetEnabled(), "create defaults disabled unless enabled=true is explicitly sent")
+	require.NotNil(t, store.created)
+	assert.Equal(t, int64(9), store.created.ServiceUserID)
 }
 
 func TestHandler_CreateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
@@ -87,8 +89,9 @@ func TestHandler_CreateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 func TestHandler_AdminCanCreateEnabledMqttCurtailmentSource(t *testing.T) {
 	t.Parallel()
 
+	store := &handlerMqttSettingsStore{}
 	settings, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
-		Store:  &handlerMqttSettingsStore{},
+		Store:  store,
 		Cipher: &handlerMqttCipher{},
 	})
 	require.NoError(t, err)
@@ -108,7 +111,6 @@ func TestHandler_AdminCanCreateEnabledMqttCurtailmentSource(t *testing.T) {
 			StalenessThresholdSec:   240,
 			MinCurtailedDurationSec: 600,
 			Enabled:                 true,
-			ServiceUserId:           99,
 			Scope: &pb.MqttCurtailmentSourceScope{
 				Type: pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG,
 			},
@@ -116,6 +118,8 @@ func TestHandler_AdminCanCreateEnabledMqttCurtailmentSource(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.True(t, resp.Msg.GetSource().GetEnabled())
+	require.NotNil(t, store.created)
+	assert.Equal(t, int64(9), store.created.ServiceUserID)
 }
 
 func TestHandler_UpdateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
@@ -148,40 +152,43 @@ func TestHandler_EnableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-type handlerMqttSettingsStore struct{}
+type handlerMqttSettingsStore struct {
+	created *mqttingest.SourceConfig
+}
 
-func (handlerMqttSettingsStore) ListSourceConfigsByOrg(context.Context, int64) ([]mqttingest.SourceConfig, error) {
+func (*handlerMqttSettingsStore) ListSourceConfigsByOrg(context.Context, int64) ([]mqttingest.SourceConfig, error) {
 	panic("not used")
 }
 
-func (handlerMqttSettingsStore) ListSourceStatesByOrg(context.Context, int64) ([]mqttingest.SourceState, error) {
+func (*handlerMqttSettingsStore) ListSourceStatesByOrg(context.Context, int64) ([]mqttingest.SourceState, error) {
 	return nil, nil
 }
 
-func (handlerMqttSettingsStore) GetSourceConfigByOrg(context.Context, int64, int64) (mqttingest.SourceConfig, error) {
+func (*handlerMqttSettingsStore) GetSourceConfigByOrg(context.Context, int64, int64) (mqttingest.SourceConfig, error) {
 	panic("not used")
 }
 
-func (handlerMqttSettingsStore) CreateSourceConfig(_ context.Context, source mqttingest.SourceConfig) (mqttingest.SourceConfig, error) {
+func (s *handlerMqttSettingsStore) CreateSourceConfig(_ context.Context, source mqttingest.SourceConfig) (mqttingest.SourceConfig, error) {
+	s.created = &source
 	source.ID = 11
 	source.CreatedAt = time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	source.UpdatedAt = source.CreatedAt
 	return source, nil
 }
 
-func (handlerMqttSettingsStore) UpdateSourceConfig(context.Context, mqttingest.SourceConfig) (mqttingest.SourceConfig, error) {
+func (*handlerMqttSettingsStore) UpdateSourceConfig(context.Context, mqttingest.SourceConfig) (mqttingest.SourceConfig, error) {
 	panic("not used")
 }
 
-func (handlerMqttSettingsStore) SetSourceConfigEnabled(context.Context, int64, int64, bool) (mqttingest.SourceConfig, error) {
+func (*handlerMqttSettingsStore) SetSourceConfigEnabled(context.Context, int64, int64, bool) (mqttingest.SourceConfig, error) {
 	panic("not used")
 }
 
-func (handlerMqttSettingsStore) DeleteDisabledSourceConfig(context.Context, int64, int64) error {
+func (*handlerMqttSettingsStore) DeleteDisabledSourceConfig(context.Context, int64, int64) error {
 	panic("not used")
 }
 
-func (handlerMqttSettingsStore) UserCanIngestCurtailment(context.Context, int64, int64) (bool, error) {
+func (*handlerMqttSettingsStore) UserCanIngestCurtailment(context.Context, int64, int64) (bool, error) {
 	return true, nil
 }
 

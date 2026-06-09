@@ -125,7 +125,6 @@ type UpdateSourceRequest struct {
 	ClearStaleness      bool
 	MinCurtailed        *time.Duration
 	ClearMinCurtailed   bool
-	ServiceUserID       *int64
 }
 
 func (s *SettingsService) List(ctx context.Context, orgID int64) ([]SourceView, error) {
@@ -219,7 +218,6 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	applyString(req.MQTTUsername, &next.MQTTUsername)
 	applyString(req.CurtailMode, &next.CurtailMode)
 	applyString(req.PayloadFormat, &next.PayloadFormat)
-	applyInt64(req.ServiceUserID, &next.ServiceUserID)
 	if req.ClearContractedKw {
 		next.ContractedCurtailmentKw = 0
 	}
@@ -646,12 +644,6 @@ func applyString(value *string, target *string) {
 }
 
 func applyInt32(value *int32, target *int32) {
-	if value != nil {
-		*target = *value
-	}
-}
-
-func applyInt64(value *int64, target *int64) {
 	if value != nil {
 		*target = *value
 	}

@@ -777,7 +777,6 @@ message MqttCurtailmentSource {
     uint32 min_curtailed_duration_sec = 15;
     bool enabled = 16;
 
-    int64 service_user_id = 17;
     google.protobuf.Timestamp created_at = 18;
     google.protobuf.Timestamp updated_at = 19;
 
@@ -838,7 +837,6 @@ message CreateMqttCurtailmentSourceRequest {
     uint32 staleness_threshold_sec = 13;
     uint32 min_curtailed_duration_sec = 14;
     bool enabled = 15;
-    int64 service_user_id = 16 [(buf.validate.field).int64.gt = 0];
 }
 
 message CreateMqttCurtailmentSourceResponse {
@@ -866,7 +864,6 @@ message UpdateMqttCurtailmentSourceRequest {
     optional bool clear_staleness_threshold_sec = 16;
     optional uint32 min_curtailed_duration_sec = 17;
     optional bool clear_min_curtailed_duration_sec = 18;
-    optional int64 service_user_id = 19 [(buf.validate.field).int64.gt = 0];
 }
 
 message UpdateMqttCurtailmentSourceResponse {
