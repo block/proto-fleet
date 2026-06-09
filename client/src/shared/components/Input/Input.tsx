@@ -35,6 +35,7 @@ interface InputProps {
   // Error message is optional in error state
   error?: boolean | string;
   hideLabelOnFocus?: boolean;
+  hidePasswordToggle?: boolean;
   id: string;
   initValue?: string | number;
   inputRef?: RefObject<HTMLInputElement>;
@@ -71,6 +72,7 @@ const Input = ({
   disabled,
   error = false,
   hideLabelOnFocus,
+  hidePasswordToggle = false,
   id,
   initValue = "",
   inputRef,
@@ -287,7 +289,7 @@ const Input = ({
             ))}
           </div>
         ) : undefined}
-        {type === "password" || statusIcon !== undefined ? (
+        {(type === "password" && !hidePasswordToggle) || statusIcon !== undefined ? (
           <div
             className={clsx("absolute", {
               "top-1": compact,

@@ -90,6 +90,9 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
 
 const emptyCurtailmentSources: CurtailmentSource[] = [];
 const emptyUpdatingSourceIds = new Set<string>();
+const savedPasswordPlaceholder = "......";
+
+type SourceModalMode = "create" | "edit";
 
 const sourceInputIds = {
   name: "source-name",
@@ -115,7 +118,47 @@ function isPositiveInteger(value: string): boolean {
   return /^[1-9]\d*$/.test(value.trim());
 }
 
-function isSourceFormValid(values: CurtailmentSourceFormValues): boolean {
+function createSourceFormValuesFromSource(source: CurtailmentSource): CurtailmentSourceFormValues {
+  return {
+    name: source.name,
+    brokerPrimaryHost: source.brokerPrimaryHost ?? source.brokerHosts[0] ?? "",
+    brokerSecondaryHost: source.brokerSecondaryHost ?? source.brokerHosts[1] ?? "",
+    brokerPort: source.port.toString(),
+    topic: source.topic,
+    username: source.username,
+    password: "",
+  };
+}
+
+function applySourceFormValues(source: CurtailmentSource, values: CurtailmentSourceFormValues): CurtailmentSource {
+  const brokerPrimaryHost = values.brokerPrimaryHost.trim();
+  const brokerSecondaryHost = values.brokerSecondaryHost.trim();
+
+  return {
+    ...source,
+    name: values.name.trim(),
+    brokerHosts: [brokerPrimaryHost, brokerSecondaryHost].filter(Boolean),
+    brokerPrimaryHost,
+    brokerSecondaryHost,
+    port: Number(values.brokerPort),
+    topic: values.topic.trim(),
+    username: values.username.trim(),
+  };
+}
+
+function sourceCredentialFieldsChanged(
+  values: CurtailmentSourceFormValues,
+  initialValues: CurtailmentSourceFormValues,
+): boolean {
+  return (
+    values.brokerPrimaryHost.trim() !== initialValues.brokerPrimaryHost.trim() ||
+    values.brokerSecondaryHost.trim() !== initialValues.brokerSecondaryHost.trim() ||
+    values.brokerPort.trim() !== initialValues.brokerPort.trim() ||
+    values.username.trim() !== initialValues.username.trim()
+  );
+}
+
+function isSourceFormValid(values: CurtailmentSourceFormValues, passwordRequired: boolean): boolean {
   const requiredTrimmedValues = [
     values.name,
     values.brokerPrimaryHost,
@@ -126,7 +169,7 @@ function isSourceFormValid(values: CurtailmentSourceFormValues): boolean {
 
   return (
     requiredTrimmedValues.every((value) => value.trim() !== "") &&
-    values.password !== "" &&
+    (!passwordRequired || values.password !== "") &&
     isPositiveInteger(values.brokerPort) &&
     Number(values.brokerPort) <= MAX_BROKER_PORT
   );
@@ -221,15 +264,36 @@ function SourcesErrorState({ message }: SourcesErrorStateProps): ReactElement {
 
 type SourceModalProps = {
   open: boolean;
+  mode?: SourceModalMode;
+  initialValues?: CurtailmentSourceFormValues;
+  hasSavedPassword?: boolean;
   onDismiss: () => void;
   onSave?: (values: CurtailmentSourceFormValues) => Promise<void>;
+  onDelete?: () => Promise<void>;
   saving?: boolean;
+  deleting?: boolean;
 };
 
-function SourceModal({ open, onDismiss, onSave, saving = false }: SourceModalProps): ReactElement {
-  const [values, setValues] = useState<CurtailmentSourceFormValues>(emptySourceFormValues);
+function SourceModal({
+  open,
+  mode = "create",
+  initialValues = emptySourceFormValues,
+  hasSavedPassword = false,
+  onDismiss,
+  onSave,
+  onDelete,
+  saving = false,
+  deleting = false,
+}: SourceModalProps): ReactElement {
+  const [values, setValues] = useState<CurtailmentSourceFormValues>(() => initialValues);
+  const [passwordPlaceholderActive, setPasswordPlaceholderActive] = useState(() => mode === "edit" && hasSavedPassword);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const canSave = isSourceFormValid(values);
+  const isEditMode = mode === "edit";
+  const isBusy = saving || deleting;
+  const passwordRequired = !isEditMode || sourceCredentialFieldsChanged(values, initialValues);
+  const canSave = isSourceFormValid(values, passwordRequired);
+  const showSavedPasswordPlaceholder = isEditMode && hasSavedPassword && passwordPlaceholderActive;
+  const passwordInputValue = showSavedPasswordPlaceholder ? savedPasswordPlaceholder : values.password;
 
   const updateSourceValue = useCallback((value: string, id: string) => {
     const formKey = sourceInputIdToFormKey[id];
@@ -243,8 +307,20 @@ function SourceModal({ open, onDismiss, onSave, saving = false }: SourceModalPro
     }));
   }, []);
 
+  const handlePasswordFocus = useCallback(() => {
+    if (!showSavedPasswordPlaceholder) {
+      return;
+    }
+
+    setPasswordPlaceholderActive(false);
+    setValues((currentValues) => ({
+      ...currentValues,
+      password: "",
+    }));
+  }, [showSavedPasswordPlaceholder]);
+
   const handleSave = useCallback(async () => {
-    if (!canSave || saving) {
+    if (!canSave || isBusy) {
       return;
     }
 
@@ -255,12 +331,26 @@ function SourceModal({ open, onDismiss, onSave, saving = false }: SourceModalPro
     } catch (error) {
       setSaveError(getErrorMessage(error, "Failed to save source."));
     }
-  }, [canSave, onDismiss, onSave, saving, values]);
+  }, [canSave, isBusy, onDismiss, onSave, values]);
+
+  const handleDelete = useCallback(async () => {
+    if (!onDelete || isBusy) {
+      return;
+    }
+
+    try {
+      setSaveError(null);
+      await onDelete();
+      onDismiss();
+    } catch (error) {
+      setSaveError(getErrorMessage(error, "Failed to delete source."));
+    }
+  }, [isBusy, onDelete, onDismiss]);
 
   return (
     <Modal
       open={open}
-      title="Add source"
+      title={isEditMode ? "Edit source" : "Add source"}
       description={SOURCES_DESCRIPTION}
       onDismiss={onDismiss}
       size={modalSizes.standard}
@@ -275,10 +365,22 @@ function SourceModal({ open, onDismiss, onSave, saving = false }: SourceModalPro
           disabled: true,
           dismissModalOnClick: false,
         },
+        ...(isEditMode && onDelete
+          ? [
+              {
+                text: "Delete",
+                variant: variants.secondaryDanger,
+                disabled: isBusy,
+                loading: deleting,
+                dismissModalOnClick: false,
+                onClick: () => void handleDelete(),
+              },
+            ]
+          : []),
         {
           text: "Save",
           variant: variants.primary,
-          disabled: !canSave || saving,
+          disabled: !canSave || isBusy,
           loading: saving,
           dismissModalOnClick: false,
           onClick: () => void handleSave(),
@@ -349,8 +451,10 @@ function SourceModal({ open, onDismiss, onSave, saving = false }: SourceModalPro
             id={sourceInputIds.password}
             label="Password"
             type="password"
-            initValue={values.password}
+            initValue={passwordInputValue}
             onChange={updateSourceValue}
+            onFocus={handlePasswordFocus}
+            hidePasswordToggle={showSavedPasswordPlaceholder}
           />
         </div>
       </div>
@@ -441,7 +545,12 @@ type CurtailmentSettingsContentProps = {
   isSavingSource?: boolean;
   updatingSourceIds?: Set<string>;
   onCreateSource?: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource | void>;
+  onUpdateSource?: (
+    source: CurtailmentSource,
+    values: CurtailmentSourceFormValues,
+  ) => Promise<CurtailmentSource | void>;
   onToggleSource?: (source: CurtailmentSource, enabled: boolean) => Promise<CurtailmentSource | void>;
+  onDeleteSource?: (source: CurtailmentSource) => Promise<void>;
 };
 
 function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources: boolean): ReactElement {
@@ -465,11 +574,35 @@ export function CurtailmentSettingsContent({
   isSavingSource = false,
   updatingSourceIds = emptyUpdatingSourceIds,
   onCreateSource,
+  onUpdateSource,
   onToggleSource,
+  onDeleteSource,
 }: CurtailmentSettingsContentProps): ReactElement {
   const [localSources, setLocalSources] = useState<CurtailmentSource[]>(() => [...initialSources]);
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(initialSourceModalOpen);
+  const [editingSource, setEditingSource] = useState<CurtailmentSource | null>(null);
   const sources = controlledSources ?? localSources;
+  const sourceModalMode: SourceModalMode = editingSource ? "edit" : "create";
+  const sourceModalInitialValues = useMemo(
+    () => (editingSource ? createSourceFormValuesFromSource(editingSource) : emptySourceFormValues),
+    [editingSource],
+  );
+  const isEditingSource = editingSource ? updatingSourceIds.has(editingSource.id) : false;
+
+  const openCreateSourceModal = useCallback(() => {
+    setEditingSource(null);
+    setIsSourceModalOpen(true);
+  }, []);
+
+  const openEditSourceModal = useCallback((source: CurtailmentSource) => {
+    setEditingSource(source);
+    setIsSourceModalOpen(true);
+  }, []);
+
+  const closeSourceModal = useCallback(() => {
+    setIsSourceModalOpen(false);
+    setEditingSource(null);
+  }, []);
 
   const toggleSource = useCallback(
     (sourceId: string) => {
@@ -506,6 +639,39 @@ export function CurtailmentSettingsContent({
     [controlledSources, onCreateSource],
   );
 
+  const handleSaveSource = useCallback(
+    async (values: CurtailmentSourceFormValues) => {
+      if (!editingSource) {
+        await handleCreateSource(values);
+        return;
+      }
+
+      const updatedSource =
+        (await onUpdateSource?.(editingSource, values)) ?? applySourceFormValues(editingSource, values);
+      if (!controlledSources) {
+        setLocalSources((currentSources) =>
+          currentSources.map((currentSource) =>
+            currentSource.id === updatedSource.id ? updatedSource : currentSource,
+          ),
+        );
+      }
+    },
+    [controlledSources, editingSource, handleCreateSource, onUpdateSource],
+  );
+
+  const handleDeleteSource = useCallback(async () => {
+    if (!editingSource) {
+      return;
+    }
+
+    await onDeleteSource?.(editingSource);
+    if (!controlledSources) {
+      setLocalSources((currentSources) =>
+        currentSources.filter((currentSource) => currentSource.id !== editingSource.id),
+      );
+    }
+  }, [controlledSources, editingSource, onDeleteSource]);
+
   const colConfig = useMemo(
     () =>
       createCurtailmentSourceColConfig({
@@ -522,7 +688,7 @@ export function CurtailmentSettingsContent({
       <Header title="Curtailment" titleSize="text-heading-300" description={CURTAILMENT_PAGE_DESCRIPTION} />
 
       <section className="curtailment-settings__section curtailment-settings__section--last">
-        <SectionHeader title="Sources" buttonText="Add source" onButtonClick={() => setIsSourceModalOpen(true)} />
+        <SectionHeader title="Sources" buttonText="Add source" onButtonClick={openCreateSourceModal} />
         <List<CurtailmentSource, string, CurtailmentSourceColumn>
           activeCols={activeCurtailmentSourceCols}
           colTitles={curtailmentSourceColTitles}
@@ -539,15 +705,21 @@ export function CurtailmentSettingsContent({
           tableClassName={curtailmentSourcesTableClassName}
           emptyStateRow={emptyStateRow}
           applyColumnWidthsToCells
+          onRowClick={openEditSourceModal}
         />
       </section>
 
       <SourceModal
-        key={isSourceModalOpen ? "source-modal-open" : "source-modal-closed"}
+        key={isSourceModalOpen ? `source-modal-${editingSource?.id ?? "new"}` : "source-modal-closed"}
         open={isSourceModalOpen}
-        onDismiss={() => setIsSourceModalOpen(false)}
-        onSave={handleCreateSource}
-        saving={isSavingSource}
+        mode={sourceModalMode}
+        initialValues={sourceModalInitialValues}
+        hasSavedPassword={editingSource?.hasPassword ?? false}
+        onDismiss={closeSourceModal}
+        onSave={handleSaveSource}
+        onDelete={editingSource ? handleDeleteSource : undefined}
+        saving={editingSource ? isEditingSource : isSavingSource}
+        deleting={isEditingSource}
       />
     </div>
   );
@@ -555,8 +727,17 @@ export function CurtailmentSettingsContent({
 
 function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
-  const { sources, isLoading, isCreating, updatingSourceIds, loadError, createSource, setSourceEnabled } =
-    useMqttCurtailmentSources(canManageCurtailment);
+  const {
+    sources,
+    isLoading,
+    isCreating,
+    updatingSourceIds,
+    loadError,
+    createSource,
+    updateSource,
+    setSourceEnabled,
+    deleteSource,
+  } = useMqttCurtailmentSources(canManageCurtailment);
 
   useEffect(() => {
     if (!loadError) {
@@ -596,6 +777,29 @@ function CurtailmentSettingsPage(): ReactElement {
     [setSourceEnabled],
   );
 
+  const handleUpdateSource = useCallback(
+    async (source: CurtailmentSource, values: CurtailmentSourceFormValues) => {
+      const updatedSource = await updateSource(source.id, values);
+      pushToast({
+        message: "Source saved",
+        status: STATUSES.success,
+      });
+      return updatedSource;
+    },
+    [updateSource],
+  );
+
+  const handleDeleteSource = useCallback(
+    async (source: CurtailmentSource) => {
+      await deleteSource(source.id);
+      pushToast({
+        message: "Source deleted",
+        status: STATUSES.success,
+      });
+    },
+    [deleteSource],
+  );
+
   if (!canManageCurtailment) {
     return <Navigate to="/settings/general" replace />;
   }
@@ -608,7 +812,9 @@ function CurtailmentSettingsPage(): ReactElement {
       isSavingSource={isCreating}
       updatingSourceIds={updatingSourceIds}
       onCreateSource={handleCreateSource}
+      onUpdateSource={handleUpdateSource}
       onToggleSource={handleToggleSource}
+      onDeleteSource={handleDeleteSource}
     />
   );
 }

@@ -72,6 +72,7 @@ const apiSources: CurtailmentSource[] = [
   {
     ...testSources[0],
     id: "11",
+    hasPassword: true,
   },
 ];
 
@@ -86,7 +87,9 @@ const testSourceFormValues: CurtailmentSourceFormValues = {
 };
 
 const createSourceMock = vi.fn();
+const updateSourceMock = vi.fn();
 const setSourceEnabledMock = vi.fn();
+const deleteSourceMock = vi.fn();
 
 const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentSources>> = {}) => {
   vi.mocked(useMqttCurtailmentSources).mockReturnValue({
@@ -98,7 +101,9 @@ const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentS
     createError: null,
     listSources: vi.fn(),
     createSource: createSourceMock,
+    updateSource: updateSourceMock,
     setSourceEnabled: setSourceEnabledMock,
+    deleteSource: deleteSourceMock,
     ...overrides,
   });
 };
@@ -125,7 +130,9 @@ describe("CurtailmentSettingsPage", () => {
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(pushToast).mockReset();
     createSourceMock.mockReset();
+    updateSourceMock.mockReset();
     setSourceEnabledMock.mockReset();
+    deleteSourceMock.mockReset();
     mockSourcesApi();
   });
 
@@ -271,6 +278,127 @@ describe("CurtailmentSettingsPage", () => {
     await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
     expect(pushToast).toHaveBeenCalledWith({
       message: "Source added",
+      status: "success",
+    });
+  });
+
+  it("opens the edit source dialog with source details when a source row is clicked", () => {
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsContent initialSources={testSources} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Kati MaestroOS"));
+
+    expect(screen.getByText("Edit source")).toBeInTheDocument();
+    expect(screen.getByLabelText("Configuration name")).toHaveValue("Kati MaestroOS");
+    expect(screen.getByLabelText("Broker host 1")).toHaveValue("10.155.0.3");
+    expect(screen.getByLabelText("Broker host 2")).toHaveValue("10.155.0.4");
+    expect(screen.getByLabelText("Port")).toHaveValue(1883);
+    expect(screen.getByLabelText("Topic")).toHaveValue("maestro/target");
+    expect(screen.getByLabelText("Username")).toHaveValue("soluna-kati");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+
+    const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeEnabled();
+    expect(testConnectionButton.compareDocumentPosition(deleteButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(deleteButton.compareDocumentPosition(saveButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("hides the password eye for the saved-password placeholder until the password field is focused", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    updateSourceMock.mockResolvedValue(apiSources[0]);
+    mockSourcesApi({ sources: apiSources, updateSource: updateSourceMock });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Kati MaestroOS"));
+
+    const passwordInput = screen.getByLabelText("Password");
+    expect(passwordInput).toHaveValue("......");
+    expect(passwordInput).toHaveAttribute("type", "password");
+    expect(screen.queryByTestId("eye-icon")).not.toBeInTheDocument();
+
+    fireEvent.focus(passwordInput);
+
+    expect(passwordInput).toHaveValue("");
+    expect(screen.getByTestId("eye-icon")).toBeInTheDocument();
+
+    fireEvent.change(passwordInput, { target: { value: "updated-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(updateSourceMock).toHaveBeenCalledWith("11", {
+        name: "Kati MaestroOS",
+        brokerPrimaryHost: "10.155.0.3",
+        brokerSecondaryHost: "10.155.0.4",
+        brokerPort: "1883",
+        topic: "maestro/target",
+        username: "soluna-kati",
+        password: "updated-secret",
+      }),
+    );
+  });
+
+  it("updates a source through the API hook from the routed page", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    updateSourceMock.mockResolvedValue({ ...apiSources[0], name: "Kati MaestroOS updated" });
+    mockSourcesApi({ sources: apiSources, updateSource: updateSourceMock });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Kati MaestroOS"));
+    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Kati MaestroOS updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(updateSourceMock).toHaveBeenCalledWith("11", {
+        name: "Kati MaestroOS updated",
+        brokerPrimaryHost: "10.155.0.3",
+        brokerSecondaryHost: "10.155.0.4",
+        brokerPort: "1883",
+        topic: "maestro/target",
+        username: "soluna-kati",
+        password: "",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
+    expect(createSourceMock).not.toHaveBeenCalled();
+    expect(pushToast).toHaveBeenCalledWith({
+      message: "Source saved",
+      status: "success",
+    });
+  });
+
+  it("deletes a source through the API hook from the routed page", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    deleteSourceMock.mockResolvedValue(undefined);
+    mockSourcesApi({ sources: apiSources, deleteSource: deleteSourceMock });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Kati MaestroOS"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteSourceMock).toHaveBeenCalledWith("11"));
+    await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
+    expect(pushToast).toHaveBeenCalledWith({
+      message: "Source deleted",
       status: "success",
     });
   });

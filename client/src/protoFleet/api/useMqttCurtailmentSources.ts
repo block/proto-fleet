@@ -6,12 +6,15 @@ import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
   type CreateMqttCurtailmentSourceRequest,
   CreateMqttCurtailmentSourceRequestSchema,
+  DeleteMqttCurtailmentSourceRequestSchema,
   ListMqttCurtailmentSourcesRequestSchema,
   type MqttCurtailmentSource,
   MqttCurtailmentSourceRuntimeState,
   MqttCurtailmentSourceScopeSchema,
   MqttCurtailmentSourceScopeType,
   SetMqttCurtailmentSourceEnabledRequestSchema,
+  type UpdateMqttCurtailmentSourceRequest,
+  UpdateMqttCurtailmentSourceRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import type {
@@ -44,7 +47,9 @@ export type UseMqttCurtailmentSourcesResult = {
   createError: string | null;
   listSources: (signal?: AbortSignal, options?: ListSourcesOptions) => Promise<CurtailmentSource[]>;
   createSource: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource>;
+  updateSource: (sourceId: string, values: CurtailmentSourceFormValues) => Promise<CurtailmentSource>;
   setSourceEnabled: (sourceId: string, enabled: boolean) => Promise<CurtailmentSource>;
+  deleteSource: (sourceId: string) => Promise<void>;
 };
 
 function timestampToEpochSeconds(timestamp?: Timestamp): number | undefined {
@@ -102,11 +107,14 @@ function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSou
     triggerType: "MQTT",
     site: scope,
     brokerHosts: [source.brokerPrimaryHost, source.brokerSecondaryHost].filter(Boolean),
+    brokerPrimaryHost: source.brokerPrimaryHost,
+    brokerSecondaryHost: source.brokerSecondaryHost,
     port: source.brokerPort,
     topic: source.topic,
     protocol: source.brokerTransport ? source.brokerTransport.toUpperCase() : "MQTT",
     qos: 1,
     username: source.mqttUsername,
+    hasPassword: source.hasPassword,
     scope,
     curtailmentMode: source.curtailMode || unsetDisplayValue,
     lastTarget: source.status?.lastTarget || unsetDisplayValue,
@@ -134,6 +142,22 @@ function buildCreateSourceRequest(values: CurtailmentSourceFormValues): CreateMq
     stalenessThresholdSec: DEFAULT_STALENESS_THRESHOLD_SEC,
     minCurtailedDurationSec: DEFAULT_MIN_CURTAILED_DURATION_SEC,
     enabled: true,
+  });
+}
+
+function buildUpdateSourceRequest(
+  sourceId: string,
+  values: CurtailmentSourceFormValues,
+): UpdateMqttCurtailmentSourceRequest {
+  return create(UpdateMqttCurtailmentSourceRequestSchema, {
+    sourceId: BigInt(sourceId),
+    sourceName: values.name.trim(),
+    topic: values.topic.trim(),
+    brokerPrimaryHost: values.brokerPrimaryHost.trim(),
+    brokerSecondaryHost: values.brokerSecondaryHost.trim(),
+    brokerPort: Number(values.brokerPort),
+    mqttUsername: values.username.trim(),
+    ...(values.password === "" ? {} : { mqttPassword: values.password }),
   });
 }
 
@@ -297,6 +321,60 @@ export default function useMqttCurtailmentSources(enabled = true): UseMqttCurtai
     [handleFailure],
   );
 
+  const updateSource = useCallback(
+    async (sourceId: string, values: CurtailmentSourceFormValues): Promise<CurtailmentSource> => {
+      setUpdatingSourceIds((currentIds) => new Set(currentIds).add(sourceId));
+
+      try {
+        const response = await curtailmentClient.updateMqttCurtailmentSource(
+          buildUpdateSourceRequest(sourceId, values),
+        );
+        if (!response.source) {
+          throw new Error("Updated curtailment source response was missing a source.");
+        }
+
+        const nextSource = mapMqttCurtailmentSource(response.source);
+        setSources((currentSources) =>
+          currentSources.map((currentSource) => (currentSource.id === nextSource.id ? nextSource : currentSource)),
+        );
+        return nextSource;
+      } catch (error) {
+        throw handleFailure(error, "Failed to update curtailment source.");
+      } finally {
+        setUpdatingSourceIds((currentIds) => {
+          const nextIds = new Set(currentIds);
+          nextIds.delete(sourceId);
+          return nextIds;
+        });
+      }
+    },
+    [handleFailure],
+  );
+
+  const deleteSource = useCallback(
+    async (sourceId: string): Promise<void> => {
+      setUpdatingSourceIds((currentIds) => new Set(currentIds).add(sourceId));
+
+      try {
+        await curtailmentClient.deleteMqttCurtailmentSource(
+          create(DeleteMqttCurtailmentSourceRequestSchema, {
+            sourceId: BigInt(sourceId),
+          }),
+        );
+        setSources((currentSources) => currentSources.filter((currentSource) => currentSource.id !== sourceId));
+      } catch (error) {
+        throw handleFailure(error, "Failed to delete curtailment source.");
+      } finally {
+        setUpdatingSourceIds((currentIds) => {
+          const nextIds = new Set(currentIds);
+          nextIds.delete(sourceId);
+          return nextIds;
+        });
+      }
+    },
+    [handleFailure],
+  );
+
   return useMemo(
     () => ({
       sources,
@@ -307,7 +385,9 @@ export default function useMqttCurtailmentSources(enabled = true): UseMqttCurtai
       createError,
       listSources,
       createSource,
+      updateSource,
       setSourceEnabled,
+      deleteSource,
     }),
     [
       sources,
@@ -318,7 +398,9 @@ export default function useMqttCurtailmentSources(enabled = true): UseMqttCurtai
       createError,
       listSources,
       createSource,
+      updateSource,
       setSourceEnabled,
+      deleteSource,
     ],
   );
 }
