@@ -2,14 +2,28 @@ import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import CurtailmentSettingsPage, {
   CurtailmentSettingsContent,
 } from "@/protoFleet/features/settings/components/Curtailment";
 import type { CurtailmentSource } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
+import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
+  default: vi.fn(),
+}));
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: vi.fn(),
+  STATUSES: {
+    error: "error",
+    success: "success",
+  },
 }));
 
 const testSources: CurtailmentSource[] = [
@@ -26,7 +40,7 @@ const testSources: CurtailmentSource[] = [
     username: "soluna-kati",
     scope: "Kati",
     curtailmentMode: "Curtail entire site",
-    lastTarget: 0,
+    lastTarget: "0",
     lastSeen: "38 seconds ago",
     health: "connected",
     enabled: true,
@@ -44,16 +58,46 @@ const testSources: CurtailmentSource[] = [
     username: "soluna-dorothy",
     scope: "Dorothy 2",
     curtailmentMode: "Curtail entire site",
-    lastTarget: 100,
+    lastTarget: "100",
     lastSeen: "24 seconds ago",
     health: "connected",
     enabled: true,
   },
 ];
 
+const apiSources: CurtailmentSource[] = [
+  {
+    ...testSources[0],
+    id: "11",
+  },
+];
+
+const createSourceMock = vi.fn();
+const setSourceEnabledMock = vi.fn();
+
+const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentSources>> = {}) => {
+  vi.mocked(useMqttCurtailmentSources).mockReturnValue({
+    sources: [],
+    isLoading: false,
+    isCreating: false,
+    updatingSourceIds: new Set<string>(),
+    loadError: null,
+    createError: null,
+    listSources: vi.fn(),
+    createSource: createSourceMock,
+    setSourceEnabled: setSourceEnabledMock,
+    ...overrides,
+  });
+};
+
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
     vi.mocked(useHasPermission).mockReset();
+    vi.mocked(useMqttCurtailmentSources).mockReset();
+    vi.mocked(pushToast).mockReset();
+    createSourceMock.mockReset();
+    setSourceEnabledMock.mockReset();
+    mockSourcesApi();
   });
 
   it("renders the curtailment header and sources table", () => {
@@ -66,6 +110,7 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
+    expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
     expect(screen.getByText("Curtailment")).toBeVisible();
     expect(
@@ -94,6 +139,20 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Add a source to receive curtailment signals via MQTT.")).toBeVisible();
   });
 
+  it("renders sources returned by the API hook", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockSourcesApi({ sources: apiSources });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Kati MaestroOS")).toBeVisible();
+    expect(screen.getByText("38 seconds ago")).toBeVisible();
+  });
+
   it("renders provided sources with the current table styling", () => {
     render(<CurtailmentSettingsContent initialSources={testSources} />);
 
@@ -109,7 +168,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
   });
 
-  it("opens the source dialog and closes it from Save without persisting yet", async () => {
+  it("opens the source dialog and closes it from Save without API props", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
 
     render(
@@ -147,15 +206,66 @@ describe("CurtailmentSettingsPage", () => {
 
     const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
     const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(testConnectionButton).toBeDisabled();
+    expect(saveButton).toBeDisabled();
     expect(testConnectionButton.compareDocumentPosition(saveButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     fireEvent.click(testConnectionButton);
 
     expect(screen.getByTestId("curtailment-source-modal")).toBeInTheDocument();
 
+    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Kati MaestroOS" } });
+    fireEvent.change(screen.getByLabelText("Broker host 1"), { target: { value: "10.155.0.3" } });
+    fireEvent.change(screen.getByLabelText("Broker host 2"), { target: { value: "10.155.0.4" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "1883" } });
+    fireEvent.change(screen.getByLabelText("Topic"), { target: { value: "maestro/target" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "soluna-kati" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+
+    expect(saveButton).toBeEnabled();
+
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
+  });
+
+  it("creates a source through the API hook from the routed page", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createSourceMock.mockResolvedValue(apiSources[0]);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add source" }));
+    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Kati MaestroOS" } });
+    fireEvent.change(screen.getByLabelText("Broker host 1"), { target: { value: "10.155.0.3" } });
+    fireEvent.change(screen.getByLabelText("Broker host 2"), { target: { value: "10.155.0.4" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "1883" } });
+    fireEvent.change(screen.getByLabelText("Topic"), { target: { value: "maestro/target" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "soluna-kati" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createSourceMock).toHaveBeenCalledWith({
+        name: "Kati MaestroOS",
+        brokerPrimaryHost: "10.155.0.3",
+        brokerSecondaryHost: "10.155.0.4",
+        brokerPort: "1883",
+        topic: "maestro/target",
+        username: "soluna-kati",
+        password: "secret",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
+    expect(pushToast).toHaveBeenCalledWith({
+      message: "Source added",
+      status: "success",
+    });
   });
 
   it("toggles the sources info popover", () => {
@@ -184,7 +294,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.queryByTestId("curtailment-sources-info-popover")).not.toBeInTheDocument();
   });
 
-  it("keeps source enablement as local state until the backend exists", () => {
+  it("keeps source enablement as local state without API props", () => {
     render(
       <MemoryRouter>
         <CurtailmentSettingsContent initialSources={testSources} />
@@ -202,6 +312,25 @@ describe("CurtailmentSettingsPage", () => {
     expect(katiSwitch).not.toBeChecked();
   });
 
+  it("persists source enablement through the API hook on the routed page", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    setSourceEnabledMock.mockResolvedValue({ ...apiSources[0], enabled: false });
+    mockSourcesApi({ sources: apiSources, setSourceEnabled: setSourceEnabledMock });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    const katiRow = screen.getByText("Kati MaestroOS").closest("tr");
+    expect(katiRow).not.toBeNull();
+
+    fireEvent.click(within(katiRow as HTMLTableRowElement).getByRole("checkbox"));
+
+    expect(setSourceEnabledMock).toHaveBeenCalledWith("11", false);
+  });
+
   it("redirects callers without curtailment management permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
 
@@ -212,6 +341,7 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
+    expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();
   });
 });
