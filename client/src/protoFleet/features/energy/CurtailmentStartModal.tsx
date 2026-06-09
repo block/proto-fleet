@@ -132,11 +132,7 @@ const defaultValues: CurtailmentFormValues = {
 const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "maxDurationSec", "restoreIntervalSec"];
 const curtailmentModeOptions = [
   { value: "fixedKwReduction", label: "Fixed kW reduction" },
-  {
-    value: "fullFleet",
-    label: "Full fleet",
-    description: "Curtail every eligible miner in the selected scope.",
-  },
+  { value: "fullFleet", label: "Full fleet" },
 ];
 
 function isCurtailmentMode(value: string): value is CurtailmentMode {

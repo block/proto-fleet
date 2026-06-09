@@ -543,6 +543,7 @@ describe("CurtailmentStartModal", () => {
     expect(startButton).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    expect(screen.queryByText("Curtail every eligible miner in the selected scope.")).not.toBeInTheDocument();
     await user.click(await screen.findByText("Full fleet"));
 
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
