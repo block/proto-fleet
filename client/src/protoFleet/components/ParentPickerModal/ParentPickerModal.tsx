@@ -1,12 +1,12 @@
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, ArrowLeftCompact, ArrowRight } from "@/shared/assets/icons";
+import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
@@ -15,6 +15,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import Radio from "@/shared/components/Radio";
 
 const INACTIVE_PLACEHOLDER = "—";
+const PAGE_SIZE = 50;
 
 export type PickerKind = "site" | "building" | "rack" | "group";
 
@@ -41,6 +42,18 @@ interface ParentPickerModalProps {
   onConfirm: (targetIds: bigint[]) => void | Promise<void>;
 }
 
+// Racks + groups support server-side pagination; sites + buildings
+// don't (their list RPCs return everything). Server endpoints for
+// ListSites + ListBuildings would need pageSize/pageToken added before
+// they can paginate — until then the picker renders the full set for
+// those kinds.
+const IS_PAGINATED: Record<PickerKind, boolean> = {
+  site: false,
+  building: false,
+  rack: true,
+  group: true,
+};
+
 const ParentPickerModal = ({
   kind,
   show,
@@ -57,123 +70,232 @@ const ParentPickerModal = ({
   const { listAllBuildings } = useBuildings();
   const { listRacks, listGroups } = useDeviceSets();
 
-  const [items, setItems] = useState<PickerItem[] | undefined>(undefined);
+  // Page cache keyed by page index. Sites/buildings fill index 0 only.
+  // Racks/groups fetch lazily on prev/next click.
+  const [pages, setPages] = useState<PickerItem[][]>([]);
+  // Index N+1 holds the token to fetch page N+1; index 0 is always "".
+  const [pageTokens, setPageTokens] = useState<string[]>([""]);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [pageLoading, setPageLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [createNewChecked, setCreateNewChecked] = useState(false);
   const [newName, setNewName] = useState("");
 
+  // Multi-select keeps the current parent visible so the operator sees
+  // the existing membership state.
+  const excludeKey = selectionMode === "single" && excludeId !== undefined ? excludeId.toString() : null;
+
+  // Name lookups loaded once per open and reused across paginated
+  // rack/building fetches.
+  const buildingsRef = useRef(new Map<string, string>()).current;
+  const sitesRef = useRef(new Map<string, string>()).current;
+
+  const fetchSitesPage = useCallback(async (): Promise<PickerItem[]> => {
+    return await new Promise<PickerItem[]>((resolve, reject) => {
+      void listSites({
+        onSuccess: (sites: SiteWithCounts[]) => {
+          const rows = sites
+            .filter((s) => !!s.site)
+            .map<PickerItem>((s) => ({
+              id: s.site!.id.toString(),
+              label: s.site!.name,
+              hint: `${s.deviceCount.toString()} miners`,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          resolve(rows);
+        },
+        onError: (msg) => reject(new Error(msg)),
+      });
+    });
+  }, [listSites]);
+
+  const fetchBuildingsPage = useCallback(async (): Promise<PickerItem[]> => {
+    const [sites, buildings] = await Promise.all([
+      new Promise<SiteWithCounts[]>((resolve, reject) => {
+        void listSites({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
+      }),
+      new Promise<BuildingWithCounts[]>((resolve, reject) => {
+        void listAllBuildings({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
+      }),
+    ]);
+    sitesRef.clear();
+    for (const s of sites) if (s.site) sitesRef.set(s.site.id.toString(), s.site.name);
+    return buildings
+      .filter((b) => !!b.building)
+      .map<PickerItem>((b) => {
+        const sid = b.building!.siteId?.toString();
+        return {
+          id: b.building!.id.toString(),
+          label: b.building!.name,
+          hint: sid ? (sitesRef.get(sid) ?? INACTIVE_PLACEHOLDER) : INACTIVE_PLACEHOLDER,
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [listSites, listAllBuildings, sitesRef]);
+
+  const ensureBuildingNames = useCallback(async () => {
+    if (buildingsRef.size > 0) return;
+    const buildings = await new Promise<BuildingWithCounts[]>((resolve, reject) => {
+      void listAllBuildings({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
+    });
+    for (const b of buildings) {
+      if (b.building) buildingsRef.set(b.building.id.toString(), b.building.name);
+    }
+  }, [listAllBuildings, buildingsRef]);
+
+  // Server-paginated kinds resolve { items, nextPageToken, totalCount }
+  // for one page. listRacks + listGroups share the same callback shape.
+  const fetchRackPage = useCallback(
+    async (token: string) => {
+      await ensureBuildingNames();
+      return await new Promise<{ items: PickerItem[]; nextPageToken: string; totalCount: number }>(
+        (resolve, reject) => {
+          void listRacks({
+            pageSize: PAGE_SIZE,
+            pageToken: token,
+            onSuccess: (deviceSets, nextPageToken, total) => {
+              const items: PickerItem[] = deviceSets.map((rack) => {
+                const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+                const bid = rackInfo?.buildingId?.toString();
+                return {
+                  id: rack.id.toString(),
+                  label: rack.label || INACTIVE_PLACEHOLDER,
+                  hint: bid ? (buildingsRef.get(bid) ?? INACTIVE_PLACEHOLDER) : INACTIVE_PLACEHOLDER,
+                };
+              });
+              resolve({ items, nextPageToken, totalCount: total });
+            },
+            onError: (msg) => reject(new Error(msg)),
+          });
+        },
+      );
+    },
+    [listRacks, ensureBuildingNames, buildingsRef],
+  );
+
+  const fetchGroupPage = useCallback(
+    async (token: string) => {
+      return await new Promise<{ items: PickerItem[]; nextPageToken: string; totalCount: number }>(
+        (resolve, reject) => {
+          void listGroups({
+            pageSize: PAGE_SIZE,
+            pageToken: token,
+            onSuccess: (deviceSets, nextPageToken, total) => {
+              const items: PickerItem[] = deviceSets.map((set) => ({
+                id: set.id.toString(),
+                label: set.label,
+                hint: `${set.deviceCount} miners`,
+              }));
+              resolve({ items, nextPageToken, totalCount: total });
+            },
+            onError: (msg) => reject(new Error(msg)),
+          });
+        },
+      );
+    },
+    [listGroups],
+  );
+
+  // Open: reset + load page 0. For sites/buildings the full list lands
+  // in pages[0] and there's no next; for racks/groups page 0 is fetched
+  // and the next token is recorded for subsequent navigations.
   useEffect(() => {
     if (!show) return;
+    let cancelled = false;
     queueMicrotask(() => {
-      setItems(undefined);
+      setPages([]);
+      setPageTokens([""]);
+      setCurrentPage(0);
+      setTotalCount(0);
       setLoadError(null);
       setSelectedIds(new Set());
       setCreateNewChecked(false);
       setNewName("");
       setSaving(false);
+      setPageLoading(true);
+      buildingsRef.clear();
+      sitesRef.clear();
     });
-
-    // Multi-select keeps the current parent visible so the operator
-    // sees the existing membership state.
-    const exclude = selectionMode === "single" && excludeId !== undefined ? excludeId.toString() : null;
-    const toRows = (rows: PickerItem[]) => rows.filter((row) => row.id !== exclude);
-
-    if (kind === "site") {
-      void listSites({
-        onSuccess: (sites: SiteWithCounts[]) => {
-          const rows: PickerItem[] = sites
-            .filter((s) => !!s.site)
-            .map((s) => ({
-              id: s.site!.id.toString(),
-              label: s.site!.name,
-              hint: `${s.deviceCount.toString()} miners`,
-            }));
-          setItems(toRows(rows));
-        },
-        onError: (msg) => setLoadError(msg),
-      });
-      return;
-    }
-
-    if (kind === "group") {
-      void listGroups({
-        onSuccess: (deviceSets) => {
-          const rows: PickerItem[] = deviceSets.map((set) => ({
-            id: set.id.toString(),
-            label: set.label,
-            hint: `${set.deviceCount} miners`,
-          }));
-          setItems(toRows(rows));
-        },
-        onError: (msg) => setLoadError(msg),
-      });
-      return;
-    }
-
-    if (kind === "building") {
-      const sitesPromise = new Promise<SiteWithCounts[]>((resolve, reject) => {
-        void listSites({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
-      });
-      const buildingsPromise = new Promise<BuildingWithCounts[]>((resolve, reject) => {
-        void listAllBuildings({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
-      });
-      Promise.all([sitesPromise, buildingsPromise])
-        .then(([sites, buildings]) => {
-          const siteName = new Map<string, string>();
-          for (const s of sites) {
-            if (s.site) siteName.set(s.site.id.toString(), s.site.name);
-          }
-          const rows: PickerItem[] = buildings
-            .filter((b) => !!b.building)
-            .map((b) => {
-              const sid = b.building!.siteId?.toString();
-              return {
-                id: b.building!.id.toString(),
-                label: b.building!.name,
-                hint: sid ? (siteName.get(sid) ?? INACTIVE_PLACEHOLDER) : INACTIVE_PLACEHOLDER,
-              };
-            });
-          setItems(toRows(rows));
-        })
-        .catch((err: Error) => setLoadError(err.message));
-      return;
-    }
-
-    const buildingsPromise = new Promise<BuildingWithCounts[]>((resolve, reject) => {
-      void listAllBuildings({ onSuccess: resolve, onError: (msg) => reject(new Error(msg)) });
-    });
-    const racksPromise = new Promise<DeviceSet[]>((resolve, reject) => {
-      void listRacks({
-        onSuccess: (deviceSets) => resolve(deviceSets),
-        onError: (msg) => reject(new Error(msg)),
-      });
-    });
-    Promise.all([buildingsPromise, racksPromise])
-      .then(([buildings, racks]) => {
-        const buildingName = new Map<string, string>();
-        for (const b of buildings) {
-          if (b.building) buildingName.set(b.building.id.toString(), b.building.name);
+    void (async () => {
+      try {
+        if (kind === "site") {
+          const rows = await fetchSitesPage();
+          if (cancelled) return;
+          setPages([rows]);
+          setTotalCount(rows.length);
+        } else if (kind === "building") {
+          const rows = await fetchBuildingsPage();
+          if (cancelled) return;
+          setPages([rows]);
+          setTotalCount(rows.length);
+        } else if (kind === "rack") {
+          const { items, nextPageToken, totalCount } = await fetchRackPage("");
+          if (cancelled) return;
+          setPages([items]);
+          setPageTokens(nextPageToken ? ["", nextPageToken] : [""]);
+          setTotalCount(totalCount);
+        } else {
+          const { items, nextPageToken, totalCount } = await fetchGroupPage("");
+          if (cancelled) return;
+          setPages([items]);
+          setPageTokens(nextPageToken ? ["", nextPageToken] : [""]);
+          setTotalCount(totalCount);
         }
-        const rows: PickerItem[] = racks.map((rack) => {
-          const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
-          const bid = rackInfo?.buildingId?.toString();
-          return {
-            id: rack.id.toString(),
-            label: rack.label || INACTIVE_PLACEHOLDER,
-            hint: bid ? (buildingName.get(bid) ?? INACTIVE_PLACEHOLDER) : INACTIVE_PLACEHOLDER,
-          };
-        });
-        setItems(toRows(rows));
-      })
-      .catch((err: Error) => setLoadError(err.message));
-  }, [show, kind, selectionMode, excludeId, listSites, listAllBuildings, listRacks, listGroups]);
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setPageLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [show, kind, fetchSitesPage, fetchBuildingsPage, fetchRackPage, fetchGroupPage, buildingsRef, sitesRef]);
 
-  const sortedItems = useMemo(() => {
-    if (!items) return [];
-    return [...items].sort((a, b) => a.label.localeCompare(b.label));
-  }, [items]);
+  const loadNextPage = useCallback(async () => {
+    if (!IS_PAGINATED[kind]) return;
+    const nextIndex = currentPage + 1;
+    if (pages[nextIndex]) {
+      setCurrentPage(nextIndex);
+      return;
+    }
+    const token = pageTokens[nextIndex];
+    if (!token) return;
+    setPageLoading(true);
+    try {
+      const fetcher = kind === "rack" ? fetchRackPage : fetchGroupPage;
+      const { items, nextPageToken, totalCount: total } = await fetcher(token);
+      setPages((prev) => {
+        const next = [...prev];
+        next[nextIndex] = items;
+        return next;
+      });
+      setPageTokens((prev) => {
+        if (!nextPageToken) return prev;
+        const next = [...prev];
+        next[nextIndex + 1] = nextPageToken;
+        return next;
+      });
+      setTotalCount(total);
+      setCurrentPage(nextIndex);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPageLoading(false);
+    }
+  }, [kind, currentPage, pages, pageTokens, fetchRackPage, fetchGroupPage]);
+
+  const goPrevPage = useCallback(() => {
+    setCurrentPage((p) => Math.max(0, p - 1));
+  }, []);
+
+  const visibleItems = (pages[currentPage] ?? []).filter((row) => row.id !== excludeKey);
+  const hasNextPage = IS_PAGINATED[kind] && (pages[currentPage + 1] !== undefined || !!pageTokens[currentPage + 1]);
+  const hasPrevPage = currentPage > 0;
+  const showPaginationFooter = IS_PAGINATED[kind] && totalCount > PAGE_SIZE;
 
   const handleToggle = useCallback(
     (id: string) => {
@@ -236,8 +358,9 @@ const ParentPickerModal = ({
     group: "Miners",
   };
   const hintHeader = hintHeaderByKind[kind];
-  const hasItems = sortedItems.length > 0;
-  const title = !hasItems && hasCreateNew ? (createNewLabel ?? titleByKind[kind]) : titleByKind[kind];
+  const isInitialLoad = pages.length === 0 && pageLoading;
+  const hasAnyItems = totalCount > 0;
+  const title = !hasAnyItems && hasCreateNew ? (createNewLabel ?? titleByKind[kind]) : titleByKind[kind];
 
   if (!show) return null;
 
@@ -260,13 +383,13 @@ const ParentPickerModal = ({
       ]}
     >
       {loadError ? <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={loadError} /> : null}
-      {items === undefined && !loadError ? (
+      {isInitialLoad ? (
         <div className="flex justify-center py-20">
           <ProgressCircular indeterminate />
         </div>
       ) : (
         <div>
-          {hasCreateNew && hasItems ? (
+          {hasCreateNew && hasAnyItems ? (
             <label className="mb-6 flex items-center gap-6">
               <Checkbox checked={createNewChecked} onChange={handleCreateNewToggle} />
               <div className="flex-1">
@@ -280,7 +403,7 @@ const ParentPickerModal = ({
               </div>
             </label>
           ) : null}
-          {hasCreateNew && !hasItems ? (
+          {hasCreateNew && !hasAnyItems ? (
             <div className="mb-4">
               <Input
                 id="parent-picker-new-name"
@@ -296,7 +419,7 @@ const ParentPickerModal = ({
               />
             </div>
           ) : null}
-          {hasItems ? (
+          {hasAnyItems ? (
             <div className="flex items-center gap-6 border-b border-border-5 pb-2 text-emphasis-300 text-text-primary">
               {/* Spacer aligns Name column over the row's checkbox/radio. */}
               <div className="w-[18px] shrink-0" aria-hidden />
@@ -304,20 +427,53 @@ const ParentPickerModal = ({
               <span className="w-1/2 truncate">{hintHeader}</span>
             </div>
           ) : null}
-          {sortedItems.map((item) => (
-            <label
-              key={item.id}
-              className="flex cursor-pointer items-center gap-6 border-b border-border-5 py-3 text-300"
-            >
-              {selectionMode === "single" ? (
-                <Radio selected={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
-              ) : (
-                <Checkbox checked={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
-              )}
-              <span className="w-1/2 truncate text-emphasis-300">{item.label}</span>
-              <span className="w-1/2 truncate">{item.hint}</span>
-            </label>
-          ))}
+          {pageLoading && pages.length > 0 ? (
+            <div className="flex justify-center py-8">
+              <ProgressCircular indeterminate />
+            </div>
+          ) : (
+            visibleItems.map((item) => (
+              <label
+                key={item.id}
+                className="flex cursor-pointer items-center gap-6 border-b border-border-5 py-3 text-300"
+              >
+                {selectionMode === "single" ? (
+                  <Radio selected={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
+                ) : (
+                  <Checkbox checked={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
+                )}
+                <span className="w-1/2 truncate text-emphasis-300">{item.label}</span>
+                <span className="w-1/2 truncate">{item.hint}</span>
+              </label>
+            ))
+          )}
+          {showPaginationFooter ? (
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-300 text-text-primary-70">
+                Page {currentPage + 1} of {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))} · {totalCount} total
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={variants.secondary}
+                  size={buttonSizes.compact}
+                  prefixIcon={<ArrowLeftCompact />}
+                  ariaLabel="Previous page"
+                  disabled={!hasPrevPage || pageLoading}
+                  onClick={goPrevPage}
+                />
+                <Button
+                  variant={variants.secondary}
+                  size={buttonSizes.compact}
+                  prefixIcon={<ArrowRight />}
+                  ariaLabel="Next page"
+                  disabled={!hasNextPage || pageLoading}
+                  onClick={() => {
+                    void loadNextPage();
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </Modal>
