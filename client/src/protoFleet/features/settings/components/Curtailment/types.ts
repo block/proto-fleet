@@ -7,11 +7,14 @@ export type CurtailmentSource = {
   triggerType: AutomationTriggerType;
   site: string;
   brokerHosts: string[];
+  brokerPrimaryHost?: string;
+  brokerSecondaryHost?: string;
   port: number;
   topic: string;
   protocol: string;
   qos: number;
   username: string;
+  hasPassword?: boolean;
   scope: string;
   curtailmentMode: string;
   lastTarget: string;

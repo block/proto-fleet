@@ -14,14 +14,23 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 
-const { mockHandleAuthErrors, mockListMqttCurtailmentSources } = vi.hoisted(() => ({
+const {
+  mockDeleteMqttCurtailmentSource,
+  mockHandleAuthErrors,
+  mockListMqttCurtailmentSources,
+  mockUpdateMqttCurtailmentSource,
+} = vi.hoisted(() => ({
+  mockDeleteMqttCurtailmentSource: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
   mockListMqttCurtailmentSources: vi.fn(),
+  mockUpdateMqttCurtailmentSource: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
   curtailmentClient: {
+    deleteMqttCurtailmentSource: mockDeleteMqttCurtailmentSource,
     listMqttCurtailmentSources: mockListMqttCurtailmentSources,
+    updateMqttCurtailmentSource: mockUpdateMqttCurtailmentSource,
   },
 }));
 
@@ -51,6 +60,7 @@ function mqttSource(overrides: Partial<MqttCurtailmentSource> = {}): MqttCurtail
     brokerPort: 1883,
     brokerTransport: "tcp",
     mqttUsername: "fleet",
+    hasPassword: true,
     curtailMode: "FULL_FLEET",
     payloadFormat: "target_timestamp",
     scope: create(MqttCurtailmentSourceScopeSchema, {
@@ -72,8 +82,10 @@ function mqttSource(overrides: Partial<MqttCurtailmentSource> = {}): MqttCurtail
 describe("useMqttCurtailmentSources", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mockDeleteMqttCurtailmentSource.mockReset();
     mockHandleAuthErrors.mockReset();
     mockListMqttCurtailmentSources.mockReset();
+    mockUpdateMqttCurtailmentSource.mockReset();
   });
 
   afterEach(() => {
@@ -102,6 +114,7 @@ describe("useMqttCurtailmentSources", () => {
     expect(result.current.sources[0]).toMatchObject({
       lastTarget: "OFF",
       health: "connected",
+      hasPassword: true,
     });
     expect(result.current.isLoading).toBe(false);
 
@@ -125,5 +138,71 @@ describe("useMqttCurtailmentSources", () => {
     });
 
     expect(curtailmentClient.listMqttCurtailmentSources).not.toHaveBeenCalled();
+  });
+
+  it("updates a source and replaces it in local hook state", async () => {
+    mockListMqttCurtailmentSources.mockResolvedValueOnce({ sources: [mqttSource()] });
+    mockUpdateMqttCurtailmentSource.mockResolvedValueOnce({
+      source: mqttSource({
+        sourceName: "Kati MQTT updated",
+        topic: "curtailment/site/kati/updated",
+      }),
+    });
+
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+    await act(async () => {
+      await result.current.listSources();
+    });
+    await act(async () => {
+      await result.current.updateSource("1", {
+        name: "Kati MQTT updated",
+        brokerPrimaryHost: "10.155.0.3",
+        brokerSecondaryHost: "10.155.0.4",
+        brokerPort: "1883",
+        topic: "curtailment/site/kati/updated",
+        username: "fleet",
+        password: "",
+      });
+    });
+
+    expect(mockUpdateMqttCurtailmentSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: 1n,
+        sourceName: "Kati MQTT updated",
+        topic: "curtailment/site/kati/updated",
+        brokerPrimaryHost: "10.155.0.3",
+        brokerSecondaryHost: "10.155.0.4",
+        brokerPort: 1883,
+        mqttUsername: "fleet",
+      }),
+    );
+    expect(mockUpdateMqttCurtailmentSource.mock.calls[0][0]).not.toHaveProperty("mqttPassword");
+    expect(result.current.sources[0]).toMatchObject({
+      id: "1",
+      name: "Kati MQTT updated",
+      topic: "curtailment/site/kati/updated",
+    });
+  });
+
+  it("deletes a source and removes it from local hook state", async () => {
+    mockListMqttCurtailmentSources.mockResolvedValueOnce({ sources: [mqttSource()] });
+    mockDeleteMqttCurtailmentSource.mockResolvedValueOnce({});
+
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+    await act(async () => {
+      await result.current.listSources();
+    });
+    await act(async () => {
+      await result.current.deleteSource("1");
+    });
+
+    expect(mockDeleteMqttCurtailmentSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: 1n,
+      }),
+    );
+    expect(result.current.sources).toEqual([]);
   });
 });
