@@ -25,6 +25,7 @@ interface SelectProps {
   error?: boolean | string;
   testId?: string;
   className?: string;
+  showSelectedIndicator?: boolean;
   // Default behavior flips the popover above the trigger when more space is
   // available there. Set forceBelow when the caller knows the dropdown must
   // open downward (e.g. inside a modal whose footer would otherwise hide it).
@@ -41,6 +42,7 @@ const SelectContent = ({
   error,
   testId,
   className,
+  showSelectedIndicator = true,
   forceBelow,
 }: SelectProps) => {
   const [open, setOpen] = useState(false);
@@ -188,16 +190,17 @@ const SelectContent = ({
                 role="option"
                 aria-selected={value === opt.value ? "true" : "false"}
                 className={clsx(
-                  "flex cursor-pointer items-center gap-3 rounded-xl p-3 text-left select-none",
+                  "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
                   "transition-[background-color] duration-200 ease-in-out",
                   "text-text-primary hover:bg-core-primary-5",
+                  { "gap-3": showSelectedIndicator },
                 )}
                 onClick={() => {
                   onChange(opt.value);
                   setOpen(false);
                 }}
               >
-                <Radio selected={value === opt.value} />
+                {showSelectedIndicator ? <Radio selected={value === opt.value} /> : null}
                 <div className="min-w-0 grow">
                   <div className="truncate text-emphasis-300">{opt.label}</div>
                   {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}

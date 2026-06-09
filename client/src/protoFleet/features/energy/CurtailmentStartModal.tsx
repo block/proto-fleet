@@ -132,7 +132,7 @@ const defaultValues: CurtailmentFormValues = {
 const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "maxDurationSec", "restoreIntervalSec"];
 const curtailmentModeOptions = [
   { value: "fixedKwReduction", label: "Fixed kW reduction" },
-  { value: "fullFleet", label: "Full fleet" },
+  { value: "fullFleet", label: "Full shutdown" },
 ];
 
 function isCurtailmentMode(value: string): value is CurtailmentMode {
@@ -523,9 +523,8 @@ function CurtailmentStartModalContent({
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isEditMode
     ? undefined
-    : isFullFleetMode
-      ? "Curtail every eligible miner in the selected scope."
-      : "Fleet will automatically curtail the least efficient miners first.";
+    : "Fleet will automatically curtail the least efficient miners first.";
+  const curtailmentTargetGridClassName = isFullFleetMode ? "grid gap-3" : "grid gap-3 tablet:grid-cols-2";
   const shouldShowPreviewPane =
     !isEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
   const previewPane = shouldShowPreviewPane ? <PreviewPane {...previewState} /> : null;
@@ -624,31 +623,33 @@ function CurtailmentStartModalContent({
 
             <Section title="Curtail behavior" subtext={curtailmentBehaviorSubtext}>
               <div className="grid gap-3">
-                {!isEditMode ? (
+                <div className={curtailmentTargetGridClassName}>
                   <Select
                     id="curtailment-mode"
                     label="Curtailment mode"
                     value={values.curtailmentMode}
                     options={curtailmentModeOptions}
+                    disabled={isEditMode}
                     forceBelow
+                    showSelectedIndicator={false}
                     onChange={(value) => {
                       if (isCurtailmentMode(value)) {
                         updateValue("curtailmentMode", value);
                       }
                     }}
                   />
-                ) : null}
-                {!isFullFleetMode ? (
-                  <Input
-                    id="curtailment-target-kw"
-                    label="Fixed target reduction (kW)"
-                    initValue={values.targetKw}
-                    disabled={isEditMode}
-                    inputMode="decimal"
-                    error={effectiveErrors.targetKw}
-                    onChange={(value) => updateValue("targetKw", value)}
-                  />
-                ) : null}
+                  {!isFullFleetMode ? (
+                    <Input
+                      id="curtailment-target-kw"
+                      label="Fixed target reduction (kW)"
+                      initValue={values.targetKw}
+                      disabled={isEditMode}
+                      inputMode="decimal"
+                      error={effectiveErrors.targetKw}
+                      onChange={(value) => updateValue("targetKw", value)}
+                    />
+                  ) : null}
+                </div>
                 <div className="grid gap-3 tablet:grid-cols-2">
                   <Input
                     id="curtailment-min-duration"

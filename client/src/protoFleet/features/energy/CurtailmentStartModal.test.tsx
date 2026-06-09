@@ -181,6 +181,7 @@ describe("CurtailmentStartModal", () => {
     });
 
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeDisabled();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Miners\s+Whole fleet/ })).toBeDisabled();
     expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
@@ -527,7 +528,7 @@ describe("CurtailmentStartModal", () => {
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it("submits full-fleet curtailment without requiring a target reduction", async () => {
+  it("submits full-shutdown curtailment without requiring a target reduction", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: {
@@ -544,11 +545,12 @@ describe("CurtailmentStartModal", () => {
     expect(startButton).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
-    expect(screen.queryByText("Curtail every eligible miner in the selected scope.")).not.toBeInTheDocument();
-    await user.click(await screen.findByText("Full fleet"));
+    const fullShutdownOption = await screen.findByText("Full shutdown");
+    expect(document.body.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    await user.click(fullShutdownOption);
 
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
-    expect(screen.getByText("Curtail every eligible miner in the selected scope.")).toBeInTheDocument();
+    expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
 
     await user.click(startButton);
@@ -559,6 +561,22 @@ describe("CurtailmentStartModal", () => {
         targetKw: "",
       }),
     );
+  });
+
+  it("renders full-shutdown mode as locked in edit mode", () => {
+    renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeDisabled();
+    expect(screen.getByText("Full shutdown")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
   });
 
   it("submits default curtailment options without rendering single-option dropdowns", async () => {
