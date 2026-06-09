@@ -29,9 +29,14 @@ interface ParentPickerModalProps {
   kind: PickerKind;
   show: boolean;
   selectionMode: "single" | "multi";
-  // Hidden from candidates. Used to drop the row's current parent from
-  // re-parent flows. Ignored in multi-select.
-  excludeId?: bigint;
+  // The entity's current parent. In single-select re-parent flows we
+  // pre-select this row when the picker opens so the operator sees
+  // "currently here" before choosing a different target, rather than
+  // hiding the current parent from the list. Save stays disabled until
+  // the selection differs from this id (otherwise an idempotent
+  // re-parent would fire a server round-trip + misleading toast).
+  // Ignored in multi-select.
+  currentParentId?: bigint;
   sourceLabel: string;
   description?: string;
   // When set, an inline create-new row appears. `onCreateNew` fires on
@@ -58,7 +63,7 @@ const ParentPickerModal = ({
   kind,
   show,
   selectionMode,
-  excludeId,
+  currentParentId,
   sourceLabel,
   description,
   createNewLabel,
@@ -84,9 +89,11 @@ const ParentPickerModal = ({
   const [createNewChecked, setCreateNewChecked] = useState(false);
   const [newName, setNewName] = useState("");
 
-  // Multi-select keeps the current parent visible so the operator sees
-  // the existing membership state.
-  const excludeKey = selectionMode === "single" && excludeId !== undefined ? excludeId.toString() : null;
+  // Decimal-string form of the current parent id; null when not in
+  // single-select or no current parent. Drives pre-selection on open
+  // and the Save-disabled "no change" guard below.
+  const currentParentKey =
+    selectionMode === "single" && currentParentId !== undefined ? currentParentId.toString() : null;
 
   // Name lookups loaded once per open and reused across paginated
   // rack/building fetches.
@@ -211,7 +218,10 @@ const ParentPickerModal = ({
       setCurrentPage(0);
       setTotalCount(0);
       setLoadError(null);
-      setSelectedIds(new Set());
+      // Pre-select the entity's current parent so the picker opens in
+      // "currently here" state. Operator changes the radio to actually
+      // re-parent; Save stays disabled until the selection changes.
+      setSelectedIds(currentParentKey ? new Set([currentParentKey]) : new Set());
       setCreateNewChecked(false);
       setNewName("");
       setSaving(false);
@@ -253,7 +263,17 @@ const ParentPickerModal = ({
     return () => {
       cancelled = true;
     };
-  }, [show, kind, fetchSitesPage, fetchBuildingsPage, fetchRackPage, fetchGroupPage, buildingsRef, sitesRef]);
+  }, [
+    show,
+    kind,
+    currentParentKey,
+    fetchSitesPage,
+    fetchBuildingsPage,
+    fetchRackPage,
+    fetchGroupPage,
+    buildingsRef,
+    sitesRef,
+  ]);
 
   const loadNextPage = useCallback(async () => {
     if (!IS_PAGINATED[kind]) return;
@@ -292,7 +312,7 @@ const ParentPickerModal = ({
     setCurrentPage((p) => Math.max(0, p - 1));
   }, []);
 
-  const visibleItems = (pages[currentPage] ?? []).filter((row) => row.id !== excludeKey);
+  const visibleItems = pages[currentPage] ?? [];
   const hasNextPage = IS_PAGINATED[kind] && (pages[currentPage + 1] !== undefined || !!pageTokens[currentPage + 1]);
   const hasPrevPage = currentPage > 0;
   const showPaginationFooter = IS_PAGINATED[kind] && totalCount > PAGE_SIZE;
@@ -324,7 +344,13 @@ const ParentPickerModal = ({
   const hasCreateNew = !!createNewLabel && !!onCreateNew;
   const trimmedNewName = newName.trim();
   const wantsCreateNew = hasCreateNew && createNewChecked && trimmedNewName.length > 0;
-  const canSave = selectedIds.size > 0 || wantsCreateNew;
+  // "No change" guard: when the only selected row is the current
+  // parent, Save stays disabled — re-parenting to where you already
+  // live is a no-op RPC, and surfacing it would just flash a
+  // misleading toast.
+  const isUnchangedSingleSelection =
+    currentParentKey !== null && selectedIds.size === 1 && selectedIds.has(currentParentKey);
+  const canSave = (selectedIds.size > 0 && !isUnchangedSingleSelection) || wantsCreateNew;
 
   const handleSave = useCallback(async () => {
     if (!canSave) return;
@@ -436,20 +462,26 @@ const ParentPickerModal = ({
               <ProgressCircular indeterminate />
             </div>
           ) : (
-            visibleItems.map((item) => (
-              <label
-                key={item.id}
-                className="flex cursor-pointer items-center gap-6 border-b border-border-5 py-3 text-300"
-              >
-                {selectionMode === "single" ? (
-                  <Radio selected={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
-                ) : (
-                  <Checkbox checked={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
-                )}
-                <span className="w-1/2 truncate text-emphasis-300">{item.label}</span>
-                <span className="w-1/2 truncate">{item.hint}</span>
-              </label>
-            ))
+            visibleItems.map((item) => {
+              const isCurrent = item.id === currentParentKey;
+              return (
+                <label
+                  key={item.id}
+                  className="flex cursor-pointer items-center gap-6 border-b border-border-5 py-3 text-300"
+                >
+                  {selectionMode === "single" ? (
+                    <Radio selected={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
+                  ) : (
+                    <Checkbox checked={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
+                  )}
+                  <span className="w-1/2 truncate text-emphasis-300">
+                    {item.label}
+                    {isCurrent ? <span className="ml-2 text-text-primary-70">· Current</span> : null}
+                  </span>
+                  <span className="w-1/2 truncate">{item.hint}</span>
+                </label>
+              );
+            })
           )}
           {showPaginationFooter ? (
             <div className="mt-3 flex items-center justify-between">

@@ -288,7 +288,7 @@ const FleetBuildingsPage = () => {
           show
           selectionMode="single"
           sourceLabel={reparentTarget.building.name || "building"}
-          excludeId={reparentTarget.building.siteId}
+          currentParentId={reparentTarget.building.siteId}
           onDismiss={() => setReparentTarget(null)}
           onConfirm={(siteIds) => {
             const targetSiteId = siteIds[0];

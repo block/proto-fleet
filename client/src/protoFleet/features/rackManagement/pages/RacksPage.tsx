@@ -769,7 +769,7 @@ const RacksPage = () => {
               ? `${reparentTarget.deviceCount} ${reparentTarget.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
               : undefined
           }
-          excludeId={
+          currentParentId={
             reparentTarget.typeDetails.case === "rackInfo" ? reparentTarget.typeDetails.value.buildingId : undefined
           }
           onDismiss={() => setReparentTarget(null)}
