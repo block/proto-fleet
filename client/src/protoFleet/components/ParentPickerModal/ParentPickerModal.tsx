@@ -462,26 +462,20 @@ const ParentPickerModal = ({
               <ProgressCircular indeterminate />
             </div>
           ) : (
-            visibleItems.map((item) => {
-              const isCurrent = item.id === currentParentKey;
-              return (
-                <label
-                  key={item.id}
-                  className="flex cursor-pointer items-center gap-6 border-b border-border-5 py-3 text-300"
-                >
-                  {selectionMode === "single" ? (
-                    <Radio selected={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
-                  ) : (
-                    <Checkbox checked={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
-                  )}
-                  <span className="w-1/2 truncate text-emphasis-300">
-                    {item.label}
-                    {isCurrent ? <span className="ml-2 text-text-primary-70">· Current</span> : null}
-                  </span>
-                  <span className="w-1/2 truncate">{item.hint}</span>
-                </label>
-              );
-            })
+            visibleItems.map((item) => (
+              <label
+                key={item.id}
+                className="flex cursor-pointer items-center gap-6 border-b border-border-5 py-3 text-300"
+              >
+                {selectionMode === "single" ? (
+                  <Radio selected={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
+                ) : (
+                  <Checkbox checked={selectedIds.has(item.id)} onChange={() => handleToggle(item.id)} />
+                )}
+                <span className="w-1/2 truncate text-emphasis-300">{item.label}</span>
+                <span className="w-1/2 truncate">{item.hint}</span>
+              </label>
+            ))
           )}
           {showPaginationFooter ? (
             <div className="mt-3 flex items-center justify-between">
