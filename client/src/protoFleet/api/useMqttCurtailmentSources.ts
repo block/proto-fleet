@@ -63,7 +63,7 @@ function timestampToEpochSeconds(timestamp?: Timestamp): number | undefined {
 
 function formatSignalUpdate(timestamp?: Timestamp): string {
   const seconds = timestampToEpochSeconds(timestamp);
-  return seconds === undefined ? unsetDisplayValue : formatTimestamp(seconds);
+  return seconds === undefined ? unsetDisplayValue : formatTimestamp(seconds, { includeSeconds: true });
 }
 
 function formatScope(source: MqttCurtailmentSource): string {
