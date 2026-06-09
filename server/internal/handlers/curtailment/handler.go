@@ -21,6 +21,7 @@ import (
 // Action verb for requireAdminFromContext error messages on the legacy
 // admin-only override checks that run after the curtailment:manage gate.
 const actionSupplyOverrideFields = "supply curtailment override fields"
+const actionManageMqttAutomation = "manage unbounded MQTT curtailment automation"
 
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.

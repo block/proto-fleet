@@ -195,7 +195,8 @@ func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*mode
 	}
 	want := sourceActorIDFor(src)
 	for _, ev := range events {
-		if ev != nil && ev.SourceActorID != nil && *ev.SourceActorID == want {
+		if ev != nil && ev.SourceActorID != nil &&
+			(*ev.SourceActorID == want || *ev.SourceActorID == legacySourceActorIDFor(src)) {
 			return ev, nil
 		}
 	}
@@ -279,8 +280,13 @@ func startReason(source string, direction EdgeDirection, edgeAt time.Time) strin
 	return fmt.Sprintf("MQTT OFF target — source %s", source)
 }
 
-// sourceActorIDFor is stamped on events this MQTT source owns.
+// sourceActorIDFor is stamped on events this MQTT source owns. Use the immutable
+// source config ID so display-name edits do not orphan active events.
 func sourceActorIDFor(src SourceConfig) string {
+	return fmt.Sprintf("mqtt:%d", src.ID)
+}
+
+func legacySourceActorIDFor(src SourceConfig) string {
 	return fmt.Sprintf("mqtt:%s", src.SourceName)
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -66,6 +67,85 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 	assert.True(t, source.GetHasPassword())
 	assert.Equal(t, "operator", source.GetMqttUsername())
 	assert.False(t, source.GetEnabled(), "create defaults disabled unless enabled=true is explicitly sent")
+}
+
+func TestHandler_CreateEnabledMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	_, err := h.CreateMqttCurtailmentSource(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{Enabled: true}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_AdminCanCreateEnabledMqttCurtailmentSource(t *testing.T) {
+	t.Parallel()
+
+	settings, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
+		Store:  &handlerMqttSettingsStore{},
+		Cipher: &handlerMqttCipher{},
+	})
+	require.NoError(t, err)
+	h := NewHandler(nil, settings)
+
+	resp, err := h.CreateMqttCurtailmentSource(
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{
+			SourceName:              "maestro",
+			Topic:                   "maestro/curtailment",
+			BrokerPrimaryHost:       "10.0.0.1",
+			BrokerSecondaryHost:     "10.0.0.2",
+			MqttUsername:            "operator",
+			MqttPassword:            "secret",
+			CurtailMode:             "FULL_FLEET",
+			PayloadFormat:           "target_timestamp",
+			StalenessThresholdSec:   240,
+			MinCurtailedDurationSec: 600,
+			Enabled:                 true,
+			ServiceUserId:           99,
+			Scope: &pb.MqttCurtailmentSourceScope{
+				Type: pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG,
+			},
+		}),
+	)
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.GetSource().GetEnabled())
+}
+
+func TestHandler_UpdateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	_, err := h.UpdateMqttCurtailmentSource(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.UpdateMqttCurtailmentSourceRequest{SourceId: 11}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_EnableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	_, err := h.SetMqttCurtailmentSourceEnabled(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.SetMqttCurtailmentSourceEnabledRequest{SourceId: 11, Enabled: true}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 type handlerMqttSettingsStore struct{}

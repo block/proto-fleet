@@ -251,12 +251,6 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			continue
 		}
 		handle.cancel()
-		s.mu.Lock()
-		if current, stillCurrent := s.workers[sourceID]; stillCurrent && current == handle {
-			delete(s.workers, sourceID)
-			delete(s.brokerStatuses, sourceID)
-		}
-		s.mu.Unlock()
 		stopping = append(stopping, handle)
 	}
 	for _, handle := range stopping {
@@ -265,7 +259,9 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			return 0, len(sources), err
 		}
 		s.mu.Lock()
-		if _, stillCurrent := s.workers[handle.worker.source.ID]; !stillCurrent {
+		if current, stillCurrent := s.workers[handle.worker.source.ID]; stillCurrent && current == handle {
+			delete(s.workers, handle.worker.source.ID)
+			delete(s.brokerStatuses, handle.worker.source.ID)
 			s.setSourceStatusLocked(handle.worker.source.ID, RuntimeStateStopped, "")
 		}
 		s.mu.Unlock()

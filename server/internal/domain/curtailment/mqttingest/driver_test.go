@@ -179,7 +179,7 @@ func TestDriver_Dispatch_OnToOff(t *testing.T) {
 	assert.Equal(t, "site-a:"+itoa(edgeAt.Unix()), *start.ExternalReference)
 	assert.Equal(t, models.SourceActorWebhook, start.SourceActorType)
 	require.NotNil(t, start.SourceActorID)
-	assert.Equal(t, "mqtt:site-a", *start.SourceActorID)
+	assert.Equal(t, "mqtt:42", *start.SourceActorID)
 }
 
 func TestDriver_Dispatch_OffSignal_RecurtailsRestoringSourceEvent(t *testing.T) {
@@ -465,6 +465,56 @@ func TestDriver_Dispatch_OffToOn(t *testing.T) {
 	assert.Equal(t, activeUUID, svc.stopCalls[0].EventUUID)
 }
 
+func TestDriver_Dispatch_OffToOn_FindsSourceEventAfterRename(t *testing.T) {
+	t.Parallel()
+
+	activeUUID := uuid.New()
+	original := sampleSource()
+	renamed := original
+	renamed.SourceName = "renamed-site"
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			testSourceEvent(original, activeUUID, models.EventStateActive),
+		},
+		stopResult: &models.Event{EventUUID: activeUUID},
+	}
+	d := NewDriver(svc)
+
+	outcome, err := d.Dispatch(context.Background(), renamed, EdgeOffToOn, time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, activeUUID, outcome.EventUUID)
+	require.Len(t, svc.stopCalls, 1)
+	assert.Equal(t, activeUUID, svc.stopCalls[0].EventUUID)
+}
+
+func TestDriver_Dispatch_OffToOn_FindsLegacySourceNameEvent(t *testing.T) {
+	t.Parallel()
+
+	src := sampleSource()
+	activeUUID := uuid.New()
+	legacyActorID := legacySourceActorIDFor(src)
+	svc := &fakeService{
+		listActiveResult: []*models.Event{
+			{
+				EventUUID:     activeUUID,
+				OrgID:         src.OrganizationID,
+				SourceActorID: &legacyActorID,
+				State:         models.EventStateActive,
+			},
+		},
+		stopResult: &models.Event{EventUUID: activeUUID},
+	}
+	d := NewDriver(svc)
+
+	outcome, err := d.Dispatch(context.Background(), src, EdgeOffToOn, time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, activeUUID, outcome.EventUUID)
+	require.Len(t, svc.stopCalls, 1)
+	assert.Equal(t, activeUUID, svc.stopCalls[0].EventUUID)
+}
+
 func TestDriver_Dispatch_OffToOn_NoActiveEvent(t *testing.T) {
 	t.Parallel()
 
@@ -526,7 +576,7 @@ func TestDriver_Dispatch_OnToOff_AlreadyExistsPropagates(t *testing.T) {
 func TestDriver_Dispatch_OffToOn_FindsSourceEventAmongConcurrent(t *testing.T) {
 	t.Parallel()
 
-	other := "mqtt:site-b"
+	other := "mqtt:100"
 	myUUID := uuid.New()
 	svc := &fakeService{
 		listActiveResult: []*models.Event{

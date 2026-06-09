@@ -55,6 +55,11 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
+	if req.Msg.GetEnabled() {
+		if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
+			return nil, err
+		}
+	}
 	if h.mqttSettings == nil {
 		return nil, errCurtailmentNotImplemented("CreateMqttCurtailmentSource")
 	}
@@ -91,6 +96,9 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 func (h *Handler) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.Request[pb.UpdateMqttCurtailmentSourceRequest]) (*connect.Response[pb.UpdateMqttCurtailmentSourceResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
+		return nil, err
+	}
+	if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
 		return nil, err
 	}
 	if h.mqttSettings == nil {
@@ -141,6 +149,11 @@ func (h *Handler) SetMqttCurtailmentSourceEnabled(ctx context.Context, req *conn
 	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
+	}
+	if req.Msg.GetEnabled() {
+		if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
+			return nil, err
+		}
 	}
 	if h.mqttSettings == nil {
 		return nil, errCurtailmentNotImplemented("SetMqttCurtailmentSourceEnabled")

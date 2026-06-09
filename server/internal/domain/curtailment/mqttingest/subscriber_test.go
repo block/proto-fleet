@@ -544,6 +544,121 @@ func TestSubscriber_Reconcile_WaitsForReplacementWorkerToDrain(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestSubscriber_Reconcile_RetainsOldWorkerWhenDrainIsCanceled(t *testing.T) {
+	src := SourceConfig{
+		ID:                    1,
+		OrganizationID:        7,
+		ServiceUserID:         99,
+		SourceName:            "site-a",
+		Topic:                 "vendor/target",
+		BrokerPrimaryHost:     "10.0.0.1",
+		BrokerSecondaryHost:   "10.0.0.2",
+		BrokerPort:            1883,
+		MQTTUsername:          "user",
+		MQTTPasswordEncrypted: "pw",
+		StalenessThreshold:    240 * time.Second,
+		MinCurtailedDuration:  600 * time.Second,
+		Enabled:               true,
+	}
+	store := newFakeStore(src)
+	listNotify := make(chan int, 4)
+	store.setListNotify(listNotify)
+
+	oldDisconnectReleased := make(chan struct{})
+	var releaseOldDisconnect sync.Once
+	releaseOld := func() {
+		releaseOldDisconnect.Do(func() {
+			close(oldDisconnectReleased)
+		})
+	}
+	defer releaseOld()
+
+	var clientsMu sync.Mutex
+	var clients []*fakeMQTTClient
+	factory := func() MQTTClient {
+		c := newFakeMQTTClient()
+		clientsMu.Lock()
+		if len(clients) < 2 {
+			c.disconnectGate = oldDisconnectReleased
+		}
+		clients = append(clients, c)
+		clientsMu.Unlock()
+		return c
+	}
+
+	sub, err := NewSubscriber(Config{
+		Store:             store,
+		Driver:            NewDriver(&fakeService{}),
+		NewClient:         factory,
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		WatchdogTickEvery: 24 * time.Hour,
+		ShutdownDeadline:  time.Second,
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, sub.Start(ctx))
+	defer sub.Stop()
+
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 2
+	}, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return sub.SourceRuntimeStatus(src.ID).State == RuntimeStateRunning
+	}, time.Second, 10*time.Millisecond)
+
+	next := src
+	next.Topic = "vendor/target/v2"
+	store.setSources(next)
+
+	reloadCtx, cancelReload := context.WithCancel(context.Background())
+	firstReconcile := make(chan error, 1)
+	go func() {
+		firstReconcile <- sub.Reconcile(reloadCtx)
+	}()
+	require.Eventually(t, func() bool {
+		select {
+		case call := <-listNotify:
+			return call >= 2
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	cancelReload()
+	select {
+	case err := <-firstReconcile:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("first reconcile did not return after context cancellation")
+	}
+
+	secondReconcile := make(chan error, 1)
+	go func() {
+		secondReconcile <- sub.Reconcile(context.Background())
+	}()
+	require.Never(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) > 2
+	}, 100*time.Millisecond, 10*time.Millisecond, "replacement must not start while the old worker is still disconnecting")
+
+	releaseOld()
+	select {
+	case err := <-secondReconcile:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("second reconcile did not finish after old worker was released")
+	}
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 4
+	}, time.Second, 10*time.Millisecond)
+}
+
 // A source whose service user lacks curtailment:ingest is rejected at startup:
 // the worker is not started, so any org member cannot drive emergency
 // curtailment just by being referenced from the source row.

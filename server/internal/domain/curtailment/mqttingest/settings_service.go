@@ -12,6 +12,7 @@ import (
 )
 
 const maxMQTTSourceStringLength = 255
+const settingsReconcileTimeout = 30 * time.Second
 
 // PasswordCipher wraps and unwraps MQTT credentials.
 type PasswordCipher interface {
@@ -49,10 +50,11 @@ type RuntimeController interface {
 
 // SettingsService validates, persists, redacts, and reloads MQTT sources.
 type SettingsService struct {
-	store   SettingsStore
-	cipher  PasswordCipher
-	runtime RuntimeController
-	clock   func() time.Time
+	store            SettingsStore
+	cipher           PasswordCipher
+	runtime          RuntimeController
+	clock            func() time.Time
+	reconcileTimeout time.Duration
 }
 
 type SettingsServiceConfig struct {
@@ -73,10 +75,11 @@ func NewSettingsService(cfg SettingsServiceConfig) (*SettingsService, error) {
 		cfg.Clock = time.Now
 	}
 	return &SettingsService{
-		store:   cfg.Store,
-		cipher:  cfg.Cipher,
-		runtime: cfg.Runtime,
-		clock:   cfg.Clock,
+		store:            cfg.Store,
+		cipher:           cfg.Cipher,
+		runtime:          cfg.Runtime,
+		clock:            cfg.Clock,
+		reconcileTimeout: settingsReconcileTimeout,
 	}, nil
 }
 
@@ -247,6 +250,10 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 			return SourceView{}, err
 		}
 		next.MQTTPasswordEncrypted = encrypted
+	} else if mqttCredentialBindingChanged(current, next) {
+		return SourceView{}, fleeterror.NewInvalidArgumentError(
+			"mqtt_password is required when broker host, broker port, broker transport, or mqtt_username changes",
+		)
 	}
 	if err := s.validateSourceConfig(ctx, next); err != nil {
 		return SourceView{}, err
@@ -433,11 +440,13 @@ func (s *SettingsService) encryptPassword(plaintext string) (string, error) {
 	return encrypted, nil
 }
 
-func (s *SettingsService) reconcile(ctx context.Context) error {
+func (s *SettingsService) reconcile(context.Context) error {
 	if s.runtime == nil {
 		return nil
 	}
-	if err := s.runtime.Reconcile(ctx); err != nil {
+	reconcileCtx, cancel := context.WithTimeout(context.Background(), s.reconcileTimeout)
+	defer cancel()
+	if err := s.runtime.Reconcile(reconcileCtx); err != nil {
 		return fleeterror.NewUnavailableErrorf("mqtt source saved but runtime reload failed: %v", err)
 	}
 	return nil
@@ -489,6 +498,14 @@ func validateBoundedString(field, value string) error {
 		return fleeterror.NewInvalidArgumentErrorf("%s must be at most %d characters", field, maxMQTTSourceStringLength)
 	}
 	return nil
+}
+
+func mqttCredentialBindingChanged(current, next SourceConfig) bool {
+	return current.BrokerPrimaryHost != next.BrokerPrimaryHost ||
+		current.BrokerSecondaryHost != next.BrokerSecondaryHost ||
+		current.BrokerPort != next.BrokerPort ||
+		current.BrokerTransport != next.BrokerTransport ||
+		current.MQTTUsername != next.MQTTUsername
 }
 
 func validateCurtailMode(source SourceConfig) error {

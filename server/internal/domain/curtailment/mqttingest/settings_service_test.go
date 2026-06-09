@@ -161,13 +161,18 @@ func (f *fakeSettingsCipher) Decrypt(encrypted string) ([]byte, error) {
 }
 
 type fakeRuntimeController struct {
-	reconcileCalls int
-	status         RuntimeStatus
+	reconcileCalls     int
+	reconcileErr       error
+	sawCanceledContext bool
+	status             RuntimeStatus
 }
 
-func (f *fakeRuntimeController) Reconcile(context.Context) error {
+func (f *fakeRuntimeController) Reconcile(ctx context.Context) error {
 	f.reconcileCalls++
-	return nil
+	if ctx.Err() != nil {
+		f.sawCanceledContext = true
+	}
+	return f.reconcileErr
 }
 
 func (f *fakeRuntimeController) SourceRuntimeStatus(int64) RuntimeStatus {
@@ -182,6 +187,8 @@ func validSettingsSource() SourceConfig {
 		Topic:                "maestro/curtailment",
 		BrokerPrimaryHost:    "10.0.0.1",
 		BrokerSecondaryHost:  "10.0.0.2",
+		BrokerPort:           1883,
+		BrokerTransport:      "tcp",
 		MQTTUsername:         "user",
 		CurtailMode:          "FULL_FLEET",
 		PayloadFormat:        "target_timestamp",
@@ -280,6 +287,76 @@ func TestSettingsService_UpdatePreservesPasswordWhenOmittedAndReloadsRuntime(t *
 	assert.Equal(t, "enc:old", view.Config.MQTTPasswordEncrypted)
 	assert.Zero(t, cipher.encryptCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)
+}
+
+func TestSettingsService_UpdateRequiresPasswordWhenBrokerBindingChanges(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.MQTTPasswordEncrypted = "enc:old"
+	store := newFakeSettingsStore(source)
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: &fakeRuntimeController{}})
+	require.NoError(t, err)
+
+	nextHost := "10.0.0.3"
+	_, err = svc.Update(t.Context(), UpdateSourceRequest{
+		OrganizationID:    42,
+		SourceID:          7,
+		BrokerPrimaryHost: &nextHost,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "mqtt_password is required")
+}
+
+func TestSettingsService_UpdateRotatesPasswordWhenBrokerBindingChanges(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.MQTTPasswordEncrypted = "enc:old"
+	store := newFakeSettingsStore(source)
+	cipher := &fakeSettingsCipher{}
+	runtime := &fakeRuntimeController{}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: cipher, Runtime: runtime})
+	require.NoError(t, err)
+
+	nextHost := "10.0.0.3"
+	nextPassword := "rotated"
+	view, err := svc.Update(t.Context(), UpdateSourceRequest{
+		OrganizationID:    42,
+		SourceID:          7,
+		BrokerPrimaryHost: &nextHost,
+		PlaintextPassword: &nextPassword,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, nextHost, view.Config.BrokerPrimaryHost)
+	assert.Equal(t, "enc:rotated", view.Config.MQTTPasswordEncrypted)
+	assert.Equal(t, 1, cipher.encryptCalls)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+}
+
+func TestSettingsService_SetEnabledReloadUsesInternalContext(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	runtime := &fakeRuntimeController{}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = svc.SetEnabled(ctx, 42, 7, true)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.False(t, runtime.sawCanceledContext, "reload must not inherit the client request cancellation")
 }
 
 func TestSettingsService_EnableRejectsSiteScopeUntilSiteSupportLands(t *testing.T) {
