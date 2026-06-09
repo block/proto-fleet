@@ -49,7 +49,16 @@ const FleetBuildingsPage = () => {
     [listAllBuildings],
   );
 
-  usePoll({ fetchData: fetchBuildings, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  // Gate the poll on the same permission FleetLayout reads — a direct
+  // URL hit on /fleet/buildings before FleetLayout's redirect would
+  // otherwise spam ListBuildings with 403s every POLL_INTERVAL_MS.
+  const canReadBuildings = useHasPermission("site:read");
+  usePoll({
+    fetchData: fetchBuildings,
+    poll: true,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    enabled: canReadBuildings,
+  });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });

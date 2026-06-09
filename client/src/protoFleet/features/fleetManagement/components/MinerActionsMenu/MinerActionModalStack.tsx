@@ -52,9 +52,13 @@ const MinerActionModalStack = ({
   const addToGroupOpen =
     minerActions.currentAction === groupActions.addToGroup ? minerActions.showAddToGroupModal : false;
 
+  // Both dispatchers reject on RPC error so `ParentPickerModal` keeps
+  // the picker open (its handleSave only closes when onConfirm /
+  // onCreateNew resolve). Matches the deleted AddToGroupModal's
+  // behavior, which didn't close on failure either.
   const dispatchAddToGroup = useCallback(
-    async (groupId: bigint) => {
-      await new Promise<void>((resolve) => {
+    (groupId: bigint) =>
+      new Promise<void>((resolve, reject) => {
         void addDevicesToDeviceSet({
           deviceSetId: groupId,
           deviceIdentifiers,
@@ -68,11 +72,10 @@ const MinerActionModalStack = ({
           },
           onError: (msg) => {
             pushToast({ status: STATUSES.error, message: msg });
-            resolve();
+            reject(new Error(msg));
           },
         });
-      });
-    },
+      }),
     [addDevicesToDeviceSet, deviceIdentifiers, allDevices, sourceLabel],
   );
 
@@ -84,8 +87,8 @@ const MinerActionModalStack = ({
   );
 
   const handleCreateGroup = useCallback(
-    async (name: string) => {
-      await new Promise<void>((resolve) => {
+    (name: string) =>
+      new Promise<void>((resolve, reject) => {
         void createGroup({
           label: name,
           deviceIdentifiers,
@@ -96,11 +99,10 @@ const MinerActionModalStack = ({
           },
           onError: (msg) => {
             pushToast({ status: STATUSES.error, message: msg });
-            resolve();
+            reject(new Error(msg));
           },
         });
-      });
-    },
+      }),
     [createGroup, deviceIdentifiers, allDevices, sourceLabel],
   );
 

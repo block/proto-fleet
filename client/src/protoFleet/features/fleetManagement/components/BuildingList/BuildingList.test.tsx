@@ -44,6 +44,35 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
 
 vi.mock("../BulkActions/BulkActionConfirmDialog", () => ({ default: () => null }));
 
+// Grant the wired-action permission set so FleetGroupActionsMenu's
+// permission filter doesn't strip every entry under test.
+vi.mock(import("@/protoFleet/store"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    usePermissions: () => [
+      "miner:blink_led",
+      "miner:download_logs",
+      "miner:firmware_update",
+      "miner:reboot",
+      "miner:stop_mining",
+      "miner:start_mining",
+      "miner:delete",
+      "miner:set_power_target",
+      "miner:set_cooling_mode",
+      "miner:rename",
+      "miner:update_worker_names",
+      "miner:update_password",
+      "miner:update_pools",
+      "pool:read",
+      "rack:read",
+      "rack:manage",
+      "site:read",
+      "site:manage",
+    ],
+  };
+});
+
 // eslint-disable-next-line import-x/order -- import must come after vi.mock calls
 import BuildingList from "./BuildingList";
 

@@ -122,7 +122,9 @@ const RowActionsMenuInner = ({
           testId={popoverTestId}
         >
           {visibleActions.map((action, index) => (
-            <Fragment key={action.testId ?? action.label}>
+            // Index falls back when neither testId nor label uniquely
+            // identifies the row (e.g. two host-supplied "View" entries).
+            <Fragment key={action.testId ?? `${action.label}-${index}`}>
               <div className="px-4">
                 <Row
                   className="text-emphasis-300"

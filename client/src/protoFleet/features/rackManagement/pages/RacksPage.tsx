@@ -93,16 +93,42 @@ const RacksPage = () => {
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
-  const [allBuildings, setAllBuildings] = useState<{ id: string; label: string }[]>([]);
+  const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
+
+  // `?site=<id>` lands here via SiteList's "View racks" deep link. The
+  // rack list RPC has no native `siteIds` filter, so we resolve site →
+  // buildings client-side and feed those building ids through the
+  // existing buildingIds filter. Without this, the deep link no-ops
+  // (operator sees the full racks list instead of the site's racks).
+  const urlSiteIds = useMemo(
+    () =>
+      new Set(
+        searchParams
+          .getAll("site")
+          .flatMap((raw) => raw.split(","))
+          .map((value) => value.trim())
+          .filter((value) => value !== "" && /^\d+$/.test(value)),
+      ),
+    [searchParams],
+  );
 
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
-  const selectedBuildingIdsRef = useRef<bigint[]>(selectedBuildingIds);
+  // Building IDs the rack list should be filtered to. If the operator
+  // picked buildings explicitly, that wins. Otherwise, when a site
+  // filter is present, expand it into the buildings that belong to
+  // those sites once `allBuildings` has loaded.
+  const effectiveBuildingIds = useMemo(() => {
+    if (selectedBuildingIds.length > 0) return selectedBuildingIds;
+    if (urlSiteIds.size === 0) return [] as bigint[];
+    return allBuildings.filter((b) => urlSiteIds.has(b.siteId)).map((b) => BigInt(b.id));
+  }, [selectedBuildingIds, urlSiteIds, allBuildings]);
+  const effectiveBuildingIdsRef = useRef<bigint[]>(effectiveBuildingIds);
   useEffect(() => {
-    selectedBuildingIdsRef.current = selectedBuildingIds;
-  }, [selectedBuildingIds]);
-  const getBuildingIds = useCallback(() => selectedBuildingIdsRef.current, []);
+    effectiveBuildingIdsRef.current = effectiveBuildingIds;
+  }, [effectiveBuildingIds]);
+  const getBuildingIds = useCallback(() => effectiveBuildingIdsRef.current, []);
 
   // AssignMinersModal state
   const [assignMinersFormData, setAssignMinersFormData] = useState<RackFormData | null>(null);
@@ -162,7 +188,13 @@ const RacksPage = () => {
         setAllBuildings(
           buildings
             .filter((b) => b.building !== undefined)
-            .map((b) => ({ id: b.building!.id.toString(), label: b.building!.name })),
+            .map((b) => ({
+              id: b.building!.id.toString(),
+              label: b.building!.name,
+              // Carry siteId through so `?site=<id>` deep links can
+              // resolve to the building set without a second lookup.
+              siteId: (b.building!.siteId ?? 0n).toString(),
+            })),
         );
       },
     });
@@ -207,17 +239,19 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch when the URL-driven building filter changes. The ref is read
-  // by useDeviceSetListState's fetchPage so this effect just kicks the
+  // Refetch when the resolved building filter changes. Covers both the
+  // explicit building filter and the site → buildings expansion that
+  // lands once `allBuildings` finishes loading. The ref is read by
+  // useDeviceSetListState's fetchPage so this effect just kicks the
   // pagination reset; the filter value itself flows through the ref.
+  const effectiveBuildingKey = useMemo(() => effectiveBuildingIds.map(String).join(","), [effectiveBuildingIds]);
   const prevBuildingKey = useRef<string | null>(null);
   useEffect(() => {
-    const key = selectedBuildingIdStrings.join(",");
-    if (prevBuildingKey.current !== null && prevBuildingKey.current !== key) {
+    if (prevBuildingKey.current !== null && prevBuildingKey.current !== effectiveBuildingKey) {
       resetAndFetch();
     }
-    prevBuildingKey.current = key;
-  }, [selectedBuildingIdStrings, resetAndFetch]);
+    prevBuildingKey.current = effectiveBuildingKey;
+  }, [effectiveBuildingKey, resetAndFetch]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
@@ -338,8 +372,10 @@ const RacksPage = () => {
   }, []);
 
   // Extras appended below FleetGroupActionsMenu's wired bulk cluster.
-  // Mirrors the Sites / Buildings menus: navigate, then edit. Re-parenting
-  // (Add to building / site) lives in Phase 2 — not surfaced yet.
+  // Mirrors the Sites / Buildings menus: navigate, then edit, then
+  // re-parent (Add to building). Add to site stays deferred — no
+  // dedicated AssignRackToSite RPC exists today; SaveRack is a heavy
+  // full-replace, which we don't want to wire from a row action.
   const buildRackExtraActions = useCallback(
     (rack: DeviceSet) => [
       {

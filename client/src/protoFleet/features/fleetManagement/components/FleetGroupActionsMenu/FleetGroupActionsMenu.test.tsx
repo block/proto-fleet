@@ -76,6 +76,38 @@ vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => 
   }),
 }));
 
+// Grant every permission the menu consults so the wired entries
+// render in tests. Production filtering is verified by the live
+// permission catalog plus the server gate; the menu's job here is
+// only to surface what the role can invoke. Partial-mock so the
+// surrounding store hooks (useAuthErrors, useBatch*, ...) stay live.
+vi.mock(import("@/protoFleet/store"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    usePermissions: () => [
+      "miner:blink_led",
+      "miner:download_logs",
+      "miner:firmware_update",
+      "miner:reboot",
+      "miner:stop_mining",
+      "miner:start_mining",
+      "miner:delete",
+      "miner:set_power_target",
+      "miner:set_cooling_mode",
+      "miner:rename",
+      "miner:update_worker_names",
+      "miner:update_password",
+      "miner:update_pools",
+      "pool:read",
+      "rack:read",
+      "rack:manage",
+      "site:read",
+      "site:manage",
+    ],
+  };
+});
+
 vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({ default: () => null }));
 vi.mock("@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage", () => ({
   default: () => null,

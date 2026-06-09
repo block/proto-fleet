@@ -340,6 +340,10 @@ const ParentPickerModal = ({
       }
       await Promise.all(tasks);
       onDismiss();
+    } catch {
+      // Caller-side toast already surfaces the failure; swallow here
+      // so the picker stays open (operator can retry or change the
+      // selection) without an unhandled promise rejection.
     } finally {
       setSaving(false);
     }

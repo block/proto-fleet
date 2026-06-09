@@ -7,6 +7,7 @@ import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
+import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
 import {
   deviceActions,
   groupActions,
@@ -17,6 +18,7 @@ import {
 import MinerActionModalStack from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/MinerActionModalStack";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { usePermissions } from "@/protoFleet/store";
 import {
   Lock,
   MiningPools,
@@ -95,20 +97,26 @@ const ACTION_ICON: Record<WiredActionKey, ReactElement> = {
   [deviceActions.unpair]: <Unpair />,
 };
 
+const MAX_SNAPSHOT_PAGES = 50;
+const SNAPSHOT_PAGE_SIZE = 1000;
+const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
+
 const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = [] }: FleetGroupActionsMenuProps) => {
-  // Lazy-fetched on first action click; ref tracks "fetched yet" so
-  // repeat clicks skip the network.
+  // Lazy-fetched on first action click; invalidated after a dispatch
+  // finishes so subsequent clicks reflect membership changes from
+  // unpair / assignment / polling rather than acting on a stale set.
   const [ids, setIds] = useState<string[]>([]);
   const idsLoadedRef = useRef(false);
   const [isBusy, setIsBusy] = useState(false);
 
-  // Action is deferred via state because useMinerActions rebuilds
-  // popoverActions asynchronously after `ids` lands — the effect below
-  // resolves a fresh handler once both have caught up. Also gates
-  // BulkActionConfirmDialog so the dialog stays open until the operator
-  // confirms or cancels.
-  const [pendingAction, setPendingAction] = useState<WiredActionKey | null>(null);
-  const firedActionRef = useRef<WiredActionKey | null>(null);
+  // pendingAction tracks the action awaiting dispatch. The `tick`
+  // forces the effect to re-run when the same action is clicked a
+  // second time — without it React skips equal state updates and the
+  // dispatch never refires for direct (non-modal) actions like
+  // Download logs.
+  const [pendingAction, setPendingAction] = useState<{ key: WiredActionKey; tick: number } | null>(null);
+  const tickRef = useRef(0);
+  const firedTickRef = useRef(-1);
 
   const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
   const selectedMiners = useMemo(() => ids.map((id) => ({ deviceIdentifier: id })), [ids]);
@@ -119,9 +127,28 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     completeBatchOperation,
     removeDevicesFromBatch,
   });
+  const permissions = usePermissions();
+
+  // Set of action keys the caller can actually invoke against the
+  // scoped miners. Permissioned the same way as `usePermittedActions`
+  // in MinerActionsMenu — read-only roles see the row trigger but no
+  // entries that would 403 on click. The server still enforces each
+  // gate; this is UX, not a security boundary.
+  const permittedKeys = useMemo(() => {
+    const allowed = new Set<WiredActionKey>();
+    const lookup: Record<string, string | readonly string[] | undefined> = ACTION_PERMISSIONS;
+    const hasAll = (required: string | readonly string[] | undefined): boolean => {
+      if (required === undefined) return true;
+      if (typeof required === "string") return permissions.includes(required);
+      return required.every((key) => permissions.includes(key));
+    };
+    for (const key of [...TOP_WIRED_KEYS, ...BOTTOM_WIRED_KEYS]) {
+      if (hasAll(lookup[key])) allowed.add(key);
+    }
+    return allowed;
+  }, [permissions]);
 
   const fetchDeviceIds = useCallback(async (): Promise<string[]> => {
-    if (idsLoadedRef.current) return ids;
     const collected: string[] = [];
     const filterInit =
       scope.kind === "building"
@@ -131,32 +158,38 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
           : { siteIds: [scope.id] };
     const filter = create(MinerListFilterSchema, filterInit);
     let cursor = "";
-    // Safety cap — 50k miners well exceeds any realistic cohort.
-    for (let i = 0; i < 50; i++) {
+    let exhausted = false;
+    for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
       const response = await fleetManagementClient.listMinerStateSnapshots({
-        pageSize: 1000,
+        pageSize: SNAPSHOT_PAGE_SIZE,
         cursor,
         filter,
       });
       for (const miner of response.miners) collected.push(miner.deviceIdentifier);
-      if (!response.cursor) break;
+      if (!response.cursor) {
+        exhausted = true;
+        break;
+      }
       cursor = response.cursor;
+    }
+    // Surface "too large" rather than silently truncating. The toast
+    // path in `handleTrigger` catches the throw and tells the operator
+    // the scope is too big to bulk-action via the row menu.
+    if (!exhausted) {
+      throw new Error(`Too many miners in ${scope.name} (over ${MAX_MINERS}). Filter the list and try again.`);
     }
     idsLoadedRef.current = true;
     setIds(collected);
     return collected;
-  }, [ids, scope.id, scope.kind]);
+  }, [scope.id, scope.kind, scope.name]);
 
   useEffect(() => {
-    if (!pendingAction) {
-      firedActionRef.current = null;
-      return;
-    }
+    if (!pendingAction) return;
     if (ids.length === 0) return;
-    if (firedActionRef.current === pendingAction) return;
-    const entry = minerActions.popoverActions.find((action) => action.action === pendingAction);
+    if (firedTickRef.current === pendingAction.tick) return;
+    const entry = minerActions.popoverActions.find((action) => action.action === pendingAction.key);
     if (!entry) return;
-    firedActionRef.current = pendingAction;
+    firedTickRef.current = pendingAction.tick;
     void entry.actionHandler();
   }, [pendingAction, ids, minerActions.popoverActions]);
 
@@ -172,11 +205,12 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
       let deviceIdentifiers: string[];
       try {
         deviceIdentifiers = await fetchDeviceIds();
-      } catch {
-        updateToast(loadingToast, {
-          message: `Couldn't load miners for ${scope.name}.`,
-          status: STATUSES.error,
-        });
+      } catch (err) {
+        // fetchDeviceIds throws when the scope exceeds MAX_MINERS so the
+        // operator gets a specific message; generic RPC failures fall
+        // through to the same toast.
+        const message = err instanceof Error && err.message ? err.message : `Couldn't load miners for ${scope.name}.`;
+        updateToast(loadingToast, { message, status: STATUSES.error });
         setIsBusy(false);
         return;
       }
@@ -186,16 +220,17 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
         pushToast({ message: `No miners in ${scope.name}.`, status: STATUSES.queued });
         return;
       }
-      // Re-arm even if same action — lets the dispatcher run again.
-      firedActionRef.current = null;
-      setPendingAction(key);
+      tickRef.current += 1;
+      setPendingAction({ key, tick: tickRef.current });
     },
     [fetchDeviceIds, isBusy, scope.name],
   );
 
   const clearPendingAction = useCallback(() => {
     setPendingAction(null);
-    firedActionRef.current = null;
+    // Invalidate the cached id set so the next click re-fetches and
+    // picks up membership changes (assignment, unpair, polling).
+    idsLoadedRef.current = false;
   }, []);
 
   const handleConfirmClick = useCallback(() => {
@@ -235,10 +270,14 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
 
   const keepEntry = useCallback(
     (key: WiredActionKey) => {
+      // Drop any action the caller can't invoke server-side before any
+      // selection-based filtering — read-only roles never see Sleep /
+      // Reboot / Unpair entries that would 403 on click.
+      if (!permittedKeys.has(key)) return false;
       if (key === deviceActions.wakeUp && !idsLoadedRef.current) return true;
       return idsLoadedRef.current ? popoverActionByKey.has(key) : true;
     },
-    [popoverActionByKey],
+    [permittedKeys, popoverActionByKey],
   );
 
   const topWiredEntries = useMemo(() => TOP_WIRED_KEYS.filter(keepEntry), [keepEntry]);
@@ -321,7 +360,7 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
         .map((action) => {
           const open =
             minerActions.currentAction === action.action &&
-            pendingAction === action.action &&
+            pendingAction?.key === action.action &&
             !minerActions.unsupportedMinersInfo.visible;
           return (
             <BulkActionConfirmDialog
