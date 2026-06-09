@@ -504,15 +504,15 @@ function createCurtailmentSourceColConfig({
       component: (source) => (
         <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{source.name}</span>
       ),
-      width: "w-[34%] phone:w-auto",
+      width: "w-[23.5%] phone:w-auto",
     },
     [curtailmentSourceCols.lastSignalValue]: {
       component: (source) => <span className="truncate text-text-primary">{source.lastTarget}</span>,
-      width: "w-[20%] phone:w-auto",
+      width: "w-[23.5%] phone:w-auto",
     },
     [curtailmentSourceCols.lastSignalUpdate]: {
       component: (source) => <span className="truncate text-text-primary">{source.lastSeen}</span>,
-      width: "w-[20%] phone:w-auto",
+      width: "w-[23.5%] phone:w-auto",
     },
     [curtailmentSourceCols.health]: {
       component: (source) => (
@@ -527,7 +527,7 @@ function createCurtailmentSourceColConfig({
           <span className="truncate text-text-primary">{formatSourceHealth(source.health)}</span>
         </div>
       ),
-      width: "w-[20%] phone:w-auto",
+      width: "w-[23.5%] phone:w-auto",
     },
     [curtailmentSourceCols.enabled]: {
       component: (source) => (
