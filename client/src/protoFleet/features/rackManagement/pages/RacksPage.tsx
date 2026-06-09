@@ -94,6 +94,13 @@ const RacksPage = () => {
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
+  // Flips on the first successful ListBuildings response. Needed so the
+  // empty-result branch for `?site=<id>` with zero matching buildings
+  // doesn't fire while buildings are still loading (which would briefly
+  // mask all racks). Default false; toggles true regardless of result
+  // length so a real zero-building site is distinguishable from "still
+  // loading".
+  const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
 
   // `?site=<id>` lands here via SiteList's "View racks" deep link. The
@@ -119,11 +126,21 @@ const RacksPage = () => {
   // picked buildings explicitly, that wins. Otherwise, when a site
   // filter is present, expand it into the buildings that belong to
   // those sites once `allBuildings` has loaded.
+  //
+  // Sentinel: when the site filter is set but resolves to zero
+  // buildings (loaded list confirms there are none), we send `[0n]`
+  // rather than `[]`. Server treats `buildingIds: []` as "no filter",
+  // so without the sentinel a valid site that simply has no buildings
+  // would show every rack in the fleet. Building IDs are positive
+  // auto-incrementing in the DB, so `WHERE building_id IN (0)` matches
+  // nothing — exactly the empty result the operator expects.
   const effectiveBuildingIds = useMemo(() => {
     if (selectedBuildingIds.length > 0) return selectedBuildingIds;
     if (urlSiteIds.size === 0) return [] as bigint[];
-    return allBuildings.filter((b) => urlSiteIds.has(b.siteId)).map((b) => BigInt(b.id));
-  }, [selectedBuildingIds, urlSiteIds, allBuildings]);
+    const matched = allBuildings.filter((b) => urlSiteIds.has(b.siteId)).map((b) => BigInt(b.id));
+    if (matched.length === 0 && allBuildingsLoaded) return [0n];
+    return matched;
+  }, [selectedBuildingIds, urlSiteIds, allBuildings, allBuildingsLoaded]);
   const effectiveBuildingIdsRef = useRef<bigint[]>(effectiveBuildingIds);
   useEffect(() => {
     effectiveBuildingIdsRef.current = effectiveBuildingIds;
@@ -196,6 +213,7 @@ const RacksPage = () => {
               siteId: (b.building!.siteId ?? 0n).toString(),
             })),
         );
+        setAllBuildingsLoaded(true);
       },
     });
     return () => controller.abort();
