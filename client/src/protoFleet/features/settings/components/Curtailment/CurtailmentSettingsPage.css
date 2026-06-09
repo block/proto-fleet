@@ -35,3 +35,30 @@
 .curtailment-settings__action-button {
   flex-shrink: 0;
 }
+
+.curtailment-source-health-dot {
+  display: inline-block;
+  position: relative;
+}
+
+.curtailment-source-health-dot--connected::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  animation: curtailment-source-health-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  background: var(--color-intent-success-fill);
+  content: "";
+}
+
+@keyframes curtailment-source-health-ping {
+  0% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(3.4);
+  }
+}
