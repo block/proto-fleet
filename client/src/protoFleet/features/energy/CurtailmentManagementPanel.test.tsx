@@ -430,6 +430,32 @@ describe("CurtailmentManagementPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
   });
 
+  it("uses estimated reduction as the edit preview target for full-fleet curtailments", async () => {
+    const user = userEvent.setup();
+    const { targetKw: _targetKw, ...activeEventWithoutTarget } = activeEvent;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: {
+          ...activeEventWithoutTarget,
+          estimatedReductionKw: 45,
+        },
+        activeEventId: "curt-1",
+        activeEventFormValues: {
+          ...activeEventFormValues,
+          curtailmentMode: "fullFleet",
+          targetKw: "",
+          toleranceKw: "",
+        },
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Request edit" }));
+
+    expect(screen.getByTestId("modal-preview")).toHaveTextContent("2 miners, 45 kW target, 45 kW estimated");
+  });
+
   it("hides curtailment management actions for users without curtailment manage permission", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({

@@ -278,10 +278,12 @@ export function createCurtailmentPlanPreview(
   source: CurtailmentPlanPreviewSource,
 ): CurtailmentPlanPreview {
   const selectedMinerCount = Number.isFinite(source.selectedMinerCount) ? source.selectedMinerCount : 0;
-  const targetKw =
-    source.targetKw !== undefined && Number.isFinite(source.targetKw)
-      ? source.targetKw
+  const fallbackTargetKw =
+    values.curtailmentMode === "fullFleet" && Number.isFinite(source.estimatedReductionKw)
+      ? source.estimatedReductionKw
       : (parsePositiveNumber(values.targetKw) ?? 0);
+  const targetKw =
+    source.targetKw !== undefined && Number.isFinite(source.targetKw) ? source.targetKw : fallbackTargetKw;
   const estimatedReductionKw = Number.isFinite(source.estimatedReductionKw) ? source.estimatedReductionKw : targetKw;
 
   return {
