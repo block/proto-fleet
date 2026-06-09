@@ -55,10 +55,8 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
-	if req.Msg.GetEnabled() {
-		if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
-			return nil, err
-		}
+	if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
+		return nil, err
 	}
 	if h.mqttSettings == nil {
 		return nil, errCurtailmentNotImplemented("CreateMqttCurtailmentSource")

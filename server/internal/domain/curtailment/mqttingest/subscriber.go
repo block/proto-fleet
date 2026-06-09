@@ -42,6 +42,7 @@ const (
 )
 
 const workerRestartBackoffMax = 30 * time.Second
+const reconcileRetryTimeout = 30 * time.Second
 
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
@@ -54,6 +55,7 @@ type Config struct {
 	WatchdogTickEvery time.Duration
 	BrokerFreshness   time.Duration
 	ShutdownDeadline  time.Duration
+	ReconcileTimeout  time.Duration
 	StatusReporter    RuntimeStatusReporter
 }
 
@@ -62,6 +64,7 @@ type sourceWorkerHandle struct {
 	cancel      context.CancelFunc
 	done        <-chan struct{}
 	fingerprint string
+	retryOnce   sync.Once
 }
 
 type brokerRuntimeStatus struct {
@@ -112,6 +115,9 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	if cfg.ShutdownDeadline <= 0 {
 		cfg.ShutdownDeadline = 10 * time.Second
 	}
+	if cfg.ReconcileTimeout <= 0 {
+		cfg.ReconcileTimeout = reconcileRetryTimeout
+	}
 	s := &Subscriber{
 		cfg:            cfg,
 		workers:        make(map[int64]*sourceWorkerHandle),
@@ -161,6 +167,9 @@ func (s *Subscriber) Reconcile(ctx context.Context) error {
 
 // Stop cancels all workers and waits up to ShutdownDeadline for them to drain.
 func (s *Subscriber) Stop() {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+
 	s.mu.Lock()
 	cancel := s.cancel
 	if cancel == nil {
@@ -219,8 +228,47 @@ func (s *Subscriber) SourceRuntimeStatus(sourceID int64) RuntimeStatus {
 	return status
 }
 
+func (s *Subscriber) SourceHasActiveCurtailment(ctx context.Context, source SourceConfig) (bool, error) {
+	active, err := s.cfg.Driver.ActiveSourceEvent(ctx, source)
+	if err != nil {
+		return false, err
+	}
+	return active != nil, nil
+}
+
+func (s *Subscriber) QuiesceSource(ctx context.Context, sourceID int64) error {
+	if err := s.lockReconcile(ctx); err != nil {
+		return err
+	}
+	defer s.reconcileMu.Unlock()
+
+	s.mu.Lock()
+	runDone := s.runDone
+	handle := s.workers[sourceID]
+	s.mu.Unlock()
+	if runDone == nil || handle == nil {
+		return nil
+	}
+	handle.cancel()
+	if err := s.waitForHandleStopped(ctx, handle); err != nil {
+		s.recordSourceError(handle.worker.source.ID, err.Error())
+		s.reconcileWhenHandleStops(runDone, handle)
+		return err
+	}
+	s.mu.Lock()
+	if current, stillCurrent := s.workers[sourceID]; stillCurrent && current == handle {
+		delete(s.workers, sourceID)
+		delete(s.brokerStatuses, sourceID)
+		s.setSourceStatusLocked(sourceID, RuntimeStateStopped, "")
+	}
+	s.mu.Unlock()
+	return nil
+}
+
 func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int, int, error) {
-	s.reconcileMu.Lock()
+	if err := s.lockReconcile(ctx); err != nil {
+		return 0, 0, err
+	}
 	defer s.reconcileMu.Unlock()
 
 	s.mu.Lock()
@@ -246,6 +294,16 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	}
 	stopping := make([]*sourceWorkerHandle, 0)
 	for sourceID, handle := range existing {
+		if handleStopped(handle) {
+			s.mu.Lock()
+			if current, stillCurrent := s.workers[sourceID]; stillCurrent && current == handle {
+				delete(s.workers, sourceID)
+				delete(s.brokerStatuses, sourceID)
+				s.setSourceStatusLocked(sourceID, RuntimeStateStopped, "")
+			}
+			s.mu.Unlock()
+			continue
+		}
 		src, ok := desired[sourceID]
 		if ok && sourceConfigFingerprint(src) == handle.fingerprint {
 			continue
@@ -256,6 +314,7 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	for _, handle := range stopping {
 		if err := s.waitForHandleStopped(ctx, handle); err != nil {
 			s.recordSourceError(handle.worker.source.ID, err.Error())
+			s.reconcileWhenHandleStops(runDone, handle)
 			return 0, len(sources), err
 		}
 		s.mu.Lock()
@@ -282,7 +341,7 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 		s.mu.Unlock()
 
 		workerCtx, workerCancel := contextWithDone(runDone)
-		w, done, err := s.startWorker(workerCtx, src, &s.wg)
+		w, done, err := s.startWorker(ctx, workerCtx, src, &s.wg)
 		if err != nil {
 			workerCancel()
 			if firstStartErr == nil {
@@ -329,6 +388,70 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	return started, len(sources), nil
 }
 
+func (s *Subscriber) lockReconcile(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		if s.reconcileMu.TryLock() {
+			return nil
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("mqttingest: reconcile lock: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func handleStopped(handle *sourceWorkerHandle) bool {
+	if handle == nil || handle.done == nil {
+		return true
+	}
+	select {
+	case <-handle.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Subscriber) reconcileWhenHandleStops(runDone <-chan struct{}, handle *sourceWorkerHandle) {
+	if handle == nil || handle.done == nil {
+		return
+	}
+	handle.retryOnce.Do(func() {
+		go s.reconcileAfterHandleStops(runDone, handle)
+	})
+}
+
+func (s *Subscriber) reconcileAfterHandleStops(runDone <-chan struct{}, handle *sourceWorkerHandle) {
+	if runDone == nil {
+		return
+	}
+	select {
+	case <-runDone:
+		return
+	case <-handle.done:
+	}
+	select {
+	case <-runDone:
+		return
+	default:
+	}
+	runCtx, runCancel := contextWithDone(runDone)
+	defer runCancel()
+	reconcileCtx, timeoutCancel := context.WithTimeout(runCtx, s.cfg.ReconcileTimeout)
+	defer timeoutCancel()
+	if err := s.Reconcile(reconcileCtx); err != nil {
+		s.cfg.Logger.Warn("mqttingest: retry reconcile after worker stop failed",
+			slog.String("source", handle.worker.source.SourceName),
+			slog.Any("error", err))
+	}
+}
+
 func contextWithDone(done <-chan struct{}) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -360,8 +483,9 @@ func (s *Subscriber) waitForHandleStopped(ctx context.Context, handle *sourceWor
 	}
 }
 
-// startWorker boots one source's worker goroutine.
-func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, <-chan struct{}, error) {
+// startWorker validates one source with setupCtx, then boots its long-lived
+// worker on workerCtx.
+func (s *Subscriber) startWorker(setupCtx, workerCtx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, <-chan struct{}, error) {
 	primary, secondary, ok := ResolveBrokerRoles(src.BrokerPrimaryHost, src.BrokerSecondaryHost)
 	if !ok {
 		return nil, nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)
@@ -374,7 +498,7 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 	}
 
 	// The service user must hold the machine-ingest permission for the org it can curtail.
-	canIngest, err := s.cfg.Store.UserCanIngestCurtailment(ctx, src.ServiceUserID, src.OrganizationID)
+	canIngest, err := s.cfg.Store.UserCanIngestCurtailment(setupCtx, src.ServiceUserID, src.OrganizationID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
 	}
@@ -408,7 +532,7 @@ func (s *Subscriber) startWorker(ctx context.Context, src SourceConfig, wg *sync
 	wg.Add(1)
 	go func() {
 		defer close(done)
-		s.superviseWorker(ctx, src, decoder, primary, secondary, workerPassword, wg)
+		s.superviseWorker(workerCtx, src, decoder, primary, secondary, workerPassword, wg)
 	}()
 	return w, done, nil
 }

@@ -162,6 +162,10 @@ func (f *fakeSettingsCipher) Decrypt(encrypted string) ([]byte, error) {
 
 type fakeRuntimeController struct {
 	reconcileCalls     int
+	quiesceCalls       int
+	activeCurtailment  bool
+	activeResults      []bool
+	activeErr          error
 	reconcileErr       error
 	sawCanceledContext bool
 	status             RuntimeStatus
@@ -177,6 +181,23 @@ func (f *fakeRuntimeController) Reconcile(ctx context.Context) error {
 
 func (f *fakeRuntimeController) SourceRuntimeStatus(int64) RuntimeStatus {
 	return f.status
+}
+
+func (f *fakeRuntimeController) QuiesceSource(context.Context, int64) error {
+	f.quiesceCalls++
+	return nil
+}
+
+func (f *fakeRuntimeController) SourceHasActiveCurtailment(context.Context, SourceConfig) (bool, error) {
+	if f.activeErr != nil {
+		return false, f.activeErr
+	}
+	if len(f.activeResults) > 0 {
+		result := f.activeResults[0]
+		f.activeResults = f.activeResults[1:]
+		return result, nil
+	}
+	return f.activeCurtailment, nil
 }
 
 func validSettingsSource() SourceConfig {
@@ -377,6 +398,88 @@ func TestSettingsService_EnableRejectsSiteScopeUntilSiteSupportLands(t *testing.
 	assert.Contains(t, err.Error(), "site-scoped MQTT")
 }
 
+func TestSettingsService_DisableRejectsActiveCurtailmentState(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	store.states[source.ID] = SourceState{SourceConfigID: source.ID, LastTarget: TargetOff}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "restore MQTT source to ON")
+}
+
+func TestSettingsService_DisableRejectsPendingOff(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	store.states[source.ID] = SourceState{
+		SourceConfigID: source.ID,
+		LastTarget:     TargetOn,
+		PendingEdge:    &PendingEdge{Direction: EdgeOnToOff, Target: TargetOff},
+	}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: &fakeRuntimeController{}})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "restore MQTT source to ON")
+}
+
+func TestSettingsService_DisableRejectsActiveCurtailmentEvent(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	runtime := &fakeRuntimeController{activeCurtailment: true}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "restore MQTT source to ON")
+	assert.Zero(t, runtime.quiesceCalls)
+}
+
+func TestSettingsService_DisableRejectsActiveCurtailmentAfterQuiesce(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	runtime := &fakeRuntimeController{activeResults: []bool{false, true}}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, 1, runtime.quiesceCalls)
+	assert.Equal(t, 1, runtime.reconcileCalls, "failed disable must restore the still-enabled runtime")
+}
+
 func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 	t.Parallel()
 
@@ -391,4 +494,65 @@ func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 	err = svc.Delete(t.Context(), 42, 7)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disable the MQTT source")
+}
+
+func TestSettingsService_DeleteRejectsActiveCurtailmentState(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	store.states[source.ID] = SourceState{SourceConfigID: source.ID, LastTarget: TargetOff}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
+	require.NoError(t, err)
+
+	err = svc.Delete(t.Context(), 42, 7)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "restore MQTT source to ON")
+}
+
+func TestSettingsService_DeleteRejectsPendingOff(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	store.states[source.ID] = SourceState{
+		SourceConfigID: source.ID,
+		LastTarget:     TargetOn,
+		PendingEdge:    &PendingEdge{Direction: EdgeOnToOff, Target: TargetOff},
+	}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: &fakeRuntimeController{}})
+	require.NoError(t, err)
+
+	err = svc.Delete(t.Context(), 42, 7)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "restore MQTT source to ON")
+}
+
+func TestSettingsService_DeleteRejectsActiveCurtailmentEvent(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	runtime := &fakeRuntimeController{activeCurtailment: true}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
+	require.NoError(t, err)
+
+	err = svc.Delete(t.Context(), 42, 7)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "restore MQTT source to ON")
 }

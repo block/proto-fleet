@@ -33,6 +33,7 @@ type fakeStore struct {
 	upsertErrs     []error
 	nonMembers     map[int64]bool // user IDs treated as not belonging to their org
 	nonIngestUsers map[userOrgKey]bool
+	blockCanIngest bool
 	listCalls      int
 	listNotify     chan int
 }
@@ -132,13 +133,20 @@ func (f *fakeStore) UpsertSourceState(_ context.Context, u StateUpdate) error {
 	return nil
 }
 
-func (f *fakeStore) UserCanIngestCurtailment(_ context.Context, userID, orgID int64) (bool, error) {
+func (f *fakeStore) UserCanIngestCurtailment(ctx context.Context, userID, orgID int64) (bool, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.nonIngestUsers != nil && f.nonIngestUsers[userOrgKey{userID: userID, orgID: orgID}] {
+	block := f.blockCanIngest
+	nonIngest := f.nonIngestUsers != nil && f.nonIngestUsers[userOrgKey{userID: userID, orgID: orgID}]
+	nonMember := f.nonMembers[userID]
+	f.mu.Unlock()
+	if block {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	if nonIngest {
 		return false, nil
 	}
-	return !f.nonMembers[userID], nil
+	return !nonMember, nil
 }
 
 func clonePendingEdge(edge *PendingEdge) *PendingEdge {
@@ -659,6 +667,154 @@ func TestSubscriber_Reconcile_RetainsOldWorkerWhenDrainIsCanceled(t *testing.T) 
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestSubscriber_Reconcile_RetriesReplacementAfterCanceledDrainStops(t *testing.T) {
+	src := SourceConfig{
+		ID:                    1,
+		OrganizationID:        7,
+		ServiceUserID:         99,
+		SourceName:            "site-a",
+		Topic:                 "vendor/target",
+		BrokerPrimaryHost:     "10.0.0.1",
+		BrokerSecondaryHost:   "10.0.0.2",
+		BrokerPort:            1883,
+		MQTTUsername:          "user",
+		MQTTPasswordEncrypted: "pw",
+		StalenessThreshold:    240 * time.Second,
+		MinCurtailedDuration:  600 * time.Second,
+		Enabled:               true,
+	}
+	store := newFakeStore(src)
+	listNotify := make(chan int, 8)
+	store.setListNotify(listNotify)
+
+	oldDisconnectReleased := make(chan struct{})
+	var releaseOldDisconnect sync.Once
+	releaseOld := func() {
+		releaseOldDisconnect.Do(func() {
+			close(oldDisconnectReleased)
+		})
+	}
+	defer releaseOld()
+
+	var clientsMu sync.Mutex
+	var clients []*fakeMQTTClient
+	factory := func() MQTTClient {
+		c := newFakeMQTTClient()
+		clientsMu.Lock()
+		if len(clients) < 2 {
+			c.disconnectGate = oldDisconnectReleased
+		}
+		clients = append(clients, c)
+		clientsMu.Unlock()
+		return c
+	}
+
+	sub, err := NewSubscriber(Config{
+		Store:             store,
+		Driver:            NewDriver(&fakeService{}),
+		NewClient:         factory,
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		WatchdogTickEvery: 24 * time.Hour,
+		ShutdownDeadline:  time.Second,
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, sub.Start(ctx))
+	defer sub.Stop()
+
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 2
+	}, time.Second, 10*time.Millisecond)
+
+	next := src
+	next.Topic = "vendor/target/v2"
+	store.setSources(next)
+
+	reloadCtx, cancelReload := context.WithCancel(context.Background())
+	firstReconcile := make(chan error, 1)
+	go func() {
+		firstReconcile <- sub.Reconcile(reloadCtx)
+	}()
+	require.Eventually(t, func() bool {
+		select {
+		case call := <-listNotify:
+			return call >= 2
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	cancelReload()
+	select {
+	case err := <-firstReconcile:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("first reconcile did not return after context cancellation")
+	}
+
+	releaseOld()
+	require.Eventually(t, func() bool {
+		clientsMu.Lock()
+		defer clientsMu.Unlock()
+		return len(clients) == 4
+	}, time.Second, 10*time.Millisecond, "automatic retry should start the replacement after the old worker exits")
+}
+
+func TestSubscriber_Reconcile_StartupPreflightUsesReconcileContext(t *testing.T) {
+	src := SourceConfig{
+		ID:                    1,
+		OrganizationID:        7,
+		ServiceUserID:         99,
+		SourceName:            "site-a",
+		Topic:                 "vendor/target",
+		BrokerPrimaryHost:     "10.0.0.1",
+		BrokerSecondaryHost:   "10.0.0.2",
+		BrokerPort:            1883,
+		MQTTUsername:          "user",
+		MQTTPasswordEncrypted: "pw",
+		StalenessThreshold:    240 * time.Second,
+		MinCurtailedDuration:  600 * time.Second,
+		Enabled:               true,
+	}
+	store := newFakeStore()
+
+	sub, err := NewSubscriber(Config{
+		Store:             store,
+		Driver:            NewDriver(&fakeService{}),
+		NewClient:         func() MQTTClient { return newFakeMQTTClient() },
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		WatchdogTickEvery: 24 * time.Hour,
+		ShutdownDeadline:  time.Second,
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, sub.Start(ctx))
+	defer sub.Stop()
+	store.setSources(src)
+	store.mu.Lock()
+	store.blockCanIngest = true
+	store.mu.Unlock()
+
+	reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancelReconcile()
+	done := make(chan error, 1)
+	go func() {
+		done <- sub.Reconcile(reconcileCtx)
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("reconcile did not honor startup preflight context")
+	}
+}
+
 // A source whose service user lacks curtailment:ingest is rejected at startup:
 // the worker is not started, so any org member cannot drive emergency
 // curtailment just by being referenced from the source row.
@@ -690,7 +846,7 @@ func TestSubscriber_StartWorker_RejectsServiceUserWithoutIngestPermission(t *tes
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	w, _, err := sub.startWorker(context.Background(), src, &wg)
+	w, _, err := sub.startWorker(context.Background(), context.Background(), src, &wg)
 
 	require.Error(t, err)
 	assert.Nil(t, w)
@@ -726,7 +882,7 @@ func TestSubscriber_StartWorker_RejectsUnsupportedSiteScopeAtStartup(t *testing.
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	w, _, err := sub.startWorker(context.Background(), src, &wg)
+	w, _, err := sub.startWorker(context.Background(), context.Background(), src, &wg)
 
 	require.Error(t, err)
 	assert.Nil(t, w)
@@ -762,7 +918,7 @@ func TestSubscriber_StartWorker_ValidatesDecoderBeforeDecrypt(t *testing.T) {
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	w, _, err := sub.startWorker(context.Background(), src, &wg)
+	w, _, err := sub.startWorker(context.Background(), context.Background(), src, &wg)
 
 	require.Error(t, err)
 	assert.Nil(t, w)

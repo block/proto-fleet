@@ -42,7 +42,7 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 	h := NewHandler(nil, settings)
 
 	resp, err := h.CreateMqttCurtailmentSource(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{
 			SourceName:              "maestro",
 			Topic:                   "maestro/curtailment",
@@ -69,13 +69,13 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 	assert.False(t, source.GetEnabled(), "create defaults disabled unless enabled=true is explicitly sent")
 }
 
-func TestHandler_CreateEnabledMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+func TestHandler_CreateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler(nil)
 	_, err := h.CreateMqttCurtailmentSource(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
-		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{Enabled: true}),
+		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{}),
 	)
 
 	require.Error(t, err)

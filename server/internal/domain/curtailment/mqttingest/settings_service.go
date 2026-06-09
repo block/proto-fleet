@@ -45,6 +45,8 @@ type RuntimeStatus struct {
 // RuntimeController hot-reloads the subscriber after a settings write.
 type RuntimeController interface {
 	Reconcile(ctx context.Context) error
+	QuiesceSource(ctx context.Context, sourceID int64) error
+	SourceHasActiveCurtailment(ctx context.Context, source SourceConfig) (bool, error)
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
 
@@ -283,13 +285,37 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 		if err := s.validateSourceConfig(ctx, next); err != nil {
 			return SourceView{}, err
 		}
+	} else {
+		if err := s.ensureNoActiveCurtailmentState(ctx, current, "disable"); err != nil {
+			return SourceView{}, err
+		}
+		if err := s.quiesceSource(current.ID); err != nil {
+			return SourceView{}, err
+		}
+		if err := s.ensureNoActiveCurtailmentState(ctx, current, "disable"); err != nil {
+			_ = s.reconcile(ctx)
+			return SourceView{}, err
+		}
 	}
 	updated, err := s.store.SetSourceConfigEnabled(ctx, orgID, sourceID, enabled)
 	if err != nil {
+		if !enabled {
+			_ = s.reconcile(ctx)
+		}
 		return SourceView{}, sourceStoreError("set mqtt source enabled", err)
 	}
 	if err := s.reconcile(ctx); err != nil {
 		return SourceView{}, err
+	}
+	if !enabled {
+		if err := s.ensureNoActiveCurtailmentState(ctx, updated, "disable"); err != nil {
+			_, rollbackErr := s.store.SetSourceConfigEnabled(ctx, orgID, sourceID, true)
+			_ = s.reconcile(ctx)
+			if rollbackErr != nil {
+				return SourceView{}, sourceStoreError("restore mqtt source enabled after failed disable", rollbackErr)
+			}
+			return SourceView{}, err
+		}
 	}
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
@@ -304,6 +330,13 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	}
 	if sourceID <= 0 {
 		return fleeterror.NewInvalidArgumentError("source_id must be set")
+	}
+	cfg, err := s.getConfig(ctx, orgID, sourceID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureNoActiveCurtailmentState(ctx, cfg, "delete"); err != nil {
+		return err
 	}
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
@@ -336,6 +369,24 @@ func (s *SettingsService) getStateForSource(ctx context.Context, orgID, sourceID
 		}
 	}
 	return SourceState{}, false, nil
+}
+
+func (s *SettingsService) ensureNoActiveCurtailmentState(ctx context.Context, source SourceConfig, action string) error {
+	state, hasState, err := s.getStateForSource(ctx, source.OrganizationID, source.ID)
+	if err != nil {
+		return err
+	}
+	if hasState && sourceStateHoldsCurtailment(state) {
+		return fleeterror.NewFailedPreconditionErrorf("restore MQTT source to ON before attempting to %s it", action)
+	}
+	active, err := s.sourceHasActiveCurtailment(ctx, source)
+	if err != nil {
+		return err
+	}
+	if active {
+		return fleeterror.NewFailedPreconditionErrorf("restore MQTT source to ON before attempting to %s it", action)
+	}
+	return nil
 }
 
 func (s *SettingsService) viewFor(cfg SourceConfig, state SourceState, hasState bool) SourceView {
@@ -452,6 +503,29 @@ func (s *SettingsService) reconcile(context.Context) error {
 	return nil
 }
 
+func (s *SettingsService) quiesceSource(sourceID int64) error {
+	if s.runtime == nil {
+		return nil
+	}
+	reconcileCtx, cancel := context.WithTimeout(context.Background(), s.reconcileTimeout)
+	defer cancel()
+	if err := s.runtime.QuiesceSource(reconcileCtx, sourceID); err != nil {
+		return fleeterror.NewUnavailableErrorf("mqtt source saved but runtime reload failed: %v", err)
+	}
+	return nil
+}
+
+func (s *SettingsService) sourceHasActiveCurtailment(ctx context.Context, source SourceConfig) (bool, error) {
+	if s.runtime == nil {
+		return false, nil
+	}
+	active, err := s.runtime.SourceHasActiveCurtailment(ctx, source)
+	if err != nil {
+		return false, fmt.Errorf("check mqtt active curtailment: %w", err)
+	}
+	return active, nil
+}
+
 func normalizeSourceConfig(source SourceConfig) SourceConfig {
 	source.SourceName = strings.TrimSpace(source.SourceName)
 	source.Topic = strings.TrimSpace(source.Topic)
@@ -506,6 +580,11 @@ func mqttCredentialBindingChanged(current, next SourceConfig) bool {
 		current.BrokerPort != next.BrokerPort ||
 		current.BrokerTransport != next.BrokerTransport ||
 		current.MQTTUsername != next.MQTTUsername
+}
+
+func sourceStateHoldsCurtailment(state SourceState) bool {
+	return state.LastTarget.IsOff() ||
+		(state.PendingEdge != nil && state.PendingEdge.Target.IsOff())
 }
 
 func validateCurtailMode(source SourceConfig) error {

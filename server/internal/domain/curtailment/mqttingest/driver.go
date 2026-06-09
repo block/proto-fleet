@@ -195,8 +195,8 @@ func (d *Driver) ActiveSourceEvent(ctx context.Context, src SourceConfig) (*mode
 	}
 	want := sourceActorIDFor(src)
 	for _, ev := range events {
-		if ev != nil && ev.SourceActorID != nil &&
-			(*ev.SourceActorID == want || *ev.SourceActorID == legacySourceActorIDFor(src)) {
+		if ev != nil && ev.SourceActorType == models.SourceActorWebhook &&
+			ev.SourceActorID != nil && *ev.SourceActorID == want {
 			return ev, nil
 		}
 	}
@@ -284,10 +284,6 @@ func startReason(source string, direction EdgeDirection, edgeAt time.Time) strin
 // source config ID so display-name edits do not orphan active events.
 func sourceActorIDFor(src SourceConfig) string {
 	return fmt.Sprintf("mqtt:%d", src.ID)
-}
-
-func legacySourceActorIDFor(src SourceConfig) string {
-	return fmt.Sprintf("mqtt:%s", src.SourceName)
 }
 
 // modeForSource maps source config to curtailment mode parameters.

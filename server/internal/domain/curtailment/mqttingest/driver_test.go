@@ -136,10 +136,11 @@ func sampleSource() SourceConfig {
 func testSourceEvent(src SourceConfig, eventUUID uuid.UUID, state models.EventState) *models.Event {
 	actorID := sourceActorIDFor(src)
 	return &models.Event{
-		EventUUID:     eventUUID,
-		OrgID:         src.OrganizationID,
-		SourceActorID: &actorID,
-		State:         state,
+		EventUUID:       eventUUID,
+		OrgID:           src.OrganizationID,
+		SourceActorType: models.SourceActorWebhook,
+		SourceActorID:   &actorID,
+		State:           state,
 	}
 }
 
@@ -488,12 +489,12 @@ func TestDriver_Dispatch_OffToOn_FindsSourceEventAfterRename(t *testing.T) {
 	assert.Equal(t, activeUUID, svc.stopCalls[0].EventUUID)
 }
 
-func TestDriver_Dispatch_OffToOn_FindsLegacySourceNameEvent(t *testing.T) {
+func TestDriver_Dispatch_OffToOn_LegacySourceNameEventNotStopped(t *testing.T) {
 	t.Parallel()
 
 	src := sampleSource()
 	activeUUID := uuid.New()
-	legacyActorID := legacySourceActorIDFor(src)
+	legacyActorID := "mqtt:" + src.SourceName
 	svc := &fakeService{
 		listActiveResult: []*models.Event{
 			{
@@ -507,12 +508,10 @@ func TestDriver_Dispatch_OffToOn_FindsLegacySourceNameEvent(t *testing.T) {
 	}
 	d := NewDriver(svc)
 
-	outcome, err := d.Dispatch(context.Background(), src, EdgeOffToOn, time.Now())
+	_, err := d.Dispatch(context.Background(), src, EdgeOffToOn, time.Now())
 
-	require.NoError(t, err)
-	assert.Equal(t, activeUUID, outcome.EventUUID)
-	require.Len(t, svc.stopCalls, 1)
-	assert.Equal(t, activeUUID, svc.stopCalls[0].EventUUID)
+	require.ErrorIs(t, err, ErrNoActiveEvent)
+	assert.Empty(t, svc.stopCalls)
 }
 
 func TestDriver_Dispatch_OffToOn_NoActiveEvent(t *testing.T) {
