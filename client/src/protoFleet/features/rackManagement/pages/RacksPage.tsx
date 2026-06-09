@@ -320,7 +320,14 @@ const RacksPage = () => {
   );
 
   const hasActiveFilters =
-    selectedBuildingIdStrings.length > 0 || selectedZones.length > 0 || selectedIssues.length > 0;
+    selectedBuildingIdStrings.length > 0 ||
+    selectedZones.length > 0 ||
+    selectedIssues.length > 0 ||
+    // URL-driven site filter counts as an active filter even when the
+    // operator didn't pick buildings explicitly, so a site-scoped result
+    // of zero falls into the "no matches for this filter" empty state
+    // rather than the global "you haven't set up any racks" null state.
+    urlSiteIds.size > 0;
 
   const handleClearFilters = useCallback(() => {
     // Snapshot before any state changes — drives whether the URL-change

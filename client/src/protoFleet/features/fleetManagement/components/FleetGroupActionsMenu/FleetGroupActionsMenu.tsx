@@ -5,7 +5,10 @@ import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
 import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
-import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MinerListFilterSchema,
+  type MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
 import {
@@ -106,6 +109,12 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
   // finishes so subsequent clicks reflect membership changes from
   // unpair / assignment / polling rather than acting on a stale set.
   const [ids, setIds] = useState<string[]>([]);
+  // Snapshot map keyed by deviceIdentifier. Firmware Update + a few
+  // other handlers in useMinerActions look up each selected id here to
+  // verify model compatibility — without it `getUniqueModels` returns
+  // an empty set and the firmware path 403s with "Unable to verify
+  // miner model compatibility" even though the row menu surfaced it.
+  const [minerSnapshots, setMinerSnapshots] = useState<Record<string, MinerStateSnapshot>>({});
   const idsLoadedRef = useRef(false);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -126,6 +135,7 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     startBatchOperation,
     completeBatchOperation,
     removeDevicesFromBatch,
+    miners: minerSnapshots,
   });
   const permissions = usePermissions();
 
@@ -150,6 +160,7 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
 
   const fetchDeviceIds = useCallback(async (): Promise<string[]> => {
     const collected: string[] = [];
+    const snapshotMap: Record<string, MinerStateSnapshot> = {};
     const filterInit =
       scope.kind === "building"
         ? { buildingIds: [scope.id] }
@@ -165,7 +176,13 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
         cursor,
         filter,
       });
-      for (const miner of response.miners) collected.push(miner.deviceIdentifier);
+      for (const miner of response.miners) {
+        collected.push(miner.deviceIdentifier);
+        // Preserve the full snapshot — useMinerActions needs the model
+        // info for firmware compatibility checks and the pairing
+        // status for the unauthenticated-miner gate.
+        snapshotMap[miner.deviceIdentifier] = miner;
+      }
       if (!response.cursor) {
         exhausted = true;
         break;
@@ -180,6 +197,7 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     }
     idsLoadedRef.current = true;
     setIds(collected);
+    setMinerSnapshots(snapshotMap);
     return collected;
   }, [scope.id, scope.kind, scope.name]);
 
