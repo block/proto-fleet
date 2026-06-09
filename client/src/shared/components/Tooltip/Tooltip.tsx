@@ -1,7 +1,7 @@
 import clsx from "clsx";
 
 import { Info, Question } from "@/shared/assets/icons";
-import { Position } from "@/shared/constants";
+import { type Position } from "@/shared/constants";
 
 interface TooltipProps {
   header?: string;

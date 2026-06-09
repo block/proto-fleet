@@ -6,7 +6,10 @@ import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSource
 import CurtailmentSettingsPage, {
   CurtailmentSettingsContent,
 } from "@/protoFleet/features/settings/components/Curtailment";
-import type { CurtailmentSource } from "@/protoFleet/features/settings/components/Curtailment/types";
+import type {
+  CurtailmentSource,
+  CurtailmentSourceFormValues,
+} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
@@ -72,6 +75,16 @@ const apiSources: CurtailmentSource[] = [
   },
 ];
 
+const testSourceFormValues: CurtailmentSourceFormValues = {
+  name: "Kati MaestroOS",
+  brokerPrimaryHost: "10.155.0.3",
+  brokerSecondaryHost: "10.155.0.4",
+  brokerPort: "1883",
+  topic: "maestro/target",
+  username: "soluna-kati",
+  password: "secret",
+};
+
 const createSourceMock = vi.fn();
 const setSourceEnabledMock = vi.fn();
 
@@ -89,6 +102,22 @@ const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentS
     ...overrides,
   });
 };
+
+function fillSourceForm(values: CurtailmentSourceFormValues = testSourceFormValues): void {
+  fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: values.name } });
+  fireEvent.change(screen.getByLabelText("Broker host 1"), { target: { value: values.brokerPrimaryHost } });
+  fireEvent.change(screen.getByLabelText("Broker host 2"), { target: { value: values.brokerSecondaryHost } });
+  fireEvent.change(screen.getByLabelText("Port"), { target: { value: values.brokerPort } });
+  fireEvent.change(screen.getByLabelText("Topic"), { target: { value: values.topic } });
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: values.username } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: values.password } });
+}
+
+function getSourceRow(sourceName: string): HTMLTableRowElement {
+  const row = screen.getByText(sourceName).closest("tr");
+  expect(row).not.toBeNull();
+  return row as HTMLTableRowElement;
+}
 
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
@@ -214,13 +243,7 @@ describe("CurtailmentSettingsPage", () => {
 
     expect(screen.getByTestId("curtailment-source-modal")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Kati MaestroOS" } });
-    fireEvent.change(screen.getByLabelText("Broker host 1"), { target: { value: "10.155.0.3" } });
-    fireEvent.change(screen.getByLabelText("Broker host 2"), { target: { value: "10.155.0.4" } });
-    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "1883" } });
-    fireEvent.change(screen.getByLabelText("Topic"), { target: { value: "maestro/target" } });
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "soluna-kati" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+    fillSourceForm();
 
     expect(saveButton).toBeEnabled();
 
@@ -240,27 +263,11 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Add source" }));
-    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Kati MaestroOS" } });
-    fireEvent.change(screen.getByLabelText("Broker host 1"), { target: { value: "10.155.0.3" } });
-    fireEvent.change(screen.getByLabelText("Broker host 2"), { target: { value: "10.155.0.4" } });
-    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "1883" } });
-    fireEvent.change(screen.getByLabelText("Topic"), { target: { value: "maestro/target" } });
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "soluna-kati" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+    fillSourceForm();
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() =>
-      expect(createSourceMock).toHaveBeenCalledWith({
-        name: "Kati MaestroOS",
-        brokerPrimaryHost: "10.155.0.3",
-        brokerSecondaryHost: "10.155.0.4",
-        brokerPort: "1883",
-        topic: "maestro/target",
-        username: "soluna-kati",
-        password: "secret",
-      }),
-    );
+    await waitFor(() => expect(createSourceMock).toHaveBeenCalledWith(testSourceFormValues));
     await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
     expect(pushToast).toHaveBeenCalledWith({
       message: "Source added",
@@ -301,10 +308,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    const katiRow = screen.getByText("Kati MaestroOS").closest("tr");
-    expect(katiRow).not.toBeNull();
-
-    const katiSwitch = within(katiRow as HTMLTableRowElement).getByRole("checkbox");
+    const katiSwitch = within(getSourceRow("Kati MaestroOS")).getByRole("checkbox");
     expect(katiSwitch).toBeChecked();
 
     fireEvent.click(katiSwitch);
@@ -323,10 +327,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    const katiRow = screen.getByText("Kati MaestroOS").closest("tr");
-    expect(katiRow).not.toBeNull();
-
-    fireEvent.click(within(katiRow as HTMLTableRowElement).getByRole("checkbox"));
+    fireEvent.click(within(getSourceRow("Kati MaestroOS")).getByRole("checkbox"));
 
     expect(setSourceEnabledMock).toHaveBeenCalledWith("11", false);
   });

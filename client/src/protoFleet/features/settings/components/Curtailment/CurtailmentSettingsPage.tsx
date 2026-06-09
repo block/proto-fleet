@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import clsx from "clsx";
 
@@ -28,6 +28,7 @@ import "./CurtailmentSettingsPage.css";
 const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const SOURCES_DESCRIPTION = "External systems that send curtailment signals via MQTT.";
+const MAX_BROKER_PORT = 65_535;
 
 const curtailmentSourceCols = {
   name: "name",
@@ -88,6 +89,7 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
 };
 
 const emptyCurtailmentSources: CurtailmentSource[] = [];
+const emptyUpdatingSourceIds = new Set<string>();
 
 const sourceInputIds = {
   name: "source-name",
@@ -109,20 +111,30 @@ const sourceInputIdToFormKey: Record<string, keyof CurtailmentSourceFormValues> 
   [sourceInputIds.password]: "password",
 };
 
-const isPositiveInteger = (value: string) => /^[1-9]\d*$/.test(value.trim());
+function isPositiveInteger(value: string): boolean {
+  return /^[1-9]\d*$/.test(value.trim());
+}
 
-const isSourceFormValid = (values: CurtailmentSourceFormValues) =>
-  values.name.trim() !== "" &&
-  values.brokerPrimaryHost.trim() !== "" &&
-  values.brokerSecondaryHost.trim() !== "" &&
-  values.topic.trim() !== "" &&
-  values.username.trim() !== "" &&
-  values.password !== "" &&
-  isPositiveInteger(values.brokerPort) &&
-  Number(values.brokerPort) <= 65535;
+function isSourceFormValid(values: CurtailmentSourceFormValues): boolean {
+  const requiredTrimmedValues = [
+    values.name,
+    values.brokerPrimaryHost,
+    values.brokerSecondaryHost,
+    values.topic,
+    values.username,
+  ];
 
-const getErrorMessage = (error: unknown, fallbackMessage: string) =>
-  error instanceof Error && error.message ? error.message : fallbackMessage;
+  return (
+    requiredTrimmedValues.every((value) => value.trim() !== "") &&
+    values.password !== "" &&
+    isPositiveInteger(values.brokerPort) &&
+    Number(values.brokerPort) <= MAX_BROKER_PORT
+  );
+}
+
+function getErrorMessage(error: unknown, fallbackMessage: string): string {
+  return error instanceof Error && error.message ? error.message : fallbackMessage;
+}
 
 const sourceHealthLabel: Record<CurtailmentHealth, string> = {
   connected: "Connected",
@@ -130,11 +142,13 @@ const sourceHealthLabel: Record<CurtailmentHealth, string> = {
   offline: "Offline",
 };
 
-const formatSourceHealth = (health: CurtailmentSource["health"]) => sourceHealthLabel[health];
+function formatSourceHealth(health: CurtailmentSource["health"]): string {
+  return sourceHealthLabel[health];
+}
 
 const SOURCES_INFO_TRIGGER_CLASS_NAME = "curtailment-sources-info-trigger";
 
-const SourcesInfoToggleContent = () => {
+function SourcesInfoToggleContent(): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const { triggerRef } = usePopover();
   const closeIgnoreSelectors = classNameToSelectors(SOURCES_INFO_TRIGGER_CLASS_NAME);
@@ -165,33 +179,45 @@ const SourcesInfoToggleContent = () => {
       ) : null}
     </div>
   );
+}
+
+function SourcesInfoToggle(): ReactElement {
+  return (
+    <PopoverProvider>
+      <SourcesInfoToggleContent />
+    </PopoverProvider>
+  );
+}
+
+function SourcesEmptyState(): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+      <div className="text-heading-200 text-text-primary">No sources configured</div>
+      <p className="mt-1 text-400 text-text-primary-70">Add a source to receive curtailment signals via MQTT.</p>
+    </div>
+  );
+}
+
+function SourcesLoadingState(): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full items-center justify-center py-14">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+}
+
+type SourcesErrorStateProps = {
+  message: string;
 };
 
-const SourcesInfoToggle = () => (
-  <PopoverProvider>
-    <SourcesInfoToggleContent />
-  </PopoverProvider>
-);
-
-const SourcesEmptyState = () => (
-  <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-    <div className="text-heading-200 text-text-primary">No sources configured</div>
-    <p className="mt-1 text-400 text-text-primary-70">Add a source to receive curtailment signals via MQTT.</p>
-  </div>
-);
-
-const SourcesLoadingState = () => (
-  <div className="flex min-h-[220px] w-full items-center justify-center py-14">
-    <ProgressCircular indeterminate />
-  </div>
-);
-
-const SourcesErrorState = ({ message }: { message: string }) => (
-  <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-    <div className="text-heading-200 text-text-primary">Unable to load sources</div>
-    <p className="mt-1 text-400 text-text-primary-70">{message}</p>
-  </div>
-);
+function SourcesErrorState({ message }: SourcesErrorStateProps): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+      <div className="text-heading-200 text-text-primary">Unable to load sources</div>
+      <p className="mt-1 text-400 text-text-primary-70">{message}</p>
+    </div>
+  );
+}
 
 type SourceModalProps = {
   open: boolean;
@@ -200,7 +226,7 @@ type SourceModalProps = {
   saving?: boolean;
 };
 
-const SourceModal = ({ open, onDismiss, onSave, saving = false }: SourceModalProps) => {
+function SourceModal({ open, onDismiss, onSave, saving = false }: SourceModalProps): ReactElement {
   const [values, setValues] = useState<CurtailmentSourceFormValues>(emptySourceFormValues);
   const [saveError, setSaveError] = useState<string | null>(null);
   const canSave = isSourceFormValid(values);
@@ -330,77 +356,81 @@ const SourceModal = ({ open, onDismiss, onSave, saving = false }: SourceModalPro
       </div>
     </Modal>
   );
-};
+}
 
-const SectionHeader = ({
-  title,
-  buttonText,
-  onButtonClick,
-}: {
+type SectionHeaderProps = {
   title: string;
   buttonText: string;
   onButtonClick: () => void;
-}) => (
-  <div className="curtailment-section-header">
-    <div className="curtailment-section-header__title">
-      <h2 className="curtailment-section-header__label">{title}</h2>
-    </div>
-    <div className="flex shrink-0 items-center gap-2">
-      <SourcesInfoToggle />
-      <Button
-        variant={variants.secondary}
-        size={sizes.compact}
-        text={buttonText}
-        onClick={onButtonClick}
-        className="curtailment-settings__action-button"
-      />
-    </div>
-  </div>
-);
+};
 
-const createCurtailmentSourceColConfig = ({
-  onToggle,
-  updatingSourceIds,
-}: {
-  onToggle: (sourceId: string) => void;
-  updatingSourceIds: Set<string>;
-}): ColConfig<CurtailmentSource, string, CurtailmentSourceColumn> => ({
-  [curtailmentSourceCols.name]: {
-    component: (source) => (
-      <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{source.name}</span>
-    ),
-    width: "w-[34%] phone:w-auto",
-  },
-  [curtailmentSourceCols.lastSignalValue]: {
-    component: (source) => <span className="truncate text-text-primary">{source.lastTarget}</span>,
-    width: "w-[20%] phone:w-auto",
-  },
-  [curtailmentSourceCols.lastSignalUpdate]: {
-    component: (source) => <span className="truncate text-text-primary">{source.lastSeen}</span>,
-    width: "w-[20%] phone:w-auto",
-  },
-  [curtailmentSourceCols.health]: {
-    component: (source) => (
-      <div className="inline-flex items-center gap-1.5">
-        <span className={clsx("h-2 w-2 shrink-0 rounded-full", sourceHealthDotClassName[source.health])} />
-        <span className="truncate text-text-primary">{formatSourceHealth(source.health)}</span>
+function SectionHeader({ title, buttonText, onButtonClick }: SectionHeaderProps): ReactElement {
+  return (
+    <div className="curtailment-section-header">
+      <div className="curtailment-section-header__title">
+        <h2 className="curtailment-section-header__label">{title}</h2>
       </div>
-    ),
-    width: "w-[20%] phone:w-auto",
-  },
-  [curtailmentSourceCols.enabled]: {
-    component: (source) => (
-      <div className="flex justify-end" data-interactive>
-        <Switch
-          checked={source.enabled}
-          setChecked={() => onToggle(source.id)}
-          disabled={updatingSourceIds.has(source.id)}
+      <div className="flex shrink-0 items-center gap-2">
+        <SourcesInfoToggle />
+        <Button
+          variant={variants.secondary}
+          size={sizes.compact}
+          text={buttonText}
+          onClick={onButtonClick}
+          className="curtailment-settings__action-button"
         />
       </div>
-    ),
-    width: "w-[6%] phone:w-9",
-  },
-});
+    </div>
+  );
+}
+
+type CurtailmentSourceColConfigOptions = {
+  onToggle: (sourceId: string) => void;
+  updatingSourceIds: Set<string>;
+};
+
+function createCurtailmentSourceColConfig({
+  onToggle,
+  updatingSourceIds,
+}: CurtailmentSourceColConfigOptions): ColConfig<CurtailmentSource, string, CurtailmentSourceColumn> {
+  return {
+    [curtailmentSourceCols.name]: {
+      component: (source) => (
+        <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{source.name}</span>
+      ),
+      width: "w-[34%] phone:w-auto",
+    },
+    [curtailmentSourceCols.lastSignalValue]: {
+      component: (source) => <span className="truncate text-text-primary">{source.lastTarget}</span>,
+      width: "w-[20%] phone:w-auto",
+    },
+    [curtailmentSourceCols.lastSignalUpdate]: {
+      component: (source) => <span className="truncate text-text-primary">{source.lastSeen}</span>,
+      width: "w-[20%] phone:w-auto",
+    },
+    [curtailmentSourceCols.health]: {
+      component: (source) => (
+        <div className="inline-flex items-center gap-1.5">
+          <span className={clsx("h-2 w-2 shrink-0 rounded-full", sourceHealthDotClassName[source.health])} />
+          <span className="truncate text-text-primary">{formatSourceHealth(source.health)}</span>
+        </div>
+      ),
+      width: "w-[20%] phone:w-auto",
+    },
+    [curtailmentSourceCols.enabled]: {
+      component: (source) => (
+        <div className="flex justify-end" data-interactive>
+          <Switch
+            checked={source.enabled}
+            setChecked={() => onToggle(source.id)}
+            disabled={updatingSourceIds.has(source.id)}
+          />
+        </div>
+      ),
+      width: "w-[6%] phone:w-9",
+    },
+  };
+}
 
 type CurtailmentSettingsContentProps = {
   initialSources?: CurtailmentSource[];
@@ -414,17 +444,29 @@ type CurtailmentSettingsContentProps = {
   onToggleSource?: (source: CurtailmentSource, enabled: boolean) => Promise<CurtailmentSource | void>;
 };
 
-export const CurtailmentSettingsContent = ({
+function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources: boolean): ReactElement {
+  if (loadSourcesError) {
+    return <SourcesErrorState message={loadSourcesError} />;
+  }
+
+  if (isLoadingSources) {
+    return <SourcesLoadingState />;
+  }
+
+  return <SourcesEmptyState />;
+}
+
+export function CurtailmentSettingsContent({
   initialSources = emptyCurtailmentSources,
   initialSourceModalOpen = false,
   sources: controlledSources,
   isLoadingSources = false,
   loadSourcesError = null,
   isSavingSource = false,
-  updatingSourceIds = new Set<string>(),
+  updatingSourceIds = emptyUpdatingSourceIds,
   onCreateSource,
   onToggleSource,
-}: CurtailmentSettingsContentProps) => {
+}: CurtailmentSettingsContentProps): ReactElement {
   const [localSources, setLocalSources] = useState<CurtailmentSource[]>(() => [...initialSources]);
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(initialSourceModalOpen);
   const sources = controlledSources ?? localSources;
@@ -473,13 +515,7 @@ export const CurtailmentSettingsContent = ({
     [toggleSource, updatingSourceIds],
   );
 
-  const emptyStateRow = loadSourcesError ? (
-    <SourcesErrorState message={loadSourcesError} />
-  ) : isLoadingSources ? (
-    <SourcesLoadingState />
-  ) : (
-    <SourcesEmptyState />
-  );
+  const emptyStateRow = getSourcesEmptyState(loadSourcesError, isLoadingSources);
 
   return (
     <div className="flex flex-col gap-14" data-testid="settings-curtailment-page">
@@ -515,9 +551,9 @@ export const CurtailmentSettingsContent = ({
       />
     </div>
   );
-};
+}
 
-const CurtailmentSettingsPage = () => {
+function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
   const { sources, isLoading, isCreating, updatingSourceIds, loadError, createSource, setSourceEnabled } =
     useMqttCurtailmentSources(canManageCurtailment);
@@ -575,6 +611,6 @@ const CurtailmentSettingsPage = () => {
       onToggleSource={handleToggleSource}
     />
   );
-};
+}
 
 export default CurtailmentSettingsPage;
