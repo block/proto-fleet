@@ -4,6 +4,7 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  type CreateMqttCurtailmentSourceRequest,
   CreateMqttCurtailmentSourceRequestSchema,
   ListMqttCurtailmentSourcesRequestSchema,
   type MqttCurtailmentSource,
@@ -29,6 +30,22 @@ const DEFAULT_MIN_CURTAILED_DURATION_SEC = 600;
 const SOURCES_POLL_INTERVAL_MS = 10_000;
 
 const unsetDisplayValue = "-";
+
+export type ListSourcesOptions = {
+  silent?: boolean;
+};
+
+export type UseMqttCurtailmentSourcesResult = {
+  sources: CurtailmentSource[];
+  isLoading: boolean;
+  isCreating: boolean;
+  updatingSourceIds: Set<string>;
+  loadError: string | null;
+  createError: string | null;
+  listSources: (signal?: AbortSignal, options?: ListSourcesOptions) => Promise<CurtailmentSource[]>;
+  createSource: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource>;
+  setSourceEnabled: (sourceId: string, enabled: boolean) => Promise<CurtailmentSource>;
+};
 
 function timestampToEpochSeconds(timestamp?: Timestamp): number | undefined {
   if (!timestamp) {
@@ -77,18 +94,20 @@ function mapRuntimeHealth(source: MqttCurtailmentSource): CurtailmentHealth {
 }
 
 function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSource {
+  const scope = formatScope(source);
+
   return {
     id: source.sourceId.toString(),
     name: source.sourceName,
     triggerType: "MQTT",
-    site: formatScope(source),
+    site: scope,
     brokerHosts: [source.brokerPrimaryHost, source.brokerSecondaryHost].filter(Boolean),
     port: source.brokerPort,
     topic: source.topic,
     protocol: source.brokerTransport ? source.brokerTransport.toUpperCase() : "MQTT",
     qos: 1,
     username: source.mqttUsername,
-    scope: formatScope(source),
+    scope,
     curtailmentMode: source.curtailMode || unsetDisplayValue,
     lastTarget: source.status?.lastTarget || unsetDisplayValue,
     lastSeen: formatSignalUpdate(source.status?.lastReceivedAt ?? source.status?.lastTargetAt),
@@ -97,7 +116,7 @@ function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSou
   };
 }
 
-function buildCreateSourceRequest(values: CurtailmentSourceFormValues) {
+function buildCreateSourceRequest(values: CurtailmentSourceFormValues): CreateMqttCurtailmentSourceRequest {
   return create(CreateMqttCurtailmentSourceRequestSchema, {
     sourceName: values.name.trim(),
     topic: values.topic.trim(),
@@ -118,7 +137,7 @@ function buildCreateSourceRequest(values: CurtailmentSourceFormValues) {
   });
 }
 
-export default function useMqttCurtailmentSources(enabled = true) {
+export default function useMqttCurtailmentSources(enabled = true): UseMqttCurtailmentSourcesResult {
   const { handleAuthErrors } = useAuthErrors();
   const [sources, setSources] = useState<CurtailmentSource[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -129,7 +148,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
   const hasLoadedSourcesRef = useRef(false);
 
   const handleFailure = useCallback(
-    (error: unknown, fallbackMessage: string) => {
+    (error: unknown, fallbackMessage: string): Error => {
       const resolvedError = toError(error, fallbackMessage);
       handleAuthErrors({ error });
       return resolvedError;
@@ -138,7 +157,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
   );
 
   const listSources = useCallback(
-    async (signal?: AbortSignal, options: { silent?: boolean } = {}) => {
+    async (signal?: AbortSignal, options: ListSourcesOptions = {}): Promise<CurtailmentSource[]> => {
       const shouldShowLoading = !options.silent && !hasLoadedSourcesRef.current;
       if (shouldShowLoading) {
         setIsLoading(true);
@@ -183,7 +202,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
     let pollTimerId: ReturnType<typeof setTimeout> | undefined;
     let abortController: AbortController | undefined;
 
-    const schedulePoll = () => {
+    function schedulePoll(): void {
       if (!isActive) {
         return;
       }
@@ -191,9 +210,9 @@ export default function useMqttCurtailmentSources(enabled = true) {
       pollTimerId = setTimeout(() => {
         void refreshSources(true);
       }, SOURCES_POLL_INTERVAL_MS);
-    };
+    }
 
-    const refreshSources = async (silent: boolean) => {
+    async function refreshSources(silent: boolean): Promise<void> {
       abortController?.abort();
       abortController = new AbortController();
 
@@ -204,7 +223,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
       } finally {
         schedulePoll();
       }
-    };
+    }
 
     void refreshSources(false);
 
@@ -218,7 +237,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
   }, [enabled, listSources]);
 
   const createSource = useCallback(
-    async (values: CurtailmentSourceFormValues) => {
+    async (values: CurtailmentSourceFormValues): Promise<CurtailmentSource> => {
       setIsCreating(true);
       setCreateError(null);
 
@@ -246,7 +265,7 @@ export default function useMqttCurtailmentSources(enabled = true) {
   );
 
   const setSourceEnabled = useCallback(
-    async (sourceId: string, enabled: boolean) => {
+    async (sourceId: string, enabled: boolean): Promise<CurtailmentSource> => {
       setUpdatingSourceIds((currentIds) => new Set(currentIds).add(sourceId));
 
       try {

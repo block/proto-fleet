@@ -19,6 +19,13 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Tooltip from "@/shared/components/Tooltip";
 import { type Position, positions } from "@/shared/constants";
 
+type InputTooltip = {
+  header?: string;
+  body: string;
+  position?: Position;
+  widthClassName?: string;
+};
+
 interface InputProps {
   autoFocus?: boolean;
   compact?: boolean;
@@ -39,7 +46,7 @@ interface InputProps {
   onChangeBlur?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
   testId?: string;
-  tooltip?: { header?: string; body: string; position?: Position; widthClassName?: string };
+  tooltip?: InputTooltip;
   type?: string;
   statusIcon?: ReactNode;
   onFocus?: () => void;
