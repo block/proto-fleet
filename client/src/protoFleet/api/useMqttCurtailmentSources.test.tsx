@@ -53,11 +53,11 @@ function timestamp(isoDate: string): Timestamp {
 function mqttSource(overrides: Partial<MqttCurtailmentSource> = {}): MqttCurtailmentSource {
   const source = create(MqttCurtailmentSourceSchema, {
     sourceId: 1n,
-    sourceName: "Kati MQTT",
-    topic: "curtailment/site/kati",
-    brokerPrimaryHost: "10.155.0.3",
-    brokerSecondaryHost: "10.155.0.4",
-    brokerPort: 1883,
+    sourceName: "Site Alpha MQTT",
+    topic: "curtailment/site-alpha/target",
+    brokerPrimaryHost: "site-alpha-primary.broker.test",
+    brokerSecondaryHost: "site-alpha-secondary.broker.test",
+    brokerPort: 11883,
     brokerTransport: "tcp",
     mqttUsername: "fleet",
     hasPassword: true,
@@ -140,12 +140,37 @@ describe("useMqttCurtailmentSources", () => {
     expect(curtailmentClient.listMqttCurtailmentSources).not.toHaveBeenCalled();
   });
 
+  it("shows waiting for signal before a source receives its first MQTT signal", async () => {
+    mockListMqttCurtailmentSources.mockResolvedValueOnce({
+      sources: [
+        mqttSource({
+          status: create(MqttCurtailmentSourceStatusSchema, {
+            runtimeState: MqttCurtailmentSourceRuntimeState.STOPPED,
+            stale: true,
+          }),
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+    await act(async () => {
+      await result.current.listSources();
+    });
+
+    expect(result.current.sources[0]).toMatchObject({
+      lastTarget: "-",
+      lastSeen: "-",
+      health: "waitingForSignal",
+    });
+  });
+
   it("updates a source and replaces it in local hook state", async () => {
     mockListMqttCurtailmentSources.mockResolvedValueOnce({ sources: [mqttSource()] });
     mockUpdateMqttCurtailmentSource.mockResolvedValueOnce({
       source: mqttSource({
-        sourceName: "Kati MQTT updated",
-        topic: "curtailment/site/kati/updated",
+        sourceName: "Site Alpha MQTT updated",
+        topic: "curtailment/site-alpha/target/updated",
       }),
     });
 
@@ -156,11 +181,11 @@ describe("useMqttCurtailmentSources", () => {
     });
     await act(async () => {
       await result.current.updateSource("1", {
-        name: "Kati MQTT updated",
-        brokerPrimaryHost: "10.155.0.3",
-        brokerSecondaryHost: "10.155.0.4",
-        brokerPort: "1883",
-        topic: "curtailment/site/kati/updated",
+        name: "Site Alpha MQTT updated",
+        brokerPrimaryHost: "site-alpha-primary.broker.test",
+        brokerSecondaryHost: "site-alpha-secondary.broker.test",
+        brokerPort: "11883",
+        topic: "curtailment/site-alpha/target/updated",
         username: "fleet",
         password: "",
       });
@@ -169,19 +194,19 @@ describe("useMqttCurtailmentSources", () => {
     expect(mockUpdateMqttCurtailmentSource).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceId: 1n,
-        sourceName: "Kati MQTT updated",
-        topic: "curtailment/site/kati/updated",
-        brokerPrimaryHost: "10.155.0.3",
-        brokerSecondaryHost: "10.155.0.4",
-        brokerPort: 1883,
+        sourceName: "Site Alpha MQTT updated",
+        topic: "curtailment/site-alpha/target/updated",
+        brokerPrimaryHost: "site-alpha-primary.broker.test",
+        brokerSecondaryHost: "site-alpha-secondary.broker.test",
+        brokerPort: 11883,
         mqttUsername: "fleet",
       }),
     );
     expect(mockUpdateMqttCurtailmentSource.mock.calls[0][0]).not.toHaveProperty("mqttPassword");
     expect(result.current.sources[0]).toMatchObject({
       id: "1",
-      name: "Kati MQTT updated",
-      topic: "curtailment/site/kati/updated",
+      name: "Site Alpha MQTT updated",
+      topic: "curtailment/site-alpha/target/updated",
     });
   });
 

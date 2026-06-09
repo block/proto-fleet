@@ -79,20 +79,35 @@ function formatScope(source: MqttCurtailmentSource): string {
   }
 }
 
+function sourceHasReceivedSignal(source: MqttCurtailmentSource): boolean {
+  return Boolean(source.status?.lastReceivedAt ?? source.status?.lastTargetAt);
+}
+
 function mapRuntimeHealth(source: MqttCurtailmentSource): CurtailmentHealth {
   if (!source.enabled) {
     return "offline";
   }
 
-  if (source.status?.stale) {
+  const status = source.status;
+  if (!status) {
+    return "waitingForSignal";
+  }
+
+  const hasReceivedSignal = sourceHasReceivedSignal(source);
+  if (!hasReceivedSignal && status.runtimeState !== MqttCurtailmentSourceRuntimeState.ERROR) {
+    return "waitingForSignal";
+  }
+
+  if (status.stale) {
     return "noSignal";
   }
 
-  switch (source.status?.runtimeState) {
+  switch (status.runtimeState) {
+    case MqttCurtailmentSourceRuntimeState.UNSPECIFIED:
+    case MqttCurtailmentSourceRuntimeState.STARTING:
+      return "waitingForSignal";
     case MqttCurtailmentSourceRuntimeState.RUNNING:
       return "connected";
-    case MqttCurtailmentSourceRuntimeState.STARTING:
-      return "noSignal";
     default:
       return "offline";
   }
