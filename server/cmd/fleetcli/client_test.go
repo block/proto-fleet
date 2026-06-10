@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"testing"
+)
 
 func TestNormalizeBaseURL(t *testing.T) {
 	tests := []struct {
@@ -25,6 +30,12 @@ func TestNormalizeBaseURL(t *testing.T) {
 			server: "https://fleet.example.com/custom/",
 			want:   "https://fleet.example.com/custom",
 		},
+		{
+			name:     "treats explicit trailing slash as RPC root",
+			server:   "http://localhost:4000/",
+			insecure: true,
+			want:     "http://localhost:4000",
+		},
 	}
 
 	for _, tt := range tests {
@@ -43,5 +54,53 @@ func TestNormalizeBaseURL(t *testing.T) {
 func TestNormalizeBaseURLRejectsMissingHost(t *testing.T) {
 	if _, err := normalizeBaseURL("https:///api-proxy", false); err == nil {
 		t.Fatal("normalizeBaseURL() error = nil, want missing host error")
+	}
+}
+
+func TestLoopbackSecureJarReturnsSecureCookiesOverLoopbackHTTP(t *testing.T) {
+	sessionCookie := []*http.Cookie{{Name: "fleet_session", Value: "abc", Path: "/", Secure: true}}
+
+	for _, host := range []string{"localhost:4000", "127.0.0.1:4000"} {
+		inner, err := cookiejar.New(nil)
+		if err != nil {
+			t.Fatalf("cookiejar.New() error = %v", err)
+		}
+		jar := &loopbackSecureJar{inner: inner}
+
+		setURL, err := url.Parse("http://" + host + "/auth.v1.AuthService/Authenticate")
+		if err != nil {
+			t.Fatalf("url.Parse() error = %v", err)
+		}
+		jar.SetCookies(setURL, sessionCookie)
+
+		probeURL, err := url.Parse("http://" + host + "/pairing.v1.PairingService/Pair")
+		if err != nil {
+			t.Fatalf("url.Parse() error = %v", err)
+		}
+		if len(jar.Cookies(probeURL)) == 0 {
+			t.Fatalf("Cookies(%s) = empty, want secure session cookie", probeURL)
+		}
+	}
+}
+
+func TestLoopbackSecureJarKeepsSecureSemanticsForRemoteHTTP(t *testing.T) {
+	inner, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New() error = %v", err)
+	}
+	jar := &loopbackSecureJar{inner: inner}
+
+	setURL, err := url.Parse("https://fleet.example.com/auth.v1.AuthService/Authenticate")
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	jar.SetCookies(setURL, []*http.Cookie{{Name: "fleet_session", Value: "abc", Path: "/", Secure: true}})
+
+	probeURL, err := url.Parse("http://fleet.example.com/pairing.v1.PairingService/Pair")
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	if cookies := jar.Cookies(probeURL); len(cookies) != 0 {
+		t.Fatalf("Cookies(%s) = %v, want none for secure cookie over remote http", probeURL, cookies)
 	}
 }
