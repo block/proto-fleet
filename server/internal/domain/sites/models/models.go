@@ -103,17 +103,18 @@ type AssignDevicesToSiteParams struct {
 	DeviceIdentifiers []string
 }
 
-// AssignBuildingToSiteParams is the input shape for the building site
-// reassignment flow. TargetSiteID == nil means "Unassigned".
-type AssignBuildingToSiteParams struct {
+// AssignBuildingsToSiteParams is the input shape for the bulk
+// building→site assignment flow. TargetSiteID == nil means "Unassigned";
+// the entire batch is applied in one transaction.
+type AssignBuildingsToSiteParams struct {
 	OrgID        int64
-	BuildingID   int64
+	BuildingIDs  []int64
 	TargetSiteID *int64
 }
 
-// AssignBuildingToSiteResult is the cascade-impact tally for the
-// building → site move.
-type AssignBuildingToSiteResult struct {
+// AssignBuildingsToSiteResult is the aggregate cascade-impact tally
+// across every building in the batch.
+type AssignBuildingsToSiteResult struct {
 	ReassignedRackCount   int64
 	ReassignedDeviceCount int64
 }

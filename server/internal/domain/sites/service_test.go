@@ -339,7 +339,7 @@ func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testi
 	}
 }
 
-func TestAssignBuildingToSite_cascadeOnSuccess(t *testing.T) {
+func TestAssignBuildingsToSite_cascadeOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
@@ -357,9 +357,9 @@ func TestAssignBuildingToSite_cascadeOnSuccess(t *testing.T) {
 	store.EXPECT().ReassignRacksUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	store.EXPECT().ReassignDevicesUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
 
-	out, err := svc.AssignBuildingToSite(context.Background(), models.AssignBuildingToSiteParams{
+	out, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
 		OrgID:        testOrgID,
-		BuildingID:   50,
+		BuildingIDs:  []int64{50},
 		TargetSiteID: &target,
 	})
 	if err != nil {
@@ -370,7 +370,7 @@ func TestAssignBuildingToSite_cascadeOnSuccess(t *testing.T) {
 	}
 }
 
-func TestAssignBuildingToSite_notFoundWhenBuildingMissing(t *testing.T) {
+func TestAssignBuildingsToSite_notFoundWhenBuildingMissing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
@@ -385,13 +385,40 @@ func TestAssignBuildingToSite_notFoundWhenBuildingMissing(t *testing.T) {
 	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(50)).
 		Return(fleeterror.NewNotFoundErrorf("building %d not found", 50))
 
-	_, err := svc.AssignBuildingToSite(context.Background(), models.AssignBuildingToSiteParams{
+	_, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
 		OrgID:        testOrgID,
-		BuildingID:   50,
+		BuildingIDs:  []int64{50},
 		TargetSiteID: &target,
 	})
 	if !fleeterror.IsNotFoundError(err) {
 		t.Fatalf("expected NotFound, got %v", err)
+	}
+}
+
+func TestAssignBuildingsToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
+	// First building succeeds, second fails — tx must roll back, no
+	// AssignBuildingToSite call on the second building's cascade phase.
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, tx, nil)
+
+	target := int64(20)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(50)).Return(nil)
+	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
+	store.EXPECT().ReassignRacksUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
+	store.EXPECT().ReassignDevicesUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(10), nil)
+	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(51)).
+		Return(fleeterror.NewNotFoundErrorf("building %d not found", 51))
+
+	_, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
+		OrgID:        testOrgID,
+		BuildingIDs:  []int64{50, 51},
+		TargetSiteID: &target,
+	})
+	if !fleeterror.IsNotFoundError(err) {
+		t.Fatalf("expected NotFound for second building, got %v", err)
 	}
 }
 

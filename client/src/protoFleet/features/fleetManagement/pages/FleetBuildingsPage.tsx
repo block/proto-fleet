@@ -117,7 +117,7 @@ const FleetBuildingsPage = () => {
     [buildingModals, siteNameById],
   );
 
-  const { assignBuildingToSite } = useSites();
+  const { assignBuildingsToSite } = useSites();
   const [reparentTarget, setReparentTarget] = useState<BuildingWithCounts | null>(null);
   const handleAddBuildingToSite = useCallback((row: BuildingWithCounts) => setReparentTarget(row), []);
 
@@ -251,8 +251,8 @@ const FleetBuildingsPage = () => {
               }
               const name = reparentTarget.building.name || "building";
               const buildingId = reparentTarget.building.id;
-              void assignBuildingToSite({
-                buildingId,
+              void assignBuildingsToSite({
+                buildingIds: [buildingId],
                 targetSiteId,
                 onSuccess: () => {
                   pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });

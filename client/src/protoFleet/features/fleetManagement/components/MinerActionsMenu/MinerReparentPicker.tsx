@@ -188,7 +188,7 @@ const MinerReparentPicker = ({
   onClose,
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
-  const { reassignDevicesToSite } = useSites();
+  const { assignDevicesToSite } = useSites();
   const { addDevicesToDeviceSet, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
@@ -227,7 +227,7 @@ const MinerReparentPicker = ({
     });
 
   const dispatchSiteReassign = (targetSiteId: bigint, ids: string[]) => {
-    void reassignDevicesToSite({
+    void assignDevicesToSite({
       targetSiteId,
       deviceIdentifiers: ids,
       onSuccess: (count) => {

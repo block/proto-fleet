@@ -1536,7 +1536,7 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
 	// resolveAndLockRackPlacement peeks building→site, locks site, locks
 	// building, then re-reads building→site under the lock to detect
-	// concurrent AssignBuildingToSite. Both reads return the same value
+	// concurrent AssignBuildingsToSite. Both reads return the same value
 	// here, so the tx proceeds without abort/retry.
 	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil).Times(2)
 	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, newSiteID).Return(nil)

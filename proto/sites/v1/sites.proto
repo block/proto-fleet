@@ -38,12 +38,14 @@ service SiteService {
     rpc AssignDevicesToSite(AssignDevicesToSiteRequest)
         returns (AssignDevicesToSiteResponse);
 
-    // AssignBuildingToSite moves a building to a different site
-    // (or to "Unassigned" when target_site_id is unset). The same
-    // transaction cascades site_id down to the building's racks and
-    // their devices. Returns the cascade counts.
-    rpc AssignBuildingToSite(AssignBuildingToSiteRequest)
-        returns (AssignBuildingToSiteResponse);
+    // AssignBuildingsToSite moves one or more buildings to a target site
+    // (or to "Unassigned" when target_site_id is unset). All updates run
+    // in a single transaction; if any building fails, the batch rolls
+    // back. The same transaction cascades site_id down to each
+    // building's racks and their devices. Returns the aggregate cascade
+    // counts across every building in the batch.
+    rpc AssignBuildingsToSite(AssignBuildingsToSiteRequest)
+        returns (AssignBuildingsToSiteResponse);
 
     // GetSiteStats returns server-rolled telemetry + miner-state counts
     // for every device assigned to the site, including devices whose
@@ -218,17 +220,22 @@ message AssignDevicesToSiteResponse {
     repeated PerDeviceConflict conflicts = 2;
 }
 
-// AssignBuildingToSite
+// AssignBuildingsToSite
 
-message AssignBuildingToSiteRequest {
-    int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
-    // Unset = move building to "Unassigned". When present, must be > 0.
+message AssignBuildingsToSiteRequest {
+    repeated int64 building_ids = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 1000
+        items: {int64: {gt: 0}}
+    }];
+    // Unset = move buildings to "Unassigned". When present, must be > 0.
     optional int64 target_site_id = 2 [(buf.validate.field).int64.gt = 0];
 }
 
-message AssignBuildingToSiteResponse {
+message AssignBuildingsToSiteResponse {
     // Cascade impact: how many racks and devices were re-stamped with
-    // the new site_id in the same transaction.
+    // the new site_id in the same transaction, aggregated across every
+    // building in the batch.
     int64 reassigned_rack_count   = 1;
     int64 reassigned_device_count = 2;
 }

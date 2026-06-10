@@ -67,7 +67,7 @@ type CreateParams struct {
 
 // UpdateParams is the input shape for building updates. SiteID is
 // intentionally NOT updated here; that flow lives on
-// SiteService.AssignBuildingToSite, which carries the cross-collection
+// SiteService.AssignBuildingsToSite, which carries the cross-collection
 // invariant check.
 type UpdateParams struct {
 	OrgID                 int64
