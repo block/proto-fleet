@@ -152,7 +152,7 @@ var catalog = []CatalogEntry{
 
 	{PermCurtailmentRead, "View curtailment status, events, and policies.", ResourceCurtailment},
 	{PermCurtailmentManage, "Preview, start, stop, and manage curtailment policies.", ResourceCurtailment},
-	{PermCurtailmentIngest, "Accept curtailment dispatch signals from external providers and configured MQTT sources.", ResourceCurtailment},
+	{PermCurtailmentIngest, "Accept curtailment dispatch signals from external providers.", ResourceCurtailment},
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
 	{PermPoolManage, "Create, edit, and delete saved mining pool configurations.", ResourcePool},

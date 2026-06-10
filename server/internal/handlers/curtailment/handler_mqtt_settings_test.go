@@ -111,6 +111,36 @@ func TestHandler_EnableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestHandler_DisableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	_, err := h.SetMqttCurtailmentSourceEnabled(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.SetMqttCurtailmentSourceEnabledRequest{SourceId: 11, Enabled: false}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_DeleteMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	_, err := h.DeleteMqttCurtailmentSource(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.DeleteMqttCurtailmentSourceRequest{SourceId: 11}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
 func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *testing.T) {
 	t.Parallel()
 

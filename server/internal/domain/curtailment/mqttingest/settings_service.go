@@ -10,7 +10,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-const maxMQTTSourceStringLength = 255
+const (
+	maxMQTTSourceNameLength   = 64
+	maxMQTTSourceStringLength = 255
+)
 const settingsReconcileTimeout = 30 * time.Second
 
 // PasswordCipher wraps and unwraps MQTT credentials.
@@ -252,7 +255,7 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 			return SourceView{}, err
 		}
 	} else {
-		if err := s.quiesceSource(current.ID); err != nil {
+		if err := s.quiesceSource(ctx, current.ID); err != nil {
 			return SourceView{}, err
 		}
 	}
@@ -358,7 +361,7 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 	if source.ServiceUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("service_user_id must be set")
 	}
-	if err := validateBoundedString("source_name", source.SourceName); err != nil {
+	if err := validateSourceName(source.SourceName); err != nil {
 		return err
 	}
 	if err := validateBoundedString("topic", source.Topic); err != nil {
@@ -407,7 +410,7 @@ func validateConnectionTestConfig(source SourceConfig, plaintextPassword string)
 	if source.ServiceUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("service_user_id must be set")
 	}
-	if err := validateBoundedString("source_name", source.SourceName); err != nil {
+	if err := validateSourceName(source.SourceName); err != nil {
 		return err
 	}
 	if err := validateBoundedString("topic", source.Topic); err != nil {
@@ -451,11 +454,11 @@ func (s *SettingsService) encryptPassword(plaintext string) (string, error) {
 	return encrypted, nil
 }
 
-func (s *SettingsService) reconcile(context.Context) error {
+func (s *SettingsService) reconcile(ctx context.Context) error {
 	if s.runtime == nil {
 		return nil
 	}
-	reconcileCtx, cancel := context.WithTimeout(context.Background(), s.reconcileTimeout)
+	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
 	if err := s.runtime.Reconcile(reconcileCtx); err != nil {
 		return fleeterror.NewUnavailableErrorf("mqtt source saved but runtime reload failed: %v", err)
@@ -463,16 +466,23 @@ func (s *SettingsService) reconcile(context.Context) error {
 	return nil
 }
 
-func (s *SettingsService) quiesceSource(sourceID int64) error {
+func (s *SettingsService) quiesceSource(ctx context.Context, sourceID int64) error {
 	if s.runtime == nil {
 		return nil
 	}
-	reconcileCtx, cancel := context.WithTimeout(context.Background(), s.reconcileTimeout)
+	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
 	if err := s.runtime.QuiesceSource(reconcileCtx, sourceID); err != nil {
 		return fleeterror.NewUnavailableErrorf("mqtt source saved but runtime reload failed: %v", err)
 	}
 	return nil
+}
+
+func detachedContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func normalizeSourceConfig(source SourceConfig) SourceConfig {
@@ -498,12 +508,20 @@ func normalizeSourceConfig(source SourceConfig) SourceConfig {
 	return source
 }
 
+func validateSourceName(value string) error {
+	return validateRequiredString("source_name", value, maxMQTTSourceNameLength)
+}
+
 func validateBoundedString(field, value string) error {
+	return validateRequiredString(field, value, maxMQTTSourceStringLength)
+}
+
+func validateRequiredString(field, value string, maxLength int) error {
 	if strings.TrimSpace(value) == "" {
 		return fleeterror.NewInvalidArgumentErrorf("%s is required", field)
 	}
-	if len(value) > maxMQTTSourceStringLength {
-		return fleeterror.NewInvalidArgumentErrorf("%s must be at most %d characters", field, maxMQTTSourceStringLength)
+	if len(value) > maxLength {
+		return fleeterror.NewInvalidArgumentErrorf("%s must be at most %d characters", field, maxLength)
 	}
 	return nil
 }

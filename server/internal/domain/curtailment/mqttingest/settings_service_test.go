@@ -3,6 +3,7 @@ package mqttingest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,14 +160,18 @@ type fakeRuntimeController struct {
 	quiesceCalls       int
 	reconcileErr       error
 	sawCanceledContext bool
+	contextValue       any
 	status             RuntimeStatus
 }
+
+type fakeRuntimeContextKey struct{}
 
 func (f *fakeRuntimeController) Reconcile(ctx context.Context) error {
 	f.reconcileCalls++
 	if ctx.Err() != nil {
 		f.sawCanceledContext = true
 	}
+	f.contextValue = ctx.Value(fakeRuntimeContextKey{})
 	return f.reconcileErr
 }
 
@@ -311,6 +316,24 @@ func TestSettingsService_CreateDuplicateNameReturnsAlreadyExists(t *testing.T) {
 	assert.Zero(t, runtime.reconcileCalls, "duplicate-name writes must not trigger runtime reload")
 }
 
+func TestSettingsService_CreateRejectsSourceNameLongerThanSchema(t *testing.T) {
+	t.Parallel()
+
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: newFakeSettingsStore(), Cipher: &fakeSettingsCipher{}})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.SourceName = strings.Repeat("a", maxMQTTSourceNameLength+1)
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "source_name must be at most 64 characters")
+}
+
 func TestSourceConfigPersistErrorMapsDuplicateNameConstraint(t *testing.T) {
 	t.Parallel()
 
@@ -421,13 +444,15 @@ func TestSettingsService_SetEnabledReloadUsesInternalContext(t *testing.T) {
 	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx := context.WithValue(t.Context(), fakeRuntimeContextKey{}, "reload")
+	ctx, cancel := context.WithCancel(ctx)
 	cancel()
 	_, err = svc.SetEnabled(ctx, 42, 7, true)
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, runtime.reconcileCalls)
 	assert.False(t, runtime.sawCanceledContext, "reload must not inherit the client request cancellation")
+	assert.Equal(t, "reload", runtime.contextValue, "reload should retain request context values for tracing/log correlation")
 }
 
 func TestSettingsService_DisableQuiescesRuntimeAndKeepsSourceState(t *testing.T) {
