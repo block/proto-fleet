@@ -110,13 +110,11 @@ type BuildingRack struct {
 	PositionInAisle *int32
 }
 
-// AssignRackToBuildingParams is the input shape for assigning (or
-// unassigning) a rack to a building, optionally with a grid cell.
-type AssignRackToBuildingParams struct {
-	OrgID  int64
+// RackPlacementParam carries one rack's identity plus its optional
+// grid placement inside the target building. Used by
+// AssignRacksToBuilding for bulk updates.
+type RackPlacementParam struct {
 	RackID int64
-	// BuildingID is nil when unassigning the rack from any building.
-	BuildingID *int64
 	// AisleIndex / PositionInAisle are nil when the caller is not
 	// positioning the rack at a specific cell. Must be paired (both
 	// nil or both set); enforced at the service edge.
@@ -124,9 +122,20 @@ type AssignRackToBuildingParams struct {
 	PositionInAisle *int32
 }
 
-// AssignRackToBuildingResult is the response shape carrying the
-// cascade impact count for the activity log + UI confirmation.
-type AssignRackToBuildingResult struct {
+// AssignRacksToBuildingParams is the input shape for the bulk
+// rack→building assignment flow. TargetBuildingID is nil when
+// unassigning every rack in the batch from any building. Each entry
+// in Racks may carry its own grid placement (or leave it nil to clear
+// the cell).
+type AssignRacksToBuildingParams struct {
+	OrgID            int64
+	Racks            []RackPlacementParam
+	TargetBuildingID *int64
+}
+
+// AssignRacksToBuildingResult is the aggregate response carrying the
+// total cascade impact count across every rack in the batch.
+type AssignRacksToBuildingResult struct {
 	SiteReassignedDeviceCount int64
 }
 

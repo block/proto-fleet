@@ -16,7 +16,7 @@ export const parseCellKey = (key: GridCellKey): { aisle: number; position: numbe
   const [aisle, position] = key.split("-").map(Number);
   // All callers in this feature produce keys via cellKey() so this
   // guard is belt-and-suspenders — a NaN coordinate would silently
-  // flow into AssignRackToBuilding's aisle_index / position_in_aisle
+  // flow into AssignRacksToBuilding's aisle_index / position_in_aisle
   // params and surface as a server-side InvalidArgument far from the
   // cause.
   if (!Number.isFinite(aisle) || !Number.isFinite(position)) {
