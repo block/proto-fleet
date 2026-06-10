@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
+import { FLEETNODE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { Activity, Fleet, Globe, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -32,6 +33,19 @@ export const primaryNavItems: NavItem[] = [
     label: "Fleet",
     icon: Fleet,
   },
+  // FleetNodeAdminService list endpoints are server-gated on fleetnode:read.
+  // Behind a build flag while the surface is in development; the route stays
+  // reachable by direct URL regardless.
+  ...(FLEETNODE_ENABLED
+    ? [
+        {
+          path: "/fleet-nodes",
+          label: "Fleet Nodes",
+          icon: Globe,
+          requiredPermission: "fleetnode:read",
+        },
+      ]
+    : []),
   {
     path: "/groups",
     label: "Groups",

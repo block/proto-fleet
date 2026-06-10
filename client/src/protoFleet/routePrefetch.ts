@@ -47,6 +47,8 @@ export const importFleetLayout = () => import("@/protoFleet/features/fleetManage
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");
 export const importFleetSitesPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetSitesPage");
 export const importFleetDown = () => import("@/protoFleet/components/FleetDown/FleetDown");
+export const importFleetNodesPage = () => import("@/protoFleet/features/fleetNodes/pages/FleetNodesPage");
+export const importFleetNodeDetailPage = () => import("@/protoFleet/features/fleetNodes/pages/FleetNodeDetailPage");
 
 // Sidebar destinations + the default settings sub-route. App.tsx
 // triggers this at idle so the first nav click has no Suspense flash.
