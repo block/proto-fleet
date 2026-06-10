@@ -86,32 +86,6 @@ const resolveRackMembers = async (rackId: bigint): Promise<Set<string>> => {
   return members;
 };
 
-// Group ids that need to move out of a source rack before they can be
-// added to the target. `idx_one_rack_per_device` enforces a single
-// rack per miner, so a same-batch INSERT against a different rack
-// aborts the whole transaction; we orchestrate the remove→add ourselves.
-const groupBySourceRack = (
-  ids: string[],
-  miners: Record<string, MinerStateSnapshot> | undefined,
-  targetRack: DeviceSet,
-  currentMembers: Set<string>,
-): Map<string, string[]> => {
-  const movesByLabel = new Map<string, string[]>();
-  if (!miners) return movesByLabel;
-  const targetLabel = targetRack.label;
-  for (const id of ids) {
-    if (currentMembers.has(id)) continue;
-    const snapshot = miners[id];
-    if (!snapshot) continue;
-    const sourceLabel = snapshot.rackLabel;
-    if (!sourceLabel || sourceLabel === targetLabel) continue;
-    const bucket = movesByLabel.get(sourceLabel) ?? [];
-    bucket.push(id);
-    movesByLabel.set(sourceLabel, bucket);
-  }
-  return movesByLabel;
-};
-
 // Detect miners whose current rack lives at a different site than the
 // target. `ReassignDevicesToSite` rejects these with
 // `DEVICE_IN_RACK_AT_OTHER_SITE` and aborts the whole batch; we
@@ -189,7 +163,7 @@ const MinerReparentPicker = ({
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
   const { assignDevicesToSite } = useSites();
-  const { addDevicesToDeviceSet, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
+  const { assignDevicesToRack, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
   // Resolver for the onConfirm promise during the cross-site confirm
@@ -311,11 +285,7 @@ const MinerReparentPicker = ({
     });
   };
 
-  const dispatchReparentToRack = async (
-    targetRackId: bigint,
-    ids: string[],
-    minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
-  ) => {
+  const dispatchReparentToRack = async (targetRackId: bigint, ids: string[]) => {
     let rack: DeviceSet;
     let currentMembers: Set<string>;
     try {
@@ -331,50 +301,20 @@ const MinerReparentPicker = ({
       return;
     }
 
-    // Miners currently in a different rack need to leave that rack
-    // first — server enforces one rack per device. Orchestrate the
-    // remove-then-add so the picker behaves as a re-parent rather than
-    // a duplicate insert.
-    const movesByLabel = groupBySourceRack(ids, minerSnapshots, rack, currentMembers);
-    if (movesByLabel.size > 0) {
-      let racks: DeviceSet[];
-      try {
-        racks = await fetchAllRacks();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Couldn't load racks.";
-        pushToast({ message, status: STATUSES.error });
-        return;
-      }
-      const labelToRackId = new Map<string, bigint>();
-      for (const r of racks) if (r.label) labelToRackId.set(r.label, r.id);
-
-      const movingToast = pushToast({
-        message: `Moving miners from ${movesByLabel.size} other rack${movesByLabel.size === 1 ? "" : "s"}…`,
-        status: STATUSES.loading,
-        longRunning: true,
-      });
-      try {
-        for (const [src, sourceIds] of movesByLabel) {
-          const sourceRackId = labelToRackId.get(src);
-          if (sourceRackId === undefined) continue;
-          await removeFromRack(sourceRackId, sourceIds);
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
-        updateToast(movingToast, { message, status: STATUSES.error });
-        return;
-      }
-      removeToast(movingToast);
-    }
-
-    void addDevicesToDeviceSet({
-      deviceSetId: targetRackId,
+    // AssignDevicesToRack clears prior rack membership and inserts the
+    // new membership inside one server-side transaction. Previously
+    // this was a client-side remove-then-add loop that resolved source
+    // racks via listRacks and could (a) orphan miners on a transport
+    // failure between the two calls, and (b) skip a rack whose label
+    // got renamed mid-confirm. The atomic RPC closes both holes.
+    void assignDevicesToRack({
+      targetRackId,
       deviceIdentifiers: ids,
       onSuccess: (count) => {
         pushToast({ message: successMessage(count, "rack"), status: STATUSES.success });
         onRefetchMiners?.();
       },
-      onError: (msg) => pushToast({ message: `Couldn't add miners to rack: ${msg}`, status: STATUSES.error }),
+      onError: (msg) => pushToast({ message: `Couldn't move miners to rack: ${msg}`, status: STATUSES.error }),
     });
   };
 
@@ -385,7 +325,7 @@ const MinerReparentPicker = ({
   ) =>
     kind === "site"
       ? dispatchReparentToSite(targetId, ids, minerSnapshots)
-      : dispatchReparentToRack(targetId, ids, minerSnapshots);
+      : dispatchReparentToRack(targetId, ids);
 
   const settleDialog = () => {
     const resolve = dialogResolveRef.current;

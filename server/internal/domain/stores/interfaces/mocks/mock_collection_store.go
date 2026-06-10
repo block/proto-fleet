@@ -462,6 +462,21 @@ func (mr *MockCollectionStoreMockRecorder) RemoveAllDevicesFromCollection(ctx, o
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAllDevicesFromCollection", reflect.TypeOf((*MockCollectionStore)(nil).RemoveAllDevicesFromCollection), ctx, orgID, collectionID)
 }
 
+// RemoveDevicesFromAnyRack mocks base method.
+func (m *MockCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveDevicesFromAnyRack", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveDevicesFromAnyRack indicates an expected call of RemoveDevicesFromAnyRack.
+func (mr *MockCollectionStoreMockRecorder) RemoveDevicesFromAnyRack(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesFromAnyRack", reflect.TypeOf((*MockCollectionStore)(nil).RemoveDevicesFromAnyRack), ctx, orgID, deviceIdentifiers)
+}
+
 // RemoveDevicesFromCollection mocks base method.
 func (m *MockCollectionStore) RemoveDevicesFromCollection(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()

@@ -439,7 +439,7 @@ type LockBuildingForWriteParams struct {
 }
 
 // Row-locks a specific building so concurrent mutations (DeleteSite,
-// AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+// AssignBuildingsToSite, DeleteBuilding) serialize. Returns the building
 // id when alive; sql.ErrNoRows when soft-deleted or missing.
 func (q *Queries) LockBuildingForWrite(ctx context.Context, arg LockBuildingForWriteParams) (int64, error) {
 	row := q.queryRow(ctx, q.lockBuildingForWriteStmt, lockBuildingForWrite, arg.ID, arg.OrgID)
@@ -463,7 +463,7 @@ type LockBuildingsBySiteForWriteParams struct {
 
 // Row-locks every live building under the given site so DeleteSite's
 // cascade can rewrite their racks without a concurrent
-// AssignBuildingToSite slipping a building out from under it. Returns
+// AssignBuildingsToSite slipping a building out from under it. Returns
 // the locked ids (result is informational; the FOR UPDATE side-effect
 // is what matters).
 func (q *Queries) LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error) {

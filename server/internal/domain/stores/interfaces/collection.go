@@ -169,6 +169,15 @@ type CollectionStore interface {
 	// Returns the number of devices actually removed.
 	RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
 
+	// RemoveDevicesFromAnyRack deletes the given devices' rack
+	// membership rows regardless of which rack they currently sit in.
+	// Used by AssignDevicesToRack to clear prior rack membership inside
+	// the same transaction as the new-rack insert, closing the orphan
+	// window the client-side RemoveDevicesFromDeviceSet +
+	// AddDevicesToDeviceSet orchestration had. No-op for devices
+	// without a rack membership.
+	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error)
+
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).
 	ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error)

@@ -885,6 +885,154 @@ func (s *Service) RemoveDevicesFromCollection(ctx context.Context, req *pb.Remov
 	return &pb.RemoveDevicesFromCollectionResponse{RemovedCount: int32(txResult.count)}, nil
 }
 
+// AssignDevicesToRackParams is the domain-layer input shape for the
+// atomic rack reassignment flow. TargetRackID == nil means "clear
+// rack membership without re-assigning" (site/building stay intact).
+type AssignDevicesToRackParams struct {
+	OrgID             int64
+	TargetRackID      *int64
+	DeviceIdentifiers []string
+}
+
+// AssignDevicesToRackResult carries the per-step row counts the
+// activity log + handler response surface.
+type AssignDevicesToRackResult struct {
+	AssignedCount       int64
+	RemovedCount        int64
+	SiteReassignedCount int64
+}
+
+// AssignDevicesToRack atomically moves devices into target_rack_id (or
+// clears their rack membership when target is unset) inside one
+// transaction. The two-step "remove from prior rack, insert into new
+// rack" happens under a single tx so a server error / network blip
+// can't leave devices without rack membership (the orphan window the
+// client-side orchestration had). Cascades device.site_id when the
+// target rack's site differs from the device's current site, matching
+// AddDevicesToCollection's cascade.
+//
+// Empty DeviceIdentifiers rejects with InvalidArgument so the caller
+// learns up-front instead of getting a 0-row response.
+func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesToRackParams) (*AssignDevicesToRackResult, error) {
+	if len(params.DeviceIdentifiers) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
+	}
+
+	type txOut struct {
+		assigned       int64
+		removed        int64
+		siteReassigned int64
+		targetLabel    string
+	}
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		var (
+			targetSiteID *int64
+			targetLabel  string
+		)
+		// Lock + verify target rack first so concurrent SaveRack /
+		// DeleteCollection on the target can't race us. Canonical lock
+		// order is rack-only here — site/building locks would invert
+		// against AddDevicesToCollection.
+		if params.TargetRackID != nil {
+			coll, err := s.collectionStore.GetCollection(ctx, params.OrgID, *params.TargetRackID)
+			if err != nil {
+				return nil, err
+			}
+			if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+				return nil, fleeterror.NewInvalidArgumentErrorf("target_rack_id %d is not a rack", *params.TargetRackID)
+			}
+			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, *params.TargetRackID, params.OrgID)
+			if err != nil {
+				return nil, err
+			}
+			targetSiteID = placement.SiteID
+			targetLabel = coll.Label
+		}
+
+		// Clear existing rack membership for the given devices regardless
+		// of which rack they sit in. This is the half of the operation
+		// that previously lived in the client-side
+		// RemoveDevicesFromDeviceSet call; bundling it into the tx is
+		// what closes the orphan window described in #420.
+		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers)
+		if err != nil {
+			return nil, err
+		}
+
+		var (
+			assigned       int64
+			siteReassigned int64
+		)
+		if params.TargetRackID != nil {
+			n, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			assigned = n
+			if targetSiteID != nil {
+				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
+				if err != nil {
+					return nil, err
+				}
+				siteReassigned = c
+			}
+		}
+
+		return &txOut{
+			assigned:       assigned,
+			removed:        removed,
+			siteReassigned: siteReassigned,
+			targetLabel:    targetLabel,
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out, ok := result.(*txOut)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	info, _ := session.GetInfo(ctx)
+	var (
+		userID, username                *string
+		orgIDPtr                        *int64
+		eventDescription, eventScopeStr string
+	)
+	if info != nil {
+		userID = &info.ExternalUserID
+		username = &info.Username
+		orgIDPtr = &info.OrganizationID
+	}
+	if params.TargetRackID != nil {
+		eventScopeStr = "rack"
+		eventDescription = fmt.Sprintf("Assigned devices to rack: %s", out.targetLabel)
+	} else {
+		eventDescription = "Cleared devices from rack"
+	}
+	assignedInt := int(out.assigned + out.removed)
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryCollection,
+		Type:           "assign_devices_to_rack",
+		Description:    eventDescription,
+		ScopeCount:     &assignedInt,
+		UserID:         userID,
+		Username:       username,
+		OrganizationID: orgIDPtr,
+	}
+	if eventScopeStr != "" {
+		event.ScopeType = &eventScopeStr
+		event.ScopeLabel = &out.targetLabel
+	}
+	s.logActivity(ctx, event)
+
+	return &AssignDevicesToRackResult{
+		AssignedCount:       out.assigned,
+		RemovedCount:        out.removed,
+		SiteReassignedCount: out.siteReassigned,
+	}, nil
+}
+
 // ListCollectionMembers returns all members of a collection.
 func (s *Service) ListCollectionMembers(ctx context.Context, req *pb.ListCollectionMembersRequest) (*pb.ListCollectionMembersResponse, error) {
 	info, err := session.GetInfo(ctx)
