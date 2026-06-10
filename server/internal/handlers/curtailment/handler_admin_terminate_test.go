@@ -26,6 +26,7 @@ import (
 // tests. Only AdminTerminateEvent is wired; the rest panic so an
 // unintended path is loud rather than silently zero-valuing.
 type adminTerminateStubStore struct {
+	authEvent        *models.Event
 	result           *models.Event
 	transitioned     bool
 	idempotentReplay bool
@@ -64,14 +65,23 @@ func (s *adminTerminateStubStore) ListActiveCurtailedDevices(context.Context, in
 func (s *adminTerminateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) ListCandidates(context.Context, int64, []string) ([]*models.Candidate, error) {
+func (s *adminTerminateStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) ListCandidates(context.Context, interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	panic("ListCandidates not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
-	panic("GetEventByUUID not exercised by AdminTerminate handler tests")
+func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+	if s.authEvent != nil {
+		return s.authEvent, nil
+	}
+	if s.result != nil && s.result.EventUUID == eventUUID {
+		return s.result, nil
+	}
+	return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 }
 func (s *adminTerminateStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventDetailByUUID not exercised by AdminTerminate handler tests")
@@ -191,13 +201,21 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 // gate on this handler.
 func TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage(t *testing.T) {
 	t.Parallel()
-	store := &adminTerminateStubStore{}
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStatePending,
+		},
+	}
 	h := NewHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtxWithPerms(42, domainAuth.AdminRoleName /* no curtailment:manage */),
 		connect.NewRequest(&pb.AdminTerminateEventRequest{
-			EventUuid:   uuid.New().String(),
+			EventUuid:   eventUUID.String(),
 			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
 			Reason:      "perm-gate test",
 		}),
@@ -258,7 +276,14 @@ func TestHandler_AdminTerminateEvent_RejectsMalformedUUID(t *testing.T) {
 // FailedPrecondition at the RPC boundary.
 func TestHandler_AdminTerminateEvent_StateConflictMapsFailedPrecondition(t *testing.T) {
 	t.Parallel()
+	eventUUID := uuid.New()
 	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCompleted,
+		},
 		err: interfaces.ErrCurtailmentAdminTerminateStateConflict,
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
@@ -266,7 +291,7 @@ func TestHandler_AdminTerminateEvent_StateConflictMapsFailedPrecondition(t *test
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
 		connect.NewRequest(&pb.AdminTerminateEventRequest{
-			EventUuid:   uuid.New().String(),
+			EventUuid:   eventUUID.String(),
 			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED,
 			Reason:      "test",
 		}),
@@ -284,7 +309,14 @@ func TestHandler_AdminTerminateEvent_StateConflictMapsFailedPrecondition(t *test
 // retry-able signal to call StopCurtailment first.
 func TestHandler_AdminTerminateEvent_ActiveEventMapsFailedPrecondition(t *testing.T) {
 	t.Parallel()
+	eventUUID := uuid.New()
 	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+		},
 		err: interfaces.ErrCurtailmentAdminTerminateActiveEvent,
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
@@ -292,7 +324,7 @@ func TestHandler_AdminTerminateEvent_ActiveEventMapsFailedPrecondition(t *testin
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
 		connect.NewRequest(&pb.AdminTerminateEventRequest{
-			EventUuid:   uuid.New().String(),
+			EventUuid:   eventUUID.String(),
 			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
 			Reason:      "test",
 		}),
@@ -328,6 +360,66 @@ func TestHandler_AdminTerminateEvent_SuperAdminAllowed(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.calls)
+}
+
+func TestHandler_AdminTerminateEvent_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+	)
+
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+		wantCalls   int
+	}{
+		{"org permission without site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
+		{"matching site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
+		{"site-only permission denies terminate", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site narrowing without manage denies terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			eventUUID := uuid.New()
+			event := &models.Event{
+				ID:        99,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateCancelled,
+				ScopeType: models.ScopeTypeSite,
+				ScopeJSON: siteScopeJSON(t, allowedSite),
+			}
+			store := &adminTerminateStubStore{
+				authEvent: event,
+				result:    event,
+			}
+			h := NewHandler(domainCurtailment.NewService(store))
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           domainAuth.AdminRoleName,
+			}, tc.assignments...)
+
+			_, err := h.AdminTerminateEvent(ctx, connect.NewRequest(&pb.AdminTerminateEventRequest{
+				EventUuid:   eventUUID.String(),
+				TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+				Reason:      "site scoped terminate",
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+			assert.Equal(t, tc.wantCalls, store.calls)
+		})
+	}
 }
 
 // TestHandler_AdminTerminateEvent_ResponseCarriesScopeAndTargets: the

@@ -401,6 +401,34 @@ func TestService_Start_RunsSelectorWithDeviceListFilter(t *testing.T) {
 		"Start must forward the same scope filter as Preview")
 }
 
+func TestService_Start_PersistsSiteScope(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.sitesByOrg[orgID] = map[int64]bool{siteID: true}
+	store.candidatesBySite[orgID] = map[int64][]*models.Candidate{
+		siteID: {
+			minerWithEff("site-miner", 4000, 100, 40),
+		},
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeSite, SiteID: siteID}
+	req.TargetKW = 3
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Len(t, plan.Selected, 1)
+	require.NotNil(t, store.lastListCandidatesSiteID)
+	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Equal(t, models.ScopeTypeSite, store.lastInsertEvent.ScopeType)
+	assert.JSONEq(t, `{"site_id":99}`, string(store.lastInsertEvent.ScopeJSON))
+}
+
 // --- insufficient-load path ---
 
 func TestService_Start_InsufficientLoadReturnsDetailWithoutPersisting(t *testing.T) {

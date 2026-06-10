@@ -35,6 +35,7 @@ vi.mock("@/protoFleet/store", () => ({
 const baseValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
+  siteId: "",
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
@@ -124,6 +125,19 @@ describe("useCurtailmentPlanPreview", () => {
     expect(minerRequest.scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
     expect(minerRequest.includeMaintenance).toBe(false);
     expect(minerRequest.forceIncludeMaintenance).toBe(false);
+
+    const siteRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-42",
+      siteId: " 42 ",
+    });
+
+    expect(siteRequest?.scope.case).toBe("site");
+    if (siteRequest?.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(siteRequest.scope.value.siteId).toBe(42n);
   });
 
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {
@@ -155,6 +169,22 @@ describe("useCurtailmentPlanPreview", () => {
         deviceSetIds: ["rack-1"],
       }),
     ).toBeUndefined();
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "site",
+        scopeId: "site-bad",
+        siteId: "site-42",
+      }),
+    ).toBeUndefined();
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "site",
+        scopeId: "site-zero",
+        siteId: "0",
+      }),
+    ).toBeUndefined();
   });
 
   it("surfaces unsupported device-set previews without calling the API", () => {
@@ -169,6 +199,22 @@ describe("useCurtailmentPlanPreview", () => {
       preview: undefined,
       previewError:
         "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      isPreviewLoading: false,
+    });
+    expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();
+  });
+
+  it("skips site-scoped previews with invalid site ids", () => {
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-bad",
+      siteId: "site-42",
+    });
+
+    expect(result.current).toEqual({
+      preview: undefined,
+      previewError: undefined,
       isPreviewLoading: false,
     });
     expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();
@@ -201,6 +247,28 @@ describe("useCurtailmentPlanPreview", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it("fetches site-scoped previews with the selected site id", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    renderPreviewHook({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-42",
+      siteId: "42",
+    });
+
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+    });
+
+    const request = mockPreviewCurtailmentPlan.mock.calls[0][0];
+    expect(request.scope.case).toBe("site");
+    if (request.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(request.scope.value.siteId).toBe(42n);
   });
 
   it("maps full-fleet previews against the estimated fleet reduction", async () => {

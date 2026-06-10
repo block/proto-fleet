@@ -125,7 +125,10 @@ func (s *updateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]
 func (s *updateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Update handler tests")
 }
-func (s *updateStubStore) ListCandidates(context.Context, int64, []string) ([]*models.Candidate, error) {
+func (s *updateStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised by Update handler tests")
+}
+func (s *updateStubStore) ListCandidates(context.Context, interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	panic("ListCandidates not exercised by Update handler tests")
 }
 func (s *updateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
@@ -295,6 +298,57 @@ func TestHandler_UpdateCurtailmentEvent_RejectsWithoutCurtailmentManage(t *testi
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_UpdateCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+	)
+
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+		wantCalls   int
+	}{
+		{"org permission without site narrowing allows update", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
+		{"matching site narrowing allows update", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
+		{"site-only permission denies update", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site narrowing without manage denies update", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newUpdateStubStore(models.EventStateActive)
+			store.event.ScopeType = models.ScopeTypeSite
+			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
+			h := NewHandler(domainCurtailment.NewService(store))
+
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			reason := "site-scoped update"
+			_, err := h.UpdateCurtailmentEvent(ctx, connect.NewRequest(&pb.UpdateCurtailmentEventRequest{
+				EventUuid: store.event.EventUUID.String(),
+				Reason:    &reason,
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+			assert.Equal(t, tc.wantCalls, store.updateCalls)
+		})
+	}
 }
 
 // TestHandler_UpdateCurtailmentEvent_RejectsMalformedUUID: invalid UUIDs

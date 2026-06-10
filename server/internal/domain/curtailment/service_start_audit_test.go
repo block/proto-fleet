@@ -93,6 +93,40 @@ func TestService_Start_EmitsBaseAuditRowOnSuccess(t *testing.T) {
 	assert.Equal(t, false, events[0].Metadata["force_include_maintenance"])
 }
 
+func TestService_Start_SiteScopeAuditStampsSiteID(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(42)
+		siteID = int64(99)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.sitesByOrg[orgID] = map[int64]bool{siteID: true}
+	store.candidatesBySite[orgID] = map[int64][]*models.Candidate{
+		siteID: {
+			minerWithEff("site-miner", 3000, 100, 50),
+		},
+	}
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeSite, SiteID: siteID}
+	req.TargetKW = 2
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].ScopeType)
+	assert.Equal(t, string(models.ScopeTypeSite), *events[0].ScopeType)
+	require.NotNil(t, events[0].SiteID)
+	assert.Equal(t, siteID, *events[0].SiteID)
+	require.NotNil(t, events[0].Metadata)
+	assert.Equal(t, siteID, events[0].Metadata["site_id"])
+}
+
 // TestService_Start_FullFleetAuditOmitsTargetKW: target_kw is only meaningful
 // for FIXED_KW. FULL_FLEET still records mode so a grouped audit entry can be
 // interpreted without inspecting the persisted event.

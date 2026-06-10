@@ -752,6 +752,10 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
     AND (
+        sqlc.narg('site_id')::bigint IS NULL
+        OR d.site_id = sqlc.narg('site_id')::bigint
+    )
+    AND (
         sqlc.narg('device_identifiers')::text[] IS NULL
         OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
     )

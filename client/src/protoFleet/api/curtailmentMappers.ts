@@ -57,12 +57,21 @@ function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): Curtailmen
 
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
-): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "deviceSetIds" | "deviceIdentifiers"> {
+): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "siteId" | "deviceSetIds" | "deviceIdentifiers"> {
   switch (event.scope.case) {
+    case "site":
+      return {
+        scopeType: "site",
+        scopeId: `site-${event.scope.value.siteId.toString()}`,
+        siteId: event.scope.value.siteId.toString(),
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      };
     case "deviceIdentifiers":
       return {
         scopeType: "explicitMiners",
         scopeId: "explicit-miners",
+        siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
       };
@@ -70,6 +79,7 @@ function mapCurtailmentEventScopeToFormValues(
       return {
         scopeType: "deviceSet",
         scopeId: "device-sets",
+        siteId: "",
         deviceSetIds: [...event.scope.value.deviceSetIds],
         deviceIdentifiers: [],
       };
@@ -78,6 +88,7 @@ function mapCurtailmentEventScopeToFormValues(
       return {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
+        siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
       };

@@ -10,9 +10,11 @@ import {
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
   ScopeDeviceListSchema,
+  ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -27,6 +29,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   CurtailmentFormValues,
   | "scopeType"
   | "scopeId"
+  | "siteId"
   | "deviceSetIds"
   | "deviceIdentifiers"
   | "curtailmentMode"
@@ -119,13 +122,22 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
         case: "wholeOrg",
         value: create(ScopeWholeOrgSchema, {}),
       };
+    case "site": {
+      const siteId = parseCurtailmentSiteId(values.siteId);
+      if (siteId === undefined) {
+        return undefined;
+      }
+      return {
+        case: "site",
+        value: create(ScopeSiteSchema, { siteId }),
+      };
+    }
     case "deviceSet":
       return undefined;
     case "explicitMiners":
       if (values.deviceIdentifiers.length === 0) {
         return undefined;
       }
-
       return {
         case: "deviceIdentifiers",
         value: create(ScopeDeviceListSchema, {
@@ -194,6 +206,8 @@ function formatSelectedScopeLabel(count: number, singular: string): string {
 
 function formatScopeLabel(values: CurtailmentFormValues): string {
   switch (values.scopeType) {
+    case "site":
+      return values.siteId ? `at site ${values.siteId}` : "at one site";
     case "deviceSet":
       if (values.scopeId === "racks") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
@@ -326,6 +340,7 @@ export function useCurtailmentPlanPreview({
     () => ({
       scopeType: values.scopeType,
       scopeId: values.scopeId,
+      siteId: values.siteId,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       curtailmentMode: values.curtailmentMode,
@@ -341,6 +356,7 @@ export function useCurtailmentPlanPreview({
       values.includeMaintenance,
       values.priority,
       values.scopeId,
+      values.siteId,
       values.scopeType,
       values.targetKw,
       values.toleranceKw,

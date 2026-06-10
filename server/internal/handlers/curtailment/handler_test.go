@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,6 +22,36 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
+
+func testSessionCtxWithAssignments(t *testing.T, info *session.Info, assignments ...authz.Assignment) context.Context {
+	t.Helper()
+	ctx := authn.SetInfo(t.Context(), info)
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions(assignments))
+}
+
+func testOrgAssignment(perms ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}
+}
+
+func testSiteAssignment(siteID int64, perms ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 2,
+		ScopeType:    authz.ScopeSite,
+		SiteID:       &siteID,
+		Permissions:  perms,
+	}
+}
+
+func siteScopeJSON(t *testing.T, siteID int64) []byte {
+	t.Helper()
+	out, err := json.Marshal(map[string]int64{"site_id": siteID})
+	require.NoError(t, err)
+	return out
+}
 
 // Stubbed routes are wired. Ungated/read routes reach CodeUnimplemented
 // when service=nil; permission-gated routes can fail earlier when the
@@ -611,6 +642,65 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorAs(t, err, &fleetErr)
 			assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_PreviewAndStartRequireOrgPermissionAndSiteContext(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+	)
+
+	previewForSite := func(ctx context.Context, siteID int64) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scope: &pb.PreviewCurtailmentPlanRequest_Site{Site: &pb.ScopeSite{SiteId: siteID}},
+			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+		}))
+		return err
+	}
+	startForSite := func(ctx context.Context, siteID int64) error {
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.Scope = &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{SiteId: siteID}}
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+		return err
+	}
+
+	for _, tc := range []struct {
+		name        string
+		call        func(context.Context, int64) error
+		assignments []authz.Assignment
+		wantCode    connect.Code
+	}{
+		{"preview org permission without site narrowing reaches service", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"preview matching site narrowing reaches service", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"preview site-only permission fails org gate", previewForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied},
+		{"preview site narrowing without manage fails site gate", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
+		{"start org permission without site narrowing reaches service", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"start matching site narrowing reaches service", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"start site-only permission fails org gate", startForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied},
+		{"start site narrowing without manage fails site gate", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			err := tc.call(ctx, allowedSite)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
 		})
 	}
 }

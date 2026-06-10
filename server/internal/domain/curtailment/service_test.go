@@ -28,11 +28,14 @@ type fakeStore struct {
 	activeDevicesByOrg   map[int64][]string
 	cooldownDevicesByOrg map[int64][]string
 	candidatesByOrg      map[int64][]*models.Candidate
+	candidatesBySite     map[int64]map[int64][]*models.Candidate
+	sitesByOrg           map[int64]map[int64]bool
 
 	// Captures for assertions.
 	listCandidatesCalls      int
 	lastListCandidatesOrgID  int64
 	lastListCandidatesFilter []string
+	lastListCandidatesSiteID *int64
 	cooldownCalls            int
 	lastCooldownOrgID        int64
 	lastCooldownSec          int32
@@ -119,6 +122,8 @@ func newFakeStore() *fakeStore {
 		activeDevicesByOrg:   map[int64][]string{},
 		cooldownDevicesByOrg: map[int64][]string{},
 		candidatesByOrg:      map[int64][]*models.Candidate{},
+		candidatesBySite:     map[int64]map[int64][]*models.Candidate{},
+		sitesByOrg:           map[int64]map[int64]bool{},
 		eventsByUUID:         map[uuid.UUID]*models.Event{},
 		targetsByEventUUID:   map[uuid.UUID][]*models.Target{},
 		nextEventID:          1,
@@ -145,16 +150,24 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, orgI
 	return append([]string(nil), f.cooldownDevicesByOrg[orgID]...), nil
 }
 
-func (f *fakeStore) ListCandidates(_ context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
+func (f *fakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {
+	return f.sitesByOrg[orgID][siteID], nil
+}
+
+func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	f.listCandidatesCalls++
-	f.lastListCandidatesOrgID = orgID
-	f.lastListCandidatesFilter = append([]string(nil), deviceIdentifiers...)
-	cands := f.candidatesByOrg[orgID]
-	if len(deviceIdentifiers) == 0 {
+	f.lastListCandidatesOrgID = params.OrgID
+	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
+	f.lastListCandidatesSiteID = params.SiteID
+	cands := f.candidatesByOrg[params.OrgID]
+	if params.SiteID != nil {
+		cands = f.candidatesBySite[params.OrgID][*params.SiteID]
+	}
+	if len(params.DeviceIdentifiers) == 0 {
 		return cands, nil
 	}
 	want := map[string]struct{}{}
-	for _, id := range deviceIdentifiers {
+	for _, id := range params.DeviceIdentifiers {
 		want[id] = struct{}{}
 	}
 	out := make([]*models.Candidate, 0, len(cands))
@@ -700,6 +713,69 @@ func TestService_Preview_DeviceListScopePassesFilterToStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha"}, store.lastListCandidatesFilter,
 		"device-list scope must narrow the store query, not load every miner")
+}
+
+func TestService_Preview_SiteScopeValidatesSiteAndPassesFilterToStore(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.sitesByOrg[orgID] = map[int64]bool{siteID: true}
+	store.candidatesBySite[orgID] = map[int64][]*models.Candidate{
+		siteID: {
+			minerWithEff("site-miner", 3000, 100, 30),
+		},
+	}
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeSite, SiteID: siteID}
+	_, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, store.lastListCandidatesSiteID)
+	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Empty(t, store.lastListCandidatesFilter)
+}
+
+func TestService_Preview_SiteScopeRequiresExistingSite(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeSite, SiteID: siteID}
+	_, err := svc.Preview(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+	assert.Zero(t, store.listCandidatesCalls, "missing sites must reject before candidate selection")
+}
+
+func TestResolveScope_WholeOrgRejectsSelectorFields(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		scope Scope
+	}{
+		{"explicit whole org with site", Scope{Type: models.ScopeTypeWholeOrg, SiteID: 99}},
+		{"implicit whole org with device identifiers", Scope{DeviceIdentifiers: []string{"miner-a"}}},
+		{"explicit whole org with device sets", Scope{Type: models.ScopeTypeWholeOrg, DeviceSetIDs: []string{"set-a"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := resolveScope(tc.scope)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "must be empty for whole-org scope")
+		})
+	}
 }
 
 func TestService_Preview_DeviceListScopeRequiresNonEmptyList(t *testing.T) {

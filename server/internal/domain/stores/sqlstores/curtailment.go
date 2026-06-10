@@ -98,6 +98,14 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.C
 	return devices, nil
 }
 
+func (s *SQLCurtailmentStore) SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error) {
+	belongs, err := s.GetQueries(ctx).SiteBelongsToOrg(ctx, sqlc.SiteBelongsToOrgParams{ID: siteID, OrgID: orgID})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to check site ownership: %v", err)
+	}
+	return belongs, nil
+}
+
 // InsertEventWithTargets writes event + targets in one transaction.
 func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	ctx context.Context,
@@ -569,10 +577,12 @@ func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID 
 	}, nil
 }
 
-func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
+func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
+	params = normalizeListCandidatesParams(params)
 	rows, err := s.GetQueries(ctx).ListCurtailmentCandidatesByOrg(ctx, sqlc.ListCurtailmentCandidatesByOrgParams{
-		OrgID:             orgID,
-		DeviceIdentifiers: deviceIdentifiers,
+		OrgID:             params.OrgID,
+		SiteID:            ptrToNullInt64(params.SiteID),
+		DeviceIdentifiers: params.DeviceIdentifiers,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list curtailment candidates: %v", err)
@@ -592,6 +602,13 @@ func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, d
 		})
 	}
 	return out, nil
+}
+
+func normalizeListCandidatesParams(params interfaces.ListCandidatesParams) interfaces.ListCandidatesParams {
+	if len(params.DeviceIdentifiers) == 0 {
+		params.DeviceIdentifiers = nil
+	}
+	return params
 }
 
 func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {

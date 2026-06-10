@@ -1064,14 +1064,19 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = $1
     AND d.deleted_at IS NULL
     AND (
-        $2::text[] IS NULL
-        OR d.device_identifier = ANY($2::text[])
+        $2::bigint IS NULL
+        OR d.site_id = $2::bigint
+    )
+    AND (
+        $3::text[] IS NULL
+        OR d.device_identifier = ANY($3::text[])
     )
 ORDER BY d.device_identifier
 `
 
 type ListCurtailmentCandidatesByOrgParams struct {
 	OrgID             int64
+	SiteID            sql.NullInt64
 	DeviceIdentifiers []string
 }
 
@@ -1092,7 +1097,7 @@ type ListCurtailmentCandidatesByOrgRow struct {
 // (15-min window). device_identifiers nil = whole-org.
 // Stable order so the selector's stable sort is deterministic on ties.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
-	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, arg.SiteID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}

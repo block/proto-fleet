@@ -3,6 +3,7 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -41,7 +43,7 @@ func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.Settin
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, previewResourceContext(req.Msg))
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +74,7 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, startResourceContext(req.Msg))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +115,11 @@ func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Reque
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("UpdateCurtailmentEvent")
 	}
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
+	if err != nil {
+		return nil, err
+	}
+	info, _, err := h.requireEventPermission(ctx, authz.PermCurtailmentManage, eventUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,17 +142,24 @@ func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.StopCurtailmentRequest]) (*connect.Response[pb.StopCurtailmentResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
 	if req.Msg.GetForce() {
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
 		}
 	}
 	if h.service == nil {
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
 		return nil, errCurtailmentNotImplemented("StopCurtailment")
+	}
+	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
+	if err != nil {
+		return nil, err
+	}
+	info, _, err := h.requireEventPermission(ctx, authz.PermCurtailmentManage, eventUUID)
+	if err != nil {
+		return nil, err
 	}
 
 	stopReq, err := toStopRequest(req.Msg, info.OrganizationID)
@@ -225,13 +238,13 @@ func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("GetCurtailmentEvent")
 	}
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
+	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
 		return nil, err
 	}
-	eventUUID, err := uuid.Parse(req.Msg.GetEventUuid())
+	info, _, err := h.requireEventPermission(ctx, authz.PermCurtailmentRead, eventUUID)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("event_uuid must be a valid UUID: %v", err)
+		return nil, err
 	}
 	event, targets, nextTargetPageToken, err := h.service.GetEventWithTargets(ctx, curtailment.GetEventWithTargetsRequest{
 		OrgID:           info.OrganizationID,
@@ -252,12 +265,19 @@ func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[
 // with SessionOnlyProcedures (see interceptors/config.go); the
 // curtailment:manage permission gate is the authoritative RBAC check.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if h.service == nil {
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
+	}
+	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
 		return nil, err
 	}
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
+	info, _, err := h.requireEventPermission(ctx, authz.PermCurtailmentManage, eventUUID)
+	if err != nil {
+		return nil, err
 	}
 	terminateReq, err := toAdminTerminateRequest(req.Msg, info)
 	if err != nil {
@@ -288,6 +308,86 @@ func (h *Handler) IngestCurtailmentSignal(ctx context.Context, _ *connect.Reques
 
 func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
+}
+
+func previewResourceContext(msg *pb.PreviewCurtailmentPlanRequest) authz.ResourceContext {
+	if s, ok := msg.GetScope().(*pb.PreviewCurtailmentPlanRequest_Site); ok {
+		siteID := s.Site.GetSiteId()
+		return authz.ResourceContext{SiteID: &siteID}
+	}
+	return authz.ResourceContext{}
+}
+
+func startResourceContext(msg *pb.StartCurtailmentRequest) authz.ResourceContext {
+	if s, ok := msg.GetScope().(*pb.StartCurtailmentRequest_Site); ok {
+		siteID := s.Site.GetSiteId()
+		return authz.ResourceContext{SiteID: &siteID}
+	}
+	return authz.ResourceContext{}
+}
+
+func parseEventUUID(raw string) (uuid.UUID, error) {
+	eventUUID, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fleeterror.NewInvalidArgumentErrorf(
+			"event_uuid must be a valid UUID: %v", err,
+		)
+	}
+	return eventUUID, nil
+}
+
+func (h *Handler) requireEventPermission(ctx context.Context, permission string, eventUUID uuid.UUID) (*session.Info, *models.Event, error) {
+	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+	if err != nil {
+		return nil, nil, err
+	}
+	event, err := h.service.GetEvent(ctx, info.OrganizationID, eventUUID)
+	if err != nil {
+		return nil, nil, err
+	}
+	rc, err := eventResourceContext(event)
+	if err != nil {
+		return nil, nil, err
+	}
+	if rc.SiteID != nil {
+		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
+		if err != nil {
+			return nil, nil, err
+		}
+		info = checkedInfo
+	}
+	return info, event, nil
+}
+
+func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {
+	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if rc.SiteID == nil {
+		return info, nil
+	}
+	return middleware.RequirePermission(ctx, permission, rc)
+}
+
+func eventResourceContext(event *models.Event) (authz.ResourceContext, error) {
+	if event == nil || event.ScopeType != models.ScopeTypeSite {
+		return authz.ResourceContext{}, nil
+	}
+	var payload struct {
+		SiteID int64 `json:"site_id"`
+	}
+	if err := json.Unmarshal(event.ScopeJSON, &payload); err != nil {
+		return authz.ResourceContext{}, fleeterror.NewInternalErrorf(
+			"failed to decode site-scoped curtailment event scope: %v", err,
+		)
+	}
+	if payload.SiteID <= 0 {
+		return authz.ResourceContext{}, fleeterror.NewInternalError(
+			"site-scoped curtailment event has invalid site_id",
+		)
+	}
+	return authz.ResourceContext{SiteID: &payload.SiteID}, nil
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin

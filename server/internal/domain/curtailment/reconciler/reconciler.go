@@ -366,7 +366,10 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 	if len(deviceIDs) == 0 {
 		return
 	}
-	cands, err := r.store.ListCandidates(ctx, ev.OrgID, deviceIDs)
+	cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+		OrgID:             ev.OrgID,
+		DeviceIdentifiers: deviceIDs,
+	})
 	if err != nil {
 		slog.Error("curtailment reconciler: list candidates (confirm) failed",
 			"event_id", ev.ID, "error", err)
@@ -609,7 +612,10 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	for _, t := range targets {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
 	}
-	cands, err := r.store.ListCandidates(ctx, ev.OrgID, deviceIDs)
+	cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+		OrgID:             ev.OrgID,
+		DeviceIdentifiers: deviceIDs,
+	})
 	if err != nil {
 		slog.Error("curtailment reconciler: list candidates (drift) failed",
 			"event_id", ev.ID, "error", err)
@@ -982,7 +988,10 @@ func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.E
 	if len(deviceIDs) == 0 {
 		return
 	}
-	cands, err := r.store.ListCandidates(ctx, ev.OrgID, deviceIDs)
+	cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+		OrgID:             ev.OrgID,
+		DeviceIdentifiers: deviceIDs,
+	})
 	if err != nil {
 		slog.Error("curtailment reconciler: list candidates (restore confirm) failed",
 			"event_id", ev.ID, "error", err)
