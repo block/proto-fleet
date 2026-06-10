@@ -45,19 +45,14 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 	resp, err := h.CreateMqttCurtailmentSource(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{
-			SourceName:              "maestro",
-			Topic:                   "maestro/curtailment",
-			BrokerPrimaryHost:       "10.0.0.1",
-			BrokerSecondaryHost:     "10.0.0.2",
-			MqttUsername:            "operator",
-			MqttPassword:            "secret",
-			CurtailMode:             "FULL_FLEET",
-			PayloadFormat:           "target_timestamp",
-			StalenessThresholdSec:   240,
-			MinCurtailedDurationSec: 600,
-			Scope: &pb.MqttCurtailmentSourceScope{
-				Type: pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG,
-			},
+			SourceName:            "maestro",
+			Topic:                 "maestro/curtailment",
+			BrokerPrimaryHost:     "10.0.0.1",
+			BrokerSecondaryHost:   "10.0.0.2",
+			MqttUsername:          "operator",
+			MqttPassword:          "secret",
+			PayloadFormat:         "target_timestamp",
+			StalenessThresholdSec: 240,
 		}),
 	)
 	require.NoError(t, err)
@@ -66,7 +61,7 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 	require.NotNil(t, source)
 	assert.True(t, source.GetHasPassword())
 	assert.Equal(t, "operator", source.GetMqttUsername())
-	assert.False(t, source.GetEnabled(), "create defaults disabled unless enabled=true is explicitly sent")
+	assert.True(t, source.GetEnabled())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(9), store.created.ServiceUserID)
 }
@@ -84,42 +79,6 @@ func TestHandler_CreateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-}
-
-func TestHandler_AdminCanCreateEnabledMqttCurtailmentSource(t *testing.T) {
-	t.Parallel()
-
-	store := &handlerMqttSettingsStore{}
-	settings, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
-		Store:  store,
-		Cipher: &handlerMqttCipher{},
-	})
-	require.NoError(t, err)
-	h := NewHandler(nil, settings)
-
-	resp, err := h.CreateMqttCurtailmentSource(
-		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
-		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{
-			SourceName:              "maestro",
-			Topic:                   "maestro/curtailment",
-			BrokerPrimaryHost:       "10.0.0.1",
-			BrokerSecondaryHost:     "10.0.0.2",
-			MqttUsername:            "operator",
-			MqttPassword:            "secret",
-			CurtailMode:             "FULL_FLEET",
-			PayloadFormat:           "target_timestamp",
-			StalenessThresholdSec:   240,
-			MinCurtailedDurationSec: 600,
-			Enabled:                 true,
-			Scope: &pb.MqttCurtailmentSourceScope{
-				Type: pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG,
-			},
-		}),
-	)
-	require.NoError(t, err)
-	assert.True(t, resp.Msg.GetSource().GetEnabled())
-	require.NotNil(t, store.created)
-	assert.Equal(t, int64(9), store.created.ServiceUserID)
 }
 
 func TestHandler_UpdateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
@@ -186,10 +145,6 @@ func (*handlerMqttSettingsStore) SetSourceConfigEnabled(context.Context, int64, 
 
 func (*handlerMqttSettingsStore) DeleteDisabledSourceConfig(context.Context, int64, int64) error {
 	panic("not used")
-}
-
-func (*handlerMqttSettingsStore) UserCanIngestCurtailment(context.Context, int64, int64) (bool, error) {
-	return true, nil
 }
 
 type handlerMqttCipher struct{}

@@ -1,5 +1,5 @@
-// Package mqttingest consumes MQTT curtailment signals and drives the
-// curtailment service.
+// Package mqttingest consumes MQTT curtailment source signals and records their
+// runtime state.
 package mqttingest
 
 import (

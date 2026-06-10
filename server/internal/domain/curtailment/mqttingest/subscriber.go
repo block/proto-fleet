@@ -47,7 +47,6 @@ const reconcileRetryTimeout = 30 * time.Second
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
 	Store             Store
-	Driver            *Driver
 	NewClient         MQTTClientFactory
 	Decryptor         PasswordDecryptor
 	Logger            *slog.Logger
@@ -90,9 +89,6 @@ type Subscriber struct {
 func NewSubscriber(cfg Config) (*Subscriber, error) {
 	if cfg.Store == nil {
 		return nil, errors.New("mqttingest: Store is required")
-	}
-	if cfg.Driver == nil {
-		return nil, errors.New("mqttingest: Driver is required")
 	}
 	if cfg.NewClient == nil {
 		return nil, errors.New("mqttingest: NewClient factory is required")
@@ -226,14 +222,6 @@ func (s *Subscriber) SourceRuntimeStatus(sourceID int64) RuntimeStatus {
 	defer s.mu.Unlock()
 	status := s.statuses[sourceID]
 	return status
-}
-
-func (s *Subscriber) SourceHasActiveCurtailment(ctx context.Context, source SourceConfig) (bool, error) {
-	active, err := s.cfg.Driver.ActiveSourceEvent(ctx, source)
-	if err != nil {
-		return false, err
-	}
-	return active != nil, nil
 }
 
 func (s *Subscriber) QuiesceSource(ctx context.Context, sourceID int64) error {
@@ -493,19 +481,6 @@ func (s *Subscriber) startWorker(setupCtx, workerCtx context.Context, src Source
 	if err := validateBrokerTransport(src, primary, secondary); err != nil {
 		return nil, nil, err
 	}
-	if _, err := scopeForSource(src); err != nil {
-		return nil, nil, fmt.Errorf("mqttingest: source %s invalid scope: %w", src.SourceName, err)
-	}
-
-	// The service user must hold the machine-ingest permission for the org it can curtail.
-	canIngest, err := s.cfg.Store.UserCanIngestCurtailment(setupCtx, src.ServiceUserID, src.OrganizationID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("mqttingest: verify service user for %s: %w", src.SourceName, err)
-	}
-	if !canIngest {
-		return nil, nil, fmt.Errorf("mqttingest: source %s service user %d lacks curtailment:ingest in org %d",
-			src.SourceName, src.ServiceUserID, src.OrganizationID)
-	}
 
 	decoder, err := decoderForFormat(src.PayloadFormat)
 	if err != nil {
@@ -694,10 +669,6 @@ func validateBrokerTransport(src SourceConfig, hosts ...string) error {
 }
 
 func sourceConfigFingerprint(src SourceConfig) string {
-	siteID := ""
-	if src.ScopeSiteID != nil {
-		siteID = fmt.Sprintf("%d", *src.ScopeSiteID)
-	}
 	return strings.Join([]string{
 		fmt.Sprintf("%d", src.OrganizationID),
 		fmt.Sprintf("%d", src.ServiceUserID),
@@ -709,13 +680,7 @@ func sourceConfigFingerprint(src SourceConfig) string {
 		src.BrokerTransport,
 		src.MQTTUsername,
 		src.MQTTPasswordEncrypted,
-		fmt.Sprintf("%d", src.ContractedCurtailmentKw),
-		src.CurtailMode,
 		src.PayloadFormat,
-		src.ScopeType,
-		siteID,
-		strings.Join(src.ScopeDeviceIdentifiers, "\x1f"),
 		fmt.Sprintf("%d", int64(src.StalenessThreshold/time.Second)),
-		fmt.Sprintf("%d", int64(src.MinCurtailedDuration/time.Second)),
 	}, "\x1e")
 }

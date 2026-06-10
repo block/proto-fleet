@@ -2,17 +2,17 @@ package mqttingest
 
 import "time"
 
-// EdgeDirection is the transition the driver must dispatch.
+// EdgeDirection is the source-state transition implied by an MQTT signal.
 type EdgeDirection int
 
 const (
 	// EdgeNone is a repeat, debounced flip, or cold-start ON.
 	EdgeNone EdgeDirection = iota
-	// EdgeOnToOff curtails the source.
+	// EdgeOnToOff records a transition to OFF.
 	EdgeOnToOff
-	// EdgeOffToOn restores the source.
+	// EdgeOffToOn records a transition to ON.
 	EdgeOffToOn
-	// EdgeWatchdogOff curtails because the publisher is stale.
+	// EdgeWatchdogOff records fail-safe OFF because the publisher is stale.
 	EdgeWatchdogOff
 )
 

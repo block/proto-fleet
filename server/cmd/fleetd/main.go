@@ -493,7 +493,6 @@ func start(config *Config) error {
 
 	mqttSubscriber, err := mqttingest.NewSubscriber(mqttingest.Config{
 		Store:     mqttingest.NewSQLCStore(mqttQueries),
-		Driver:    mqttingest.NewDriver(curtailmentSvc),
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 		Decryptor: encryptSvc,
 		Logger:    slog.Default(),

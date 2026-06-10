@@ -10,37 +10,28 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // SourceConfig is one MQTT source row in domain form.
 type SourceConfig struct {
-	ID                      int64
-	OrganizationID          int64
-	ServiceUserID           int64
-	SourceName              string
-	Topic                   string
-	BrokerPrimaryHost       string
-	BrokerSecondaryHost     string
-	BrokerPort              int32
-	BrokerTransport         string
-	MQTTUsername            string
-	MQTTPasswordEncrypted   string
-	ContractedCurtailmentKw int32
-	// CurtailMode is 'FIXED_KW' or 'FULL_FLEET'.
-	CurtailMode string
+	ID                    int64
+	OrganizationID        int64
+	ServiceUserID         int64
+	SourceName            string
+	Topic                 string
+	BrokerPrimaryHost     string
+	BrokerSecondaryHost   string
+	BrokerPort            int32
+	BrokerTransport       string
+	MQTTUsername          string
+	MQTTPasswordEncrypted string
 	// PayloadFormat selects the source's decoder.
-	PayloadFormat string
-	// ScopeType is 'whole_org', 'site', or 'device_list'.
-	ScopeType              string
-	ScopeSiteID            *int64
-	ScopeDeviceIdentifiers []string
-	StalenessThreshold     time.Duration
-	MinCurtailedDuration   time.Duration
-	Enabled                bool
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	PayloadFormat      string
+	StalenessThreshold time.Duration
+	Enabled            bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // SourceState is the persisted state for one source.
@@ -56,15 +47,11 @@ type SourceState struct {
 	LastReceivedAt       time.Time
 	LastReceivedBroker   string
 	LastEdgeAt           time.Time
-	LastEdgeEventUUID    string
 	PendingEdge          *PendingEdge
-	// LastEmptyFullFleetWatchdogRef is the watchdog external_reference window
-	// whose FULL_FLEET dispatch completed with no targets.
-	LastEmptyFullFleetWatchdogRef string
 }
 
-// PendingEdge is durable retry state for a side effect that was owed or started
-// but not yet settled into the source-state row.
+// PendingEdge is durable retry state for a source signal edge that has not yet
+// settled into the source-state row.
 type PendingEdge struct {
 	Direction      EdgeDirection
 	Target         Target
@@ -78,17 +65,15 @@ type PendingEdge struct {
 // StateUpdate replaces a source state row. Zero values map to SQL NULL, which
 // lets callers clear pending-edge fields after settlement.
 type StateUpdate struct {
-	SourceConfigID                int64
-	LastTarget                    Target
-	LastTargetAt                  time.Time
-	LastProcessedTarget           Target
-	LastProcessedTargets          []Target
-	LastReceivedAt                time.Time
-	LastReceivedBroker            string
-	LastEdgeAt                    time.Time
-	LastEdgeEventUUID             string
-	PendingEdge                   *PendingEdge
-	LastEmptyFullFleetWatchdogRef string
+	SourceConfigID       int64
+	LastTarget           Target
+	LastTargetAt         time.Time
+	LastProcessedTarget  Target
+	LastProcessedTargets []Target
+	LastReceivedAt       time.Time
+	LastReceivedBroker   string
+	LastEdgeAt           time.Time
+	PendingEdge          *PendingEdge
 }
 
 // Store is the data-access interface the subscriber depends on.
@@ -96,8 +81,6 @@ type Store interface {
 	ListEnabledSources(ctx context.Context) ([]SourceConfig, error)
 	GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error)
 	UpsertSourceState(ctx context.Context, update StateUpdate) error
-	// UserCanIngestCurtailment gates service users before emergency curtailment.
-	UserCanIngestCurtailment(ctx context.Context, userID, orgID int64) (bool, error)
 }
 
 // SettingsStore is the CRUD/read surface for operator-managed MQTT sources.
@@ -109,7 +92,6 @@ type SettingsStore interface {
 	UpdateSourceConfig(ctx context.Context, source SourceConfig) (SourceConfig, error)
 	SetSourceConfigEnabled(ctx context.Context, orgID, sourceID int64, enabled bool) (SourceConfig, error)
 	DeleteDisabledSourceConfig(ctx context.Context, orgID, sourceID int64) error
-	UserCanIngestCurtailment(ctx context.Context, userID, orgID int64) (bool, error)
 }
 
 // ErrSourceStateNotFound means cold start.
@@ -259,16 +241,14 @@ func (s *sqlcStore) GetSourceState(ctx context.Context, sourceConfigID int64) (S
 
 func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) error {
 	params := sqlc.UpsertMQTTSourceStateParams{
-		SourceConfigID:                update.SourceConfigID,
-		LastTarget:                    nullStringFromTarget(update.LastTarget),
-		LastTargetAt:                  nullTimeFrom(update.LastTargetAt),
-		LastProcessedTarget:           nullStringFromTarget(update.LastProcessedTarget),
-		LastProcessedTargets:          stringsFromTargets(update.LastProcessedTargets),
-		LastReceivedAt:                nullTimeFrom(update.LastReceivedAt),
-		LastReceivedBroker:            nullStringFrom(update.LastReceivedBroker),
-		LastEdgeAt:                    nullTimeFrom(update.LastEdgeAt),
-		LastEdgeEventUuid:             nullUUIDFrom(update.LastEdgeEventUUID),
-		LastEmptyFullFleetWatchdogRef: nullStringFrom(update.LastEmptyFullFleetWatchdogRef),
+		SourceConfigID:       update.SourceConfigID,
+		LastTarget:           nullStringFromTarget(update.LastTarget),
+		LastTargetAt:         nullTimeFrom(update.LastTargetAt),
+		LastProcessedTarget:  nullStringFromTarget(update.LastProcessedTarget),
+		LastProcessedTargets: stringsFromTargets(update.LastProcessedTargets),
+		LastReceivedAt:       nullTimeFrom(update.LastReceivedAt),
+		LastReceivedBroker:   nullStringFrom(update.LastReceivedBroker),
+		LastEdgeAt:           nullTimeFrom(update.LastEdgeAt),
 	}
 	if update.PendingEdge != nil {
 		params.PendingDirection = nullStringFrom(update.PendingEdge.Direction.String())
@@ -283,14 +263,6 @@ func (s *sqlcStore) UpsertSourceState(ctx context.Context, update StateUpdate) e
 		return fmt.Errorf("upsert mqtt source state: %w", err)
 	}
 	return nil
-}
-
-func (s *sqlcStore) UserCanIngestCurtailment(ctx context.Context, userID, orgID int64) (bool, error) {
-	effective, err := authz.LoadEffectiveTx(ctx, s.queries, userID, orgID)
-	if err != nil {
-		return false, fmt.Errorf("load effective permissions: %w", err)
-	}
-	return effective.Has(authz.PermCurtailmentIngest, authz.ResourceContext{}), nil
 }
 
 func sourceConfigPersistError(prefix string, err error) error {
@@ -308,83 +280,64 @@ func isSourceConfigNameUniqueViolation(err error) bool {
 }
 
 const (
-	defaultBrokerPort              int32 = 1883
-	defaultStalenessThresholdSec   int32 = 240
-	defaultMinCurtailedDurationSec int32 = 600
+	defaultBrokerPort            int32 = 1883
+	defaultStalenessThresholdSec int32 = 240
 )
 
 func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {
 	return SourceConfig{
-		ID:                      r.ID,
-		OrganizationID:          r.OrganizationID,
-		ServiceUserID:           r.ServiceUserID,
-		SourceName:              r.SourceName,
-		Topic:                   r.Topic,
-		BrokerPrimaryHost:       r.BrokerPrimaryHost,
-		BrokerSecondaryHost:     r.BrokerSecondaryHost,
-		BrokerPort:              int32OrDefault(r.BrokerPort, defaultBrokerPort),
-		BrokerTransport:         stringOrDefault(r.BrokerTransport, brokerTransportTCP),
-		MQTTUsername:            r.MqttUsername,
-		MQTTPasswordEncrypted:   r.MqttPasswordEnc,
-		ContractedCurtailmentKw: r.ContractedCurtailmentKw.Int32,
-		CurtailMode:             r.CurtailMode,
-		PayloadFormat:           r.PayloadFormat,
-		ScopeType:               r.ScopeType,
-		ScopeSiteID:             int64PtrFromNull(r.ScopeSiteID),
-		ScopeDeviceIdentifiers:  r.ScopeDeviceIdentifiers,
-		StalenessThreshold:      time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
-		MinCurtailedDuration:    time.Duration(int32OrDefault(r.MinCurtailedDurationSec, defaultMinCurtailedDurationSec)) * time.Second,
-		Enabled:                 r.Enabled,
-		CreatedAt:               r.CreatedAt,
-		UpdatedAt:               r.UpdatedAt,
+		ID:                    r.ID,
+		OrganizationID:        r.OrganizationID,
+		ServiceUserID:         r.ServiceUserID,
+		SourceName:            r.SourceName,
+		Topic:                 r.Topic,
+		BrokerPrimaryHost:     r.BrokerPrimaryHost,
+		BrokerSecondaryHost:   r.BrokerSecondaryHost,
+		BrokerPort:            int32OrDefault(r.BrokerPort, defaultBrokerPort),
+		BrokerTransport:       stringOrDefault(r.BrokerTransport, brokerTransportTCP),
+		MQTTUsername:          r.MqttUsername,
+		MQTTPasswordEncrypted: r.MqttPasswordEnc,
+		PayloadFormat:         r.PayloadFormat,
+		StalenessThreshold:    time.Duration(int32OrDefault(r.StalenessThresholdSec, defaultStalenessThresholdSec)) * time.Second,
+		Enabled:               r.Enabled,
+		CreatedAt:             r.CreatedAt,
+		UpdatedAt:             r.UpdatedAt,
 	}
 }
 
 func insertSourceConfigParams(source SourceConfig) sqlc.InsertMQTTSourceConfigParams {
 	return sqlc.InsertMQTTSourceConfigParams{
-		OrganizationID:          source.OrganizationID,
-		ServiceUserID:           source.ServiceUserID,
-		SourceName:              source.SourceName,
-		Topic:                   source.Topic,
-		BrokerPrimaryHost:       source.BrokerPrimaryHost,
-		BrokerSecondaryHost:     source.BrokerSecondaryHost,
-		BrokerPort:              nullInt32FromDefault(source.BrokerPort, defaultBrokerPort),
-		BrokerTransport:         source.BrokerTransport,
-		MqttUsername:            source.MQTTUsername,
-		MqttPasswordEnc:         source.MQTTPasswordEncrypted,
-		ContractedCurtailmentKw: nullPositiveInt32From(source.ContractedCurtailmentKw),
-		CurtailMode:             source.CurtailMode,
-		PayloadFormat:           source.PayloadFormat,
-		ScopeType:               source.ScopeType,
-		ScopeSiteID:             nullInt64Ptr(source.ScopeSiteID),
-		ScopeDeviceIdentifiers:  nilIfEmptyStrings(source.ScopeDeviceIdentifiers),
-		StalenessThresholdSec:   nullDurationSecondsFromDefault(source.StalenessThreshold, defaultStalenessThresholdSec),
-		MinCurtailedDurationSec: nullDurationSecondsFromDefault(source.MinCurtailedDuration, defaultMinCurtailedDurationSec),
-		Enabled:                 source.Enabled,
+		OrganizationID:        source.OrganizationID,
+		ServiceUserID:         source.ServiceUserID,
+		SourceName:            source.SourceName,
+		Topic:                 source.Topic,
+		BrokerPrimaryHost:     source.BrokerPrimaryHost,
+		BrokerSecondaryHost:   source.BrokerSecondaryHost,
+		BrokerPort:            nullInt32FromDefault(source.BrokerPort, defaultBrokerPort),
+		BrokerTransport:       source.BrokerTransport,
+		MqttUsername:          source.MQTTUsername,
+		MqttPasswordEnc:       source.MQTTPasswordEncrypted,
+		PayloadFormat:         source.PayloadFormat,
+		StalenessThresholdSec: nullDurationSecondsFromDefault(source.StalenessThreshold, defaultStalenessThresholdSec),
+		Enabled:               source.Enabled,
 	}
 }
 
 func updateSourceConfigParams(source SourceConfig) sqlc.UpdateMQTTSourceConfigParams {
 	return sqlc.UpdateMQTTSourceConfigParams{
-		ID:                      source.ID,
-		OrganizationID:          source.OrganizationID,
-		ServiceUserID:           source.ServiceUserID,
-		SourceName:              source.SourceName,
-		Topic:                   source.Topic,
-		BrokerPrimaryHost:       source.BrokerPrimaryHost,
-		BrokerSecondaryHost:     source.BrokerSecondaryHost,
-		BrokerPort:              nullInt32FromDefault(source.BrokerPort, defaultBrokerPort),
-		BrokerTransport:         source.BrokerTransport,
-		MqttUsername:            source.MQTTUsername,
-		MqttPasswordEnc:         source.MQTTPasswordEncrypted,
-		ContractedCurtailmentKw: nullPositiveInt32From(source.ContractedCurtailmentKw),
-		CurtailMode:             source.CurtailMode,
-		PayloadFormat:           source.PayloadFormat,
-		ScopeType:               source.ScopeType,
-		ScopeSiteID:             nullInt64Ptr(source.ScopeSiteID),
-		ScopeDeviceIdentifiers:  nilIfEmptyStrings(source.ScopeDeviceIdentifiers),
-		StalenessThresholdSec:   nullDurationSecondsFromDefault(source.StalenessThreshold, defaultStalenessThresholdSec),
-		MinCurtailedDurationSec: nullDurationSecondsFromDefault(source.MinCurtailedDuration, defaultMinCurtailedDurationSec),
+		ID:                    source.ID,
+		OrganizationID:        source.OrganizationID,
+		ServiceUserID:         source.ServiceUserID,
+		SourceName:            source.SourceName,
+		Topic:                 source.Topic,
+		BrokerPrimaryHost:     source.BrokerPrimaryHost,
+		BrokerSecondaryHost:   source.BrokerSecondaryHost,
+		BrokerPort:            nullInt32FromDefault(source.BrokerPort, defaultBrokerPort),
+		BrokerTransport:       source.BrokerTransport,
+		MqttUsername:          source.MQTTUsername,
+		MqttPasswordEnc:       source.MQTTPasswordEncrypted,
+		PayloadFormat:         source.PayloadFormat,
+		StalenessThresholdSec: nullDurationSecondsFromDefault(source.StalenessThreshold, defaultStalenessThresholdSec),
 	}
 }
 
@@ -398,7 +351,6 @@ func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 		LastReceivedAt:       timeFromNullTime(r.LastReceivedAt),
 		LastReceivedBroker:   stringFromNullString(r.LastReceivedBroker),
 		LastEdgeAt:           timeFromNullTime(r.LastEdgeAt),
-		LastEdgeEventUUID:    stringFromNullUUID(r.LastEdgeEventUuid),
 		PendingEdge: pendingEdgeFromRow(
 			r.PendingDirection,
 			r.PendingTarget,
@@ -408,7 +360,6 @@ func sourceStateFromRow(r sqlc.CurtailmentMqttSourceState) SourceState {
 			r.PendingPriorEdgeAt,
 			r.PendingRetryAt,
 		),
-		LastEmptyFullFleetWatchdogRef: stringFromNullString(r.LastEmptyFullFleetWatchdogRef),
 	}
 }
 
@@ -417,20 +368,6 @@ func nullInt32FromDefault(v, def int32) sql.NullInt32 {
 		return sql.NullInt32{}
 	}
 	return sql.NullInt32{Int32: v, Valid: true}
-}
-
-func nullPositiveInt32From(v int32) sql.NullInt32 {
-	if v <= 0 {
-		return sql.NullInt32{}
-	}
-	return sql.NullInt32{Int32: v, Valid: true}
-}
-
-func nullInt64Ptr(v *int64) sql.NullInt64 {
-	if v == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: *v, Valid: true}
 }
 
 func nullDurationSecondsFromDefault(v time.Duration, def int32) sql.NullInt32 {
@@ -446,11 +383,4 @@ func nullDurationSecondsFromDefault(v time.Duration, def int32) sql.NullInt32 {
 		return sql.NullInt32{}
 	}
 	return sql.NullInt32{Int32: int32(seconds), Valid: true} // #nosec G115 -- bounds-checked above
-}
-
-func nilIfEmptyStrings(v []string) []string {
-	if len(v) == 0 {
-		return nil
-	}
-	return v
 }

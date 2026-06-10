@@ -3,8 +3,6 @@ package mqttingest
 import (
 	"database/sql"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // nullStringFromTarget maps Unknown to NULL for partial upserts.
@@ -67,14 +65,6 @@ func int32OrDefault(n sql.NullInt32, def int32) int32 {
 		return def
 	}
 	return n.Int32
-}
-
-func int64PtrFromNull(n sql.NullInt64) *int64 {
-	if !n.Valid {
-		return nil
-	}
-	v := n.Int64
-	return &v
 }
 
 func nullTimeFrom(t time.Time) sql.NullTime {
@@ -151,22 +141,4 @@ func stringFromNullString(n sql.NullString) string {
 		return ""
 	}
 	return n.String
-}
-
-func nullUUIDFrom(s string) uuid.NullUUID {
-	if s == "" {
-		return uuid.NullUUID{}
-	}
-	parsed, err := uuid.Parse(s)
-	if err != nil {
-		return uuid.NullUUID{}
-	}
-	return uuid.NullUUID{UUID: parsed, Valid: true}
-}
-
-func stringFromNullUUID(n uuid.NullUUID) string {
-	if !n.Valid {
-		return ""
-	}
-	return n.UUID.String()
 }

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,26 +75,4 @@ func TestNullStringFrom(t *testing.T) {
 
 	got = nullStringFrom("")
 	assert.False(t, got.Valid)
-}
-
-func TestNullUUIDFrom_AndBack(t *testing.T) {
-	t.Parallel()
-
-	id := uuid.New().String()
-
-	got := nullUUIDFrom(id)
-	assert.True(t, got.Valid)
-	assert.Equal(t, id, got.UUID.String())
-
-	// Round-trip back to string.
-	assert.Equal(t, id, stringFromNullUUID(got))
-
-	// Empty string round-trips to invalid.
-	empty := nullUUIDFrom("")
-	assert.False(t, empty.Valid)
-	assert.Equal(t, "", stringFromNullUUID(empty))
-
-	// Invalid string is treated as not-set (no panic).
-	bad := nullUUIDFrom("not-a-uuid")
-	assert.False(t, bad.Valid)
 }

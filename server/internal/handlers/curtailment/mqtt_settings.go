@@ -10,7 +10,6 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
-	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -62,24 +61,17 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 		return nil, errCurtailmentNotImplemented("CreateMqttCurtailmentSource")
 	}
 	source := mqttingest.SourceConfig{
-		OrganizationID:          info.OrganizationID,
-		ServiceUserID:           info.UserID,
-		SourceName:              req.Msg.GetSourceName(),
-		Topic:                   req.Msg.GetTopic(),
-		BrokerPrimaryHost:       req.Msg.GetBrokerPrimaryHost(),
-		BrokerSecondaryHost:     req.Msg.GetBrokerSecondaryHost(),
-		BrokerPort:              req.Msg.GetBrokerPort(),
-		BrokerTransport:         req.Msg.GetBrokerTransport(),
-		MQTTUsername:            req.Msg.GetMqttUsername(),
-		ContractedCurtailmentKw: req.Msg.GetContractedCurtailmentKw(),
-		CurtailMode:             req.Msg.GetCurtailMode(),
-		PayloadFormat:           req.Msg.GetPayloadFormat(),
-		StalenessThreshold:      durationFromSeconds(req.Msg.GetStalenessThresholdSec()),
-		MinCurtailedDuration:    durationFromSeconds(req.Msg.GetMinCurtailedDurationSec()),
-		Enabled:                 req.Msg.GetEnabled(),
-	}
-	if scope := req.Msg.GetScope(); scope != nil {
-		applyMqttScope(scope, &source)
+		OrganizationID:      info.OrganizationID,
+		ServiceUserID:       info.UserID,
+		SourceName:          req.Msg.GetSourceName(),
+		Topic:               req.Msg.GetTopic(),
+		BrokerPrimaryHost:   req.Msg.GetBrokerPrimaryHost(),
+		BrokerSecondaryHost: req.Msg.GetBrokerSecondaryHost(),
+		BrokerPort:          req.Msg.GetBrokerPort(),
+		BrokerTransport:     req.Msg.GetBrokerTransport(),
+		MQTTUsername:        req.Msg.GetMqttUsername(),
+		PayloadFormat:       req.Msg.GetPayloadFormat(),
+		StalenessThreshold:  durationFromSeconds(req.Msg.GetStalenessThresholdSec()),
 	}
 	view, err := h.mqttSettings.Create(ctx, mqttingest.CreateSourceRequest{
 		Source:            source,
@@ -116,24 +108,12 @@ func (h *Handler) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.
 		BrokerTransport:     req.Msg.BrokerTransport,
 		MQTTUsername:        req.Msg.MqttUsername,
 		PlaintextPassword:   req.Msg.MqttPassword,
-		CurtailMode:         req.Msg.CurtailMode,
-		ContractedKw:        req.Msg.ContractedCurtailmentKw,
-		ClearContractedKw:   req.Msg.GetClearContractedCurtailmentKw(),
 		PayloadFormat:       req.Msg.PayloadFormat,
 		ClearStaleness:      req.Msg.GetClearStalenessThresholdSec(),
-		ClearMinCurtailed:   req.Msg.GetClearMinCurtailedDurationSec(),
-	}
-	if req.Msg.Scope != nil {
-		scope := toMqttDomainScope(req.Msg.Scope)
-		updateReq.Scope = &scope
 	}
 	if req.Msg.StalenessThresholdSec != nil {
 		d := durationFromSeconds(req.Msg.GetStalenessThresholdSec())
 		updateReq.StalenessThreshold = &d
-	}
-	if req.Msg.MinCurtailedDurationSec != nil {
-		d := durationFromSeconds(req.Msg.GetMinCurtailedDurationSec())
-		updateReq.MinCurtailed = &d
 	}
 	view, err := h.mqttSettings.Update(ctx, updateReq)
 	if err != nil {
@@ -176,75 +156,24 @@ func (h *Handler) DeleteMqttCurtailmentSource(ctx context.Context, req *connect.
 	return connect.NewResponse(&pb.DeleteMqttCurtailmentSourceResponse{}), nil
 }
 
-func applyMqttScope(scope *pb.MqttCurtailmentSourceScope, target *mqttingest.SourceConfig) {
-	domainScope := toMqttDomainScope(scope)
-	target.ScopeType = domainScope.Type
-	target.ScopeSiteID = domainScope.SiteID
-	target.ScopeDeviceIdentifiers = domainScope.DeviceIdentifiers
-}
-
-func toMqttDomainScope(scope *pb.MqttCurtailmentSourceScope) mqttingest.SourceScope {
-	out := mqttingest.SourceScope{
-		SiteID:            scope.SiteId,
-		DeviceIdentifiers: scope.GetDeviceIdentifiers(),
-	}
-	switch scope.GetType() {
-	case pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_UNSPECIFIED:
-		out.Type = ""
-	case pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG:
-		out.Type = string(models.ScopeTypeWholeOrg)
-	case pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_SITE:
-		out.Type = "site"
-	case pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_DEVICE_LIST:
-		out.Type = string(models.ScopeTypeDeviceList)
-	default:
-		out.Type = scope.GetType().String()
-	}
-	return out
-}
-
 func toMqttSourceProto(view mqttingest.SourceView) *pb.MqttCurtailmentSource {
 	cfg := view.Config
 	out := &pb.MqttCurtailmentSource{
-		SourceId:                cfg.ID,
-		SourceName:              cfg.SourceName,
-		Topic:                   cfg.Topic,
-		BrokerPrimaryHost:       cfg.BrokerPrimaryHost,
-		BrokerSecondaryHost:     cfg.BrokerSecondaryHost,
-		BrokerPort:              cfg.BrokerPort,
-		BrokerTransport:         cfg.BrokerTransport,
-		MqttUsername:            cfg.MQTTUsername,
-		HasPassword:             cfg.MQTTPasswordEncrypted != "",
-		CurtailMode:             cfg.CurtailMode,
-		PayloadFormat:           cfg.PayloadFormat,
-		Scope:                   toMqttScopeProto(cfg),
-		StalenessThresholdSec:   durationSecondsToUint32(cfg.StalenessThreshold),
-		MinCurtailedDurationSec: durationSecondsToUint32(cfg.MinCurtailedDuration),
-		Enabled:                 cfg.Enabled,
-		CreatedAt:               mqttTimeProto(cfg.CreatedAt),
-		UpdatedAt:               mqttTimeProto(cfg.UpdatedAt),
-		Status:                  toMqttStatusProto(view),
-	}
-	if cfg.ContractedCurtailmentKw > 0 {
-		out.ContractedCurtailmentKw = &cfg.ContractedCurtailmentKw
-	}
-	return out
-}
-
-func toMqttScopeProto(cfg mqttingest.SourceConfig) *pb.MqttCurtailmentSourceScope {
-	out := &pb.MqttCurtailmentSourceScope{
-		SiteId:            cfg.ScopeSiteID,
-		DeviceIdentifiers: append([]string(nil), cfg.ScopeDeviceIdentifiers...),
-	}
-	switch cfg.ScopeType {
-	case "", string(models.ScopeTypeWholeOrg):
-		out.Type = pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_WHOLE_ORG
-	case "site":
-		out.Type = pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_SITE
-	case string(models.ScopeTypeDeviceList):
-		out.Type = pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_DEVICE_LIST
-	default:
-		out.Type = pb.MqttCurtailmentSourceScopeType_MQTT_CURTAILMENT_SOURCE_SCOPE_TYPE_UNSPECIFIED
+		SourceId:              cfg.ID,
+		SourceName:            cfg.SourceName,
+		Topic:                 cfg.Topic,
+		BrokerPrimaryHost:     cfg.BrokerPrimaryHost,
+		BrokerSecondaryHost:   cfg.BrokerSecondaryHost,
+		BrokerPort:            cfg.BrokerPort,
+		BrokerTransport:       cfg.BrokerTransport,
+		MqttUsername:          cfg.MQTTUsername,
+		HasPassword:           cfg.MQTTPasswordEncrypted != "",
+		PayloadFormat:         cfg.PayloadFormat,
+		StalenessThresholdSec: durationSecondsToUint32(cfg.StalenessThreshold),
+		Enabled:               cfg.Enabled,
+		CreatedAt:             mqttTimeProto(cfg.CreatedAt),
+		UpdatedAt:             mqttTimeProto(cfg.UpdatedAt),
+		Status:                toMqttStatusProto(view),
 	}
 	return out
 }
@@ -265,17 +194,6 @@ func toMqttStatusProto(view mqttingest.SourceView) *pb.MqttCurtailmentSourceStat
 	out.LastTargetAt = mqttTimeProto(state.LastTargetAt)
 	out.LastReceivedAt = mqttTimeProto(state.LastReceivedAt)
 	out.LastReceivedBroker = state.LastReceivedBroker
-	out.LastEdgeAt = mqttTimeProto(state.LastEdgeAt)
-	out.LastEdgeEventUuid = state.LastEdgeEventUUID
-	if state.PendingEdge != nil {
-		out.PendingDirection = state.PendingEdge.Direction.String()
-		out.PendingTarget = state.PendingEdge.Target.String()
-		out.PendingTargetAt = mqttTimeProto(state.PendingEdge.TargetAt)
-		out.PendingReceivedAt = mqttTimeProto(state.PendingEdge.ReceivedAt)
-		out.PendingReceivedBroker = state.PendingEdge.ReceivedBroker
-		out.PendingPriorEdgeAt = mqttTimeProto(state.PendingEdge.PriorEdgeAt)
-		out.PendingRetryAt = mqttTimeProto(state.PendingEdge.RetryAt)
-	}
 	return out
 }
 
@@ -335,14 +253,8 @@ func durationFromSeconds(seconds uint32) time.Duration {
 }
 
 func validateMqttUpdateClears(req *pb.UpdateMqttCurtailmentSourceRequest) error {
-	if req.GetClearContractedCurtailmentKw() && req.ContractedCurtailmentKw != nil {
-		return fleeterror.NewInvalidArgumentError("clear_contracted_curtailment_kw conflicts with contracted_curtailment_kw")
-	}
 	if req.GetClearStalenessThresholdSec() && req.StalenessThresholdSec != nil {
 		return fleeterror.NewInvalidArgumentError("clear_staleness_threshold_sec conflicts with staleness_threshold_sec")
-	}
-	if req.GetClearMinCurtailedDurationSec() && req.MinCurtailedDurationSec != nil {
-		return fleeterror.NewInvalidArgumentError("clear_min_curtailed_duration_sec conflicts with min_curtailed_duration_sec")
 	}
 	return nil
 }

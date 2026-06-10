@@ -130,8 +130,8 @@ type CurtailmentServiceClient interface {
 	// an in-flight event echoes, post-terminal fires fresh.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 	// MQTT curtailment source settings. These RPCs manage broker
-	// configuration only; MQTT OFF/ON dispatch still flows through the
-	// in-process subscriber/driver path.
+	// configuration and source runtime state only. Binding a source to a
+	// response profile is handled by automation.
 	ListMqttCurtailmentSources(context.Context, *connect.Request[v1.ListMqttCurtailmentSourcesRequest]) (*connect.Response[v1.ListMqttCurtailmentSourcesResponse], error)
 	GetMqttCurtailmentSource(context.Context, *connect.Request[v1.GetMqttCurtailmentSourceRequest]) (*connect.Response[v1.GetMqttCurtailmentSourceResponse], error)
 	CreateMqttCurtailmentSource(context.Context, *connect.Request[v1.CreateMqttCurtailmentSourceRequest]) (*connect.Response[v1.CreateMqttCurtailmentSourceResponse], error)
@@ -380,8 +380,8 @@ type CurtailmentServiceHandler interface {
 	// an in-flight event echoes, post-terminal fires fresh.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 	// MQTT curtailment source settings. These RPCs manage broker
-	// configuration only; MQTT OFF/ON dispatch still flows through the
-	// in-process subscriber/driver path.
+	// configuration and source runtime state only. Binding a source to a
+	// response profile is handled by automation.
 	ListMqttCurtailmentSources(context.Context, *connect.Request[v1.ListMqttCurtailmentSourcesRequest]) (*connect.Response[v1.ListMqttCurtailmentSourcesResponse], error)
 	GetMqttCurtailmentSource(context.Context, *connect.Request[v1.GetMqttCurtailmentSourceRequest]) (*connect.Response[v1.GetMqttCurtailmentSourceResponse], error)
 	CreateMqttCurtailmentSource(context.Context, *connect.Request[v1.CreateMqttCurtailmentSourceRequest]) (*connect.Response[v1.CreateMqttCurtailmentSourceResponse], error)

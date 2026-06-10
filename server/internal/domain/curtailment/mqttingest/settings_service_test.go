@@ -20,17 +20,15 @@ type fakeSettingsStore struct {
 	nextID    int64
 	configs   map[int64]SourceConfig
 	states    map[int64]SourceState
-	canIngest bool
 	createErr error
 	updateErr error
 }
 
 func newFakeSettingsStore(configs ...SourceConfig) *fakeSettingsStore {
 	store := &fakeSettingsStore{
-		nextID:    1,
-		configs:   make(map[int64]SourceConfig),
-		states:    make(map[int64]SourceState),
-		canIngest: true,
+		nextID:  1,
+		configs: make(map[int64]SourceConfig),
+		states:  make(map[int64]SourceState),
 	}
 	for _, cfg := range configs {
 		if cfg.ID == 0 {
@@ -140,10 +138,6 @@ func (f *fakeSettingsStore) DeleteDisabledSourceConfig(_ context.Context, orgID,
 	return nil
 }
 
-func (f *fakeSettingsStore) UserCanIngestCurtailment(_ context.Context, _, _ int64) (bool, error) {
-	return f.canIngest, nil
-}
-
 type fakeSettingsCipher struct {
 	encryptCalls int
 }
@@ -163,9 +157,6 @@ func (f *fakeSettingsCipher) Decrypt(encrypted string) ([]byte, error) {
 type fakeRuntimeController struct {
 	reconcileCalls     int
 	quiesceCalls       int
-	activeCurtailment  bool
-	activeResults      []bool
-	activeErr          error
 	reconcileErr       error
 	sawCanceledContext bool
 	status             RuntimeStatus
@@ -188,38 +179,23 @@ func (f *fakeRuntimeController) QuiesceSource(context.Context, int64) error {
 	return nil
 }
 
-func (f *fakeRuntimeController) SourceHasActiveCurtailment(context.Context, SourceConfig) (bool, error) {
-	if f.activeErr != nil {
-		return false, f.activeErr
-	}
-	if len(f.activeResults) > 0 {
-		result := f.activeResults[0]
-		f.activeResults = f.activeResults[1:]
-		return result, nil
-	}
-	return f.activeCurtailment, nil
-}
-
 func validSettingsSource() SourceConfig {
 	return SourceConfig{
-		OrganizationID:       42,
-		ServiceUserID:        99,
-		SourceName:           "maestro",
-		Topic:                "maestro/curtailment",
-		BrokerPrimaryHost:    "10.0.0.1",
-		BrokerSecondaryHost:  "10.0.0.2",
-		BrokerPort:           1883,
-		BrokerTransport:      "tcp",
-		MQTTUsername:         "user",
-		CurtailMode:          "FULL_FLEET",
-		PayloadFormat:        "target_timestamp",
-		ScopeType:            "whole_org",
-		StalenessThreshold:   240 * time.Second,
-		MinCurtailedDuration: 600 * time.Second,
+		OrganizationID:      42,
+		ServiceUserID:       99,
+		SourceName:          "maestro",
+		Topic:               "maestro/curtailment",
+		BrokerPrimaryHost:   "10.0.0.1",
+		BrokerSecondaryHost: "10.0.0.2",
+		BrokerPort:          1883,
+		BrokerTransport:     "tcp",
+		MQTTUsername:        "user",
+		PayloadFormat:       "target_timestamp",
+		StalenessThreshold:  240 * time.Second,
 	}
 }
 
-func TestSettingsService_CreateDefaultsDisabledAndEncryptsPassword(t *testing.T) {
+func TestSettingsService_CreateDefaultsEnabledAndEncryptsPassword(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeSettingsStore()
@@ -234,7 +210,7 @@ func TestSettingsService_CreateDefaultsDisabledAndEncryptsPassword(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	assert.False(t, view.Config.Enabled)
+	assert.True(t, view.Config.Enabled)
 	assert.Equal(t, "enc:secret", view.Config.MQTTPasswordEncrypted)
 	assert.Equal(t, int32(1883), view.Config.BrokerPort)
 	assert.Equal(t, 1, cipher.encryptCalls)
@@ -380,44 +356,7 @@ func TestSettingsService_SetEnabledReloadUsesInternalContext(t *testing.T) {
 	assert.False(t, runtime.sawCanceledContext, "reload must not inherit the client request cancellation")
 }
 
-func TestSettingsService_EnableRejectsSiteScopeUntilSiteSupportLands(t *testing.T) {
-	t.Parallel()
-
-	source := validSettingsSource()
-	source.ID = 7
-	source.ScopeType = "site"
-	siteID := int64(123)
-	source.ScopeSiteID = &siteID
-	source.MQTTPasswordEncrypted = "enc:secret"
-	store := newFakeSettingsStore(source)
-	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
-	require.NoError(t, err)
-
-	_, err = svc.SetEnabled(t.Context(), 42, 7, true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "site-scoped MQTT")
-}
-
-func TestSettingsService_DisableRejectsActiveCurtailmentState(t *testing.T) {
-	t.Parallel()
-
-	source := validSettingsSource()
-	source.ID = 7
-	source.Enabled = true
-	source.MQTTPasswordEncrypted = "enc:secret"
-	store := newFakeSettingsStore(source)
-	store.states[source.ID] = SourceState{SourceConfigID: source.ID, LastTarget: TargetOff}
-	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
-	require.NoError(t, err)
-
-	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "restore MQTT source to ON")
-}
-
-func TestSettingsService_DisableRejectsPendingOff(t *testing.T) {
+func TestSettingsService_DisableQuiescesRuntimeAndKeepsSourceState(t *testing.T) {
 	t.Parallel()
 
 	source := validSettingsSource()
@@ -430,54 +369,16 @@ func TestSettingsService_DisableRejectsPendingOff(t *testing.T) {
 		LastTarget:     TargetOn,
 		PendingEdge:    &PendingEdge{Direction: EdgeOnToOff, Target: TargetOff},
 	}
-	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: &fakeRuntimeController{}})
-	require.NoError(t, err)
-
-	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "restore MQTT source to ON")
-}
-
-func TestSettingsService_DisableRejectsActiveCurtailmentEvent(t *testing.T) {
-	t.Parallel()
-
-	source := validSettingsSource()
-	source.ID = 7
-	source.Enabled = true
-	source.MQTTPasswordEncrypted = "enc:secret"
-	store := newFakeSettingsStore(source)
-	runtime := &fakeRuntimeController{activeCurtailment: true}
+	runtime := &fakeRuntimeController{}
 	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
 	require.NoError(t, err)
 
-	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+	view, err := svc.SetEnabled(t.Context(), 42, 7, false)
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "restore MQTT source to ON")
-	assert.Zero(t, runtime.quiesceCalls)
-}
-
-func TestSettingsService_DisableRejectsActiveCurtailmentAfterQuiesce(t *testing.T) {
-	t.Parallel()
-
-	source := validSettingsSource()
-	source.ID = 7
-	source.Enabled = true
-	source.MQTTPasswordEncrypted = "enc:secret"
-	store := newFakeSettingsStore(source)
-	runtime := &fakeRuntimeController{activeResults: []bool{false, true}}
-	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
 	require.NoError(t, err)
-
-	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.False(t, view.Config.Enabled)
 	assert.Equal(t, 1, runtime.quiesceCalls)
-	assert.Equal(t, 1, runtime.reconcileCalls, "failed disable must restore the still-enabled runtime")
+	assert.Equal(t, 1, runtime.reconcileCalls)
 }
 
 func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
@@ -496,26 +397,7 @@ func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 	assert.Contains(t, err.Error(), "disable the MQTT source")
 }
 
-func TestSettingsService_DeleteRejectsActiveCurtailmentState(t *testing.T) {
-	t.Parallel()
-
-	source := validSettingsSource()
-	source.ID = 7
-	source.Enabled = false
-	source.MQTTPasswordEncrypted = "enc:secret"
-	store := newFakeSettingsStore(source)
-	store.states[source.ID] = SourceState{SourceConfigID: source.ID, LastTarget: TargetOff}
-	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
-	require.NoError(t, err)
-
-	err = svc.Delete(t.Context(), 42, 7)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "restore MQTT source to ON")
-}
-
-func TestSettingsService_DeleteRejectsPendingOff(t *testing.T) {
+func TestSettingsService_DeleteDisabledSourceWithSignalState(t *testing.T) {
 	t.Parallel()
 
 	source := validSettingsSource()
@@ -533,26 +415,5 @@ func TestSettingsService_DeleteRejectsPendingOff(t *testing.T) {
 
 	err = svc.Delete(t.Context(), 42, 7)
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "restore MQTT source to ON")
-}
-
-func TestSettingsService_DeleteRejectsActiveCurtailmentEvent(t *testing.T) {
-	t.Parallel()
-
-	source := validSettingsSource()
-	source.ID = 7
-	source.Enabled = false
-	source.MQTTPasswordEncrypted = "enc:secret"
-	store := newFakeSettingsStore(source)
-	runtime := &fakeRuntimeController{activeCurtailment: true}
-	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
 	require.NoError(t, err)
-
-	err = svc.Delete(t.Context(), 42, 7)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "restore MQTT source to ON")
 }

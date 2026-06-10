@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -46,7 +45,6 @@ type RuntimeStatus struct {
 type RuntimeController interface {
 	Reconcile(ctx context.Context) error
 	QuiesceSource(ctx context.Context, sourceID int64) error
-	SourceHasActiveCurtailment(ctx context.Context, source SourceConfig) (bool, error)
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
 
@@ -85,12 +83,6 @@ func NewSettingsService(cfg SettingsServiceConfig) (*SettingsService, error) {
 	}, nil
 }
 
-type SourceScope struct {
-	Type              string
-	SiteID            *int64
-	DeviceIdentifiers []string
-}
-
 type SourceView struct {
 	Config   SourceConfig
 	State    SourceState
@@ -116,15 +108,9 @@ type UpdateSourceRequest struct {
 	BrokerTransport     *string
 	MQTTUsername        *string
 	PlaintextPassword   *string
-	CurtailMode         *string
-	ContractedKw        *int32
-	ClearContractedKw   bool
 	PayloadFormat       *string
-	Scope               *SourceScope
 	StalenessThreshold  *time.Duration
 	ClearStaleness      bool
-	MinCurtailed        *time.Duration
-	ClearMinCurtailed   bool
 }
 
 func (s *SettingsService) List(ctx context.Context, orgID int64) ([]SourceView, error) {
@@ -165,6 +151,7 @@ func (s *SettingsService) Get(ctx context.Context, orgID, sourceID int64) (Sourc
 
 func (s *SettingsService) Create(ctx context.Context, req CreateSourceRequest) (SourceView, error) {
 	source := normalizeSourceConfig(req.Source)
+	source.Enabled = true
 	if source.OrganizationID <= 0 {
 		return SourceView{}, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
@@ -195,14 +182,8 @@ func (s *SettingsService) Create(ctx context.Context, req CreateSourceRequest) (
 }
 
 func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (SourceView, error) {
-	if req.ClearContractedKw && req.ContractedKw != nil {
-		return SourceView{}, fleeterror.NewInvalidArgumentError("clear_contracted_curtailment_kw conflicts with contracted_curtailment_kw")
-	}
 	if req.ClearStaleness && req.StalenessThreshold != nil {
 		return SourceView{}, fleeterror.NewInvalidArgumentError("clear_staleness_threshold_sec conflicts with staleness_threshold_sec")
-	}
-	if req.ClearMinCurtailed && req.MinCurtailed != nil {
-		return SourceView{}, fleeterror.NewInvalidArgumentError("clear_min_curtailed_duration_sec conflicts with min_curtailed_duration_sec")
 	}
 	current, err := s.getConfig(ctx, req.OrganizationID, req.SourceID)
 	if err != nil {
@@ -216,28 +197,12 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	applyInt32(req.BrokerPort, &next.BrokerPort)
 	applyString(req.BrokerTransport, &next.BrokerTransport)
 	applyString(req.MQTTUsername, &next.MQTTUsername)
-	applyString(req.CurtailMode, &next.CurtailMode)
 	applyString(req.PayloadFormat, &next.PayloadFormat)
-	if req.ClearContractedKw {
-		next.ContractedCurtailmentKw = 0
-	}
-	applyInt32(req.ContractedKw, &next.ContractedCurtailmentKw)
-	if req.Scope != nil {
-		next.ScopeType = req.Scope.Type
-		next.ScopeSiteID = req.Scope.SiteID
-		next.ScopeDeviceIdentifiers = req.Scope.DeviceIdentifiers
-	}
 	if req.ClearStaleness {
 		next.StalenessThreshold = 0
 	}
 	if req.StalenessThreshold != nil {
 		next.StalenessThreshold = *req.StalenessThreshold
-	}
-	if req.ClearMinCurtailed {
-		next.MinCurtailedDuration = 0
-	}
-	if req.MinCurtailed != nil {
-		next.MinCurtailedDuration = *req.MinCurtailed
 	}
 
 	next = normalizeSourceConfig(next)
@@ -284,14 +249,7 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 			return SourceView{}, err
 		}
 	} else {
-		if err := s.ensureNoActiveCurtailmentState(ctx, current, "disable"); err != nil {
-			return SourceView{}, err
-		}
 		if err := s.quiesceSource(current.ID); err != nil {
-			return SourceView{}, err
-		}
-		if err := s.ensureNoActiveCurtailmentState(ctx, current, "disable"); err != nil {
-			_ = s.reconcile(ctx)
 			return SourceView{}, err
 		}
 	}
@@ -304,16 +262,6 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 	}
 	if err := s.reconcile(ctx); err != nil {
 		return SourceView{}, err
-	}
-	if !enabled {
-		if err := s.ensureNoActiveCurtailmentState(ctx, updated, "disable"); err != nil {
-			_, rollbackErr := s.store.SetSourceConfigEnabled(ctx, orgID, sourceID, true)
-			_ = s.reconcile(ctx)
-			if rollbackErr != nil {
-				return SourceView{}, sourceStoreError("restore mqtt source enabled after failed disable", rollbackErr)
-			}
-			return SourceView{}, err
-		}
 	}
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
@@ -328,13 +276,6 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	}
 	if sourceID <= 0 {
 		return fleeterror.NewInvalidArgumentError("source_id must be set")
-	}
-	cfg, err := s.getConfig(ctx, orgID, sourceID)
-	if err != nil {
-		return err
-	}
-	if err := s.ensureNoActiveCurtailmentState(ctx, cfg, "delete"); err != nil {
-		return err
 	}
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
@@ -367,24 +308,6 @@ func (s *SettingsService) getStateForSource(ctx context.Context, orgID, sourceID
 		}
 	}
 	return SourceState{}, false, nil
-}
-
-func (s *SettingsService) ensureNoActiveCurtailmentState(ctx context.Context, source SourceConfig, action string) error {
-	state, hasState, err := s.getStateForSource(ctx, source.OrganizationID, source.ID)
-	if err != nil {
-		return err
-	}
-	if hasState && sourceStateHoldsCurtailment(state) {
-		return fleeterror.NewFailedPreconditionErrorf("restore MQTT source to ON before attempting to %s it", action)
-	}
-	active, err := s.sourceHasActiveCurtailment(ctx, source)
-	if err != nil {
-		return err
-	}
-	if active {
-		return fleeterror.NewFailedPreconditionErrorf("restore MQTT source to ON before attempting to %s it", action)
-	}
-	return nil
 }
 
 func (s *SettingsService) viewFor(cfg SourceConfig, state SourceState, hasState bool) SourceView {
@@ -453,28 +376,8 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 	if _, err := decoderForFormat(source.PayloadFormat); err != nil {
 		return fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	if err := validateCurtailMode(source); err != nil {
-		return err
-	}
-	if err := validateSettingsScope(source); err != nil {
-		return err
-	}
 	if source.StalenessThreshold <= 0 {
 		return fleeterror.NewInvalidArgumentError("staleness_threshold_sec must be greater than zero")
-	}
-	if source.MinCurtailedDuration <= 0 {
-		return fleeterror.NewInvalidArgumentError("min_curtailed_duration_sec must be greater than zero")
-	}
-	canIngest, err := s.store.UserCanIngestCurtailment(ctx, source.ServiceUserID, source.OrganizationID)
-	if err != nil {
-		return fmt.Errorf("verify mqtt source service user: %w", err)
-	}
-	if !canIngest {
-		return fleeterror.NewFailedPreconditionErrorf(
-			"service_user_id %d lacks curtailment:ingest in org %d",
-			source.ServiceUserID,
-			source.OrganizationID,
-		)
 	}
 	return nil
 }
@@ -513,17 +416,6 @@ func (s *SettingsService) quiesceSource(sourceID int64) error {
 	return nil
 }
 
-func (s *SettingsService) sourceHasActiveCurtailment(ctx context.Context, source SourceConfig) (bool, error) {
-	if s.runtime == nil {
-		return false, nil
-	}
-	active, err := s.runtime.SourceHasActiveCurtailment(ctx, source)
-	if err != nil {
-		return false, fmt.Errorf("check mqtt active curtailment: %w", err)
-	}
-	return active, nil
-}
-
 func normalizeSourceConfig(source SourceConfig) SourceConfig {
 	source.SourceName = strings.TrimSpace(source.SourceName)
 	source.Topic = strings.TrimSpace(source.Topic)
@@ -531,34 +423,19 @@ func normalizeSourceConfig(source SourceConfig) SourceConfig {
 	source.BrokerSecondaryHost = strings.TrimSpace(source.BrokerSecondaryHost)
 	source.BrokerTransport = strings.ToLower(strings.TrimSpace(source.BrokerTransport))
 	source.MQTTUsername = strings.TrimSpace(source.MQTTUsername)
-	source.CurtailMode = strings.TrimSpace(source.CurtailMode)
 	source.PayloadFormat = strings.TrimSpace(source.PayloadFormat)
-	source.ScopeType = strings.TrimSpace(source.ScopeType)
 	if source.BrokerPort == 0 {
 		source.BrokerPort = defaultBrokerPort
 	}
 	if source.BrokerTransport == "" {
 		source.BrokerTransport = brokerTransportTCP
 	}
-	if source.CurtailMode == "" {
-		source.CurtailMode = string(models.ModeFullFleet)
-	}
 	if source.PayloadFormat == "" {
 		source.PayloadFormat = payloadFormatTargetTimestamp
-	}
-	if source.ScopeType == "" {
-		source.ScopeType = string(models.ScopeTypeWholeOrg)
 	}
 	if source.StalenessThreshold <= 0 {
 		source.StalenessThreshold = time.Duration(defaultStalenessThresholdSec) * time.Second
 	}
-	if source.MinCurtailedDuration <= 0 {
-		source.MinCurtailedDuration = time.Duration(defaultMinCurtailedDurationSec) * time.Second
-	}
-	for i := range source.ScopeDeviceIdentifiers {
-		source.ScopeDeviceIdentifiers[i] = strings.TrimSpace(source.ScopeDeviceIdentifiers[i])
-	}
-	source.ScopeDeviceIdentifiers = compactNonEmptyStrings(source.ScopeDeviceIdentifiers)
 	return source
 }
 
@@ -578,50 +455,6 @@ func mqttCredentialBindingChanged(current, next SourceConfig) bool {
 		current.BrokerPort != next.BrokerPort ||
 		current.BrokerTransport != next.BrokerTransport ||
 		current.MQTTUsername != next.MQTTUsername
-}
-
-func sourceStateHoldsCurtailment(state SourceState) bool {
-	return state.LastTarget.IsOff() ||
-		(state.PendingEdge != nil && state.PendingEdge.Target.IsOff())
-}
-
-func validateCurtailMode(source SourceConfig) error {
-	switch models.Mode(source.CurtailMode) {
-	case models.ModeFullFleet:
-		if source.ContractedCurtailmentKw > 0 {
-			return fleeterror.NewInvalidArgumentError("contracted_curtailment_kw is only valid for FIXED_KW mode")
-		}
-		return nil
-	case models.ModeFixedKw:
-		if source.ContractedCurtailmentKw <= 0 {
-			return fleeterror.NewInvalidArgumentError("contracted_curtailment_kw is required for FIXED_KW mode")
-		}
-		return nil
-	default:
-		return fleeterror.NewInvalidArgumentErrorf("unsupported curtail_mode %q", source.CurtailMode)
-	}
-}
-
-func validateSettingsScope(source SourceConfig) error {
-	switch source.ScopeType {
-	case string(models.ScopeTypeWholeOrg):
-		if source.ScopeSiteID != nil || len(source.ScopeDeviceIdentifiers) > 0 {
-			return fleeterror.NewInvalidArgumentError("whole_org scope cannot include site_id or device_identifiers")
-		}
-		return nil
-	case string(models.ScopeTypeDeviceList):
-		if source.ScopeSiteID != nil {
-			return fleeterror.NewInvalidArgumentError("device_list scope cannot include site_id")
-		}
-		if len(source.ScopeDeviceIdentifiers) == 0 {
-			return fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device_list scope")
-		}
-		return nil
-	case "site":
-		return fleeterror.NewUnimplementedError("site-scoped MQTT curtailment sources require issue #404")
-	default:
-		return fleeterror.NewInvalidArgumentErrorf("unsupported scope type %q", source.ScopeType)
-	}
 }
 
 func sourceStoreError(prefix string, err error) error {
@@ -647,23 +480,4 @@ func applyInt32(value *int32, target *int32) {
 	if value != nil {
 		*target = *value
 	}
-}
-
-func compactNonEmptyStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
 }
