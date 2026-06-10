@@ -1,5 +1,10 @@
+import { create } from "@bufbuild/protobuf";
+
 import { fleetManagementClient } from "@/protoFleet/api/clients";
-import { type MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  type MinerListFilter,
+  MinerListFilterSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
@@ -31,13 +36,16 @@ interface MinerReparentPickerProps {
 }
 
 // Snapshot pagination cap mirrors FleetGroupActionsMenu — 50 pages of
-// 1000 covers any realistic fleet cohort.
+// 1000 covers any realistic fleet cohort. We throw past the cap rather
+// than silently truncating; the caller surfaces the message via toast.
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
+const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 
 const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => {
   const collected: string[] = [];
   let cursor = "";
+  let exhausted = false;
   for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
     const response = await fleetManagementClient.listMinerStateSnapshots({
       pageSize: SNAPSHOT_PAGE_SIZE,
@@ -45,8 +53,14 @@ const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => 
       filter,
     });
     for (const miner of response.miners) collected.push(miner.deviceIdentifier);
-    if (!response.cursor) break;
+    if (!response.cursor) {
+      exhausted = true;
+      break;
+    }
     cursor = response.cursor;
+  }
+  if (!exhausted) {
+    throw new Error(`Too many miners selected (over ${MAX_MINERS}). Filter the list and try again.`);
   }
   return collected;
 };
@@ -106,13 +120,11 @@ const MinerReparentPicker = ({
         if (targetId === undefined) return;
 
         if (selectionMode === "all") {
-          if (!currentFilter) {
-            pushToast({
-              message: "Couldn't resolve the full miner set for this action.",
-              status: STATUSES.error,
-            });
-            return;
-          }
+          // `parseFilterFromURL` returns undefined when the URL has no
+          // filter params — i.e. the operator selected all miners on an
+          // unfiltered miners page, which is the full fleet. Substitute
+          // an empty filter (matches everything) rather than bailing.
+          const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
           const loadingToast = pushToast({
             message: "Loading selected miners…",
             status: STATUSES.loading,
@@ -120,12 +132,14 @@ const MinerReparentPicker = ({
           });
           let ids: string[];
           try {
-            ids = await resolveAllModeIds(currentFilter);
-          } catch {
-            updateToast(loadingToast, {
-              message: "Couldn't load selected miners. Try again.",
-              status: STATUSES.error,
-            });
+            ids = await resolveAllModeIds(effectiveFilter);
+          } catch (err) {
+            // `resolveAllModeIds` throws a specific message when the
+            // selection exceeds MAX_MINERS so the operator sees the
+            // real cause; generic RPC failures land in the same toast.
+            const message =
+              err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
+            updateToast(loadingToast, { message, status: STATUSES.error });
             return;
           }
           removeToast(loadingToast);
