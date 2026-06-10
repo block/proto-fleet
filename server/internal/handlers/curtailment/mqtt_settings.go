@@ -180,9 +180,6 @@ func (h *Handler) DeleteMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
-	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
-		return nil, err
-	}
 	if h.mqttSettings == nil {
 		return nil, errCurtailmentNotImplemented("DeleteMqttCurtailmentSource")
 	}

@@ -126,19 +126,25 @@ func TestHandler_DisableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-func TestHandler_DeleteMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+func TestHandler_DeleteMqttCurtailmentSourceAllowsManagePermission(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
-	_, err := h.DeleteMqttCurtailmentSource(
+	store := &handlerMqttSettingsStore{}
+	settings, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
+		Store:  store,
+		Cipher: &handlerMqttCipher{},
+	})
+	require.NoError(t, err)
+	h := NewHandler(nil, settings)
+
+	_, err = h.DeleteMqttCurtailmentSource(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.DeleteMqttCurtailmentSourceRequest{SourceId: 11}),
 	)
 
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), store.deletedOrgID)
+	assert.Equal(t, int64(11), store.deletedSourceID)
 }
 
 func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *testing.T) {
@@ -211,7 +217,9 @@ func TestHandler_TestMqttCurtailmentSourceConnectionRequiresAdmin(t *testing.T) 
 }
 
 type handlerMqttSettingsStore struct {
-	created *mqttingest.SourceConfig
+	created         *mqttingest.SourceConfig
+	deletedOrgID    int64
+	deletedSourceID int64
 }
 
 func (*handlerMqttSettingsStore) ListSourceConfigsByOrg(context.Context, int64) ([]mqttingest.SourceConfig, error) {
@@ -242,8 +250,10 @@ func (*handlerMqttSettingsStore) SetSourceConfigEnabled(context.Context, int64, 
 	panic("not used")
 }
 
-func (*handlerMqttSettingsStore) DeleteDisabledSourceConfig(context.Context, int64, int64) error {
-	panic("not used")
+func (s *handlerMqttSettingsStore) DeleteDisabledSourceConfig(_ context.Context, orgID, sourceID int64) error {
+	s.deletedOrgID = orgID
+	s.deletedSourceID = sourceID
+	return nil
 }
 
 type handlerMqttCipher struct{}
