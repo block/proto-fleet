@@ -359,7 +359,14 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
         })}
       <PoolSelectionPageWrapper
         open={minerActions.showPoolSelectionPage ? !!minerActions.fleetCredentials : false}
-        selectedMiners={selectedMiners}
+        // Use the capability-filtered subset when the unsupported-miners
+        // gate narrowed the selection; otherwise dispatch against the
+        // full scoped set. Mirrors the pattern in MinerActionsMenu.
+        selectedMiners={
+          minerActions.poolFilteredDeviceIds
+            ? minerActions.poolFilteredDeviceIds.map((id) => ({ deviceIdentifier: id }))
+            : selectedMiners
+        }
         selectionMode="subset"
         userUsername={minerActions.fleetCredentials?.username}
         userPassword={minerActions.fleetCredentials?.password}
