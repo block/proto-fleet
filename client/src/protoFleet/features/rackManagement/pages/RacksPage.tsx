@@ -81,8 +81,6 @@ const RacksPage = () => {
   const { pathname } = useLocation();
   const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
-  // When set, RackSettingsModal opens in edit mode against this row.
-  const [editingRack, setEditingRack] = useState<DeviceSet | null>(null);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
@@ -369,9 +367,21 @@ const RacksPage = () => {
     });
   }, [assignMinersRackId, deleteGroup, resetAndFetch, fetchZones]);
 
+  // Mirrors Edit building → ManageBuildingModal: row-level Edit opens
+  // the full-screen miners surface directly, with the small
+  // RackSettingsModal reachable from inside it for label/zone/dim edits.
   const handleEditRack = useCallback((rack: DeviceSet) => {
-    setEditingRack(rack);
-    setShowRackSettingsModal(true);
+    const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+    if (!rackInfo) return;
+    setAssignMinersFormData({
+      label: rack.label,
+      zone: rackInfo.zone,
+      rows: rackInfo.rows,
+      columns: rackInfo.columns,
+      orderIndex: rackInfo.orderIndex,
+      coolingType: rackInfo.coolingType,
+    });
+    setAssignMinersRackId(rack.id);
   }, []);
 
   // Add-to-site stays deferred — no dedicated AssignRackToSite RPC,
@@ -715,18 +725,8 @@ const RacksPage = () => {
         <RackSettingsModal
           show={showRackSettingsModal}
           existingRacks={racks}
-          rack={editingRack ?? undefined}
-          onDismiss={() => {
-            setShowRackSettingsModal(false);
-            setEditingRack(null);
-          }}
+          onDismiss={() => setShowRackSettingsModal(false)}
           onContinue={handleRackSettingsContinue}
-          // Edit-mode dispatches through the modal directly; create-mode
-          // hands off to AssignMinersModal which refreshes there.
-          onSuccess={() => {
-            resetAndFetch();
-            fetchZones();
-          }}
         />
       ) : null}
       {assignMinersFormData ? (
