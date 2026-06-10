@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// #nosec G101 -- environment variable names, not credentials.
 const (
 	defaultFleetServer = "https://localhost/api-proxy"
 	envFleetServer     = "FLEET_SERVER"
@@ -51,7 +53,7 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "server",
-				Usage:   "Fleet server base URL or host; defaults to /api-proxy when no path is provided",
+				Usage:   "Fleet server base URL or host; defaults to /api-proxy when no path is provided, use a trailing slash to target the RPC root directly",
 				Sources: cli.EnvVars(envFleetServer),
 			},
 			&cli.StringFlag{
@@ -232,6 +234,10 @@ func apiKeyCommand() *cli.Command {
 	}
 }
 
+// defaultPerformanceMetrics are the metric types `performance get` requests
+// when no --metric flags are provided.
+var defaultPerformanceMetrics = []string{"hashrate", "efficiency", "power", "temperature", "uptime"}
+
 func performanceCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "performance",
@@ -244,7 +250,7 @@ func performanceCommand() *cli.Command {
 					&cli.DurationFlag{Name: "window", Usage: "Lookback window for historical metrics", Value: time.Hour},
 					&cli.DurationFlag{Name: "granularity", Usage: "Bucket size for aggregated metrics", Value: 30 * time.Second},
 					&cli.IntFlag{Name: "page-size", Usage: "Maximum number of metric rows to request", Value: 500},
-					&cli.StringSliceFlag{Name: "metric", Usage: "Metric types to request", Value: []string{"hashrate", "efficiency", "power", "temperature", "uptime"}},
+					&cli.StringSliceFlag{Name: "metric", Usage: "Metric types to request", Value: defaultPerformanceMetrics},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					client, _, err := openClient(ctx, cmd)
@@ -277,9 +283,17 @@ func readProtoJSON(path string, msg proto.Message) error {
 
 func readInput(path string) ([]byte, error) {
 	if path == "-" {
-		return io.ReadAll(os.Stdin)
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil, fmt.Errorf("read stdin: %w", err)
+		}
+		return data, nil
 	}
-	return os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	return data, nil
 }
 
 func parseInt64Slice(values []string) ([]int64, error) {
@@ -302,6 +316,12 @@ func buildCombinedMetricsRequest(cmd *cli.Command) *telemetryv1.GetCombinedMetri
 	end := time.Now().UTC()
 	start := end.Add(-cmd.Duration("window"))
 
+	pageSize := cmd.Int("page-size")
+	if pageSize > math.MaxInt32 {
+		pageSize = math.MaxInt32
+	}
+	pageSize32 := int32(pageSize) // #nosec G115 -- clamped to int32 range above.
+
 	return &telemetryv1.GetCombinedMetricsRequest{
 		DeviceSelector: &telemetryv1.DeviceSelector{
 			SelectorValue: &telemetryv1.DeviceSelector_AllDevices{AllDevices: true},
@@ -316,7 +336,7 @@ func buildCombinedMetricsRequest(cmd *cli.Command) *telemetryv1.GetCombinedMetri
 		Granularity: durationpb.New(cmd.Duration("granularity")),
 		StartTime:   timestamppb.New(start),
 		EndTime:     timestamppb.New(end),
-		PageSize:    int32(cmd.Int("page-size")),
+		PageSize:    pageSize32,
 	}
 }
 
@@ -489,6 +509,8 @@ func newestUptimeStatus(values []*telemetryv1.UptimeStatusCount) *telemetryv1.Up
 
 func compactMeasurementName(value telemetryv1.MeasurementType) string {
 	switch value {
+	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_UNSPECIFIED:
+		return value.String()
 	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE:
 		return "temperature"
 	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE:
@@ -558,7 +580,7 @@ func printProto(message proto.Message) error {
 		EmitUnpopulated: true,
 	}.Marshal(message)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal response: %w", err)
 	}
 	colorizeJSON(output)
 	return nil
@@ -567,7 +589,7 @@ func printProto(message proto.Message) error {
 func printJSON(value any) error {
 	output, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal output: %w", err)
 	}
 	colorizeJSON(output)
 	return nil

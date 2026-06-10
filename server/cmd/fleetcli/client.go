@@ -6,16 +6,20 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	fleetperformancev1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
+	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -72,16 +76,17 @@ func New(_ context.Context, opts Options) (*Client, error) {
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create cookie jar: %w", err)
 	}
 
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Jar: jar,
+			Jar: &loopbackSecureJar{inner: jar},
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
-					MinVersion:         tls.VersionTLS12,
+					MinVersion: tls.VersionTLS12,
+					// #nosec G402 -- insecure TLS is an explicit user opt-in via --insecure.
 					InsecureSkipVerify: opts.Insecure,
 				},
 			},
@@ -175,31 +180,95 @@ func (c *Client) GetCombinedMetrics(ctx context.Context, req *telemetryv1.GetCom
 	return resp, nil
 }
 
+// DiscoverDevices runs the server-streaming pairing.v1.PairingService/Discover
+// RPC through the generated Connect client and aggregates every streamed
+// response into a single DiscoverResponse.
+func (c *Client) DiscoverDevices(ctx context.Context, req *pairingv1.DiscoverRequest) (*pairingv1.DiscoverResponse, error) {
+	const method = "/pairing.v1.PairingService/Discover"
+	connectReq := connect.NewRequest(req)
+	if err := c.applyBearerAuth(ctx, connectReq.Header(), method); err != nil {
+		return nil, err
+	}
+
+	// Discovery scans (nmap, IP ranges) can outlive the default per-request
+	// timeout, so the stream gets a client without an overall deadline; it
+	// shares the cookie jar and transport so session auth still applies.
+	streamHTTPClient := &http.Client{Jar: c.httpClient.Jar, Transport: c.httpClient.Transport}
+	stream, err := pairingv1connect.NewPairingServiceClient(streamHTTPClient, c.baseURL.String()).Discover(ctx, connectReq)
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %w", method, err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	aggregated := &pairingv1.DiscoverResponse{}
+	var errorMessages []string
+	for stream.Receive() {
+		msg := stream.Msg()
+		aggregated.Devices = append(aggregated.Devices, msg.GetDevices()...)
+		if msg.GetError() != "" {
+			errorMessages = append(errorMessages, msg.GetError())
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, fmt.Errorf("%s stream failed: %w", method, err)
+	}
+	aggregated.Error = strings.Join(errorMessages, "; ")
+	return aggregated, nil
+}
+
+// PairDevices calls pairing.v1.PairingService/Pair through the generated
+// Connect client.
+func (c *Client) PairDevices(ctx context.Context, req *pairingv1.PairRequest) (*pairingv1.PairResponse, error) {
+	const method = "/pairing.v1.PairingService/Pair"
+	connectReq := connect.NewRequest(req)
+	if err := c.applyBearerAuth(ctx, connectReq.Header(), method); err != nil {
+		return nil, err
+	}
+
+	resp, err := pairingv1connect.NewPairingServiceClient(c.httpClient, c.baseURL.String()).Pair(ctx, connectReq)
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %w", method, err)
+	}
+	return resp.Msg, nil
+}
+
+// applyBearerAuth applies the same auth policy as bearer-mode JSON calls: the
+// API key when present, otherwise a cookie session established from the
+// global username/password.
+func (c *Client) applyBearerAuth(ctx context.Context, header http.Header, method string) error {
+	if c.apiKey != "" {
+		header.Set("Authorization", "Bearer "+c.apiKey)
+		return nil
+	}
+	if err := c.ensureSession(ctx); err != nil {
+		return fmt.Errorf("api key or username/password is required for %s: %w", method, err)
+	}
+	return nil
+}
+
 func (c *Client) invoke(ctx context.Context, method string, req proto.Message, resp proto.Message, mode authMode) error {
 	body, err := protojson.MarshalOptions{
 		UseProtoNames:   true,
 		EmitUnpopulated: false,
 	}.Marshal(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal %s request: %w", method, err)
 	}
 
 	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(method, "/"))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("build %s request: %w", method, err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 	switch mode {
+	case authNone:
+		// No credentials attached.
 	case authBearer:
-		if c.apiKey != "" {
-			httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-			break
-		}
-		if err := c.ensureSession(ctx); err != nil {
-			return fmt.Errorf("api key or username/password is required for %s: %w", method, err)
+		if err := c.applyBearerAuth(ctx, httpReq.Header, method); err != nil {
+			return err
 		}
 	case authSession:
 		if err := c.ensureSession(ctx); err != nil {
@@ -209,13 +278,13 @@ func (c *Client) invoke(ctx context.Context, method string, req proto.Message, r
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return err
+		return fmt.Errorf("call %s: %w", method, err)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf("read %s response: %w", method, err)
 	}
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
@@ -253,7 +322,44 @@ func (c *Client) ensureSession(ctx context.Context) error {
 }
 
 func (c *Client) hasSession() bool {
-	return len(c.httpClient.Jar.Cookies(c.baseURL)) > 0
+	// The jar's path matching needs a non-empty request path; a root base URL
+	// has none, so probe with "/" the way real request URLs would.
+	target := *c.baseURL
+	if target.Path == "" {
+		target.Path = "/"
+	}
+	return len(c.httpClient.Jar.Cookies(&target)) > 0
+}
+
+// loopbackSecureJar treats plain-HTTP loopback origins as secure contexts the
+// way browsers do, so the Secure-flagged fleet session cookie works against a
+// local fleet-api without weakening cookie handling for remote hosts.
+type loopbackSecureJar struct {
+	inner http.CookieJar
+}
+
+func (j *loopbackSecureJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	j.inner.SetCookies(loopbackAsHTTPS(u), cookies)
+}
+
+func (j *loopbackSecureJar) Cookies(u *url.URL) []*http.Cookie {
+	return j.inner.Cookies(loopbackAsHTTPS(u))
+}
+
+func loopbackAsHTTPS(u *url.URL) *url.URL {
+	if u.Scheme != "http" {
+		return u
+	}
+	host := u.Hostname()
+	if host != "localhost" {
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			return u
+		}
+	}
+	clone := *u
+	clone.Scheme = "https"
+	return &clone
 }
 
 func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
@@ -278,8 +384,11 @@ func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
 		return nil, fmt.Errorf("server URL must include a host")
 	}
 
+	// A bare host defaults to the nginx proxy route, while an explicit
+	// trailing slash ("http://localhost:4000/") targets the RPC root for
+	// direct fleet-api access.
 	path := strings.TrimSuffix(u.Path, "/")
-	if path == "" {
+	if path == "" && u.Path == "" {
 		path = "/api-proxy"
 	}
 	u.Path = path

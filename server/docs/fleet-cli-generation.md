@@ -40,6 +40,7 @@ These files stay handwritten:
 - `server/cmd/fleetcli/main.go`
 - `server/cmd/fleetcli/client.go`
 - `server/cmd/fleetcli/manual.go`
+- `server/cmd/fleetcli/pairing.go`
 - `server/cmd/fleetcli/generated_runtime.go`
 
 The handwritten layer owns:
@@ -47,6 +48,7 @@ The handwritten layer owns:
 - global CLI flags
 - HTTP JSON RPC transport and auth dispatch
 - session login and API key management commands
+- the streaming-backed `pairing` command group
 - the telemetry-backed `performance` command
 - shared helpers used by generated commands
 
@@ -184,10 +186,18 @@ The handwritten command registry currently contributes:
 
 - `auth`
 - `apikey`
+- `pairing`
 - `performance`
 
 `performance` remains handwritten because it is a telemetry-backed UX command
 rather than a direct one-to-one generated wrapper over a single Fleet RPC.
+
+`pairing` remains handwritten because `pairing.v1.PairingService/Discover` is a
+server-streaming RPC the generator does not cover (`deferred_streaming`); the
+CLI aggregates the streamed responses into one printed `DiscoverResponse`. Its
+`pair` subcommand stays alongside it as a workflow-friendly wrapper that reuses
+the shared miner selector flags and adds device credential flags
+(`--device-username`, `--device-password`) distinct from Fleet auth.
 
 ## Coverage Report
 
