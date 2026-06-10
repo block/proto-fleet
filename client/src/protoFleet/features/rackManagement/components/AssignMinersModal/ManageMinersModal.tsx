@@ -5,6 +5,7 @@ import MinerSelectionList, {
   type DeviceListItem,
   type MinerSelectionListHandle,
 } from "@/protoFleet/components/MinerSelectionList";
+
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
@@ -15,20 +16,17 @@ interface ManageMinersModalProps {
   currentRackLabel: string;
   maxSlots: number;
   onDismiss: () => void;
-  // When allSelected, the caller must paginate the fleet API with
-  // `filter` to resolve the full ID set; `selectedIds` only holds the
-  // visible page.
   onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
 }
 
-const ManageMinersModal = ({
+export default function ManageMinersModal({
   show,
   currentRackMiners,
   currentRackLabel,
   maxSlots,
   onDismiss,
   onConfirm,
-}: ManageMinersModalProps) => {
+}: ManageMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [overflowError, setOverflowError] = useState("");
 
@@ -40,8 +38,12 @@ const ManageMinersModal = ({
   const handleContinue = useCallback(() => {
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
+
     const { selectedItems, allSelected, filter } = selection;
 
+    // Only validate overflow for explicit selections. When allSelected is true,
+    // the parent resolves the full selectable list via server pagination and
+    // validates overflow after resolution.
     if (!allSelected && selectedItems.length > maxSlots) {
       setOverflowError(
         `Cannot add ${selectedItems.length} miners with only ${maxSlots} available slots. Deselect some miners or update your rack settings.`,
@@ -76,6 +78,7 @@ const ManageMinersModal = ({
         {overflowError ? (
           <Callout className="mb-4 shrink-0" intent="danger" prefixIcon={<Alert />} title={overflowError} />
         ) : null}
+
         <MinerSelectionList
           ref={selectionRef}
           filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
@@ -85,6 +88,4 @@ const ManageMinersModal = ({
       </div>
     </Modal>
   );
-};
-
-export default ManageMinersModal;
+}
