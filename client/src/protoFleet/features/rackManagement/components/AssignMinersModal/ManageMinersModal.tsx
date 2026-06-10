@@ -1,8 +1,13 @@
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { type MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import MinerPickerModal from "@/protoFleet/components/MinerPickerModal";
-import { type DeviceListItem } from "@/protoFleet/components/MinerSelectionList";
+import MinerSelectionList, {
+  type DeviceListItem,
+  type MinerSelectionListHandle,
+} from "@/protoFleet/components/MinerSelectionList";
+import { Alert } from "@/shared/assets/icons";
+import Callout from "@/shared/components/Callout";
+import Modal from "@/shared/components/Modal";
 
 interface ManageMinersModalProps {
   show: boolean;
@@ -10,11 +15,12 @@ interface ManageMinersModalProps {
   currentRackLabel: string;
   maxSlots: number;
   onDismiss: () => void;
+  // When allSelected, the caller must paginate the fleet API with
+  // `filter` to resolve the full ID set; `selectedIds` only holds the
+  // visible page.
   onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
 }
 
-// Rack-context wrapper around MinerPickerModal — adds the slot cap +
-// disable-rows-from-other-racks predicate.
 const ManageMinersModal = ({
   show,
   currentRackMiners,
@@ -23,23 +29,61 @@ const ManageMinersModal = ({
   onDismiss,
   onConfirm,
 }: ManageMinersModalProps) => {
+  const selectionRef = useRef<MinerSelectionListHandle>(null);
+  const [overflowError, setOverflowError] = useState("");
+
   const isRowDisabled = useCallback(
     (item: DeviceListItem) => !!(item.rackLabel && item.rackLabel !== currentRackLabel),
     [currentRackLabel],
   );
 
+  const handleContinue = useCallback(() => {
+    const selection = selectionRef.current?.getSelection();
+    if (!selection) return;
+    const { selectedItems, allSelected, filter } = selection;
+
+    if (!allSelected && selectedItems.length > maxSlots) {
+      setOverflowError(
+        `Cannot add ${selectedItems.length} miners with only ${maxSlots} available slots. Deselect some miners or update your rack settings.`,
+      );
+      return;
+    }
+
+    onConfirm(selectedItems, allSelected, allSelected ? filter : undefined);
+  }, [maxSlots, onConfirm]);
+
+  if (!show) return null;
+
   return (
-    <MinerPickerModal
-      show={show}
-      initialSelectedIds={currentRackMiners}
-      isRowDisabled={isRowDisabled}
-      maxSelection={maxSlots}
-      buildOverflowMessage={(count, max) =>
-        `Cannot add ${count} miners with only ${max} available slots. Deselect some miners or update your rack settings.`
-      }
+    <Modal
+      open={show}
+      title="Select miners"
+      size="large"
+      className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
+      bodyClassName="flex flex-1 min-h-0 flex-col overflow-hidden"
       onDismiss={onDismiss}
-      onConfirm={(payload) => onConfirm(payload.selectedIds, payload.allSelected, payload.filter)}
-    />
+      divider={false}
+      buttons={[
+        {
+          text: "Continue",
+          variant: "primary",
+          onClick: handleContinue,
+          dismissModalOnClick: false,
+        },
+      ]}
+    >
+      <div className="flex h-full min-h-0 flex-col">
+        {overflowError ? (
+          <Callout className="mb-4 shrink-0" intent="danger" prefixIcon={<Alert />} title={overflowError} />
+        ) : null}
+        <MinerSelectionList
+          ref={selectionRef}
+          filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
+          initialSelectedItems={currentRackMiners}
+          isRowDisabled={isRowDisabled}
+        />
+      </div>
+    </Modal>
   );
 };
 
