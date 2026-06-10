@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 
 import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
@@ -29,6 +30,22 @@ interface MinerReparentPickerProps {
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
+
+// Capacity check for the bulk Add-to-rack path. Server-side
+// AddDevicesToDeviceSet doesn't enforce slot count, so an over-fill
+// here would persist invisibly until the operator opened the rack
+// view and saw "deviceCount > totalSlots". Returns null when the
+// target has room; otherwise returns the operator-facing message.
+const rackOverflowMessage = (rack: DeviceSet, addCount: number): string | null => {
+  const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+  if (!rackInfo) return null;
+  const totalSlots = rackInfo.rows * rackInfo.columns;
+  if (totalSlots <= 0) return null;
+  const available = Math.max(0, totalSlots - rack.deviceCount);
+  if (addCount <= available) return null;
+  const label = rack.label || "rack";
+  return `Can't add ${addCount} miners to "${label}" — only ${available} slot${available === 1 ? "" : "s"} available (${rack.deviceCount}/${totalSlots} full).`;
+};
 
 const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => {
   const collected: string[] = [];
@@ -65,9 +82,19 @@ const MinerReparentPicker = ({
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
   const { reassignDevicesToSite } = useSites();
-  const { addDevicesToDeviceSet } = useDeviceSets();
+  const { addDevicesToDeviceSet, getDeviceSet } = useDeviceSets();
 
-  const dispatchReparent = (targetId: bigint, ids: string[]) => {
+  const fetchRack = (rackId: bigint) =>
+    new Promise<DeviceSet>((resolve, reject) => {
+      void getDeviceSet({
+        deviceSetId: rackId,
+        onSuccess: resolve,
+        onNotFound: () => reject(new Error("Couldn't find rack.")),
+        onError: (msg) => reject(new Error(msg)),
+      });
+    });
+
+  const dispatchReparent = async (targetId: bigint, ids: string[]) => {
     if (kind === "site") {
       void reassignDevicesToSite({
         targetSiteId: targetId,
@@ -78,6 +105,19 @@ const MinerReparentPicker = ({
         },
         onError: (msg) => pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error }),
       });
+      return;
+    }
+    let rack: DeviceSet;
+    try {
+      rack = await fetchRack(targetId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Couldn't load rack.";
+      pushToast({ message, status: STATUSES.error });
+      return;
+    }
+    const overflow = rackOverflowMessage(rack, ids.length);
+    if (overflow) {
+      pushToast({ message: overflow, status: STATUSES.error });
       return;
     }
     void addDevicesToDeviceSet({
@@ -129,7 +169,7 @@ const MinerReparentPicker = ({
             pushToast({ message: "No miners selected.", status: STATUSES.queued });
             return;
           }
-          dispatchReparent(targetId, ids);
+          void dispatchReparent(targetId, ids);
           return;
         }
 
@@ -137,7 +177,7 @@ const MinerReparentPicker = ({
           pushToast({ message: "No miners selected.", status: STATUSES.queued });
           return;
         }
-        dispatchReparent(targetId, deviceIdentifiers);
+        void dispatchReparent(targetId, deviceIdentifiers);
       }}
     />
   );
