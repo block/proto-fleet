@@ -194,6 +194,11 @@ const MinerReparentPicker = ({
 }: MinerReparentPickerProps) => {
   const { reassignDevicesToSite } = useSites();
   const { addDevicesToDeviceSet, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
+  // Picker visibility is local so the wrapping component can stay
+  // mounted (and continue rendering the conflict Dialog or the loading
+  // toasts) after the picker dismisses. Parent unmount via `onClose`
+  // only fires once the whole flow finishes.
+  const [pickerOpen, setPickerOpen] = useState(true);
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
 
@@ -255,12 +260,14 @@ const MinerReparentPicker = ({
       updateToast(movingToast, { message, status: STATUSES.error });
       setSiteMoveInFlight(false);
       setSiteMoveConfirmation(null);
+      onClose();
       return;
     }
     removeToast(movingToast);
     dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids);
     setSiteMoveInFlight(false);
     setSiteMoveConfirmation(null);
+    onClose();
   };
 
   const dispatchReparentToSite = async (
@@ -273,6 +280,7 @@ const MinerReparentPicker = ({
         message: `Can't move more than ${MAX_SITE_REASSIGN_BATCH} miners to a site at once. Filter the list and try again.`,
         status: STATUSES.error,
       });
+      onClose();
       return;
     }
 
@@ -284,6 +292,7 @@ const MinerReparentPicker = ({
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load racks.";
       pushToast({ message, status: STATUSES.error });
+      onClose();
       return;
     }
     const labelToSiteId = new Map<string, bigint | undefined>();
@@ -297,10 +306,12 @@ const MinerReparentPicker = ({
 
     const conflictsByLabel = groupRackSiteConflicts(ids, minerSnapshots, labelToSiteId, targetSiteId);
     if (conflictsByLabel.size > 0) {
+      // Stay mounted — the Dialog drives the next step.
       setSiteMoveConfirmation({ targetSiteId, ids, conflictsByLabel, labelToRackId });
       return;
     }
     dispatchSiteReassign(targetSiteId, ids);
+    onClose();
   };
 
   const dispatchReparentToRack = async (
@@ -315,11 +326,13 @@ const MinerReparentPicker = ({
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load rack.";
       pushToast({ message, status: STATUSES.error });
+      onClose();
       return;
     }
     const overflow = rackOverflowMessage(rack, currentMembers, ids);
     if (overflow) {
       pushToast({ message: overflow, status: STATUSES.error });
+      onClose();
       return;
     }
 
@@ -335,6 +348,7 @@ const MinerReparentPicker = ({
       } catch (err) {
         const message = err instanceof Error ? err.message : "Couldn't load racks.";
         pushToast({ message, status: STATUSES.error });
+        onClose();
         return;
       }
       const labelToRackId = new Map<string, bigint>();
@@ -354,6 +368,7 @@ const MinerReparentPicker = ({
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
         updateToast(movingToast, { message, status: STATUSES.error });
+        onClose();
         return;
       }
       removeToast(movingToast);
@@ -368,6 +383,7 @@ const MinerReparentPicker = ({
       },
       onError: (msg) => pushToast({ message: `Couldn't add miners to rack: ${msg}`, status: STATUSES.error }),
     });
+    onClose();
   };
 
   const dispatchReparent = (
@@ -390,7 +406,7 @@ const MinerReparentPicker = ({
     <>
       <ParentPickerModal
         kind={kind}
-        show
+        show={pickerOpen}
         selectionMode="single"
         sourceLabel={
           selectionMode === "all" && totalCount !== undefined && totalCount !== deviceIdentifiers.length
@@ -400,8 +416,15 @@ const MinerReparentPicker = ({
         onDismiss={onClose}
         onConfirm={async (targetIds) => {
           const targetId = targetIds[0];
-          onClose();
-          if (targetId === undefined) return;
+          // Hide the picker visually but keep this wrapper mounted so
+          // post-confirm flows (resolveAllModeIds, conflict Dialog,
+          // orchestration toasts) can still drive state. `onClose`
+          // fires once the flow finishes inside the dispatch helpers.
+          setPickerOpen(false);
+          if (targetId === undefined) {
+            onClose();
+            return;
+          }
 
           if (selectionMode === "all") {
             // Undefined filter = no URL filter params = full fleet.
@@ -418,11 +441,13 @@ const MinerReparentPicker = ({
               const message =
                 err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
               updateToast(loadingToast, { message, status: STATUSES.error });
+              onClose();
               return;
             }
             removeToast(loadingToast);
             if (resolved.ids.length === 0) {
               pushToast({ message: "No miners selected.", status: STATUSES.queued });
+              onClose();
               return;
             }
             dispatchReparent(targetId, resolved.ids, resolved.snapshots);
@@ -431,6 +456,7 @@ const MinerReparentPicker = ({
 
           if (deviceIdentifiers.length === 0) {
             pushToast({ message: "No miners selected.", status: STATUSES.queued });
+            onClose();
             return;
           }
           dispatchReparent(targetId, deviceIdentifiers, miners);
@@ -444,12 +470,16 @@ const MinerReparentPicker = ({
           onDismiss={() => {
             if (siteMoveInFlight) return;
             setSiteMoveConfirmation(null);
+            onClose();
           }}
           buttons={[
             {
               text: "Cancel",
               variant: variants.secondary,
-              onClick: () => setSiteMoveConfirmation(null),
+              onClick: () => {
+                setSiteMoveConfirmation(null);
+                onClose();
+              },
               disabled: siteMoveInFlight,
             },
             {
