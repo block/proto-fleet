@@ -329,6 +329,7 @@ func (a *app) handleLoopStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("select at least one broker"))
 		return
 	}
+	a.stopLoopIfRunning("stopped previous loop")
 	if err := a.publishOnce(r.Context(), opts); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -336,9 +337,6 @@ func (a *app) handleLoopStart(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
-	if a.cancel != nil {
-		a.cancel()
-	}
 	a.cancel = cancel
 	a.state.Running = true
 	a.state.Target = target
@@ -403,12 +401,27 @@ func (a *app) runLoop(ctx context.Context, interval time.Duration, opts publishO
 func (a *app) stopLoop(message string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
+	if a.stopLoopLocked() {
+		a.addLogLocked("info", message)
 	}
+}
+
+func (a *app) stopLoopIfRunning(message string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.stopLoopLocked() {
+		a.addLogLocked("info", message)
+	}
+}
+
+func (a *app) stopLoopLocked() bool {
+	if a.cancel == nil {
+		return false
+	}
+	a.cancel()
+	a.cancel = nil
 	a.state.Running = false
-	a.addLogLocked("info", message)
+	return true
 }
 
 type publishOptions struct {
