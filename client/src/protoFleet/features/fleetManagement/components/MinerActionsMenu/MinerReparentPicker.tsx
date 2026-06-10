@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { fleetManagementClient } from "@/protoFleet/api/clients";
@@ -10,6 +11,8 @@ import {
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
+import { variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
 export type ReparentKind = "rack" | "site";
@@ -35,6 +38,8 @@ interface MinerReparentPickerProps {
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
+// Matches `max_items: 10000` on ReassignDevicesToSiteRequest.device_identifiers.
+const MAX_SITE_REASSIGN_BATCH = 10000;
 
 // Capacity check for the bulk Add-to-rack path. Server-side
 // AddDevicesToDeviceSet doesn't enforce slot count, so an over-fill
@@ -85,18 +90,14 @@ const resolveRackMembers = async (rackId: bigint): Promise<Set<string>> => {
 // added to the target. `idx_one_rack_per_device` enforces a single
 // rack per miner, so a same-batch INSERT against a different rack
 // aborts the whole transaction; we orchestrate the remove→add ourselves.
-// Returns a map of sourceRackLabel → device ids and any ids whose
-// source rack label couldn't be resolved (those skip the remove step
-// and fall through to the add — server-side conflict will surface).
 const groupBySourceRack = (
   ids: string[],
   miners: Record<string, MinerStateSnapshot> | undefined,
   targetRack: DeviceSet,
   currentMembers: Set<string>,
-): { movesByLabel: Map<string, string[]>; unknownSource: string[] } => {
+): Map<string, string[]> => {
   const movesByLabel = new Map<string, string[]>();
-  const unknownSource: string[] = [];
-  if (!miners) return { movesByLabel, unknownSource };
+  if (!miners) return movesByLabel;
   const targetLabel = targetRack.label;
   for (const id of ids) {
     if (currentMembers.has(id)) continue;
@@ -108,7 +109,35 @@ const groupBySourceRack = (
     bucket.push(id);
     movesByLabel.set(sourceLabel, bucket);
   }
-  return { movesByLabel, unknownSource };
+  return movesByLabel;
+};
+
+// Detect miners whose current rack lives at a different site than the
+// target. `ReassignDevicesToSite` rejects these with
+// `DEVICE_IN_RACK_AT_OTHER_SITE` and aborts the whole batch; we
+// pre-warn the operator and orchestrate the unassign-from-rack step
+// on confirm.
+const groupRackSiteConflicts = (
+  ids: string[],
+  miners: Record<string, MinerStateSnapshot> | undefined,
+  rackLabelToSiteId: Map<string, bigint | undefined>,
+  targetSiteId: bigint,
+): Map<string, string[]> => {
+  const conflicts = new Map<string, string[]>();
+  if (!miners) return conflicts;
+  for (const id of ids) {
+    const snapshot = miners[id];
+    if (!snapshot) continue;
+    const sourceLabel = snapshot.rackLabel;
+    if (!sourceLabel) continue;
+    const rackSiteId = rackLabelToSiteId.get(sourceLabel);
+    if (rackSiteId === undefined) continue;
+    if (rackSiteId === targetSiteId) continue;
+    const bucket = conflicts.get(sourceLabel) ?? [];
+    bucket.push(id);
+    conflicts.set(sourceLabel, bucket);
+  }
+  return conflicts;
 };
 
 const resolveAllModeIds = async (
@@ -140,6 +169,17 @@ const resolveAllModeIds = async (
   return { ids, snapshots };
 };
 
+// Site-move confirmation state machine. When the picker dismisses we
+// pre-detect rack-site conflicts and stash everything needed to
+// orchestrate the remove + reassign here; the Dialog renders against
+// this state and the operator either confirms or cancels.
+type SiteMoveConfirmation = {
+  targetSiteId: bigint;
+  ids: string[];
+  conflictsByLabel: Map<string, string[]>;
+  labelToRackId: Map<string, bigint>;
+};
+
 const MinerReparentPicker = ({
   kind,
   deviceIdentifiers,
@@ -154,17 +194,13 @@ const MinerReparentPicker = ({
 }: MinerReparentPickerProps) => {
   const { reassignDevicesToSite } = useSites();
   const { addDevicesToDeviceSet, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
+  const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
+  const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
 
-  const fetchAllRackLabels = () =>
-    new Promise<Map<string, bigint>>((resolve, reject) => {
+  const fetchAllRacks = () =>
+    new Promise<DeviceSet[]>((resolve, reject) => {
       void listRacks({
-        onSuccess: (racks) => {
-          const map = new Map<string, bigint>();
-          for (const rack of racks) {
-            if (rack.label) map.set(rack.label, rack.id);
-          }
-          resolve(map);
-        },
+        onSuccess: (racks) => resolve(racks),
         onError: (msg) => reject(new Error(msg)),
       });
     });
@@ -189,27 +225,93 @@ const MinerReparentPicker = ({
       });
     });
 
-  const dispatchReparent = async (
-    targetId: bigint,
+  const dispatchSiteReassign = (targetSiteId: bigint, ids: string[]) => {
+    void reassignDevicesToSite({
+      targetSiteId,
+      deviceIdentifiers: ids,
+      onSuccess: (count) => {
+        pushToast({ message: successMessage(count, "site"), status: STATUSES.success });
+        onRefetchMiners?.();
+      },
+      onError: (msg) => pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error }),
+    });
+  };
+
+  const dispatchSiteMoveWithUnassign = async (confirmation: SiteMoveConfirmation) => {
+    setSiteMoveInFlight(true);
+    const movingToast = pushToast({
+      message: `Unassigning miners from ${confirmation.conflictsByLabel.size} rack${confirmation.conflictsByLabel.size === 1 ? "" : "s"}…`,
+      status: STATUSES.loading,
+      longRunning: true,
+    });
+    try {
+      for (const [sourceLabel, sourceIds] of confirmation.conflictsByLabel) {
+        const sourceRackId = confirmation.labelToRackId.get(sourceLabel);
+        if (sourceRackId === undefined) continue;
+        await removeFromRack(sourceRackId, sourceIds);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
+      updateToast(movingToast, { message, status: STATUSES.error });
+      setSiteMoveInFlight(false);
+      setSiteMoveConfirmation(null);
+      return;
+    }
+    removeToast(movingToast);
+    dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids);
+    setSiteMoveInFlight(false);
+    setSiteMoveConfirmation(null);
+  };
+
+  const dispatchReparentToSite = async (
+    targetSiteId: bigint,
     ids: string[],
     minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
   ) => {
-    if (kind === "site") {
-      void reassignDevicesToSite({
-        targetSiteId: targetId,
-        deviceIdentifiers: ids,
-        onSuccess: (count) => {
-          pushToast({ message: successMessage(count, "site"), status: STATUSES.success });
-          onRefetchMiners?.();
-        },
-        onError: (msg) => pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error }),
+    if (ids.length > MAX_SITE_REASSIGN_BATCH) {
+      pushToast({
+        message: `Can't move more than ${MAX_SITE_REASSIGN_BATCH} miners to a site at once. Filter the list and try again.`,
+        status: STATUSES.error,
       });
       return;
     }
+
+    // Detect rack-at-other-site conflicts so we can warn before the
+    // server rejects the whole batch with DEVICE_IN_RACK_AT_OTHER_SITE.
+    let racks: DeviceSet[];
+    try {
+      racks = await fetchAllRacks();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Couldn't load racks.";
+      pushToast({ message, status: STATUSES.error });
+      return;
+    }
+    const labelToSiteId = new Map<string, bigint | undefined>();
+    const labelToRackId = new Map<string, bigint>();
+    for (const rack of racks) {
+      const info = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+      if (!rack.label) continue;
+      labelToSiteId.set(rack.label, info?.siteId);
+      labelToRackId.set(rack.label, rack.id);
+    }
+
+    const conflictsByLabel = groupRackSiteConflicts(ids, minerSnapshots, labelToSiteId, targetSiteId);
+    if (conflictsByLabel.size > 0) {
+      setSiteMoveConfirmation({ targetSiteId, ids, conflictsByLabel, labelToRackId });
+      return;
+    }
+    dispatchSiteReassign(targetSiteId, ids);
+  };
+
+  const dispatchReparentToRack = async (
+    targetRackId: bigint,
+    ids: string[],
+    minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
+  ) => {
     let rack: DeviceSet;
     let currentMembers: Set<string>;
     try {
-      [rack, currentMembers] = await Promise.all([fetchRack(targetId), resolveRackMembers(targetId)]);
+      [rack, currentMembers] = await Promise.all([fetchRack(targetRackId), resolveRackMembers(targetRackId)]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load rack.";
       pushToast({ message, status: STATUSES.error });
@@ -225,24 +327,27 @@ const MinerReparentPicker = ({
     // first — server enforces one rack per device. Orchestrate the
     // remove-then-add so the picker behaves as a re-parent rather than
     // a duplicate insert.
-    const { movesByLabel } = groupBySourceRack(ids, minerSnapshots, rack, currentMembers);
+    const movesByLabel = groupBySourceRack(ids, minerSnapshots, rack, currentMembers);
     if (movesByLabel.size > 0) {
-      let labelToRackId: Map<string, bigint>;
+      let racks: DeviceSet[];
       try {
-        labelToRackId = await fetchAllRackLabels();
+        racks = await fetchAllRacks();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Couldn't load racks.";
         pushToast({ message, status: STATUSES.error });
         return;
       }
+      const labelToRackId = new Map<string, bigint>();
+      for (const r of racks) if (r.label) labelToRackId.set(r.label, r.id);
+
       const movingToast = pushToast({
         message: `Moving miners from ${movesByLabel.size} other rack${movesByLabel.size === 1 ? "" : "s"}…`,
         status: STATUSES.loading,
         longRunning: true,
       });
       try {
-        for (const [sourceLabel, sourceIds] of movesByLabel) {
-          const sourceRackId = labelToRackId.get(sourceLabel);
+        for (const [src, sourceIds] of movesByLabel) {
+          const sourceRackId = labelToRackId.get(src);
           if (sourceRackId === undefined) continue;
           await removeFromRack(sourceRackId, sourceIds);
         }
@@ -255,7 +360,7 @@ const MinerReparentPicker = ({
     }
 
     void addDevicesToDeviceSet({
-      deviceSetId: targetId,
+      deviceSetId: targetRackId,
       deviceIdentifiers: ids,
       onSuccess: (count) => {
         pushToast({ message: successMessage(count, "rack"), status: STATUSES.success });
@@ -265,55 +370,101 @@ const MinerReparentPicker = ({
     });
   };
 
-  return (
-    <ParentPickerModal
-      kind={kind}
-      show
-      selectionMode="single"
-      sourceLabel={
-        selectionMode === "all" && totalCount !== undefined && totalCount !== deviceIdentifiers.length
-          ? `${totalCount} miners`
-          : sourceLabel
-      }
-      onDismiss={onClose}
-      onConfirm={async (targetIds) => {
-        const targetId = targetIds[0];
-        onClose();
-        if (targetId === undefined) return;
+  const dispatchReparent = (
+    targetId: bigint,
+    ids: string[],
+    minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
+  ) => {
+    if (kind === "site") void dispatchReparentToSite(targetId, ids, minerSnapshots);
+    else void dispatchReparentToRack(targetId, ids, minerSnapshots);
+  };
 
-        if (selectionMode === "all") {
-          // Undefined filter = no URL filter params = full fleet.
-          const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
-          const loadingToast = pushToast({
-            message: "Loading selected miners…",
-            status: STATUSES.loading,
-            longRunning: true,
-          });
-          let resolved: { ids: string[]; snapshots: Record<string, MinerStateSnapshot> };
-          try {
-            resolved = await resolveAllModeIds(effectiveFilter);
-          } catch (err) {
-            const message =
-              err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
-            updateToast(loadingToast, { message, status: STATUSES.error });
+  const conflictRackLabels = siteMoveConfirmation ? Array.from(siteMoveConfirmation.conflictsByLabel.keys()) : [];
+  const conflictCount = siteMoveConfirmation
+    ? Array.from(siteMoveConfirmation.conflictsByLabel.values()).reduce((sum, list) => sum + list.length, 0)
+    : 0;
+  const conflictRacksSummary = conflictRackLabels.slice(0, 3).join(", ");
+  const conflictRacksMore = conflictRackLabels.length > 3 ? ` and ${conflictRackLabels.length - 3} other rack(s)` : "";
+
+  return (
+    <>
+      <ParentPickerModal
+        kind={kind}
+        show
+        selectionMode="single"
+        sourceLabel={
+          selectionMode === "all" && totalCount !== undefined && totalCount !== deviceIdentifiers.length
+            ? `${totalCount} miners`
+            : sourceLabel
+        }
+        onDismiss={onClose}
+        onConfirm={async (targetIds) => {
+          const targetId = targetIds[0];
+          onClose();
+          if (targetId === undefined) return;
+
+          if (selectionMode === "all") {
+            // Undefined filter = no URL filter params = full fleet.
+            const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
+            const loadingToast = pushToast({
+              message: "Loading selected miners…",
+              status: STATUSES.loading,
+              longRunning: true,
+            });
+            let resolved: { ids: string[]; snapshots: Record<string, MinerStateSnapshot> };
+            try {
+              resolved = await resolveAllModeIds(effectiveFilter);
+            } catch (err) {
+              const message =
+                err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
+              updateToast(loadingToast, { message, status: STATUSES.error });
+              return;
+            }
+            removeToast(loadingToast);
+            if (resolved.ids.length === 0) {
+              pushToast({ message: "No miners selected.", status: STATUSES.queued });
+              return;
+            }
+            dispatchReparent(targetId, resolved.ids, resolved.snapshots);
             return;
           }
-          removeToast(loadingToast);
-          if (resolved.ids.length === 0) {
+
+          if (deviceIdentifiers.length === 0) {
             pushToast({ message: "No miners selected.", status: STATUSES.queued });
             return;
           }
-          void dispatchReparent(targetId, resolved.ids, resolved.snapshots);
-          return;
-        }
-
-        if (deviceIdentifiers.length === 0) {
-          pushToast({ message: "No miners selected.", status: STATUSES.queued });
-          return;
-        }
-        void dispatchReparent(targetId, deviceIdentifiers, miners);
-      }}
-    />
+          dispatchReparent(targetId, deviceIdentifiers, miners);
+        }}
+      />
+      {siteMoveConfirmation ? (
+        <Dialog
+          open
+          title="Move miners between sites?"
+          subtitle={`${conflictCount} of the selected miners are currently in ${conflictRacksSummary}${conflictRacksMore}, which belong${conflictRackLabels.length === 1 ? "s" : ""} to a different site. Continuing will unassign them from those rack${conflictRackLabels.length === 1 ? "" : "s"} before moving them to the selected site.`}
+          onDismiss={() => {
+            if (siteMoveInFlight) return;
+            setSiteMoveConfirmation(null);
+          }}
+          buttons={[
+            {
+              text: "Cancel",
+              variant: variants.secondary,
+              onClick: () => setSiteMoveConfirmation(null),
+              disabled: siteMoveInFlight,
+            },
+            {
+              text: "Continue",
+              variant: variants.primary,
+              onClick: () => {
+                void dispatchSiteMoveWithUnassign(siteMoveConfirmation);
+              },
+              loading: siteMoveInFlight,
+              disabled: siteMoveInFlight,
+            },
+          ]}
+        />
+      ) : null}
+    </>
   );
 };
 
