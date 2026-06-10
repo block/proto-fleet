@@ -30,13 +30,13 @@ service SiteService {
     // result in a toast/activity row.
     rpc DeleteSite(DeleteSiteRequest) returns (DeleteSiteResponse);
 
-    // ReassignDevicesToSite is an all-or-nothing bulk update of
+    // AssignDevicesToSite is an all-or-nothing bulk update of
     // device.site_id. If any device is in a rack whose site_id differs
     // from the target, the entire batch rejects with per-device error
     // details and no row is touched. Omit target_site_id (or leave it
     // unset) to move devices to the "Unassigned" bucket.
-    rpc ReassignDevicesToSite(ReassignDevicesToSiteRequest)
-        returns (ReassignDevicesToSiteResponse);
+    rpc AssignDevicesToSite(AssignDevicesToSiteRequest)
+        returns (AssignDevicesToSiteResponse);
 
     // AssignBuildingToSite moves a building to a different site
     // (or to "Unassigned" when target_site_id is unset). The same
@@ -181,9 +181,9 @@ message DeleteSiteResponse {
     int64 unassigned_rack_count   = 3;
 }
 
-// ReassignDevicesToSite
+// AssignDevicesToSite
 
-message ReassignDevicesToSiteRequest {
+message AssignDevicesToSiteRequest {
     // Unset = move to the "Unassigned" bucket. When present, must be > 0.
     optional int64 target_site_id = 1 [(buf.validate.field).int64.gt = 0];
     repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
@@ -194,7 +194,7 @@ message ReassignDevicesToSiteRequest {
 }
 
 // PerDeviceConflictReason enumerates the reasons a device can be
-// rejected by ReassignDevicesToSite.
+// rejected by AssignDevicesToSite.
 enum PerDeviceConflictReason {
     PER_DEVICE_CONFLICT_REASON_UNSPECIFIED                  = 0;
     PER_DEVICE_CONFLICT_REASON_DEVICE_NOT_FOUND             = 1;
@@ -202,7 +202,7 @@ enum PerDeviceConflictReason {
 }
 
 // PerDeviceConflict carries the per-device error details surfaced
-// when ReassignDevicesToSite rejects. The whole batch is rejected;
+// when AssignDevicesToSite rejects. The whole batch is rejected;
 // no rows are mutated.
 message PerDeviceConflict {
     string device_identifier = 1;
@@ -212,7 +212,7 @@ message PerDeviceConflict {
     int64 conflicting_site_id = 3;
 }
 
-message ReassignDevicesToSiteResponse {
+message AssignDevicesToSiteResponse {
     int64 reassigned_count = 1;
     // Populated only on rejection. Empty on success.
     repeated PerDeviceConflict conflicts = 2;

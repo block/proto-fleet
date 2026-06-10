@@ -252,7 +252,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
           },
         });
         // TODO(phase-1b #199): once the miner picker ships, follow this
-        // CreateSite call with `reassignDevicesToSite({ targetSiteId: site.id,
+        // CreateSite call with `assignDevicesToSite({ targetSiteId: site.id,
         // deviceIdentifiers: pendingDeviceIds })` inside the onSuccess branch
         // (and gate setSaving(false) on the inner onFinally). Partial-failure
         // toast wording is already drafted in PR #292 review.

@@ -283,12 +283,12 @@ var ProcedurePermissions = map[string]string{
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
 
 	// Sites CRUD — site:read for List, site:manage for everything else.
-	sitesv1connect.SiteServiceListSitesProcedure:             authz.PermSiteRead,
-	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceReassignDevicesToSiteProcedure: authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure:  authz.PermSiteManage,
+	sitesv1connect.SiteServiceListSitesProcedure:            authz.PermSiteRead,
+	sitesv1connect.SiteServiceCreateSiteProcedure:           authz.PermSiteManage,
+	sitesv1connect.SiteServiceUpdateSiteProcedure:           authz.PermSiteManage,
+	sitesv1connect.SiteServiceDeleteSiteProcedure:           authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:  authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure: authz.PermSiteManage,
 	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to
 	// cover the aggregate telemetry surface (matching the gate on
 	// telemetry.GetCombinedMetrics). The map entry is the primary gate.

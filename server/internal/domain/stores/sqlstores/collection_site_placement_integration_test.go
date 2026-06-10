@@ -111,7 +111,7 @@ func TestCascadeRackDeviceSites_RewritesMemberDevices(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pre-assign all devices to site A.
-	_, err = siteStore.ReassignDevicesToSite(ctx, orgID, &siteA.ID, deviceIDs)
+	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &siteA.ID, deviceIDs)
 	require.NoError(t, err)
 
 	rack, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
@@ -163,9 +163,9 @@ func TestGetAddedDeviceSiteConflicts_ReturnsOnlyConflictingDevices(t *testing.T)
 	require.NoError(t, err)
 
 	// Device 0 already at site A (matches rack); 1 at site B (conflict); 2 unassigned (conflict).
-	_, err = siteStore.ReassignDevicesToSite(ctx, orgID, &siteA.ID, deviceIDs[:1])
+	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &siteA.ID, deviceIDs[:1])
 	require.NoError(t, err)
-	_, err = siteStore.ReassignDevicesToSite(ctx, orgID, &siteB.ID, deviceIDs[1:2])
+	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &siteB.ID, deviceIDs[1:2])
 	require.NoError(t, err)
 
 	rack, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
@@ -201,7 +201,7 @@ func TestCascadeAddedDeviceSites_RewritesOnlyDiffering(t *testing.T) {
 	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site B"})
 	require.NoError(t, err)
 
-	_, err = siteStore.ReassignDevicesToSite(ctx, orgID, &siteB.ID, deviceIDs[1:2])
+	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &siteB.ID, deviceIDs[1:2])
 	require.NoError(t, err)
 
 	rack, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
@@ -314,7 +314,7 @@ func TestUnassignDeviceSitesByRack_ClearsRackMembersOnly(t *testing.T) {
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
 	require.NoError(t, err)
-	_, err = siteStore.ReassignDevicesToSite(ctx, orgID, &site.ID, deviceIDs)
+	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &site.ID, deviceIDs)
 	require.NoError(t, err)
 
 	rack, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")

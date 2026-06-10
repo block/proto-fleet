@@ -30,7 +30,7 @@ vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
       createSite: vi.fn(),
       updateSite: vi.fn(),
       deleteSite: vi.fn(),
-      reassignDevicesToSite: vi.fn(),
+      assignDevicesToSite: vi.fn(),
     }),
   };
 });

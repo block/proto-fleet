@@ -86,16 +86,16 @@ func (h *Handler) DeleteSite(ctx context.Context, req *connect.Request[pb.Delete
 	}), nil
 }
 
-func (h *Handler) ReassignDevicesToSite(ctx context.Context, req *connect.Request[pb.ReassignDevicesToSiteRequest]) (*connect.Response[pb.ReassignDevicesToSiteResponse], error) {
+func (h *Handler) AssignDevicesToSite(ctx context.Context, req *connect.Request[pb.AssignDevicesToSiteRequest]) (*connect.Response[pb.AssignDevicesToSiteResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	count, conflicts, err := h.service.ReassignDevicesToSite(ctx, toReassignParams(req.Msg, info.OrganizationID))
+	count, conflicts, err := h.service.AssignDevicesToSite(ctx, toAssignDevicesParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.ReassignDevicesToSiteResponse{
+	return connect.NewResponse(&pb.AssignDevicesToSiteResponse{
 		ReassignedCount: count,
 		Conflicts:       toProtoConflicts(conflicts),
 	}), nil

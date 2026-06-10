@@ -163,7 +163,7 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	}
 }
 
-func TestReassignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
+func TestAssignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
 	// Table-driven across both transactors: the production-shaped
 	// wrapping transactor pins Fix #1 (a sentinel error would get
 	// wrapped as Internal in prod, breaking the conflict path).
@@ -190,7 +190,7 @@ func TestReassignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
 			}, nil)
 			// No update call — entire batch rejected.
 
-			count, conflicts, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
+			count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 				OrgID:             testOrgID,
 				TargetSiteID:      &target,
 				DeviceIdentifiers: identifiers,
@@ -217,7 +217,7 @@ func TestReassignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
 	}
 }
 
-func TestReassignDevicesToSite_reportsMissingDevices(t *testing.T) {
+func TestAssignDevicesToSite_reportsMissingDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
@@ -232,7 +232,7 @@ func TestReassignDevicesToSite_reportsMissingDevices(t *testing.T) {
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 
-	_, conflicts, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
+	_, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
 		TargetSiteID:      &target,
 		DeviceIdentifiers: identifiers,
@@ -248,7 +248,7 @@ func TestReassignDevicesToSite_reportsMissingDevices(t *testing.T) {
 	}
 }
 
-func TestReassignDevicesToSite_writesOnSuccess(t *testing.T) {
+func TestAssignDevicesToSite_writesOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
@@ -262,9 +262,9 @@ func TestReassignDevicesToSite_writesOnSuccess(t *testing.T) {
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
-	store.EXPECT().ReassignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
 
-	count, conflicts, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
+	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
 		TargetSiteID:      &target,
 		DeviceIdentifiers: identifiers,
@@ -283,7 +283,7 @@ func TestReassignDevicesToSite_writesOnSuccess(t *testing.T) {
 	}
 }
 
-func TestReassignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
+func TestAssignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
@@ -296,9 +296,9 @@ func TestReassignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
-	store.EXPECT().ReassignDevicesToSite(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(1), nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(1), nil)
 
-	_, _, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
+	_, _, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
 		TargetSiteID:      nil,
 		DeviceIdentifiers: identifiers,
@@ -308,7 +308,7 @@ func TestReassignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 	}
 }
 
-func TestReassignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testing.T) {
+func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	tx := &fakeTransactor{}
@@ -324,9 +324,9 @@ func TestReassignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *tes
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": target,
 	}, nil)
-	store.EXPECT().ReassignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
 
-	_, conflicts, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
+	_, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
 		TargetSiteID:      &target,
 		DeviceIdentifiers: identifiers,

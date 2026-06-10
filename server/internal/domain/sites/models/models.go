@@ -95,9 +95,9 @@ type PerDeviceConflict struct {
 	ConflictingSiteID int64
 }
 
-// ReassignDevicesToSiteParams is the input shape for the bulk reassign
+// AssignDevicesToSiteParams is the input shape for the bulk assign
 // flow. TargetSiteID == nil means "Unassigned".
-type ReassignDevicesToSiteParams struct {
+type AssignDevicesToSiteParams struct {
 	OrgID             int64
 	TargetSiteID      *int64
 	DeviceIdentifiers []string

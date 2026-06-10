@@ -223,7 +223,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	assert.Equal(t, int64(4), resp.Msg.GetUnassignedRackCount())
 }
 
-func TestHandler_ReassignDevicesToSite_success(t *testing.T) {
+func TestHandler_AssignDevicesToSite_success(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
@@ -234,9 +234,9 @@ func TestHandler_ReassignDevicesToSite_success(t *testing.T) {
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
-	h.siteStore.EXPECT().ReassignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
+	h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
 
-	resp, err := h.handler.ReassignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.ReassignDevicesToSiteRequest{
+	resp, err := h.handler.AssignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignDevicesToSiteRequest{
 		TargetSiteId:      &target,
 		DeviceIdentifiers: idents,
 	}))
@@ -245,7 +245,7 @@ func TestHandler_ReassignDevicesToSite_success(t *testing.T) {
 	assert.Empty(t, resp.Msg.GetConflicts())
 }
 
-func TestHandler_ReassignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
+func TestHandler_AssignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
@@ -259,9 +259,9 @@ func TestHandler_ReassignDevicesToSite_conflictsReturnTypedReason(t *testing.T) 
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{
 		"d1": conflictingSite,
 	}, nil)
-	// No ReassignDevicesToSite store call — conflict path rejects entire batch.
+	// No AssignDevicesToSite store call — conflict path rejects entire batch.
 
-	resp, err := h.handler.ReassignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.ReassignDevicesToSiteRequest{
+	resp, err := h.handler.AssignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignDevicesToSiteRequest{
 		TargetSiteId:      &target,
 		DeviceIdentifiers: idents,
 	}))

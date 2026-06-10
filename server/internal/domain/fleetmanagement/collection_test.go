@@ -254,7 +254,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateSiteIDAndLabel(t *testing
 	require.NoError(t, err)
 
 	// Reassign only device 0 to the site; device 1 stays unassigned.
-	_, err = siteStore.ReassignDevicesToSite(t.Context(), orgID, &site.ID, deviceIDs[:1])
+	_, err = siteStore.AssignDevicesToSite(t.Context(), orgID, &site.ID, deviceIDs[:1])
 	require.NoError(t, err)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
