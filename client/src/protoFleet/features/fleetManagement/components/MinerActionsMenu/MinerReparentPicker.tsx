@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { fleetManagementClient } from "@/protoFleet/api/clients";
@@ -169,10 +169,6 @@ const resolveAllModeIds = async (
   return { ids, snapshots };
 };
 
-// Site-move confirmation state machine. When the picker dismisses we
-// pre-detect rack-site conflicts and stash everything needed to
-// orchestrate the remove + reassign here; the Dialog renders against
-// this state and the operator either confirms or cancels.
 type SiteMoveConfirmation = {
   targetSiteId: bigint;
   ids: string[];
@@ -194,13 +190,13 @@ const MinerReparentPicker = ({
 }: MinerReparentPickerProps) => {
   const { reassignDevicesToSite } = useSites();
   const { addDevicesToDeviceSet, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
-  // Picker visibility is local so the wrapping component can stay
-  // mounted (and continue rendering the conflict Dialog or the loading
-  // toasts) after the picker dismisses. Parent unmount via `onClose`
-  // only fires once the whole flow finishes.
-  const [pickerOpen, setPickerOpen] = useState(true);
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
+  // Resolver for the onConfirm promise during the cross-site confirm
+  // dialog flow. We hand it off to the Dialog button handlers so
+  // ParentPickerModal's handleSave only resolves (and calls onDismiss
+  // → onClose) after the operator picks Continue or Cancel.
+  const dialogResolveRef = useRef<(() => void) | null>(null);
 
   const fetchAllRacks = () =>
     new Promise<DeviceSet[]>((resolve, reject) => {
@@ -260,14 +256,12 @@ const MinerReparentPicker = ({
       updateToast(movingToast, { message, status: STATUSES.error });
       setSiteMoveInFlight(false);
       setSiteMoveConfirmation(null);
-      onClose();
       return;
     }
     removeToast(movingToast);
     dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids);
     setSiteMoveInFlight(false);
     setSiteMoveConfirmation(null);
-    onClose();
   };
 
   const dispatchReparentToSite = async (
@@ -280,7 +274,6 @@ const MinerReparentPicker = ({
         message: `Can't move more than ${MAX_SITE_REASSIGN_BATCH} miners to a site at once. Filter the list and try again.`,
         status: STATUSES.error,
       });
-      onClose();
       return;
     }
 
@@ -292,7 +285,6 @@ const MinerReparentPicker = ({
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load racks.";
       pushToast({ message, status: STATUSES.error });
-      onClose();
       return;
     }
     const labelToSiteId = new Map<string, bigint | undefined>();
@@ -305,13 +297,18 @@ const MinerReparentPicker = ({
     }
 
     const conflictsByLabel = groupRackSiteConflicts(ids, minerSnapshots, labelToSiteId, targetSiteId);
-    if (conflictsByLabel.size > 0) {
-      // Stay mounted — the Dialog drives the next step.
-      setSiteMoveConfirmation({ targetSiteId, ids, conflictsByLabel, labelToRackId });
+    if (conflictsByLabel.size === 0) {
+      dispatchSiteReassign(targetSiteId, ids);
       return;
     }
-    dispatchSiteReassign(targetSiteId, ids);
-    onClose();
+
+    // Park onConfirm's promise here — the Dialog's Continue/Cancel
+    // handlers resolve it so ParentPickerModal only dismisses after
+    // the operator's choice (and any orchestration) completes.
+    setSiteMoveConfirmation({ targetSiteId, ids, conflictsByLabel, labelToRackId });
+    await new Promise<void>((resolve) => {
+      dialogResolveRef.current = resolve;
+    });
   };
 
   const dispatchReparentToRack = async (
@@ -326,13 +323,11 @@ const MinerReparentPicker = ({
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load rack.";
       pushToast({ message, status: STATUSES.error });
-      onClose();
       return;
     }
     const overflow = rackOverflowMessage(rack, currentMembers, ids);
     if (overflow) {
       pushToast({ message: overflow, status: STATUSES.error });
-      onClose();
       return;
     }
 
@@ -348,7 +343,6 @@ const MinerReparentPicker = ({
       } catch (err) {
         const message = err instanceof Error ? err.message : "Couldn't load racks.";
         pushToast({ message, status: STATUSES.error });
-        onClose();
         return;
       }
       const labelToRackId = new Map<string, bigint>();
@@ -368,7 +362,6 @@ const MinerReparentPicker = ({
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
         updateToast(movingToast, { message, status: STATUSES.error });
-        onClose();
         return;
       }
       removeToast(movingToast);
@@ -383,16 +376,32 @@ const MinerReparentPicker = ({
       },
       onError: (msg) => pushToast({ message: `Couldn't add miners to rack: ${msg}`, status: STATUSES.error }),
     });
-    onClose();
   };
 
   const dispatchReparent = (
     targetId: bigint,
     ids: string[],
     minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
-  ) => {
-    if (kind === "site") void dispatchReparentToSite(targetId, ids, minerSnapshots);
-    else void dispatchReparentToRack(targetId, ids, minerSnapshots);
+  ) =>
+    kind === "site"
+      ? dispatchReparentToSite(targetId, ids, minerSnapshots)
+      : dispatchReparentToRack(targetId, ids, minerSnapshots);
+
+  const settleDialog = () => {
+    const resolve = dialogResolveRef.current;
+    dialogResolveRef.current = null;
+    resolve?.();
+  };
+
+  const handleDialogCancel = () => {
+    setSiteMoveConfirmation(null);
+    settleDialog();
+  };
+
+  const handleDialogConfirm = async () => {
+    if (!siteMoveConfirmation) return;
+    await dispatchSiteMoveWithUnassign(siteMoveConfirmation);
+    settleDialog();
   };
 
   const conflictRackLabels = siteMoveConfirmation ? Array.from(siteMoveConfirmation.conflictsByLabel.keys()) : [];
@@ -406,7 +415,7 @@ const MinerReparentPicker = ({
     <>
       <ParentPickerModal
         kind={kind}
-        show={pickerOpen}
+        show
         selectionMode="single"
         sourceLabel={
           selectionMode === "all" && totalCount !== undefined && totalCount !== deviceIdentifiers.length
@@ -414,18 +423,16 @@ const MinerReparentPicker = ({
             : sourceLabel
         }
         onDismiss={onClose}
+        // Returning a promise that only resolves after the dispatch
+        // (including any cross-site confirm Dialog) completes keeps
+        // ParentPickerModal from calling its own onDismiss → our
+        // onClose before the Dialog has a chance to render.
         onConfirm={async (targetIds) => {
           const targetId = targetIds[0];
-          // Hide the picker visually but keep this wrapper mounted so
-          // post-confirm flows (resolveAllModeIds, conflict Dialog,
-          // orchestration toasts) can still drive state. `onClose`
-          // fires once the flow finishes inside the dispatch helpers.
-          setPickerOpen(false);
-          if (targetId === undefined) {
-            onClose();
-            return;
-          }
+          if (targetId === undefined) return;
 
+          let ids: string[];
+          let snapshots: Record<string, MinerStateSnapshot> | undefined;
           if (selectionMode === "all") {
             // Undefined filter = no URL filter params = full fleet.
             const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
@@ -434,32 +441,31 @@ const MinerReparentPicker = ({
               status: STATUSES.loading,
               longRunning: true,
             });
-            let resolved: { ids: string[]; snapshots: Record<string, MinerStateSnapshot> };
             try {
-              resolved = await resolveAllModeIds(effectiveFilter);
+              const resolved = await resolveAllModeIds(effectiveFilter);
+              ids = resolved.ids;
+              snapshots = resolved.snapshots;
             } catch (err) {
               const message =
                 err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
               updateToast(loadingToast, { message, status: STATUSES.error });
-              onClose();
               return;
             }
             removeToast(loadingToast);
-            if (resolved.ids.length === 0) {
+            if (ids.length === 0) {
               pushToast({ message: "No miners selected.", status: STATUSES.queued });
-              onClose();
               return;
             }
-            dispatchReparent(targetId, resolved.ids, resolved.snapshots);
-            return;
+          } else {
+            if (deviceIdentifiers.length === 0) {
+              pushToast({ message: "No miners selected.", status: STATUSES.queued });
+              return;
+            }
+            ids = deviceIdentifiers;
+            snapshots = miners;
           }
 
-          if (deviceIdentifiers.length === 0) {
-            pushToast({ message: "No miners selected.", status: STATUSES.queued });
-            onClose();
-            return;
-          }
-          dispatchReparent(targetId, deviceIdentifiers, miners);
+          await dispatchReparent(targetId, ids, snapshots);
         }}
       />
       {siteMoveConfirmation ? (
@@ -469,24 +475,20 @@ const MinerReparentPicker = ({
           subtitle={`${conflictCount} of the selected miners are currently in ${conflictRacksSummary}${conflictRacksMore}, which belong${conflictRackLabels.length === 1 ? "s" : ""} to a different site. Continuing will unassign them from those rack${conflictRackLabels.length === 1 ? "" : "s"} before moving them to the selected site.`}
           onDismiss={() => {
             if (siteMoveInFlight) return;
-            setSiteMoveConfirmation(null);
-            onClose();
+            handleDialogCancel();
           }}
           buttons={[
             {
               text: "Cancel",
               variant: variants.secondary,
-              onClick: () => {
-                setSiteMoveConfirmation(null);
-                onClose();
-              },
+              onClick: handleDialogCancel,
               disabled: siteMoveInFlight,
             },
             {
               text: "Continue",
               variant: variants.primary,
               onClick: () => {
-                void dispatchSiteMoveWithUnassign(siteMoveConfirmation);
+                void handleDialogConfirm();
               },
               loading: siteMoveInFlight,
               disabled: siteMoveInFlight,
