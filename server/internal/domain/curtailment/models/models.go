@@ -17,6 +17,29 @@ type OrgConfig struct {
 	PostEventCooldownSec  int32
 }
 
+// ResponseProfile is reusable curtailment response behavior. Automation rules
+// bind source triggers to these profiles; profiles themselves do not execute.
+type ResponseProfile struct {
+	ID                      int64
+	OrgID                   int64
+	ProfileName             string
+	SiteID                  int64
+	Mode                    Mode
+	Strategy                Strategy
+	Level                   Level
+	Priority                Priority
+	TargetKW                *float64
+	ToleranceKW             *float64
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      *int32
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
 // EventState is a typed wrapper for `curtailment_event.state` to keep the
 // pending/active/restoring/terminal lifecycle visible in Go.
 type EventState string

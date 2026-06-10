@@ -28,8 +28,9 @@ const actionManageMqttSources = "manage MQTT curtailment sources"
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
 type Handler struct {
-	service      *curtailment.Service
-	mqttSettings *mqttingest.SettingsService
+	service          *curtailment.Service
+	mqttSettings     *mqttingest.SettingsService
+	responseProfiles *curtailment.ResponseProfileService
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
@@ -39,6 +40,16 @@ func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.Settin
 	if len(mqttSettings) > 0 {
 		h.mqttSettings = mqttSettings[0]
 	}
+	return h
+}
+
+func NewHandlerWithResponseProfiles(
+	service *curtailment.Service,
+	profiles *curtailment.ResponseProfileService,
+	mqttSettings ...*mqttingest.SettingsService,
+) *Handler {
+	h := NewHandler(service, mqttSettings...)
+	h.responseProfiles = profiles
 	return h
 }
 

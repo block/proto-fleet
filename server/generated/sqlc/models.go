@@ -500,6 +500,27 @@ type CurtailmentReconcilerHeartbeat struct {
 	ActiveEventCount   int32
 }
 
+type CurtailmentResponseProfile struct {
+	ID                      int64
+	OrgID                   int64
+	ProfileName             string
+	SiteID                  int64
+	Mode                    string
+	Strategy                string
+	Level                   string
+	Priority                string
+	TargetKw                sql.NullString
+	ToleranceKw             sql.NullString
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      sql.NullInt32
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
 type CurtailmentTarget struct {
 	CurtailmentEventID     int64
 	DeviceIdentifier       string

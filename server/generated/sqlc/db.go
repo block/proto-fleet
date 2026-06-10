@@ -180,6 +180,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
 	}
+	if q.deleteCurtailmentResponseProfileByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentResponseProfileByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCurtailmentResponseProfileByOrg: %w", err)
+	}
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, deleteDisabledMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteDisabledMQTTSourceConfigByOrg: %w", err)
 	}
@@ -290,6 +293,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, getCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentReconcilerHeartbeat: %w", err)
+	}
+	if q.getCurtailmentResponseProfileByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentResponseProfileByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentResponseProfileByOrg: %w", err)
 	}
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
@@ -588,6 +594,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertCurtailmentEventStmt, err = db.PrepareContext(ctx, insertCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentEvent: %w", err)
 	}
+	if q.insertCurtailmentResponseProfileStmt, err = db.PrepareContext(ctx, insertCurtailmentResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertCurtailmentResponseProfile: %w", err)
+	}
 	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
 	}
@@ -647,6 +656,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listCurtailmentEventsForOrgStmt, err = db.PrepareContext(ctx, listCurtailmentEventsForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentEventsForOrg: %w", err)
+	}
+	if q.listCurtailmentResponseProfilesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfilesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfilesByOrg: %w", err)
 	}
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
@@ -974,6 +986,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateCurtailmentEventStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventState: %w", err)
+	}
+	if q.updateCurtailmentResponseProfileStmt, err = db.PrepareContext(ctx, updateCurtailmentResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentResponseProfile: %w", err)
 	}
 	if q.updateCurtailmentTargetStateStmt, err = db.PrepareContext(ctx, updateCurtailmentTargetState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentTargetState: %w", err)
@@ -1375,6 +1390,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
 		}
 	}
+	if q.deleteCurtailmentResponseProfileByOrgStmt != nil {
+		if cerr := q.deleteCurtailmentResponseProfileByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCurtailmentResponseProfileByOrgStmt: %w", cerr)
+		}
+	}
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt != nil {
 		if cerr := q.deleteDisabledMQTTSourceConfigByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteDisabledMQTTSourceConfigByOrgStmt: %w", cerr)
@@ -1558,6 +1578,11 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentReconcilerHeartbeatStmt != nil {
 		if cerr := q.getCurtailmentReconcilerHeartbeatStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentReconcilerHeartbeatStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentResponseProfileByOrgStmt != nil {
+		if cerr := q.getCurtailmentResponseProfileByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentResponseProfileByOrgStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentTargetRollupByEventStmt != nil {
@@ -2055,6 +2080,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertCurtailmentEventStmt: %w", cerr)
 		}
 	}
+	if q.insertCurtailmentResponseProfileStmt != nil {
+		if cerr := q.insertCurtailmentResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertCurtailmentResponseProfileStmt: %w", cerr)
+		}
+	}
 	if q.insertDeviceStmt != nil {
 		if cerr := q.insertDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertDeviceStmt: %w", cerr)
@@ -2153,6 +2183,11 @@ func (q *Queries) Close() error {
 	if q.listCurtailmentEventsForOrgStmt != nil {
 		if cerr := q.listCurtailmentEventsForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentEventsForOrgStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentResponseProfilesByOrgStmt != nil {
+		if cerr := q.listCurtailmentResponseProfilesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentResponseProfilesByOrgStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentTargetsByEventStmt != nil {
@@ -2700,6 +2735,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCurtailmentEventStateStmt: %w", cerr)
 		}
 	}
+	if q.updateCurtailmentResponseProfileStmt != nil {
+		if cerr := q.updateCurtailmentResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentResponseProfileStmt: %w", cerr)
+		}
+	}
 	if q.updateCurtailmentTargetStateStmt != nil {
 		if cerr := q.updateCurtailmentTargetStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCurtailmentTargetStateStmt: %w", cerr)
@@ -3016,6 +3056,7 @@ type Queries struct {
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt              *sql.Stmt
+	deleteCurtailmentResponseProfileByOrgStmt           *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt             *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
@@ -3053,6 +3094,7 @@ type Queries struct {
 	getCurtailmentEventDetailByUUIDStmt                 *sql.Stmt
 	getCurtailmentOrgConfigStmt                         *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt               *sql.Stmt
+	getCurtailmentResponseProfileByOrgStmt              *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt               *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
@@ -3152,6 +3194,7 @@ type Queries struct {
 	hasUserStmt                                         *sql.Stmt
 	insertActivityLogStmt                               *sql.Stmt
 	insertCurtailmentEventStmt                          *sql.Stmt
+	insertCurtailmentResponseProfileStmt                *sql.Stmt
 	insertDeviceStmt                                    *sql.Stmt
 	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
@@ -3172,6 +3215,7 @@ type Queries struct {
 	listBuiltinRolesForOrgStmt                          *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
 	listCurtailmentEventsForOrgStmt                     *sql.Stmt
+	listCurtailmentResponseProfilesByOrgStmt            *sql.Stmt
 	listCurtailmentTargetsByEventStmt                   *sql.Stmt
 	listCurtailmentTargetsByEventPageStmt               *sql.Stmt
 	listCustomRolesForOrgStmt                           *sql.Stmt
@@ -3281,6 +3325,7 @@ type Queries struct {
 	updateBuildingStmt                                  *sql.Stmt
 	updateCurtailmentEventOperatorFieldsStmt            *sql.Stmt
 	updateCurtailmentEventStateStmt                     *sql.Stmt
+	updateCurtailmentResponseProfileStmt                *sql.Stmt
 	updateCurtailmentTargetStateStmt                    *sql.Stmt
 	updateCustomRoleNameStmt                            *sql.Stmt
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
@@ -3384,6 +3429,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:              q.curtailmentEventHasInFlightTargetsStmt,
+		deleteCurtailmentResponseProfileByOrgStmt:           q.deleteCurtailmentResponseProfileByOrgStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:             q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
@@ -3421,6 +3467,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentEventDetailByUUIDStmt:                 q.getCurtailmentEventDetailByUUIDStmt,
 		getCurtailmentOrgConfigStmt:                         q.getCurtailmentOrgConfigStmt,
 		getCurtailmentReconcilerHeartbeatStmt:               q.getCurtailmentReconcilerHeartbeatStmt,
+		getCurtailmentResponseProfileByOrgStmt:              q.getCurtailmentResponseProfileByOrgStmt,
 		getCurtailmentTargetRollupByEventStmt:               q.getCurtailmentTargetRollupByEventStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
@@ -3520,6 +3567,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasUserStmt:                                         q.hasUserStmt,
 		insertActivityLogStmt:                               q.insertActivityLogStmt,
 		insertCurtailmentEventStmt:                          q.insertCurtailmentEventStmt,
+		insertCurtailmentResponseProfileStmt:                q.insertCurtailmentResponseProfileStmt,
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
@@ -3540,6 +3588,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBuiltinRolesForOrgStmt:                          q.listBuiltinRolesForOrgStmt,
 		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentEventsForOrgStmt:                     q.listCurtailmentEventsForOrgStmt,
+		listCurtailmentResponseProfilesByOrgStmt:            q.listCurtailmentResponseProfilesByOrgStmt,
 		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
 		listCurtailmentTargetsByEventPageStmt:               q.listCurtailmentTargetsByEventPageStmt,
 		listCustomRolesForOrgStmt:                           q.listCustomRolesForOrgStmt,
@@ -3649,6 +3698,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateBuildingStmt:                                  q.updateBuildingStmt,
 		updateCurtailmentEventOperatorFieldsStmt:            q.updateCurtailmentEventOperatorFieldsStmt,
 		updateCurtailmentEventStateStmt:                     q.updateCurtailmentEventStateStmt,
+		updateCurtailmentResponseProfileStmt:                q.updateCurtailmentResponseProfileStmt,
 		updateCurtailmentTargetStateStmt:                    q.updateCurtailmentTargetStateStmt,
 		updateCustomRoleNameStmt:                            q.updateCustomRoleNameStmt,
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,

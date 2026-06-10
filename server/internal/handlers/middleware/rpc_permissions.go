@@ -125,6 +125,11 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure: authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceDeleteMqttCurtailmentSourceProcedure:         authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceListCurtailmentResponseProfilesProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentResponseProfileProcedure:       authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceCreateCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
 
 	// DeviceCollectionService — rack:read for reads, rack:manage for writes.

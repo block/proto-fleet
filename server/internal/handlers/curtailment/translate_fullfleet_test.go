@@ -55,6 +55,15 @@ func TestModeProto_FullFleet(t *testing.T) {
 	assert.Equal(t, pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET, modeProto(models.ModeFullFleet))
 }
 
+func TestStrategyNameMapsExplicitLeastEfficientFirst(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		models.StrategyLeastEfficientFirst,
+		strategyName(pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST),
+	)
+}
+
 // A full_fleet event echoes the (empty) full_fleet mode params on the wire.
 func TestPopulateEventModeParams_FullFleet(t *testing.T) {
 	t.Parallel()

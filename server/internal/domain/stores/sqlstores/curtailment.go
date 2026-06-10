@@ -49,6 +49,7 @@ func mapOrgConfigError(err error, orgID int64) error {
 }
 
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
+var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 
 type SQLCurtailmentStore struct {
 	SQLConnectionManager
@@ -104,6 +105,65 @@ func (s *SQLCurtailmentStore) SiteBelongsToOrg(ctx context.Context, orgID, siteI
 		return false, fleeterror.NewInternalErrorf("failed to check site ownership: %v", err)
 	}
 	return belongs, nil
+}
+
+func (s *SQLCurtailmentStore) ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error) {
+	rows, err := s.GetQueries(ctx).ListCurtailmentResponseProfilesByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment response profiles: %v", err)
+	}
+	out := make([]*models.ResponseProfile, len(rows))
+	for i, row := range rows {
+		out[i] = responseProfileFromRow(row)
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+		ID:    profileID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get curtailment response profile: %v", err)
+	}
+	return responseProfileFromRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+	row, err := s.GetQueries(ctx).InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
+	if err != nil {
+		return nil, mapResponseProfileWriteError("create", err)
+	}
+	return responseProfileFromRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+	row, err := s.GetQueries(ctx).UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profile.ID)
+		}
+		return nil, mapResponseProfileWriteError("update", err)
+	}
+	return responseProfileFromRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, profileID int64) error {
+	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
+		ID:    profileID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to delete curtailment response profile: %v", err)
+	}
+	if rows == 0 {
+		return fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+	}
+	return nil
 }
 
 // InsertEventWithTargets writes event + targets in one transaction.
@@ -1000,6 +1060,86 @@ func nullStringToFloat64Ptr(n sql.NullString) *float64 {
 		return nil
 	}
 	return &v
+}
+
+func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.ResponseProfile {
+	return &models.ResponseProfile{
+		ID:                      row.ID,
+		OrgID:                   row.OrgID,
+		ProfileName:             row.ProfileName,
+		SiteID:                  row.SiteID,
+		Mode:                    models.Mode(row.Mode),
+		Strategy:                models.Strategy(row.Strategy),
+		Level:                   models.Level(row.Level),
+		Priority:                models.Priority(row.Priority),
+		TargetKW:                nullStringToFloat64Ptr(row.TargetKw),
+		ToleranceKW:             nullStringToFloat64Ptr(row.ToleranceKw),
+		RestoreBatchSize:        row.RestoreBatchSize,
+		RestoreBatchIntervalSec: row.RestoreBatchIntervalSec,
+		MinCurtailedDurationSec: row.MinCurtailedDurationSec,
+		MaxDurationSeconds:      nullInt32ToPtr(row.MaxDurationSeconds),
+		IncludeMaintenance:      row.IncludeMaintenance,
+		ForceIncludeMaintenance: row.ForceIncludeMaintenance,
+		CreatedAt:               row.CreatedAt,
+		UpdatedAt:               row.UpdatedAt,
+	}
+}
+
+func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurtailmentResponseProfileParams {
+	return sqlc.InsertCurtailmentResponseProfileParams{
+		OrgID:                   profile.OrgID,
+		ProfileName:             profile.ProfileName,
+		SiteID:                  profile.SiteID,
+		Mode:                    string(profile.Mode),
+		Strategy:                string(profile.Strategy),
+		Level:                   string(profile.Level),
+		Priority:                string(profile.Priority),
+		TargetKw:                ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:             ptrFloat64ToNullString(profile.ToleranceKW),
+		RestoreBatchSize:        profile.RestoreBatchSize,
+		RestoreBatchIntervalSec: profile.RestoreBatchIntervalSec,
+		MinCurtailedDurationSec: profile.MinCurtailedDurationSec,
+		MaxDurationSeconds:      ptrToNullInt32(profile.MaxDurationSeconds),
+		IncludeMaintenance:      profile.IncludeMaintenance,
+		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+	}
+}
+
+func updateResponseProfileParams(profile models.ResponseProfile) sqlc.UpdateCurtailmentResponseProfileParams {
+	return sqlc.UpdateCurtailmentResponseProfileParams{
+		ID:                      profile.ID,
+		OrgID:                   profile.OrgID,
+		ProfileName:             profile.ProfileName,
+		SiteID:                  profile.SiteID,
+		Mode:                    string(profile.Mode),
+		Strategy:                string(profile.Strategy),
+		Level:                   string(profile.Level),
+		Priority:                string(profile.Priority),
+		TargetKw:                ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:             ptrFloat64ToNullString(profile.ToleranceKW),
+		RestoreBatchSize:        profile.RestoreBatchSize,
+		RestoreBatchIntervalSec: profile.RestoreBatchIntervalSec,
+		MinCurtailedDurationSec: profile.MinCurtailedDurationSec,
+		MaxDurationSeconds:      ptrToNullInt32(profile.MaxDurationSeconds),
+		IncludeMaintenance:      profile.IncludeMaintenance,
+		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+	}
+}
+
+func mapResponseProfileWriteError(action string, err error) error {
+	if isUniqueViolation(err) {
+		return fleeterror.NewAlreadyExistsError("a curtailment response profile with this name already exists")
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgErrCodeForeignKeyViolation:
+			return fleeterror.NewNotFoundError("organization or site not found for curtailment response profile")
+		case "23514": // check_violation
+			return fleeterror.NewInvalidArgumentError("curtailment response profile violates persisted constraints")
+		}
+	}
+	return fleeterror.NewInternalErrorf("failed to %s curtailment response profile: %v", action, err)
 }
 
 // bulkInsertTargetRow is the per-target JSON shape consumed by

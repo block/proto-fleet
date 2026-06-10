@@ -88,6 +88,19 @@ service CurtailmentService {
         returns (SetMqttCurtailmentSourceEnabledResponse);
     rpc DeleteMqttCurtailmentSource(DeleteMqttCurtailmentSourceRequest)
         returns (DeleteMqttCurtailmentSourceResponse);
+
+    // Curtailment response profiles. Profiles define response behavior only;
+    // automation binds triggers/sources to profiles in a separate surface.
+    rpc ListCurtailmentResponseProfiles(ListCurtailmentResponseProfilesRequest)
+        returns (ListCurtailmentResponseProfilesResponse);
+    rpc GetCurtailmentResponseProfile(GetCurtailmentResponseProfileRequest)
+        returns (GetCurtailmentResponseProfileResponse);
+    rpc CreateCurtailmentResponseProfile(CreateCurtailmentResponseProfileRequest)
+        returns (CreateCurtailmentResponseProfileResponse);
+    rpc UpdateCurtailmentResponseProfile(UpdateCurtailmentResponseProfileRequest)
+        returns (UpdateCurtailmentResponseProfileResponse);
+    rpc DeleteCurtailmentResponseProfile(DeleteCurtailmentResponseProfileRequest)
+        returns (DeleteCurtailmentResponseProfileResponse);
 }
 
 // --- Enums ---
@@ -888,3 +901,160 @@ message DeleteMqttCurtailmentSourceRequest {
 }
 
 message DeleteMqttCurtailmentSourceResponse {}
+
+// --- Response profiles ---
+
+message CurtailmentResponseProfile {
+    int64 profile_id = 1;
+    string profile_name = 2;
+
+    // The first profile-backed integration targets one site. Additional
+    // scopes should be added only when automation/product behavior needs them.
+    ScopeSite site = 3;
+
+    CurtailmentMode mode = 4;
+    CurtailmentStrategy strategy = 5;
+    CurtailmentLevel level = 6;
+    CurtailmentPriority priority = 7;
+
+    oneof mode_params {
+        FixedKwParams fixed_kw = 8;
+    }
+
+    uint32 restore_batch_size = 10;
+    uint32 restore_batch_interval_sec = 11;
+    uint32 min_curtailed_duration_sec = 12;
+    optional uint32 max_duration_seconds = 13;
+    bool include_maintenance = 14;
+    bool force_include_maintenance = 15;
+
+    google.protobuf.Timestamp created_at = 20;
+    google.protobuf.Timestamp updated_at = 21;
+}
+
+message ListCurtailmentResponseProfilesRequest {}
+
+message ListCurtailmentResponseProfilesResponse {
+    repeated CurtailmentResponseProfile profiles = 1;
+}
+
+message GetCurtailmentResponseProfileRequest {
+    int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetCurtailmentResponseProfileResponse {
+    CurtailmentResponseProfile profile = 1;
+}
+
+message CreateCurtailmentResponseProfileRequest {
+    option (buf.validate.message).cel = {
+        id: "site_required"
+        message: "site must be set"
+        expression: "has(this.site)"
+    };
+    option (buf.validate.message).cel = {
+        id: "mode_params_match_mode"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
+    };
+    option (buf.validate.message).cel = {
+        id: "maintenance_force_required"
+        message: "include_maintenance and force_include_maintenance must be set together"
+        expression: "this.include_maintenance == this.force_include_maintenance"
+    };
+
+    string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    ScopeSite site = 2;
+
+    CurtailmentMode mode = 3 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [1, 8]
+    }];
+    CurtailmentStrategy strategy = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1]
+    }];
+    CurtailmentLevel level = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 2]
+    }];
+    CurtailmentPriority priority = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1, 3]
+    }];
+
+    oneof mode_params {
+        FixedKwParams fixed_kw = 7;
+    }
+
+    uint32 restore_batch_size = 10 [(buf.validate.field).uint32 = {lte: 10000}];
+    uint32 restore_batch_interval_sec = 11 [(buf.validate.field).uint32 = {lte: 3600}];
+    uint32 min_curtailed_duration_sec = 12;
+    optional uint32 max_duration_seconds = 13 [(buf.validate.field).uint32 = {gt: 0, lte: 604800}];
+    bool include_maintenance = 14;
+    bool force_include_maintenance = 15;
+}
+
+message CreateCurtailmentResponseProfileResponse {
+    CurtailmentResponseProfile profile = 1;
+}
+
+message UpdateCurtailmentResponseProfileRequest {
+    option (buf.validate.message).cel = {
+        id: "site_required"
+        message: "site must be set"
+        expression: "has(this.site)"
+    };
+    option (buf.validate.message).cel = {
+        id: "mode_params_match_mode"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
+    };
+    option (buf.validate.message).cel = {
+        id: "maintenance_force_required"
+        message: "include_maintenance and force_include_maintenance must be set together"
+        expression: "this.include_maintenance == this.force_include_maintenance"
+    };
+
+    int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
+    string profile_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    ScopeSite site = 3;
+
+    CurtailmentMode mode = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [1, 8]
+    }];
+    CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1]
+    }];
+    CurtailmentLevel level = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 2]
+    }];
+    CurtailmentPriority priority = 7 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1, 3]
+    }];
+
+    oneof mode_params {
+        FixedKwParams fixed_kw = 8;
+    }
+
+    uint32 restore_batch_size = 10 [(buf.validate.field).uint32 = {lte: 10000}];
+    uint32 restore_batch_interval_sec = 11 [(buf.validate.field).uint32 = {lte: 3600}];
+    uint32 min_curtailed_duration_sec = 12;
+    optional uint32 max_duration_seconds = 13 [(buf.validate.field).uint32 = {gt: 0, lte: 604800}];
+    bool include_maintenance = 14;
+    bool force_include_maintenance = 15;
+}
+
+message UpdateCurtailmentResponseProfileResponse {
+    CurtailmentResponseProfile profile = 1;
+}
+
+message DeleteCurtailmentResponseProfileRequest {
+    int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteCurtailmentResponseProfileResponse {}
