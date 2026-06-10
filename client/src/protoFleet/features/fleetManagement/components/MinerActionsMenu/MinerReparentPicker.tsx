@@ -34,17 +34,46 @@ const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 // Capacity check for the bulk Add-to-rack path. Server-side
 // AddDevicesToDeviceSet doesn't enforce slot count, so an over-fill
 // here would persist invisibly until the operator opened the rack
-// view and saw "deviceCount > totalSlots". Returns null when the
-// target has room; otherwise returns the operator-facing message.
-const rackOverflowMessage = (rack: DeviceSet, addCount: number): string | null => {
+// view. Discounts ids already in the rack — server uses
+// `ON CONFLICT DO NOTHING`, so existing members aren't new additions.
+// Returns null when the target has room.
+const rackOverflowMessage = (rack: DeviceSet, currentMembers: Set<string>, ids: string[]): string | null => {
   const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
   if (!rackInfo) return null;
   const totalSlots = rackInfo.rows * rackInfo.columns;
   if (totalSlots <= 0) return null;
+  const newAdditions = ids.filter((id) => !currentMembers.has(id)).length;
   const available = Math.max(0, totalSlots - rack.deviceCount);
-  if (addCount <= available) return null;
+  if (newAdditions <= available) return null;
   const label = rack.label || "rack";
-  return `Can't add ${addCount} miners to "${label}" — only ${available} slot${available === 1 ? "" : "s"} available (${rack.deviceCount}/${totalSlots} full).`;
+  return `Can't add ${newAdditions} miners to "${label}" — only ${available} slot${available === 1 ? "" : "s"} available (${rack.deviceCount}/${totalSlots} full).`;
+};
+
+// Paginate listMinerStateSnapshots filtered to the target rack so the
+// capacity guard can discount ids that are already members. Capped at
+// MAX_MINERS for the same reason as resolveAllModeIds.
+const resolveRackMembers = async (rackId: bigint): Promise<Set<string>> => {
+  const filter = create(MinerListFilterSchema, { rackIds: [rackId] });
+  const members = new Set<string>();
+  let cursor = "";
+  let exhausted = false;
+  for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
+    const response = await fleetManagementClient.listMinerStateSnapshots({
+      pageSize: SNAPSHOT_PAGE_SIZE,
+      cursor,
+      filter,
+    });
+    for (const miner of response.miners) members.add(miner.deviceIdentifier);
+    if (!response.cursor) {
+      exhausted = true;
+      break;
+    }
+    cursor = response.cursor;
+  }
+  if (!exhausted) {
+    throw new Error(`Target rack has more than ${MAX_MINERS} miners. Refresh the page and retry.`);
+  }
+  return members;
 };
 
 const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => {
@@ -108,14 +137,15 @@ const MinerReparentPicker = ({
       return;
     }
     let rack: DeviceSet;
+    let currentMembers: Set<string>;
     try {
-      rack = await fetchRack(targetId);
+      [rack, currentMembers] = await Promise.all([fetchRack(targetId), resolveRackMembers(targetId)]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load rack.";
       pushToast({ message, status: STATUSES.error });
       return;
     }
-    const overflow = rackOverflowMessage(rack, ids.length);
+    const overflow = rackOverflowMessage(rack, currentMembers, ids);
     if (overflow) {
       pushToast({ message: overflow, status: STATUSES.error });
       return;

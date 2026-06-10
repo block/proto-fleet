@@ -303,31 +303,27 @@ const RacksPage = () => {
     selectedZonesRef.current = [];
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
-    if (hadSiteFilter) {
+    // Single setSearchParams call so the second writer doesn't see a
+    // stale `prev` (react-router resolves the updater against the
+    // current location, not the value set by an earlier call in the
+    // same render).
+    if (hadBuildingFilter || hadSiteFilter) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("site");
+          next.delete(BUILDING_URL_PARAM);
           return next;
         },
         { replace: true },
       );
     }
-    setBuildingFilter([]);
     // URL changes trigger refetch via prevBuildingKey effect; call
     // manually only when there's no URL transition to avoid double-fetch.
     if (!hadBuildingFilter && !hadSiteFilter) {
       resetAndFetch();
     }
-  }, [
-    resetAndFetch,
-    selectedBuildingIdStrings,
-    selectedIssuesRef,
-    selectedZonesRef,
-    setBuildingFilter,
-    setSearchParams,
-    urlSiteIds,
-  ]);
+  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setSearchParams, urlSiteIds]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
