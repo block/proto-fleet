@@ -53,15 +53,17 @@ type SettingsService struct {
 	store            SettingsStore
 	cipher           PasswordCipher
 	runtime          RuntimeController
+	connectionTester SourceConnectionTester
 	clock            func() time.Time
 	reconcileTimeout time.Duration
 }
 
 type SettingsServiceConfig struct {
-	Store   SettingsStore
-	Cipher  PasswordCipher
-	Runtime RuntimeController
-	Clock   func() time.Time
+	Store            SettingsStore
+	Cipher           PasswordCipher
+	Runtime          RuntimeController
+	ConnectionTester SourceConnectionTester
+	Clock            func() time.Time
 }
 
 func NewSettingsService(cfg SettingsServiceConfig) (*SettingsService, error) {
@@ -78,6 +80,7 @@ func NewSettingsService(cfg SettingsServiceConfig) (*SettingsService, error) {
 		store:            cfg.Store,
 		cipher:           cfg.Cipher,
 		runtime:          cfg.Runtime,
+		connectionTester: cfg.ConnectionTester,
 		clock:            cfg.Clock,
 		reconcileTimeout: settingsReconcileTimeout,
 	}, nil
@@ -283,6 +286,21 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	return s.reconcile(ctx)
 }
 
+func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
+	if s.connectionTester == nil {
+		return TestSourceConnectionResult{}, fleeterror.NewUnimplementedError("mqtt source connection testing is not configured")
+	}
+	source := normalizeSourceConfig(req.Source)
+	if source.SourceName == "" {
+		source.SourceName = connectionTestSourceName
+	}
+	if err := validateConnectionTestConfig(source, req.PlaintextPassword); err != nil {
+		return TestSourceConnectionResult{}, err
+	}
+	req.Source = source
+	return s.connectionTester.TestConnection(ctx, req)
+}
+
 func (s *SettingsService) getConfig(ctx context.Context, orgID, sourceID int64) (SourceConfig, error) {
 	if orgID <= 0 {
 		return SourceConfig{}, fleeterror.NewInvalidArgumentError("org_id must be set")
@@ -378,6 +396,47 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 	}
 	if source.StalenessThreshold <= 0 {
 		return fleeterror.NewInvalidArgumentError("staleness_threshold_sec must be greater than zero")
+	}
+	return nil
+}
+
+func validateConnectionTestConfig(source SourceConfig, plaintextPassword string) error {
+	if source.OrganizationID <= 0 {
+		return fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if source.ServiceUserID <= 0 {
+		return fleeterror.NewInvalidArgumentError("service_user_id must be set")
+	}
+	if err := validateBoundedString("source_name", source.SourceName); err != nil {
+		return err
+	}
+	if err := validateBoundedString("topic", source.Topic); err != nil {
+		return err
+	}
+	if err := validateBoundedString("broker_primary_host", source.BrokerPrimaryHost); err != nil {
+		return err
+	}
+	if err := validateBoundedString("broker_secondary_host", source.BrokerSecondaryHost); err != nil {
+		return err
+	}
+	if source.BrokerPort <= 0 || source.BrokerPort > 65535 {
+		return fleeterror.NewInvalidArgumentError("broker_port must be between 1 and 65535")
+	}
+	primary, secondary, ok := ResolveBrokerRoles(source.BrokerPrimaryHost, source.BrokerSecondaryHost)
+	if !ok {
+		return fleeterror.NewInvalidArgumentError("broker hosts must be distinct")
+	}
+	if err := validateBrokerTransport(source, primary, secondary); err != nil {
+		return fleeterror.NewInvalidArgumentError(err.Error())
+	}
+	if err := validateBoundedString("mqtt_username", source.MQTTUsername); err != nil {
+		return err
+	}
+	if strings.TrimSpace(plaintextPassword) == "" {
+		return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+	}
+	if _, err := decoderForFormat(source.PayloadFormat); err != nil {
+		return fleeterror.NewInvalidArgumentError(err.Error())
 	}
 	return nil
 }

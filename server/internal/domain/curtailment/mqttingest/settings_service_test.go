@@ -179,6 +179,19 @@ func (f *fakeRuntimeController) QuiesceSource(context.Context, int64) error {
 	return nil
 }
 
+type fakeSourceConnectionTester struct {
+	calls int
+	req   TestSourceConnectionRequest
+	out   TestSourceConnectionResult
+	err   error
+}
+
+func (f *fakeSourceConnectionTester) TestConnection(_ context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
+	f.calls++
+	f.req = req
+	return f.out, f.err
+}
+
 func validSettingsSource() SourceConfig {
 	return SourceConfig{
 		OrganizationID:      42,
@@ -215,6 +228,67 @@ func TestSettingsService_CreateDefaultsEnabledAndEncryptsPassword(t *testing.T) 
 	assert.Equal(t, int32(1883), view.Config.BrokerPort)
 	assert.Equal(t, 1, cipher.encryptCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)
+}
+
+func TestSettingsService_TestConnectionNormalizesAndDelegatesWithoutPersistence(t *testing.T) {
+	t.Parallel()
+
+	tester := &fakeSourceConnectionTester{
+		out: TestSourceConnectionResult{Results: []BrokerConnectionResult{{
+			Broker:     "10.0.0.1",
+			Role:       BrokerPrimary,
+			Connected:  true,
+			Subscribed: true,
+		}}},
+	}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(),
+		Cipher:           &fakeSettingsCipher{},
+		ConnectionTester: tester,
+	})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.SourceName = ""
+	source.BrokerPort = 0
+	source.BrokerTransport = ""
+	source.PayloadFormat = ""
+	source.StalenessThreshold = 0
+	result, err := svc.TestConnection(t.Context(), TestSourceConnectionRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Equal(t, 1, tester.calls)
+	assert.Equal(t, connectionTestSourceName, tester.req.Source.SourceName)
+	assert.Equal(t, defaultBrokerPort, tester.req.Source.BrokerPort)
+	assert.Equal(t, brokerTransportTCP, tester.req.Source.BrokerTransport)
+	assert.Equal(t, payloadFormatTargetTimestamp, tester.req.Source.PayloadFormat)
+	assert.Equal(t, time.Duration(defaultStalenessThresholdSec)*time.Second, tester.req.Source.StalenessThreshold)
+	assert.Equal(t, "secret", tester.req.PlaintextPassword)
+}
+
+func TestSettingsService_TestConnectionRejectsMissingPasswordBeforeBrokerCall(t *testing.T) {
+	t.Parallel()
+
+	tester := &fakeSourceConnectionTester{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(),
+		Cipher:           &fakeSettingsCipher{},
+		ConnectionTester: tester,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.TestConnection(t.Context(), TestSourceConnectionRequest{
+		Source: validSettingsSource(),
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "mqtt_password is required")
+	assert.Zero(t, tester.calls)
 }
 
 func TestSettingsService_CreateDuplicateNameReturnsAlreadyExists(t *testing.T) {

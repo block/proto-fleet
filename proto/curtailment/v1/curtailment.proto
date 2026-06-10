@@ -82,6 +82,8 @@ service CurtailmentService {
         returns (CreateMqttCurtailmentSourceResponse);
     rpc UpdateMqttCurtailmentSource(UpdateMqttCurtailmentSourceRequest)
         returns (UpdateMqttCurtailmentSourceResponse);
+    rpc TestMqttCurtailmentSourceConnection(TestMqttCurtailmentSourceConnectionRequest)
+        returns (TestMqttCurtailmentSourceConnectionResponse);
     rpc SetMqttCurtailmentSourceEnabled(SetMqttCurtailmentSourceEnabledRequest)
         returns (SetMqttCurtailmentSourceEnabledResponse);
     rpc DeleteMqttCurtailmentSource(DeleteMqttCurtailmentSourceRequest)
@@ -838,6 +840,30 @@ message UpdateMqttCurtailmentSourceRequest {
 
 message UpdateMqttCurtailmentSourceResponse {
     MqttCurtailmentSource source = 1;
+}
+
+message TestMqttCurtailmentSourceConnectionRequest {
+    string topic = 1 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    string broker_primary_host = 2 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    string broker_secondary_host = 3 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    int32 broker_port = 4 [(buf.validate.field).int32 = { gte: 0, lt: 65536 }];
+    string broker_transport = 5 [(buf.validate.field).string.max_len = 8];
+    string mqtt_username = 6 [(buf.validate.field).string = { min_len: 1, max_len: 255 }];
+    string mqtt_password = 7 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
+    string payload_format = 8 [(buf.validate.field).string.max_len = 64];
+}
+
+message MqttCurtailmentSourceConnectionResult {
+    string broker = 1;
+    string broker_role = 2;
+    bool connected = 3;
+    bool subscribed = 4;
+    string error = 5;
+}
+
+message TestMqttCurtailmentSourceConnectionResponse {
+    bool ok = 1;
+    repeated MqttCurtailmentSourceConnectionResult results = 2;
 }
 
 message SetMqttCurtailmentSourceEnabledRequest {

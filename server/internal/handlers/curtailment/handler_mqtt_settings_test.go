@@ -111,6 +111,75 @@ func TestHandler_EnableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *testing.T) {
+	t.Parallel()
+
+	tester := &handlerMqttConnectionTester{
+		out: mqttingest.TestSourceConnectionResult{Results: []mqttingest.BrokerConnectionResult{
+			{
+				Broker:     "10.0.0.1",
+				Role:       mqttingest.BrokerPrimary,
+				Connected:  true,
+				Subscribed: true,
+			},
+			{
+				Broker:    "10.0.0.2",
+				Role:      mqttingest.BrokerSecondary,
+				Connected: true,
+				Error:     "not authorized",
+			},
+		}},
+	}
+	settings, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
+		Store:            &handlerMqttSettingsStore{},
+		Cipher:           &handlerMqttCipher{},
+		ConnectionTester: tester,
+	})
+	require.NoError(t, err)
+	h := NewHandler(nil, settings)
+
+	resp, err := h.TestMqttCurtailmentSourceConnection(
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.TestMqttCurtailmentSourceConnectionRequest{
+			Topic:               "maestro/curtailment",
+			BrokerPrimaryHost:   "10.0.0.1",
+			BrokerSecondaryHost: "10.0.0.2",
+			MqttUsername:        "operator",
+			MqttPassword:        "secret",
+			PayloadFormat:       "target_timestamp",
+		}),
+	)
+	require.NoError(t, err)
+
+	assert.False(t, resp.Msg.GetOk())
+	require.Len(t, resp.Msg.GetResults(), 2)
+	assert.Equal(t, "primary", resp.Msg.GetResults()[0].GetBrokerRole())
+	assert.True(t, resp.Msg.GetResults()[0].GetSubscribed())
+	assert.Equal(t, "secondary", resp.Msg.GetResults()[1].GetBrokerRole())
+	assert.Equal(t, "not authorized", resp.Msg.GetResults()[1].GetError())
+
+	assert.Equal(t, int64(42), tester.req.Source.OrganizationID)
+	assert.Equal(t, int64(9), tester.req.Source.ServiceUserID)
+	assert.Equal(t, defaultMqttTestBrokerPort(), tester.req.Source.BrokerPort)
+	assert.Equal(t, "operator", tester.req.Source.MQTTUsername)
+	assert.Equal(t, "secret", tester.req.PlaintextPassword)
+}
+
+func TestHandler_TestMqttCurtailmentSourceConnectionRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	_, err := h.TestMqttCurtailmentSourceConnection(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.TestMqttCurtailmentSourceConnectionRequest{}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
 type handlerMqttSettingsStore struct {
 	created *mqttingest.SourceConfig
 }
@@ -158,4 +227,19 @@ func (handlerMqttCipher) Decrypt(encrypted string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected ciphertext")
 	}
 	return []byte(encrypted[4:]), nil
+}
+
+type handlerMqttConnectionTester struct {
+	req mqttingest.TestSourceConnectionRequest
+	out mqttingest.TestSourceConnectionResult
+	err error
+}
+
+func (h *handlerMqttConnectionTester) TestConnection(_ context.Context, req mqttingest.TestSourceConnectionRequest) (mqttingest.TestSourceConnectionResult, error) {
+	h.req = req
+	return h.out, h.err
+}
+
+func defaultMqttTestBrokerPort() int32 {
+	return 1883
 }

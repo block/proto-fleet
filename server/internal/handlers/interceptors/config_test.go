@@ -29,6 +29,8 @@ func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
 		curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure)
 	assert.Contains(t, RedactedRequestProcedures,
 		curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure)
+	assert.Contains(t, RedactedRequestProcedures,
+		curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure)
 }
 
 // AdminTerminateEvent is the operator-of-last-resort recovery RPC and must

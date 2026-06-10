@@ -54,7 +54,7 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
-	if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
+	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 		return nil, err
 	}
 	if h.mqttSettings == nil {
@@ -88,7 +88,7 @@ func (h *Handler) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
-	if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
+	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 		return nil, err
 	}
 	if h.mqttSettings == nil {
@@ -122,13 +122,48 @@ func (h *Handler) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.
 	return connect.NewResponse(&pb.UpdateMqttCurtailmentSourceResponse{Source: toMqttSourceProto(view)}), nil
 }
 
+func (h *Handler) TestMqttCurtailmentSourceConnection(ctx context.Context, req *connect.Request[pb.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[pb.TestMqttCurtailmentSourceConnectionResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
+		return nil, err
+	}
+	if h.mqttSettings == nil {
+		return nil, errCurtailmentNotImplemented("TestMqttCurtailmentSourceConnection")
+	}
+	source := mqttingest.SourceConfig{
+		OrganizationID:      info.OrganizationID,
+		ServiceUserID:       info.UserID,
+		Topic:               req.Msg.GetTopic(),
+		BrokerPrimaryHost:   req.Msg.GetBrokerPrimaryHost(),
+		BrokerSecondaryHost: req.Msg.GetBrokerSecondaryHost(),
+		BrokerPort:          req.Msg.GetBrokerPort(),
+		BrokerTransport:     req.Msg.GetBrokerTransport(),
+		MQTTUsername:        req.Msg.GetMqttUsername(),
+		PayloadFormat:       req.Msg.GetPayloadFormat(),
+	}
+	result, err := h.mqttSettings.TestConnection(ctx, mqttingest.TestSourceConnectionRequest{
+		Source:            source,
+		PlaintextPassword: req.Msg.GetMqttPassword(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.TestMqttCurtailmentSourceConnectionResponse{
+		Ok:      result.OK(),
+		Results: toMqttConnectionResultProtos(result.Results),
+	}), nil
+}
+
 func (h *Handler) SetMqttCurtailmentSourceEnabled(ctx context.Context, req *connect.Request[pb.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[pb.SetMqttCurtailmentSourceEnabledResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
 	if req.Msg.GetEnabled() {
-		if err := requireAdminFromContext(ctx, actionManageMqttAutomation); err != nil {
+		if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 			return nil, err
 		}
 	}
@@ -154,6 +189,31 @@ func (h *Handler) DeleteMqttCurtailmentSource(ctx context.Context, req *connect.
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteMqttCurtailmentSourceResponse{}), nil
+}
+
+func toMqttConnectionResultProtos(results []mqttingest.BrokerConnectionResult) []*pb.MqttCurtailmentSourceConnectionResult {
+	out := make([]*pb.MqttCurtailmentSourceConnectionResult, len(results))
+	for i, result := range results {
+		out[i] = &pb.MqttCurtailmentSourceConnectionResult{
+			Broker:     result.Broker,
+			BrokerRole: mqttConnectionBrokerRole(result.Role),
+			Connected:  result.Connected,
+			Subscribed: result.Subscribed,
+			Error:      result.Error,
+		}
+	}
+	return out
+}
+
+func mqttConnectionBrokerRole(role mqttingest.BrokerRole) string {
+	switch role {
+	case mqttingest.BrokerPrimary:
+		return "primary"
+	case mqttingest.BrokerSecondary:
+		return "secondary"
+	default:
+		return "unknown"
+	}
 }
 
 func toMqttSourceProto(view mqttingest.SourceView) *pb.MqttCurtailmentSource {

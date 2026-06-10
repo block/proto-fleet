@@ -504,10 +504,17 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
 	}
 	defer mqttSubscriber.Stop()
+	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
+		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize curtailment mqtt connection tester: %w", err)
+	}
 	mqttSettingsSvc, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
-		Store:   mqttingest.NewSQLCSettingsStore(mqttQueries),
-		Cipher:  encryptSvc,
-		Runtime: mqttSubscriber,
+		Store:            mqttingest.NewSQLCSettingsStore(mqttQueries),
+		Cipher:           encryptSvc,
+		Runtime:          mqttSubscriber,
+		ConnectionTester: mqttConnectionTester,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
