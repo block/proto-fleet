@@ -15,12 +15,9 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import {
-  AssignMinersModal,
-  type RackFormData,
-} from "@/protoFleet/features/fleetManagement/components/AssignMinersModal";
-import SearchMinersModal from "@/protoFleet/features/fleetManagement/components/AssignMinersModal/SearchMinersModal";
-import { orderIndexToOrigin } from "@/protoFleet/features/fleetManagement/components/AssignMinersModal/types";
+import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
+import SearchMinersModal from "@/protoFleet/features/fleetManagement/components/ManageRackModal/SearchMinersModal";
+import { orderIndexToOrigin } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
 import type { SlotHealthState } from "@/protoFleet/features/fleetManagement/components/RackDetailGrid/types";
 import { RackHealthModule } from "@/protoFleet/features/fleetManagement/components/RackHealthModule";
 import { SLOT_STATUS_MAP } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
@@ -209,7 +206,7 @@ const RackOverviewPage = () => {
     return states;
   }, [deviceSetStats]);
 
-  // AssignMinersModal form data (for edit rack flow)
+  // ManageRackModal form data (for edit rack flow)
   const assignMinersFormData = useMemo<RackFormData | null>(() => {
     if (!showEditModal || !rack || !rackInfo) return null;
     return {
@@ -413,7 +410,7 @@ const RackOverviewPage = () => {
       </div>
 
       {showEditModal && rack && assignMinersFormData ? (
-        <AssignMinersModal
+        <ManageRackModal
           show
           rackSettings={assignMinersFormData}
           existingRackId={rack.id}

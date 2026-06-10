@@ -8,7 +8,7 @@ import {
   type RackType,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/AssignMinersModal/types";
+import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
 
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";

@@ -23,7 +23,7 @@ interface ManageBuildingModalProps {
   // Opens BuildingSettingsModal stacked on top of this manage modal.
   onEditDetails: () => void;
   // Opens BuildingDeleteDialog via the page-level useBuildingModals.
-  // Mirrors AssignMinersModal's header Delete CTA.
+  // Mirrors ManageRackModal's header Delete CTA.
   onDeleteRequested: () => void;
   // Fires after a successful save so the host page can refresh its
   // building cache (rack counts, layout fields change). The rack
@@ -53,7 +53,7 @@ const ManageBuildingModal = ({
 
   const [entries, setEntries] = useState<AssignmentEntry[]>([]);
   // Manual is the operator's default mental model (and matches
-  // AssignMinersModal's default) — surface that mode immediately so the
+  // ManageRackModal's default) — surface that mode immediately so the
   // assigned-racks list is clickable on first render.
   const [assignmentMode, setAssignmentMode] = useState<BuildingAssignmentMode>("manual");
   const [selectedRackId, setSelectedRackId] = useState<bigint | null>(null);
@@ -65,7 +65,7 @@ const ManageBuildingModal = ({
   const [showCellPopover, setShowCellPopover] = useState(false);
   // Hover bridge: grid → list. When the operator hovers an assigned cell,
   // BuildingGridPane sets this to that cell's rackId and the matching row
-  // picks up a hover highlight (mirrors AssignMinersModal.hoveredMinerId).
+  // picks up a hover highlight (mirrors ManageRackModal.hoveredMinerId).
   const [hoveredRackId, setHoveredRackId] = useState<bigint | null>(null);
   const [showManageRacks, setShowManageRacks] = useState(false);
   const [showSearchRacks, setShowSearchRacks] = useState(false);
@@ -219,7 +219,7 @@ const ManageBuildingModal = ({
   //     clear both selections (no popover);
   //  2) cell-first — no rack selected → mark this cell selected and open
   //     the popover so the operator can pick "Select from list" or
-  //     "Search racks". Mirrors AssignMinersModal.handleCellClick.
+  //     "Search racks". Mirrors ManageRackModal.handleCellClick.
   // Only fires in manual mode (BuildingGridPane gates on this).
   const handleCellClick = useCallback(
     (aisle: number, position: number, key: GridCellKey) => {
@@ -502,7 +502,7 @@ const ManageBuildingModal = ({
             testId: "manage-building-edit-details",
           },
           {
-            // Mirror of AssignMinersModal's "Manage Miners" header CTA —
+            // Mirror of ManageRackModal's "Manage Miners" header CTA —
             // the entry point for bulk rack add/remove.
             text: "Manage racks",
             variant: variants.secondary,

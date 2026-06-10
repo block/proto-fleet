@@ -74,7 +74,7 @@ const MockRackPane = ({ rows, cols }: { rows: number; cols: number }) => (
   </div>
 );
 
-type AssignMinersModalStoryProps = {
+type ManageRackModalStoryProps = {
   infoMessage: string;
   isLoading?: boolean;
   showError?: boolean;
@@ -83,14 +83,14 @@ type AssignMinersModalStoryProps = {
   cols?: number;
 };
 
-const AssignMinersModalStory = ({
+const ManageRackModalStory = ({
   infoMessage,
   isLoading = false,
   showError = false,
   rackLabel = "Rack A-01",
   rows = 4,
   cols = 5,
-}: AssignMinersModalStoryProps) => {
+}: ManageRackModalStoryProps) => {
   const [open, setOpen] = useState(true);
 
   if (!open) {
@@ -169,13 +169,13 @@ const AssignMinersModalStory = ({
 };
 
 const meta = {
-  title: "Proto Fleet/Rack Management/AssignMinersModal",
-  component: AssignMinersModalStory,
+  title: "Proto Fleet/Rack Management/ManageRackModal",
+  component: ManageRackModalStory,
   parameters: {
     layout: "fullscreen",
   },
   tags: ["autodocs"],
-} satisfies Meta<typeof AssignMinersModalStory>;
+} satisfies Meta<typeof ManageRackModalStory>;
 
 export default meta;
 

@@ -60,7 +60,7 @@ function filterAssignmentsByValues(record: Record<string, string>, keepSet: Set<
   return next;
 }
 
-interface AssignMinersModalProps {
+interface ManageRackModalProps {
   show: boolean;
   rackSettings: RackFormData;
   existingRackId?: bigint;
@@ -70,7 +70,7 @@ interface AssignMinersModalProps {
   onDelete?: () => Promise<void> | void;
 }
 
-export default function AssignMinersModal({
+export default function ManageRackModal({
   show,
   rackSettings: initialRackSettings,
   existingRackId,
@@ -78,7 +78,7 @@ export default function AssignMinersModal({
   onDismiss,
   onSave,
   onDelete,
-}: AssignMinersModalProps) {
+}: ManageRackModalProps) {
   const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
 
   // Fetch all miners for display data (name, IP, model, etc.)

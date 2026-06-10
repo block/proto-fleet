@@ -81,11 +81,11 @@ vi.mock("@/protoFleet/features/fleetManagement/components/RackHealthModule", () 
   RackHealthModule: () => <div>Rack health</div>,
 }));
 
-vi.mock("@/protoFleet/features/fleetManagement/components/AssignMinersModal", () => ({
-  AssignMinersModal: () => null,
+vi.mock("@/protoFleet/features/fleetManagement/components/ManageRackModal", () => ({
+  ManageRackModal: () => null,
 }));
 
-vi.mock("@/protoFleet/features/fleetManagement/components/AssignMinersModal/SearchMinersModal", () => ({
+vi.mock("@/protoFleet/features/fleetManagement/components/ManageRackModal/SearchMinersModal", () => ({
   __esModule: true,
   default: () => null,
 }));

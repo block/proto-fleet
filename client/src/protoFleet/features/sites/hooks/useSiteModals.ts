@@ -7,7 +7,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 // Modal-stack state. deleteConfirm lives in a parallel field (not this union)
 // so the cascade dialog renders as a sibling that overlays the stacked
-// manage/details modals without unmounting them — mirroring AssignMinersModal's
+// manage/details modals without unmounting them — mirroring ManageRackModal's
 // pattern. Cancel on the cascade dialog returns the operator to whichever
 // modal they came from.
 export type SiteModalState =

@@ -16,11 +16,8 @@ import NullState from "@/protoFleet/components/NullState";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import {
-  AssignMinersModal,
-  type RackFormData,
-} from "@/protoFleet/features/fleetManagement/components/AssignMinersModal";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
+import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import {
@@ -126,7 +123,7 @@ const RacksPage = () => {
   }, [effectiveBuildingIds]);
   const getBuildingIds = useCallback(() => effectiveBuildingIdsRef.current, []);
 
-  // AssignMinersModal state
+  // ManageRackModal state
   const [assignMinersFormData, setAssignMinersFormData] = useState<RackFormData | null>(null);
   const [assignMinersRackId, setAssignMinersRackId] = useState<bigint | undefined>(undefined);
 
@@ -540,7 +537,7 @@ const RacksPage = () => {
           />
         ) : null}
         {assignMinersFormData ? (
-          <AssignMinersModal
+          <ManageRackModal
             show={!!assignMinersFormData}
             rackSettings={assignMinersFormData}
             existingRackId={assignMinersRackId}
@@ -732,7 +729,7 @@ const RacksPage = () => {
         />
       ) : null}
       {assignMinersFormData ? (
-        <AssignMinersModal
+        <ManageRackModal
           show={!!assignMinersFormData}
           rackSettings={assignMinersFormData}
           existingRackId={assignMinersRackId}
