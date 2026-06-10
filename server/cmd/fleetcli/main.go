@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -238,6 +237,20 @@ func apiKeyCommand() *cli.Command {
 // when no --metric flags are provided.
 var defaultPerformanceMetrics = []string{"hashrate", "efficiency", "power", "temperature", "uptime"}
 
+// measurementTypeByMetric maps CLI metric names to telemetry measurement
+// types; compactMeasurementName reverses it for response summaries.
+var measurementTypeByMetric = map[string]telemetryv1.MeasurementType{
+	"temperature": telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE,
+	"hashrate":    telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE,
+	"power":       telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER,
+	"efficiency":  telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY,
+	"fan_speed":   telemetryv1.MeasurementType_MEASUREMENT_TYPE_FAN_SPEED,
+	"voltage":     telemetryv1.MeasurementType_MEASUREMENT_TYPE_VOLTAGE,
+	"current":     telemetryv1.MeasurementType_MEASUREMENT_TYPE_CURRENT,
+	"uptime":      telemetryv1.MeasurementType_MEASUREMENT_TYPE_UPTIME,
+	"error_rate":  telemetryv1.MeasurementType_MEASUREMENT_TYPE_ERROR_RATE,
+}
+
 func performanceCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "performance",
@@ -249,7 +262,7 @@ func performanceCommand() *cli.Command {
 				Flags: []cli.Flag{
 					&cli.DurationFlag{Name: "window", Usage: "Lookback window for historical metrics", Value: time.Hour},
 					&cli.DurationFlag{Name: "granularity", Usage: "Bucket size for aggregated metrics", Value: 30 * time.Second},
-					&cli.IntFlag{Name: "page-size", Usage: "Maximum number of metric rows to request", Value: 500},
+					&cli.Int32Flag{Name: "page-size", Usage: "Maximum number of metric rows to request", Value: 500},
 					&cli.StringSliceFlag{Name: "metric", Usage: "Metric types to request", Value: defaultPerformanceMetrics},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -316,12 +329,6 @@ func buildCombinedMetricsRequest(cmd *cli.Command) *telemetryv1.GetCombinedMetri
 	end := time.Now().UTC()
 	start := end.Add(-cmd.Duration("window"))
 
-	pageSize := cmd.Int("page-size")
-	if pageSize > math.MaxInt32 {
-		pageSize = math.MaxInt32
-	}
-	pageSize32 := int32(pageSize) // #nosec G115 -- clamped to int32 range above.
-
 	return &telemetryv1.GetCombinedMetricsRequest{
 		DeviceSelector: &telemetryv1.DeviceSelector{
 			SelectorValue: &telemetryv1.DeviceSelector_AllDevices{AllDevices: true},
@@ -336,7 +343,7 @@ func buildCombinedMetricsRequest(cmd *cli.Command) *telemetryv1.GetCombinedMetri
 		Granularity: durationpb.New(cmd.Duration("granularity")),
 		StartTime:   timestamppb.New(start),
 		EndTime:     timestamppb.New(end),
-		PageSize:    pageSize32,
+		PageSize:    cmd.Int32("page-size"),
 	}
 }
 
@@ -347,25 +354,8 @@ func parseMeasurementTypes(values []string) []telemetryv1.MeasurementType {
 
 	result := make([]telemetryv1.MeasurementType, 0, len(values))
 	for _, value := range values {
-		switch value {
-		case "temperature":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE)
-		case "hashrate":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE)
-		case "power":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER)
-		case "efficiency":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY)
-		case "fan_speed":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_FAN_SPEED)
-		case "voltage":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_VOLTAGE)
-		case "current":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_CURRENT)
-		case "uptime":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_UPTIME)
-		case "error_rate":
-			result = append(result, telemetryv1.MeasurementType_MEASUREMENT_TYPE_ERROR_RATE)
+		if measurementType, ok := measurementTypeByMetric[value]; ok {
+			result = append(result, measurementType)
 		}
 	}
 	return result
@@ -508,30 +498,12 @@ func newestUptimeStatus(values []*telemetryv1.UptimeStatusCount) *telemetryv1.Up
 }
 
 func compactMeasurementName(value telemetryv1.MeasurementType) string {
-	switch value {
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_UNSPECIFIED:
-		return value.String()
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE:
-		return "temperature"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE:
-		return "hashrate"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER:
-		return "power"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY:
-		return "efficiency"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_FAN_SPEED:
-		return "fan_speed"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_VOLTAGE:
-		return "voltage"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_CURRENT:
-		return "current"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_UPTIME:
-		return "uptime"
-	case telemetryv1.MeasurementType_MEASUREMENT_TYPE_ERROR_RATE:
-		return "error_rate"
-	default:
-		return value.String()
+	for name, measurementType := range measurementTypeByMetric {
+		if measurementType == value {
+			return name
+		}
 	}
+	return value.String()
 }
 
 func openClient(ctx context.Context, cmd *cli.Command) (*Client, Options, error) {
