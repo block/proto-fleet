@@ -46,20 +46,19 @@ test.describe("Authentication settings", () => {
     });
 
     await test.step("Validate the password change request and success state", async () => {
-      const request = await requestPromise;
-      const response = await responsePromise;
+      const changePasswordRequest = await requestPromise;
+      const changePasswordResponse = await responsePromise;
 
-      expect(request.postDataJSON()).toEqual({
+      expect(changePasswordRequest.postDataJSON()).toEqual({
         current_password: testConfig.admin.password,
         new_password: newPassword,
       });
-      expect(response.status()).toBe(200);
+      expect(changePasswordResponse.status()).toBe(200);
+      updatedPassword = newPassword;
 
       await authenticationPage.validateToastMessage("Password updated");
       await authenticationPage.validateLoggedIn();
     });
-
-    updatedPassword = newPassword;
 
     await test.step("Validate the new password can authenticate again", async () => {
       const accessToken = await loginViaApi(request, newPassword);
