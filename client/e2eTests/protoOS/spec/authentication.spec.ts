@@ -49,12 +49,12 @@ test.describe("Authentication settings", () => {
       const changePasswordRequest = await requestPromise;
       const changePasswordResponse = await responsePromise;
 
+      expect(changePasswordResponse.status()).toBe(200);
+      updatedPassword = newPassword;
       expect(changePasswordRequest.postDataJSON()).toEqual({
         current_password: testConfig.admin.password,
         new_password: newPassword,
       });
-      expect(changePasswordResponse.status()).toBe(200);
-      updatedPassword = newPassword;
 
       await authenticationPage.validateToastMessage("Password updated");
       await authenticationPage.validateLoggedIn();
