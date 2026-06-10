@@ -7,6 +7,7 @@ package buildings
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -154,7 +155,7 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 	var b *models.Building
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		// Lock the building row first so a concurrent
-		// AssignRackToBuilding can't race us into orphaned-position
+		// AssignRacksToBuilding can't race us into orphaned-position
 		// state between the bounds check and the update.
 		if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, params.ID); err != nil {
 			return err
@@ -259,141 +260,172 @@ func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64
 	return s.store.ListBuildingRacks(ctx, orgID, buildingID, pageSize, pageToken)
 }
 
-// AssignRackToBuilding sets a rack's building_id and, optionally, its
-// grid placement (aisle_index, position_in_aisle). Runs in a single
-// transaction:
+// AssignRacksToBuilding sets the building_id (and optional grid
+// placement) of every rack in the batch. Runs in a single transaction:
 //
-//  1. Lock the target building (when assigning) so a concurrent
-//     DeleteBuilding can't race the placement write.
-//  2. Lock the rack row and read current placement.
-//  3. Resolve the new site_id from the target building (or NULL when
-//     unassigning).
-//  4. Validate the optional grid cell against the target building's
-//     aisles / racks_per_aisle.
-//  5. Call collectionStore.UpdateRackPlacement to write site_id +
-//     building_id + zone atomically (zone is cleared on cross/leave
-//     building, mirroring the existing SaveRack cascade rule).
-//  6. Cascade descendant device.site_id when the rack's site changes.
-//  7. When the request includes a grid cell, write it via
-//     SetRackBuildingPosition.
-func (s *Service) AssignRackToBuilding(ctx context.Context, params models.AssignRackToBuildingParams) (*models.AssignRackToBuildingResult, error) {
-	// Position fields must be paired. The proto CEL rule enforces
-	// this at the wire boundary; this is the defense-in-depth check
-	// for non-proto callers.
-	if (params.AisleIndex == nil) != (params.PositionInAisle == nil) {
-		return nil, fleeterror.NewInvalidArgumentError("aisle_index and position_in_aisle must both be set or both unset")
-	}
-	if params.AisleIndex != nil && params.BuildingID == nil {
-		return nil, fleeterror.NewInvalidArgumentError("a grid cell (aisle_index, position_in_aisle) requires a building_id")
-	}
-	if params.AisleIndex != nil && *params.AisleIndex < 0 {
-		return nil, fleeterror.NewInvalidArgumentError("aisle_index must be >= 0")
-	}
-	if params.PositionInAisle != nil && *params.PositionInAisle < 0 {
-		return nil, fleeterror.NewInvalidArgumentError("position_in_aisle must be >= 0")
+//  1. Lock the target building once (when assigning), canonical lock
+//     order is building -> rack(s).
+//  2. Validate every entry up-front (paired position fields, in-bounds
+//     aisle/position). The whole batch rejects on any invalid entry.
+//  3. For each rack (sorted by id for deadlock-safe lock order):
+//     a. Lock the rack row and read current placement.
+//     b. Resolve the new site_id from the target building (or preserve
+//     current.SiteID on building-only unassign).
+//     c. Compute final zone (clear on leave/cross building).
+//     d. Persist site_id + building_id + zone via UpdateRackPlacement.
+//     e. Cascade descendant device.site_id when the site changes; sum
+//     the per-rack counts into the aggregate result.
+//     f. Write the grid cell via SetRackBuildingPosition when the rack
+//     is assigned to a building (placed or explicitly cleared).
+//
+// If any rack fails, the whole tx rolls back and no row is touched.
+func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.AssignRacksToBuildingParams) (*models.AssignRacksToBuildingResult, error) {
+	if len(params.Racks) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("racks must not be empty")
 	}
 
+	// Per-entry validation runs before any I/O so a bad request fails
+	// fast without partial work. Defense-in-depth — the proto CEL rule
+	// also enforces position pairing.
+	for _, rp := range params.Racks {
+		if rp.RackID <= 0 {
+			return nil, fleeterror.NewInvalidArgumentError("rack_id must be > 0")
+		}
+		if (rp.AisleIndex == nil) != (rp.PositionInAisle == nil) {
+			return nil, fleeterror.NewInvalidArgumentError("aisle_index and position_in_aisle must both be set or both unset")
+		}
+		if rp.AisleIndex != nil && params.TargetBuildingID == nil {
+			return nil, fleeterror.NewInvalidArgumentError("a grid cell (aisle_index, position_in_aisle) requires a target_building_id")
+		}
+		if rp.AisleIndex != nil && *rp.AisleIndex < 0 {
+			return nil, fleeterror.NewInvalidArgumentError("aisle_index must be >= 0")
+		}
+		if rp.PositionInAisle != nil && *rp.PositionInAisle < 0 {
+			return nil, fleeterror.NewInvalidArgumentError("position_in_aisle must be >= 0")
+		}
+	}
+
+	// Sort rack entries by id for stable lock order so two concurrent
+	// AssignRacksToBuilding calls overlapping on a rack set can't
+	// deadlock.
+	racks := make([]models.RackPlacementParam, len(params.Racks))
+	copy(racks, params.Racks)
+	sort.Slice(racks, func(i, j int) bool { return racks[i].RackID < racks[j].RackID })
+
 	var (
-		out        models.AssignRackToBuildingResult
-		newSiteID  *int64
-		cascadeRan bool
+		out               models.AssignRacksToBuildingResult
+		targetSiteID      *int64
+		cascadeRackIDs    []int64
+		positionedRackIDs []int64
 	)
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		// Lock the target building first (canonical lock order:
 		// building -> rack). Skip when unassigning — there is no
-		// building row to lock — but we still lock the rack below.
+		// building row to lock — but each rack still gets row-locked
+		// below.
 		var targetBuilding *models.Building
-		if params.BuildingID != nil {
-			if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, *params.BuildingID); err != nil {
+		if params.TargetBuildingID != nil {
+			if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, *params.TargetBuildingID); err != nil {
 				return err
 			}
-			b, err := s.store.GetBuilding(txCtx, params.OrgID, *params.BuildingID)
+			b, err := s.store.GetBuilding(txCtx, params.OrgID, *params.TargetBuildingID)
 			if err != nil {
 				return err
 			}
 			targetBuilding = b
-			newSiteID = b.SiteID
+			targetSiteID = b.SiteID
 		}
 
 		// Grid-cell upper-bound validation has to run after we know
 		// the target building's layout dimensions.
-		if params.AisleIndex != nil && targetBuilding != nil {
-			if targetBuilding.Aisles <= 0 || *params.AisleIndex >= targetBuilding.Aisles {
-				return fleeterror.NewInvalidArgumentErrorf("aisle_index %d is out of bounds (building has %d aisles)", *params.AisleIndex, targetBuilding.Aisles)
+		if targetBuilding != nil {
+			for _, rp := range racks {
+				if rp.AisleIndex == nil {
+					continue
+				}
+				if targetBuilding.Aisles <= 0 || *rp.AisleIndex >= targetBuilding.Aisles {
+					return fleeterror.NewInvalidArgumentErrorf("aisle_index %d is out of bounds (building has %d aisles)", *rp.AisleIndex, targetBuilding.Aisles)
+				}
+				if targetBuilding.RacksPerAisle <= 0 || *rp.PositionInAisle >= targetBuilding.RacksPerAisle {
+					return fleeterror.NewInvalidArgumentErrorf("position_in_aisle %d is out of bounds (building allows %d racks per aisle)", *rp.PositionInAisle, targetBuilding.RacksPerAisle)
+				}
 			}
-			if targetBuilding.RacksPerAisle <= 0 || *params.PositionInAisle >= targetBuilding.RacksPerAisle {
-				return fleeterror.NewInvalidArgumentErrorf("position_in_aisle %d is out of bounds (building allows %d racks per aisle)", *params.PositionInAisle, targetBuilding.RacksPerAisle)
-			}
 		}
 
-		// Lock the rack row and read its current placement so we can
-		// decide whether the cascade needs to run + what zone value
-		// to persist.
-		current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, params.RackID, params.OrgID)
-		if err != nil {
-			return err
-		}
-
-		// Building-only unassign must NOT cascade-clear the rack's site
-		// (and, transitively, every descendant device.site_id). Removing
-		// a rack from a building is a building-membership change; the
-		// rack and its devices stay in their current site until an
-		// explicit site-level unassign happens elsewhere. Preserve
-		// current.SiteID in that branch so the siteChanged check below
-		// reads false and the cascade stays inert.
-		if params.BuildingID == nil {
-			newSiteID = current.SiteID
-		}
-
-		// Mirror SaveRack's zone-clear cascade: clear zone when the
-		// rack leaves a building or crosses to a different one.
-		// Preserve the current zone on a no-op building transition
-		// so legacy callers don't strip zone unintentionally.
-		finalZone := current.Zone
-		leavingBuilding := current.BuildingID != nil && params.BuildingID == nil
-		crossingBuildings := current.BuildingID != nil && params.BuildingID != nil && *current.BuildingID != *params.BuildingID
-		if leavingBuilding || crossingBuildings {
-			finalZone = ""
-		}
-
-		// Persist site_id + building_id + zone in one write. The
-		// query also clears the grid position on building transition
-		// via a CASE expression, so a stale (aisle_index,
-		// position_in_aisle) never outlives its parent building.
-		if err := s.collectionStore.UpdateRackPlacement(txCtx, params.RackID, params.OrgID, newSiteID, params.BuildingID, finalZone); err != nil {
-			return err
-		}
-
-		// Cascade descendant device.site_id when the rack's site
-		// changed. CascadeRackDeviceSites returns the row count.
-		siteChanged := !int64PtrEqual(current.SiteID, newSiteID)
-		if siteChanged {
-			count, err := s.collectionStore.CascadeRackDeviceSites(txCtx, params.RackID, params.OrgID, newSiteID)
+		for _, rp := range racks {
+			// Lock the rack row and read its current placement so we
+			// can decide whether the cascade needs to run + what zone
+			// value to persist.
+			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rp.RackID, params.OrgID)
 			if err != nil {
 				return err
 			}
-			out.SiteReassignedDeviceCount = count
-			cascadeRan = true
-		}
 
-		// Grid-cell write. Two cases land here:
-		//
-		//   - Both fields set → write the explicit (aisle, position).
-		//   - Both fields nil + building_id is set → operator is
-		//     unplacing the rack within the same building (or moving
-		//     it across with no chosen cell yet). Write NULL/NULL so
-		//     the cell on the rack row matches the operator's intent.
-		//     UpdateRackPlacement's CASE only clears when building_id
-		//     changes, so without this explicit write a same-building
-		//     unplace would silently no-op and the old position would
-		//     survive.
-		//
-		// When BuildingID is nil (full unassign) we skip this call —
-		// UpdateRackPlacement's CASE already nulls the position via
-		// the building-id-changed branch.
-		if params.BuildingID != nil {
-			if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, params.RackID, params.AisleIndex, params.PositionInAisle); err != nil {
+			// Building-only unassign must NOT cascade-clear the rack's
+			// site (and, transitively, every descendant device.site_id).
+			// Removing a rack from a building is a building-membership
+			// change; the rack and its devices stay in their current
+			// site until an explicit site-level unassign happens
+			// elsewhere. Preserve current.SiteID in that branch so the
+			// siteChanged check below reads false and the cascade stays
+			// inert.
+			newSiteID := targetSiteID
+			if params.TargetBuildingID == nil {
+				newSiteID = current.SiteID
+			}
+
+			// Mirror SaveRack's zone-clear cascade: clear zone when the
+			// rack leaves a building or crosses to a different one.
+			// Preserve the current zone on a no-op building transition
+			// so legacy callers don't strip zone unintentionally.
+			finalZone := current.Zone
+			leavingBuilding := current.BuildingID != nil && params.TargetBuildingID == nil
+			crossingBuildings := current.BuildingID != nil && params.TargetBuildingID != nil && *current.BuildingID != *params.TargetBuildingID
+			if leavingBuilding || crossingBuildings {
+				finalZone = ""
+			}
+
+			// Persist site_id + building_id + zone in one write. The
+			// query also clears the grid position on building
+			// transition via a CASE expression, so a stale
+			// (aisle_index, position_in_aisle) never outlives its
+			// parent building.
+			if err := s.collectionStore.UpdateRackPlacement(txCtx, rp.RackID, params.OrgID, newSiteID, params.TargetBuildingID, finalZone); err != nil {
 				return err
+			}
+
+			// Cascade descendant device.site_id when the rack's site
+			// changed. CascadeRackDeviceSites returns the row count.
+			siteChanged := !int64PtrEqual(current.SiteID, newSiteID)
+			if siteChanged {
+				count, err := s.collectionStore.CascadeRackDeviceSites(txCtx, rp.RackID, params.OrgID, newSiteID)
+				if err != nil {
+					return err
+				}
+				out.SiteReassignedDeviceCount += count
+				cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
+			}
+
+			// Grid-cell write. Two cases land here:
+			//
+			//   - Both fields set → write the explicit (aisle, position).
+			//   - Both fields nil + target_building_id is set → operator
+			//     is unplacing the rack within the same building (or
+			//     moving it across with no chosen cell yet). Write
+			//     NULL/NULL so the cell on the rack row matches the
+			//     operator's intent. UpdateRackPlacement's CASE only
+			//     clears when building_id changes, so without this
+			//     explicit write a same-building unplace would silently
+			//     no-op and the old position would survive.
+			//
+			// When TargetBuildingID is nil (full unassign) we skip this
+			// call — UpdateRackPlacement's CASE already nulls the
+			// position via the building-id-changed branch.
+			if params.TargetBuildingID != nil {
+				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, rp.AisleIndex, rp.PositionInAisle); err != nil {
+					return err
+				}
+				positionedRackIDs = append(positionedRackIDs, rp.RackID)
 			}
 		}
 		return nil
@@ -402,43 +434,37 @@ func (s *Service) AssignRackToBuilding(ctx context.Context, params models.Assign
 		return nil, err
 	}
 
-	// Activity log fires AFTER tx commits. SiteID is the rack's final
-	// site after the write — same as newSiteID, which now equals
-	// current.SiteID on building-only unassign (so we don't lose the
-	// site filter on building-removal events) and the target
-	// building's site otherwise. Using cascadeSite here would only
-	// populate when CascadeRackDeviceSites ran, hiding same-site
-	// assigns from site-scoped activity queries.
+	// Activity log fires AFTER tx commits.
 	orgIDVal := params.OrgID
-	// Dereference the building id stored in metadata so JSON shape
-	// matches DeleteBuilding (int64, not *int64). Downstream consumers
-	// doing `.(int64)` on the metadata field would crash on the
-	// pointer variant.
 	var buildingIDMeta any
-	if params.BuildingID != nil {
-		buildingIDMeta = *params.BuildingID
+	if params.TargetBuildingID != nil {
+		buildingIDMeta = *params.TargetBuildingID
+	}
+	rackIDs := make([]int64, len(racks))
+	for i, rp := range racks {
+		rackIDs[i] = rp.RackID
 	}
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventRackAssignedBuilding,
 		OrganizationID: &orgIDVal,
-		SiteID:         newSiteID,
+		SiteID:         targetSiteID,
 		Description: fmt.Sprintf(
-			"Assigned rack %d to building %v",
-			params.RackID, derefInt64(params.BuildingID),
+			"Assigned %d rack(s) to building %v",
+			len(racks), derefInt64(params.TargetBuildingID),
 		),
 		Metadata: map[string]any{
-			"rack_id":     params.RackID,
+			"rack_ids":    rackIDs,
 			"building_id": buildingIDMeta,
 		},
 	}
-	if cascadeRan {
+	if len(cascadeRackIDs) > 0 {
 		event.Metadata["site_cascade"] = true
+		event.Metadata["site_cascaded_rack_ids"] = cascadeRackIDs
 		event.Metadata["site_reassigned_device_count"] = out.SiteReassignedDeviceCount
 	}
-	if params.AisleIndex != nil {
-		event.Metadata["aisle_index"] = *params.AisleIndex
-		event.Metadata["position_in_aisle"] = *params.PositionInAisle
+	if len(positionedRackIDs) > 0 {
+		event.Metadata["positioned_rack_ids"] = positionedRackIDs
 	}
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
@@ -579,7 +605,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 
 	// Resolve floor-plan bounds for the out-of-range filter below. A rack
 	// with aisle_index >= aisles or position_in_aisle >= racks_per_aisle
-	// shouldn't normally exist (AssignRackToBuilding + UpdateBuilding both
+	// shouldn't normally exist (AssignRacksToBuilding + UpdateBuilding both
 	// validate), but the FE silently drops cells outside the rendered
 	// grid, so we clear the position fields server-side here for defense
 	// in depth — the rack still appears in rack_health[] without a cell.
@@ -607,7 +633,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// Per-rack state counts via the existing collection-membership query.
 	//
 	// Residual race window (intentionally not guarded): if
-	// AssignRackToBuilding moves a rack out of this building between
+	// AssignRacksToBuilding moves a rack out of this building between
 	// the ListBuildingRacks above and this counts read, the response
 	// still includes per-rack state counts (hashing/broken/offline/
 	// sleeping totals) for that rack. The post-read building.SiteID

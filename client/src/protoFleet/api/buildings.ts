@@ -68,13 +68,20 @@ interface DeleteBuildingProps {
   onFinally?: () => void;
 }
 
-interface AssignRackToBuildingProps {
+// RackPlacementInput is one rack's slot in an AssignRacksToBuilding
+// batch. aisleIndex + positionInAisle must be paired (both set or both
+// unset); the server rejects half-set inputs.
+export interface RackPlacementInput {
   rackId: bigint;
-  // Unset = unassign from any building.
-  buildingId?: bigint;
-  // Optional grid cell. Must be paired.
   aisleIndex?: number;
   positionInAisle?: number;
+}
+
+interface AssignRacksToBuildingProps {
+  // Bulk-friendly. Pass a single-element array for the singular case.
+  racks: RackPlacementInput[];
+  // Unset = unassign every rack in the batch from any building.
+  targetBuildingId?: bigint;
   signal?: AbortSignal;
   onSuccess?: (siteReassignedDeviceCount: bigint) => void;
   onError?: (message: string) => void;
@@ -353,29 +360,17 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
-  // assignRackToBuilding wraps the dedicated rack-positioning RPC.
-  // Unset `buildingId` unassigns the rack; passing both `aisleIndex`
-  // and `positionInAisle` positions the rack at that grid cell.
-  // Passing one without the other is rejected by the server; the
-  // wrapper preserves the failure surface so callers can react.
-  const assignRackToBuilding = useCallback(
-    async ({
-      rackId,
-      buildingId,
-      aisleIndex,
-      positionInAisle,
-      signal,
-      onSuccess,
-      onError,
-      onFinally,
-    }: AssignRackToBuildingProps) => {
+  // assignRacksToBuilding wraps the bulk rack-positioning RPC.
+  // Unset `targetBuildingId` unassigns every rack in the batch;
+  // each rack's `aisleIndex` + `positionInAisle` must be paired.
+  // The server rejects half-set inputs and out-of-bounds positions.
+  const assignRacksToBuilding = useCallback(
+    async ({ racks, targetBuildingId, signal, onSuccess, onError, onFinally }: AssignRacksToBuildingProps) => {
       try {
-        const response = await buildingsClient.assignRackToBuilding(
+        const response = await buildingsClient.assignRacksToBuilding(
           {
-            rackId,
-            buildingId,
-            aisleIndex,
-            positionInAisle,
+            racks,
+            targetBuildingId,
           },
           { signal },
         );
@@ -404,7 +399,7 @@ const useBuildings = () => {
     createBuilding,
     updateBuilding,
     deleteBuilding,
-    assignRackToBuilding,
+    assignRacksToBuilding,
   };
 };
 

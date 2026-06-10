@@ -113,16 +113,16 @@ func (h *Handler) ListBuildingRacks(ctx context.Context, req *connect.Request[pb
 	return connect.NewResponse(toListBuildingRacksResponse(racks, nextPageToken)), nil
 }
 
-func (h *Handler) AssignRackToBuilding(ctx context.Context, req *connect.Request[pb.AssignRackToBuildingRequest]) (*connect.Response[pb.AssignRackToBuildingResponse], error) {
+func (h *Handler) AssignRacksToBuilding(ctx context.Context, req *connect.Request[pb.AssignRacksToBuildingRequest]) (*connect.Response[pb.AssignRacksToBuildingResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.AssignRackToBuilding(ctx, toAssignRackToBuildingParams(req.Msg, info.OrganizationID))
+	out, err := h.service.AssignRacksToBuilding(ctx, toAssignRacksToBuildingParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.AssignRackToBuildingResponse{
+	return connect.NewResponse(&pb.AssignRacksToBuildingResponse{
 		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
 	}), nil
 }

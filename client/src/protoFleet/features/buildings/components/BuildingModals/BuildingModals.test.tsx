@@ -21,7 +21,7 @@ const mockApi = {
   createBuilding: vi.fn(),
   updateBuilding: vi.fn(),
   deleteBuilding: vi.fn(),
-  assignRackToBuilding: vi.fn(),
+  assignRacksToBuilding: vi.fn(),
 };
 vi.mock("@/protoFleet/api/buildings", async () => {
   const actual = await vi.importActual<typeof import("@/protoFleet/api/buildings")>("@/protoFleet/api/buildings");

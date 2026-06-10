@@ -89,15 +89,15 @@ var ProcedurePermissions = map[string]string{
 	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
 
 	// Buildings CRUD — site:read for reads, site:manage for writes.
-	// ListBuildingRacks is a building-scoped read; AssignRackToBuilding
+	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
 	// mutates the rack's building/site/zone/grid placement.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:        authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:          authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:    authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure:       authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:       authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:       authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceAssignRackToBuildingProcedure: authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:         authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:           authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,
 	// GetBuildingStats also calls RequirePermission(PermFleetRead) and
 	// RequirePermission(PermMinerRead) inline — those gate the telemetry
 	// rollup and the device_identifiers surface respectively. The map

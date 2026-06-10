@@ -6,7 +6,7 @@ import { type AssignmentEntry, buildByNameAssignments, buildManualAssignments } 
 import BuildingGridPane from "./BuildingGridPane";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
 import { type BuildingAssignmentMode, type GridCellKey, parseCellKey } from "./types";
-import { useBuildings } from "@/protoFleet/api/buildings";
+import { type RackPlacementInput, useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { DismissCircle } from "@/shared/assets/icons";
@@ -42,7 +42,7 @@ const ManageBuildingModal = ({
   onDeleteRequested,
   onSaved,
 }: ManageBuildingModalProps) => {
-  const { listBuildingRacks, assignRackToBuilding } = useBuildings();
+  const { listBuildingRacks, assignRacksToBuilding } = useBuildings();
 
   // Aisles / racks_per_aisle are read straight from the building prop —
   // BuildingSettingsModal owns those fields now and threads any edits back
@@ -76,7 +76,7 @@ const ManageBuildingModal = ({
   const [errorMsg, setErrorMsg] = useState("");
 
   // Snapshot of the server's positions at load time so Save only fires
-  // assignRackToBuilding for racks whose position actually changed. Keyed
+  // assignRacksToBuilding for racks whose position actually changed. Keyed
   // by rackId → "aisle:position" (or "unplaced") so we can string-compare.
   const initialPlacementRef = useRef<Map<string, string>>(new Map());
 
@@ -331,14 +331,14 @@ const ManageBuildingModal = ({
   );
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
-  // fire AssignRackToBuilding in two phases:
+  // fire AssignRacksToBuilding in two phases:
   //
   //   Phase 1 (vacate): every rack whose placement is changing AND that was
   //   previously placed sends a "clear position" write first (same building,
-  //   no aisle/position). Removed-from-building racks also unassign here so
-  //   their cells free up before phase 2 lands. This frees every (building,
-  //   aisle, position) tuple that will be re-used in phase 2 BEFORE any
-  //   placement write runs.
+  //   no aisle/position). Removed-from-building racks unassign in a
+  //   separate call (different target_building_id). This frees every
+  //   (building, aisle, position) tuple that will be re-used in phase 2
+  //   BEFORE any placement write runs.
   //
   //   Phase 2 (place): every rack with a new placement target writes its
   //   final (aisle, position). Because phase 1 already cleared every cell
@@ -346,17 +346,19 @@ const ManageBuildingModal = ({
   //   no longer collide on the uk_device_set_rack_building_position partial
   //   unique index.
   //
-  // Per-rack writes within a phase still run concurrently via Promise.all —
-  // serialization is *between* phases, not within. Layout writes live in
+  // Each phase issues at most two bulk calls (one per target building_id
+  // bucket: this building, or unassigned). Layout writes live in
   // BuildingSettingsModal.
   const handleSave = useCallback(async () => {
     setErrorMsg("");
     setIsSaving(true);
     try {
       const initial = initialPlacementRef.current;
-      const vacates: Promise<void>[] = [];
-      const places: Promise<void>[] = [];
       const currentIds = new Set(entries.map((e) => e.rackId.toString()));
+
+      const vacateInBuilding: RackPlacementInput[] = [];
+      const placeInBuilding: RackPlacementInput[] = [];
+      const unassign: RackPlacementInput[] = [];
 
       for (const entry of entries) {
         const idStr = entry.rackId.toString();
@@ -374,16 +376,7 @@ const ManageBuildingModal = ({
         // Sending the same building with no aisle/position clears position
         // without touching membership.
         if (prior !== "unplaced" && prior !== "missing") {
-          vacates.push(
-            new Promise<void>((resolve, reject) => {
-              void assignRackToBuilding({
-                rackId: entry.rackId,
-                buildingId: building.id,
-                onSuccess: () => resolve(),
-                onError: (msg) => reject(new Error(msg)),
-              });
-            }),
-          );
+          vacateInBuilding.push({ rackId: entry.rackId });
         }
 
         // Phase 2: write the new state.
@@ -398,29 +391,13 @@ const ManageBuildingModal = ({
         //     by the phase-1 vacate above, which clears the cell.
         if (placedKey) {
           const { aisle, position } = parseCellKey(placedKey);
-          places.push(
-            new Promise<void>((resolve, reject) => {
-              void assignRackToBuilding({
-                rackId: entry.rackId,
-                buildingId: building.id,
-                aisleIndex: aisle,
-                positionInAisle: position,
-                onSuccess: () => resolve(),
-                onError: (msg) => reject(new Error(msg)),
-              });
-            }),
-          );
+          placeInBuilding.push({
+            rackId: entry.rackId,
+            aisleIndex: aisle,
+            positionInAisle: position,
+          });
         } else if (prior === "missing") {
-          places.push(
-            new Promise<void>((resolve, reject) => {
-              void assignRackToBuilding({
-                rackId: entry.rackId,
-                buildingId: building.id,
-                onSuccess: () => resolve(),
-                onError: (msg) => reject(new Error(msg)),
-              });
-            }),
-          );
+          placeInBuilding.push({ rackId: entry.rackId });
         }
       }
 
@@ -429,20 +406,25 @@ const ManageBuildingModal = ({
       // before any phase-2 placement targets them.
       for (const idStr of initial.keys()) {
         if (currentIds.has(idStr)) continue;
-        vacates.push(
-          new Promise<void>((resolve, reject) => {
-            void assignRackToBuilding({
-              rackId: BigInt(idStr),
-              buildingId: undefined,
-              onSuccess: () => resolve(),
-              onError: (msg) => reject(new Error(msg)),
-            });
-          }),
-        );
+        unassign.push({ rackId: BigInt(idStr) });
       }
 
+      const dispatch = (racks: RackPlacementInput[], targetBuildingId?: bigint) =>
+        new Promise<void>((resolve, reject) => {
+          if (racks.length === 0) {
+            resolve();
+            return;
+          }
+          void assignRacksToBuilding({
+            racks,
+            targetBuildingId,
+            onSuccess: () => resolve(),
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+
       try {
-        await Promise.all(vacates);
+        await Promise.all([dispatch(vacateInBuilding, building.id), dispatch(unassign, undefined)]);
       } catch (err) {
         setErrorMsg(
           err instanceof Error
@@ -453,7 +435,7 @@ const ManageBuildingModal = ({
       }
 
       try {
-        await Promise.all(places);
+        await dispatch(placeInBuilding, building.id);
       } catch (err) {
         setErrorMsg(
           err instanceof Error
@@ -469,7 +451,7 @@ const ManageBuildingModal = ({
     } finally {
       setIsSaving(false);
     }
-  }, [building, rackToCell, entries, assignRackToBuilding, onSaved, onDismiss]);
+  }, [building, rackToCell, entries, assignRacksToBuilding, onSaved, onDismiss]);
 
   if (!open) return null;
 

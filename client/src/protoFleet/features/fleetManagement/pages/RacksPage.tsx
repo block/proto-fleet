@@ -69,9 +69,9 @@ const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
-  const { listAllBuildings, assignRackToBuilding } = useBuildings();
+  const { listAllBuildings, assignRacksToBuilding } = useBuildings();
   const canEditRack = useHasPermission("rack:manage");
-  const canAssignRackToBuilding = useHasPermission("site:manage");
+  const canAssignRacksToBuilding = useHasPermission("site:manage");
   const [reparentTarget, setReparentTarget] = useState<DeviceSet | null>(null);
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -408,10 +408,10 @@ const RacksPage = () => {
         label: "Add to building",
         icon: <Plus />,
         onClick: () => setReparentTarget(rack),
-        hidden: !canAssignRackToBuilding,
+        hidden: !canAssignRacksToBuilding,
       },
     ],
-    [navigate, handleEditRack, canEditRack, canAssignRackToBuilding],
+    [navigate, handleEditRack, canEditRack, canAssignRacksToBuilding],
   );
 
   const renderName = useCallback(
@@ -761,9 +761,9 @@ const RacksPage = () => {
                 return;
               }
               const rackName = reparentTarget.label || "rack";
-              void assignRackToBuilding({
-                rackId: reparentTarget.id,
-                buildingId,
+              void assignRacksToBuilding({
+                racks: [{ rackId: reparentTarget.id }],
+                targetBuildingId: buildingId,
                 onSuccess: () => {
                   pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
                   resetAndFetch();
