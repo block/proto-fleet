@@ -523,6 +523,17 @@ func (s *SQLCollectionStore) RemoveDevicesFromCollection(ctx context.Context, or
 	return count, nil
 }
 
+func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+	count, err := s.GetQueries(ctx).RemoveDevicesFromAnyRack(ctx, sqlc.RemoveDevicesFromAnyRackParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to remove devices from rack: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error) {
 	cursor, err := decodeMemberCursor(pageToken)
 	if err != nil {

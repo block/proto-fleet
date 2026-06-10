@@ -85,6 +85,9 @@ const (
 	// DeviceSetServiceSaveRackProcedure is the fully-qualified name of the DeviceSetService's SaveRack
 	// RPC.
 	DeviceSetServiceSaveRackProcedure = "/device_set.v1.DeviceSetService/SaveRack"
+	// DeviceSetServiceAssignDevicesToRackProcedure is the fully-qualified name of the
+	// DeviceSetService's AssignDevicesToRack RPC.
+	DeviceSetServiceAssignDevicesToRackProcedure = "/device_set.v1.DeviceSetService/AssignDevicesToRack"
 )
 
 // DeviceSetServiceClient is a client for the device_set.v1.DeviceSetService service.
@@ -129,6 +132,19 @@ type DeviceSetServiceClient interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
+	// AssignDevicesToRack atomically moves devices into the target rack
+	// in one transaction: removes any existing rack membership for each
+	// device, inserts new membership at target_rack_id, and cascades
+	// device.site_id when the target rack's site differs from the
+	// device's current site. target_rack_id unset clears rack
+	// membership without re-assigning (site/building stay intact).
+	//
+	// Closes the orphan window where a client-side
+	// RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
+	// leave devices without rack membership on transport failure between
+	// the two calls, and the cross-rack rename race where the source
+	// rack's id resolution drifts between the resolve and the remove.
+	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
 }
 
 // NewDeviceSetServiceClient constructs a client for the device_set.v1.DeviceSetService service. By
@@ -226,6 +242,11 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+DeviceSetServiceSaveRackProcedure,
 			opts...,
 		),
+		assignDevicesToRack: connect.NewClient[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse](
+			httpClient,
+			baseURL+DeviceSetServiceAssignDevicesToRackProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -248,6 +269,7 @@ type deviceSetServiceClient struct {
 	listRackZoneRefs           *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
 	listRackTypes              *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
 	saveRack                   *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
+	assignDevicesToRack        *connect.Client[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse]
 }
 
 // CreateDeviceSet calls device_set.v1.DeviceSetService.CreateDeviceSet.
@@ -335,6 +357,11 @@ func (c *deviceSetServiceClient) SaveRack(ctx context.Context, req *connect.Requ
 	return c.saveRack.CallUnary(ctx, req)
 }
 
+// AssignDevicesToRack calls device_set.v1.DeviceSetService.AssignDevicesToRack.
+func (c *deviceSetServiceClient) AssignDevicesToRack(ctx context.Context, req *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {
+	return c.assignDevicesToRack.CallUnary(ctx, req)
+}
+
 // DeviceSetServiceHandler is an implementation of the device_set.v1.DeviceSetService service.
 type DeviceSetServiceHandler interface {
 	// Creates a new device set
@@ -377,6 +404,19 @@ type DeviceSetServiceHandler interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
+	// AssignDevicesToRack atomically moves devices into the target rack
+	// in one transaction: removes any existing rack membership for each
+	// device, inserts new membership at target_rack_id, and cascades
+	// device.site_id when the target rack's site differs from the
+	// device's current site. target_rack_id unset clears rack
+	// membership without re-assigning (site/building stay intact).
+	//
+	// Closes the orphan window where a client-side
+	// RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
+	// leave devices without rack membership on transport failure between
+	// the two calls, and the cross-rack rename race where the source
+	// rack's id resolution drifts between the resolve and the remove.
+	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
 }
 
 // NewDeviceSetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -470,6 +510,11 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 		svc.SaveRack,
 		opts...,
 	)
+	deviceSetServiceAssignDevicesToRackHandler := connect.NewUnaryHandler(
+		DeviceSetServiceAssignDevicesToRackProcedure,
+		svc.AssignDevicesToRack,
+		opts...,
+	)
 	return "/device_set.v1.DeviceSetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceSetServiceCreateDeviceSetProcedure:
@@ -506,6 +551,8 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 			deviceSetServiceListRackTypesHandler.ServeHTTP(w, r)
 		case DeviceSetServiceSaveRackProcedure:
 			deviceSetServiceSaveRackHandler.ServeHTTP(w, r)
+		case DeviceSetServiceAssignDevicesToRackProcedure:
+			deviceSetServiceAssignDevicesToRackHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -581,4 +628,8 @@ func (UnimplementedDeviceSetServiceHandler) ListRackTypes(context.Context, *conn
 
 func (UnimplementedDeviceSetServiceHandler) SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.SaveRack is not implemented"))
+}
+
+func (UnimplementedDeviceSetServiceHandler) AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.AssignDevicesToRack is not implemented"))
 }

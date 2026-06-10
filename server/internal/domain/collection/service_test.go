@@ -1902,3 +1902,89 @@ func TestService_AddDevicesToCollection_RackWithoutSiteSkipsCascade(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), resp.AddedCount)
 }
+
+// TestService_AssignDevicesToRack_atomicReassign covers the issue
+// #420 atomic-rack-reassign happy path: the prior rack membership is
+// cleared and the new membership written inside one transaction, with
+// the cascade firing when the target rack has a stamped site.
+func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(7)
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+	)
+
+	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), out.AssignedCount)
+	assert.Equal(t, int64(2), out.RemovedCount)
+	assert.Equal(t, int64(1), out.SiteReassignedCount)
+}
+
+// TestService_AssignDevicesToRack_unassignClearsWithoutAdd covers the
+// target_rack_id-unset branch: removes prior rack membership without
+// touching site/building. No GetCollection/Lock/AddDevices call.
+func TestService_AssignDevicesToRack_unassignClearsWithoutAdd(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	deviceIDs := []string{"d1"}
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs).Return(int64(1), nil)
+
+	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      nil,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), out.AssignedCount)
+	assert.Equal(t, int64(1), out.RemovedCount)
+	assert.Equal(t, int64(0), out.SiteReassignedCount)
+}
+
+// TestService_AssignDevicesToRack_targetMustBeRack rejects when the
+// target collection exists but isn't a rack.
+func TestService_AssignDevicesToRack_targetMustBeRack(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetID := int64(99)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetID).
+		Return(&pb.DeviceCollection{Id: targetID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetID,
+		DeviceIdentifiers: []string{"d1"},
+	})
+	require.Error(t, err)
+}
+
+// TestService_AssignDevicesToRack_emptyDevicesRejected guards the
+// empty-input edge so callers get InvalidArgument instead of a
+// silent 0-row response.
+func TestService_AssignDevicesToRack_emptyDevicesRejected(t *testing.T) {
+	svc, _, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		DeviceIdentifiers: nil,
+	})
+	require.Error(t, err)
+}

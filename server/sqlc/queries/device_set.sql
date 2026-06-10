@@ -211,6 +211,16 @@ DELETE FROM device_set_membership
 WHERE device_set_id = $1
   AND org_id = $2;
 
+-- name: RemoveDevicesFromAnyRack :execrows
+-- Removes the given devices from whatever rack they're currently in.
+-- AssignDevicesToRack uses this to clear prior rack membership inside
+-- the same transaction as the new-rack insert, closing the orphan
+-- window the client-side remove + add orchestration had.
+DELETE FROM device_set_membership
+WHERE org_id = $1
+  AND device_identifier = ANY(@device_identifiers::text[])
+  AND device_set_type = 'rack';
+
 -- name: RemoveDevicesFromDeviceSet :execrows
 DELETE FROM device_set_membership
 WHERE device_set_id = $1

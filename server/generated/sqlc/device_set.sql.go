@@ -1164,6 +1164,30 @@ func (q *Queries) RemoveAllDevicesFromDeviceSet(ctx context.Context, arg RemoveA
 	return result.RowsAffected()
 }
 
+const removeDevicesFromAnyRack = `-- name: RemoveDevicesFromAnyRack :execrows
+DELETE FROM device_set_membership
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND device_set_type = 'rack'
+`
+
+type RemoveDevicesFromAnyRackParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Removes the given devices from whatever rack they're currently in.
+// AssignDevicesToRack uses this to clear prior rack membership inside
+// the same transaction as the new-rack insert, closing the orphan
+// window the client-side remove + add orchestration had.
+func (q *Queries) RemoveDevicesFromAnyRack(ctx context.Context, arg RemoveDevicesFromAnyRackParams) (int64, error) {
+	result, err := q.exec(ctx, q.removeDevicesFromAnyRackStmt, removeDevicesFromAnyRack, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const removeDevicesFromDeviceSet = `-- name: RemoveDevicesFromDeviceSet :execrows
 DELETE FROM device_set_membership
 WHERE device_set_id = $1
