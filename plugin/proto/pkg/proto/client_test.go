@@ -28,6 +28,13 @@ const (
 	int32Bits   = 32
 )
 
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
 // TestClientCreation tests the NewClient function with different configurations
 func TestClientCreation(t *testing.T) {
 	tests := []struct {
@@ -941,6 +948,8 @@ func TestUploadFirmware(t *testing.T) {
 					assert.Equal(t, "/api/v1/system/update", r.URL.Path)
 					assert.Equal(t, "Bearer "+testToken, r.Header.Get("Authorization"))
 					assert.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data"))
+					assert.Empty(t, r.TransferEncoding, "firmware upload must not use chunked transfer encoding")
+					assert.Greater(t, r.ContentLength, int64(len(firmwareContent)), "multipart content length should include file plus form boundaries")
 
 					file, header, err := r.FormFile("file")
 					require.NoError(t, err, "should be able to read 'file' field")
@@ -1076,10 +1085,11 @@ func TestUploadFirmware_413_ReturnsFailedPrecondition(t *testing.T) {
 	err := client.SetCredentials(sdk.BearerToken{Token: "test-token"})
 	require.NoError(t, err)
 
+	const firmwareSize = 97_000_000
 	firmware := sdk.FirmwareFile{
-		Reader:   bytes.NewReader([]byte("firmware-data")),
+		Reader:   io.LimitReader(zeroReader{}, firmwareSize),
 		Filename: "firmware.swu",
-		Size:     97_000_000,
+		Size:     firmwareSize,
 	}
 
 	err = client.UploadFirmware(context.Background(), firmware)
@@ -1138,6 +1148,26 @@ func TestUploadFirmware_NilReader(t *testing.T) {
 	err := client.UploadFirmware(context.Background(), firmware)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "firmware reader is required")
+}
+
+func TestUploadFirmware_NegativeSize(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("server should not be called when firmware size is invalid")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+
+	firmware := sdk.FirmwareFile{
+		Reader:   bytes.NewReader([]byte("firmware-data")),
+		Filename: "firmware.swu",
+		Size:     -1,
+	}
+
+	err := client.UploadFirmware(context.Background(), firmware)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "firmware size must be non-negative")
 }
 
 func TestErrorsResponse_UnmarshalJSON(t *testing.T) {
