@@ -1,4 +1,4 @@
-import { expect, test } from "../fixtures/pageFixtures";
+import { test } from "../fixtures/pageFixtures";
 
 test.describe("Hardware settings", () => {
   test.beforeEach(async ({ page, commonSteps }) => {
@@ -27,15 +27,11 @@ test.describe("Hardware settings", () => {
   test("Hardware settings keep the fan table visible in the default cooling mode", async ({
     commonSteps,
     hardwarePage,
-    page,
   }) => {
     await commonSteps.navigateToHardwareSettings();
 
     await test.step("Validate the default Hardware page shows the fan table instead of the immersion callout", async () => {
-      await expect(page.getByTestId("hardware-fans-section").getByText("No fans connected")).toHaveCount(0);
-      await expect(
-        page.getByTestId("hardware-fans-section").getByText("This miner is set to immersion cooling"),
-      ).toHaveCount(0);
+      await hardwarePage.validateNoFansConnectedCalloutHidden();
       await hardwarePage.validateFanInventory();
     });
   });
