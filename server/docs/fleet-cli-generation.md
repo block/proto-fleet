@@ -1,7 +1,7 @@
 # Fleet CLI Generation
 
 This document describes the current architecture for the protobuf-driven
-`fleet` CLI.
+`fleetcli` CLI.
 
 The Fleet CLI uses the repo's existing protobuf sources and generated Go
 packages. Generated command source files are written under `server/cmd/fleetcli/`,
@@ -175,6 +175,7 @@ The generated command registry currently contributes:
 - `minercommand`
 - `miners`
 - `networkinfo`
+- `onboarding`
 - `pools`
 - `racks`
 - `schedule`

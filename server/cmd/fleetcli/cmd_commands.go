@@ -10,6 +10,7 @@ func generatedCommands() []*cli.Command {
 		generatedMinercommandCommand(),
 		generatedMinersCommand(),
 		generatedNetworkinfoCommand(),
+		generatedOnboardingCommand(),
 		generatedPoolsCommand(),
 		generatedRacksCommand(),
 		generatedScheduleCommand(),
