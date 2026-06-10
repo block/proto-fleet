@@ -58,7 +58,9 @@ const FleetNodesPage = () => {
       }),
     [listFleetNodes],
   );
-  usePoll({ fetchData: fetchNodes, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  // Pause while the enroll modal is open: it polls the same listing at a faster
+  // cadence, and re-enabling refetches immediately on close.
+  usePoll({ fetchData: fetchNodes, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: !enrollOpen });
 
   const handleConfirm = useCallback(
     (node: FleetNodeSummary) => {

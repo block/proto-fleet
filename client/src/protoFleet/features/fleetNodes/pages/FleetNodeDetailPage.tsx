@@ -120,6 +120,10 @@ const FleetNodeDetailPage = () => {
     discoverAbort.current?.abort();
   }, []);
 
+  // Abort an in-flight discovery stream on unmount so it can't keep the server
+  // stream open or set state after the page is gone.
+  useEffect(() => () => discoverAbort.current?.abort(), []);
+
   const handlePairResults = useCallback((results: DevicePairingResult[]) => {
     setPairResults((prev) => {
       const next = new Map(prev);

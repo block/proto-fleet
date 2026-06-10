@@ -34,8 +34,6 @@ export const primaryNavItems: NavItem[] = [
     icon: Fleet,
   },
   // FleetNodeAdminService list endpoints are server-gated on fleetnode:read.
-  // Behind a build flag while the surface is in development; the route stays
-  // reachable by direct URL regardless.
   ...(FLEETNODE_ENABLED
     ? [
         {
