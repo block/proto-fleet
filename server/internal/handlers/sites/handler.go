@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
+	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -113,6 +114,30 @@ func (h *Handler) AssignBuildingsToSite(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&pb.AssignBuildingsToSiteResponse{
 		ReassignedRackCount:   out.ReassignedRackCount,
 		ReassignedDeviceCount: out.ReassignedDeviceCount,
+	}), nil
+}
+
+func (h *Handler) AssignRacksToSite(ctx context.Context, req *connect.Request[pb.AssignRacksToSiteRequest]) (*connect.Response[pb.AssignRacksToSiteResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	var targetSiteID *int64
+	if req.Msg.TargetSiteId != nil {
+		v := req.Msg.GetTargetSiteId()
+		targetSiteID = &v
+	}
+	out, err := h.service.AssignRacksToSite(ctx, models.AssignRacksToSiteParams{
+		OrgID:        info.OrganizationID,
+		RackIDs:      req.Msg.GetRackIds(),
+		TargetSiteID: targetSiteID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AssignRacksToSiteResponse{
+		ReassignedDeviceCount: out.ReassignedDeviceCount,
+		ClearedBuildingCount:  out.ClearedBuildingCount,
 	}), nil
 }
 

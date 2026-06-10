@@ -119,6 +119,22 @@ type AssignBuildingsToSiteResult struct {
 	ReassignedDeviceCount int64
 }
 
+// AssignRacksToSiteParams is the input shape for the bulk rack→site
+// partial-update flow. TargetSiteID == nil means "Unassigned"; the
+// entire batch applies in one transaction.
+type AssignRacksToSiteParams struct {
+	OrgID        int64
+	RackIDs      []int64
+	TargetSiteID *int64
+}
+
+// AssignRacksToSiteResult carries cascade impact + the count of racks
+// whose building_id was cleared on the site transition.
+type AssignRacksToSiteResult struct {
+	ReassignedDeviceCount int64
+	ClearedBuildingCount  int64
+}
+
 // SiteNetworkConfigEntry is a (name, network_config) tuple used by the
 // service when computing cross-site overlap warnings on save.
 type SiteNetworkConfigEntry struct {

@@ -290,6 +290,7 @@ var ProcedurePermissions = map[string]string{
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:   authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure: authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:     authz.PermSiteManage,
 	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to
 	// cover the aggregate telemetry surface (matching the gate on
 	// telemetry.GetCombinedMetrics). The map entry is the primary gate.
