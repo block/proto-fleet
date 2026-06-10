@@ -8,8 +8,6 @@ import {
   type MqttCurtailmentSource,
   MqttCurtailmentSourceRuntimeState,
   MqttCurtailmentSourceSchema,
-  MqttCurtailmentSourceScopeSchema,
-  MqttCurtailmentSourceScopeType,
   MqttCurtailmentSourceStatusSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
@@ -61,13 +59,8 @@ function mqttSource(overrides: Partial<MqttCurtailmentSource> = {}): MqttCurtail
     brokerTransport: "tcp",
     mqttUsername: "fleet",
     hasPassword: true,
-    curtailMode: "FULL_FLEET",
     payloadFormat: "target_timestamp",
-    scope: create(MqttCurtailmentSourceScopeSchema, {
-      type: MqttCurtailmentSourceScopeType.WHOLE_ORG,
-    }),
     stalenessThresholdSec: 240,
-    minCurtailedDurationSec: 600,
     enabled: true,
     status: create(MqttCurtailmentSourceStatusSchema, {
       runtimeState: MqttCurtailmentSourceRuntimeState.RUNNING,

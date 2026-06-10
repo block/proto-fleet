@@ -10,8 +10,6 @@ import {
   ListMqttCurtailmentSourcesRequestSchema,
   type MqttCurtailmentSource,
   MqttCurtailmentSourceRuntimeState,
-  MqttCurtailmentSourceScopeSchema,
-  MqttCurtailmentSourceScopeType,
   SetMqttCurtailmentSourceEnabledRequestSchema,
   type UpdateMqttCurtailmentSourceRequest,
   UpdateMqttCurtailmentSourceRequestSchema,
@@ -27,9 +25,9 @@ import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const DEFAULT_BROKER_TRANSPORT = "tcp";
 const DEFAULT_CURTAIL_MODE = "FULL_FLEET";
+const DEFAULT_SCOPE_DISPLAY = "Whole organization";
 const DEFAULT_PAYLOAD_FORMAT = "target_timestamp";
 const DEFAULT_STALENESS_THRESHOLD_SEC = 240;
-const DEFAULT_MIN_CURTAILED_DURATION_SEC = 600;
 const SOURCES_POLL_INTERVAL_MS = 10_000;
 
 const unsetDisplayValue = "-";
@@ -66,19 +64,6 @@ function formatSignalUpdate(timestamp?: Timestamp): string {
   return seconds === undefined ? unsetDisplayValue : formatTimestamp(seconds, { includeSeconds: true });
 }
 
-function formatScope(source: MqttCurtailmentSource): string {
-  switch (source.scope?.type) {
-    case MqttCurtailmentSourceScopeType.WHOLE_ORG:
-      return "Whole organization";
-    case MqttCurtailmentSourceScopeType.SITE:
-      return source.scope.siteId ? `Site ${source.scope.siteId.toString()}` : "Site";
-    case MqttCurtailmentSourceScopeType.DEVICE_LIST:
-      return `${source.scope.deviceIdentifiers.length} devices`;
-    default:
-      return unsetDisplayValue;
-  }
-}
-
 function sourceHasReceivedSignal(source: MqttCurtailmentSource): boolean {
   return Boolean(source.status?.lastReceivedAt ?? source.status?.lastTargetAt);
 }
@@ -111,13 +96,11 @@ function mapRuntimeHealth(source: MqttCurtailmentSource): CurtailmentHealth {
 }
 
 function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSource {
-  const scope = formatScope(source);
-
   return {
     id: source.sourceId.toString(),
     name: source.sourceName,
     triggerType: "MQTT",
-    site: scope,
+    site: DEFAULT_SCOPE_DISPLAY,
     brokerHosts: [source.brokerPrimaryHost, source.brokerSecondaryHost].filter(Boolean),
     brokerPrimaryHost: source.brokerPrimaryHost,
     brokerSecondaryHost: source.brokerSecondaryHost,
@@ -127,8 +110,8 @@ function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSou
     qos: 1,
     username: source.mqttUsername,
     hasPassword: source.hasPassword,
-    scope,
-    curtailmentMode: source.curtailMode || unsetDisplayValue,
+    scope: DEFAULT_SCOPE_DISPLAY,
+    curtailmentMode: DEFAULT_CURTAIL_MODE,
     lastTarget: source.status?.lastTarget || unsetDisplayValue,
     lastSeen: formatSignalUpdate(source.status?.lastReceivedAt ?? source.status?.lastTargetAt),
     health: mapRuntimeHealth(source),
@@ -146,14 +129,8 @@ function buildCreateSourceRequest(values: CurtailmentSourceFormValues): CreateMq
     brokerTransport: DEFAULT_BROKER_TRANSPORT,
     mqttUsername: values.username.trim(),
     mqttPassword: values.password,
-    curtailMode: DEFAULT_CURTAIL_MODE,
     payloadFormat: DEFAULT_PAYLOAD_FORMAT,
-    scope: create(MqttCurtailmentSourceScopeSchema, {
-      type: MqttCurtailmentSourceScopeType.WHOLE_ORG,
-    }),
     stalenessThresholdSec: DEFAULT_STALENESS_THRESHOLD_SEC,
-    minCurtailedDurationSec: DEFAULT_MIN_CURTAILED_DURATION_SEC,
-    enabled: true,
   });
 }
 
