@@ -81,34 +81,34 @@ const resolveRackMembers = async (rackId: bigint): Promise<Set<string>> => {
   return members;
 };
 
-// `idx_one_rack_per_device` enforces a single rack per miner. Adding a
-// miner from rack A to rack B would violate that unique index and abort
-// the whole batch. Surface a specific error before dispatch, listing
-// the conflicting rack labels we can identify from snapshots in scope.
-const crossRackConflictMessage = (
+// Group ids that need to move out of a source rack before they can be
+// added to the target. `idx_one_rack_per_device` enforces a single
+// rack per miner, so a same-batch INSERT against a different rack
+// aborts the whole transaction; we orchestrate the remove→add ourselves.
+// Returns a map of sourceRackLabel → device ids and any ids whose
+// source rack label couldn't be resolved (those skip the remove step
+// and fall through to the add — server-side conflict will surface).
+const groupBySourceRack = (
   ids: string[],
   miners: Record<string, MinerStateSnapshot> | undefined,
   targetRack: DeviceSet,
   currentMembers: Set<string>,
-): string | null => {
-  if (!miners) return null;
-  const targetLabel = targetRack.label || "rack";
-  const conflictRackLabels = new Set<string>();
-  let conflictCount = 0;
+): { movesByLabel: Map<string, string[]>; unknownSource: string[] } => {
+  const movesByLabel = new Map<string, string[]>();
+  const unknownSource: string[] = [];
+  if (!miners) return { movesByLabel, unknownSource };
+  const targetLabel = targetRack.label;
   for (const id of ids) {
     if (currentMembers.has(id)) continue;
     const snapshot = miners[id];
     if (!snapshot) continue;
-    const rackLabel = snapshot.rackLabel;
-    if (rackLabel && rackLabel !== targetLabel) {
-      conflictCount += 1;
-      conflictRackLabels.add(rackLabel);
-    }
+    const sourceLabel = snapshot.rackLabel;
+    if (!sourceLabel || sourceLabel === targetLabel) continue;
+    const bucket = movesByLabel.get(sourceLabel) ?? [];
+    bucket.push(id);
+    movesByLabel.set(sourceLabel, bucket);
   }
-  if (conflictCount === 0) return null;
-  const labels = Array.from(conflictRackLabels).slice(0, 3).join(", ");
-  const more = conflictRackLabels.size > 3 ? ` and ${conflictRackLabels.size - 3} other rack(s)` : "";
-  return `${conflictCount} of the selected miners are already in ${labels}${more}. Remove them from their current rack before adding to "${targetLabel}".`;
+  return { movesByLabel, unknownSource };
 };
 
 const resolveAllModeIds = async (
@@ -153,7 +153,31 @@ const MinerReparentPicker = ({
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
   const { reassignDevicesToSite } = useSites();
-  const { addDevicesToDeviceSet, getDeviceSet } = useDeviceSets();
+  const { addDevicesToDeviceSet, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
+
+  const fetchAllRackLabels = () =>
+    new Promise<Map<string, bigint>>((resolve, reject) => {
+      void listRacks({
+        onSuccess: (racks) => {
+          const map = new Map<string, bigint>();
+          for (const rack of racks) {
+            if (rack.label) map.set(rack.label, rack.id);
+          }
+          resolve(map);
+        },
+        onError: (msg) => reject(new Error(msg)),
+      });
+    });
+
+  const removeFromRack = (rackId: bigint, ids: string[]) =>
+    new Promise<void>((resolve, reject) => {
+      void removeDevicesFromDeviceSet({
+        deviceSetId: rackId,
+        deviceIdentifiers: ids,
+        onSuccess: () => resolve(),
+        onError: (msg) => reject(new Error(msg)),
+      });
+    });
 
   const fetchRack = (rackId: bigint) =>
     new Promise<DeviceSet>((resolve, reject) => {
@@ -196,11 +220,40 @@ const MinerReparentPicker = ({
       pushToast({ message: overflow, status: STATUSES.error });
       return;
     }
-    const crossRack = crossRackConflictMessage(ids, minerSnapshots, rack, currentMembers);
-    if (crossRack) {
-      pushToast({ message: crossRack, status: STATUSES.error });
-      return;
+
+    // Miners currently in a different rack need to leave that rack
+    // first — server enforces one rack per device. Orchestrate the
+    // remove-then-add so the picker behaves as a re-parent rather than
+    // a duplicate insert.
+    const { movesByLabel } = groupBySourceRack(ids, minerSnapshots, rack, currentMembers);
+    if (movesByLabel.size > 0) {
+      let labelToRackId: Map<string, bigint>;
+      try {
+        labelToRackId = await fetchAllRackLabels();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Couldn't load racks.";
+        pushToast({ message, status: STATUSES.error });
+        return;
+      }
+      const movingToast = pushToast({
+        message: `Moving miners from ${movesByLabel.size} other rack${movesByLabel.size === 1 ? "" : "s"}…`,
+        status: STATUSES.loading,
+        longRunning: true,
+      });
+      try {
+        for (const [sourceLabel, sourceIds] of movesByLabel) {
+          const sourceRackId = labelToRackId.get(sourceLabel);
+          if (sourceRackId === undefined) continue;
+          await removeFromRack(sourceRackId, sourceIds);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
+        updateToast(movingToast, { message, status: STATUSES.error });
+        return;
+      }
+      removeToast(movingToast);
     }
+
     void addDevicesToDeviceSet({
       deviceSetId: targetId,
       deviceIdentifiers: ids,
