@@ -114,7 +114,7 @@ interface DeleteSiteProps {
   onFinally?: () => void;
 }
 
-interface ReassignDevicesToSiteProps {
+interface AssignDevicesToSiteProps {
   // Unset routes the devices to the "Unassigned" bucket; the create flow
   // always supplies a target so this is typically set in practice.
   targetSiteId?: bigint;
@@ -267,10 +267,10 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  const reassignDevicesToSite = useCallback(
-    async ({ targetSiteId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: ReassignDevicesToSiteProps) => {
+  const assignDevicesToSite = useCallback(
+    async ({ targetSiteId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToSiteProps) => {
       try {
-        const response = await sitesClient.reassignDevicesToSite(
+        const response = await sitesClient.assignDevicesToSite(
           {
             targetSiteId,
             deviceIdentifiers,
@@ -325,7 +325,7 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  return { listSites, createSite, updateSite, deleteSite, reassignDevicesToSite, assignBuildingToSite };
+  return { listSites, createSite, updateSite, deleteSite, assignDevicesToSite, assignBuildingToSite };
 };
 
 export { useSites };

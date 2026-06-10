@@ -41,13 +41,13 @@ func toUpdateSiteParams(req *pb.UpdateSiteRequest, orgID int64) models.UpdateSit
 	}
 }
 
-func toReassignParams(req *pb.ReassignDevicesToSiteRequest, orgID int64) models.ReassignDevicesToSiteParams {
+func toAssignDevicesParams(req *pb.AssignDevicesToSiteRequest, orgID int64) models.AssignDevicesToSiteParams {
 	var targetSiteID *int64
 	if req.TargetSiteId != nil {
 		v := req.GetTargetSiteId()
 		targetSiteID = &v
 	}
-	return models.ReassignDevicesToSiteParams{
+	return models.AssignDevicesToSiteParams{
 		OrgID:             orgID,
 		TargetSiteID:      targetSiteID,
 		DeviceIdentifiers: req.GetDeviceIdentifiers(),

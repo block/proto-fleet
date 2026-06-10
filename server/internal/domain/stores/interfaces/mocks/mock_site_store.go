@@ -56,6 +56,21 @@ func (mr *MockSiteStoreMockRecorder) AssignBuildingToSite(ctx, orgID, buildingID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignBuildingToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignBuildingToSite), ctx, orgID, buildingID, targetSiteID)
 }
 
+// AssignDevicesToSite mocks base method.
+func (m *MockSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignDevicesToSite", ctx, orgID, targetSiteID, deviceIdentifiers)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AssignDevicesToSite indicates an expected call of AssignDevicesToSite.
+func (mr *MockSiteStoreMockRecorder) AssignDevicesToSite(ctx, orgID, targetSiteID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignDevicesToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignDevicesToSite), ctx, orgID, targetSiteID, deviceIdentifiers)
+}
+
 // CreateSite mocks base method.
 func (m *MockSiteStore) CreateSite(ctx context.Context, params models.CreateSiteParams) (*models.Site, error) {
 	m.ctrl.T.Helper()
@@ -215,21 +230,6 @@ func (m *MockSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int6
 func (mr *MockSiteStoreMockRecorder) LockSiteForWrite(ctx, orgID, siteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSiteForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockSiteForWrite), ctx, orgID, siteID)
-}
-
-// ReassignDevicesToSite mocks base method.
-func (m *MockSiteStore) ReassignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReassignDevicesToSite", ctx, orgID, targetSiteID, deviceIdentifiers)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ReassignDevicesToSite indicates an expected call of ReassignDevicesToSite.
-func (mr *MockSiteStoreMockRecorder) ReassignDevicesToSite(ctx, orgID, targetSiteID, deviceIdentifiers any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignDevicesToSite", reflect.TypeOf((*MockSiteStore)(nil).ReassignDevicesToSite), ctx, orgID, targetSiteID, deviceIdentifiers)
 }
 
 // ReassignDevicesUnderBuilding mocks base method.

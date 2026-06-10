@@ -273,13 +273,13 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 	return &out, nil
 }
 
-// ReassignDevicesToSite enforces the cross-collection invariant and,
+// AssignDevicesToSite enforces the cross-collection invariant and,
 // on success, bulk-updates device.site_id for every identifier in one
 // transaction. Per the plan, the entire batch rejects if *any* device
 // fails the check; no partial writes. The conflict check and the
 // UPDATE run inside the same row-locked transaction so a concurrent
-// reassign can't slip between them.
-func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.ReassignDevicesToSiteParams) (int64, []models.PerDeviceConflict, error) {
+// assign can't slip between them.
+func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignDevicesToSiteParams) (int64, []models.PerDeviceConflict, error) {
 	identifiers := dedupeStrings(params.DeviceIdentifiers)
 	if len(identifiers) == 0 {
 		return 0, nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
@@ -318,7 +318,7 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 			txConflicts = conflicts
 			return nil
 		}
-		n, txErr := s.store.ReassignDevicesToSite(txCtx, params.OrgID, targetSiteID, identifiers)
+		n, txErr := s.store.AssignDevicesToSite(txCtx, params.OrgID, targetSiteID, identifiers)
 		if txErr != nil {
 			return txErr
 		}

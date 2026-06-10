@@ -40,7 +40,7 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = siteStore.ReassignDevicesToSite(t.Context(), orgID, &site.ID, deviceIDs[:2])
+	_, err = siteStore.AssignDevicesToSite(t.Context(), orgID, &site.ID, deviceIDs[:2])
 	require.NoError(t, err)
 
 	// Sanity: the two reassigned devices now point at the site.

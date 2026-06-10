@@ -228,8 +228,8 @@ func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, 
 	return nil
 }
 
-func (s *SQLSiteStore) ReassignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
-	rowsAffected, err := s.GetQueries(ctx).ReassignDevicesToSite(ctx, sqlc.ReassignDevicesToSiteParams{
+func (s *SQLSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
+	rowsAffected, err := s.GetQueries(ctx).AssignDevicesToSite(ctx, sqlc.AssignDevicesToSiteParams{
 		OrgID:             orgID,
 		TargetSiteID:      ptrToNullInt64(targetSiteID),
 		DeviceIdentifiers: deviceIdentifiers,

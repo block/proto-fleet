@@ -81,16 +81,16 @@ type SiteStore interface {
 
 	// LockDevicesForReassign takes a row-lock on every matching live
 	// device for the duration of the surrounding transaction so the
-	// conflict check + UPDATE in ReassignDevicesToSite are atomic
-	// against a concurrent reassign.
+	// conflict check + UPDATE in AssignDevicesToSite are atomic
+	// against a concurrent assign.
 	LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error
 
-	// ReassignDevicesToSite bulk-updates device.site_id for the
+	// AssignDevicesToSite bulk-updates device.site_id for the
 	// given identifiers. The caller must have validated cross-
 	// collection conflicts (see FindDeviceSiteConflicts) and that
 	// every identifier exists (see ListExistingDeviceIdentifiers).
 	// targetSiteID == nil means "Unassigned".
-	ReassignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error)
+	AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error)
 
 	// FindDeviceSiteConflicts returns, for each requested device that
 	// is in a rack with a site_id, the device identifier and that
