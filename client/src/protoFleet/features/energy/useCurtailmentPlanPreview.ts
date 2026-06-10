@@ -13,7 +13,7 @@ import {
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { getCurtailmentErrorMessage } from "@/protoFleet/features/energy/curtailmentErrorMessages";
 import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
@@ -437,7 +437,7 @@ export function useCurtailmentPlanPreview({
                 response: undefined,
                 responseRequestKey: undefined,
                 responseRequestValues: undefined,
-                previewError: getErrorMessage(err, "Preview is unavailable."),
+                previewError: getCurtailmentErrorMessage(err, "Preview is unavailable."),
                 isPreviewLoading: false,
                 requestKey: requestState.requestKey,
               });

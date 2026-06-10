@@ -1,12 +1,72 @@
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { sitesClient } from "@/protoFleet/api/clients";
+import {
+  ListSitesResponseSchema,
+  SiteSchema,
+  SiteWithCountsSchema,
+} from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
   type CurtailmentStartModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import { createRefCountedStoryMock } from "@/shared/stories/createRefCountedStoryMock";
+
+type MutableClient<T> = { -readonly [K in keyof T]: T[K] };
+
+const mutableSitesClient = sitesClient as MutableClient<typeof sitesClient>;
+
+const storySites = [
+  create(SiteWithCountsSchema, {
+    site: create(SiteSchema, { id: 1n, name: "Austin" }),
+    deviceCount: 18n,
+    buildingCount: 1n,
+    rackCount: 3n,
+  }),
+  create(SiteWithCountsSchema, {
+    site: create(SiteSchema, { id: 2n, name: "Boise" }),
+    deviceCount: 12n,
+    buildingCount: 1n,
+    rackCount: 2n,
+  }),
+];
+
+const MockedCurtailmentModalApis = ({ children }: { children: ReactNode }) => {
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    const cleanup = installMockedCurtailmentModalApis();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- gate child render until the story API mock is installed
+    setInstalled(true);
+    return cleanup;
+  }, []);
+
+  if (!installed) return null;
+  return <>{children}</>;
+};
+
+const installMockedCurtailmentModalApis = createRefCountedStoryMock(() => {
+  const originalListSites = mutableSitesClient.listSites;
+
+  mutableSitesClient.listSites = async () =>
+    create(ListSitesResponseSchema, {
+      sites: storySites,
+    });
+
+  return () => {
+    mutableSitesClient.listSites = originalListSites;
+  };
+});
+
+const withMockedCurtailmentModalApis = (Story: () => ReactNode) => (
+  <MockedCurtailmentModalApis>
+    <Story />
+  </MockedCurtailmentModalApis>
+);
 
 const meta = {
   title: "Proto Fleet/Energy/Plan Curtailment Modal",
@@ -14,6 +74,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
   },
+  decorators: [withMockedCurtailmentModalApis],
 } satisfies Meta<typeof CurtailmentStartModal>;
 
 export default meta;

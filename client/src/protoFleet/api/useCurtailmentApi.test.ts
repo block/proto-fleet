@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   applyActiveCurtailmentEvent,
@@ -1450,6 +1451,27 @@ describe("useCurtailmentApi", () => {
         mode: CurtailmentMode.FULL_FLEET,
         modeParams: expect.objectContaining({ case: undefined }),
       }),
+    );
+  });
+
+  it("normalizes insufficient-load start errors", async () => {
+    mockStartCurtailment.mockRejectedValueOnce(
+      new ConnectError(
+        "insufficient curtailable load: 0.000 kW available, 1.000 kW requested, tolerance 0.000 kW, candidate_min_power_w=1500W",
+        Code.InvalidArgument,
+      ),
+    );
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await expect(result.current.startCurtailment(baseSubmitValues)).rejects.toThrow(
+        "No miners are currently eligible in this scope. If you selected a site, make sure miners are assigned to that site and reporting recent power and hashrate telemetry. Miners must be paired, actionable, not already curtailed or cooling down, and drawing at least 1500 W.",
+      );
+    });
+
+    expect(result.current.startError).toBe(
+      "No miners are currently eligible in this scope. If you selected a site, make sure miners are assigned to that site and reporting recent power and hashrate telemetry. Miners must be paired, actionable, not already curtailed or cooling down, and drawing at least 1500 W.",
     );
   });
 

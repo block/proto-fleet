@@ -29,6 +29,23 @@ interface SitePickerProps {
   onRetry?: () => void;
 }
 
+interface SitePickerModalProps {
+  open: boolean;
+  sites: SiteWithCounts[];
+  selectedSite: ActiveSite;
+  onSelectSite: (next: ActiveSite) => void;
+  onDismiss: () => void;
+  onDone?: () => void;
+  doneDisabled?: boolean;
+  onManageSites?: () => void;
+  closeOnSelect?: boolean;
+  showAllSitesOption?: boolean;
+  showUnassignedOption?: boolean;
+  showManageSitesButton?: boolean;
+  testId?: string;
+  title?: string;
+}
+
 // Phase 1: the picker is mounted globally in PageHeader, but only the new
 // multi-site routes (/sites, /settings/sites, /buildings/:id) consume the
 // selection. Existing pages (/miners, /racks, dashboards) render the picker
@@ -39,17 +56,7 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
 
-  const orderedSites = useMemo(
-    () =>
-      sites
-        ? [...sites].sort((a, b) => {
-            const an = a.site?.name ?? "";
-            const bn = b.site?.name ?? "";
-            return an.localeCompare(bn);
-          })
-        : [],
-    [sites],
-  );
+  const orderedSites = useMemo(() => orderSites(sites), [sites]);
 
   const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds });
 
@@ -103,19 +110,6 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
     }
   })();
 
-  const select = (next: ActiveSite) => {
-    setActiveSite(next);
-    setIsOpen(false);
-  };
-
-  const isSelected = (entry: ActiveSite): boolean => {
-    if (entry.kind !== activeSite.kind) return false;
-    if (entry.kind === "site" && activeSite.kind === "site") {
-      return entry.id === activeSite.id;
-    }
-    return true;
-  };
-
   return (
     <>
       <button
@@ -131,57 +125,125 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
         {/* Smaller, dimmed chevron matches the prototype's compact trigger affordance. */}
         <ChevronDown className={clsx(iconSizes.xSmall, "opacity-70")} />
       </button>
-      <Modal
+      <SitePickerModal
         open={isOpen}
         onDismiss={() => setIsOpen(false)}
-        title="Sites"
-        divider={false}
-        buttons={[
+        sites={orderedSites}
+        selectedSite={activeSite}
+        onSelectSite={setActiveSite}
+        onManageSites={() => {
+          setIsOpen(false);
+          navigate("/settings/sites");
+        }}
+      />
+    </>
+  );
+};
+
+function orderSites(sites: SiteWithCounts[] | undefined): SiteWithCounts[] {
+  return sites
+    ? [...sites].sort((a, b) => {
+        const an = a.site?.name ?? "";
+        const bn = b.site?.name ?? "";
+        return an.localeCompare(bn);
+      })
+    : [];
+}
+
+function isSelectedSite(activeSite: ActiveSite, entry: ActiveSite): boolean {
+  if (entry.kind !== activeSite.kind) return false;
+  if (entry.kind === "site" && activeSite.kind === "site") {
+    return entry.id === activeSite.id;
+  }
+  return true;
+}
+
+export function SitePickerModal({
+  open,
+  sites,
+  selectedSite,
+  onSelectSite,
+  onDismiss,
+  onDone,
+  doneDisabled = false,
+  onManageSites,
+  closeOnSelect = true,
+  showAllSitesOption = true,
+  showUnassignedOption = true,
+  showManageSitesButton = true,
+  testId = "site-picker-modal",
+  title = "Sites",
+}: SitePickerModalProps) {
+  const orderedSites = useMemo(() => orderSites(sites), [sites]);
+  const select = (next: ActiveSite) => {
+    onSelectSite(next);
+    if (closeOnSelect) {
+      onDismiss();
+    }
+  };
+  const buttons = [
+    ...(showManageSitesButton && onManageSites
+      ? [
           {
             variant: variants.secondary,
             text: "Manage sites",
             // Routes to /settings/sites; site CRUD modals (#261) attach to
             // that page so this button is the entry point for full
             // management rather than carrying its own actions.
-            onClick: () => {
-              setIsOpen(false);
-              navigate("/settings/sites");
-            },
+            onClick: onManageSites,
             testId: "site-picker-manage-sites",
           },
-        ]}
-        testId="site-picker-modal"
-      >
-        <div className="flex flex-col" role="radiogroup" aria-label="Active site">
+        ]
+      : []),
+    ...(onDone
+      ? [
+          {
+            variant: variants.primary,
+            text: "Done",
+            onClick: onDone,
+            disabled: doneDisabled,
+            dismissModalOnClick: false,
+            testId: "site-picker-done",
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <Modal open={open} onDismiss={onDismiss} title={title} divider={false} buttons={buttons} testId={testId}>
+      <div className="flex flex-col" role="radiogroup" aria-label="Active site">
+        {showAllSitesOption ? (
           <SitePickerOption
             label={ALL_SITES_LABEL}
-            selected={isSelected({ kind: "all" })}
+            selected={isSelectedSite(selectedSite, { kind: "all" })}
             onClick={() => select({ kind: "all" })}
             testId="site-picker-option-all"
           />
-          {orderedSites.map((s) => {
-            const id = (s.site?.id ?? 0n).toString();
-            return (
-              <SitePickerOption
-                key={id}
-                label={s.site?.name ?? "(unnamed)"}
-                selected={isSelected({ kind: "site", id })}
-                onClick={() => select({ kind: "site", id })}
-                testId={`site-picker-option-${id}`}
-              />
-            );
-          })}
+        ) : null}
+        {orderedSites.map((s) => {
+          const id = (s.site?.id ?? 0n).toString();
+          return (
+            <SitePickerOption
+              key={id}
+              label={s.site?.name ?? "(unnamed)"}
+              selected={isSelectedSite(selectedSite, { kind: "site", id })}
+              onClick={() => select({ kind: "site", id })}
+              testId={`site-picker-option-${id}`}
+            />
+          );
+        })}
+        {showUnassignedOption ? (
           <SitePickerOption
             label={UNASSIGNED_LABEL}
-            selected={isSelected({ kind: "unassigned" })}
+            selected={isSelectedSite(selectedSite, { kind: "unassigned" })}
             onClick={() => select({ kind: "unassigned" })}
             testId="site-picker-option-unassigned"
           />
-        </div>
-      </Modal>
-    </>
+        ) : null}
+      </div>
+    </Modal>
   );
-};
+}
 
 interface SitePickerOptionProps {
   label: string;

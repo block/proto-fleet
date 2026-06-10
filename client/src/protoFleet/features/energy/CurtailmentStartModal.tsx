@@ -1,9 +1,17 @@
-import { type ReactElement, type ReactNode, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
-import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+import { type ActiveSite, SitePickerModal } from "@/protoFleet/components/PageHeader/SitePicker";
+import TargetSelectButton, {
+  getTargetButtonLabel,
+  targetSelectPlaceholderLabel,
+} from "@/protoFleet/components/TargetSelectButton";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { formatCurtailmentKw as formatKw } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
   curtailmentNumericFieldLimits,
@@ -20,6 +28,7 @@ import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
+import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
 
@@ -101,7 +110,7 @@ interface PreviewStateOptions {
   apiPreview: PreviewPaneProps;
   controlledPreview?: PreviewPaneProps;
   isEditMode: boolean;
-  unsupportedDeviceSetPreviewError?: string;
+  localPreviewError?: string;
 }
 
 interface ApplyToTarget {
@@ -388,6 +397,42 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   return values.deviceIdentifiers;
 }
 
+function getSelectedSiteName(sites: SiteWithCounts[] | undefined, siteId: string): string | undefined {
+  return sites?.find((siteWithCounts) => (siteWithCounts.site?.id ?? 0n).toString() === siteId)?.site?.name;
+}
+
+function getSelectedSite(sites: SiteWithCounts[] | undefined, siteId: string): SiteWithCounts | undefined {
+  return sites?.find((siteWithCounts) => (siteWithCounts.site?.id ?? 0n).toString() === siteId);
+}
+
+function getSiteTargetLabel({
+  sites,
+  sitesError,
+  siteId,
+}: {
+  sites: SiteWithCounts[] | undefined;
+  sitesError: string | null;
+  siteId: string;
+}): string {
+  if (siteId) {
+    return getSelectedSiteName(sites, siteId) ?? `Site ${siteId}`;
+  }
+
+  if (sites === undefined) {
+    return "Loading...";
+  }
+
+  if (sitesError !== null) {
+    return "Unavailable";
+  }
+
+  if (sites.length === 0) {
+    return "No sites";
+  }
+
+  return targetSelectPlaceholderLabel;
+}
+
 function formatCountLabel(count: number, singular: string): string {
   return getTargetButtonLabel(count, singular);
 }
@@ -442,14 +487,14 @@ function getPreviewState({
   apiPreview,
   controlledPreview,
   isEditMode,
-  unsupportedDeviceSetPreviewError,
+  localPreviewError,
 }: PreviewStateOptions): PreviewPaneProps {
   if (isEditMode) {
     return controlledPreview ?? { preview: undefined, previewError: undefined, isPreviewLoading: false };
   }
 
-  if (unsupportedDeviceSetPreviewError) {
-    return { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
+  if (localPreviewError) {
+    return { preview: undefined, previewError: localPreviewError, isPreviewLoading: false };
   }
 
   return controlledPreview ?? apiPreview;
@@ -472,6 +517,9 @@ function CurtailmentStartModalContent({
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
   const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
+  const [showSiteSelectionModal, setShowSiteSelectionModal] = useState(false);
+  const [showNoSitesConfiguredDialog, setShowNoSitesConfiguredDialog] = useState(false);
+  const [draftSiteId, setDraftSiteId] = useState(values.siteId);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
@@ -480,6 +528,36 @@ function CurtailmentStartModalContent({
   };
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
   const isEditMode = mode === "edit";
+  const shouldShowSiteSelection = MULTI_SITE_ENABLED && !isEditMode;
+  const navigate = useNavigate();
+  const { listSites } = useSites();
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(shouldShowSiteSelection ? undefined : []);
+  const [sitesError, setSitesError] = useState<string | null>(null);
+  const fetchSites = useCallback(() => {
+    const controller = new AbortController();
+
+    void listSites({
+      signal: controller.signal,
+      onSuccess: (rows) => {
+        setSites(rows);
+        setSitesError(null);
+      },
+      onError: (message) => {
+        setSites([]);
+        setSitesError(message);
+      },
+    });
+
+    return () => controller.abort();
+  }, [listSites]);
+
+  useEffect(() => {
+    if (!shouldShowSiteSelection) {
+      return;
+    }
+
+    return fetchSites();
+  }, [fetchSites, shouldShowSiteSelection]);
   const localErrors = useMemo(
     () => validateCurtailmentFormValues(values, mode, initialFormValues),
     [initialFormValues, mode, values],
@@ -497,6 +575,16 @@ function CurtailmentStartModalContent({
   }, [editedFields, localErrors]);
   const effectiveErrors = { ...errors, ...visibleLocalErrors };
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+  const selectedSite = getSelectedSite(sites, values.siteId ?? "");
+  const noAssignedSiteMinersPreviewError =
+    values.scopeType === "site" &&
+    values.siteId &&
+    sites !== undefined &&
+    sitesError === null &&
+    (selectedSite?.deviceCount ?? 0n) === 0n
+      ? "No miners are assigned to this site. Assign miners to the site or choose a different site/miner scope."
+      : undefined;
+  const localPreviewError = unsupportedDeviceSetPreviewError ?? noAssignedSiteMinersPreviewError;
   const controlledPreviewValue = preview
     ? createCurtailmentPlanPreview(values, {
         selectedMinerCount: preview.selectedMinerCount,
@@ -517,7 +605,7 @@ function CurtailmentStartModalContent({
     apiPreview,
     controlledPreview,
     isEditMode,
-    unsupportedDeviceSetPreviewError,
+    localPreviewError,
   });
 
   const hasBlockingValidationError =
@@ -529,6 +617,9 @@ function CurtailmentStartModalContent({
   const isSubmitDisabled = hasBlockingValidationError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
   const applyToTarget = getApplyToTarget(values, isEditMode, previewState.preview?.selectedMinerCount);
+  const selectedSiteValue: ActiveSite = draftSiteId ? { kind: "site", id: draftSiteId } : { kind: "all" };
+  const siteTargetLabel = getSiteTargetLabel({ sites, sitesError, siteId: values.siteId ?? "" });
+  const isSiteSelectDisabled = sites === undefined || sitesError !== null;
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isEditMode
     ? undefined
@@ -546,16 +637,43 @@ function CurtailmentStartModalContent({
     ? "!hidden"
     : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
 
+  const handleSiteSelection = (siteId: string) => {
+    updateValues((current) => ({
+      ...current,
+      scopeType: "site",
+      scopeId: `site-${siteId}`,
+      siteId,
+      deviceSetIds: [],
+      deviceIdentifiers: [],
+    }));
+  };
+
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
     const hasSelectedMiners = deviceIdentifiers.length > 0;
 
     updateValues((current) => ({
       ...current,
-      scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
-      scopeId: hasSelectedMiners ? undefined : "whole-org",
+      scopeType: hasSelectedMiners ? "explicitMiners" : current.siteId ? "site" : "wholeOrg",
+      scopeId: hasSelectedMiners ? undefined : current.siteId ? `site-${current.siteId}` : "whole-org",
       deviceSetIds: [],
       deviceIdentifiers,
     }));
+  };
+
+  const openSiteSelection = () => {
+    if (sites?.length === 0) {
+      setShowNoSitesConfiguredDialog(true);
+      return;
+    }
+
+    setDraftSiteId(values.siteId);
+    setShowSiteSelectionModal(true);
+  };
+
+  const openSiteConfiguration = () => {
+    setShowNoSitesConfiguredDialog(false);
+    onDismiss();
+    navigate("/settings/sites");
   };
 
   const closeMaintenanceConfirmation = () => {
@@ -705,6 +823,14 @@ function CurtailmentStartModalContent({
 
             <Section title="Apply to">
               <div className="grid">
+                {shouldShowSiteSelection ? (
+                  <TargetSelectButton
+                    label="Sites"
+                    value={siteTargetLabel}
+                    disabled={isSiteSelectDisabled}
+                    onClick={openSiteSelection}
+                  />
+                ) : null}
                 <TargetSelectButton
                   label={applyToTarget.label}
                   value={applyToTarget.value}
@@ -770,15 +896,61 @@ function CurtailmentStartModalContent({
         </div>
       </Dialog>
 
+      <Modal
+        open={showNoSitesConfiguredDialog}
+        onDismiss={() => setShowNoSitesConfiguredDialog(false)}
+        title="No sites configured"
+        divider={false}
+        buttons={[
+          {
+            text: "Configure sites",
+            variant: variants.primary,
+            onClick: openSiteConfiguration,
+          },
+        ]}
+      >
+        <div className="text-300 text-text-primary-70">Create a site to target curtailments by site.</div>
+      </Modal>
+
       {showMinerSelectionModal ? (
         <MinerSelectionModal
           open={showMinerSelectionModal}
           selectedMinerIds={selectedMinerIds}
           onDismiss={() => setShowMinerSelectionModal(false)}
+          siteId={values.siteId || undefined}
           onSave={(minerIds) => {
             handleMinerSelection(minerIds);
             setShowMinerSelectionModal(false);
           }}
+        />
+      ) : null}
+
+      {showSiteSelectionModal && sites !== undefined ? (
+        <SitePickerModal
+          open={showSiteSelectionModal}
+          sites={sites}
+          selectedSite={selectedSiteValue}
+          onSelectSite={(selection) => {
+            if (selection.kind === "site") {
+              setDraftSiteId(selection.id);
+            }
+          }}
+          onDismiss={() => {
+            setDraftSiteId(values.siteId);
+            setShowSiteSelectionModal(false);
+          }}
+          onDone={() => {
+            if (!draftSiteId) {
+              return;
+            }
+            handleSiteSelection(draftSiteId);
+            setShowSiteSelectionModal(false);
+          }}
+          doneDisabled={!draftSiteId}
+          closeOnSelect={false}
+          showAllSitesOption={false}
+          showUnassignedOption={false}
+          showManageSitesButton={false}
         />
       ) : null}
     </>

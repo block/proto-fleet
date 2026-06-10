@@ -2,8 +2,10 @@ import type { ComponentProps } from "react";
 import type { RenderResult } from "@testing-library/react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
+import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
@@ -20,8 +22,30 @@ interface RenderModalResult extends RenderResult {
   onSubmit: ReturnType<typeof vi.fn>;
 }
 
-const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+const { mockListSites, mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+  mockListSites: vi.fn(),
+  mockNavigate: vi.fn(),
   mockUseCurtailmentPlanPreview: vi.fn(),
+}));
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
+vi.mock("@/protoFleet/constants/featureFlags", () => ({
+  MULTI_SITE_ENABLED: true,
+}));
+
+vi.mock("@/protoFleet/api/sites", () => ({
+  buildKnownSiteIds: (sites: ReturnType<typeof makeSiteWithCounts>[] | undefined) =>
+    new Set(sites?.map((siteWithCounts) => (siteWithCounts.site?.id ?? 0n).toString()) ?? []),
+  useSites: () => ({
+    listSites: mockListSites,
+  }),
 }));
 
 vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
@@ -114,6 +138,14 @@ const preview: CurtailmentPlanPreview = {
   scopeLabel: "across the fleet",
 };
 
+const makeSiteWithCounts = (id: bigint, name: string, deviceCount = 1n) =>
+  create(SiteWithCountsSchema, {
+    site: create(SiteSchema, { id, name }),
+    deviceCount,
+    buildingCount: 0n,
+    rackCount: 0n,
+  });
+
 function renderModal(props: Partial<ComponentProps<typeof CurtailmentStartModal>> = {}): RenderModalResult {
   const onDismiss = vi.fn();
   const onSubmit = vi.fn();
@@ -135,6 +167,9 @@ function getMaintenanceCheckbox(): HTMLInputElement {
 
 describe("CurtailmentStartModal", () => {
   beforeEach(() => {
+    mockListSites.mockReset();
+    mockListSites.mockReturnValue(undefined);
+    mockNavigate.mockReset();
     mockUseCurtailmentPlanPreview.mockReturnValue({
       preview: undefined,
       previewError: undefined,
@@ -656,6 +691,89 @@ describe("CurtailmentStartModal", () => {
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
+  });
+
+  it("selects a site scope before the miner selector and submits the selected site", async () => {
+    const user = userEvent.setup();
+    mockListSites.mockImplementation(
+      ({ onSuccess }: { onSuccess?: (sites: ReturnType<typeof makeSiteWithCounts>[]) => void }) => {
+        onSuccess?.([makeSiteWithCounts(2n, "Boise"), makeSiteWithCounts(1n, "Austin")]);
+      },
+    );
+    const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
+
+    const sitesButton = await screen.findByRole("button", { name: /Sites\s+Select/ });
+    await waitFor(() => expect(sitesButton).toBeEnabled());
+    await user.click(sitesButton);
+
+    expect(screen.queryByTestId("site-picker-option-all")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("site-picker-option-unassigned")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("site-picker-manage-sites")).not.toBeInTheDocument();
+
+    const doneButton = screen.getByRole("button", { name: "Done" });
+    expect(doneButton).toBeDisabled();
+
+    await user.click(screen.getByTestId("site-picker-option-1"));
+
+    expect(screen.getByTestId("site-picker-option-1")).toHaveAttribute("aria-checked", "true");
+    expect(doneButton).toBeEnabled();
+
+    await user.click(doneButton);
+
+    expect(screen.getByRole("button", { name: /Sites\s+Austin/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "site",
+        scopeId: "site-1",
+        siteId: "1",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
+  it("shows a configure-sites dialog when site selection is clicked without configured sites", async () => {
+    const user = userEvent.setup();
+    mockListSites.mockImplementation(
+      ({ onSuccess }: { onSuccess?: (sites: ReturnType<typeof makeSiteWithCounts>[]) => void }) => {
+        onSuccess?.([]);
+      },
+    );
+    const { onDismiss } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
+
+    const sitesButton = await screen.findByRole("button", { name: /Sites\s+No sites/ });
+    await waitFor(() => expect(sitesButton).toBeEnabled());
+    await user.click(sitesButton);
+
+    expect(screen.getByText("No sites configured")).toBeInTheDocument();
+    expect(screen.getByText("Create a site to target curtailments by site.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Configure sites" }));
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith("/settings/sites");
+  });
+
+  it("blocks site curtailment when the selected site has no assigned miners", async () => {
+    const user = userEvent.setup();
+    mockListSites.mockImplementation(
+      ({ onSuccess }: { onSuccess?: (sites: ReturnType<typeof makeSiteWithCounts>[]) => void }) => {
+        onSuccess?.([makeSiteWithCounts(1n, "Austin", 0n)]);
+      },
+    );
+    const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
+
+    await user.click(await screen.findByRole("button", { name: /Sites\s+Select/ }));
+    await user.click(screen.getByTestId("site-picker-option-1"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getAllByText(/No miners are assigned to this site/)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Start curtailment" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("blocks inverted duration submissions", async () => {

@@ -13,6 +13,7 @@ import {
   MinerListFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { parseBigIntId } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -56,6 +57,7 @@ export interface MinerSelectionListProps {
   initialSelectedItems?: string[];
   isMembersLoading?: boolean;
   isRowDisabled?: (item: DeviceListItem) => boolean;
+  siteId?: string;
   /** When true, renders radio buttons for single-item selection instead of checkboxes. */
   singleSelect?: boolean;
   showSelectAllFooter?: boolean;
@@ -140,6 +142,13 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   groupLabels: miner.groupLabels,
 });
 
+function createBaseFilter(siteId?: string): MinerListFilter {
+  const parsedSiteId = parseBigIntId(siteId);
+  return create(MinerListFilterSchema, {
+    siteIds: parsedSiteId === null ? [] : [parsedSiteId],
+  });
+}
+
 // --- Component ---
 
 const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionListProps>(
@@ -149,6 +158,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       initialSelectedItems,
       isMembersLoading = false,
       isRowDisabled,
+      siteId,
       singleSelect = false,
       showSelectAllFooter = true,
       onSelectionChange,
@@ -158,7 +168,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
 
     const { listGroups, listRacks } = useDeviceSets();
-    const [filter, setFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [filter, setFilter] = useState(() => createBaseFilter(siteId));
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(false);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -312,9 +322,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
     const handleServerFilter = useCallback(
       async (activeFilters: ActiveFilters) => {
-        const minerFilter = create(MinerListFilterSchema, {
-          errorComponentTypes: [],
-        });
+        const minerFilter = createBaseFilter(siteId);
+        minerFilter.errorComponentTypes = [];
 
         const typeFilters = activeFilters.dropdownFilters.type;
         if (typeFilters && typeFilters.length > 0) {
@@ -337,7 +346,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
         setFilter(minerFilter);
       },
-      [showRackFilter, showGroupFilter],
+      [showRackFilter, showGroupFilter, siteId],
     );
 
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;

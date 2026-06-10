@@ -30,6 +30,7 @@ import {
   curtailmentEventStates,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import { formatCurtailmentErrorMessage } from "@/protoFleet/features/energy/curtailmentErrorMessages";
 import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import {
   buildStartCurtailmentRequest,
@@ -431,7 +432,8 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (error: unknown, fallbackMessage: string) => {
       const resolvedError = toError(error, fallbackMessage);
       handleAuthErrors({ error });
-      return resolvedError;
+      const formattedMessage = formatCurtailmentErrorMessage(resolvedError.message);
+      return formattedMessage === resolvedError.message ? resolvedError : new Error(formattedMessage);
     },
     [handleAuthErrors],
   );

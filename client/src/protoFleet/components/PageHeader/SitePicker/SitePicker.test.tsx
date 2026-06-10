@@ -7,7 +7,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import SitePicker from "./SitePicker";
+import SitePicker, { SitePickerModal } from "./SitePicker";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -103,5 +103,40 @@ describe("SitePicker", () => {
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-manage-sites"));
     expect(mockNavigate).toHaveBeenCalledWith("/settings/sites");
+  });
+
+  it("renders a Done-only modal variant without global site options", () => {
+    const sites = [makeSiteWithCounts(1n, "Austin"), makeSiteWithCounts(2n, "Boise")];
+    const onDismiss = vi.fn();
+    const onDone = vi.fn();
+    const onSelectSite = vi.fn();
+
+    render(
+      <SitePickerModal
+        open
+        sites={sites}
+        selectedSite={{ kind: "site", id: "1" }}
+        onDismiss={onDismiss}
+        onDone={onDone}
+        onSelectSite={onSelectSite}
+        closeOnSelect={false}
+        showAllSitesOption={false}
+        showUnassignedOption={false}
+        showManageSitesButton={false}
+      />,
+    );
+
+    expect(screen.queryByTestId("site-picker-option-all")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("site-picker-option-unassigned")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("site-picker-manage-sites")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("site-picker-option-2"));
+
+    expect(onSelectSite).toHaveBeenCalledWith({ kind: "site", id: "2" });
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(onDone).toHaveBeenCalledOnce();
   });
 });

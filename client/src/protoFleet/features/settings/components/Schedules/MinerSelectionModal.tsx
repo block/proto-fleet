@@ -6,11 +6,12 @@ import Modal from "@/shared/components/Modal";
 interface MinerSelectionModalProps {
   open: boolean;
   selectedMinerIds: string[];
+  siteId?: string;
   onDismiss: () => void;
   onSave: (minerIds: string[]) => void;
 }
 
-const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: MinerSelectionModalProps) => {
+const MinerSelectionModal = ({ open, selectedMinerIds, siteId, onDismiss, onSave }: MinerSelectionModalProps) => {
   const [draftSelection, setDraftSelection] = useState<string[]>(selectedMinerIds);
 
   if (!open) {
@@ -37,8 +38,9 @@ const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: Mine
     >
       <div className="flex h-full min-h-0 flex-col gap-4">
         <MinerSelectionList
-          key={selectedMinerIds.join(",")}
+          key={`${siteId ?? "all"}:${selectedMinerIds.join(",")}`}
           initialSelectedItems={selectedMinerIds}
+          siteId={siteId}
           onSelectionChange={({ selectedItems }) => setDraftSelection(selectedItems)}
         />
       </div>

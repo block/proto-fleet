@@ -472,13 +472,18 @@ describe("useCurtailmentPlanPreview", () => {
 
   it("surfaces API errors through previewError", async () => {
     mockPreviewCurtailmentPlan.mockRejectedValueOnce(
-      new ConnectError("insufficient curtailable load", Code.InvalidArgument),
+      new ConnectError(
+        "insufficient curtailable load: 0.000 kW available, 1.000 kW requested, tolerance 0.000 kW, candidate_min_power_w=1500W",
+        Code.InvalidArgument,
+      ),
     );
 
     const { result } = renderPreviewHook();
 
     await waitFor(() => {
-      expect(result.current.previewError).toBe("insufficient curtailable load");
+      expect(result.current.previewError).toBe(
+        "No miners are currently eligible in this scope. If you selected a site, make sure miners are assigned to that site and reporting recent power and hashrate telemetry. Miners must be paired, actionable, not already curtailed or cooling down, and drawing at least 1500 W.",
+      );
     });
     expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
   });
