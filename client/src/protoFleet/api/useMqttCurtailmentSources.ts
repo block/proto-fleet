@@ -93,21 +93,18 @@ function mapRuntimeHealth(source: MqttCurtailmentSource): CurtailmentHealth {
     return "waitingForSignal";
   }
 
+  const runtimeState = status.runtimeState;
   const hasReceivedSignal = sourceHasReceivedSignal(source);
-  if (!hasReceivedSignal && status.runtimeState !== MqttCurtailmentSourceRuntimeState.ERROR) {
+  if (!hasReceivedSignal && runtimeState !== MqttCurtailmentSourceRuntimeState.ERROR) {
     return "waitingForSignal";
   }
 
-  if (status.stale) {
-    return "noSignal";
-  }
-
-  switch (status.runtimeState) {
+  switch (runtimeState) {
     case MqttCurtailmentSourceRuntimeState.UNSPECIFIED:
     case MqttCurtailmentSourceRuntimeState.STARTING:
       return "waitingForSignal";
     case MqttCurtailmentSourceRuntimeState.RUNNING:
-      return "connected";
+      return status.stale ? "noSignal" : "connected";
     default:
       return "offline";
   }

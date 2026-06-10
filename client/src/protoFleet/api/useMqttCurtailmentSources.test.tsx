@@ -167,6 +167,35 @@ describe("useMqttCurtailmentSources", () => {
     });
   });
 
+  it.each([MqttCurtailmentSourceRuntimeState.STOPPED, MqttCurtailmentSourceRuntimeState.ERROR])(
+    "shows offline for stale signals when runtime state is %s",
+    async (runtimeState) => {
+      mockListMqttCurtailmentSources.mockResolvedValueOnce({
+        sources: [
+          mqttSource({
+            status: create(MqttCurtailmentSourceStatusSchema, {
+              runtimeState,
+              stale: true,
+              lastTarget: "OFF",
+              lastReceivedAt: timestamp("2026-06-09T15:10:00Z"),
+            }),
+          }),
+        ],
+      });
+
+      const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+      await act(async () => {
+        await result.current.listSources();
+      });
+
+      expect(result.current.sources[0]).toMatchObject({
+        lastTarget: "OFF",
+        health: "offline",
+      });
+    },
+  );
+
   it("updates a source and replaces it in local hook state", async () => {
     mockListMqttCurtailmentSources.mockResolvedValueOnce({ sources: [mqttSource()] });
     mockUpdateMqttCurtailmentSource.mockResolvedValueOnce({
