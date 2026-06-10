@@ -190,10 +190,10 @@ func loadOverrides() (overridesFile, error) {
 	var overrides overridesFile
 	data, err := os.ReadFile(overridesPath)
 	if err != nil {
-		return overrides, err
+		return overrides, fmt.Errorf("read overrides: %w", err)
 	}
 	if err := json.Unmarshal(data, &overrides); err != nil {
-		return overrides, err
+		return overrides, fmt.Errorf("parse overrides: %w", err)
 	}
 	if overrides.Services == nil {
 		overrides.Services = map[string]serviceOverride{}
@@ -210,17 +210,17 @@ func loadOverrides() (overridesFile, error) {
 func loadDescriptorFiles() ([]protoreflect.FileDescriptor, error) {
 	data, err := os.ReadFile(descriptorSetPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read descriptor set: %w", err)
 	}
 
 	var set descriptorpb.FileDescriptorSet
 	if err := proto.Unmarshal(data, &set); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse descriptor set: %w", err)
 	}
 
 	registry, err := protodesc.NewFiles(&set)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build descriptor registry: %w", err)
 	}
 
 	var files []protoreflect.FileDescriptor
@@ -247,7 +247,7 @@ func buildTypeIndexes(files []protoreflect.FileDescriptor) (map[protoreflect.Ful
 
 		indexMessages(messages, file.Messages(), importPath, alias, "")
 		indexEnums(enums, file.Enums(), importPath, alias, "")
-		for i := 0; i < file.Messages().Len(); i++ {
+		for i := range file.Messages().Len() {
 			indexNestedEnums(enums, file.Messages().Get(i), importPath, alias, toGoIdent(file.Messages().Get(i).Name()))
 		}
 	}
@@ -256,7 +256,7 @@ func buildTypeIndexes(files []protoreflect.FileDescriptor) (map[protoreflect.Ful
 }
 
 func indexMessages(index map[protoreflect.FullName]messageInfo, messages protoreflect.MessageDescriptors, importPath, alias, prefix string) {
-	for i := 0; i < messages.Len(); i++ {
+	for i := range messages.Len() {
 		message := messages.Get(i)
 		ident := toGoIdent(message.Name())
 		if prefix != "" {
@@ -273,7 +273,7 @@ func indexMessages(index map[protoreflect.FullName]messageInfo, messages protore
 }
 
 func indexEnums(index map[protoreflect.FullName]enumInfo, enums protoreflect.EnumDescriptors, importPath, alias, prefix string) {
-	for i := 0; i < enums.Len(); i++ {
+	for i := range enums.Len() {
 		enum := enums.Get(i)
 		ident := toGoIdent(enum.Name())
 		if prefix != "" {
@@ -290,7 +290,7 @@ func indexEnums(index map[protoreflect.FullName]enumInfo, enums protoreflect.Enu
 
 func indexNestedEnums(index map[protoreflect.FullName]enumInfo, message protoreflect.MessageDescriptor, importPath, alias, prefix string) {
 	indexEnums(index, message.Enums(), importPath, alias, prefix)
-	for i := 0; i < message.Messages().Len(); i++ {
+	for i := range message.Messages().Len() {
 		child := message.Messages().Get(i)
 		childPrefix := prefix + "_" + toGoIdent(child.Name())
 		indexNestedEnums(index, child, importPath, alias, childPrefix)
@@ -447,11 +447,11 @@ func buildGroups(
 func indexMethods(files []protoreflect.FileDescriptor, services map[string]serviceOverride) map[string]methodRef {
 	result := make(map[string]methodRef)
 	for _, file := range files {
-		for i := 0; i < file.Services().Len(); i++ {
+		for i := range file.Services().Len() {
 			service := file.Services().Get(i)
 			serviceKey := string(file.Package()) + "." + string(service.Name())
 			serviceOverride := services[serviceKey]
-			for j := 0; j < service.Methods().Len(); j++ {
+			for j := range service.Methods().Len() {
 				method := service.Methods().Get(j)
 				methodKey := serviceKey + "/" + string(method.Name())
 				result[methodKey] = methodRef{
@@ -583,7 +583,7 @@ func addRequestEnumImports(
 	enums map[protoreflect.FullName]enumInfo,
 	options renderOptions,
 ) {
-	for i := 0; i < message.Fields().Len(); i++ {
+	for i := range message.Fields().Len() {
 		field := message.Fields().Get(i)
 		fieldName := string(field.Name())
 		if options.IgnoreFields[fieldName] {
@@ -625,14 +625,14 @@ func analyzeRequest(
 	}
 	hasUnsupported := false
 
-	for i := 0; i < message.Oneofs().Len(); i++ {
+	for i := range message.Oneofs().Len() {
 		oneof := message.Oneofs().Get(i)
 		if !oneof.IsSynthetic() {
 			hasUnsupported = true
 		}
 	}
 
-	for i := 0; i < message.Fields().Len(); i++ {
+	for i := range message.Fields().Len() {
 		field := message.Fields().Get(i)
 		fieldName := string(field.Name())
 		if options.IgnoreFields[fieldName] {
@@ -676,7 +676,7 @@ func analyzeRequest(
 	if hasUnsupported {
 		analysis.Reason = "request includes complex fields, so the generated command exposes simple flags plus --json fallback"
 	}
-	for i := 0; i < message.Fields().Len(); i++ {
+	for i := range message.Fields().Len() {
 		field := message.Fields().Get(i)
 		value, ok := options.FixedFields[string(field.Name())]
 		if !ok {
@@ -722,9 +722,12 @@ func renderFixedFieldAssignment(
 			}
 		}
 		return nil, false, fmt.Errorf("invalid fixed enum value %q for field %s", value, field.FullName())
-	default:
-		return nil, false, fmt.Errorf("unsupported fixed field type for %s", field.FullName())
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind, protoreflect.Uint64Kind,
+		protoreflect.Fixed64Kind, protoreflect.FloatKind, protoreflect.DoubleKind,
+		protoreflect.BytesKind, protoreflect.MessageKind, protoreflect.GroupKind:
+		// No fixed-field override needs these kinds yet.
 	}
+	return nil, false, fmt.Errorf("unsupported fixed field type for %s", field.FullName())
 }
 
 func buildFieldPlan(
@@ -779,9 +782,14 @@ func buildFieldPlan(
 				"}",
 			)
 			return flag, lines, needsFmt, nil
-		default:
-			return "", nil, false, nil
+		case protoreflect.BoolKind, protoreflect.EnumKind, protoreflect.Uint32Kind,
+			protoreflect.Fixed32Kind, protoreflect.Uint64Kind, protoreflect.Fixed64Kind,
+			protoreflect.FloatKind, protoreflect.DoubleKind, protoreflect.BytesKind,
+			protoreflect.MessageKind, protoreflect.GroupKind:
+			// Repeated fields of these kinds have no flag mapping; the command
+			// falls back to --json input for them.
 		}
+		return "", nil, false, nil
 	}
 
 	switch field.Kind() {
@@ -845,15 +853,16 @@ func buildFieldPlan(
 		lines = append(lines, "\t}")
 		lines = append(lines, "}")
 		needsFmt = true
-	default:
-		return "", nil, false, nil
+	case protoreflect.BytesKind, protoreflect.MessageKind, protoreflect.GroupKind:
+		// Filtered out by analyzeRequest before flag planning; returning empty
+		// values defers these fields to --json input.
 	}
 
 	return flag, lines, needsFmt, nil
 }
 
 func unsupportedResponseReason(message protoreflect.MessageDescriptor) string {
-	for i := 0; i < message.Fields().Len(); i++ {
+	for i := range message.Fields().Len() {
 		field := message.Fields().Get(i)
 		if field.Kind() == protoreflect.BytesKind {
 			return "response contains bytes fields that require custom binary or file handling"
@@ -903,8 +912,7 @@ func fieldNeedsPointer(field protoreflect.FieldDescriptor) bool {
 	if field.IsList() || field.IsMap() {
 		return false
 	}
-	switch field.Kind() {
-	case protoreflect.MessageKind, protoreflect.GroupKind, protoreflect.BytesKind:
+	if kind := field.Kind(); kind == protoreflect.MessageKind || kind == protoreflect.GroupKind || kind == protoreflect.BytesKind {
 		return false
 	}
 	return field.HasPresence()
@@ -928,7 +936,7 @@ func (values enumValueList) names() []string {
 func renderableEnumValues(enum protoreflect.EnumDescriptor) enumValueList {
 	var values enumValueList
 	prefix := strings.ToUpper(strings.Join(splitCamelWords(string(enum.Name())), "_")) + "_"
-	for i := 0; i < enum.Values().Len(); i++ {
+	for i := range enum.Values().Len() {
 		value := enum.Values().Get(i)
 		if value.Number() == 0 && strings.Contains(string(value.Name()), "UNSPECIFIED") {
 			continue
@@ -1045,7 +1053,7 @@ func renderSimpleExpr(
 func cleanGeneratedFiles() error {
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("read output dir: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -1057,7 +1065,7 @@ func cleanGeneratedFiles() error {
 		}
 		if strings.HasPrefix(name, "cmd_") && strings.HasSuffix(name, ".go") {
 			if err := os.Remove(filepath.Join(outputDir, name)); err != nil {
-				return err
+				return fmt.Errorf("remove stale %s: %w", name, err)
 			}
 		}
 	}
@@ -1069,7 +1077,7 @@ func renderGroups(groups []groupSpec) error {
 		"indent": indentBlock,
 	}).ParseFiles(groupTemplatePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse group template: %w", err)
 	}
 
 	for _, group := range groups {
@@ -1082,11 +1090,11 @@ func renderGroups(groups []groupSpec) error {
 		}
 		var output bytes.Buffer
 		if err := tmpl.Execute(&output, data); err != nil {
-			return err
+			return fmt.Errorf("render group %s: %w", group.Name, err)
 		}
 		filename := filepath.Join(outputDir, "cmd_"+sanitizeFileName(group.Name)+".go")
 		if err := os.WriteFile(filename, output.Bytes(), 0o644); err != nil {
-			return err
+			return fmt.Errorf("write %s: %w", filename, err)
 		}
 	}
 	return nil
@@ -1095,7 +1103,7 @@ func renderGroups(groups []groupSpec) error {
 func renderCommandsFile(groups []groupSpec) error {
 	tmpl, err := template.ParseFiles(commandsTemplatePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse commands template: %w", err)
 	}
 
 	groupFuncNames := make([]string, 0, len(groups))
@@ -1105,21 +1113,27 @@ func renderCommandsFile(groups []groupSpec) error {
 
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, commandsTemplateData{GroupFuncNames: groupFuncNames}); err != nil {
-		return err
+		return fmt.Errorf("render commands file: %w", err)
 	}
-	return os.WriteFile(filepath.Join(outputDir, "cmd_commands.go"), output.Bytes(), 0o644)
+	if err := os.WriteFile(filepath.Join(outputDir, "cmd_commands.go"), output.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("write commands file: %w", err)
+	}
+	return nil
 }
 
 func renderReport(report generationReport) error {
-	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(reportPath), 0o750); err != nil {
+		return fmt.Errorf("create report dir: %w", err)
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal report: %w", err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(reportPath, data, 0o644)
+	if err := os.WriteFile(reportPath, data, 0o644); err != nil {
+		return fmt.Errorf("write report: %w", err)
+	}
+	return nil
 }
 
 func sortedImports(imports map[string]string) []importSpec {
@@ -1271,7 +1285,7 @@ func toGoFieldName(name protoreflect.Name) string {
 }
 
 func toGoFieldNameString(name string) string {
-	parts := strings.Split(string(name), "_")
+	parts := strings.Split(name, "_")
 	for i := range parts {
 		if parts[i] == "" {
 			continue
