@@ -189,7 +189,7 @@ FOR UPDATE;
 
 -- name: LockBuildingForWrite :one
 -- Row-locks a specific building so concurrent mutations (DeleteSite,
--- AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+-- AssignBuildingsToSite, DeleteBuilding) serialize. Returns the building
 -- id when alive; sql.ErrNoRows when soft-deleted or missing.
 SELECT id FROM building
 WHERE id = sqlc.arg('id')
@@ -200,7 +200,7 @@ FOR UPDATE;
 -- name: LockBuildingsBySiteForWrite :many
 -- Row-locks every live building under the given site so DeleteSite's
 -- cascade can rewrite their racks without a concurrent
--- AssignBuildingToSite slipping a building out from under it. Returns
+-- AssignBuildingsToSite slipping a building out from under it. Returns
 -- the locked ids (result is informational; the FOR UPDATE side-effect
 -- is what matters).
 SELECT id FROM building

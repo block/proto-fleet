@@ -172,7 +172,7 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 	}
 	// Pass the building's site as we saw it at authz time. The service
 	// re-reads the building and rejects with NotFound if a concurrent
-	// AssignBuildingToSite moved it — otherwise a site-scoped caller
+	// AssignBuildingsToSite moved it — otherwise a site-scoped caller
 	// could end up with telemetry for a site they're not authorized for.
 	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId(), building.SiteID)
 	if err != nil {

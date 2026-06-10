@@ -128,9 +128,10 @@ interface AssignDevicesToSiteProps {
   onFinally?: () => void;
 }
 
-interface AssignBuildingToSiteProps {
-  buildingId: bigint;
-  // Unset moves the building to "Unassigned".
+interface AssignBuildingsToSiteProps {
+  // Bulk-friendly. Pass a single-element array for the singular case.
+  buildingIds: bigint[];
+  // Unset moves the buildings to "Unassigned".
   targetSiteId?: bigint;
   signal?: AbortSignal;
   onSuccess?: (reassignedRackCount: bigint, reassignedDeviceCount: bigint) => void;
@@ -298,12 +299,12 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  const assignBuildingToSite = useCallback(
-    async ({ buildingId, targetSiteId, signal, onSuccess, onError, onFinally }: AssignBuildingToSiteProps) => {
+  const assignBuildingsToSite = useCallback(
+    async ({ buildingIds, targetSiteId, signal, onSuccess, onError, onFinally }: AssignBuildingsToSiteProps) => {
       try {
-        const response = await sitesClient.assignBuildingToSite(
+        const response = await sitesClient.assignBuildingsToSite(
           {
-            buildingId,
+            buildingIds,
             targetSiteId,
           },
           { signal },
@@ -325,7 +326,7 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  return { listSites, createSite, updateSite, deleteSite, assignDevicesToSite, assignBuildingToSite };
+  return { listSites, createSite, updateSite, deleteSite, assignDevicesToSite, assignBuildingsToSite };
 };
 
 export { useSites };

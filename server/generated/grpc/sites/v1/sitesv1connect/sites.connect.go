@@ -45,9 +45,9 @@ const (
 	// SiteServiceAssignDevicesToSiteProcedure is the fully-qualified name of the SiteService's
 	// AssignDevicesToSite RPC.
 	SiteServiceAssignDevicesToSiteProcedure = "/sites.v1.SiteService/AssignDevicesToSite"
-	// SiteServiceAssignBuildingToSiteProcedure is the fully-qualified name of the SiteService's
-	// AssignBuildingToSite RPC.
-	SiteServiceAssignBuildingToSiteProcedure = "/sites.v1.SiteService/AssignBuildingToSite"
+	// SiteServiceAssignBuildingsToSiteProcedure is the fully-qualified name of the SiteService's
+	// AssignBuildingsToSite RPC.
+	SiteServiceAssignBuildingsToSiteProcedure = "/sites.v1.SiteService/AssignBuildingsToSite"
 	// SiteServiceGetSiteStatsProcedure is the fully-qualified name of the SiteService's GetSiteStats
 	// RPC.
 	SiteServiceGetSiteStatsProcedure = "/sites.v1.SiteService/GetSiteStats"
@@ -78,11 +78,13 @@ type SiteServiceClient interface {
 	// details and no row is touched. Omit target_site_id (or leave it
 	// unset) to move devices to the "Unassigned" bucket.
 	AssignDevicesToSite(context.Context, *connect.Request[v1.AssignDevicesToSiteRequest]) (*connect.Response[v1.AssignDevicesToSiteResponse], error)
-	// AssignBuildingToSite moves a building to a different site
-	// (or to "Unassigned" when target_site_id is unset). The same
-	// transaction cascades site_id down to the building's racks and
-	// their devices. Returns the cascade counts.
-	AssignBuildingToSite(context.Context, *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error)
+	// AssignBuildingsToSite moves one or more buildings to a target site
+	// (or to "Unassigned" when target_site_id is unset). All updates run
+	// in a single transaction; if any building fails, the batch rolls
+	// back. The same transaction cascades site_id down to each
+	// building's racks and their devices. Returns the aggregate cascade
+	// counts across every building in the batch.
+	AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
 	// rack has no building set and devices that have no rack at all.
@@ -125,9 +127,9 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+SiteServiceAssignDevicesToSiteProcedure,
 			opts...,
 		),
-		assignBuildingToSite: connect.NewClient[v1.AssignBuildingToSiteRequest, v1.AssignBuildingToSiteResponse](
+		assignBuildingsToSite: connect.NewClient[v1.AssignBuildingsToSiteRequest, v1.AssignBuildingsToSiteResponse](
 			httpClient,
-			baseURL+SiteServiceAssignBuildingToSiteProcedure,
+			baseURL+SiteServiceAssignBuildingsToSiteProcedure,
 			opts...,
 		),
 		getSiteStats: connect.NewClient[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse](
@@ -140,13 +142,13 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // siteServiceClient implements SiteServiceClient.
 type siteServiceClient struct {
-	listSites            *connect.Client[v1.ListSitesRequest, v1.ListSitesResponse]
-	createSite           *connect.Client[v1.CreateSiteRequest, v1.CreateSiteResponse]
-	updateSite           *connect.Client[v1.UpdateSiteRequest, v1.UpdateSiteResponse]
-	deleteSite           *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
-	assignDevicesToSite  *connect.Client[v1.AssignDevicesToSiteRequest, v1.AssignDevicesToSiteResponse]
-	assignBuildingToSite *connect.Client[v1.AssignBuildingToSiteRequest, v1.AssignBuildingToSiteResponse]
-	getSiteStats         *connect.Client[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse]
+	listSites             *connect.Client[v1.ListSitesRequest, v1.ListSitesResponse]
+	createSite            *connect.Client[v1.CreateSiteRequest, v1.CreateSiteResponse]
+	updateSite            *connect.Client[v1.UpdateSiteRequest, v1.UpdateSiteResponse]
+	deleteSite            *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
+	assignDevicesToSite   *connect.Client[v1.AssignDevicesToSiteRequest, v1.AssignDevicesToSiteResponse]
+	assignBuildingsToSite *connect.Client[v1.AssignBuildingsToSiteRequest, v1.AssignBuildingsToSiteResponse]
+	getSiteStats          *connect.Client[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse]
 }
 
 // ListSites calls sites.v1.SiteService.ListSites.
@@ -174,9 +176,9 @@ func (c *siteServiceClient) AssignDevicesToSite(ctx context.Context, req *connec
 	return c.assignDevicesToSite.CallUnary(ctx, req)
 }
 
-// AssignBuildingToSite calls sites.v1.SiteService.AssignBuildingToSite.
-func (c *siteServiceClient) AssignBuildingToSite(ctx context.Context, req *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error) {
-	return c.assignBuildingToSite.CallUnary(ctx, req)
+// AssignBuildingsToSite calls sites.v1.SiteService.AssignBuildingsToSite.
+func (c *siteServiceClient) AssignBuildingsToSite(ctx context.Context, req *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error) {
+	return c.assignBuildingsToSite.CallUnary(ctx, req)
 }
 
 // GetSiteStats calls sites.v1.SiteService.GetSiteStats.
@@ -209,11 +211,13 @@ type SiteServiceHandler interface {
 	// details and no row is touched. Omit target_site_id (or leave it
 	// unset) to move devices to the "Unassigned" bucket.
 	AssignDevicesToSite(context.Context, *connect.Request[v1.AssignDevicesToSiteRequest]) (*connect.Response[v1.AssignDevicesToSiteResponse], error)
-	// AssignBuildingToSite moves a building to a different site
-	// (or to "Unassigned" when target_site_id is unset). The same
-	// transaction cascades site_id down to the building's racks and
-	// their devices. Returns the cascade counts.
-	AssignBuildingToSite(context.Context, *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error)
+	// AssignBuildingsToSite moves one or more buildings to a target site
+	// (or to "Unassigned" when target_site_id is unset). All updates run
+	// in a single transaction; if any building fails, the batch rolls
+	// back. The same transaction cascades site_id down to each
+	// building's racks and their devices. Returns the aggregate cascade
+	// counts across every building in the batch.
+	AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
 	// rack has no building set and devices that have no rack at all.
@@ -252,9 +256,9 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		svc.AssignDevicesToSite,
 		opts...,
 	)
-	siteServiceAssignBuildingToSiteHandler := connect.NewUnaryHandler(
-		SiteServiceAssignBuildingToSiteProcedure,
-		svc.AssignBuildingToSite,
+	siteServiceAssignBuildingsToSiteHandler := connect.NewUnaryHandler(
+		SiteServiceAssignBuildingsToSiteProcedure,
+		svc.AssignBuildingsToSite,
 		opts...,
 	)
 	siteServiceGetSiteStatsHandler := connect.NewUnaryHandler(
@@ -274,8 +278,8 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 			siteServiceDeleteSiteHandler.ServeHTTP(w, r)
 		case SiteServiceAssignDevicesToSiteProcedure:
 			siteServiceAssignDevicesToSiteHandler.ServeHTTP(w, r)
-		case SiteServiceAssignBuildingToSiteProcedure:
-			siteServiceAssignBuildingToSiteHandler.ServeHTTP(w, r)
+		case SiteServiceAssignBuildingsToSiteProcedure:
+			siteServiceAssignBuildingsToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceGetSiteStatsProcedure:
 			siteServiceGetSiteStatsHandler.ServeHTTP(w, r)
 		default:
@@ -307,8 +311,8 @@ func (UnimplementedSiteServiceHandler) AssignDevicesToSite(context.Context, *con
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignDevicesToSite is not implemented"))
 }
 
-func (UnimplementedSiteServiceHandler) AssignBuildingToSite(context.Context, *connect.Request[v1.AssignBuildingToSiteRequest]) (*connect.Response[v1.AssignBuildingToSiteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignBuildingToSite is not implemented"))
+func (UnimplementedSiteServiceHandler) AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignBuildingsToSite is not implemented"))
 }
 
 func (UnimplementedSiteServiceHandler) GetSiteStats(context.Context, *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error) {

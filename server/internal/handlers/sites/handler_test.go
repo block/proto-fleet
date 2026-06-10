@@ -274,7 +274,7 @@ func TestHandler_AssignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
 	assert.Equal(t, conflictingSite, c.GetConflictingSiteId())
 }
 
-func TestHandler_AssignBuildingToSite_surfacesCascadeCounts(t *testing.T) {
+func TestHandler_AssignBuildingsToSite_surfacesCascadeCounts(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
@@ -286,8 +286,8 @@ func TestHandler_AssignBuildingToSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
 
-	resp, err := h.handler.AssignBuildingToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingToSiteRequest{
-		BuildingId:   50,
+	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
+		BuildingIds:  []int64{50},
 		TargetSiteId: &target,
 	}))
 	require.NoError(t, err)
@@ -295,7 +295,7 @@ func TestHandler_AssignBuildingToSite_surfacesCascadeCounts(t *testing.T) {
 	assert.Equal(t, int64(15), resp.Msg.GetReassignedDeviceCount())
 }
 
-func TestHandler_AssignBuildingToSite_targetUnsetCascadesToUnassigned(t *testing.T) {
+func TestHandler_AssignBuildingsToSite_targetUnsetCascadesToUnassigned(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
@@ -307,10 +307,37 @@ func TestHandler_AssignBuildingToSite_targetUnsetCascadesToUnassigned(t *testing
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
 
-	resp, err := h.handler.AssignBuildingToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingToSiteRequest{
-		BuildingId: 50,
+	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
+		BuildingIds: []int64{50},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), resp.Msg.GetReassignedRackCount())
 	assert.Equal(t, int64(0), resp.Msg.GetReassignedDeviceCount())
+}
+
+func TestHandler_AssignBuildingsToSite_bulkAggregatesCascadeCounts(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	target := int64(20)
+
+	// Two buildings, processed in sorted ID order.
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
+	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(10), nil)
+	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(51)).Return(nil)
+	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(4), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(20), nil)
+
+	// Pass IDs out of order to verify deterministic locking via sort.
+	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
+		BuildingIds:  []int64{51, 50},
+		TargetSiteId: &target,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(6), resp.Msg.GetReassignedRackCount())
+	assert.Equal(t, int64(30), resp.Msg.GetReassignedDeviceCount())
 }

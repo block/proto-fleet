@@ -1,6 +1,6 @@
 // Package buildings is the domain layer for the BuildingService RPC
 // surface. CRUD + cascade-unassign-on-delete; site assignment lives on
-// SiteService.AssignBuildingToSite where the cross-collection
+// SiteService.AssignBuildingsToSite where the cross-collection
 // invariant is enforced.
 package buildings
 
@@ -531,7 +531,7 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 // the org.
 //
 // `expectedSiteID` carries the site the handler resolved at authz time:
-// if a concurrent AssignBuildingToSite moves the building between the
+// if a concurrent AssignBuildingsToSite moves the building between the
 // handler's pre-authz lookup and this read, the building's current
 // site will diverge from what the caller was authorized for. We
 // surface that as NotFound rather than leaking telemetry into the
@@ -587,7 +587,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	if err != nil {
 		return nil, err
 	}
-	// Guard against the AssignBuildingToSite race: if the building has
+	// Guard against the AssignBuildingsToSite race: if the building has
 	// moved to a different site since the handler's pre-authz lookup,
 	// the permission grant we ran against doesn't match the current
 	// scope. NotFound is the safe surface here — the caller was never
@@ -663,7 +663,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
 	// counts AUTH_NEEDED devices the same way the miner list does.
 	//
-	// Also constrain by expectedSiteID so a concurrent AssignBuildingToSite
+	// Also constrain by expectedSiteID so a concurrent AssignBuildingsToSite
 	// that commits between the building re-read and the device fetch can't
 	// leak the new site's device set: the cascade stamps device.site_id
 	// onto every device under the moved building, so requiring
@@ -729,7 +729,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// Belt-and-braces: re-read the building after all the rollup queries.
 	// The device fetch is already scoped to expectedSiteID, but the rack
 	// and per-rack state queries join on building_id alone — if
-	// AssignBuildingToSite committed between the initial GetBuilding check
+	// AssignBuildingsToSite committed between the initial GetBuilding check
 	// and these reads, the rack/state data would still be that of the
 	// moved building (which now belongs to a site the caller wasn't
 	// authorized for). Catch that here and surface NotFound rather than

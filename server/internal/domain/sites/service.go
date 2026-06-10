@@ -361,11 +361,20 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 	return rowsAffected, nil, nil
 }
 
-// AssignBuildingToSite moves a building to a different site (or to
-// "Unassigned" when TargetSiteID is nil) and cascades site_id down to
-// the building's racks and their devices in one transaction. Returns
-// the cascade counts.
-func (s *Service) AssignBuildingToSite(ctx context.Context, params models.AssignBuildingToSiteParams) (*models.AssignBuildingToSiteResult, error) {
+// AssignBuildingsToSite moves one or more buildings to a target site
+// (or to "Unassigned" when TargetSiteID is nil) and cascades site_id
+// down to each building's racks and their devices. Everything runs in
+// one transaction; if any building fails, the batch rolls back.
+// Returns the aggregate cascade counts across every building.
+func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.AssignBuildingsToSiteParams) (*models.AssignBuildingsToSiteResult, error) {
+	buildingIDs := dedupeInt64s(params.BuildingIDs)
+	if len(buildingIDs) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("building_ids must not be empty")
+	}
+	// Sort for stable lock order: deadlock-safe against concurrent
+	// AssignBuildingsToSite touching an overlapping building set.
+	sort.Slice(buildingIDs, func(i, j int) bool { return buildingIDs[i] < buildingIDs[j] })
+
 	var (
 		rackCount   int64
 		deviceCount int64
@@ -381,26 +390,30 @@ func (s *Service) AssignBuildingToSite(ctx context.Context, params models.Assign
 				return err
 			}
 		}
-		// Lock the building so a concurrent DeleteSite that owns the
-		// source site can't clear this building's racks while we
-		// reassign them. Same site→building lock order DeleteSite uses.
-		if err := s.store.LockBuildingForWrite(txCtx, params.OrgID, params.BuildingID); err != nil {
-			return err
-		}
-		rowsAffected, err := s.store.AssignBuildingToSite(txCtx, params.OrgID, params.BuildingID, params.TargetSiteID)
-		if err != nil {
-			return err
-		}
-		if rowsAffected == 0 {
-			return fleeterror.NewNotFoundErrorf("building %d not found", params.BuildingID)
-		}
-		rackCount, err = s.store.ReassignRacksUnderBuilding(txCtx, params.OrgID, params.BuildingID, params.TargetSiteID)
-		if err != nil {
-			return err
-		}
-		deviceCount, err = s.store.ReassignDevicesUnderBuilding(txCtx, params.OrgID, params.BuildingID, params.TargetSiteID)
-		if err != nil {
-			return err
+		for _, buildingID := range buildingIDs {
+			// Lock the building so a concurrent DeleteSite that owns the
+			// source site can't clear this building's racks while we
+			// reassign them. Same site→building lock order DeleteSite uses.
+			if err := s.store.LockBuildingForWrite(txCtx, params.OrgID, buildingID); err != nil {
+				return err
+			}
+			rowsAffected, err := s.store.AssignBuildingToSite(txCtx, params.OrgID, buildingID, params.TargetSiteID)
+			if err != nil {
+				return err
+			}
+			if rowsAffected == 0 {
+				return fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+			}
+			racks, err := s.store.ReassignRacksUnderBuilding(txCtx, params.OrgID, buildingID, params.TargetSiteID)
+			if err != nil {
+				return err
+			}
+			rackCount += racks
+			devices, err := s.store.ReassignDevicesUnderBuilding(txCtx, params.OrgID, buildingID, params.TargetSiteID)
+			if err != nil {
+				return err
+			}
+			deviceCount += devices
 		}
 		return nil
 	})
@@ -409,18 +422,17 @@ func (s *Service) AssignBuildingToSite(ctx context.Context, params models.Assign
 	}
 
 	orgIDVal := params.OrgID
-	buildingIDVal := params.BuildingID
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventBuildingAssignedToSite,
 		OrganizationID: &orgIDVal,
 		SiteID:         params.TargetSiteID,
 		Description: fmt.Sprintf(
-			"Assigned building %d to site %s (%d racks, %d devices cascaded)",
-			buildingIDVal, formatSiteIDForDescription(params.TargetSiteID), rackCount, deviceCount,
+			"Assigned %d building(s) to site %s (%d racks, %d devices cascaded)",
+			len(buildingIDs), formatSiteIDForDescription(params.TargetSiteID), rackCount, deviceCount,
 		),
 		Metadata: map[string]any{
-			"building_id":             buildingIDVal,
+			"building_ids":            buildingIDs,
 			"target_site_id":          params.TargetSiteID,
 			"reassigned_rack_count":   rackCount,
 			"reassigned_device_count": deviceCount,
@@ -429,7 +441,7 @@ func (s *Service) AssignBuildingToSite(ctx context.Context, params models.Assign
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
 
-	return &models.AssignBuildingToSiteResult{
+	return &models.AssignBuildingsToSiteResult{
 		ReassignedRackCount:   rackCount,
 		ReassignedDeviceCount: deviceCount,
 	}, nil
@@ -525,6 +537,19 @@ func dedupeStrings(in []string) []string {
 		}
 		seen[s] = struct{}{}
 		out = append(out, s)
+	}
+	return out
+}
+
+func dedupeInt64s(in []int64) []int64 {
+	seen := make(map[int64]struct{}, len(in))
+	out := make([]int64, 0, len(in))
+	for _, v := range in {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
 	}
 	return out
 }

@@ -101,16 +101,16 @@ func (h *Handler) AssignDevicesToSite(ctx context.Context, req *connect.Request[
 	}), nil
 }
 
-func (h *Handler) AssignBuildingToSite(ctx context.Context, req *connect.Request[pb.AssignBuildingToSiteRequest]) (*connect.Response[pb.AssignBuildingToSiteResponse], error) {
+func (h *Handler) AssignBuildingsToSite(ctx context.Context, req *connect.Request[pb.AssignBuildingsToSiteRequest]) (*connect.Response[pb.AssignBuildingsToSiteResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.AssignBuildingToSite(ctx, toAssignBuildingParams(req.Msg, info.OrganizationID))
+	out, err := h.service.AssignBuildingsToSite(ctx, toAssignBuildingsParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.AssignBuildingToSiteResponse{
+	return connect.NewResponse(&pb.AssignBuildingsToSiteResponse{
 		ReassignedRackCount:   out.ReassignedRackCount,
 		ReassignedDeviceCount: out.ReassignedDeviceCount,
 	}), nil

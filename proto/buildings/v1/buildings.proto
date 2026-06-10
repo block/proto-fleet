@@ -29,7 +29,7 @@ service BuildingService {
 
     // UpdateBuilding mutates name, description, capacity, layout
     // defaults. Site assignment is *not* changed by UpdateBuilding —
-    // use AssignBuildingToSite (SiteService) for that, since it has
+    // use AssignBuildingsToSite (SiteService) for that, since it has
     // cross-collection enforcement.
     rpc UpdateBuilding(UpdateBuildingRequest) returns (UpdateBuildingResponse);
 
