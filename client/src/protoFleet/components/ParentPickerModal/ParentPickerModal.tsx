@@ -427,8 +427,15 @@ const ParentPickerModal = ({
                   id="parent-picker-new-name"
                   label={createNewLabel}
                   initValue={newName}
-                  onChange={(value) => setNewName(value)}
-                  disabled={!createNewChecked}
+                  // Typing arms the checkbox automatically — saves a
+                  // click for the common "I know I want a new group"
+                  // case and matches the empty-list branch below. The
+                  // checkbox stays interactive so the operator can
+                  // turn it off after typing if they change their mind.
+                  onChange={(value) => {
+                    setNewName(value);
+                    if (!createNewChecked && value.length > 0) setCreateNewChecked(true);
+                  }}
                 />
               </div>
             </label>

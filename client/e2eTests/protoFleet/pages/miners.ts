@@ -432,7 +432,12 @@ export class MinersPage extends BasePage {
   }
 
   async inputNewGroupName(groupName: string) {
-    await this.page.locator("#new-group-name").fill(groupName);
+    // ParentPickerModal — input id is shared across kinds (site / building
+    // / rack / group). When the group list is non-empty the create-new
+    // checkbox arms first, but the test's bulk-from-Miners flow runs
+    // against a fresh org where no groups exist, so the input auto-arms
+    // (see ParentPickerModal's empty-list create-new branch).
+    await this.page.locator("#parent-picker-new-name").fill(groupName);
   }
 
   async validateMinerGroupName(ipAddress: string, expectedGroupName: string) {

@@ -333,19 +333,41 @@ const RacksPage = () => {
     // Snapshot before any state changes — drives whether the URL-change
     // effect will refetch for us.
     const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
+    const hadSiteFilter = urlSiteIds.size > 0;
     setSelectedZones([]);
     selectedZonesRef.current = [];
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
+    // Clear the `site` URL param too; otherwise "Clear filters" on a
+    // site-scoped empty state would leave `?site=<id>` in place and
+    // immediately reload the same empty result.
+    if (hadSiteFilter) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("site");
+          return next;
+        },
+        { replace: true },
+      );
+    }
     setBuildingFilter([]);
-    // When the building filter was active, clearing the URL fires the
-    // `prevBuildingKey` effect which calls resetAndFetch with the cleared
-    // ref. Calling it here too would double-fetch (the first call would
-    // read stale building ids from the ref before the URL change settles).
-    if (!hadBuildingFilter) {
+    // When the URL had any building/site filter, the URL-change effect
+    // (`prevBuildingKey` / `urlSiteIds` deps) fires resetAndFetch. We
+    // only call it manually when there's no URL transition to ride on,
+    // otherwise we'd double-fetch with a stale ref.
+    if (!hadBuildingFilter && !hadSiteFilter) {
       resetAndFetch();
     }
-  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setBuildingFilter]);
+  }, [
+    resetAndFetch,
+    selectedBuildingIdStrings,
+    selectedIssuesRef,
+    selectedZonesRef,
+    setBuildingFilter,
+    setSearchParams,
+    urlSiteIds,
+  ]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
@@ -746,6 +768,13 @@ const RacksPage = () => {
             setEditingRack(null);
           }}
           onContinue={handleRackSettingsContinue}
+          // Edit-mode saves dispatch through the modal directly (no
+          // AssignMinersModal handoff like Create), so the list + zone
+          // filter would otherwise stay stale until the next poll.
+          onSuccess={() => {
+            resetAndFetch();
+            fetchZones();
+          }}
         />
       ) : null}
       {assignMinersFormData ? (
