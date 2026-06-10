@@ -18,15 +18,11 @@ describe("primaryNavItems", () => {
 });
 
 describe("secondaryNavItems", () => {
-  it("adds Curtailment as a settings management tab after Schedules", () => {
-    const labels = secondaryNavItems.map((item) => item.label);
-    const curtailmentItem = secondaryNavItems.find((item) => item.label === "Curtailment");
-
-    expect(curtailmentItem).toMatchObject({
-      path: "/settings/curtailment",
-      parent: "/settings",
-      requiredPermission: "curtailment:manage",
-    });
-    expect(labels.indexOf("Curtailment")).toBe(labels.indexOf("Schedules") + 1);
+  it("keeps the curtailment settings page out of navigation", () => {
+    expect(secondaryNavItems).not.toContainEqual(
+      expect.objectContaining({
+        path: "/settings/curtailment",
+      }),
+    );
   });
 });
