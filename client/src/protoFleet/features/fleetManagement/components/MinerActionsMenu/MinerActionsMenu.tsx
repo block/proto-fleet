@@ -361,6 +361,7 @@ const MinerActionsMenu = ({
           selectionMode={selectionMode === "all" ? "all" : "subset"}
           currentFilter={currentFilter}
           totalCount={totalCount}
+          miners={miners}
           sourceLabel={
             selectionMode === "all" && totalCount !== undefined
               ? `${totalCount} ${totalCount === 1 ? "miner" : "miners"}`

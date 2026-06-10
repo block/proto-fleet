@@ -5,6 +5,7 @@ import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import {
   type MinerListFilter,
   MinerListFilterSchema,
+  type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -21,6 +22,10 @@ interface MinerReparentPickerProps {
   selectionMode: "subset" | "all";
   currentFilter?: MinerListFilter;
   totalCount?: number;
+  // Snapshots keyed by deviceIdentifier — used by the rack guard to
+  // detect cross-rack conflicts. Subset mode passes the caller's map;
+  // all-mode builds it during resolveAllModeIds.
+  miners?: Record<string, MinerStateSnapshot>;
   sourceLabel: string;
   successMessage: (count: number | bigint, target: "site" | "rack") => string;
   onClose: () => void;
@@ -76,8 +81,41 @@ const resolveRackMembers = async (rackId: bigint): Promise<Set<string>> => {
   return members;
 };
 
-const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => {
-  const collected: string[] = [];
+// `idx_one_rack_per_device` enforces a single rack per miner. Adding a
+// miner from rack A to rack B would violate that unique index and abort
+// the whole batch. Surface a specific error before dispatch, listing
+// the conflicting rack labels we can identify from snapshots in scope.
+const crossRackConflictMessage = (
+  ids: string[],
+  miners: Record<string, MinerStateSnapshot> | undefined,
+  targetRack: DeviceSet,
+  currentMembers: Set<string>,
+): string | null => {
+  if (!miners) return null;
+  const targetLabel = targetRack.label || "rack";
+  const conflictRackLabels = new Set<string>();
+  let conflictCount = 0;
+  for (const id of ids) {
+    if (currentMembers.has(id)) continue;
+    const snapshot = miners[id];
+    if (!snapshot) continue;
+    const rackLabel = snapshot.rackLabel;
+    if (rackLabel && rackLabel !== targetLabel) {
+      conflictCount += 1;
+      conflictRackLabels.add(rackLabel);
+    }
+  }
+  if (conflictCount === 0) return null;
+  const labels = Array.from(conflictRackLabels).slice(0, 3).join(", ");
+  const more = conflictRackLabels.size > 3 ? ` and ${conflictRackLabels.size - 3} other rack(s)` : "";
+  return `${conflictCount} of the selected miners are already in ${labels}${more}. Remove them from their current rack before adding to "${targetLabel}".`;
+};
+
+const resolveAllModeIds = async (
+  filter: MinerListFilter,
+): Promise<{ ids: string[]; snapshots: Record<string, MinerStateSnapshot> }> => {
+  const ids: string[] = [];
+  const snapshots: Record<string, MinerStateSnapshot> = {};
   let cursor = "";
   let exhausted = false;
   for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
@@ -86,7 +124,10 @@ const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => 
       cursor,
       filter,
     });
-    for (const miner of response.miners) collected.push(miner.deviceIdentifier);
+    for (const miner of response.miners) {
+      ids.push(miner.deviceIdentifier);
+      snapshots[miner.deviceIdentifier] = miner;
+    }
     if (!response.cursor) {
       exhausted = true;
       break;
@@ -96,7 +137,7 @@ const resolveAllModeIds = async (filter: MinerListFilter): Promise<string[]> => 
   if (!exhausted) {
     throw new Error(`Too many miners selected (over ${MAX_MINERS}). Filter the list and try again.`);
   }
-  return collected;
+  return { ids, snapshots };
 };
 
 const MinerReparentPicker = ({
@@ -105,6 +146,7 @@ const MinerReparentPicker = ({
   selectionMode,
   currentFilter,
   totalCount,
+  miners,
   sourceLabel,
   successMessage,
   onClose,
@@ -123,7 +165,11 @@ const MinerReparentPicker = ({
       });
     });
 
-  const dispatchReparent = async (targetId: bigint, ids: string[]) => {
+  const dispatchReparent = async (
+    targetId: bigint,
+    ids: string[],
+    minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
+  ) => {
     if (kind === "site") {
       void reassignDevicesToSite({
         targetSiteId: targetId,
@@ -148,6 +194,11 @@ const MinerReparentPicker = ({
     const overflow = rackOverflowMessage(rack, currentMembers, ids);
     if (overflow) {
       pushToast({ message: overflow, status: STATUSES.error });
+      return;
+    }
+    const crossRack = crossRackConflictMessage(ids, minerSnapshots, rack, currentMembers);
+    if (crossRack) {
+      pushToast({ message: crossRack, status: STATUSES.error });
       return;
     }
     void addDevicesToDeviceSet({
@@ -185,9 +236,9 @@ const MinerReparentPicker = ({
             status: STATUSES.loading,
             longRunning: true,
           });
-          let ids: string[];
+          let resolved: { ids: string[]; snapshots: Record<string, MinerStateSnapshot> };
           try {
-            ids = await resolveAllModeIds(effectiveFilter);
+            resolved = await resolveAllModeIds(effectiveFilter);
           } catch (err) {
             const message =
               err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
@@ -195,11 +246,11 @@ const MinerReparentPicker = ({
             return;
           }
           removeToast(loadingToast);
-          if (ids.length === 0) {
+          if (resolved.ids.length === 0) {
             pushToast({ message: "No miners selected.", status: STATUSES.queued });
             return;
           }
-          void dispatchReparent(targetId, ids);
+          void dispatchReparent(targetId, resolved.ids, resolved.snapshots);
           return;
         }
 
@@ -207,7 +258,7 @@ const MinerReparentPicker = ({
           pushToast({ message: "No miners selected.", status: STATUSES.queued });
           return;
         }
-        void dispatchReparent(targetId, deviceIdentifiers);
+        void dispatchReparent(targetId, deviceIdentifiers, miners);
       }}
     />
   );

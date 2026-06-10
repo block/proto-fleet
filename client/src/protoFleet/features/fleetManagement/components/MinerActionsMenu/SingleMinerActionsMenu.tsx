@@ -458,6 +458,7 @@ const SingleMinerActionsMenu = ({
           kind={reparentKind}
           deviceIdentifiers={[deviceIdentifier]}
           selectionMode="subset"
+          miners={miners}
           sourceLabel={minerName || "miner"}
           successMessage={(_count, target) =>
             target === "site"
