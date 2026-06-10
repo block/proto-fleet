@@ -61,6 +61,13 @@
   },
   "commands": [
     {
+      "method": "/onboarding.v1.OnboardingService/CreateAdminLogin",
+      "group": "onboarding",
+      "command": "create-admin",
+      "usage": "Create the initial Fleet admin login",
+      "auth": "anonymous"
+    },
+    {
       "method": "/collection.v1.DeviceCollectionService/ListCollections",
       "group": "groups",
       "command": "list",
