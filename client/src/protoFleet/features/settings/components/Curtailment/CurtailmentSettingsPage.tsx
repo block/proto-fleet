@@ -540,7 +540,7 @@ function SectionHeader({ title, buttonText, onButtonClick }: SectionHeaderProps)
 
 type CurtailmentSourceColConfigOptions = {
   onToggle: (sourceId: string) => void;
-  updatingSourceIds: Set<string>;
+  updatingSourceIds: ReadonlySet<string>;
 };
 
 function createCurtailmentSourceColConfig({
@@ -600,7 +600,7 @@ type CurtailmentSettingsContentProps = {
   loadSourcesError?: string | null;
   isSavingSource?: boolean;
   isTestingSourceConnection?: boolean;
-  updatingSourceIds?: Set<string>;
+  updatingSourceIds?: ReadonlySet<string>;
   onCreateSource?: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource | void>;
   onUpdateSource?: (
     source: CurtailmentSource,
@@ -673,7 +673,7 @@ export function CurtailmentSettingsContent({
 
       const nextEnabled = !source.enabled;
       if (onToggleSource) {
-        void onToggleSource(source, nextEnabled);
+        void onToggleSource(source, nextEnabled).catch(() => {});
         return;
       }
 

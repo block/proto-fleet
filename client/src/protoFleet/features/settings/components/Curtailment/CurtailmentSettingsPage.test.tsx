@@ -532,6 +532,28 @@ describe("CurtailmentSettingsPage", () => {
     expect(setSourceEnabledMock).toHaveBeenCalledWith("11", false);
   });
 
+  it("shows a toast when source enablement fails", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    setSourceEnabledMock.mockRejectedValue(new Error("Toggle failed"));
+    mockSourcesApi({ sources: apiSources, setSourceEnabled: setSourceEnabledMock });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getSourceRow("Site Alpha MQTT")).getByRole("checkbox"));
+
+    expect(setSourceEnabledMock).toHaveBeenCalledWith("11", false);
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({
+        message: "Toggle failed",
+        status: "error",
+      }),
+    );
+  });
+
   it("redirects callers without curtailment management permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
 

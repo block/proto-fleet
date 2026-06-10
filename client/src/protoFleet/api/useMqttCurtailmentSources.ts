@@ -41,7 +41,7 @@ export type UseMqttCurtailmentSourcesResult = {
   isLoading: boolean;
   isCreating: boolean;
   isTestingConnection: boolean;
-  updatingSourceIds: Set<string>;
+  updatingSourceIds: ReadonlySet<string>;
   loadError: string | null;
   createError: string | null;
   listSources: (signal?: AbortSignal, options?: ListSourcesOptions) => Promise<CurtailmentSource[]>;

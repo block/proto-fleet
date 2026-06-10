@@ -119,6 +119,8 @@ const Input = ({
   const fallbackRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
   const hasFloatingLabel = type === "date" || !!length(value) || focused;
+  const showPasswordToggle = type === "password" && !hidePasswordToggle;
+  const showTrailingIcon = showPasswordToggle || statusIcon !== undefined;
 
   useEffect(() => {
     if (error) return;
@@ -190,9 +192,9 @@ const Input = ({
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
-            { "pr-4": !compact && !tooltip && type !== "password" },
-            { "pr-10": !compact && tooltip && type !== "password" },
-            { "pr-20": !compact && tooltip && type === "password" },
+            { "pr-4": !compact && !tooltip && !showTrailingIcon },
+            { "pr-10": !compact && ((!tooltip && showTrailingIcon) || (tooltip && !showTrailingIcon)) },
+            { "pr-20": !compact && tooltip && showTrailingIcon },
             { "h-6": compact },
             { "no-spinner": type === "number" },
             { uppercase: type === "date" },
@@ -289,7 +291,7 @@ const Input = ({
             ))}
           </div>
         ) : undefined}
-        {(type === "password" && !hidePasswordToggle) || statusIcon !== undefined ? (
+        {showTrailingIcon ? (
           <div
             className={clsx("absolute", {
               "top-1": compact,
