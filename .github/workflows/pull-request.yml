@@ -11,8 +11,22 @@ jobs:
   triage:
     name: Triage
     runs-on: ubuntu-latest
+    # Best-effort labelling; transient API 401s shouldn't block merges.
+    continue-on-error: true
 
     steps:
+      # Check out the BASE ref (never the PR head — pull_request_target
+      # runs with write tokens) so actions/labeler reads .github/labeler.yml
+      # from disk instead of fetching it via the API.
+      - name: Checkout base ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/labeler.yml
+          sparse-checkout-cone-mode: false
+
       - name: Apply labels
         uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6.1.0
         with:
