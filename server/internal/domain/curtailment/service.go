@@ -800,6 +800,26 @@ func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*mod
 	})
 }
 
+// GetEvent returns a single event row without hydrating target details.
+// Handlers use this to derive resource-scoped authorization from immutable
+// persisted event scope before running lifecycle RPCs.
+func (s *Service) GetEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if eventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	event, err := s.store.GetEventByUUID(ctx, orgID, eventUUID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	return event, nil
+}
+
 // GetEventWithTargets returns a single historical or active event with a page
 // of durable target phase summaries. ListEvents intentionally omits this heavy
 // payload; activity detail views fetch it by event_uuid.

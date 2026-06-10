@@ -300,6 +300,56 @@ func TestHandler_UpdateCurtailmentEvent_RejectsWithoutCurtailmentManage(t *testi
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestHandler_UpdateCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+
+	for _, tc := range []struct {
+		name      string
+		siteID    int64
+		wantCode  connect.Code
+		wantCalls int
+	}{
+		{"matching site permission allows update", allowedSite, 0, 1},
+		{"different site permission denies update", deniedSite, connect.CodePermissionDenied, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newUpdateStubStore(models.EventStateActive)
+			store.event.ScopeType = models.ScopeTypeSite
+			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
+			h := NewHandler(domainCurtailment.NewService(store))
+
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, testSiteAssignment(tc.siteID, authz.PermCurtailmentManage))
+
+			reason := "site-scoped update"
+			_, err := h.UpdateCurtailmentEvent(ctx, connect.NewRequest(&pb.UpdateCurtailmentEventRequest{
+				EventUuid: store.event.EventUUID.String(),
+				Reason:    &reason,
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+			assert.Equal(t, tc.wantCalls, store.updateCalls)
+		})
+	}
+}
+
 // TestHandler_UpdateCurtailmentEvent_RejectsMalformedUUID: invalid UUIDs
 // surface as InvalidArgument before any store work.
 func TestHandler_UpdateCurtailmentEvent_RejectsMalformedUUID(t *testing.T) {

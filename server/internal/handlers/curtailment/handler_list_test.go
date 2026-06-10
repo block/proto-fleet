@@ -387,6 +387,66 @@ func TestHandler_GetCurtailmentEvent_ReturnsTargetsWithPhaseSummaries(t *testing
 	}, store.lastTargetPageParams)
 }
 
+func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+
+	for _, tc := range []struct {
+		name     string
+		siteID   int64
+		wantCode connect.Code
+	}{
+		{"matching site permission allows read", allowedSite, 0},
+		{"different site permission denies read", deniedSite, connect.CodePermissionDenied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			eventUUID := uuid.New()
+			store := &listStubStore{
+				eventByUUID: map[uuid.UUID]*models.Event{
+					eventUUID: {
+						ID:        1,
+						EventUUID: eventUUID,
+						OrgID:     orgID,
+						State:     models.EventStateActive,
+						ScopeType: models.ScopeTypeSite,
+						ScopeJSON: siteScopeJSON(t, allowedSite),
+					},
+				},
+				targetsByUUID: map[uuid.UUID][]*models.Target{
+					eventUUID: {},
+				},
+			}
+			h := NewHandler(domainCurtailment.NewService(store))
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, testSiteAssignment(tc.siteID, authz.PermCurtailmentRead))
+
+			_, err := h.GetCurtailmentEvent(ctx, connect.NewRequest(&pb.GetCurtailmentEventRequest{
+				EventUuid: eventUUID.String(),
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+				assert.Equal(t, eventUUID, store.lastTargetPageParams.EventUUID)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+				assert.Equal(t, uuid.Nil, store.lastTargetPageParams.EventUUID)
+			}
+		})
+	}
+}
+
 func TestHandler_GetCurtailmentEvent_UsesBoundedSnapshotAndFullTargetRollup(t *testing.T) {
 	t.Parallel()
 	eventUUID := uuid.New()

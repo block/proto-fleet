@@ -228,6 +228,54 @@ func TestHandler_StopCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	}
 }
 
+func TestHandler_StopCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+
+	for _, tc := range []struct {
+		name      string
+		siteID    int64
+		wantCode  connect.Code
+		wantCalls int
+	}{
+		{"matching site permission allows stop", allowedSite, 0, 1},
+		{"different site permission denies stop", deniedSite, connect.CodePermissionDenied, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newStopStubStore()
+			store.event.ScopeType = models.ScopeTypeSite
+			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
+			h := NewHandler(curtailment.NewService(store))
+
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, testSiteAssignment(tc.siteID, authz.PermCurtailmentManage))
+
+			_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+				EventUuid: store.event.EventUUID.String(),
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+			assert.Equal(t, tc.wantCalls, store.beginRestoreCalls)
+		})
+	}
+}
+
 func TestHandler_StopCurtailment_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
