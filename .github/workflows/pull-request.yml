@@ -23,11 +23,21 @@ jobs:
     name: Auto-Assign
     runs-on: ubuntu-latest
     if: github.actor != 'dependabot[bot]'
+    # Best-effort labelling step — author already knows the PR is theirs,
+    # so transient API hiccups shouldn't gate the merge queue.
+    continue-on-error: true
 
     steps:
       - name: Assign PR to Creator
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} --add-assignee ${{ github.actor }}
+          # gh pr edit goes through GraphQL (nodeId lookup + mutation)
+          # which has been flaky with the workflow's default token. The
+          # REST assignees endpoint is a single PATCH that the same
+          # GITHUB_TOKEN reliably authenticates.
+          gh api \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/assignees" \
+            -f "assignees[]=${{ github.actor }}"
