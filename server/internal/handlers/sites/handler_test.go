@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 )
@@ -23,16 +24,18 @@ import (
 // the service's logActivity guards against that path so audit fire-and-
 // forget no-ops in tests.
 type testHarness struct {
-	handler   *Handler
-	siteStore *mocks.MockSiteStore
-	tx        *mocks.MockTransactor
-	ctrl      *gomock.Controller
+	handler         *Handler
+	siteStore       *mocks.MockSiteStore
+	collectionStore *mocks.MockCollectionStore
+	tx              *mocks.MockTransactor
+	ctrl            *gomock.Controller
 }
 
 func newTestHandler(t *testing.T) *testHarness {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	siteStore := mocks.NewMockSiteStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	// RunInTx fake: runs the closure inline so cascade calls land
 	// against the mock store without a real DB.
@@ -43,12 +46,13 @@ func newTestHandler(t *testing.T) *testHarness {
 	)
 	// GetSiteStats isn't exercised by these tests; pass nil for the
 	// stats-only dependencies and rely on the service's nil-guard.
-	svc := sites.NewService(siteStore, nil, nil, nil, tx, nil)
+	svc := sites.NewService(siteStore, nil, collectionStore, nil, nil, tx, nil)
 	return &testHarness{
-		handler:   NewHandler(svc),
-		siteStore: siteStore,
-		tx:        tx,
-		ctrl:      ctrl,
+		handler:         NewHandler(svc),
+		siteStore:       siteStore,
+		collectionStore: collectionStore,
+		tx:              tx,
+		ctrl:            ctrl,
 	}
 }
 
@@ -340,4 +344,102 @@ func TestHandler_AssignBuildingsToSite_bulkAggregatesCascadeCounts(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), resp.Msg.GetReassignedRackCount())
 	assert.Equal(t, int64(30), resp.Msg.GetReassignedDeviceCount())
+}
+
+func TestHandler_AssignRacksToSite_partialUpdateCascadesAndClearsBuilding(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	target := int64(20)
+	rackID := int64(50)
+	priorSite := int64(9)
+	priorBuilding := int64(11)
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
+		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: &priorBuilding, Zone: "Z1"}, nil)
+	// site changes & rack has a building → building clears, zone clears.
+	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), &target, (*int64)(nil), "").Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), rackID, int64(7), &target).Return(int64(8), nil)
+
+	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
+		RackIds:      []int64{rackID},
+		TargetSiteId: &target,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(8), resp.Msg.GetReassignedDeviceCount())
+	assert.Equal(t, int64(1), resp.Msg.GetClearedBuildingCount())
+}
+
+func TestHandler_AssignRacksToSite_targetUnsetUnassigns(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rackID := int64(50)
+	priorSite := int64(9)
+
+	// target_site_id unset → no LockSiteForWrite (no target to lock).
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
+		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building set
+	// site changes (priorSite → nil) but no building to clear.
+	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), gomock.Nil(), gomock.Nil(), "").Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), rackID, int64(7), gomock.Nil()).Return(int64(3), nil)
+
+	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
+		RackIds: []int64{rackID},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), resp.Msg.GetReassignedDeviceCount())
+	assert.Equal(t, int64(0), resp.Msg.GetClearedBuildingCount())
+}
+
+func TestHandler_AssignRacksToSite_sameSiteIsNoOp(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	target := int64(20)
+	rackID := int64(50)
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+	// rack already at target site, has a building — no clear, no cascade.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
+		Return(interfaces.RackPlacement{SiteID: &target, BuildingID: ptrInt64(11), Zone: "Z1"}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), &target, ptrInt64(11), "Z1").Return(nil)
+	// No CascadeRackDeviceSites — siteChanged is false.
+
+	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
+		RackIds:      []int64{rackID},
+		TargetSiteId: &target,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), resp.Msg.GetReassignedDeviceCount())
+	assert.Equal(t, int64(0), resp.Msg.GetClearedBuildingCount())
+}
+
+func TestHandler_AssignRacksToSite_bulkAggregates(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	target := int64(20)
+	priorSite := int64(9)
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+	// Two racks, processed in sorted id order.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(50), int64(7)).
+		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: ptrInt64(11)}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(50), int64(7), &target, (*int64)(nil), "").Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(50), int64(7), &target).Return(int64(4), nil)
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(51), int64(7)).
+		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building
+	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(51), int64(7), &target, gomock.Nil(), "").Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(51), int64(7), &target).Return(int64(2), nil)
+
+	// IDs passed out-of-order to verify the sort happens.
+	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
+		RackIds:      []int64{51, 50},
+		TargetSiteId: &target,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(6), resp.Msg.GetReassignedDeviceCount())
+	assert.Equal(t, int64(1), resp.Msg.GetClearedBuildingCount(), "only rack with prior building counts")
 }

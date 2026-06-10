@@ -48,6 +48,9 @@ const (
 	// SiteServiceAssignBuildingsToSiteProcedure is the fully-qualified name of the SiteService's
 	// AssignBuildingsToSite RPC.
 	SiteServiceAssignBuildingsToSiteProcedure = "/sites.v1.SiteService/AssignBuildingsToSite"
+	// SiteServiceAssignRacksToSiteProcedure is the fully-qualified name of the SiteService's
+	// AssignRacksToSite RPC.
+	SiteServiceAssignRacksToSiteProcedure = "/sites.v1.SiteService/AssignRacksToSite"
 	// SiteServiceGetSiteStatsProcedure is the fully-qualified name of the SiteService's GetSiteStats
 	// RPC.
 	SiteServiceGetSiteStatsProcedure = "/sites.v1.SiteService/GetSiteStats"
@@ -85,6 +88,15 @@ type SiteServiceClient interface {
 	// building's racks and their devices. Returns the aggregate cascade
 	// counts across every building in the batch.
 	AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error)
+	// AssignRacksToSite moves one or more racks to a target site (or
+	// to "Unassigned" when target_site_id is unset) as a partial
+	// update — the rack's label, layout, members, and slot
+	// assignments stay untouched, only site_id changes. building_id is
+	// auto-cleared on any site transition since a building belongs to
+	// a single site; the response carries the count of racks whose
+	// building was cleared so the UI can prompt for re-assignment.
+	// Same transaction cascades device.site_id for every rack member.
+	AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
 	// rack has no building set and devices that have no rack at all.
@@ -132,6 +144,11 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+SiteServiceAssignBuildingsToSiteProcedure,
 			opts...,
 		),
+		assignRacksToSite: connect.NewClient[v1.AssignRacksToSiteRequest, v1.AssignRacksToSiteResponse](
+			httpClient,
+			baseURL+SiteServiceAssignRacksToSiteProcedure,
+			opts...,
+		),
 		getSiteStats: connect.NewClient[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse](
 			httpClient,
 			baseURL+SiteServiceGetSiteStatsProcedure,
@@ -148,6 +165,7 @@ type siteServiceClient struct {
 	deleteSite            *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
 	assignDevicesToSite   *connect.Client[v1.AssignDevicesToSiteRequest, v1.AssignDevicesToSiteResponse]
 	assignBuildingsToSite *connect.Client[v1.AssignBuildingsToSiteRequest, v1.AssignBuildingsToSiteResponse]
+	assignRacksToSite     *connect.Client[v1.AssignRacksToSiteRequest, v1.AssignRacksToSiteResponse]
 	getSiteStats          *connect.Client[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse]
 }
 
@@ -179,6 +197,11 @@ func (c *siteServiceClient) AssignDevicesToSite(ctx context.Context, req *connec
 // AssignBuildingsToSite calls sites.v1.SiteService.AssignBuildingsToSite.
 func (c *siteServiceClient) AssignBuildingsToSite(ctx context.Context, req *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error) {
 	return c.assignBuildingsToSite.CallUnary(ctx, req)
+}
+
+// AssignRacksToSite calls sites.v1.SiteService.AssignRacksToSite.
+func (c *siteServiceClient) AssignRacksToSite(ctx context.Context, req *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error) {
+	return c.assignRacksToSite.CallUnary(ctx, req)
 }
 
 // GetSiteStats calls sites.v1.SiteService.GetSiteStats.
@@ -218,6 +241,15 @@ type SiteServiceHandler interface {
 	// building's racks and their devices. Returns the aggregate cascade
 	// counts across every building in the batch.
 	AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error)
+	// AssignRacksToSite moves one or more racks to a target site (or
+	// to "Unassigned" when target_site_id is unset) as a partial
+	// update — the rack's label, layout, members, and slot
+	// assignments stay untouched, only site_id changes. building_id is
+	// auto-cleared on any site transition since a building belongs to
+	// a single site; the response carries the count of racks whose
+	// building was cleared so the UI can prompt for re-assignment.
+	// Same transaction cascades device.site_id for every rack member.
+	AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
 	// rack has no building set and devices that have no rack at all.
@@ -261,6 +293,11 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		svc.AssignBuildingsToSite,
 		opts...,
 	)
+	siteServiceAssignRacksToSiteHandler := connect.NewUnaryHandler(
+		SiteServiceAssignRacksToSiteProcedure,
+		svc.AssignRacksToSite,
+		opts...,
+	)
 	siteServiceGetSiteStatsHandler := connect.NewUnaryHandler(
 		SiteServiceGetSiteStatsProcedure,
 		svc.GetSiteStats,
@@ -280,6 +317,8 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 			siteServiceAssignDevicesToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceAssignBuildingsToSiteProcedure:
 			siteServiceAssignBuildingsToSiteHandler.ServeHTTP(w, r)
+		case SiteServiceAssignRacksToSiteProcedure:
+			siteServiceAssignRacksToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceGetSiteStatsProcedure:
 			siteServiceGetSiteStatsHandler.ServeHTTP(w, r)
 		default:
@@ -313,6 +352,10 @@ func (UnimplementedSiteServiceHandler) AssignDevicesToSite(context.Context, *con
 
 func (UnimplementedSiteServiceHandler) AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignBuildingsToSite is not implemented"))
+}
+
+func (UnimplementedSiteServiceHandler) AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignRacksToSite is not implemented"))
 }
 
 func (UnimplementedSiteServiceHandler) GetSiteStats(context.Context, *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error) {

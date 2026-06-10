@@ -453,7 +453,7 @@ func start(config *Config) error {
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
 
-	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, deviceStore, telemetryService, transactor, activitySvc)
+	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every

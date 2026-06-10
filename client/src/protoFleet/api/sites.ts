@@ -139,6 +139,19 @@ interface AssignBuildingsToSiteProps {
   onFinally?: () => void;
 }
 
+interface AssignRacksToSiteProps {
+  // Bulk-friendly. Pass a single-element array for the singular case.
+  rackIds: bigint[];
+  // Unset moves the racks to "Unassigned".
+  targetSiteId?: bigint;
+  signal?: AbortSignal;
+  // onSuccess args: device cascade count, count of racks whose
+  // building was auto-cleared because the move crossed sites.
+  onSuccess?: (reassignedDeviceCount: bigint, clearedBuildingCount: bigint) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 const useSites = () => {
   const { handleAuthErrors } = useAuthErrors();
 
@@ -326,7 +339,42 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  return { listSites, createSite, updateSite, deleteSite, assignDevicesToSite, assignBuildingsToSite };
+  const assignRacksToSite = useCallback(
+    async ({ rackIds, targetSiteId, signal, onSuccess, onError, onFinally }: AssignRacksToSiteProps) => {
+      try {
+        const response = await sitesClient.assignRacksToSite(
+          {
+            rackIds,
+            targetSiteId,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        onSuccess?.(response.reassignedDeviceCount, response.clearedBuildingCount);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  return {
+    listSites,
+    createSite,
+    updateSite,
+    deleteSite,
+    assignDevicesToSite,
+    assignBuildingsToSite,
+    assignRacksToSite,
+  };
 };
 
 export { useSites };

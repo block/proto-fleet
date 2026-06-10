@@ -29,6 +29,7 @@ const (
 	eventSiteDeleted             = "site.deleted"
 	eventDevicesReassignedToSite = "devices.reassigned_to_site"
 	eventBuildingAssignedToSite  = "building.assigned_to_site"
+	eventRacksAssignedToSite     = "racks.assigned_to_site"
 )
 
 // maxDeviceIdentifiersInMetadata bounds how many identifiers we keep in
@@ -50,12 +51,13 @@ const MaxDevicesPerSiteStatsRequest = 100_000
 // site delete cascade and the bulk-reassign all-or-nothing semantics
 // both depend on it.
 type Service struct {
-	store         interfaces.SiteStore
-	buildingStore interfaces.BuildingStore
-	deviceQueryer devicerollup.DeviceQueryer
-	telemetry     devicerollup.TelemetryCollector
-	transactor    interfaces.Transactor
-	activitySvc   *activity.Service
+	store           interfaces.SiteStore
+	buildingStore   interfaces.BuildingStore
+	collectionStore interfaces.CollectionStore
+	deviceQueryer   devicerollup.DeviceQueryer
+	telemetry       devicerollup.TelemetryCollector
+	transactor      interfaces.Transactor
+	activitySvc     *activity.Service
 }
 
 // NewService wires a SiteStore, Transactor, and the activity Service
@@ -66,21 +68,27 @@ type Service struct {
 // buildingStore, deviceQueryer, and telemetry power GetSiteStats only.
 // Any of them may be nil in test setups where the stats RPC isn't
 // exercised; GetSiteStats returns an internal error in that case.
+//
+// collectionStore powers AssignRacksToSite (it owns the rack
+// placement read/write path shared with SaveRack). Nil collectionStore
+// causes AssignRacksToSite to return an internal error.
 func NewService(
 	store interfaces.SiteStore,
 	buildingStore interfaces.BuildingStore,
+	collectionStore interfaces.CollectionStore,
 	deviceQueryer devicerollup.DeviceQueryer,
 	telemetry devicerollup.TelemetryCollector,
 	transactor interfaces.Transactor,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
-		store:         store,
-		buildingStore: buildingStore,
-		deviceQueryer: deviceQueryer,
-		telemetry:     telemetry,
-		transactor:    transactor,
-		activitySvc:   activitySvc,
+		store:           store,
+		buildingStore:   buildingStore,
+		collectionStore: collectionStore,
+		deviceQueryer:   deviceQueryer,
+		telemetry:       telemetry,
+		transactor:      transactor,
+		activitySvc:     activitySvc,
 	}
 }
 
@@ -445,6 +453,120 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		ReassignedRackCount:   rackCount,
 		ReassignedDeviceCount: deviceCount,
 	}, nil
+}
+
+// AssignRacksToSite moves one or more racks to a target site (or to
+// "Unassigned" when TargetSiteID is nil) as a partial update — label,
+// layout, members, and slot assignments stay untouched. building_id is
+// auto-cleared on any site transition because a building belongs to a
+// single site; the response carries the count of racks whose building
+// was cleared so the UI can prompt the operator to pick a building in
+// the new site. Same transaction cascades device.site_id for every
+// rack member.
+//
+// Lock order: target site → each rack id ascending. Matches
+// AssignBuildingsToSite + AssignDevicesToSite so concurrent site-scope
+// writers can't deadlock against an overlapping rack set.
+func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRacksToSiteParams) (*models.AssignRacksToSiteResult, error) {
+	if s.collectionStore == nil {
+		return nil, fleeterror.NewInternalErrorf("collection store not configured")
+	}
+	rackIDs := dedupeInt64s(params.RackIDs)
+	if len(rackIDs) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("rack_ids must not be empty")
+	}
+	sort.Slice(rackIDs, func(i, j int) bool { return rackIDs[i] < rackIDs[j] })
+
+	var (
+		deviceCount     int64
+		clearedCount    int64
+		cascadedRackIDs []int64
+	)
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Lock target site first if assigning so a concurrent
+		// DeleteSite can't soft-delete it between the check and the
+		// cascade writes. target=nil/0 (Unassigned) needs no lock.
+		if params.TargetSiteID != nil && *params.TargetSiteID > 0 {
+			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *params.TargetSiteID); err != nil {
+				return err
+			}
+		}
+		for _, rackID := range rackIDs {
+			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rackID, params.OrgID)
+			if err != nil {
+				return err
+			}
+			siteChanged := !int64PtrEqual(current.SiteID, params.TargetSiteID)
+			// building_id is bound to a single site, so any site
+			// transition invalidates the rack's building membership.
+			// Even an unchanged building_id read can't survive a site
+			// move — the operator must re-pick a building in the new
+			// site.
+			newBuildingID := current.BuildingID
+			finalZone := current.Zone
+			if siteChanged && current.BuildingID != nil {
+				newBuildingID = nil
+				finalZone = ""
+				clearedCount++
+			}
+			if err := s.collectionStore.UpdateRackPlacement(txCtx, rackID, params.OrgID, params.TargetSiteID, newBuildingID, finalZone); err != nil {
+				return err
+			}
+			if siteChanged {
+				n, err := s.collectionStore.CascadeRackDeviceSites(txCtx, rackID, params.OrgID, params.TargetSiteID)
+				if err != nil {
+					return err
+				}
+				deviceCount += n
+				cascadedRackIDs = append(cascadedRackIDs, rackID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	orgIDVal := params.OrgID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           eventRacksAssignedToSite,
+		OrganizationID: &orgIDVal,
+		SiteID:         params.TargetSiteID,
+		Description: fmt.Sprintf(
+			"Assigned %d rack(s) to site %s (%d devices cascaded, %d building(s) cleared)",
+			len(rackIDs), formatSiteIDForDescription(params.TargetSiteID), deviceCount, clearedCount,
+		),
+		Metadata: map[string]any{
+			"rack_ids":                rackIDs,
+			"target_site_id":          params.TargetSiteID,
+			"reassigned_device_count": deviceCount,
+			"cleared_building_count":  clearedCount,
+		},
+	}
+	if len(cascadedRackIDs) > 0 {
+		event.Metadata["site_cascaded_rack_ids"] = cascadedRackIDs
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
+
+	return &models.AssignRacksToSiteResult{
+		ReassignedDeviceCount: deviceCount,
+		ClearedBuildingCount:  clearedCount,
+	}, nil
+}
+
+// int64PtrEqual treats two *int64 as equal when both are nil or both
+// dereference to the same value. Local helper since this is the only
+// caller in the sites domain; collection.Service has its own copy.
+func int64PtrEqual(a, b *int64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 // --- helpers ---
