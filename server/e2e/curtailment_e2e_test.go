@@ -59,7 +59,7 @@ func TestCurtailmentLifecycle(t *testing.T) {
 	token := authenticateViaRealAPI(t, ctx, username, password)
 
 	// Step 2: Discover + pair the proto-sim miner.
-	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimIP, protoSimPort)
+	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimDiscoveryHost, protoSimPort)
 	require.Len(t, devices, 1, "should discover exactly one proto-sim device")
 	deviceID := devices[0].DeviceIdentifier
 	require.NotEmpty(t, deviceID, "device identifier must be set")
@@ -268,7 +268,7 @@ func TestCurtailmentReconcilerKillAndResume(t *testing.T) {
 	createAdminViaAPI(t, ctx, username, password)
 	token := authenticateViaRealAPI(t, ctx, username, password)
 
-	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimIP, protoSimPort)
+	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimDiscoveryHost, protoSimPort)
 	require.Len(t, devices, 1)
 	deviceID := devices[0].DeviceIdentifier
 	pairDeviceViaRealAPI(t, ctx, token, deviceID)
