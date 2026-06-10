@@ -489,7 +489,9 @@ const indexHTML = `<!doctype html>
 
   <script>
     const state = {
-      busy: false
+      busy: false,
+      formDirty: false,
+      formHydrated: false
     };
 
     const fields = {
@@ -523,6 +525,7 @@ const indexHTML = `<!doctype html>
     });
 
     renderConnectionDetails(connectionDefaults);
+    watchFormEdits();
 
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -536,7 +539,6 @@ const indexHTML = `<!doctype html>
       });
     });
     document.getElementById("refresh").addEventListener("click", refresh);
-    fields.topic.addEventListener("input", () => updateConnectionTopic(fields.topic.value.trim()));
     document.getElementById("copy-all").addEventListener("click", async (event) => {
       await copyText(connectionDefaults.map(([key, value]) => key + ": " + value).join("\n"), event.currentTarget);
     });
@@ -598,7 +600,8 @@ const indexHTML = `<!doctype html>
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "request failed");
-        render(payload);
+        state.formDirty = false;
+        render(payload, { syncForm: true });
       } catch (error) {
         renderError(error);
       } finally {
@@ -609,22 +612,18 @@ const indexHTML = `<!doctype html>
     async function refresh() {
       try {
         const response = await fetch("/api/status");
-        render(await response.json());
+        render(await response.json(), { syncForm: !state.formHydrated });
       } catch (error) {
         renderError(error);
       }
     }
 
-    function render(payload) {
+    function render(payload, options = {}) {
       updateSettingsLink(payload.links && payload.links.curtailment_settings_url);
       const s = payload.state || {};
-      syncInput(fields.topic, s.topic || fields.topic.value.trim());
-      updateConnectionTopic(fields.topic.value.trim() || s.topic);
-      syncInput(fields.interval, s.interval_seconds || fields.interval.value);
-      fields.retain.checked = Boolean(s.retain);
-      fields.primary.checked = Boolean(s.primary_enabled);
-      fields.secondary.checked = Boolean(s.secondary_enabled);
-      syncInput(fields.offset, s.timestamp_offset_seconds || 0);
+      if (options.syncForm && !state.formDirty) {
+        hydrateForm(s);
+      }
       fields.status.innerHTML = [
         row("Loop", s.running ? "Running" : "Stopped"),
         row("Target", pill(s.target || "UNKNOWN")),
@@ -643,8 +642,32 @@ const indexHTML = `<!doctype html>
       ).join("") || "<p>No activity yet.</p>";
     }
 
+    function watchFormEdits() {
+      [fields.topic, fields.interval, fields.offset, fields.custom].forEach((input) => {
+        input.addEventListener("input", markFormDirty);
+      });
+      [fields.retain, fields.primary, fields.secondary].forEach((input) => {
+        input.addEventListener("change", markFormDirty);
+      });
+    }
+
+    function markFormDirty() {
+      state.formDirty = true;
+      updateConnectionTopic(fields.topic.value.trim());
+    }
+
+    function hydrateForm(status) {
+      syncInput(fields.topic, status.topic || fields.topic.value.trim());
+      updateConnectionTopic(fields.topic.value.trim() || status.topic);
+      syncInput(fields.interval, status.interval_seconds || fields.interval.value);
+      fields.retain.checked = Boolean(status.retain);
+      fields.primary.checked = Boolean(status.primary_enabled);
+      fields.secondary.checked = Boolean(status.secondary_enabled);
+      syncInput(fields.offset, status.timestamp_offset_seconds || 0);
+      state.formHydrated = true;
+    }
+
     function syncInput(input, value) {
-      if (document.activeElement === input) return;
       input.value = value;
     }
 

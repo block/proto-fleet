@@ -55,6 +55,44 @@ func TestParseBrokers(t *testing.T) {
 	}
 }
 
+func TestSelectedBrokersUsesBrokerNames(t *testing.T) {
+	a := newApp(config{
+		defaultTopic:    defaultTopic,
+		defaultInterval: defaultInterval,
+		brokers: []broker{
+			{Name: "secondary", URL: "tcp://mqtt-secondary:1883"},
+			{Name: "primary", URL: "tcp://mqtt-primary:1883"},
+		},
+	})
+
+	got := a.selectedBrokers(true, false)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Name != "primary" {
+		t.Fatalf("selected broker = %q, want primary", got[0].Name)
+	}
+}
+
+func TestSelectedBrokersSupportsUnnamedBrokerFallback(t *testing.T) {
+	a := newApp(config{
+		defaultTopic:    defaultTopic,
+		defaultInterval: defaultInterval,
+		brokers: []broker{
+			{Name: "broker-1", URL: "tcp://mqtt-a:1883"},
+			{Name: "broker-2", URL: "tcp://mqtt-b:1883"},
+		},
+	})
+
+	got := a.selectedBrokers(false, true)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].Name != "broker-2" {
+		t.Fatalf("selected broker = %q, want broker-2", got[0].Name)
+	}
+}
+
 func TestBuildCurtailmentSettingsURL(t *testing.T) {
 	got, err := buildCurtailmentSettingsURL("http://localhost:5173", "/settings/curtailment")
 	if err != nil {

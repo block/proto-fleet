@@ -3,7 +3,7 @@ services:
     image: eclipse-mosquitto:2
     restart: unless-stopped
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - ./devtools/mqttsim/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mqtt-sim-primary-data:/mosquitto/data
@@ -15,7 +15,7 @@ services:
     image: eclipse-mosquitto:2
     restart: unless-stopped
     ports:
-      - "1884:1883"
+      - "127.0.0.1:1884:1883"
     volumes:
       - ./devtools/mqttsim/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mqtt-sim-secondary-data:/mosquitto/data
@@ -39,7 +39,7 @@ services:
       - mqtt-sim-primary
       - mqtt-sim-secondary
     ports:
-      - "4183:4183"
+      - "127.0.0.1:4183:4183"
     networks:
       - fleet-network
 

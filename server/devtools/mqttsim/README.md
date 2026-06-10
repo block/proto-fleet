@@ -3,6 +3,11 @@
 This devtool runs two local Mosquitto brokers and a small browser UI for
 publishing MaestroOS-style curtailment targets.
 
+The Docker Compose ports are bound to host loopback only. The brokers are still
+reachable from other Docker Compose services on `fleet-network` through their
+static container IPs, but they are not exposed to other machines on the LAN by
+default.
+
 From the repository root:
 
 ```sh

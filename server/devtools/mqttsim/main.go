@@ -134,7 +134,7 @@ func main() {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("mqtt simulator stopped", slog.Any("error", err))
 		os.Exit(1)
 	}
@@ -509,19 +509,22 @@ func publishToBroker(ctx context.Context, broker broker, topic string, retain bo
 }
 
 func waitToken(ctx context.Context, token paho.Token, timeout time.Duration) error {
-	done := make(chan struct{})
-	go func() {
-		token.Wait()
-		close(done)
-	}()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context canceled while waiting for MQTT token: %w", ctx.Err())
-	case <-timer.C:
-		return fmt.Errorf("timed out after %s", timeout)
-	case <-done:
+	if timeout <= 0 {
+		return errors.New("MQTT token timeout must be positive")
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context canceled while waiting for MQTT token: %w", err)
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("timed out after %s", timeout)
+		}
+		wait := min(100*time.Millisecond, remaining)
+		if !token.WaitTimeout(wait) {
+			continue
+		}
 		if err := token.Error(); err != nil {
 			return fmt.Errorf("MQTT token failed: %w", err)
 		}
@@ -531,13 +534,17 @@ func waitToken(ctx context.Context, token paho.Token, timeout time.Duration) err
 
 func (a *app) selectedBrokers(primary, secondary bool) []broker {
 	out := make([]broker, 0, len(a.cfg.brokers))
-	for i, broker := range a.cfg.brokers {
-		switch {
-		case i == 0 && primary:
-			out = append(out, broker)
-		case i == 1 && secondary:
-			out = append(out, broker)
-		case i > 1:
+	for _, broker := range a.cfg.brokers {
+		switch strings.ToLower(broker.Name) {
+		case "primary", "broker-1":
+			if primary {
+				out = append(out, broker)
+			}
+		case "secondary", "broker-2":
+			if secondary {
+				out = append(out, broker)
+			}
+		default:
 			out = append(out, broker)
 		}
 	}
