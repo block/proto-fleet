@@ -1,19 +1,13 @@
--- MQTT source settings are now source/runtime only. Explicit response behavior
--- must be migrated to response profiles/automation before these legacy columns
--- can be removed.
+-- MQTT source settings are now source/runtime only. Existing source rows used
+-- the legacy direct-response model, so they must be removed or recreated before
+-- these legacy response columns can be dropped.
 DO $$
 BEGIN
     IF EXISTS (
         SELECT 1
         FROM curtailment_mqtt_source_config
-        WHERE contracted_curtailment_kw IS NOT NULL
-           OR curtail_mode <> 'FULL_FLEET'
-           OR scope_type <> 'whole_org'
-           OR scope_site_id IS NOT NULL
-           OR scope_device_identifiers IS NOT NULL
-           OR min_curtailed_duration_sec IS NOT NULL
     ) THEN
-        RAISE EXCEPTION 'cannot narrow MQTT source settings while explicit response behavior exists; migrate MQTT response settings to response profiles and automations first';
+        RAISE EXCEPTION 'cannot narrow MQTT source settings while MQTT source configs exist; delete or recreate sources after this migration';
     END IF;
 END $$;
 
