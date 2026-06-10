@@ -7,12 +7,12 @@ import {
   type StatusBreakdownItem,
   StatusBreakdownPanel,
 } from "@/protoFleet/features/dashboard/components/StatusBreakdownPanel";
-import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
-import { RackDetailGrid } from "@/protoFleet/features/rackManagement/components/RackDetailGrid";
+import { RackDetailGrid } from "@/protoFleet/features/fleetManagement/components/RackDetailGrid";
 import type {
   NumberingOrigin,
   SlotHealthState,
-} from "@/protoFleet/features/rackManagement/components/RackDetailGrid/types";
+} from "@/protoFleet/features/fleetManagement/components/RackDetailGrid/types";
+import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { Triangle } from "@/shared/assets/icons";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useNavigate } from "@/shared/hooks/useNavigate";

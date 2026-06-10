@@ -16,8 +16,8 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
-import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
-import { slotNumberToRowCol } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
+import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";

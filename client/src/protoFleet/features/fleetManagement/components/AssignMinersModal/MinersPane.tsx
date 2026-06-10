@@ -7,7 +7,7 @@ import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { BlinkLEDRequestSchema, DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
-import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 import { ArrowRight, Checkmark, DismissTiny, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";

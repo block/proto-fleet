@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import clsx from "clsx";
 
 import type { AssignmentMode } from "./types";
-import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 interface RackPaneProps {

@@ -4,7 +4,7 @@ import {
   type RackSlotStatus,
   SlotDeviceStatus,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import type { SlotStatus } from "@/protoFleet/features/rackManagement/components/RackCard/types";
+import type { SlotStatus } from "@/protoFleet/features/fleetManagement/components/RackCard/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
 import { formatEfficiency, formatHashrate, formatPowerKwOrDash, formatTempRange } from "@/shared/utils/telemetryFormat";
 

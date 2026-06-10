@@ -20,14 +20,14 @@ import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/compone
 import {
   AssignMinersModal,
   type RackFormData,
-} from "@/protoFleet/features/rackManagement/components/AssignMinersModal";
-import { RackCard } from "@/protoFleet/features/rackManagement/components/RackCard";
-import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
+} from "@/protoFleet/features/fleetManagement/components/AssignMinersModal";
+import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
+import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import {
   BUILDING_URL_PARAM,
   parseBuildingIdsFromParams,
-} from "@/protoFleet/features/rackManagement/utils/buildingFilterUrl";
-import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
+} from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
+import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";

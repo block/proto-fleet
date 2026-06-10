@@ -1,4 +1,4 @@
-import type { NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import type { NumberingOrigin } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 export type SlotHealthState = "healthy" | "needsAttention" | "offline" | "sleeping" | "empty";
 

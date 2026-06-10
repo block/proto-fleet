@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import RackSlot from "./RackSlot";
 import type { RackSlotGridProps, SlotVisualState } from "./types";
-import { computeSlotNumber } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import { computeSlotNumber } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 export default function RackSlotGrid({
   rows,

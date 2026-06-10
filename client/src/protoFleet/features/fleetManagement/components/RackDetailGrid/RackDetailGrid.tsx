@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import RackDetailSlot from "./RackDetailSlot";
 import type { RackDetailGridProps, SlotHealthState } from "./types";
-import { computeSlotNumber } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import { computeSlotNumber } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 import useMeasure from "@/shared/hooks/useMeasure";
 
 const GAP = 4;

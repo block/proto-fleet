@@ -1,5 +1,5 @@
 import { type RackCoolingType, RackOrderIndex } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import type { NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import type { NumberingOrigin } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 export type AssignmentMode = "manual" | "byName" | "byNetwork";
 
