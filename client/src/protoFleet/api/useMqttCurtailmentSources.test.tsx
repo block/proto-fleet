@@ -8,8 +8,6 @@ import {
   type MqttCurtailmentSource,
   MqttCurtailmentSourceRuntimeState,
   MqttCurtailmentSourceSchema,
-  MqttCurtailmentSourceScopeSchema,
-  MqttCurtailmentSourceScopeType,
   MqttCurtailmentSourceStatusSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
@@ -18,11 +16,13 @@ const {
   mockDeleteMqttCurtailmentSource,
   mockHandleAuthErrors,
   mockListMqttCurtailmentSources,
+  mockTestMqttCurtailmentSourceConnection,
   mockUpdateMqttCurtailmentSource,
 } = vi.hoisted(() => ({
   mockDeleteMqttCurtailmentSource: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
   mockListMqttCurtailmentSources: vi.fn(),
+  mockTestMqttCurtailmentSourceConnection: vi.fn(),
   mockUpdateMqttCurtailmentSource: vi.fn(),
 }));
 
@@ -30,6 +30,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
   curtailmentClient: {
     deleteMqttCurtailmentSource: mockDeleteMqttCurtailmentSource,
     listMqttCurtailmentSources: mockListMqttCurtailmentSources,
+    testMqttCurtailmentSourceConnection: mockTestMqttCurtailmentSourceConnection,
     updateMqttCurtailmentSource: mockUpdateMqttCurtailmentSource,
   },
 }));
@@ -61,13 +62,8 @@ function mqttSource(overrides: Partial<MqttCurtailmentSource> = {}): MqttCurtail
     brokerTransport: "tcp",
     mqttUsername: "fleet",
     hasPassword: true,
-    curtailMode: "FULL_FLEET",
     payloadFormat: "target_timestamp",
-    scope: create(MqttCurtailmentSourceScopeSchema, {
-      type: MqttCurtailmentSourceScopeType.WHOLE_ORG,
-    }),
     stalenessThresholdSec: 240,
-    minCurtailedDurationSec: 600,
     enabled: true,
     status: create(MqttCurtailmentSourceStatusSchema, {
       runtimeState: MqttCurtailmentSourceRuntimeState.RUNNING,
@@ -79,12 +75,23 @@ function mqttSource(overrides: Partial<MqttCurtailmentSource> = {}): MqttCurtail
   return Object.assign(source, overrides);
 }
 
+const testSourceFormValues = {
+  name: "Site Alpha MQTT",
+  brokerPrimaryHost: "site-alpha-primary.broker.test",
+  brokerSecondaryHost: "site-alpha-secondary.broker.test",
+  brokerPort: "11883",
+  topic: "curtailment/site-alpha/target",
+  username: "fleet",
+  password: "secret",
+};
+
 describe("useMqttCurtailmentSources", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockDeleteMqttCurtailmentSource.mockReset();
     mockHandleAuthErrors.mockReset();
     mockListMqttCurtailmentSources.mockReset();
+    mockTestMqttCurtailmentSourceConnection.mockReset();
     mockUpdateMqttCurtailmentSource.mockReset();
   });
 
@@ -165,6 +172,45 @@ describe("useMqttCurtailmentSources", () => {
       lastSeen: "-",
       health: "waitingForSignal",
     });
+  });
+
+  it("tests a source connection with the current form values", async () => {
+    mockTestMqttCurtailmentSourceConnection.mockResolvedValueOnce({ ok: true, results: [] });
+
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+    await act(async () => {
+      await result.current.testConnection(testSourceFormValues);
+    });
+
+    expect(mockTestMqttCurtailmentSourceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: "curtailment/site-alpha/target",
+        brokerPrimaryHost: "site-alpha-primary.broker.test",
+        brokerSecondaryHost: "site-alpha-secondary.broker.test",
+        brokerPort: 11883,
+        brokerTransport: "tcp",
+        mqttUsername: "fleet",
+        mqttPassword: "secret",
+        payloadFormat: "target_timestamp",
+      }),
+    );
+    expect(result.current.isTestingConnection).toBe(false);
+  });
+
+  it("rejects when a source connection test returns a failed result", async () => {
+    mockTestMqttCurtailmentSourceConnection.mockResolvedValueOnce({
+      ok: false,
+      results: [{ broker: "site-alpha-primary.broker.test", brokerRole: "primary", connected: false }],
+    });
+
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+
+    await expect(result.current.testConnection(testSourceFormValues)).rejects.toThrow(
+      "Failed to connect to the MQTT source.",
+    );
+    expect(mockHandleAuthErrors).toHaveBeenCalled();
+    expect(result.current.isTestingConnection).toBe(false);
   });
 
   it("updates a source and replaces it in local hook state", async () => {

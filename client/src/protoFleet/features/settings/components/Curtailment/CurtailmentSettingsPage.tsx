@@ -9,9 +9,10 @@ import type {
   CurtailmentSourceFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
-import { Info } from "@/shared/assets/icons";
+import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -28,6 +29,8 @@ import "./CurtailmentSettingsPage.css";
 const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const SOURCES_DESCRIPTION = "External systems that send curtailment signals via MQTT.";
+const SOURCE_CONNECTION_FAILURE_MESSAGE =
+  "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
 
 const curtailmentSourceCols = {
@@ -271,8 +274,10 @@ type SourceModalProps = {
   hasSavedPassword?: boolean;
   onDismiss: () => void;
   onSave?: (values: CurtailmentSourceFormValues) => Promise<void>;
+  onTestConnection?: (values: CurtailmentSourceFormValues) => Promise<void>;
   onDelete?: () => Promise<void>;
   saving?: boolean;
+  testingConnection?: boolean;
   deleting?: boolean;
 };
 
@@ -283,19 +288,26 @@ function SourceModal({
   hasSavedPassword = false,
   onDismiss,
   onSave,
+  onTestConnection,
   onDelete,
   saving = false,
+  testingConnection = false,
   deleting = false,
 }: SourceModalProps): ReactElement {
   const [values, setValues] = useState<CurtailmentSourceFormValues>(() => initialValues);
   const [passwordPlaceholderActive, setPasswordPlaceholderActive] = useState(() => mode === "edit" && hasSavedPassword);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showConnectionCallout, setShowConnectionCallout] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const isEditMode = mode === "edit";
-  const isBusy = saving || deleting;
+  const isBusy = saving || deleting || testingConnection;
   const passwordRequired = !isEditMode || sourceCredentialFieldsChanged(values, initialValues);
   const canSave = isSourceFormValid(values, passwordRequired);
+  const canTestConnection = isSourceFormValid(values, true);
   const showSavedPasswordPlaceholder = isEditMode && hasSavedPassword && passwordPlaceholderActive;
   const passwordInputValue = showSavedPasswordPlaceholder ? savedPasswordPlaceholder : values.password;
+  const showConnectionSuccessCallout = showConnectionCallout && !testingConnection && !connectionError;
+  const showConnectionFailureCallout = showConnectionCallout && !testingConnection && connectionError;
 
   const updateSourceValue = useCallback((value: string, id: string) => {
     const formKey = sourceInputIdToFormKey[id];
@@ -307,6 +319,7 @@ function SourceModal({
       ...currentValues,
       [formKey]: value,
     }));
+    setShowConnectionCallout(false);
   }, []);
 
   const handlePasswordFocus = useCallback(() => {
@@ -335,6 +348,23 @@ function SourceModal({
     }
   }, [canSave, isBusy, onDismiss, onSave, values]);
 
+  const handleTestConnection = useCallback(async () => {
+    if (!canTestConnection || isBusy || !onTestConnection) {
+      return;
+    }
+
+    try {
+      setSaveError(null);
+      setConnectionError(false);
+      await onTestConnection(values);
+      setConnectionError(false);
+    } catch {
+      setConnectionError(true);
+    } finally {
+      setShowConnectionCallout(true);
+    }
+  }, [canTestConnection, isBusy, onTestConnection, values]);
+
   const handleDelete = useCallback(async () => {
     if (!onDelete || isBusy) {
       return;
@@ -359,14 +389,6 @@ function SourceModal({
       divider={false}
       testId="curtailment-source-modal"
       buttons={[
-        {
-          text: "Test connection",
-          variant: variants.secondary,
-          className: "whitespace-nowrap overflow-clip",
-          testId: "curtailment-source-test-connection-button",
-          disabled: true,
-          dismissModalOnClick: false,
-        },
         ...(isEditMode && onDelete
           ? [
               {
@@ -380,6 +402,16 @@ function SourceModal({
             ]
           : []),
         {
+          text: "Test connection",
+          variant: variants.secondary,
+          className: "whitespace-nowrap overflow-clip",
+          testId: "curtailment-source-test-connection-button",
+          disabled: !canTestConnection || isBusy || !onTestConnection,
+          loading: testingConnection,
+          dismissModalOnClick: false,
+          onClick: () => void handleTestConnection(),
+        },
+        {
           text: "Save",
           variant: variants.primary,
           disabled: !canSave || isBusy,
@@ -391,6 +423,22 @@ function SourceModal({
       bodyClassName="text-text-primary"
     >
       <div className="grid gap-3 pb-2">
+        <DismissibleCalloutWrapper
+          icon={<Success />}
+          intent={intents.success}
+          onDismiss={() => setShowConnectionCallout(false)}
+          show={showConnectionSuccessCallout}
+          title="Source connection successful"
+          testId="curtailment-source-connected-callout"
+        />
+        <DismissibleCalloutWrapper
+          icon={<Alert width={iconSizes.medium} />}
+          intent={intents.danger}
+          onDismiss={() => setShowConnectionCallout(false)}
+          show={showConnectionFailureCallout}
+          title={SOURCE_CONNECTION_FAILURE_MESSAGE}
+          testId="curtailment-source-not-connected-callout"
+        />
         {saveError ? (
           <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{saveError}</div>
         ) : null}
@@ -551,12 +599,14 @@ type CurtailmentSettingsContentProps = {
   isLoadingSources?: boolean;
   loadSourcesError?: string | null;
   isSavingSource?: boolean;
+  isTestingSourceConnection?: boolean;
   updatingSourceIds?: Set<string>;
   onCreateSource?: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource | void>;
   onUpdateSource?: (
     source: CurtailmentSource,
     values: CurtailmentSourceFormValues,
   ) => Promise<CurtailmentSource | void>;
+  onTestSourceConnection?: (values: CurtailmentSourceFormValues) => Promise<void>;
   onToggleSource?: (source: CurtailmentSource, enabled: boolean) => Promise<CurtailmentSource | void>;
   onDeleteSource?: (source: CurtailmentSource) => Promise<void>;
 };
@@ -580,9 +630,11 @@ export function CurtailmentSettingsContent({
   isLoadingSources = false,
   loadSourcesError = null,
   isSavingSource = false,
+  isTestingSourceConnection = false,
   updatingSourceIds = emptyUpdatingSourceIds,
   onCreateSource,
   onUpdateSource,
+  onTestSourceConnection,
   onToggleSource,
   onDeleteSource,
 }: CurtailmentSettingsContentProps): ReactElement {
@@ -725,8 +777,10 @@ export function CurtailmentSettingsContent({
         hasSavedPassword={editingSource?.hasPassword ?? false}
         onDismiss={closeSourceModal}
         onSave={handleSaveSource}
+        onTestConnection={onTestSourceConnection}
         onDelete={editingSource ? handleDeleteSource : undefined}
         saving={editingSource ? isEditingSource : isSavingSource}
+        testingConnection={isTestingSourceConnection}
         deleting={isEditingSource}
       />
     </div>
@@ -743,6 +797,8 @@ function CurtailmentSettingsPage(): ReactElement {
     loadError,
     createSource,
     updateSource,
+    testConnection,
+    isTestingConnection,
     setSourceEnabled,
     deleteSource,
   } = useMqttCurtailmentSources(canManageCurtailment);
@@ -797,6 +853,13 @@ function CurtailmentSettingsPage(): ReactElement {
     [updateSource],
   );
 
+  const handleTestSourceConnection = useCallback(
+    async (values: CurtailmentSourceFormValues) => {
+      await testConnection(values);
+    },
+    [testConnection],
+  );
+
   const handleDeleteSource = useCallback(
     async (source: CurtailmentSource) => {
       await deleteSource(source.id);
@@ -818,9 +881,11 @@ function CurtailmentSettingsPage(): ReactElement {
       isLoadingSources={isLoading}
       loadSourcesError={loadError}
       isSavingSource={isCreating}
+      isTestingSourceConnection={isTestingConnection}
       updatingSourceIds={updatingSourceIds}
       onCreateSource={handleCreateSource}
       onUpdateSource={handleUpdateSource}
+      onTestSourceConnection={handleTestSourceConnection}
       onToggleSource={handleToggleSource}
       onDeleteSource={handleDeleteSource}
     />

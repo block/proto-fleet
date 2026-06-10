@@ -5,7 +5,6 @@ export type CurtailmentSource = {
   id: string;
   name: string;
   triggerType: AutomationTriggerType;
-  site: string;
   brokerHosts: string[];
   brokerPrimaryHost?: string;
   brokerSecondaryHost?: string;
@@ -15,8 +14,6 @@ export type CurtailmentSource = {
   qos: number;
   username: string;
   hasPassword?: boolean;
-  scope: string;
-  curtailmentMode: string;
   lastTarget: string;
   lastSeen: string;
   health: CurtailmentHealth;

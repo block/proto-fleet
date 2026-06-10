@@ -34,15 +34,12 @@ const testSources: CurtailmentSource[] = [
     id: "site-alpha-mqtt",
     name: "Site Alpha MQTT",
     triggerType: "MQTT",
-    site: "Site Alpha",
     brokerHosts: ["site-alpha-primary.broker.test", "site-alpha-secondary.broker.test"],
     port: 11883,
     topic: "curtailment/site-alpha/target",
     protocol: "MQTT 3.1.1",
     qos: 1,
     username: "curtailment-alpha",
-    scope: "Site Alpha",
-    curtailmentMode: "Curtail entire site",
     lastTarget: "0",
     lastSeen: "38 seconds ago",
     health: "connected",
@@ -52,15 +49,12 @@ const testSources: CurtailmentSource[] = [
     id: "site-beta-mqtt",
     name: "Site Beta MQTT",
     triggerType: "MQTT",
-    site: "Site Beta",
     brokerHosts: ["site-beta-primary.broker.test", "site-beta-secondary.broker.test"],
     port: 11884,
     topic: "curtailment/site-beta/target",
     protocol: "MQTT 3.1.1",
     qos: 1,
     username: "curtailment-beta",
-    scope: "Site Beta",
-    curtailmentMode: "Curtail entire site",
     lastTarget: "100",
     lastSeen: "24 seconds ago",
     health: "connected",
@@ -70,15 +64,12 @@ const testSources: CurtailmentSource[] = [
     id: "site-gamma-mqtt",
     name: "Site Gamma MQTT",
     triggerType: "MQTT",
-    site: "Site Gamma",
     brokerHosts: ["site-gamma-primary.broker.test", "site-gamma-secondary.broker.test"],
     port: 11885,
     topic: "curtailment/site-gamma/target",
     protocol: "MQTT 3.1.1",
     qos: 1,
     username: "curtailment-gamma",
-    scope: "Site Gamma",
-    curtailmentMode: "Curtail entire site",
     lastTarget: "-",
     lastSeen: "-",
     health: "waitingForSignal",
@@ -88,15 +79,12 @@ const testSources: CurtailmentSource[] = [
     id: "site-delta-mqtt",
     name: "Site Delta MQTT",
     triggerType: "MQTT",
-    site: "Site Delta",
     brokerHosts: ["site-delta-primary.broker.test", "site-delta-secondary.broker.test"],
     port: 11886,
     topic: "curtailment/site-delta/target",
     protocol: "MQTT 3.1.1",
     qos: 1,
     username: "curtailment-delta",
-    scope: "Site Delta",
-    curtailmentMode: "Curtail entire site",
     lastTarget: "-",
     lastSeen: "12 minutes ago",
     health: "noSignal",
@@ -124,6 +112,7 @@ const testSourceFormValues: CurtailmentSourceFormValues = {
 
 const createSourceMock = vi.fn();
 const updateSourceMock = vi.fn();
+const testConnectionMock = vi.fn();
 const setSourceEnabledMock = vi.fn();
 const deleteSourceMock = vi.fn();
 
@@ -138,6 +127,8 @@ const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentS
     listSources: vi.fn(),
     createSource: createSourceMock,
     updateSource: updateSourceMock,
+    testConnection: testConnectionMock,
+    isTestingConnection: false,
     setSourceEnabled: setSourceEnabledMock,
     deleteSource: deleteSourceMock,
     ...overrides,
@@ -167,6 +158,7 @@ describe("CurtailmentSettingsPage", () => {
     vi.mocked(pushToast).mockReset();
     createSourceMock.mockReset();
     updateSourceMock.mockReset();
+    testConnectionMock.mockReset();
     setSourceEnabledMock.mockReset();
     deleteSourceMock.mockReset();
     mockSourcesApi();
@@ -322,6 +314,46 @@ describe("CurtailmentSettingsPage", () => {
     });
   });
 
+  it("tests a source connection through the API hook from the routed page", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    testConnectionMock.mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add source" }));
+    fillSourceForm();
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(testConnectionMock).toHaveBeenCalledWith(testSourceFormValues));
+    expect(screen.getByTestId("curtailment-source-connected-callout")).toHaveClass("max-h-96");
+    expect(screen.getByTestId("curtailment-source-modal")).toBeInTheDocument();
+  });
+
+  it("shows a source connection failure callout when the test fails", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    testConnectionMock.mockRejectedValue(new Error("failed"));
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add source" }));
+    fillSourceForm();
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(testConnectionMock).toHaveBeenCalledWith(testSourceFormValues));
+    expect(screen.getByTestId("curtailment-source-not-connected-callout")).toHaveClass("max-h-96");
+    expect(
+      screen.getByText("We couldn't connect with your source. Review your source details and try again."),
+    ).toBeInTheDocument();
+  });
+
   it("opens the edit source dialog with source details when a source row is clicked", () => {
     render(
       <MemoryRouter>
@@ -344,8 +376,8 @@ describe("CurtailmentSettingsPage", () => {
     const deleteButton = screen.getByRole("button", { name: "Delete" });
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeEnabled();
-    expect(testConnectionButton.compareDocumentPosition(deleteButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(deleteButton.compareDocumentPosition(saveButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(deleteButton.compareDocumentPosition(testConnectionButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(testConnectionButton.compareDocumentPosition(saveButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("hides the password eye for the saved-password placeholder until the password field is focused", async () => {
