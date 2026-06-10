@@ -1,13 +1,19 @@
--- MQTT source settings are now source/runtime only. Existing source rows used
--- the legacy direct-response model, so they must be removed or recreated before
--- these legacy response columns can be dropped.
+-- Narrow MQTT source settings to source/runtime only by dropping the legacy
+-- direct-response columns. Existing rows predate this model, so this migration
+-- refuses to run while any remain rather than silently discarding their
+-- response behavior.
+--
+-- Pre-deploy step: in every environment that has MQTT sources, delete them
+-- before applying this migration (state rows cascade away with the config):
+--   SELECT id, organization_id, source_name FROM curtailment_mqtt_source_config;
+--   DELETE FROM curtailment_mqtt_source_config;
 DO $$
 BEGIN
     IF EXISTS (
         SELECT 1
         FROM curtailment_mqtt_source_config
     ) THEN
-        RAISE EXCEPTION 'cannot narrow MQTT source settings while MQTT source configs exist; delete or recreate sources after this migration';
+        RAISE EXCEPTION 'migration 000080 will not run while curtailment_mqtt_source_config has rows: delete all MQTT sources before deploying (this migration drops the legacy direct-response columns and refuses to discard existing source behavior)';
     END IF;
 END $$;
 
