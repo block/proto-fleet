@@ -25,17 +25,33 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
 	t.Parallel()
 
-	assert.Contains(t, RedactedRequestProcedures,
-		curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure)
-	assert.Contains(t, RedactedRequestProcedures,
-		curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure)
-	assert.Contains(t, RedactedRequestProcedures,
-		curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure)
+	procedures := []string{
+		curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+		curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
+		curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, RedactedRequestProcedures, procedure)
+	}
+}
+
+func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+		curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
+		curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth because it carries or exercises MQTT broker credentials",
+			procedure)
+	}
 }
 
 // AdminTerminateEvent is the operator-of-last-resort recovery RPC and must
-// reject API-key auth. The other curtailment write RPCs remain API-key-
-// accessible so external integrations can drive curtailment via the public API.
+// reject API-key auth.
 func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
 	t.Parallel()
 
@@ -44,8 +60,8 @@ func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
 		"AdminTerminateEvent must be session-only; recovery escape hatch should not be reachable via API key")
 }
 
-// Every other curtailment RPC must remain reachable via API-key auth so
-// integrations and monitoring callers can drive the public surface.
+// Public curtailment control/read RPCs must remain reachable via API-key auth
+// so integrations and monitoring callers can drive the public surface.
 func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 	t.Parallel()
 
