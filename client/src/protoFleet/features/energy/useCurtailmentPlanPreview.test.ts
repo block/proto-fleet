@@ -130,7 +130,7 @@ describe("useCurtailmentPlanPreview", () => {
       ...baseValues,
       scopeType: "site",
       scopeId: "site-42",
-      siteId: "42",
+      siteId: " 42 ",
     });
 
     expect(siteRequest?.scope.case).toBe("site");
@@ -169,6 +169,22 @@ describe("useCurtailmentPlanPreview", () => {
         deviceSetIds: ["rack-1"],
       }),
     ).toBeUndefined();
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "site",
+        scopeId: "site-bad",
+        siteId: "site-42",
+      }),
+    ).toBeUndefined();
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "site",
+        scopeId: "site-zero",
+        siteId: "0",
+      }),
+    ).toBeUndefined();
   });
 
   it("surfaces unsupported device-set previews without calling the API", () => {
@@ -183,6 +199,22 @@ describe("useCurtailmentPlanPreview", () => {
       preview: undefined,
       previewError:
         "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      isPreviewLoading: false,
+    });
+    expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();
+  });
+
+  it("skips site-scoped previews with invalid site ids", () => {
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-bad",
+      siteId: "site-42",
+    });
+
+    expect(result.current).toEqual({
+      preview: undefined,
+      previewError: undefined,
       isPreviewLoading: false,
     });
     expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();

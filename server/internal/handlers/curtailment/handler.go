@@ -36,7 +36,7 @@ func NewHandler(service *curtailment.Service) *Handler {
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, previewResourceContext(req.Msg))
+	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, previewResourceContext(req.Msg))
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, startResourceContext(req.Msg))
+	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, startResourceContext(req.Msg))
 	if err != nil {
 		return nil, err
 	}
@@ -330,9 +330,9 @@ func parseEventUUID(raw string) (uuid.UUID, error) {
 }
 
 func (h *Handler) requireEventPermission(ctx context.Context, permission string, eventUUID uuid.UUID) (*session.Info, *models.Event, error) {
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
 	if err != nil {
-		return nil, nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, nil, err
 	}
 	event, err := h.service.GetEvent(ctx, info.OrganizationID, eventUUID)
 	if err != nil {
@@ -342,11 +342,25 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	if err != nil {
 		return nil, nil, err
 	}
-	checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
-	if err != nil {
-		return nil, nil, err
+	if rc.SiteID != nil {
+		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
+		if err != nil {
+			return nil, nil, err
+		}
+		info = checkedInfo
 	}
-	return checkedInfo, event, nil
+	return info, event, nil
+}
+
+func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {
+	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if rc.SiteID == nil {
+		return info, nil
+	}
+	return middleware.RequirePermission(ctx, permission, rc)
 }
 
 func eventResourceContext(event *models.Event) (authz.ResourceContext, error) {

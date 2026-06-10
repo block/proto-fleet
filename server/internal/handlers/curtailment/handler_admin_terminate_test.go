@@ -367,17 +367,18 @@ func TestHandler_AdminTerminateEvent_UsesSiteScopedEventPermission(t *testing.T)
 	const (
 		orgID       = int64(42)
 		allowedSite = int64(7)
-		deniedSite  = int64(8)
 	)
 
 	for _, tc := range []struct {
-		name      string
-		siteID    int64
-		wantCode  connect.Code
-		wantCalls int
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+		wantCalls   int
 	}{
-		{"matching site permission allows terminate", allowedSite, 0, 1},
-		{"different site permission denies terminate", deniedSite, connect.CodePermissionDenied, 0},
+		{"org permission without site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
+		{"matching site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
+		{"site-only permission denies terminate", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site narrowing without manage denies terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -400,7 +401,7 @@ func TestHandler_AdminTerminateEvent_UsesSiteScopedEventPermission(t *testing.T)
 				OrganizationID: orgID,
 				UserID:         9,
 				Role:           domainAuth.AdminRoleName,
-			}, testSiteAssignment(tc.siteID, authz.PermCurtailmentManage))
+			}, tc.assignments...)
 
 			_, err := h.AdminTerminateEvent(ctx, connect.NewRequest(&pb.AdminTerminateEventRequest{
 				EventUuid:   eventUUID.String(),

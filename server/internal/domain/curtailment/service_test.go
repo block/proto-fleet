@@ -756,6 +756,28 @@ func TestService_Preview_SiteScopeRequiresExistingSite(t *testing.T) {
 	assert.Zero(t, store.listCandidatesCalls, "missing sites must reject before candidate selection")
 }
 
+func TestResolveScope_WholeOrgRejectsSelectorFields(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		scope Scope
+	}{
+		{"explicit whole org with site", Scope{Type: models.ScopeTypeWholeOrg, SiteID: 99}},
+		{"implicit whole org with device identifiers", Scope{DeviceIdentifiers: []string{"miner-a"}}},
+		{"explicit whole org with device sets", Scope{Type: models.ScopeTypeWholeOrg, DeviceSetIDs: []string{"set-a"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := resolveScope(tc.scope)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "must be empty for whole-org scope")
+		})
+	}
+}
+
 func TestService_Preview_DeviceListScopeRequiresNonEmptyList(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())

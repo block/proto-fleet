@@ -392,16 +392,17 @@ func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T)
 	const (
 		orgID       = int64(42)
 		allowedSite = int64(7)
-		deniedSite  = int64(8)
 	)
 
 	for _, tc := range []struct {
-		name     string
-		siteID   int64
-		wantCode connect.Code
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
 	}{
-		{"matching site permission allows read", allowedSite, 0},
-		{"different site permission denies read", deniedSite, connect.CodePermissionDenied},
+		{"org permission without site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead)}, 0},
+		{"matching site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, 0},
+		{"site-only permission denies read", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, connect.CodePermissionDenied},
+		{"site narrowing without read denies read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -427,7 +428,7 @@ func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T)
 				OrganizationID: orgID,
 				UserID:         9,
 				Role:           "OPERATOR",
-			}, testSiteAssignment(tc.siteID, authz.PermCurtailmentRead))
+			}, tc.assignments...)
 
 			_, err := h.GetCurtailmentEvent(ctx, connect.NewRequest(&pb.GetCurtailmentEventRequest{
 				EventUuid: eventUUID.String(),

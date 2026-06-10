@@ -646,24 +646,17 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 	}
 }
 
-func TestHandler_PreviewAndStartUseSiteScopedPermission(t *testing.T) {
+func TestHandler_PreviewAndStartRequireOrgPermissionAndSiteContext(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler(nil)
 	const (
 		orgID       = int64(42)
 		allowedSite = int64(7)
-		deniedSite  = int64(8)
 	)
-	siteCtx := testSessionCtxWithAssignments(t, &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: orgID,
-		UserID:         9,
-		Role:           "OPERATOR",
-	}, testSiteAssignment(allowedSite, authz.PermCurtailmentManage))
 
-	previewForSite := func(siteID int64) error {
-		_, err := h.PreviewCurtailmentPlan(siteCtx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+	previewForSite := func(ctx context.Context, siteID int64) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
 			Scope: &pb.PreviewCurtailmentPlanRequest_Site{Site: &pb.ScopeSite{SiteId: siteID}},
 			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
@@ -672,27 +665,38 @@ func TestHandler_PreviewAndStartUseSiteScopedPermission(t *testing.T) {
 		}))
 		return err
 	}
-	startForSite := func(siteID int64) error {
+	startForSite := func(ctx context.Context, siteID int64) error {
 		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
 		req.Scope = &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{SiteId: siteID}}
-		_, err := h.StartCurtailment(siteCtx, connect.NewRequest(req))
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
 		return err
 	}
 
 	for _, tc := range []struct {
-		name     string
-		call     func(int64) error
-		siteID   int64
-		wantCode connect.Code
+		name        string
+		call        func(context.Context, int64) error
+		assignments []authz.Assignment
+		wantCode    connect.Code
 	}{
-		{"preview allowed site reaches service", previewForSite, allowedSite, connect.CodeUnimplemented},
-		{"preview denied site fails authz", previewForSite, deniedSite, connect.CodePermissionDenied},
-		{"start allowed site reaches service", startForSite, allowedSite, connect.CodeUnimplemented},
-		{"start denied site fails authz", startForSite, deniedSite, connect.CodePermissionDenied},
+		{"preview org permission without site narrowing reaches service", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"preview matching site narrowing reaches service", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"preview site-only permission fails org gate", previewForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied},
+		{"preview site narrowing without manage fails site gate", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
+		{"start org permission without site narrowing reaches service", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"start matching site narrowing reaches service", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
+		{"start site-only permission fails org gate", startForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied},
+		{"start site narrowing without manage fails site gate", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := tc.call(tc.siteID)
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			err := tc.call(ctx, allowedSite)
 			require.Error(t, err)
 			var fleetErr fleeterror.FleetError
 			require.ErrorAs(t, err, &fleetErr)

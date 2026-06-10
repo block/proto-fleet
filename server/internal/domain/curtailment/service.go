@@ -1187,7 +1187,7 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 		// signal mismatched intent — reject rather than silently widening.
 		if s.SiteID > 0 || len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
 			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
-				"scope type must be set when site_id, device_identifiers, or device_set_ids are provided",
+				"site_id, device_identifiers, and device_set_ids must be empty for whole-org scope",
 			)
 		}
 		return interfaces.ListCandidatesParams{}, nil

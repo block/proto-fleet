@@ -14,6 +14,7 @@ import {
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -121,21 +122,22 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
         case: "wholeOrg",
         value: create(ScopeWholeOrgSchema, {}),
       };
-    case "site":
-      if (!values.siteId) {
+    case "site": {
+      const siteId = parseCurtailmentSiteId(values.siteId);
+      if (siteId === undefined) {
         return undefined;
       }
       return {
         case: "site",
-        value: create(ScopeSiteSchema, { siteId: BigInt(values.siteId) }),
+        value: create(ScopeSiteSchema, { siteId }),
       };
+    }
     case "deviceSet":
       return undefined;
     case "explicitMiners":
       if (values.deviceIdentifiers.length === 0) {
         return undefined;
       }
-
       return {
         case: "deviceIdentifiers",
         value: create(ScopeDeviceListSchema, {

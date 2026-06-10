@@ -45,6 +45,18 @@ const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
 };
+const maxInt64 = 9_223_372_036_854_775_807n;
+const baseTenIntegerPattern = /^[0-9]+$/;
+
+export function parseCurtailmentSiteId(value: string | undefined): bigint | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!baseTenIntegerPattern.test(trimmed)) {
+    return undefined;
+  }
+
+  const parsed = BigInt(trimmed);
+  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
+}
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -112,8 +124,11 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
     case "wholeOrg":
       return { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) };
     case "site":
-      if (values.siteId) {
-        return { case: "site", value: create(ScopeSiteSchema, { siteId: BigInt(values.siteId) }) };
+      {
+        const siteId = parseCurtailmentSiteId(values.siteId);
+        if (siteId !== undefined) {
+          return { case: "site", value: create(ScopeSiteSchema, { siteId }) };
+        }
       }
       break;
     case "explicitMiners":
