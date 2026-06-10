@@ -578,6 +578,7 @@ func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID 
 }
 
 func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
+	params = normalizeListCandidatesParams(params)
 	rows, err := s.GetQueries(ctx).ListCurtailmentCandidatesByOrg(ctx, sqlc.ListCurtailmentCandidatesByOrgParams{
 		OrgID:             params.OrgID,
 		SiteID:            ptrToNullInt64(params.SiteID),
@@ -601,6 +602,13 @@ func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, params interfa
 		})
 	}
 	return out, nil
+}
+
+func normalizeListCandidatesParams(params interfaces.ListCandidatesParams) interfaces.ListCandidatesParams {
+	if len(params.DeviceIdentifiers) == 0 {
+		params.DeviceIdentifiers = nil
+	}
+	return params
 }
 
 func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {

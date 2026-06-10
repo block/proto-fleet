@@ -338,6 +338,7 @@ export function useCurtailmentPlanPreview({
     () => ({
       scopeType: values.scopeType,
       scopeId: values.scopeId,
+      siteId: values.siteId,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       curtailmentMode: values.curtailmentMode,
@@ -353,6 +354,7 @@ export function useCurtailmentPlanPreview({
       values.includeMaintenance,
       values.priority,
       values.scopeId,
+      values.siteId,
       values.scopeType,
       values.targetKw,
       values.toleranceKw,

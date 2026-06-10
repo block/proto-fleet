@@ -217,6 +217,28 @@ describe("useCurtailmentPlanPreview", () => {
     );
   });
 
+  it("fetches site-scoped previews with the selected site id", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    renderPreviewHook({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-42",
+      siteId: "42",
+    });
+
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+    });
+
+    const request = mockPreviewCurtailmentPlan.mock.calls[0][0];
+    expect(request.scope.case).toBe("site");
+    if (request.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(request.scope.value.siteId).toBe(42n);
+  });
+
   it("maps full-fleet previews against the estimated fleet reduction", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(fullFleetPreviewResponse());
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // InsertEventWithTargets still rejects an empty target slice for a non-terminal
@@ -84,6 +85,22 @@ func TestMapOrgConfigError(t *testing.T) {
 			"plain error must not surface as NotFound; got %v", got)
 		assert.Contains(t, got.Error(), "failed to get curtailment org config")
 	})
+}
+
+func TestNormalizeListCandidatesParams(t *testing.T) {
+	t.Parallel()
+
+	empty := normalizeListCandidatesParams(interfaces.ListCandidatesParams{
+		OrgID:             7,
+		DeviceIdentifiers: []string{},
+	})
+	assert.Nil(t, empty.DeviceIdentifiers, "empty slices must bind as SQL NULL so they match whole-org")
+
+	nonEmpty := normalizeListCandidatesParams(interfaces.ListCandidatesParams{
+		OrgID:             7,
+		DeviceIdentifiers: []string{"miner-1"},
+	})
+	assert.Equal(t, []string{"miner-1"}, nonEmpty.DeviceIdentifiers)
 }
 
 // TestBuildBulkTargetPayload pins the JSON contract consumed by
