@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { type BuildingFormValues } from "@/protoFleet/api/buildings";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -22,12 +23,24 @@ interface BuildingSettingsModalCommonProps {
   saving?: boolean;
 }
 
+// Create mode owns site selection: when initialSiteId is supplied the
+// dropdown locks to that site (entry from /sites/:id or a site-scoped
+// row); otherwise it's editable and Save stays disabled until a site
+// is chosen.
+interface BuildingSettingsModalCreateExtras {
+  sites: SiteWithCounts[];
+  initialSiteId?: bigint;
+}
+
 // Discriminated union mirrors SiteSettingsModal. Edit gets onSave +
-// onDeleteRequested; create gets onSave only (Delete is meaningless
-// before the row exists).
+// onDeleteRequested; create gets onSave (with the chosen siteId).
+// Delete is meaningless before the row exists.
 export type BuildingSettingsModalProps = BuildingSettingsModalCommonProps &
   (
-    | { mode: "create"; onSave: (values: BuildingFormValues) => Promise<void> | void }
+    | ({
+        mode: "create";
+        onSave: (values: BuildingFormValues, siteId: bigint) => Promise<void> | void;
+      } & BuildingSettingsModalCreateExtras)
     | {
         mode: "edit";
         onSave: (values: BuildingFormValues) => Promise<void> | void;
@@ -67,6 +80,14 @@ const parseNonNegativeInt = (input: string): number | null => {
 
 const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   const { open, initialValues, parentSiteLabel, onDismiss, saving = false } = props;
+  const isCreate = props.mode === "create";
+  // Lock the Site dropdown when create mode opens with a pre-filled site
+  // (entry from /sites/:id or a site-scoped row). Buildings-tab CTA opens
+  // with no initialSiteId, so the dropdown is editable.
+  const initialSiteId = isCreate ? props.initialSiteId : undefined;
+  const sites = isCreate ? props.sites : undefined;
+  const siteLocked = isCreate && initialSiteId !== undefined;
+  const [siteIdText, setSiteIdText] = useState<string>(initialSiteId !== undefined ? initialSiteId.toString() : "");
   const [name, setName] = useState(initialValues.name);
   const [powerText, setPowerText] = useState(
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
@@ -151,11 +172,34 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
     if (!values) return;
+    if (props.mode === "create") {
+      if (siteIdText === "") return;
+      let siteId: bigint;
+      try {
+        siteId = BigInt(siteIdText);
+      } catch {
+        return;
+      }
+      await props.onSave(values, siteId);
+      return;
+    }
     await props.onSave(values);
-  }, [buildValues, props]);
+  }, [buildValues, props, siteIdText]);
 
   const nameValid = name.trim().length > 0;
-  const primaryDisabled = !nameValid || saving;
+  // Create mode also gates Save on a site selection — buildings can't be
+  // created without a parent. Edit mode ignores the dropdown entirely.
+  const siteValid = !isCreate || siteIdText !== "";
+  const primaryDisabled = !nameValid || !siteValid || saving;
+
+  const siteOptions = useMemo(
+    () =>
+      (sites ?? [])
+        .filter((s) => s.site !== undefined)
+        .map((s) => ({ value: s.site!.id.toString(), label: s.site!.name }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [sites],
+  );
 
   const buttons =
     props.mode === "create"
@@ -207,6 +251,18 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
       testId="building-settings-modal"
     >
       <div className="flex flex-col gap-4 py-2">
+        {isCreate ? (
+          <Select
+            id="building-settings-site"
+            label="Site"
+            options={siteOptions}
+            value={siteIdText}
+            onChange={(v) => setSiteIdText(v)}
+            disabled={siteLocked}
+            forceBelow
+            testId="building-settings-site-select"
+          />
+        ) : null}
         <Input
           id="building-settings-name"
           label="Name"

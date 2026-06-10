@@ -1,38 +1,92 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import BuildingSettingsModal from "./BuildingSettingsModal";
 import { type BuildingFormValues, emptyBuildingFormValues } from "@/protoFleet/api/buildings";
+import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
 const baseValues = (): BuildingFormValues => emptyBuildingFormValues();
 
+const makeSites = () => [
+  create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 7n, name: "North DC" }) }),
+  create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 9n, name: "South DC" }) }),
+];
+
 describe("BuildingSettingsModal — create mode", () => {
-  it("disables Save until a name is entered", () => {
+  it("disables Save until both a site and a name are entered", () => {
     render(
-      <BuildingSettingsModal open mode="create" initialValues={baseValues()} onSave={vi.fn()} onDismiss={vi.fn()} />,
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
     );
     const save = screen.getByTestId("building-settings-modal-save");
     expect(save).toBeDisabled();
+    // Name alone is not enough — the Buildings-tab CTA opens with no
+    // pre-filled site and Save must stay disabled until one is picked.
     fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
+    expect(save).toBeDisabled();
+    // Pick a site from the dropdown.
+    fireEvent.click(screen.getByTestId("building-settings-site-select"));
+    fireEvent.click(screen.getByText("North DC"));
     expect(save).not.toBeDisabled();
   });
 
-  it("rejects negative power input with an inline error", () => {
+  it("locks the Site dropdown when initialSiteId is supplied (entry from /sites/:id)", () => {
     render(
-      <BuildingSettingsModal open mode="create" initialValues={baseValues()} onSave={vi.fn()} onDismiss={vi.fn()} />,
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        initialSiteId={7n}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    const select = screen.getByTestId("building-settings-site-select");
+    expect(select).toBeDisabled();
+    // Site already chosen → Save unlocks as soon as a name is entered.
+    fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
+    expect(screen.getByTestId("building-settings-modal-save")).not.toBeDisabled();
+  });
+
+  it("rejects negative power input with an inline error", () => {
+    const onSave = vi.fn();
+    render(
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        initialSiteId={7n}
+        onSave={onSave}
+        onDismiss={vi.fn()}
+      />,
     );
     fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
     fireEvent.change(screen.getByTestId("building-settings-power-input"), { target: { value: "-5" } });
-    const onSave = vi.fn();
     fireEvent.click(screen.getByTestId("building-settings-modal-save"));
-    // onSave never fires because buildValues returns null on validation error.
     expect(onSave).not.toHaveBeenCalled();
   });
 
   it("rejects non-integer aisles", () => {
     const onSave = vi.fn();
     render(
-      <BuildingSettingsModal open mode="create" initialValues={baseValues()} onSave={onSave} onDismiss={vi.fn()} />,
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        initialSiteId={7n}
+        onSave={onSave}
+        onDismiss={vi.fn()}
+      />,
     );
     fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
     fireEvent.change(screen.getByTestId("building-settings-aisles-input"), { target: { value: "3.5" } });
@@ -43,7 +97,15 @@ describe("BuildingSettingsModal — create mode", () => {
   it("rejects layout dimensions over 100", () => {
     const onSave = vi.fn();
     render(
-      <BuildingSettingsModal open mode="create" initialValues={baseValues()} onSave={onSave} onDismiss={vi.fn()} />,
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        initialSiteId={7n}
+        onSave={onSave}
+        onDismiss={vi.fn()}
+      />,
     );
     fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
     fireEvent.change(screen.getByTestId("building-settings-aisles-input"), { target: { value: "101" } });
@@ -52,11 +114,20 @@ describe("BuildingSettingsModal — create mode", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("calls onSave with the parsed form values on a valid submit", () => {
+  it("calls onSave with the parsed form values and chosen siteId on a valid submit", () => {
     const onSave = vi.fn();
     render(
-      <BuildingSettingsModal open mode="create" initialValues={baseValues()} onSave={onSave} onDismiss={vi.fn()} />,
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        onSave={onSave}
+        onDismiss={vi.fn()}
+      />,
     );
+    fireEvent.click(screen.getByTestId("building-settings-site-select"));
+    fireEvent.click(screen.getByText("South DC"));
     fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
     fireEvent.change(screen.getByTestId("building-settings-aisles-input"), { target: { value: "5" } });
     fireEvent.change(screen.getByTestId("building-settings-racks-per-aisle-input"), { target: { value: "8" } });
@@ -68,6 +139,7 @@ describe("BuildingSettingsModal — create mode", () => {
         aisles: 5,
         racksPerAisle: 8,
       }),
+      9n,
     );
   });
 });

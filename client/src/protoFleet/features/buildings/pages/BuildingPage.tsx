@@ -359,7 +359,10 @@ const BuildingPage = () => {
           <div ref={refs.vertical.end} />
         </section>
       </div>
-      <BuildingModals modals={buildingModals} />
+      {/* BuildingPage never opens detailsCreate (only manage/edit on the
+          current building), so an empty sites list is fine here — the Site
+          dropdown is unused on this surface. */}
+      <BuildingModals modals={buildingModals} sites={[]} />
     </div>
   );
 };

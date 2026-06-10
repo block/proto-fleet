@@ -3,7 +3,6 @@ import { useCallback, useMemo, useState } from "react";
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
 import { useFleetOutletContext } from "../components/FleetLayout";
-import SiteSelectModal from "../components/SiteSelectModal";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
@@ -61,35 +60,13 @@ const FleetBuildingsPage = () => {
   }, [buildings, activeSite]);
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
-  const [showSiteSelect, setShowSiteSelect] = useState(false);
 
-  // Skip the picker when the target is unambiguous: a pinned single-site
-  // selection or an org with exactly one site.
+  // Buildings-tab CTA opens the modal with no pre-filled site — the
+  // Site dropdown inside BuildingSettingsModal collects the parent.
+  // Site-context auto-fill belongs to /sites/:id, not this global tab.
   const handleAddBuilding = useCallback(() => {
-    const validSites = sites?.filter((s) => s.site !== undefined) ?? [];
-    if (validSites.length === 0) return;
-    if (activeSite.kind === "site") {
-      const match = validSites.find((s) => s.site!.id.toString() === activeSite.id);
-      if (match) {
-        buildingModals.openDetailsCreate(match.site!.id, match.site!.name);
-        return;
-      }
-    }
-    if (validSites.length === 1) {
-      const only = validSites[0]!;
-      buildingModals.openDetailsCreate(only.site!.id, only.site!.name);
-      return;
-    }
-    setShowSiteSelect(true);
-  }, [sites, activeSite, buildingModals]);
-
-  const handleSiteSelected = useCallback(
-    (siteId: bigint, siteName: string) => {
-      setShowSiteSelect(false);
-      buildingModals.openDetailsCreate(siteId, siteName);
-    },
-    [buildingModals],
-  );
+    buildingModals.openDetailsCreate();
+  }, [buildingModals]);
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.
@@ -146,13 +123,7 @@ const FleetBuildingsPage = () => {
             </p>
           </div>
         </FilterRow>
-        <BuildingModals modals={buildingModals} />
-        <SiteSelectModal
-          open={showSiteSelect}
-          sites={sites}
-          onSelect={handleSiteSelected}
-          onDismiss={() => setShowSiteSelect(false)}
-        />
+        <BuildingModals modals={buildingModals} sites={sites} />
       </>
     );
   }
@@ -173,13 +144,7 @@ const FleetBuildingsPage = () => {
             {message}
           </div>
         </FilterRow>
-        <BuildingModals modals={buildingModals} />
-        <SiteSelectModal
-          open={showSiteSelect}
-          sites={sites}
-          onSelect={handleSiteSelected}
-          onDismiss={() => setShowSiteSelect(false)}
-        />
+        <BuildingModals modals={buildingModals} sites={sites} />
       </>
     );
   }
@@ -214,13 +179,7 @@ const FleetBuildingsPage = () => {
       <div className={LIST_WRAPPER}>
         <BuildingList buildings={visibleBuildings} sites={sites} />
       </div>
-      <BuildingModals modals={buildingModals} />
-      <SiteSelectModal
-        open={showSiteSelect}
-        sites={sites}
-        onSelect={handleSiteSelected}
-        onDismiss={() => setShowSiteSelect(false)}
-      />
+      <BuildingModals modals={buildingModals} sites={sites} />
     </>
   );
 };

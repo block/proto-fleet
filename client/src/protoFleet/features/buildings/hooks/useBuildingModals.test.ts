@@ -71,6 +71,16 @@ describe("useBuildingModals", () => {
     }
   });
 
+  it("openDetailsCreate with no args opens detailsCreate with undefined siteId (Buildings-tab CTA path)", () => {
+    const { result } = renderHook(() => useBuildingModals());
+    act(() => result.current.openDetailsCreate());
+    expect(result.current.state.kind).toBe("detailsCreate");
+    if (result.current.state.kind === "detailsCreate") {
+      expect(result.current.state.siteId).toBeUndefined();
+      expect(result.current.state.siteName).toBeUndefined();
+    }
+  });
+
   it("openManage seeds manage state with the row + site label", () => {
     const row = makeBuildingRow(11n, "Main");
     const { result } = renderHook(() => useBuildingModals());
@@ -99,7 +109,7 @@ describe("useBuildingModals", () => {
     act(() => result.current.openDetailsCreate(7n, "North DC"));
 
     await act(async () => {
-      await result.current.detailsCreate(emptyBuildingFormValues());
+      await result.current.detailsCreate(emptyBuildingFormValues(), 7n);
     });
 
     await waitFor(() => {
