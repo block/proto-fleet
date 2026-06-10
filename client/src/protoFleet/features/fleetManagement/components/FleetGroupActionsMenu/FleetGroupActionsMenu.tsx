@@ -46,8 +46,7 @@ interface FleetGroupActionsMenuProps {
   scope: GroupScope;
   ariaLabel: string;
   testIdPrefix?: string;
-  // Host-composed row actions (view / edit / add) rendered between the
-  // wired top + bottom bulk clusters.
+  // Rendered between the wired top + bottom bulk clusters.
   extraActions?: RowAction[];
 }
 
@@ -65,10 +64,8 @@ const BOTTOM_WIRED_KEYS = [groupActions.addToGroup, settingsActions.security, de
 
 type WiredActionKey = (typeof TOP_WIRED_KEYS)[number] | (typeof BOTTOM_WIRED_KEYS)[number];
 
-// Keys that historically rendered a thick divider IMMEDIATELY BEFORE
-// their row. The merger below converts each such entry into a
-// `showGroupDivider: true` on the PREVIOUS row (since RowActionsMenu
-// renders dividers after, not before).
+// Mapped to `showGroupDivider: true` on the PREVIOUS row in the
+// merged action list (RowActionsMenu renders dividers after the row).
 const DIVIDER_BEFORE_KEY: ReadonlySet<WiredActionKey> = new Set<WiredActionKey>([
   performanceActions.managePower,
   settingsActions.security,
@@ -105,24 +102,18 @@ const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 
 const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = [] }: FleetGroupActionsMenuProps) => {
-  // Lazy-fetched on first action click; invalidated after a dispatch
-  // finishes so subsequent clicks reflect membership changes from
-  // unpair / assignment / polling rather than acting on a stale set.
+  // Scoped miners — fetched lazily on first action click, re-fetched
+  // each click to catch membership changes from unpair / assignment.
   const [ids, setIds] = useState<string[]>([]);
-  // Snapshot map keyed by deviceIdentifier. Firmware Update + a few
-  // other handlers in useMinerActions look up each selected id here to
-  // verify model compatibility — without it `getUniqueModels` returns
-  // an empty set and the firmware path 403s with "Unable to verify
-  // miner model compatibility" even though the row menu surfaced it.
+  // Snapshots feed useMinerActions's per-miner gates (firmware model
+  // compatibility, unauthenticated-miner pairing status, etc.).
   const [minerSnapshots, setMinerSnapshots] = useState<Record<string, MinerStateSnapshot>>({});
   const idsLoadedRef = useRef(false);
   const [isBusy, setIsBusy] = useState(false);
 
-  // pendingAction tracks the action awaiting dispatch. The `tick`
-  // forces the effect to re-run when the same action is clicked a
-  // second time — without it React skips equal state updates and the
-  // dispatch never refires for direct (non-modal) actions like
-  // Download logs.
+  // `tick` forces the effect to re-run when the same action is clicked
+  // twice — React skips equal state updates so direct (non-modal)
+  // dispatches like Download logs would otherwise never refire.
   const [pendingAction, setPendingAction] = useState<{ key: WiredActionKey; tick: number } | null>(null);
   const tickRef = useRef(0);
   const firedTickRef = useRef(-1);
@@ -139,11 +130,8 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
   });
   const permissions = usePermissions();
 
-  // Set of action keys the caller can actually invoke against the
-  // scoped miners. Permissioned the same way as `usePermittedActions`
-  // in MinerActionsMenu — read-only roles see the row trigger but no
-  // entries that would 403 on click. The server still enforces each
-  // gate; this is UX, not a security boundary.
+  // Mirrors `usePermittedActions` from MinerActionsMenu so read-only
+  // roles don't see entries that would 403 on click. Server enforces.
   const permittedKeys = useMemo(() => {
     const allowed = new Set<WiredActionKey>();
     const lookup: Record<string, string | readonly string[] | undefined> = ACTION_PERMISSIONS;
@@ -178,9 +166,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
       });
       for (const miner of response.miners) {
         collected.push(miner.deviceIdentifier);
-        // Preserve the full snapshot — useMinerActions needs the model
-        // info for firmware compatibility checks and the pairing
-        // status for the unauthenticated-miner gate.
         snapshotMap[miner.deviceIdentifier] = miner;
       }
       if (!response.cursor) {
@@ -189,9 +174,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
       }
       cursor = response.cursor;
     }
-    // Surface "too large" rather than silently truncating. The toast
-    // path in `handleTrigger` catches the throw and tells the operator
-    // the scope is too big to bulk-action via the row menu.
     if (!exhausted) {
       throw new Error(`Too many miners in ${scope.name} (over ${MAX_MINERS}). Filter the list and try again.`);
     }
@@ -224,9 +206,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
       try {
         deviceIdentifiers = await fetchDeviceIds();
       } catch (err) {
-        // fetchDeviceIds throws when the scope exceeds MAX_MINERS so the
-        // operator gets a specific message; generic RPC failures fall
-        // through to the same toast.
         const message = err instanceof Error && err.message ? err.message : `Couldn't load miners for ${scope.name}.`;
         updateToast(loadingToast, { message, status: STATUSES.error });
         setIsBusy(false);
@@ -246,8 +225,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
 
   const clearPendingAction = useCallback(() => {
     setPendingAction(null);
-    // Invalidate the cached id set so the next click re-fetches and
-    // picks up membership changes (assignment, unpair, polling).
     idsLoadedRef.current = false;
   }, []);
 
@@ -261,8 +238,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     minerActions.handleCancel();
   }, [clearPendingAction, minerActions]);
 
-  // Pool flow stays inline because PoolSelectionPageWrapper's
-  // selectedMiners / poolNeededCount vary per callsite.
   const handlePoolFlowDismiss = useCallback(() => {
     clearPendingAction();
     minerActions.handleCancel();
@@ -276,9 +251,9 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
     [clearPendingAction, minerActions],
   );
 
-  // Before ids load we render all wired entries from local label/icon
-  // tables; once loaded we honor the hook's selection-derived filter
-  // (e.g. wakeUp drops when no miners are INACTIVE).
+  // Pre-fetch: render all wired entries from local label/icon tables.
+  // Post-fetch: honor the hook's selection-derived filter (e.g. wakeUp
+  // drops when no selected miners are INACTIVE).
   const popoverActions = minerActions.popoverActions;
   const popoverActionByKey = useMemo(() => {
     const map = new Map<SupportedAction, (typeof popoverActions)[number]>();
@@ -288,9 +263,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
 
   const keepEntry = useCallback(
     (key: WiredActionKey) => {
-      // Drop any action the caller can't invoke server-side before any
-      // selection-based filtering — read-only roles never see Sleep /
-      // Reboot / Unpair entries that would 403 on click.
       if (!permittedKeys.has(key)) return false;
       if (key === deviceActions.wakeUp && !idsLoadedRef.current) return true;
       return idsLoadedRef.current ? popoverActionByKey.has(key) : true;
@@ -302,13 +274,9 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
   const bottomWiredEntries = useMemo(() => BOTTOM_WIRED_KEYS.filter(keepEntry), [keepEntry]);
   const visibleExtraActions = useMemo(() => extraActions.filter((entry) => !entry.hidden), [extraActions]);
 
-  // Build the merged RowAction[] used by the shared RowActionsMenu.
-  // Cluster boundary rules:
-  //   - top → extras: divider if extras exist
-  //   - top → bottom: divider only when no extras (Edit + Add-to-group
-  //     share a cluster by design)
-  //   - extras → bottom: never (last extras `showGroupDivider` ignored)
-  //   - inside top/bottom: divider before any entry in DIVIDER_BEFORE_KEY
+  // Cluster boundary rules: divider between top↔extras and (when no
+  // extras) top↔bottom; never between extras↔bottom so Edit and
+  // Add-to-group share a cluster. Internal dividers from DIVIDER_BEFORE_KEY.
   const rowActions: RowAction[] = useMemo(() => {
     const entries: RowAction[] = [];
     const fleetTestIdBase = testIdPrefix ?? "fleet-group-actions";
@@ -336,8 +304,6 @@ const FleetGroupActionsMenu = ({ scope, ariaLabel, testIdPrefix, extraActions = 
         icon: action.icon,
         testId: action.testId,
         onClick: action.onClick,
-        // Suppress the trailing divider on the last extras entry so
-        // Edit + Add-to-group flow together visually.
         showGroupDivider: !isLastExtra && !!action.showGroupDivider,
       });
     });

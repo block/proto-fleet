@@ -19,8 +19,8 @@ interface MinerActionModalStackProps {
   selectedMinerIds: string[];
   selectionMode: SelectionMode;
   displayCount?: number;
-  // Fires before each modal's dismiss / confirm. Lets FleetGroupActionsMenu
-  // clear its pendingAction state without owning the modal callbacks.
+  // Fires before each modal's dismiss/confirm — used by
+  // FleetGroupActionsMenu to clear its pendingAction.
   onActionBoundary?: () => void;
 }
 
@@ -32,8 +32,6 @@ const MinerActionModalStack = ({
   onActionBoundary,
 }: MinerActionModalStackProps) => {
   const { addDevicesToDeviceSet, createGroup } = useDeviceSets();
-  // Identity-preserved when no boundary so child modals don't see new
-  // handler closures every render.
   const wrap = useCallback(
     <Args extends unknown[]>(handler: (...args: Args) => void) =>
       onActionBoundary
@@ -52,10 +50,7 @@ const MinerActionModalStack = ({
   const addToGroupOpen =
     minerActions.currentAction === groupActions.addToGroup ? minerActions.showAddToGroupModal : false;
 
-  // Both dispatchers reject on RPC error so `ParentPickerModal` keeps
-  // the picker open (its handleSave only closes when onConfirm /
-  // onCreateNew resolve). Matches the deleted AddToGroupModal's
-  // behavior, which didn't close on failure either.
+  // Reject on RPC error so ParentPickerModal keeps the picker open.
   const dispatchAddToGroup = useCallback(
     (groupId: bigint) =>
       new Promise<void>((resolve, reject) => {

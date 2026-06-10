@@ -73,13 +73,8 @@ const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRackToBuilding } = useBuildings();
-  // Rack edit + AssignRackToBuilding are gated server-side; the UI gates
-  // mirror the BuildingList / SiteList pattern so 403-bound actions never
-  // surface in the row menu.
   const canEditRack = useHasPermission("rack:manage");
   const canAssignRackToBuilding = useHasPermission("site:manage");
-  // Re-parent picker target. When set, ParentPickerModal opens with the
-  // rack as the source; on confirm we dispatch AssignRackToBuilding.
   const [reparentTarget, setReparentTarget] = useState<DeviceSet | null>(null);
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -87,27 +82,18 @@ const RacksPage = () => {
   const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   // When set, RackSettingsModal opens in edit mode against this row.
-  // Cleared on dismiss alongside the show flag so the next "Add rack"
-  // CTA starts from a clean create-mode slate.
   const [editingRack, setEditingRack] = useState<DeviceSet | null>(null);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
-  // Flips on the first successful ListBuildings response. Needed so the
-  // empty-result branch for `?site=<id>` with zero matching buildings
-  // doesn't fire while buildings are still loading (which would briefly
-  // mask all racks). Default false; toggles true regardless of result
-  // length so a real zero-building site is distinguishable from "still
-  // loading".
+  // Distinguishes "buildings still loading" from "site has zero buildings"
+  // for the empty-filter sentinel below.
   const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
 
-  // `?site=<id>` lands here via SiteList's "View racks" deep link. The
-  // rack list RPC has no native `siteIds` filter, so we resolve site →
-  // buildings client-side and feed those building ids through the
-  // existing buildingIds filter. Without this, the deep link no-ops
-  // (operator sees the full racks list instead of the site's racks).
+  // listDeviceSets has no native siteIds filter, so we resolve
+  // site → buildings client-side and pipe through buildingIds.
   const urlSiteIds = useMemo(
     () =>
       new Set(
@@ -122,18 +108,11 @@ const RacksPage = () => {
 
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
-  // Building IDs the rack list should be filtered to. If the operator
-  // picked buildings explicitly, that wins. Otherwise, when a site
-  // filter is present, expand it into the buildings that belong to
-  // those sites once `allBuildings` has loaded.
-  //
-  // Sentinel: when the site filter is set but resolves to zero
-  // buildings (loaded list confirms there are none), we send `[0n]`
-  // rather than `[]`. Server treats `buildingIds: []` as "no filter",
-  // so without the sentinel a valid site that simply has no buildings
-  // would show every rack in the fleet. Building IDs are positive
-  // auto-incrementing in the DB, so `WHERE building_id IN (0)` matches
-  // nothing — exactly the empty result the operator expects.
+  // Explicit building filter wins; otherwise expand `?site=` into the
+  // sites' buildings. `[0n]` is a sentinel for "site has zero buildings" —
+  // server treats `[]` as no filter, so without it a valid empty site
+  // would return every rack. Building IDs are positive autoincrement,
+  // so `WHERE building_id IN (0)` matches nothing.
   const effectiveBuildingIds = useMemo(() => {
     if (selectedBuildingIds.length > 0) return selectedBuildingIds;
     if (urlSiteIds.size === 0) return [] as bigint[];
@@ -194,9 +173,7 @@ const RacksPage = () => {
     fetchZones();
   }, [fetchZones]);
 
-  // Fetch all buildings once for the building filter dropdown. The list
-  // is small (org-scoped) and stable enough that a single load on mount
-  // is fine; the rack list re-renders independently when filters change.
+  // One-shot load — org-scoped buildings are small + stable.
   useEffect(() => {
     const controller = new AbortController();
     void listAllBuildings({
@@ -208,8 +185,6 @@ const RacksPage = () => {
             .map((b) => ({
               id: b.building!.id.toString(),
               label: b.building!.name,
-              // Carry siteId through so `?site=<id>` deep links can
-              // resolve to the building set without a second lookup.
               siteId: (b.building!.siteId ?? 0n).toString(),
             })),
         );
@@ -219,9 +194,6 @@ const RacksPage = () => {
     return () => controller.abort();
   }, [listAllBuildings]);
 
-  // Sites lookup powers the new Site column on the rack list. Same one-shot
-  // load shape as buildings; renames are infrequent enough that polling here
-  // would be wasted bandwidth.
   useEffect(() => {
     const controller = new AbortController();
     void listSites({
@@ -257,11 +229,8 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch when the resolved building filter changes. Covers both the
-  // explicit building filter and the site → buildings expansion that
-  // lands once `allBuildings` finishes loading. The ref is read by
-  // useDeviceSetListState's fetchPage so this effect just kicks the
-  // pagination reset; the filter value itself flows through the ref.
+  // Refetch on resolved building-filter change (explicit + site-expanded).
+  // useDeviceSetListState reads the ref; this effect just kicks pagination.
   const effectiveBuildingKey = useMemo(() => effectiveBuildingIds.map(String).join(","), [effectiveBuildingIds]);
   const prevBuildingKey = useRef<string | null>(null);
   useEffect(() => {
@@ -323,24 +292,17 @@ const RacksPage = () => {
     selectedBuildingIdStrings.length > 0 ||
     selectedZones.length > 0 ||
     selectedIssues.length > 0 ||
-    // URL-driven site filter counts as an active filter even when the
-    // operator didn't pick buildings explicitly, so a site-scoped result
-    // of zero falls into the "no matches for this filter" empty state
-    // rather than the global "you haven't set up any racks" null state.
     urlSiteIds.size > 0;
 
   const handleClearFilters = useCallback(() => {
-    // Snapshot before any state changes — drives whether the URL-change
-    // effect will refetch for us.
+    // Snapshot before state changes — these flags drive the "ride the
+    // URL-change effect" branch below.
     const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
     const hadSiteFilter = urlSiteIds.size > 0;
     setSelectedZones([]);
     selectedZonesRef.current = [];
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
-    // Clear the `site` URL param too; otherwise "Clear filters" on a
-    // site-scoped empty state would leave `?site=<id>` in place and
-    // immediately reload the same empty result.
     if (hadSiteFilter) {
       setSearchParams(
         (prev) => {
@@ -352,10 +314,8 @@ const RacksPage = () => {
       );
     }
     setBuildingFilter([]);
-    // When the URL had any building/site filter, the URL-change effect
-    // (`prevBuildingKey` / `urlSiteIds` deps) fires resetAndFetch. We
-    // only call it manually when there's no URL transition to ride on,
-    // otherwise we'd double-fetch with a stale ref.
+    // URL changes trigger refetch via prevBuildingKey effect; call
+    // manually only when there's no URL transition to avoid double-fetch.
     if (!hadBuildingFilter && !hadSiteFilter) {
       resetAndFetch();
     }
@@ -418,11 +378,8 @@ const RacksPage = () => {
     setShowRackSettingsModal(true);
   }, []);
 
-  // Extras appended below FleetGroupActionsMenu's wired bulk cluster.
-  // Mirrors the Sites / Buildings menus: navigate, then edit, then
-  // re-parent (Add to building). Add to site stays deferred — no
-  // dedicated AssignRackToSite RPC exists today; SaveRack is a heavy
-  // full-replace, which we don't want to wire from a row action.
+  // Add-to-site stays deferred — no dedicated AssignRackToSite RPC,
+  // and SaveRack is a heavyweight full-replace.
   const buildRackExtraActions = useCallback(
     (rack: DeviceSet) => [
       {
@@ -768,9 +725,8 @@ const RacksPage = () => {
             setEditingRack(null);
           }}
           onContinue={handleRackSettingsContinue}
-          // Edit-mode saves dispatch through the modal directly (no
-          // AssignMinersModal handoff like Create), so the list + zone
-          // filter would otherwise stay stale until the next poll.
+          // Edit-mode dispatches through the modal directly; create-mode
+          // hands off to AssignMinersModal which refreshes there.
           onSuccess={() => {
             resetAndFetch();
             fetchZones();

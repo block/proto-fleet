@@ -130,8 +130,7 @@ interface ReassignDevicesToSiteProps {
 
 interface AssignBuildingToSiteProps {
   buildingId: bigint;
-  // Unset moves the building to "Unassigned"; row actions always supply
-  // a target so this is set in practice.
+  // Unset moves the building to "Unassigned".
   targetSiteId?: bigint;
   signal?: AbortSignal;
   onSuccess?: (reassignedRackCount: bigint, reassignedDeviceCount: bigint) => void;

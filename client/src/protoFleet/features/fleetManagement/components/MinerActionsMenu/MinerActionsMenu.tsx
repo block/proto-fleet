@@ -78,16 +78,12 @@ const MinerActionsMenu = ({
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [bulkWorkerNameTarget, setBulkWorkerNameTarget] = useState<BulkWorkerNameTarget | null>(null);
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
-  // Re-parent picker target. null = closed; otherwise the picker is
-  // open for that kind. Dispatch fires on confirm against the selected
-  // miners (or full-set when selectionMode === "all").
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
     [selectedMiners],
   );
-  // Subset-mode fallback when the parent omits the prop.
   const selectedIdsIncludeUnauthenticatedMiner = useMemo(
     () => selectedMiners.some((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED),
     [miners, selectedMiners],
@@ -108,11 +104,6 @@ const MinerActionsMenu = ({
     onActionStart,
     onActionComplete,
   });
-  // Modals shared with FleetGroupActionsMenu + SingleMinerActionsMenu are
-  // rendered by MinerActionModalStack via the full hook result. Local
-  // destructure pulls only the fields this shell still references
-  // directly (popover wiring, pool flow, capability check, unsupported
-  // miners modal, worker-name auth flow).
   const {
     currentAction,
     popoverActions,
@@ -179,10 +170,7 @@ const MinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
-    // Re-parent openers — opening the picker only; dispatch happens
-    // on confirm against the current selection. Inserted before
-    // addToGroup so the cluster reads site → rack → group (the
-    // canonical order; building is deferred pending backend RPC).
+    // Inserted before addToGroup so the cluster reads site → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
       action: groupActions.addToRack,
       title: "Add to rack",
@@ -202,9 +190,6 @@ const MinerActionsMenu = ({
     const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
 
     const baseActions = actionsWithRenameBeforeGroup !== actions ? actionsWithRenameBeforeGroup : actions;
-    // Order is enforced by inserting rack first, then site before
-    // rack — addToGroup remains the trailing entry (its existing
-    // showGroupDivider closes the cluster).
     const withAddToRack = insertActionBefore(baseActions, groupActions.addToGroup, addToRackAction);
     const withAddToSite = insertActionBefore(withAddToRack, groupActions.addToRack, addToSiteAction);
 
@@ -224,9 +209,6 @@ const MinerActionsMenu = ({
     return [...withAddToSite, renameAction];
   }, [handleBulkWorkerNamesOpen, onActionStart, popoverActions]);
 
-  // Hide actions whose backing RPC the caller can't invoke. The server
-  // still enforces every gate; this filter is UX so the menu doesn't
-  // surface options that 403 on click.
   const permittedActions = usePermittedActions(actionsWithBulkRename);
 
   const visibleActions = useMemo(() => {

@@ -50,12 +50,8 @@ const SiteDetailPage = () => {
 
   useEffect(() => fetchSites(), [fetchSites, retryCounter]);
 
-  // Bounce to the fleet shell when the operator picks a different site
-  // from the SitePicker while looking at this site's detail page. The
-  // detail page is scoped to a single site; switching the picker means
-  // the operator is asking to navigate away. "All sites" / "Unassigned"
-  // selections stay put — those don't conflict with viewing a specific
-  // site. FleetLayout picks the right tab based on the new picker state.
+  // Bounce to /fleet when SitePicker switches to a different specific
+  // site — "All sites" / "Unassigned" don't conflict with this view.
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   useEffect(() => {

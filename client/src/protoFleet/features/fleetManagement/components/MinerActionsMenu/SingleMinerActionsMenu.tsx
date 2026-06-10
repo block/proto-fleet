@@ -63,13 +63,11 @@ const SingleMinerActionsMenu = ({
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [showUpdateWorkerNameDialog, setShowUpdateWorkerNameDialog] = useState(false);
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
-  // Re-parent picker target. null = closed.
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
 
   const minerActionsResult = useMinerActions({
     selectedMiners,
-    // Single-miner actions always target a specific device, never "all devices"
     selectionMode: "subset",
     startBatchOperation,
     completeBatchOperation,
@@ -79,9 +77,6 @@ const SingleMinerActionsMenu = ({
     onActionStart,
     onActionComplete,
   });
-  // Modals shared with FleetGroupActionsMenu + MinerActionsMenu are
-  // rendered via MinerActionModalStack from the full result. Local
-  // destructure pulls only the fields this shell still references.
   const {
     currentAction,
     popoverActions,
@@ -304,9 +299,7 @@ const SingleMinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
-    // Re-parent openers — same shape as MinerActionsMenu's bulk
-    // entries; click opens the picker for the single miner. Inserted
-    // before addToGroup so the cluster reads site → rack → group.
+    // Inserted before addToGroup so the cluster reads site → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
       action: groupActions.addToRack,
       title: "Add to rack",
@@ -344,9 +337,7 @@ const SingleMinerActionsMenu = ({
     return viewMinerAction ? [viewMinerAction, ...withAddToSite, renameAction] : [...withAddToSite, renameAction];
   }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, minerUrl, popoverActions]);
 
-  // Hide actions whose backing RPC the caller can't invoke. viewMiner
-  // has no RPC and stays visible regardless of permissions; the server
-  // still enforces every gate.
+  // viewMiner has no RPC and passes through unfiltered.
   const permittedActions = usePermittedActions(actionsWithSingleNameFlows);
 
   const visibleActions = useMemo(
@@ -396,8 +387,6 @@ const SingleMinerActionsMenu = ({
         actions={rowActions}
         ariaLabel="Miner actions"
         testIdPrefix="single-miner-actions-popover"
-        // Original trigger testId predates the shared RowActionsMenu;
-        // tests address the button directly so keep the legacy id.
         triggerTestId="single-miner-actions-menu-button"
       />
       <UnsupportedMinersModal

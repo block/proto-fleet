@@ -13,12 +13,8 @@ export interface RowAction {
   label: string;
   onClick: () => void;
   icon?: ReactNode;
-  // Renders a thick group divider below this action. The divider is
-  // suppressed when this action is the last visible one so menus don't
-  // end on a trailing separator.
+  // Thick divider rendered below the row; suppressed on the last row.
   showGroupDivider?: boolean;
-  // When true, the action is skipped from the rendered list. Useful for
-  // permission-gated entries that should not surface at all.
   hidden?: boolean;
   testId?: string;
 }
@@ -26,27 +22,12 @@ export interface RowAction {
 interface RowActionsMenuProps {
   actions: RowAction[];
   ariaLabel?: string;
-  // Bakes into the popover testId (`<prefix>-popover`) and acts as the
-  // default trigger testId (`<prefix>-trigger`). Individual action
-  // testIds come from the action entries themselves.
   testIdPrefix?: string;
-  // Override the trigger testId — used by `SingleMinerActionsMenu`,
-  // which historically exposed `single-miner-actions-menu-button` as
-  // the trigger handle. Falls back to `${testIdPrefix}-trigger` /
-  // `row-actions-menu-trigger`.
+  // Falls back to `${testIdPrefix}-trigger` / `row-actions-menu-trigger`.
   triggerTestId?: string;
-  // Disables the ellipsis trigger. Used by `FleetGroupActionsMenu`
-  // while the lazy device-id fetch is in flight so a second click
-  // doesn't double-trigger.
   disabled?: boolean;
 }
 
-// Ellipsis-trigger row actions menu shared by the fleet-management
-// row menus (`SingleMinerActionsMenu`, `FleetGroupActionsMenu`, plus
-// the Sites / Buildings / Racks list rows). Owns the popover shell:
-// trigger button, portal-fixed popover, click-outside, row rendering
-// with optional thick dividers. Action state (confirmation dialogs,
-// modal stacks, batch wiring) stays in the caller.
 const RowActionsMenu = ({
   actions,
   ariaLabel = "Row actions",
@@ -76,15 +57,12 @@ const RowActionsMenuInner = ({
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [isOpen, setIsOpen] = useState(false);
 
-  // Portal-fixed keeps the popover above the list's overflow scroll
-  // containers and out of the row click area.
+  // Portal-fixed keeps the popover above the list's overflow scroll containers.
   useEffect(() => {
     setPopoverRenderMode("portal-fixed");
   }, [setPopoverRenderMode]);
 
-  // Treat disabled as a hard-close. Derived so a re-enable doesn't
-  // resurrect a previously open popover; the operator clicks the
-  // ellipsis again to reopen.
+  // Disabled hard-closes; re-enable doesn't resurrect — operator must reopen.
   const open = isOpen && !disabled;
 
   const onClickOutside = useCallback(() => setIsOpen(false), []);
@@ -122,8 +100,6 @@ const RowActionsMenuInner = ({
           testId={popoverTestId}
         >
           {visibleActions.map((action, index) => (
-            // Index falls back when neither testId nor label uniquely
-            // identifies the row (e.g. two host-supplied "View" entries).
             <Fragment key={action.testId ?? `${action.label}-${index}`}>
               <div className="px-4">
                 <Row

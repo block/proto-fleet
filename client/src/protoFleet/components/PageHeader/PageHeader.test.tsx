@@ -31,9 +31,7 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => ({
     listSites: mockListSites,
   }),
-  // SitePicker derives `knownSiteIds` via this helper; the mock factory
-  // returns an empty set so the picker renders without throwing while
-  // these tests focus on PageHeader's other rows.
+  // SitePicker imports this; stub keeps the picker from throwing.
   buildKnownSiteIds: () => new Set<string>(),
 }));
 

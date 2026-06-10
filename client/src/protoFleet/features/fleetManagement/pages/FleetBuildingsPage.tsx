@@ -49,9 +49,7 @@ const FleetBuildingsPage = () => {
     [listAllBuildings],
   );
 
-  // Gate the poll on the same permission FleetLayout reads — a direct
-  // URL hit on /fleet/buildings before FleetLayout's redirect would
-  // otherwise spam ListBuildings with 403s every POLL_INTERVAL_MS.
+  // Gate the poll on site:read — same gate FleetLayout uses to redirect.
   const canReadBuildings = useHasPermission("site:read");
   usePoll({
     fetchData: fetchBuildings,
@@ -63,10 +61,8 @@ const FleetBuildingsPage = () => {
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
 
-  // Per-row "View buildings" deep links carry `?site=<id>` rather than
-  // mutating the SitePicker, so it can scope the list without racing
-  // FleetLayout's single-site redirect. URL filter wins when present;
-  // otherwise the SitePicker selection still drives the visible set.
+  // `?site=<id>` deep links scope the list without mutating SitePicker
+  // (avoids racing FleetLayout's single-site redirect). URL wins.
   const [searchParams] = useSearchParams();
   const urlSiteIds = useMemo(
     () =>
@@ -126,11 +122,8 @@ const FleetBuildingsPage = () => {
   // CreateBuilding requires site:manage server-side.
   const canManageBuildings = useHasPermission("site:manage");
 
-  // Edit-building flow. The row click opens ManageBuildingModal for the
-  // chosen building — mirroring the "Edit building" header button on
-  // /buildings/:id so both entry points land on the same surface.
-  // siteName is resolved from the sites cache so the modal can render
-  // the parent label without a follow-up fetch.
+  // Resolve siteName from cache so the modal renders the parent label
+  // without a follow-up fetch.
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of sites ?? []) {

@@ -56,11 +56,7 @@ interface BuildingListProps {
   buildings: BuildingWithCounts[];
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
-  // Opens ManageBuildingModal against the row — same surface as the
-  // "Edit building" header button on /buildings/:id.
   onEditBuilding?: (building: BuildingWithCounts) => void;
-  // Opens ParentPickerModal(kind=site) against the row. Host wires the
-  // AssignBuildingToSite dispatcher.
   onAddBuildingToSite?: (building: BuildingWithCounts) => void;
 }
 
@@ -91,11 +87,6 @@ const BuildingList = ({ buildings, sites, emptyStateRow, onEditBuilding, onAddBu
     [buildings, siteNameById],
   );
 
-  // Buildings-row extras: navigation cluster (View *), then a single
-  // edit/add cluster (Edit building → Add to site → Add to group).
-  // "Add to group" itself comes from FleetGroupActionsMenu's wired
-  // BOTTOM_WIRED_KEYS — the renderer flows extras into bottom-wired
-  // without a divider so Edit + adds read as one continuous cluster.
   const buildExtraActions = useCallback(
     (item: BuildingListItem): RowAction[] => {
       return [

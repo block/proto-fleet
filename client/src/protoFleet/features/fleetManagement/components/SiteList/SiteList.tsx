@@ -42,9 +42,6 @@ const ACTIVE_COLS: SiteColumn[] = [
 interface SiteListProps {
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
-  // Opens SiteSettingsModal in edit mode against the row — satisfies
-  // the "Edit site" Figma action. Hosting lives in FleetSitesPage so
-  // the modal stack is shared with the Add site CTA.
   onEditSite?: (site: Site) => void;
 }
 
@@ -59,20 +56,10 @@ const SiteList = ({ sites, emptyStateRow, onEditSite }: SiteListProps) => {
     [sites],
   );
 
-  // Sites-row extras: navigation + edit only. The bulk fan-outs (sleep,
-  // reboot, manage power, etc.) plus "Add to group" sit in
-  // FleetGroupActionsMenu's wired sections. Re-parenting actions (Add to
-  // building / site) don't exist on site rows — sites live at the top of
-  // the hierarchy.
   const buildExtraActions = useCallback(
     (item: SiteListItem): RowAction[] => {
-      // View actions deep-link via `?site=<id>` URL params rather than
-      // mutating the SitePicker. The picker route would race with
-      // FleetLayout's "single-site picker hides the Sites tab" effect
-      // and silently bounce the operator to /sites/:id before the
-      // pending /miners (or /racks, /fleet/buildings) navigation
-      // resolves. URL params decouple the deep-link target from picker
-      // state entirely.
+      // Deep-link via `?site=<id>` rather than mutating SitePicker —
+      // avoids racing FleetLayout's single-site-redirect effect.
       return [
         { label: "View site", icon: <ArrowRight />, onClick: () => navigate(`/sites/${item.id}`) },
         {

@@ -14,30 +14,18 @@ export type ReparentKind = "rack" | "site";
 
 interface MinerReparentPickerProps {
   kind: ReparentKind;
-  // Explicit selection ids. In all-mode this is the visible page only;
-  // the full set is resolved via listMinerStateSnapshots before dispatch.
+  // In all-mode this is the visible page only; the full set is
+  // resolved via listMinerStateSnapshots before dispatch.
   deviceIdentifiers: string[];
   selectionMode: "subset" | "all";
-  // Required when selectionMode === "all" so the snapshot pagination
-  // hits the same filtered set the user sees.
   currentFilter?: MinerListFilter;
-  // All-mode display total. Surfaces in the picker title so the
-  // operator sees how many miners the action will affect.
   totalCount?: number;
-  // Display string for the source — "12 miners" / "Miner foo". Surfaces
-  // in the picker title and toast messages.
   sourceLabel: string;
-  // Toast template used for success messaging — bulk wants the count
-  // returned by the RPC, single-row wants the miner's name. Caller
-  // picks; we don't try to derive.
   successMessage: (count: number | bigint, target: "site" | "rack") => string;
   onClose: () => void;
   onRefetchMiners?: () => void;
 }
 
-// Snapshot pagination cap mirrors FleetGroupActionsMenu — 50 pages of
-// 1000 covers any realistic fleet cohort. We throw past the cap rather
-// than silently truncating; the caller surfaces the message via toast.
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
@@ -120,10 +108,7 @@ const MinerReparentPicker = ({
         if (targetId === undefined) return;
 
         if (selectionMode === "all") {
-          // `parseFilterFromURL` returns undefined when the URL has no
-          // filter params — i.e. the operator selected all miners on an
-          // unfiltered miners page, which is the full fleet. Substitute
-          // an empty filter (matches everything) rather than bailing.
+          // Undefined filter = no URL filter params = full fleet.
           const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
           const loadingToast = pushToast({
             message: "Loading selected miners…",
@@ -134,9 +119,6 @@ const MinerReparentPicker = ({
           try {
             ids = await resolveAllModeIds(effectiveFilter);
           } catch (err) {
-            // `resolveAllModeIds` throws a specific message when the
-            // selection exceeds MAX_MINERS so the operator sees the
-            // real cause; generic RPC failures land in the same toast.
             const message =
               err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
             updateToast(loadingToast, { message, status: STATUSES.error });

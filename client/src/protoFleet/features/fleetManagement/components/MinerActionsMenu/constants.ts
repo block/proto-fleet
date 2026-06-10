@@ -31,14 +31,9 @@ export const settingsActions = {
 
 export type SettingsAction = (typeof settingsActions)[keyof typeof settingsActions];
 
-// Group + re-parent actions. The pickers themselves live in the host
-// menu (MinerActionsMenu, SingleMinerActionsMenu, FleetGroupActionsMenu)
-// so the action handlers here are just openers — useMinerActions doesn't
-// dispatch them. addToGroup is the exception (hook owns its modal).
-//
-// addToBuilding for miners + addToSite for racks are deferred pending
-// backend RPCs (miners have no direct building_id; no AssignRackToSite
-// RPC). Tracked as a follow-up.
+// Group + re-parent actions. Pickers live in the host menus; the
+// handlers here are just openers. addToGroup is the exception —
+// useMinerActions owns its modal.
 export const groupActions = {
   addToGroup: "add-to-group",
   addToRack: "add-to-rack",

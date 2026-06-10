@@ -13,11 +13,8 @@ interface ManageMinersModalProps {
   onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
 }
 
-// Rack-context wrapper around the shared MinerPickerModal. Preserves
-// the original ManageMinersModal contract (rack-slot cap +
-// disable-rows-from-other-racks predicate) so AssignMinersModal needs
-// no change while the underlying picker gets reused by the /fleet
-// "Add miners" flows.
+// Rack-context wrapper around MinerPickerModal — adds the slot cap +
+// disable-rows-from-other-racks predicate.
 const ManageMinersModal = ({
   show,
   currentRackMiners,
@@ -37,9 +34,6 @@ const ManageMinersModal = ({
       initialSelectedIds={currentRackMiners}
       isRowDisabled={isRowDisabled}
       maxSelection={maxSlots}
-      // Preserves the original ManageMinersModal copy verbatim — the
-      // rack-slot cap mentions the available slots so the operator
-      // knows how many to deselect.
       buildOverflowMessage={(count, max) =>
         `Cannot add ${count} miners with only ${max} available slots. Deselect some miners or update your rack settings.`
       }

@@ -29,29 +29,19 @@ interface ParentPickerModalProps {
   kind: PickerKind;
   show: boolean;
   selectionMode: "single" | "multi";
-  // The entity's current parent. In single-select re-parent flows we
-  // pre-select this row when the picker opens so the operator sees
-  // "currently here" before choosing a different target, rather than
-  // hiding the current parent from the list. Save stays disabled until
-  // the selection differs from this id (otherwise an idempotent
-  // re-parent would fire a server round-trip + misleading toast).
-  // Ignored in multi-select.
+  // Pre-selects this row in single-select; Save disabled while it's
+  // the only selection (no-op re-parent). Ignored in multi-select.
   currentParentId?: bigint;
   sourceLabel: string;
   description?: string;
-  // When set, an inline create-new row appears. `onCreateNew` fires on
-  // Save alongside any `onConfirm` for existing selections.
   createNewLabel?: string;
   onCreateNew?: (name: string) => Promise<void>;
   onDismiss: () => void;
   onConfirm: (targetIds: bigint[]) => void | Promise<void>;
 }
 
-// Racks + groups support server-side pagination; sites + buildings
-// don't (their list RPCs return everything). Server endpoints for
-// ListSites + ListBuildings would need pageSize/pageToken added before
-// they can paginate — until then the picker renders the full set for
-// those kinds.
+// ListSites + ListBuildings RPCs return everything; only racks + groups
+// support pageSize/pageToken.
 const IS_PAGINATED: Record<PickerKind, boolean> = {
   site: false,
   building: false,
@@ -75,10 +65,8 @@ const ParentPickerModal = ({
   const { listAllBuildings } = useBuildings();
   const { listRacks, listGroups } = useDeviceSets();
 
-  // Page cache keyed by page index. Sites/buildings fill index 0 only.
-  // Racks/groups fetch lazily on prev/next click.
   const [pages, setPages] = useState<PickerItem[][]>([]);
-  // Index N+1 holds the token to fetch page N+1; index 0 is always "".
+  // pageTokens[N] fetches page N; index 0 is always "".
   const [pageTokens, setPageTokens] = useState<string[]>([""]);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -89,14 +77,10 @@ const ParentPickerModal = ({
   const [createNewChecked, setCreateNewChecked] = useState(false);
   const [newName, setNewName] = useState("");
 
-  // Decimal-string form of the current parent id; null when not in
-  // single-select or no current parent. Drives pre-selection on open
-  // and the Save-disabled "no change" guard below.
   const currentParentKey =
     selectionMode === "single" && currentParentId !== undefined ? currentParentId.toString() : null;
 
-  // Name lookups loaded once per open and reused across paginated
-  // rack/building fetches.
+  // Name lookups loaded once per open, reused across paginated fetches.
   const buildingsRef = useRef(new Map<string, string>()).current;
   const sitesRef = useRef(new Map<string, string>()).current;
 
@@ -153,8 +137,6 @@ const ParentPickerModal = ({
     }
   }, [listAllBuildings, buildingsRef]);
 
-  // Server-paginated kinds resolve { items, nextPageToken, totalCount }
-  // for one page. listRacks + listGroups share the same callback shape.
   const fetchRackPage = useCallback(
     async (token: string) => {
       await ensureBuildingNames();
@@ -206,9 +188,6 @@ const ParentPickerModal = ({
     [listGroups],
   );
 
-  // Open: reset + load page 0. For sites/buildings the full list lands
-  // in pages[0] and there's no next; for racks/groups page 0 is fetched
-  // and the next token is recorded for subsequent navigations.
   useEffect(() => {
     if (!show) return;
     let cancelled = false;
@@ -218,9 +197,6 @@ const ParentPickerModal = ({
       setCurrentPage(0);
       setTotalCount(0);
       setLoadError(null);
-      // Pre-select the entity's current parent so the picker opens in
-      // "currently here" state. Operator changes the radio to actually
-      // re-parent; Save stays disabled until the selection changes.
       setSelectedIds(currentParentKey ? new Set([currentParentKey]) : new Set());
       setCreateNewChecked(false);
       setNewName("");
@@ -344,10 +320,6 @@ const ParentPickerModal = ({
   const hasCreateNew = !!createNewLabel && !!onCreateNew;
   const trimmedNewName = newName.trim();
   const wantsCreateNew = hasCreateNew && createNewChecked && trimmedNewName.length > 0;
-  // "No change" guard: when the only selected row is the current
-  // parent, Save stays disabled — re-parenting to where you already
-  // live is a no-op RPC, and surfacing it would just flash a
-  // misleading toast.
   const isUnchangedSingleSelection =
     currentParentKey !== null && selectedIds.size === 1 && selectedIds.has(currentParentKey);
   const canSave = (selectedIds.size > 0 && !isUnchangedSingleSelection) || wantsCreateNew;
@@ -367,9 +339,8 @@ const ParentPickerModal = ({
       await Promise.all(tasks);
       onDismiss();
     } catch {
-      // Caller-side toast already surfaces the failure; swallow here
-      // so the picker stays open (operator can retry or change the
-      // selection) without an unhandled promise rejection.
+      // Caller surfaces the error via toast; keep the picker open so
+      // the operator can retry or change selection.
     } finally {
       setSaving(false);
     }
@@ -427,11 +398,7 @@ const ParentPickerModal = ({
                   id="parent-picker-new-name"
                   label={createNewLabel}
                   initValue={newName}
-                  // Typing arms the checkbox automatically — saves a
-                  // click for the common "I know I want a new group"
-                  // case and matches the empty-list branch below. The
-                  // checkbox stays interactive so the operator can
-                  // turn it off after typing if they change their mind.
+                  // Typing arms the checkbox so Save enables without a second click.
                   onChange={(value) => {
                     setNewName(value);
                     if (!createNewChecked && value.length > 0) setCreateNewChecked(true);
@@ -448,8 +415,6 @@ const ParentPickerModal = ({
                 initValue={newName}
                 onChange={(value) => {
                   setNewName(value);
-                  // Empty list + create-new is the only path — auto-arm
-                  // so the Save button enables on first keystroke.
                   if (!createNewChecked) setCreateNewChecked(true);
                 }}
                 autoFocus
@@ -458,7 +423,6 @@ const ParentPickerModal = ({
           ) : null}
           {hasAnyItems ? (
             <div className="flex items-center gap-6 border-b border-border-5 pb-2 text-emphasis-300 text-text-primary">
-              {/* Spacer aligns Name column over the row's checkbox/radio. */}
               <div className="w-[18px] shrink-0" aria-hidden />
               <span className="w-1/2 truncate">Name</span>
               <span className="w-1/2 truncate">{hintHeader}</span>
