@@ -83,6 +83,14 @@ describe("mergeHeadPage", () => {
     expect(mergeHeadPage(held, [])).toEqual([]);
   });
 
+  it("drops rows below the window when the head is the whole feed", () => {
+    // No continuation token: notes 3..1 were deleted upstream and the
+    // feed now ends at the head window floor.
+    const head = [makeNote(5, 500), makeNote(4, 400)];
+    const merged = mergeHeadPage(held, head, true);
+    expect(merged.map((n) => n.id)).toEqual([5n, 4n]);
+  });
+
   it("returns the previous array reference when the head changes nothing", () => {
     // The poll tick runs this inside a setState updater; returning the
     // same reference is what lets React skip the re-render.
@@ -93,6 +101,11 @@ describe("mergeHeadPage", () => {
   it("returns the previous reference when an empty feed stays empty", () => {
     const empty: Note[] = [];
     expect(mergeHeadPage(empty, [])).toBe(empty);
+  });
+
+  it("returns the previous reference when a complete head changes nothing", () => {
+    const sameHead = [makeNote(5, 500), makeNote(4, 400), makeNote(3, 300), makeNote(2, 200), makeNote(1, 100)];
+    expect(mergeHeadPage(held, sameHead, true)).toBe(held);
   });
 
   it("returns a new array when only a note's updated_at changed", () => {
@@ -167,9 +180,10 @@ describe("useNotesFeed", () => {
       .mockResolvedValueOnce(mockListResponse([makeNote(3, 300), makeNote(2, 200)], "token-2"))
       .mockResolvedValueOnce(mockListResponse([makeNote(1, 100)], ""))
       // Poll tick: note 4 arrived and note 3 was deleted upstream, so
-      // the fresh head window spans (400 .. 200). Note 1 sits below the
-      // window and must survive untouched.
-      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400), makeNote(2, 200)]));
+      // the fresh head window spans (400 .. 200). The continuation
+      // token (always present on a full page) says rows exist below
+      // the window, so note 1 must survive untouched.
+      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400), makeNote(2, 200)], "token-head"));
 
     const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
 
@@ -192,6 +206,45 @@ describe("useNotesFeed", () => {
 
     expect(result.current.notes.map((n) => n.id)).toEqual([4n, 2n, 1n]);
     expect(result.current.hasMore).toBe(false);
+  });
+
+  it("a head page with no continuation token replaces the feed and clears the cursor", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400), makeNote(3, 300)], "token-2"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)], "token-3"))
+      // Poll tick: everything below note 4 was deleted upstream, so
+      // the head page carries the entire feed and no token.
+      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400)]));
+
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => {
+      expect(result.current.hasMore).toBe(true);
+    });
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => {
+      expect(result.current.notes).toHaveLength(4);
+    });
+    expect(result.current.hasMore).toBe(true);
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+
+    expect(result.current.notes.map((n) => n.id)).toEqual([4n]);
+    expect(result.current.hasMore).toBe(false);
+
+    // The cleared cursor makes a follow-up Load more a no-op instead
+    // of appending a stale page below the now-complete feed.
+    act(() => {
+      result.current.loadMore();
+    });
+    expect(notesClient.listNotes).toHaveBeenCalledTimes(3);
   });
 
   it("an empty head page clears the feed and the cursor", async () => {
@@ -230,5 +283,59 @@ describe("useNotesFeed", () => {
     });
     expect(mockHandleAuthErrors).toHaveBeenCalled();
     expect(result.current.hasLoaded).toBe(false);
+  });
+
+  it("refreshHead surfaces a failure before anything has loaded", async () => {
+    vi.mocked(notesClient.listNotes).mockRejectedValue(new Error("boom"));
+
+    const { result } = renderHook(() => useNotesFeed());
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.hasLoaded).toBe(false);
+  });
+
+  it("refreshHead stays silent on failures after a successful load", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(1, 100)]))
+      .mockRejectedValueOnce(new Error("boom"));
+
+    const { result } = renderHook(() => useNotesFeed());
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(result.current.hasLoaded).toBe(true);
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.notes.map((n) => n.id)).toEqual([1n]);
+  });
+
+  it("a successful refreshHead clears the error from a failed first load", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(1, 100)]));
+
+    const { result } = renderHook(() => useNotesFeed());
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(result.current.error).not.toBeNull();
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasLoaded).toBe(true);
+    expect(result.current.notes.map((n) => n.id)).toEqual([1n]);
   });
 });

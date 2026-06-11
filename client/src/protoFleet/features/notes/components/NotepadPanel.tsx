@@ -91,7 +91,7 @@ const NotepadPanel = (): ReactElement => {
 
             {showInitialSpinner ? (
               <div className="flex h-32 items-center justify-center">
-                <ProgressCircular indeterminate />
+                <ProgressCircular indeterminate dataTestId="notes-loading" />
               </div>
             ) : null}
 

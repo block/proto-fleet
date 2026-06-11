@@ -142,6 +142,21 @@ describe("NotepadPanel", () => {
     expect(screen.getByText(/No notes yet/)).toBeInTheDocument();
   });
 
+  it("shows the spinner until the first load resolves", () => {
+    vi.mocked(useNotesFeed).mockReturnValue(mockFeed({ hasLoaded: false }));
+
+    render(<NotepadPanel />);
+    expect(screen.getByTestId("notes-loading")).toBeInTheDocument();
+  });
+
+  it("shows the error callout instead of the spinner when the first load fails", () => {
+    vi.mocked(useNotesFeed).mockReturnValue(mockFeed({ hasLoaded: false, error: "Failed to load notes" }));
+
+    render(<NotepadPanel />);
+    expect(screen.getByText("Failed to load notes")).toBeInTheDocument();
+    expect(screen.queryByTestId("notes-loading")).not.toBeInTheDocument();
+  });
+
   it("shows Load more when the feed has another page", () => {
     const feed = mockFeed({ notes: [makeNote(1, "alice")], hasMore: true });
     vi.mocked(useNotesFeed).mockReturnValue(feed);

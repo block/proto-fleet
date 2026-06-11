@@ -1,4 +1,4 @@
--- Reverses 000081_seed_note_permissions.up.sql by removing the note keys
+-- Reverses the note permission seed by removing the note keys
 -- from every role that holds them and then deleting the permission rows
 -- themselves. Rolling back the data migration cleanly is impossible
 -- without provenance tracking; the rollback path is rare/dev-only and

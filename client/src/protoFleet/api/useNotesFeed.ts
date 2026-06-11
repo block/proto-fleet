@@ -45,7 +45,9 @@ const feedCmp = (a: Note, b: Note): number => {
 // newer than its oldest row): rows it carries replace held copies
 // (picking up edits), rows it doesn't carry were deleted upstream and
 // drop out. Held rows older than the window are kept untouched —
-// stale until the next full refresh, which is normal feed behavior.
+// stale until the next full refresh, which is normal feed behavior —
+// unless headIsComplete reports the head as the entire feed, in which
+// case anything below the window was deleted upstream and drops too.
 // An empty head page means the feed itself is empty.
 // Same note in the feed sense: id plus updated_at. Content cannot
 // change without the server's updated_at trigger advancing, so this
@@ -55,12 +57,16 @@ const sameNote = (a: Note, b: Note): boolean =>
   (a.updatedAt?.seconds ?? 0n) === (b.updatedAt?.seconds ?? 0n) &&
   (a.updatedAt?.nanos ?? 0) === (b.updatedAt?.nanos ?? 0);
 
-export const mergeHeadPage = (prev: Note[], head: Note[]): Note[] => {
-  if (head.length === 0) return prev.length === 0 ? prev : [];
-  const windowFloor = head[head.length - 1];
-  const headIds = new Set(head.map((n) => n.id));
-  const olderThanWindow = prev.filter((n) => !headIds.has(n.id) && feedCmp(n, windowFloor) > 0);
-  const next = [...head, ...olderThanWindow];
+export const mergeHeadPage = (prev: Note[], head: Note[], headIsComplete = false): Note[] => {
+  let next: Note[];
+  if (head.length === 0 || headIsComplete) {
+    next = head;
+  } else {
+    const windowFloor = head[head.length - 1];
+    const headIds = new Set(head.map((n) => n.id));
+    const olderThanWindow = prev.filter((n) => !headIds.has(n.id) && feedCmp(n, windowFloor) > 0);
+    next = [...head, ...olderThanWindow];
+  }
   // Same-reference bail: the poll tick calls this inside a setState
   // updater, and React only skips the re-render when the updater
   // returns the previous reference. Head rows are fresh objects every
@@ -144,6 +150,11 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
     hasMoreRef.current = hasMore;
   }, [hasMore]);
 
+  const hasLoadedRef = useRef(hasLoaded);
+  useEffect(() => {
+    hasLoadedRef.current = hasLoaded;
+  }, [hasLoaded]);
+
   const pageSizeRef = useRef(pageSize);
   useEffect(() => {
     pageSizeRef.current = pageSize;
@@ -170,19 +181,36 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
   const refreshHead = useCallback(async () => {
     try {
       const response = await notesClient.listNotes({ pageSize: pageSizeRef.current, pageToken: "" });
-      const head = response.notes;
-      setNotes((prev) => mergeHeadPage(prev, head));
+      const { notes: head, nextPageToken } = response;
+      // The server emits a continuation token only when more rows
+      // exist below the page, so no token means the head is the
+      // entire feed.
+      const headIsComplete = nextPageToken === "";
+      setNotes((prev) => mergeHeadPage(prev, head, headIsComplete));
       setHasLoaded(true);
-      if (head.length === 0) {
-        // Feed emptied upstream: any held cursor points at deleted rows.
+      setError(null);
+      if (headIsComplete) {
+        // The feed now ends inside the head window: any held cursor
+        // points at deleted rows.
         setPageToken("");
         setHasMore(false);
       }
     } catch (err) {
-      // Poll-tick failures are deliberately silent: the feed keeps its
-      // last-good rows and the next tick retries. Auth errors still
-      // route through the shared handler so an expired session logs out.
-      handleAuthErrors({ error: err, onError: () => undefined });
+      // Poll-tick failures after a successful load are deliberately
+      // silent: the feed keeps its last-good rows and the next tick
+      // retries. Before the first load there are no rows to keep, so
+      // surface the error instead of an indefinite spinner — the poll
+      // keeps running, and a later success clears the callout. Auth
+      // errors still route through the shared handler so an expired
+      // session logs out.
+      handleAuthErrors({
+        error: err,
+        onError: (e) => {
+          if (!hasLoadedRef.current) {
+            setError(getErrorMessage(e, "Failed to load notes"));
+          }
+        },
+      });
     }
   }, [handleAuthErrors]);
 
