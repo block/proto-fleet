@@ -194,6 +194,15 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
         // points at deleted rows.
         setPageToken("");
         setHasMore(false);
+      } else if (!hasLoadedRef.current) {
+        // This tick performed the initial load (the panel's usePoll
+        // fires refreshHead immediately on open), so the head page IS
+        // the entire accumulated list and its continuation token is
+        // the correct Load-more cursor. Later ticks leave the cursor
+        // alone — it tracks the bottom of the accumulated list, not
+        // the head window.
+        setPageToken(nextPageToken);
+        setHasMore(true);
       }
     } catch (err) {
       // Poll-tick failures after a successful load are deliberately

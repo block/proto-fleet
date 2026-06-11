@@ -269,6 +269,60 @@ describe("useNotesFeed", () => {
     expect(result.current.hasMore).toBe(false);
   });
 
+  it("an initial load through refreshHead seeds the Load more cursor", async () => {
+    // The panel's first fetch goes through usePoll → refreshHead, not
+    // refresh(), so a deeper-than-one-page feed must still surface
+    // Load more after that first tick.
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300), makeNote(2, 200)], "token-2"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(1, 100)], ""));
+
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+
+    expect(result.current.hasLoaded).toBe(true);
+    expect(result.current.hasMore).toBe(true);
+
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => {
+      expect(result.current.notes).toHaveLength(3);
+    });
+
+    expect(notesClient.listNotes).toHaveBeenLastCalledWith({ pageSize: 2, pageToken: "token-2" });
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("a later head tick with a continuation token leaves the cursor alone", async () => {
+    // After the initial load, the held cursor tracks the bottom of the
+    // accumulated list; a head token only describes rows below the
+    // head window, which the list already holds.
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)], ""))
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300), makeNote(2, 200)], "token-stale"));
+
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => {
+      expect(result.current.hasLoaded).toBe(true);
+    });
+    expect(result.current.hasMore).toBe(false);
+
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+
+    expect(result.current.notes.map((n) => n.id)).toEqual([3n, 2n, 1n]);
+    expect(result.current.hasMore).toBe(false);
+  });
+
   it("surfaces list errors through the shared auth handler", async () => {
     vi.mocked(notesClient.listNotes).mockRejectedValue(new Error("boom"));
 
