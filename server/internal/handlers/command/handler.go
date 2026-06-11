@@ -198,6 +198,9 @@ func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.Fi
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerFirmwareUpdate, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector, req.Msg.GetFirmwareFileId())
 	if err != nil {
 		return nil, err

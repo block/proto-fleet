@@ -32,7 +32,7 @@ import { usePermissions } from "@/protoFleet/store";
 export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly string[]> = {
   [deviceActions.blinkLEDs]: "miner:blink_led",
   [deviceActions.downloadLogs]: "miner:download_logs",
-  [deviceActions.firmwareUpdate]: "miner:firmware_update",
+  [deviceActions.firmwareUpdate]: ["miner:firmware_update", "miner:reboot"],
   [deviceActions.reboot]: "miner:reboot",
   [deviceActions.shutdown]: "miner:stop_mining",
   [deviceActions.wakeUp]: "miner:start_mining",

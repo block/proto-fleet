@@ -211,13 +211,15 @@ var ProcedurePermissions = map[string]string{
 	// MinerCommandService — each action gates on its matching catalog
 	// key. Stream/batch endpoints gate on fleet:read since they're
 	// status surfaces.
-	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:                     authz.PermMinerBlinkLED,
-	minercommandv1connect.MinerCommandServiceRebootProcedure:                       authz.PermMinerReboot,
-	minercommandv1connect.MinerCommandServiceStartMiningProcedure:                  authz.PermMinerStartMining,
-	minercommandv1connect.MinerCommandServiceStopMiningProcedure:                   authz.PermMinerStopMining,
-	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure:            authz.PermMinerUpdatePools,
-	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure:               authz.PermMinerSetCoolingMode,
-	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure:               authz.PermMinerSetPowerTarget,
+	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:          authz.PermMinerBlinkLED,
+	minercommandv1connect.MinerCommandServiceRebootProcedure:            authz.PermMinerReboot,
+	minercommandv1connect.MinerCommandServiceStartMiningProcedure:       authz.PermMinerStartMining,
+	minercommandv1connect.MinerCommandServiceStopMiningProcedure:        authz.PermMinerStopMining,
+	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure: authz.PermMinerUpdatePools,
+	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure:    authz.PermMinerSetCoolingMode,
+	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure:    authz.PermMinerSetPowerTarget,
+	// Primary procedure gate remains miner:firmware_update; the handler
+	// also requires miner:reboot because successful installs now reboot.
 	minercommandv1connect.MinerCommandServiceFirmwareUpdateProcedure:               authz.PermMinerFirmwareUpdate,
 	minercommandv1connect.MinerCommandServiceDownloadLogsProcedure:                 authz.PermMinerDownloadLogs,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure:          authz.PermMinerUpdatePassword,
