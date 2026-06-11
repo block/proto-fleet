@@ -43,12 +43,7 @@ func NewService(store interfaces.NoteStore, activitySvc *activity.Service) *Serv
 // to [1, MaxPageSize]; the zero value selects DefaultPageSize so
 // internal callers can pass a zero-valued params struct safely.
 func (s *Service) ListNotes(ctx context.Context, params models.ListNotesParams) ([]models.Note, error) {
-	if params.PageSize <= 0 {
-		params.PageSize = models.DefaultPageSize
-	}
-	if params.PageSize > models.MaxPageSize {
-		params.PageSize = models.MaxPageSize
-	}
+	params.PageSize = models.ClampPageSize(params.PageSize)
 	return s.store.ListNotes(ctx, params)
 }
 

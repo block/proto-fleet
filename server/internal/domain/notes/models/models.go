@@ -19,6 +19,21 @@ const (
 	MaxContentRunes = 4096
 )
 
+// ClampPageSize normalizes a requested page size to [1, MaxPageSize];
+// the zero value selects DefaultPageSize. The handler (computing the
+// has-more boundary) and the service (defending internal callers)
+// apply the same rule so they cannot disagree about what counts as a
+// full page.
+func ClampPageSize(size int32) int32 {
+	if size <= 0 {
+		return DefaultPageSize
+	}
+	if size > MaxPageSize {
+		return MaxPageSize
+	}
+	return size
+}
+
 // Note is one entry in the org's shared notepad. AuthorUsername is a
 // read-time projection from the "user" table (or stamped from the
 // session on create/update); it is display attribution only — the

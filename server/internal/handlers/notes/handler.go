@@ -45,9 +45,13 @@ func (h *Handler) ListNotes(ctx context.Context, req *connect.Request[pb.ListNot
 		return nil, err
 	}
 
+	// Clamp here, not just in the service: the has-more boundary below
+	// must compare against the page size the query actually used, or a
+	// defaulted request would never emit a continuation token.
+	pageSize := models.ClampPageSize(req.Msg.GetPageSize())
 	params := models.ListNotesParams{
 		OrgID:    info.OrganizationID,
-		PageSize: req.Msg.GetPageSize(),
+		PageSize: pageSize,
 	}
 	if token := req.Msg.GetPageToken(); token != "" {
 		createdAt, id, err := decodeCursor(token)
@@ -64,7 +68,7 @@ func (h *Handler) ListNotes(ctx context.Context, req *connect.Request[pb.ListNot
 	}
 
 	var nextPageToken string
-	if len(rows) == int(req.Msg.GetPageSize()) && len(rows) > 0 {
+	if len(rows) == int(pageSize) {
 		last := rows[len(rows)-1]
 		nextPageToken, err = encodeCursor(last.CreatedAt, last.ID)
 		if err != nil {

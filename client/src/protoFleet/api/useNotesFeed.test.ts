@@ -21,14 +21,17 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 
 // seconds encodes the feed position; id breaks ties exactly like the
-// server's (created_at, id) keyset.
-function makeNote(id: number, seconds: number, content = `note ${id}`): Note {
+// server's (created_at, id) keyset. An edited note must carry a later
+// updatedSeconds — the server's updated_at trigger guarantees content
+// never changes without it, and the merge's change detection relies
+// on that invariant.
+function makeNote(id: number, seconds: number, content = `note ${id}`, updatedSeconds = seconds): Note {
   return create(NoteSchema, {
     id: BigInt(id),
     content,
     authorUsername: "alice",
     createdAt: create(TimestampSchema, { seconds: BigInt(seconds), nanos: 0 }),
-    updatedAt: create(TimestampSchema, { seconds: BigInt(seconds), nanos: 0 }),
+    updatedAt: create(TimestampSchema, { seconds: BigInt(updatedSeconds), nanos: 0 }),
   });
 }
 
@@ -47,7 +50,7 @@ describe("mergeHeadPage", () => {
   });
 
   it("replaces held copies with the head's version to pick up edits", () => {
-    const edited = makeNote(4, 400, "edited content");
+    const edited = makeNote(4, 400, "edited content", 450);
     const head = [makeNote(5, 500), edited, makeNote(3, 300)];
     const merged = mergeHeadPage(held, head);
     expect(merged.find((n) => n.id === 4n)?.content).toBe("edited content");
@@ -78,6 +81,29 @@ describe("mergeHeadPage", () => {
 
   it("returns an empty feed when the head page is empty", () => {
     expect(mergeHeadPage(held, [])).toEqual([]);
+  });
+
+  it("returns the previous array reference when the head changes nothing", () => {
+    // The poll tick runs this inside a setState updater; returning the
+    // same reference is what lets React skip the re-render.
+    const sameHead = [makeNote(5, 500), makeNote(4, 400), makeNote(3, 300), makeNote(2, 200), makeNote(1, 100)];
+    expect(mergeHeadPage(held, sameHead)).toBe(held);
+  });
+
+  it("returns the previous reference when an empty feed stays empty", () => {
+    const empty: Note[] = [];
+    expect(mergeHeadPage(empty, [])).toBe(empty);
+  });
+
+  it("returns a new array when only a note's updated_at changed", () => {
+    const head = [
+      makeNote(5, 500, "note 5", 550),
+      makeNote(4, 400),
+      makeNote(3, 300),
+      makeNote(2, 200),
+      makeNote(1, 100),
+    ];
+    expect(mergeHeadPage(held, head)).not.toBe(held);
   });
 });
 

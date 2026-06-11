@@ -80,27 +80,53 @@ func effectivePermissionsFromContext(ctx context.Context) *authz.EffectivePermis
 // than inlining the miner_id → site_id lookup at each callsite. Drop
 // this TODO once the helper exists.
 func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext) (*session.Info, error) {
+	caller, err := resolveCaller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if caller.actorBypass {
+		return caller.info, nil
+	}
+	if !caller.eff.Has(key, rc) {
+		return nil, permissionDeniedError(key, rc)
+	}
+	return caller.info, nil
+}
+
+// resolvedCaller is the outcome of the gate preamble every Require* /
+// CallerHas* function shares. When actorBypass is set, eff is nil and
+// the gate must short-circuit to ALLOW.
+type resolvedCaller struct {
+	info        *session.Info
+	eff         *authz.EffectivePermissions
+	actorBypass bool
+}
+
+// resolveCaller performs the preamble shared by every permission gate:
+// session lookup, the internal-actor allowlist, and the fail-closed
+// EffectivePermissions fetch. Centralized so the five public gates
+// cannot drift apart — a divergence here is an authorization bug, not
+// a style problem.
+//
+// Synthesized actor short-circuit: internal orchestrators trust
+// themselves by virtue of running in-process; LoadEffective is never
+// called for them and EffectivePermissions is absent from their
+// context. Allowlist explicitly rather than "any non-empty Actor" — a
+// future mistyped or user-influenced value must NOT be a bypass. An
+// unknown non-empty Actor fails closed with Internal so the problem
+// surfaces immediately rather than silently granting access.
+func resolveCaller(ctx context.Context) (resolvedCaller, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return resolvedCaller{}, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 
-	// Synthesized actor short-circuit. Internal orchestrators trust
-	// themselves by virtue of running in-process; LoadEffective is
-	// never called for them and EffectivePermissions is absent from
-	// their context.
-	//
-	// Allowlist explicitly rather than "any non-empty Actor" — a
-	// future mistyped or user-influenced value must NOT be a bypass.
-	// An unknown non-empty Actor fails closed with Internal so the
-	// problem surfaces immediately rather than silently granting
-	// access.
 	if info.Actor != "" {
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
-			return info, nil
+			return resolvedCaller{info: info, actorBypass: true}, nil
 		default:
-			return nil, fleeterror.NewInternalErrorf(
+			return resolvedCaller{}, fleeterror.NewInternalErrorf(
 				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
 				info.Actor,
 			)
@@ -112,15 +138,12 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 		// Fail-closed: an authenticated request reached a permission
 		// check without the resolver running. This is a wiring bug —
 		// surface it loudly rather than silently allowing.
-		return nil, fleeterror.NewInternalError(
+		return resolvedCaller{}, fleeterror.NewInternalError(
 			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
 		)
 	}
 
-	if !eff.Has(key, rc) {
-		return nil, permissionDeniedError(key, rc)
-	}
-	return info, nil
+	return resolvedCaller{info: info, eff: eff}, nil
 }
 
 // RequireAnyPermission gates a handler on the caller holding at least
@@ -145,34 +168,16 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 		)
 	}
 
-	info, err := session.GetInfo(ctx)
+	caller, err := resolveCaller(ctx)
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
-
-	// Same allowlisted internal-actor short-circuit as RequirePermission.
-	if info.Actor != "" {
-		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
-			return info, nil
-		default:
-			return nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
-		}
+	if caller.actorBypass {
+		return caller.info, nil
 	}
-
-	eff := effectivePermissionsFromContext(ctx)
-	if eff == nil {
-		return nil, fleeterror.NewInternalError(
-			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
-		)
-	}
-
 	for _, key := range keys {
-		if eff.Has(key, rc) {
-			return info, nil
+		if caller.eff.Has(key, rc) {
+			return caller.info, nil
 		}
 	}
 	return nil, permissionDeniedError(keys[0], rc)
@@ -192,35 +197,17 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 // the payload's scope object is empty because there is no resource
 // scope to echo.
 func RequirePermissionAnywhere(ctx context.Context, key string) (*session.Info, error) {
-	info, err := session.GetInfo(ctx)
+	caller, err := resolveCaller(ctx)
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
-
-	// Same allowlisted internal-actor short-circuit as RequirePermission.
-	if info.Actor != "" {
-		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
-			return info, nil
-		default:
-			return nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
-		}
+	if caller.actorBypass {
+		return caller.info, nil
 	}
-
-	eff := effectivePermissionsFromContext(ctx)
-	if eff == nil {
-		return nil, fleeterror.NewInternalError(
-			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
-		)
-	}
-
-	if !eff.HasAnywhere(key) {
+	if !caller.eff.HasAnywhere(key) {
 		return nil, permissionDeniedError(key, authz.ResourceContext{})
 	}
-	return info, nil
+	return caller.info, nil
 }
 
 // RequireAnyPermissionAnywhere is RequireAnyPermission with
@@ -236,33 +223,15 @@ func RequireAnyPermissionAnywhere(ctx context.Context, keys []string) (*session.
 		)
 	}
 
-	info, err := session.GetInfo(ctx)
+	caller, err := resolveCaller(ctx)
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
-
-	// Same allowlisted internal-actor short-circuit as RequirePermission.
-	if info.Actor != "" {
-		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
-			return info, nil
-		default:
-			return nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
-		}
+	if caller.actorBypass {
+		return caller.info, nil
 	}
-
-	eff := effectivePermissionsFromContext(ctx)
-	if eff == nil {
-		return nil, fleeterror.NewInternalError(
-			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
-		)
-	}
-
-	if slices.ContainsFunc(keys, eff.HasAnywhere) {
-		return info, nil
+	if slices.ContainsFunc(keys, caller.eff.HasAnywhere) {
+		return caller.info, nil
 	}
 	return nil, permissionDeniedError(keys[0], authz.ResourceContext{})
 }
@@ -276,25 +245,14 @@ func RequireAnyPermissionAnywhere(ctx context.Context, keys []string) (*session.
 // missing EffectivePermissions probes false — fail closed, consistent
 // with the Require* gates.
 func CallerHasPermissionAnywhere(ctx context.Context, key string) bool {
-	info, err := session.GetInfo(ctx)
+	caller, err := resolveCaller(ctx)
 	if err != nil {
 		return false
 	}
-
-	if info.Actor != "" {
-		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
-			return true
-		default:
-			return false
-		}
+	if caller.actorBypass {
+		return true
 	}
-
-	eff := effectivePermissionsFromContext(ctx)
-	if eff == nil {
-		return false
-	}
-	return eff.HasAnywhere(key)
+	return caller.eff.HasAnywhere(key)
 }
 
 // permissionDeniedError builds a Connect PermissionDenied error whose

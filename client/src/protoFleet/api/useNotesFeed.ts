@@ -47,12 +47,28 @@ const feedCmp = (a: Note, b: Note): number => {
 // drop out. Held rows older than the window are kept untouched —
 // stale until the next full refresh, which is normal feed behavior.
 // An empty head page means the feed itself is empty.
+// Same note in the feed sense: id plus updated_at. Content cannot
+// change without the server's updated_at trigger advancing, so this
+// pair captures edits without comparing content bytes.
+const sameNote = (a: Note, b: Note): boolean =>
+  a.id === b.id &&
+  (a.updatedAt?.seconds ?? 0n) === (b.updatedAt?.seconds ?? 0n) &&
+  (a.updatedAt?.nanos ?? 0) === (b.updatedAt?.nanos ?? 0);
+
 export const mergeHeadPage = (prev: Note[], head: Note[]): Note[] => {
-  if (head.length === 0) return [];
+  if (head.length === 0) return prev.length === 0 ? prev : [];
   const windowFloor = head[head.length - 1];
   const headIds = new Set(head.map((n) => n.id));
   const olderThanWindow = prev.filter((n) => !headIds.has(n.id) && feedCmp(n, windowFloor) > 0);
-  return [...head, ...olderThanWindow];
+  const next = [...head, ...olderThanWindow];
+  // Same-reference bail: the poll tick calls this inside a setState
+  // updater, and React only skips the re-render when the updater
+  // returns the previous reference. Head rows are fresh objects every
+  // fetch, so reference equality alone would never hold.
+  if (next.length === prev.length && next.every((note, i) => sameNote(note, prev[i]))) {
+    return prev;
+  }
+  return next;
 };
 
 // Feed state for the shared team notepad: cursor accumulation +
