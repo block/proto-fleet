@@ -181,6 +181,7 @@ type deviceResult struct {
 	status     mm.MinerStatus
 	hasStatus  bool
 	orgID      int64
+	siteID     int64
 	driverName string
 }
 
@@ -189,6 +190,7 @@ type statusResult struct {
 	deviceIdentifier models.DeviceIdentifier
 	status           mm.MinerStatus
 	orgID            int64
+	siteID           int64
 	driverName       string
 }
 
@@ -196,6 +198,7 @@ type statusResult struct {
 type metricsResult struct {
 	deviceID   models.DeviceIdentifier
 	orgID      int64
+	siteID     int64
 	driverName string
 	metrics    modelsV2.DeviceMetrics
 }
@@ -549,10 +552,11 @@ func (s *TelemetryService) worker(ctx context.Context) {
 func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) {
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
-	metricsStatus, hasMetricsStatus, orgID, driverName, pollSuccess, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	metricsStatus, hasMetricsStatus, orgID, driverName, siteID, pollSuccess, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
 	s.metricsObserver.onPollResult(
 		ctx,
 		orgID,
+		siteID,
 		device.ID,
 		pollSuccess,
 	)
@@ -581,9 +585,10 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		var (
 			statusErr        error
 			statusOrg        int64
+			statusSite       int64
 			statusDriverName string
 		)
-		status, statusOrg, statusDriverName, statusErr = s.fetchStatusFromMiner(ctx, device.ID)
+		status, statusOrg, statusDriverName, statusSite, statusErr = s.fetchStatusFromMiner(ctx, device.ID)
 		if statusErr != nil {
 			slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
 
@@ -595,13 +600,16 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 			}
 			return
 		}
-		// The telemetry path may have failed before resolving org/driver; if so,
-		// fill them in from the status fetch which already has the miner handle.
+		// The telemetry path may have failed before resolving org/driver/site; if
+		// so, fill them in from the status fetch which already has the miner handle.
 		if orgID == 0 {
 			orgID = statusOrg
 		}
 		if driverName == "" {
 			driverName = statusDriverName
+		}
+		if siteID == 0 {
+			siteID = statusSite
 		}
 	}
 
@@ -611,6 +619,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		deviceIdentifier: device.ID,
 		status:           status,
 		orgID:            orgID,
+		siteID:           siteID,
 		driverName:       driverName,
 	}:
 	case <-ctx.Done():
@@ -640,7 +649,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 // This design ensures devices can automatically rejoin telemetry collection when they
 // come back online, without manual intervention.
 func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device) {
-	status, orgID, driverName, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
+	status, orgID, driverName, siteID, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
 	if statusErr != nil {
 		// Non-connection errors (e.g., auth failures) - device stays in failed state.
 		// Connection errors don't reach here; they return (MinerStatusOffline, nil).
@@ -682,6 +691,7 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 		deviceIdentifier: device.ID,
 		status:           status,
 		orgID:            orgID,
+		siteID:           siteID,
 		driverName:       driverName,
 	}:
 	case <-ctx.Done():
@@ -702,6 +712,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 	type pendingStatusUpdate struct {
 		status     mm.MinerStatus
 		orgID      int64
+		siteID     int64
 		driverName string
 	}
 	pendingUpdates := make(map[models.DeviceIdentifier]pendingStatusUpdate)
@@ -776,6 +787,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			s.metricsObserver.onDeviceStatus(
 				flushCtx,
 				pending.orgID,
+				pending.siteID,
 				pending.driverName,
 				deviceID,
 				pending.status,
@@ -799,6 +811,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			pendingUpdates[result.deviceIdentifier] = pendingStatusUpdate{
 				status:     result.status,
 				orgID:      result.orgID,
+				siteID:     result.siteID,
 				driverName: result.driverName,
 			}
 			if len(pendingUpdates) >= maxStatusBatchSize {
@@ -892,6 +905,7 @@ func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device m
 	result := &deviceResult{
 		device:     device,
 		orgID:      miner.GetOrgID(),
+		siteID:     miner.GetSiteID(),
 		driverName: miner.GetDriverName(),
 	}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
@@ -934,43 +948,43 @@ func healthStatusToMinerStatus(health modelsV2.HealthStatus) (mm.MinerStatus, bo
 // fetchStatusFromMiner gets the status from a miner device.
 // Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, orgID, driver, nil).
 // Only non-connection errors (e.g., authentication failures) return an error.
-func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, int64, string, error) {
+func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, int64, string, int64, error) {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, deviceID)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
-			orgID, driverName := s.resolveTrustedDeviceMetadata(ctx, deviceID)
-			return mm.MinerStatusOffline, orgID, driverName, nil
+			orgID, driverName, siteID := s.resolveTrustedDeviceMetadata(ctx, deviceID)
+			return mm.MinerStatusOffline, orgID, driverName, siteID, nil
 		}
 		if fleeterror.IsAuthenticationError(err) {
 			s.minerManager.InvalidateMiner(deviceID)
 		}
-		return mm.MinerStatusUnknown, 0, "", err
+		return mm.MinerStatusUnknown, 0, "", 0, err
 	}
-	orgID, driverName := miner.GetOrgID(), miner.GetDriverName()
+	orgID, driverName, siteID := miner.GetOrgID(), miner.GetDriverName(), miner.GetSiteID()
 	status, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
-			return mm.MinerStatusOffline, orgID, driverName, nil
+			return mm.MinerStatusOffline, orgID, driverName, siteID, nil
 		}
 		if fleeterror.IsAuthenticationError(err) {
 			s.minerManager.InvalidateMiner(deviceID)
 		}
-		return mm.MinerStatusUnknown, orgID, driverName, err
+		return mm.MinerStatusUnknown, orgID, driverName, siteID, err
 	}
-	return status, orgID, driverName, nil
+	return status, orgID, driverName, siteID, nil
 }
 
-// resolveTrustedDeviceMetadata reads (org_id, driver_name) from the device store.
-// Errors are logged at debug and silently downgrade to (0, "") — the caller is already on a
+// resolveTrustedDeviceMetadata reads (org_id, driver_name, site_id) from the device store.
+// Errors are logged at debug and silently downgrade to (0, "", 0) — the caller is already on a
 // degraded path and a missing fallback should not propagate further.
-func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, deviceID models.DeviceIdentifier) (int64, string) {
-	orgID, driverName, err := s.deviceStore.GetDeviceOrgAndDriver(ctx, deviceID)
+func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, deviceID models.DeviceIdentifier) (int64, string, int64) {
+	orgID, driverName, siteID, err := s.deviceStore.GetDeviceOrgDriverAndSite(ctx, deviceID)
 	if err != nil {
-		slog.Debug("failed to resolve trusted org/driver for device",
+		slog.Debug("failed to resolve trusted org/driver/site for device",
 			"device_id", deviceID, "error", err)
-		return 0, ""
+		return 0, "", 0
 	}
-	return orgID, driverName
+	return orgID, driverName, siteID
 }
 
 // GetTelemetryFromDevice fetches telemetry data from a device and stores it.
@@ -978,20 +992,20 @@ func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, dev
 // the driver name, whether the underlying metrics fetch (miner.GetDeviceMetrics)
 // succeeded, and any error. The first bool is false when the health status is
 // ambiguous; see healthStatusToMinerStatus.
-func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, int64, string, bool, error) {
+func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
 	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
 	if err != nil {
-		var orgID int64
+		var orgID, siteID int64
 		var driverName string
 		if result != nil {
-			orgID, driverName = result.orgID, result.driverName
+			orgID, driverName, siteID = result.orgID, result.driverName, result.siteID
 		} else {
-			orgID, driverName = s.resolveTrustedDeviceMetadata(ctx, device.ID)
+			orgID, driverName, siteID = s.resolveTrustedDeviceMetadata(ctx, device.ID)
 		}
-		return mm.MinerStatusUnknown, false, orgID, driverName, false, fmt.Errorf("failed to fetch telemetry from device ID %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, false, orgID, driverName, siteID, false, fmt.Errorf("failed to fetch telemetry from device ID %s: %w", device.ID, err)
 	}
 
 	pollSuccess := result.metricsErr == nil
@@ -1004,11 +1018,12 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		case s.metricsResults <- metricsResult{
 			deviceID:   device.ID,
 			orgID:      result.orgID,
+			siteID:     result.siteID,
 			driverName: result.driverName,
 			metrics:    result.metrics,
 		}:
 		case <-ctx.Done():
-			return mm.MinerStatusUnknown, false, result.orgID, result.driverName, pollSuccess, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
+			return mm.MinerStatusUnknown, false, result.orgID, result.driverName, result.siteID, pollSuccess, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
 		}
 
 		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
@@ -1018,9 +1033,9 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),
 	}); err != nil {
-		return mm.MinerStatusUnknown, false, result.orgID, result.driverName, pollSuccess, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, false, result.orgID, result.driverName, result.siteID, pollSuccess, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
 	}
-	return result.status, result.hasStatus, result.orgID, result.driverName, pollSuccess, nil
+	return result.status, result.hasStatus, result.orgID, result.driverName, result.siteID, pollSuccess, nil
 }
 func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 	flushInterval := s.config.StatusFlushInterval
@@ -1054,6 +1069,7 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		s.metricsObserver.onDeviceMetrics(
 			ctx,
 			result.orgID,
+			result.siteID,
 			result.driverName,
 			result.deviceID,
 			result.metrics,

@@ -268,6 +268,7 @@ func createTestPluginMinerWithDevice(device sdk.Device) *PluginMiner {
 	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
 	return NewPluginMiner(
 		testOrgID,
+		int64(0),
 		models.DeviceIdentifier("test-device-123"),
 		"antminer",
 		nil,
@@ -1125,6 +1126,7 @@ func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *test
 
 	pluginMiner := NewPluginMiner(
 		testOrgID,
+		int64(0),
 		deviceID,
 		"proto",
 		nil,
@@ -1169,6 +1171,7 @@ func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *tes
 
 	pluginMiner := NewPluginMiner(
 		testOrgID,
+		int64(0),
 		deviceID,
 		"proto",
 		nil,
@@ -1571,7 +1574,7 @@ func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing
 				},
 			}
 			pluginMiner := NewPluginMiner(
-				testOrgID, deviceID, "proto", nil, "serial-auth",
+				testOrgID, int64(0), deviceID, "proto", nil, "serial-auth",
 				*connInfo, mockDevice,
 				sdk.DeviceInfo{Host: "192.168.1.100", Port: 4028},
 				nil,
@@ -1610,6 +1613,7 @@ func TestPluginMiner_GetDeviceStatus_DefaultPasswordActive_ReturnsForbidden(t *t
 		t.Run(tt.name, func(t *testing.T) {
 			pluginMiner := NewPluginMiner(
 				testOrgID,
+				int64(0),
 				models.DeviceIdentifier("device-default-password"),
 				"proto",
 				nil,

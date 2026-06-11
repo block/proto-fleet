@@ -341,15 +341,20 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	return deviceIDs, nil
 }
 
-// GetDeviceOrgAndDriver returns the trusted (org_id, driver_name) for a paired device.
-func (s *SQLDeviceStore) GetDeviceOrgAndDriver(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, error) {
+// GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
+// for a paired device. site_id is 0 when the device is not assigned to a site.
+func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error) {
 	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceIdentifier))
 	if err != nil {
-		return 0, "", handleQueryError(err,
+		return 0, "", 0, handleQueryError(err,
 			fmt.Sprintf("device not found with identifier=%s", deviceIdentifier),
-			fmt.Sprintf("failed to resolve org/driver for device identifier=%s", deviceIdentifier))
+			fmt.Sprintf("failed to resolve org/driver/site for device identifier=%s", deviceIdentifier))
 	}
-	return row.OrgID, row.DriverName, nil
+	var siteID int64
+	if row.SiteID.Valid {
+		siteID = row.SiteID.Int64
+	}
+	return row.OrgID, row.DriverName, siteID, nil
 }
 
 // GetMinerStateCounts returns counts of miners by operational state.

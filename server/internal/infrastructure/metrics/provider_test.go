@@ -115,6 +115,7 @@ func TestEmitPreservesLabelsAndValue(t *testing.T) {
 
 	provider.EmitDeviceOnline(ctx, DeviceLabels{
 		OrganizationID: "org-7",
+		SiteID:         "site-9",
 		DeviceID:       "device-42",
 		DeviceGroup:    "rack-3",
 		Driver:         "antminer",
@@ -125,6 +126,7 @@ func TestEmitPreservesLabelsAndValue(t *testing.T) {
 	require.Len(t, samples, 1)
 	require.Equal(t, MetricDeviceOnline, samples[0].Metric)
 	require.Equal(t, "org-7", samples[0].Labels.OrganizationID)
+	require.Equal(t, "site-9", samples[0].Labels.SiteID)
 	require.Equal(t, "device-42", samples[0].Labels.DeviceID)
 	require.Equal(t, "rack-3", samples[0].Labels.DeviceGroup)
 	require.Equal(t, "antminer", samples[0].Labels.Driver)

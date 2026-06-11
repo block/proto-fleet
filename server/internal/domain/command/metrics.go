@@ -51,7 +51,7 @@ func commandKindLabel(t commandtype.Type) string {
 	}
 }
 
-func emitTerminalCommand(ctx context.Context, emitter MetricsEmitter, orgID int64, kind commandtype.Type, workerError error) {
+func emitTerminalCommand(ctx context.Context, emitter MetricsEmitter, orgID, siteID int64, kind commandtype.Type, workerError error) {
 	if emitter == nil {
 		return
 	}
@@ -61,6 +61,7 @@ func emitTerminalCommand(ctx context.Context, emitter MetricsEmitter, orgID int6
 	}
 	emitter.EmitCommand(ctx, metrics.CommandLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
+		SiteID:         metrics.SiteIDToLabel(siteID),
 		Kind:           commandKindLabel(kind),
 		Result:         result,
 	})

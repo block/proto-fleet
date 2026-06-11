@@ -27,14 +27,16 @@ func (r *recordingCommandEmitter) EmitCommand(_ context.Context, labels metrics.
 func TestEmitTerminalCommandSuccessAndFailure(t *testing.T) {
 	rec := &recordingCommandEmitter{}
 
-	emitTerminalCommand(context.Background(), rec, int64(42), commandtype.Reboot, nil)
-	emitTerminalCommand(context.Background(), rec, int64(7), commandtype.SetPowerTarget, errors.New("device offline"))
+	emitTerminalCommand(context.Background(), rec, int64(42), int64(99), commandtype.Reboot, nil)
+	emitTerminalCommand(context.Background(), rec, int64(7), int64(0), commandtype.SetPowerTarget, errors.New("device offline"))
 
 	require.Len(t, rec.events, 2)
 	require.Equal(t, "reboot", rec.events[0].Kind)
 	require.Equal(t, metrics.ResultSuccess, rec.events[0].Result)
 	require.Equal(t, "42", rec.events[0].OrganizationID,
 		"fleet_command_total must carry the owning org so org-scoped PromQL matches")
+	require.Equal(t, "99", rec.events[0].SiteID,
+		"fleet_command_total must carry the device's site so site-scoped PromQL matches")
 	require.Equal(t, "set_power_target", rec.events[1].Kind)
 	require.Equal(t, metrics.ResultFailure, rec.events[1].Result)
 	require.Equal(t, "7", rec.events[1].OrganizationID,
@@ -45,10 +47,11 @@ func TestEmitTerminalCommandSuccessAndFailure(t *testing.T) {
 func TestEmitTerminalCommandDropsZeroOrgID(t *testing.T) {
 	rec := &recordingCommandEmitter{}
 
-	emitTerminalCommand(context.Background(), rec, int64(0), commandtype.Reboot, nil)
+	emitTerminalCommand(context.Background(), rec, int64(0), int64(0), commandtype.Reboot, nil)
 
 	require.Len(t, rec.events, 1)
 	require.Empty(t, rec.events[0].OrganizationID)
+	require.Empty(t, rec.events[0].SiteID)
 }
 
 // every commandtype.Type must produce a stable, lower_snake_case label string.
@@ -80,8 +83,8 @@ func TestCommandKindLabelCoversEveryCommandType(t *testing.T) {
 
 // emitTerminalCommand with the nop emitter must not panic.
 func TestNoCommandMetricsIsSafeToCall(t *testing.T) {
-	emitTerminalCommand(context.Background(), NoCommandMetrics(), int64(42), commandtype.Reboot, nil)
-	emitTerminalCommand(context.Background(), nil, int64(42), commandtype.Reboot, nil)
+	emitTerminalCommand(context.Background(), NoCommandMetrics(), int64(42), int64(0), commandtype.Reboot, nil)
+	emitTerminalCommand(context.Background(), nil, int64(42), int64(0), commandtype.Reboot, nil)
 }
 
 // TestEmitReapedCommandMetricsEmitsFailurePerRow verifies the reaper path

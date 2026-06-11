@@ -17,6 +17,7 @@ INSERT INTO notification_metric_sample (
     time,
     metric,
     organization_id,
+    site_id,
     device_id,
     device_group,
     driver,
@@ -35,13 +36,15 @@ SELECT
     unnest($7::text[]),
     unnest($8::text[]),
     unnest($9::text[]),
-    unnest($10::double precision[])
+    unnest($10::text[]),
+    unnest($11::double precision[])
 `
 
 type InsertNotificationMetricSamplesParams struct {
 	Times           []time.Time
 	Metrics         []string
 	OrganizationIds []string
+	SiteIds         []string
 	DeviceIds       []string
 	DeviceGroups    []string
 	Drivers         []string
@@ -58,6 +61,7 @@ func (q *Queries) InsertNotificationMetricSamples(ctx context.Context, arg Inser
 		pq.Array(arg.Times),
 		pq.Array(arg.Metrics),
 		pq.Array(arg.OrganizationIds),
+		pq.Array(arg.SiteIds),
 		pq.Array(arg.DeviceIds),
 		pq.Array(arg.DeviceGroups),
 		pq.Array(arg.Drivers),

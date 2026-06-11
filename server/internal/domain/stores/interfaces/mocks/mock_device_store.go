@@ -138,20 +138,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceIdentifiersByOrgWithFilter(ctx, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceIdentifiersByOrgWithFilter", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceIdentifiersByOrgWithFilter), ctx, orgID, filter)
 }
 
-// GetDeviceOrgAndDriver mocks base method.
-func (m *MockDeviceStore) GetDeviceOrgAndDriver(ctx context.Context, deviceIdentifier models1.DeviceIdentifier) (int64, string, error) {
+// GetDeviceOrgDriverAndSite mocks base method.
+func (m *MockDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models1.DeviceIdentifier) (int64, string, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceOrgAndDriver", ctx, deviceIdentifier)
+	ret := m.ctrl.Call(m, "GetDeviceOrgDriverAndSite", ctx, deviceIdentifier)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret2, _ := ret[2].(int64)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
 }
 
-// GetDeviceOrgAndDriver indicates an expected call of GetDeviceOrgAndDriver.
-func (mr *MockDeviceStoreMockRecorder) GetDeviceOrgAndDriver(ctx, deviceIdentifier any) *gomock.Call {
+// GetDeviceOrgDriverAndSite indicates an expected call of GetDeviceOrgDriverAndSite.
+func (mr *MockDeviceStoreMockRecorder) GetDeviceOrgDriverAndSite(ctx, deviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceOrgAndDriver", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceOrgAndDriver), ctx, deviceIdentifier)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceOrgDriverAndSite", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceOrgDriverAndSite), ctx, deviceIdentifier)
 }
 
 // GetDevicePropertiesForRename mocks base method.

@@ -401,8 +401,8 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 						GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 						Return(nil, errors.New("discovery error"))
 					mockDeviceStore.EXPECT().
-						GetDeviceOrgAndDriver(gomock.Any(), scenario.device.ID).
-						Return(int64(0), "", nil).
+						GetDeviceOrgDriverAndSite(gomock.Any(), scenario.device.ID).
+						Return(int64(0), "", int64(0), nil).
 						AnyTimes()
 					continue
 				}
@@ -411,6 +411,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 					GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 					Return(mockMiner, nil)
 				mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+				mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 				mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 				// Setup GetDeviceMetrics expectation
@@ -447,7 +448,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 			for _, scenario := range test.devicesScenario {
-				_, _, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				_, _, _, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
 				// Only discovery errors and scheduler errors bubble up to caller
 				// StoreDeviceMetrics errors are logged but don't fail the operation
 				if scenario.hasDiscoveryError || scenario.hasSchedulerError {
@@ -481,6 +482,7 @@ func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(42)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("virtual").AnyTimes()
 
 	// Plugin returns a sample stamped with another device's identifier.
@@ -502,7 +504,7 @@ func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	status, hasStatus, orgID, driverName, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
+	status, hasStatus, orgID, driverName, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
 
 	require.Error(t, err, "mismatched plugin identifier must surface as a telemetryErr so processDevice triggers AddFailedDevices")
 	assert.Contains(t, err.Error(), "mismatched device identifier")
@@ -541,6 +543,7 @@ func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	// Plugin reports metrics but leaves DeviceIdentifier blank.
@@ -564,7 +567,7 @@ func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	_, _, _, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
+	_, _, _, _, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
 	require.NoError(t, err, "empty plugin identifier is non-authoritative and must be normalized, not rejected")
 	assert.True(t, pollSuccess)
 
@@ -1996,6 +1999,7 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2059,6 +2063,7 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2114,6 +2119,7 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2174,6 +2180,7 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 		Times(2) // Telemetry and error polling.
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2261,6 +2268,7 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 		Times(3)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2346,6 +2354,7 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 		Times(2)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2431,6 +2440,7 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 		Times(3)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -2969,8 +2979,8 @@ func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testi
 		Return(nil, connErr)
 
 	mockDeviceStore.EXPECT().
-		GetDeviceOrgAndDriver(gomock.Any(), deviceID).
-		Return(int64(42), "antminer", nil)
+		GetDeviceOrgDriverAndSite(gomock.Any(), deviceID).
+		Return(int64(42), "antminer", int64(0), nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2978,7 +2988,7 @@ func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testi
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	status, orgID, driverName, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+	status, orgID, driverName, _, err := service.fetchStatusFromMiner(t.Context(), deviceID)
 
 	require.NoError(t, err)
 	assert.Equal(t, mm.MinerStatusOffline, status)
@@ -3008,8 +3018,8 @@ func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGrace
 		Return(nil, connErr)
 
 	mockDeviceStore.EXPECT().
-		GetDeviceOrgAndDriver(gomock.Any(), deviceID).
-		Return(int64(0), "", fleeterror.NewNotFoundErrorf("device not found: %s", deviceID))
+		GetDeviceOrgDriverAndSite(gomock.Any(), deviceID).
+		Return(int64(0), "", int64(0), fleeterror.NewNotFoundErrorf("device not found: %s", deviceID))
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -3017,7 +3027,7 @@ func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGrace
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	status, orgID, driverName, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+	status, orgID, driverName, _, err := service.fetchStatusFromMiner(t.Context(), deviceID)
 
 	require.NoError(t, err)
 	assert.Equal(t, mm.MinerStatusOffline, status)
@@ -3088,6 +3098,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	// GetDeviceStatus returns an auth error (e.g., token rotated)
@@ -3137,6 +3148,7 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
@@ -3177,6 +3189,7 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().

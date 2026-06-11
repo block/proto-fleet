@@ -128,10 +128,16 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceManufacturer = deviceData.Manufacturer.String
 	}
 
+	var siteID int64
+	if deviceData.SiteID.Valid {
+		siteID = deviceData.SiteID.Int64
+	}
+
 	m, err := s.createMiner(
 		ctx,
 		deviceData.DeviceIdentifier,
 		deviceData.OrgID,
+		siteID,
 		deviceData.Port,
 		deviceData.DriverName,
 		deviceManufacturer,
@@ -173,7 +179,7 @@ func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) 
 	return privateKey, nil
 }
 
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, siteID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
 	if !s.pluginManager.HasPluginForDriverName(driverName) {
 		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
 	}
@@ -189,6 +195,7 @@ func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgI
 		DevicePassword:     devicePassword,
 		MacAddress:         macAddress,
 		OrgID:              orgID,
+		SiteID:             siteID,
 		EncryptService:     s.encryptService,
 		TokenService:       s.tokenService,
 		FilesService:       s.filesService,

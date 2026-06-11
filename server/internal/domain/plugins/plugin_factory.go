@@ -40,6 +40,7 @@ type PluginMinerConfig struct {
 	DeviceUsername string // May be empty for Proto
 	DevicePassword string // May be empty for Proto
 	OrgID          int64  // Organization ID for retrieving Proto private key
+	SiteID         int64  // Site the device is placed at; 0 when unassigned
 
 	// Services and dependencies
 	EncryptService   *encrypt.Service
@@ -149,6 +150,7 @@ func NewPluginMinerWithCredentials(
 
 	return NewPluginMiner(
 		config.OrgID,
+		config.SiteID,
 		models.DeviceIdentifier(config.DeviceIdentifier),
 		config.DriverName,
 		config.Caps,

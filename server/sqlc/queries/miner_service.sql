@@ -12,7 +12,8 @@ SELECT
     mc.password_enc,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    d.site_id
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -42,7 +43,8 @@ SELECT
     mc.password_enc,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    d.site_id
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id

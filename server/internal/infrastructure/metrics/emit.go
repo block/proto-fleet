@@ -9,6 +9,7 @@ import (
 // DeviceLabels is the canonical label set for per-device gauges.
 type DeviceLabels struct {
 	OrganizationID string
+	SiteID         string
 	DeviceID       string
 	DeviceGroup    string
 	Driver         string
@@ -16,12 +17,14 @@ type DeviceLabels struct {
 
 type CommandLabels struct {
 	OrganizationID string
+	SiteID         string
 	Kind           string
 	Result         string
 }
 
 type TelemetryPollLabels struct {
 	OrganizationID string
+	SiteID         string
 	DeviceID       string
 	Result         string
 }
@@ -29,6 +32,7 @@ type TelemetryPollLabels struct {
 func (l DeviceLabels) toLabels() Labels {
 	return Labels{
 		OrganizationID: l.OrganizationID,
+		SiteID:         l.SiteID,
 		DeviceID:       l.DeviceID,
 		DeviceGroup:    l.DeviceGroup,
 		Driver:         l.Driver,
@@ -107,6 +111,7 @@ func (p *Provider) EmitCommand(_ context.Context, labels CommandLabels) {
 		Metric: MetricCommandTotal,
 		Labels: Labels{
 			OrganizationID: labels.OrganizationID,
+			SiteID:         labels.SiteID,
 			Kind:           labels.Kind,
 			Result:         labels.Result,
 		},
@@ -125,6 +130,7 @@ func (p *Provider) EmitTelemetryPoll(_ context.Context, labels TelemetryPollLabe
 		Metric: MetricTelemetryPollTotal,
 		Labels: Labels{
 			OrganizationID: labels.OrganizationID,
+			SiteID:         labels.SiteID,
 			DeviceID:       labels.DeviceID,
 			Result:         labels.Result,
 		},

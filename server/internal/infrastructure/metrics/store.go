@@ -19,6 +19,7 @@ type Sample struct {
 
 type Labels struct {
 	OrganizationID string
+	SiteID         string
 	DeviceID       string
 	DeviceGroup    string
 	Driver         string
@@ -40,7 +41,7 @@ func NewSQLStore(db *sql.DB) Store {
 	return &sqlStore{queries: sqlc.New(db)}
 }
 
-const columnsPerSample = 10
+const columnsPerSample = 11
 
 func (s *sqlStore) InsertSamples(ctx context.Context, samples []Sample) error {
 	if len(samples) == 0 {
@@ -60,6 +61,7 @@ func InsertParamsFromSamples(samples []Sample) sqlc.InsertNotificationMetricSamp
 		Times:           make([]time.Time, n),
 		Metrics:         make([]string, n),
 		OrganizationIds: make([]string, n),
+		SiteIds:         make([]string, n),
 		DeviceIds:       make([]string, n),
 		DeviceGroups:    make([]string, n),
 		Drivers:         make([]string, n),
@@ -72,6 +74,7 @@ func InsertParamsFromSamples(samples []Sample) sqlc.InsertNotificationMetricSamp
 		params.Times[i] = sample.Time
 		params.Metrics[i] = sample.Metric
 		params.OrganizationIds[i] = sample.Labels.OrganizationID
+		params.SiteIds[i] = sample.Labels.SiteID
 		params.DeviceIds[i] = sample.Labels.DeviceID
 		params.DeviceGroups[i] = sample.Labels.DeviceGroup
 		params.Drivers[i] = sample.Labels.Driver
