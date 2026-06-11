@@ -1,16 +1,17 @@
 import clsx from "clsx";
 
 import { Info, Question } from "@/shared/assets/icons";
-import { Position } from "@/shared/constants";
+import { type Position } from "@/shared/constants";
 
 interface TooltipProps {
   header?: string;
   body: string;
   position: Position;
   icon?: "info" | "question";
+  widthClassName?: string;
 }
 
-const Tooltip = ({ header, body, position, icon = "question" }: TooltipProps) => {
+const Tooltip = ({ header, body, position, icon = "question", widthClassName = "w-80" }: TooltipProps) => {
   const isBottom = /^bottom/.test(position);
   const isLeft = /left$/.test(position);
   const yPosition = isBottom ? "top-[16px]" : "bottom-[16px]";
@@ -26,7 +27,8 @@ const Tooltip = ({ header, body, position, icon = "question" }: TooltipProps) =>
         className={clsx(
           "invisible opacity-0 peer-hover:visible peer-hover:opacity-100",
           "peer-hover:transform peer-hover:transition peer-hover:duration-200",
-          "absolute z-10 w-80 rounded-lg bg-surface-base p-4 text-text-primary shadow-200",
+          "absolute z-50 rounded-lg bg-surface-base p-4 text-text-primary shadow-200",
+          widthClassName,
           yPosition,
           xPosition,
           peerHover,

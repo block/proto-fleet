@@ -297,6 +297,8 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent): str
   switch (event.scope.case) {
     case "wholeOrg":
       return "Whole fleet";
+    case "site":
+      return `Site ${event.scope.value.siteId.toString()}`;
     case "deviceSetIds":
       return `${event.scope.value.deviceSetIds.length.toLocaleString()} device sets`;
     case "deviceIdentifiers": {

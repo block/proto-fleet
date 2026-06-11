@@ -8,8 +8,6 @@ import (
 	"math/rand"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // sourceWorker owns one source's broker clients, observation cache, and watchdog.
@@ -32,11 +30,11 @@ type observation struct {
 	receivedAt time.Time
 }
 
-// observationChannelBuffer absorbs transient dispatch slowness. Once full, the
-// broker callback backpressures instead of accepting and losing a state signal.
+// observationChannelBuffer absorbs transient state persistence slowness. Once
+// full, the broker callback backpressures instead of accepting and losing a
+// state signal.
 const observationChannelBuffer = 256
 const initialBrokerRetryMax = 30 * time.Second
-const pendingInsufficientLoadRetryEvery = 30 * time.Second
 
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
@@ -103,7 +101,7 @@ func (w *sourceWorker) run(ctx context.Context) {
 			}
 			if deferStartupWatchdog && !startupWatchdogSubscribed {
 				startupWatchdogSubscribed = true
-				// Give retained/live payloads one dispatch tick to arrive after
+				// Give retained/live payloads one retry tick to arrive after
 				// subscription. If no broker ever subscribes, the staleness
 				// threshold bound above still fails safe.
 				startupWatchdogReadyAt = w.cfg.Clock().Add(w.startupRetryEvery())
@@ -172,10 +170,9 @@ func (w *sourceWorker) waitForInitialState(ctx context.Context) (SourceState, bo
 	}
 }
 
-// loadInitialState recovers persisted source state, then reconciles to OFF only
-// when this source already has an active event. Pending edges are rehydrated
-// without replay because a newer retained/live payload may supersede them after
-// subscription.
+// loadInitialState recovers persisted source state. Pending edges are
+// rehydrated without replay because a newer retained/live payload may supersede
+// them after subscription.
 func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool) {
 	state, err := w.cfg.Store.GetSourceState(ctx, w.source.ID)
 	if err != nil {
@@ -190,29 +187,6 @@ func (w *sourceWorker) loadInitialState(ctx context.Context) (SourceState, bool)
 		state = SourceState{SourceConfigID: w.source.ID, LastTarget: TargetUnknown}
 	}
 
-	if state.PendingEdge != nil {
-		return state, true
-	}
-
-	if state.LastTarget != TargetOff {
-		switch active, aerr := w.cfg.Driver.ActiveSourceEvent(ctx, w.source); {
-		case aerr != nil:
-			w.cfg.Logger.Warn("mqttingest: active-event reconcile failed",
-				slog.String("source", w.source.SourceName),
-				slog.Any("error", aerr))
-			return state, false
-		case eventHoldsCurtailment(active):
-			state.LastTarget = TargetOff
-			state.LastEdgeEventUUID = active.EventUUID.String()
-			// Anchor ordering/debounce to the event so retained pre-event ON
-			// payloads cannot stop the recovered curtailment.
-			state.LastTargetAt = active.CreatedAt
-			state.LastEdgeAt = active.CreatedAt
-			w.cfg.Logger.Info("mqttingest: reconciled to active curtailment",
-				slog.String("source", w.source.SourceName),
-				slog.String("event_uuid", state.LastEdgeEventUUID))
-		}
-	}
 	return state, true
 }
 
@@ -221,13 +195,6 @@ func (w *sourceWorker) startupRetryEvery() time.Duration {
 		return w.cfg.WatchdogTickEvery
 	}
 	return time.Second
-}
-
-func (w *sourceWorker) pendingInsufficientLoadRetryEvery() time.Duration {
-	if w.source.StalenessThreshold > 0 && w.source.StalenessThreshold < pendingInsufficientLoadRetryEvery {
-		return w.source.StalenessThreshold
-	}
-	return pendingInsufficientLoadRetryEvery
 }
 
 func mqttClientIdentity(src SourceConfig, host string) string {
@@ -264,6 +231,13 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 			if ctx.Err() != nil {
 				return
 			}
+			w.reportRuntimeStatus(RuntimeStatusUpdate{
+				SourceID:   w.source.ID,
+				Broker:     host,
+				Connected:  false,
+				Subscribed: false,
+				Error:      err.Error(),
+			})
 			client.Disconnect(w.cfg.ShutdownDeadline)
 			retryAfter := jitterRetryDelay(retryEvery, rng)
 			w.cfg.Logger.Warn("mqttingest: broker connect failed, retrying",
@@ -281,6 +255,12 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 			retryEvery = nextInitialBrokerRetry(retryEvery)
 			continue
 		}
+		w.reportRuntimeStatus(RuntimeStatusUpdate{
+			SourceID:   w.source.ID,
+			Broker:     host,
+			Connected:  true,
+			Subscribed: true,
+		})
 		select {
 		case subscriptions <- struct{}{}:
 		case <-ctx.Done():
@@ -301,7 +281,13 @@ func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTC
 	return client.Connect(ctx, host, w.source.BrokerPort, w.source.BrokerTransport, w.source.MQTTUsername, w.password, mqttClientIdentity(w.source, host))
 }
 
-// handleMessage resolves the canonical signal, dispatches owed edges, and
+func (w *sourceWorker) reportRuntimeStatus(update RuntimeStatusUpdate) {
+	if w.cfg.StatusReporter != nil {
+		w.cfg.StatusReporter(update)
+	}
+}
+
+// handleMessage resolves the canonical signal, records source edges, and
 // persists only state that safely settled.
 func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs observation) SourceState {
 	original := prior
@@ -380,21 +366,21 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		direction = EdgeNone
 	}
 
-	state, dispatched := w.applyEdge(ctx, prior, canonical, direction)
+	state, settled := w.applyEdge(ctx, prior, canonical, direction)
 
-	// Freshness advances even when dispatch fails because the publisher was live.
+	// Freshness advances even when edge settlement fails because the publisher
+	// was live.
 	state = w.advanceLiveness(state, canonical, liveness)
 
-	if dispatched && direction == EdgeNone {
+	if settled && direction == EdgeNone {
 		recordProcessedTarget(&state, canonical)
 
-		// Failed dispatches and debounced flips must not settle the source target.
+		// Failed settlements and debounced flips must not settle the source target.
 		debouncedFlip := canonical.Target != prior.LastTarget &&
 			prior.LastTarget != TargetUnknown
 		if !debouncedFlip {
 			state.LastTarget = canonical.Target
 		}
-		state.LastEmptyFullFleetWatchdogRef = ""
 	}
 
 	if !w.persistState(ctx, state) && pendingSuperseded && original.PendingEdge != nil && state.PendingEdge == nil {
@@ -424,7 +410,7 @@ func (w *sourceWorker) applySupersedingPendingOff(
 		return original
 	}
 
-	state, _ := w.dispatchPendingEdge(ctx, pendingState)
+	state, _ := w.settlePendingSignal(ctx, pendingState)
 	state = w.advanceLiveness(state, canonical, liveness)
 	w.persistState(ctx, state)
 	return state
@@ -440,7 +426,7 @@ func (w *sourceWorker) advanceLiveness(state SourceState, canonical CanonicalSta
 	return state
 }
 
-// handleWatchdog enforces fail-safe OFF on stale or externally restored sources.
+// handleWatchdog records fail-safe OFF on stale sources.
 func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) SourceState {
 	if prior.PendingEdge != nil {
 		state, ok := w.retryPendingEdge(ctx, prior)
@@ -453,37 +439,14 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	now := w.cfg.Clock()
 
 	if prior.LastTarget.IsOff() {
-		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
-		if err != nil {
-			w.cfg.Logger.Warn("mqttingest: watchdog active-event check failed",
-				slog.String("source", w.source.SourceName),
-				slog.Any("error", err))
-			return prior
-		}
-		if active != nil {
-			if eventIsRestoring(active) {
-				if !w.ensureCanDispatch(ctx) {
-					return prior
-				}
-				if err := w.cfg.Driver.ResumeSourceEvent(ctx, active); err != nil {
-					w.cfg.Logger.Warn("mqttingest: watchdog re-curtail failed",
-						slog.String("source", w.source.SourceName),
-						slog.Any("error", err))
-				}
-			}
-			return prior
-		}
-		watchdogRef := startExternalReference(w.source.SourceName, EdgeWatchdogOff, now, time.Time{}, w.source.StalenessThreshold)
-		if prior.LastEmptyFullFleetWatchdogRef == watchdogRef {
-			return prior
-		}
+		return prior
 	} else if EvaluateWatchdog(prior.LastReceivedAt, prior.LastTarget, now, w.source.StalenessThreshold) == WatchdogIdle {
 		return prior
 	}
 
 	canonical := CanonicalState{Target: TargetOff, ReceivedAt: now}
-	state, dispatched := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
-	if !dispatched {
+	state, settled := w.applyEdge(ctx, prior, canonical, EdgeWatchdogOff)
+	if !settled {
 		if state.PendingEdge != nil && !state.PendingEdge.RetryAt.IsZero() {
 			return state
 		}
@@ -493,7 +456,7 @@ func (w *sourceWorker) handleWatchdog(ctx context.Context, prior SourceState) So
 	return state
 }
 
-// applyEdge dispatches the implied edge and reports whether it settled.
+// applyEdge records the implied edge and reports whether it settled.
 func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonical CanonicalState, direction EdgeDirection) (SourceState, bool) {
 	if direction == EdgeNone {
 		return prior, true
@@ -511,21 +474,15 @@ func (w *sourceWorker) applyEdge(ctx context.Context, prior SourceState, canonic
 	if !w.persistState(ctx, pendingState) {
 		return pendingState, false
 	}
-	if !w.ensureCanDispatch(ctx) {
-		return pendingState, false
-	}
-	return w.dispatchPendingEdge(ctx, pendingState)
+	return w.settlePendingSignal(ctx, pendingState)
 }
 
 func (w *sourceWorker) retryPendingEdge(ctx context.Context, prior SourceState) (SourceState, bool) {
 	if !w.pendingEdgeRetryReady(prior.PendingEdge) {
 		return prior, false
 	}
-	state, dispatched := w.dispatchPendingEdge(ctx, prior)
-	if !dispatched {
-		if pendingRetryUpdated(prior.PendingEdge, state.PendingEdge) {
-			return state, true
-		}
+	state, settled := w.settlePendingSignal(ctx, prior)
+	if !settled {
 		return prior, false
 	}
 	if !w.persistState(ctx, state) {
@@ -534,7 +491,7 @@ func (w *sourceWorker) retryPendingEdge(ctx context.Context, prior SourceState) 
 	return state, true
 }
 
-func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceState) (SourceState, bool) {
+func (w *sourceWorker) settlePendingSignal(ctx context.Context, prior SourceState) (SourceState, bool) {
 	pending := prior.PendingEdge
 	if pending == nil {
 		return prior, true
@@ -542,53 +499,11 @@ func (w *sourceWorker) dispatchPendingEdge(ctx context.Context, prior SourceStat
 	if !w.pendingEdgeRetryReady(pending) {
 		return prior, false
 	}
-	if !w.ensureCanDispatch(ctx) {
-		return prior, false
-	}
 
-	// Message-driven OFF references use publisher time; watchdog OFF falls back
-	// to receive time. prior.LastEdgeAt disambiguates same-second OFF bursts.
-	dispatchAt := pending.ReceivedAt
-	if !pending.TargetAt.IsZero() {
-		dispatchAt = pending.TargetAt
-	}
-	if pending.Direction == EdgeOffToOn {
-		active, err := w.cfg.Driver.ActiveSourceEvent(ctx, w.source)
-		if err != nil {
-			w.cfg.Logger.Error("mqttingest: pending ON active-event check failed",
-				slog.String("source", w.source.SourceName),
-				slog.Any("error", err))
-			return prior, false
-		}
-		if active == nil || eventIsRestoring(active) {
-			eventUUID := uuid.Nil
-			if active != nil {
-				eventUUID = active.EventUUID
-			}
-			return w.settlePendingEdge(prior, pending, TargetOn, eventUUID, false, dispatchAt), true
-		}
-	}
-	outcome, err := w.cfg.Driver.Dispatch(ctx, w.source, pending.Direction, dispatchAt, pending.PriorEdgeAt)
-	if err != nil {
-		if errors.Is(err, ErrNoActiveEvent) {
-			return w.settlePendingEdge(prior, pending, pending.Target, uuid.Nil, false, dispatchAt), true
-		}
-		var insufficientLoad *StartInsufficientLoadError
-		if errors.As(err, &insufficientLoad) {
-			return w.deferPendingRetry(ctx, prior, pending, err), false
-		}
-		w.cfg.Logger.Error("mqttingest: edge dispatch failed",
-			slog.String("source", w.source.SourceName),
-			slog.String("direction", pending.Direction.String()),
-			slog.Any("error", err))
-		return prior, false
-	}
-
-	state := w.settlePendingEdge(prior, pending, pending.Target, outcome.EventUUID, outcome.EmptyFullFleetNoop, dispatchAt)
-	w.cfg.Logger.Info("mqttingest: edge dispatched",
+	state := w.settlePendingEdge(prior, pending, pending.Target)
+	w.cfg.Logger.Info("mqttingest: edge recorded",
 		slog.String("source", w.source.SourceName),
-		slog.String("direction", pending.Direction.String()),
-		slog.String("event_uuid", state.LastEdgeEventUUID))
+		slog.String("direction", pending.Direction.String()))
 	return state, true
 }
 
@@ -596,38 +511,10 @@ func (w *sourceWorker) pendingEdgeRetryReady(pending *PendingEdge) bool {
 	return pending == nil || pending.RetryAt.IsZero() || !w.cfg.Clock().Before(pending.RetryAt)
 }
 
-func pendingRetryUpdated(before, after *PendingEdge) bool {
-	if before == nil || after == nil {
-		return false
-	}
-	return !after.RetryAt.IsZero() && !after.RetryAt.Equal(before.RetryAt)
-}
-
-func (w *sourceWorker) deferPendingRetry(ctx context.Context, prior SourceState, pending *PendingEdge, err error) SourceState {
-	state := prior
-	next := *pending
-	retryAfter := w.pendingInsufficientLoadRetryEvery()
-	next.RetryAt = w.cfg.Clock().Add(retryAfter).UTC()
-	state.PendingEdge = &next
-	if !w.persistState(ctx, state) {
-		return prior
-	}
-	w.cfg.Logger.Warn("mqttingest: edge dispatch deferred",
-		slog.String("source", w.source.SourceName),
-		slog.String("direction", pending.Direction.String()),
-		slog.Duration("retry_after", retryAfter),
-		slog.Time("retry_at", next.RetryAt),
-		slog.Any("error", err))
-	return state
-}
-
 func (w *sourceWorker) settlePendingEdge(
 	prior SourceState,
 	pending *PendingEdge,
 	target Target,
-	eventUUID uuid.UUID,
-	emptyFullFleetNoop bool,
-	dispatchAt time.Time,
 ) SourceState {
 	state := prior
 	state.PendingEdge = nil
@@ -635,62 +522,26 @@ func (w *sourceWorker) settlePendingEdge(
 	state.LastReceivedAt = pending.ReceivedAt
 	state.LastReceivedBroker = pending.ReceivedBroker
 	state.LastTarget = target
-	if eventUUID != uuid.Nil {
-		state.LastEdgeEventUUID = eventUUID.String()
-	}
-	if emptyFullFleetNoop && pending.Direction == EdgeWatchdogOff {
-		state.LastEmptyFullFleetWatchdogRef = startExternalReference(
-			w.source.SourceName,
-			EdgeWatchdogOff,
-			dispatchAt,
-			time.Time{},
-			w.source.StalenessThreshold,
-		)
-	} else {
-		state.LastEmptyFullFleetWatchdogRef = ""
-	}
 	recordProcessedTarget(&state, pending.canonical())
 	return state
 }
 
 func (w *sourceWorker) persistState(ctx context.Context, s SourceState) bool {
 	update := StateUpdate{
-		SourceConfigID:                w.source.ID,
-		LastTarget:                    s.LastTarget,
-		LastTargetAt:                  s.LastTargetAt,
-		LastProcessedTarget:           s.LastProcessedTarget,
-		LastProcessedTargets:          s.LastProcessedTargets,
-		LastReceivedAt:                s.LastReceivedAt,
-		LastReceivedBroker:            s.LastReceivedBroker,
-		LastEdgeAt:                    s.LastEdgeAt,
-		LastEdgeEventUUID:             s.LastEdgeEventUUID,
-		PendingEdge:                   s.PendingEdge,
-		LastEmptyFullFleetWatchdogRef: s.LastEmptyFullFleetWatchdogRef,
+		SourceConfigID:       w.source.ID,
+		LastTarget:           s.LastTarget,
+		LastTargetAt:         s.LastTargetAt,
+		LastProcessedTarget:  s.LastProcessedTarget,
+		LastProcessedTargets: s.LastProcessedTargets,
+		LastReceivedAt:       s.LastReceivedAt,
+		LastReceivedBroker:   s.LastReceivedBroker,
+		LastEdgeAt:           s.LastEdgeAt,
+		PendingEdge:          s.PendingEdge,
 	}
 	if err := w.cfg.Store.UpsertSourceState(ctx, update); err != nil {
 		w.cfg.Logger.Error("mqttingest: persist source state failed",
 			slog.String("source", w.source.SourceName),
 			slog.Any("error", err))
-		return false
-	}
-	return true
-}
-
-func (w *sourceWorker) ensureCanDispatch(ctx context.Context) bool {
-	canIngest, err := w.cfg.Store.UserCanIngestCurtailment(ctx, w.source.ServiceUserID, w.source.OrganizationID)
-	if err != nil {
-		w.cfg.Logger.Error("mqttingest: service-user authorization check failed",
-			slog.String("source", w.source.SourceName),
-			slog.Int64("service_user_id", w.source.ServiceUserID),
-			slog.Int64("org_id", w.source.OrganizationID),
-			slog.Any("error", err))
-		return false
-	}
-	if !canIngest {
-		w.cfg.Logger.Warn("mqttingest: service user lacks curtailment ingest permission",
-			slog.String("source", w.source.SourceName),
-			slog.Int64("service_user_id", w.source.ServiceUserID),
-			slog.Int64("org_id", w.source.OrganizationID))
 		return false
 	}
 	return true

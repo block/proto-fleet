@@ -432,7 +432,7 @@ export class MinersPage extends BasePage {
   }
 
   async inputNewGroupName(groupName: string) {
-    await this.page.locator("#new-group-name").fill(groupName);
+    await this.page.locator("#parent-picker-new-name").fill(groupName);
   }
 
   async validateMinerGroupName(ipAddress: string, expectedGroupName: string) {

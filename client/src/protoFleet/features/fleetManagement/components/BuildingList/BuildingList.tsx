@@ -1,8 +1,11 @@
 import { type ReactNode, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
+import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
+import { type RowAction } from "../RowActionsMenu";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { ArrowRight, Edit, Plus } from "@/shared/assets/icons";
 import List from "@/shared/components/List";
 import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
 
@@ -53,9 +56,11 @@ interface BuildingListProps {
   buildings: BuildingWithCounts[];
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
+  onEditBuilding?: (building: BuildingWithCounts) => void;
+  onAddBuildingToSite?: (building: BuildingWithCounts) => void;
 }
 
-const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) => {
+const BuildingList = ({ buildings, sites, emptyStateRow, onEditBuilding, onAddBuildingToSite }: BuildingListProps) => {
   const navigate = useNavigate();
 
   const siteNameById = useMemo(() => {
@@ -82,12 +87,54 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
     [buildings, siteNameById],
   );
 
+  const buildExtraActions = useCallback(
+    (item: BuildingListItem): RowAction[] => {
+      return [
+        { label: "View building", icon: <ArrowRight />, onClick: () => navigate(`/buildings/${item.id}`) },
+        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(`/racks?building=${item.id}`) },
+        {
+          label: "View miners",
+          icon: <ArrowRight />,
+          onClick: () => navigate(`/miners?building=${item.id}`),
+          showGroupDivider: true,
+        },
+        {
+          label: "Edit building",
+          icon: <Edit />,
+          onClick: () => onEditBuilding?.(item.building),
+          hidden: onEditBuilding === undefined,
+        },
+        {
+          label: "Add to site",
+          icon: <Plus />,
+          onClick: () => onAddBuildingToSite?.(item.building),
+          hidden: onAddBuildingToSite === undefined,
+        },
+      ];
+    },
+    [navigate, onEditBuilding, onAddBuildingToSite],
+  );
+
   const colConfig = useMemo<ColConfig<BuildingListItem, string, BuildingColumn>>(
     () => ({
       name: {
-        component: (item) => (
-          <span className="truncate text-emphasis-300">{item.building.building?.name ?? "(unnamed)"}</span>
-        ),
+        component: (item) => {
+          const buildingId = item.building.building?.id;
+          const buildingName = item.building.building?.name ?? "(unnamed)";
+          return (
+            <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
+              <span className="truncate text-emphasis-300">{buildingName}</span>
+              {buildingId !== undefined && buildingId !== 0n ? (
+                <FleetGroupActionsMenu
+                  scope={{ kind: "building", id: buildingId, name: buildingName }}
+                  ariaLabel={`Actions for ${buildingName}`}
+                  testIdPrefix={`building-list-row-${item.id}-actions`}
+                  extraActions={buildExtraActions(item)}
+                />
+              ) : null}
+            </div>
+          );
+        },
         width: "min-w-44",
       },
       site: {
@@ -102,7 +149,7 @@ const BuildingList = ({ buildings, sites, emptyStateRow }: BuildingListProps) =>
       temperature: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
       health: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-32" },
     }),
-    [],
+    [buildExtraActions],
   );
 
   const handleRowClick = useCallback((item: BuildingListItem) => navigate(`/buildings/${item.id}`), [navigate]);

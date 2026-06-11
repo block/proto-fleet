@@ -31,9 +31,14 @@ export const settingsActions = {
 
 export type SettingsAction = (typeof settingsActions)[keyof typeof settingsActions];
 
-// Group Actions
+// Group + re-parent actions. Pickers live in the host menus; the
+// handlers here are just openers. addToGroup is the exception —
+// useMinerActions owns its modal.
 export const groupActions = {
   addToGroup: "add-to-group",
+  addToRack: "add-to-rack",
+  addToBuilding: "add-to-building",
+  addToSite: "add-to-site",
 } as const;
 
 export type GroupAction = (typeof groupActions)[keyof typeof groupActions];

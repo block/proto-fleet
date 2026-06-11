@@ -8,6 +8,7 @@ import {
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
   ScopeDeviceListSchema,
+  ScopeSiteSchema,
   ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
@@ -44,6 +45,18 @@ const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
 };
+const maxInt64 = 9_223_372_036_854_775_807n;
+const baseTenIntegerPattern = /^[0-9]+$/;
+
+export function parseCurtailmentSiteId(value: string | undefined): bigint | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!baseTenIntegerPattern.test(trimmed)) {
+    return undefined;
+  }
+
+  const parsed = BigInt(trimmed);
+  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
+}
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -110,6 +123,14 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
   switch (values.scopeType) {
     case "wholeOrg":
       return { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) };
+    case "site":
+      {
+        const siteId = parseCurtailmentSiteId(values.siteId);
+        if (siteId !== undefined) {
+          return { case: "site", value: create(ScopeSiteSchema, { siteId }) };
+        }
+      }
+      break;
     case "explicitMiners":
       if (values.deviceIdentifiers.length > 0) {
         return {

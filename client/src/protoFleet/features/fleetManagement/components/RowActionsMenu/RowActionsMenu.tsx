@@ -1,0 +1,128 @@
+import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
+
+import { Ellipsis } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Divider from "@/shared/components/Divider";
+import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import Row from "@/shared/components/Row";
+import { positions } from "@/shared/constants";
+import { useClickOutside } from "@/shared/hooks/useClickOutside";
+
+export interface RowAction {
+  label: string;
+  onClick: () => void;
+  icon?: ReactNode;
+  // Thick divider rendered below the row; suppressed on the last row.
+  showGroupDivider?: boolean;
+  hidden?: boolean;
+  testId?: string;
+}
+
+interface RowActionsMenuProps {
+  actions: RowAction[];
+  ariaLabel?: string;
+  testIdPrefix?: string;
+  // Falls back to `${testIdPrefix}-trigger` / `row-actions-menu-trigger`.
+  triggerTestId?: string;
+  disabled?: boolean;
+}
+
+const RowActionsMenu = ({
+  actions,
+  ariaLabel = "Row actions",
+  testIdPrefix,
+  triggerTestId,
+  disabled,
+}: RowActionsMenuProps) => (
+  <PopoverProvider>
+    <RowActionsMenuInner
+      actions={actions}
+      ariaLabel={ariaLabel}
+      testIdPrefix={testIdPrefix}
+      triggerTestId={triggerTestId}
+      disabled={disabled}
+    />
+  </PopoverProvider>
+);
+
+const RowActionsMenuInner = ({
+  actions,
+  ariaLabel,
+  testIdPrefix,
+  triggerTestId,
+  disabled,
+}: Required<Pick<RowActionsMenuProps, "actions" | "ariaLabel">> &
+  Pick<RowActionsMenuProps, "testIdPrefix" | "triggerTestId" | "disabled">) => {
+  const { triggerRef, setPopoverRenderMode } = usePopover();
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Portal-fixed keeps the popover above the list's overflow scroll containers.
+  useEffect(() => {
+    setPopoverRenderMode("portal-fixed");
+  }, [setPopoverRenderMode]);
+
+  // Disabled hard-closes; re-enable doesn't resurrect — operator must reopen.
+  const open = isOpen && !disabled;
+
+  const onClickOutside = useCallback(() => setIsOpen(false), []);
+  useClickOutside({
+    ref: triggerRef,
+    onClickOutside,
+    ignoreSelectors: [".popover-content"],
+  });
+
+  const visibleActions = actions.filter((action) => !action.hidden);
+  if (visibleActions.length === 0) return null;
+
+  const resolvedTriggerTestId =
+    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
+  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
+
+  return (
+    <div className="relative" ref={triggerRef}>
+      <Button
+        className="-my-[10px] !p-[14px]"
+        size={sizes.compact}
+        variant={variants.textOnly}
+        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        ariaLabel={ariaLabel}
+        testId={resolvedTriggerTestId}
+        disabled={disabled}
+        onClick={() => setIsOpen((prev) => !prev)}
+      />
+      {open ? (
+        <Popover
+          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          position={positions["bottom right"]}
+          size={popoverSizes.small}
+          offset={8}
+          testId={popoverTestId}
+        >
+          {visibleActions.map((action, index) => (
+            <Fragment key={action.testId ?? `${action.label}-${index}`}>
+              <div className="px-4">
+                <Row
+                  className="text-emphasis-300"
+                  prefixIcon={action.icon}
+                  testId={action.testId}
+                  onClick={() => {
+                    setIsOpen(false);
+                    action.onClick();
+                  }}
+                  compact
+                  divider={false}
+                >
+                  {action.label}
+                </Row>
+              </div>
+              {action.showGroupDivider && index < visibleActions.length - 1 ? <Divider dividerStyle="thick" /> : null}
+            </Fragment>
+          ))}
+        </Popover>
+      ) : null}
+    </div>
+  );
+};
+
+export default RowActionsMenu;

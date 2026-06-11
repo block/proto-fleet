@@ -108,9 +108,14 @@ func toScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
 			Type:              models.ScopeTypeDeviceList,
 			DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers(),
 		}, nil
+	case *pb.PreviewCurtailmentPlanRequest_Site:
+		return curtailment.Scope{
+			Type:   models.ScopeTypeSite,
+			SiteID: s.Site.GetSiteId(),
+		}, nil
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
 		)
 	}
 }
@@ -216,9 +221,14 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 			Type:              models.ScopeTypeDeviceList,
 			DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers(),
 		}, nil
+	case *pb.StartCurtailmentRequest_Site:
+		return curtailment.Scope{
+			Type:   models.ScopeTypeSite,
+			SiteID: s.Site.GetSiteId(),
+		}, nil
 	default:
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"scope is required: set whole_org, device_set_ids, or device_identifiers",
+			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
 		)
 	}
 }
@@ -267,6 +277,8 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
 	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
 		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
+	case *pb.StartCurtailmentRequest_Site:
+		event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
 	}
 	if req.GetMode() == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
 		event.ModeParams = &pb.CurtailmentEvent_FullFleet{FullFleet: &pb.FullFleetParams{}}
@@ -724,6 +736,15 @@ func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
 	switch event.ScopeType {
 	case models.ScopeTypeWholeOrg, "":
 		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+	case models.ScopeTypeSite:
+		var payload struct {
+			SiteID int64 `json:"site_id"`
+		}
+		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
+			out.Scope = &pb.CurtailmentEvent_Site{
+				Site: &pb.ScopeSite{SiteId: payload.SiteID},
+			}
+		}
 	case models.ScopeTypeDeviceList:
 		var payload struct {
 			DeviceIdentifiers []string `json:"device_identifiers"`

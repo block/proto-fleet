@@ -21,6 +21,9 @@ var RedactedRequestProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
+	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
@@ -100,8 +103,12 @@ var SessionOnlyProcedures = []string{
 	// AdminTerminateEvent forces a non-terminal event to a terminal state and
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
-	// Other curtailment write RPCs remain API-key-accessible.
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
+	// MQTT source credential RPCs carry or exercise broker passwords and should
+	// only be reachable from interactive admin sessions, not API keys.
+	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
+	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 }
 

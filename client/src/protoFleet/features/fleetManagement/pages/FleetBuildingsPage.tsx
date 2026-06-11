@@ -1,12 +1,14 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
@@ -15,6 +17,7 @@ import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const LIST_WRAPPER = "pt-6";
@@ -45,19 +48,43 @@ const FleetBuildingsPage = () => {
     [listAllBuildings],
   );
 
-  usePoll({ fetchData: fetchBuildings, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  // Gate the poll on site:read — same gate FleetLayout uses to redirect.
+  const canReadBuildings = useHasPermission("site:read");
+  usePoll({
+    fetchData: fetchBuildings,
+    poll: true,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    enabled: canReadBuildings,
+  });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
 
+  // `?site=<id>` deep links scope the list without mutating SitePicker
+  // (avoids racing FleetLayout's single-site redirect). URL wins.
+  const [searchParams] = useSearchParams();
+  const urlSiteIds = useMemo(
+    () =>
+      new Set(
+        searchParams
+          .getAll("site")
+          .map((value) => value.trim())
+          .filter((value) => value !== "" && /^\d+$/.test(value)),
+      ),
+    [searchParams],
+  );
+
   const visibleBuildings = useMemo(() => {
     if (!buildings) return [];
+    if (urlSiteIds.size > 0) {
+      return buildings.filter((b) => urlSiteIds.has((b.building?.siteId ?? 0n).toString()));
+    }
     if (activeSite.kind === "all") return buildings;
     if (activeSite.kind === "unassigned") {
       return buildings.filter((b) => !b.building?.siteId || b.building.siteId === 0n);
     }
     return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
-  }, [buildings, activeSite]);
+  }, [buildings, activeSite, urlSiteIds]);
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
 
@@ -71,6 +98,28 @@ const FleetBuildingsPage = () => {
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.
   const canManageBuildings = useHasPermission("site:manage");
+
+  // Resolve siteName from cache so the modal renders the parent label
+  // without a follow-up fetch.
+  const siteNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sites ?? []) {
+      if (s.site) map.set(s.site.id.toString(), s.site.name);
+    }
+    return map;
+  }, [sites]);
+  const openEditBuilding = useCallback(
+    (row: BuildingWithCounts) => {
+      const siteId = row.building?.siteId;
+      const siteName = siteId ? siteNameById.get(siteId.toString()) : undefined;
+      buildingModals.openManage(row, siteName);
+    },
+    [buildingModals, siteNameById],
+  );
+
+  const { assignBuildingToSite } = useSites();
+  const [reparentTarget, setReparentTarget] = useState<BuildingWithCounts | null>(null);
+  const handleAddBuildingToSite = useCallback((row: BuildingWithCounts) => setReparentTarget(row), []);
 
   if (buildings === undefined || sites === undefined) {
     return (
@@ -177,9 +226,49 @@ const FleetBuildingsPage = () => {
         <div className="flex items-center justify-end">{addBuildingButton}</div>
       </FilterRow>
       <div className={LIST_WRAPPER}>
-        <BuildingList buildings={visibleBuildings} sites={sites} />
+        <BuildingList
+          buildings={visibleBuildings}
+          sites={sites}
+          onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
+          onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
+        />
       </div>
       <BuildingModals modals={buildingModals} sites={sites} />
+      {reparentTarget?.building ? (
+        <ParentPickerModal
+          kind="site"
+          show
+          selectionMode="single"
+          sourceLabel={reparentTarget.building.name || "building"}
+          currentParentId={reparentTarget.building.siteId}
+          onDismiss={() => setReparentTarget(null)}
+          onConfirm={(siteIds) =>
+            new Promise<void>((resolve, reject) => {
+              const targetSiteId = siteIds[0];
+              if (targetSiteId === undefined || !reparentTarget.building) {
+                resolve();
+                return;
+              }
+              const name = reparentTarget.building.name || "building";
+              const buildingId = reparentTarget.building.id;
+              void assignBuildingToSite({
+                buildingId,
+                targetSiteId,
+                onSuccess: () => {
+                  pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });
+                  fetchBuildings();
+                  setReparentTarget(null);
+                  resolve();
+                },
+                onError: (msg) => {
+                  pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error });
+                  reject(new Error(msg));
+                },
+              });
+            })
+          }
+        />
+      ) : null}
     </>
   );
 };

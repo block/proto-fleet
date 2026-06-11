@@ -4,14 +4,11 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { type BulkAction } from "../BulkActions/types";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
-import AddToGroupModal from "./AddToGroupModal";
 import BulkRenameModal from "./BulkRenameModal";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
 import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
-import CoolingModeModal from "./CoolingModeModal";
-import FirmwareUpdateModal from "./FirmwareUpdateModal";
-import ManagePowerModal from "./ManagePowerModal";
-import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
+import MinerActionModalStack from "./MinerActionModalStack";
+import MinerReparentPicker from "./MinerReparentPicker";
 import { useMinerActions } from "./useMinerActions";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
@@ -21,7 +18,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { ChevronDown, Edit, MiningPools } from "@/shared/assets/icons";
+import { ChevronDown, Edit, MiningPools, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
@@ -81,12 +78,12 @@ const MinerActionsMenu = ({
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [bulkWorkerNameTarget, setBulkWorkerNameTarget] = useState<BulkWorkerNameTarget | null>(null);
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
+  const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
     [selectedMiners],
   );
-  // Subset-mode fallback when the parent omits the prop.
   const selectedIdsIncludeUnauthenticatedMiner = useMemo(
     () => selectedMiners.some((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED),
     [miners, selectedMiners],
@@ -94,48 +91,7 @@ const MinerActionsMenu = ({
   const selectionIncludesUnauthenticatedMiner =
     selectionIncludesUnauthenticatedMinerOverride ?? selectedIdsIncludeUnauthenticatedMiner;
 
-  const {
-    currentAction,
-    popoverActions,
-    handleConfirmation,
-    handleCancel,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
-    showPoolSelectionPage,
-    poolFilteredDeviceIds,
-    fleetCredentials,
-    showManagePowerModal,
-    handleManagePowerConfirm,
-    handleManagePowerDismiss,
-    showFirmwareUpdateModal,
-    handleFirmwareUpdateConfirm,
-    handleFirmwareUpdateDismiss,
-    showCoolingModeModal,
-    coolingModeCount,
-    currentCoolingMode,
-    handleCoolingModeConfirm,
-    handleCoolingModeDismiss,
-    showAuthenticateFleetModal,
-    authenticationPurpose,
-    showUpdatePasswordModal,
-    hasThirdPartyMiners,
-    handleFleetAuthenticated,
-    handlePasswordConfirm,
-    handlePasswordDismiss,
-    handleAuthDismiss,
-    withCapabilityCheck,
-    unsupportedMinersInfo,
-    handleUnsupportedMinersContinue,
-    handleUnsupportedMinersDismiss,
-    showManageSecurityModal,
-    minerGroups,
-    handleUpdateGroup,
-    handleSecurityModalClose,
-    showAddToGroupModal,
-    handleAddToGroupDismiss,
-    displayCount,
-  } = useMinerActions({
+  const minerActionsResult = useMinerActions({
     selectedMiners: selectedMinersWithStatus,
     selectionMode,
     totalCount,
@@ -148,6 +104,23 @@ const MinerActionsMenu = ({
     onActionStart,
     onActionComplete,
   });
+  const {
+    currentAction,
+    popoverActions,
+    handleConfirmation,
+    handleCancel,
+    handleMiningPoolSuccess,
+    handleMiningPoolError,
+    handleMiningPoolWarning,
+    showPoolSelectionPage,
+    poolFilteredDeviceIds,
+    fleetCredentials,
+    withCapabilityCheck,
+    unsupportedMinersInfo,
+    handleUnsupportedMinersContinue,
+    handleUnsupportedMinersDismiss,
+    displayCount,
+  } = minerActionsResult;
 
   const handleWorkerNameFlowComplete = useCallback(() => {
     setShowBulkWorkerNameModal(false);
@@ -197,28 +170,45 @@ const MinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
+    // Inserted before addToGroup so the cluster reads site → rack → group.
+    const addToRackAction: BulkAction<SupportedAction> = {
+      action: groupActions.addToRack,
+      title: "Add to rack",
+      icon: <Plus />,
+      actionHandler: () => setReparentKind("rack"),
+      requiresConfirmation: false,
+    };
+    const addToSiteAction: BulkAction<SupportedAction> = {
+      action: groupActions.addToSite,
+      title: "Add to site",
+      icon: <Plus />,
+      actionHandler: () => setReparentKind("site"),
+      requiresConfirmation: false,
+    };
+
     const actions = insertActionAfter(popoverActions, settingsActions.miningPool, updateWorkerNamesAction);
     const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
 
+    const baseActions = actionsWithRenameBeforeGroup !== actions ? actionsWithRenameBeforeGroup : actions;
+    const withAddToRack = insertActionBefore(baseActions, groupActions.addToGroup, addToRackAction);
+    const withAddToSite = insertActionBefore(withAddToRack, groupActions.addToRack, addToSiteAction);
+
     if (actionsWithRenameBeforeGroup !== actions) {
-      return actionsWithRenameBeforeGroup;
+      return withAddToSite;
     }
 
-    const actionsWithRenameBeforeSecurity = insertActionBefore(actions, settingsActions.security, {
+    const actionsWithRenameBeforeSecurity = insertActionBefore(withAddToSite, settingsActions.security, {
       ...renameAction,
       showGroupDivider: true,
     });
 
-    if (actionsWithRenameBeforeSecurity !== actions) {
+    if (actionsWithRenameBeforeSecurity !== withAddToSite) {
       return actionsWithRenameBeforeSecurity;
     }
 
-    return [...actions, renameAction];
+    return [...withAddToSite, renameAction];
   }, [handleBulkWorkerNamesOpen, onActionStart, popoverActions]);
 
-  // Hide actions whose backing RPC the caller can't invoke. The server
-  // still enforces every gate; this filter is UX so the menu doesn't
-  // surface options that 403 on click.
   const permittedActions = usePermittedActions(actionsWithBulkRename);
 
   const visibleActions = useMemo(() => {
@@ -316,29 +306,14 @@ const MinerActionsMenu = ({
         onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
-      <ManagePowerModal
-        open={currentAction === performanceActions.managePower ? showManagePowerModal : false}
-        onConfirm={handleManagePowerConfirm}
-        onDismiss={handleManagePowerDismiss}
+      <MinerActionModalStack
+        minerActions={minerActionsResult}
+        selectedMinerIds={selectedMiners}
+        selectionMode={selectionMode}
+        displayCount={displayCount}
       />
-      <FirmwareUpdateModal
-        open={currentAction === deviceActions.firmwareUpdate ? showFirmwareUpdateModal : false}
-        onConfirm={handleFirmwareUpdateConfirm}
-        onDismiss={handleFirmwareUpdateDismiss}
-      />
-      <CoolingModeModal
-        open={currentAction === settingsActions.coolingMode ? showCoolingModeModal : false}
-        minerCount={coolingModeCount}
-        initialCoolingMode={currentCoolingMode}
-        onConfirm={handleCoolingModeConfirm}
-        onDismiss={handleCoolingModeDismiss}
-      />
-      <AuthenticateFleetModal
-        open={showAuthenticateFleetModal}
-        purpose={authenticationPurpose ?? undefined}
-        onAuthenticated={handleFleetAuthenticated}
-        onDismiss={handleAuthDismiss}
-      />
+      {/* The second AuthenticateFleetModal is specific to the worker-name
+          flow, which only this menu hosts — keep it inline. */}
       <AuthenticateFleetModal
         open={showWorkerNameAuthenticateModal}
         purpose="workerNames"
@@ -348,26 +323,6 @@ const MinerActionsMenu = ({
           setShowBulkWorkerNameModal(true);
         }}
         onDismiss={handleWorkerNameFlowComplete}
-      />
-      <ManageSecurityModal
-        open={showManageSecurityModal}
-        minerGroups={minerGroups}
-        onUpdateGroup={handleUpdateGroup}
-        onDismiss={handleSecurityModalClose}
-        onDone={handleSecurityModalClose}
-      />
-      <UpdateMinerPasswordModal
-        open={showUpdatePasswordModal}
-        hasThirdPartyMiners={hasThirdPartyMiners}
-        onConfirm={handlePasswordConfirm}
-        onDismiss={handlePasswordDismiss}
-      />
-      <AddToGroupModal
-        open={currentAction === groupActions.addToGroup ? showAddToGroupModal : false}
-        onDismiss={handleAddToGroupDismiss}
-        selectedMiners={selectedMiners}
-        selectionMode={selectionMode}
-        displayCount={displayCount ?? selectedMiners.length}
       />
       <BulkRenameModal
         open={showBulkRenameModal}
@@ -399,6 +354,26 @@ const MinerActionsMenu = ({
         getWorkerNameCredentials={getWorkerNameCredentials}
         onDismiss={handleWorkerNameFlowComplete}
       />
+      {reparentKind ? (
+        <MinerReparentPicker
+          kind={reparentKind}
+          deviceIdentifiers={selectedMiners}
+          selectionMode={selectionMode === "all" ? "all" : "subset"}
+          currentFilter={currentFilter}
+          totalCount={totalCount}
+          miners={miners}
+          sourceLabel={
+            selectionMode === "all" && totalCount !== undefined
+              ? `${totalCount} ${totalCount === 1 ? "miner" : "miners"}`
+              : `${selectedMiners.length} ${selectedMiners.length === 1 ? "miner" : "miners"}`
+          }
+          successMessage={(count, target) =>
+            target === "site" ? `Moved ${count} miners to selected site.` : `Added ${count} miners to selected rack.`
+          }
+          onClose={() => setReparentKind(null)}
+          onRefetchMiners={onRefetchMiners}
+        />
+      ) : null}
     </PopoverProvider>
   );
 };

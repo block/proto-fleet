@@ -10,6 +10,7 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 const baseValues: CurtailmentSubmitValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
+  siteId: "",
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
@@ -83,6 +84,34 @@ describe("curtailmentRequestBuilders", () => {
         deviceIdentifiers: [],
       }),
     ).toThrow("Unsupported curtailment target scope.");
+  });
+
+  it("builds site-scoped start requests", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      scopeType: "site",
+      scopeId: "site-42",
+      siteId: " 42 ",
+    });
+
+    expect(request.scope.case).toBe("site");
+    if (request.scope.case !== "site") {
+      throw new Error("Expected site scope");
+    }
+    expect(request.scope.value.siteId).toBe(42n);
+  });
+
+  it("rejects invalid site ids through the controlled scope error", () => {
+    for (const siteId of ["site-42", "0", "9223372036854775808"]) {
+      expect(() =>
+        buildStartCurtailmentRequest({
+          ...baseValues,
+          scopeType: "site",
+          scopeId: "site-bad",
+          siteId,
+        }),
+      ).toThrow("Unsupported curtailment target scope.");
+    }
   });
 
   it("rejects invalid uint32-backed settings", () => {

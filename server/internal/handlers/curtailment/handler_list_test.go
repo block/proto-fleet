@@ -65,7 +65,10 @@ func (s *listStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]st
 func (s *listStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by List handler tests")
 }
-func (s *listStubStore) ListCandidates(context.Context, int64, []string) ([]*models.Candidate, error) {
+func (s *listStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised by List handler tests")
+}
+func (s *listStubStore) ListCandidates(context.Context, interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	panic("ListCandidates not exercised by List handler tests")
 }
 func (s *listStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
@@ -382,6 +385,67 @@ func TestHandler_GetCurtailmentEvent_ReturnsTargetsWithPhaseSummaries(t *testing
 		PageSize:  1,
 		PageToken: targetCursorFixture,
 	}, store.lastTargetPageParams)
+}
+
+func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+	)
+
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+	}{
+		{"org permission without site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead)}, 0},
+		{"matching site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, 0},
+		{"site-only permission denies read", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentRead)}, connect.CodePermissionDenied},
+		{"site narrowing without read denies read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			eventUUID := uuid.New()
+			store := &listStubStore{
+				eventByUUID: map[uuid.UUID]*models.Event{
+					eventUUID: {
+						ID:        1,
+						EventUUID: eventUUID,
+						OrgID:     orgID,
+						State:     models.EventStateActive,
+						ScopeType: models.ScopeTypeSite,
+						ScopeJSON: siteScopeJSON(t, allowedSite),
+					},
+				},
+				targetsByUUID: map[uuid.UUID][]*models.Target{
+					eventUUID: {},
+				},
+			}
+			h := NewHandler(domainCurtailment.NewService(store))
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			_, err := h.GetCurtailmentEvent(ctx, connect.NewRequest(&pb.GetCurtailmentEventRequest{
+				EventUuid: eventUUID.String(),
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+				assert.Equal(t, eventUUID, store.lastTargetPageParams.EventUUID)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+				assert.Equal(t, uuid.Nil, store.lastTargetPageParams.EventUUID)
+			}
+		})
+	}
 }
 
 func TestHandler_GetCurtailmentEvent_UsesBoundedSnapshotAndFullTargetRollup(t *testing.T) {

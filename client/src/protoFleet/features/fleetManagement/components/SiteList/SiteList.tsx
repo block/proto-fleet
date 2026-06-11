@@ -1,7 +1,10 @@
 import { type ReactNode, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
+import { type RowAction } from "../RowActionsMenu";
+import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { ArrowRight, Edit } from "@/shared/assets/icons";
 import List from "@/shared/components/List";
 import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
 
@@ -39,9 +42,10 @@ const ACTIVE_COLS: SiteColumn[] = [
 interface SiteListProps {
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
+  onEditSite?: (site: Site) => void;
 }
 
-const SiteList = ({ sites, emptyStateRow }: SiteListProps) => {
+const SiteList = ({ sites, emptyStateRow, onEditSite }: SiteListProps) => {
   const navigate = useNavigate();
 
   const items: SiteListItem[] = useMemo(
@@ -52,10 +56,55 @@ const SiteList = ({ sites, emptyStateRow }: SiteListProps) => {
     [sites],
   );
 
+  const buildExtraActions = useCallback(
+    (item: SiteListItem): RowAction[] => {
+      // Deep-link via `?site=<id>` rather than mutating SitePicker —
+      // avoids racing FleetLayout's single-site-redirect effect.
+      return [
+        { label: "View site", icon: <ArrowRight />, onClick: () => navigate(`/sites/${item.id}`) },
+        {
+          label: "View buildings",
+          icon: <ArrowRight />,
+          onClick: () => navigate(`/fleet/buildings?site=${item.id}`),
+        },
+        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(`/racks?site=${item.id}`) },
+        {
+          label: "View miners",
+          icon: <ArrowRight />,
+          onClick: () => navigate(`/miners?site=${item.id}`),
+          showGroupDivider: true,
+        },
+        {
+          label: "Edit site",
+          icon: <Edit />,
+          onClick: () => (item.site.site ? onEditSite?.(item.site.site) : undefined),
+          hidden: onEditSite === undefined,
+        },
+      ];
+    },
+    [navigate, onEditSite],
+  );
+
   const colConfig = useMemo<ColConfig<SiteListItem, string, SiteColumn>>(
     () => ({
       name: {
-        component: (item) => <span className="truncate text-emphasis-300">{item.site.site?.name ?? "(unnamed)"}</span>,
+        component: (item) => {
+          const siteId = item.site.site?.id;
+          const siteName = item.site.site?.name ?? "(unnamed)";
+          return (
+            <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
+              <span className="truncate text-emphasis-300">{siteName}</span>
+              {siteId !== undefined && siteId !== 0n ? (
+                <FleetGroupActionsMenu
+                  scope={{ kind: "site", id: siteId, name: siteName }}
+                  ariaLabel={`Actions for ${siteName}`}
+                  testIdPrefix={`site-list-row-${item.id}-actions`}
+                  extraActions={buildExtraActions(item)}
+                />
+              ) : null}
+            </div>
+          );
+        },
         width: "min-w-44",
       },
       miners: {
@@ -69,7 +118,7 @@ const SiteList = ({ sites, emptyStateRow }: SiteListProps) => {
       temperature: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
       health: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-32" },
     }),
-    [],
+    [buildExtraActions],
   );
 
   const handleRowClick = useCallback((item: SiteListItem) => navigate(`/sites/${item.id}`), [navigate]);

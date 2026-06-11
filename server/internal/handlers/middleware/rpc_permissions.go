@@ -105,18 +105,27 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
 
 	// CurtailmentService — reads use curtailment:read; user-facing preview
-	// and mutation flows use curtailment:manage; external signal ingest uses
+	// and mutation flows use curtailment:manage; MQTT source settings reads are
+	// also manage-gated because broker/user config and runtime health are
+	// sensitive operational controls. External signal ingest uses
 	// curtailment:ingest.
-	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:   authz.PermCurtailmentRead,
-	curtailmentv1connect.CurtailmentServiceGetCurtailmentEventProcedure:     authz.PermCurtailmentRead,
-	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:    authz.PermCurtailmentRead,
-	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:  authz.PermCurtailmentRead,
-	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure:  authz.PermCurtailmentManage,
-	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:        authz.PermCurtailmentManage,
-	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:         authz.PermCurtailmentManage,
-	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure:  authz.PermCurtailmentManage,
-	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:     authz.PermCurtailmentManage,
-	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure: authz.PermCurtailmentIngest,
+	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:               authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentEventProcedure:                 authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:                authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:              authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure:              authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:                    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:                     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure:              authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:                 authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceListMqttCurtailmentSourcesProcedure:          authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceGetMqttCurtailmentSourceProcedure:            authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure:         authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure:         authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure: authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceDeleteMqttCurtailmentSourceProcedure:         authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
 
 	// DeviceCollectionService — rack:read for reads, rack:manage for writes.
 	// Collections are the legacy name for racks; the wire surface still

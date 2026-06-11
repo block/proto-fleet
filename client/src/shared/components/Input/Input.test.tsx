@@ -55,6 +55,24 @@ describe("Input", () => {
     expect(passwordInput).toHaveAttribute("type", "text");
     expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
   });
+
+  test("does not reserve password toggle padding when the toggle is hidden", () => {
+    render(
+      <Input
+        id="secret"
+        label="Secret"
+        type="password"
+        hidePasswordToggle
+        tooltip={{ body: "Use the saved password placeholder." }}
+      />,
+    );
+
+    const passwordInput = screen.getByLabelText("Secret");
+
+    expect(passwordInput).toHaveClass("pr-10");
+    expect(passwordInput).not.toHaveClass("pr-20");
+    expect(screen.queryByRole("button", { name: "Show password" })).not.toBeInTheDocument();
+  });
 });
 
 describe("Input ARIA attributes", () => {

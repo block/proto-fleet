@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -12,8 +13,10 @@ import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "
 import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import {
   AssignMinersModal,
   type RackFormData,
@@ -26,9 +29,10 @@ import {
 } from "@/protoFleet/features/rackManagement/utils/buildingFilterUrl";
 import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
+import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
-import { Alert, ChevronDown, Racks } from "@/shared/assets/icons";
+import { Alert, ArrowRight, ChevronDown, Edit, Plus, Racks } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
@@ -68,7 +72,10 @@ const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
-  const { listAllBuildings } = useBuildings();
+  const { listAllBuildings, assignRackToBuilding } = useBuildings();
+  const canEditRack = useHasPermission("rack:manage");
+  const canAssignRackToBuilding = useHasPermission("site:manage");
+  const [reparentTarget, setReparentTarget] = useState<DeviceSet | null>(null);
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pathname } = useLocation();
@@ -77,16 +84,47 @@ const RacksPage = () => {
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
-  const [allBuildings, setAllBuildings] = useState<{ id: string; label: string }[]>([]);
+  const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
+  // Distinguishes "buildings still loading" from "site has zero buildings"
+  // for the empty-filter sentinel below.
+  const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
+
+  // listDeviceSets has no native siteIds filter, so we resolve
+  // site → buildings client-side and pipe through buildingIds.
+  const urlSiteIds = useMemo(
+    () =>
+      new Set(
+        searchParams
+          .getAll("site")
+          .flatMap((raw) => raw.split(","))
+          .map((value) => value.trim())
+          .filter((value) => value !== "" && /^\d+$/.test(value)),
+      ),
+    [searchParams],
+  );
 
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
-  const selectedBuildingIdsRef = useRef<bigint[]>(selectedBuildingIds);
+  // Explicit building filter wins; otherwise expand `?site=` into the
+  // sites' buildings. `[0n]` is a sentinel for "no buildings match" —
+  // server treats `[]` as no filter, so without it a site-scoped view
+  // would briefly show every rack while buildings are still loading
+  // (or permanently if the site has zero buildings). Building IDs are
+  // positive autoincrement, so `WHERE building_id IN (0)` matches nothing.
+  const effectiveBuildingIds = useMemo(() => {
+    if (selectedBuildingIds.length > 0) return selectedBuildingIds;
+    if (urlSiteIds.size === 0) return [] as bigint[];
+    if (!allBuildingsLoaded) return [0n];
+    const matched = allBuildings.filter((b) => urlSiteIds.has(b.siteId)).map((b) => BigInt(b.id));
+    if (matched.length === 0) return [0n];
+    return matched;
+  }, [selectedBuildingIds, urlSiteIds, allBuildings, allBuildingsLoaded]);
+  const effectiveBuildingIdsRef = useRef<bigint[]>(effectiveBuildingIds);
   useEffect(() => {
-    selectedBuildingIdsRef.current = selectedBuildingIds;
-  }, [selectedBuildingIds]);
-  const getBuildingIds = useCallback(() => selectedBuildingIdsRef.current, []);
+    effectiveBuildingIdsRef.current = effectiveBuildingIds;
+  }, [effectiveBuildingIds]);
+  const getBuildingIds = useCallback(() => effectiveBuildingIdsRef.current, []);
 
   // AssignMinersModal state
   const [assignMinersFormData, setAssignMinersFormData] = useState<RackFormData | null>(null);
@@ -135,9 +173,7 @@ const RacksPage = () => {
     fetchZones();
   }, [fetchZones]);
 
-  // Fetch all buildings once for the building filter dropdown. The list
-  // is small (org-scoped) and stable enough that a single load on mount
-  // is fine; the rack list re-renders independently when filters change.
+  // One-shot load — org-scoped buildings are small + stable.
   useEffect(() => {
     const controller = new AbortController();
     void listAllBuildings({
@@ -146,16 +182,18 @@ const RacksPage = () => {
         setAllBuildings(
           buildings
             .filter((b) => b.building !== undefined)
-            .map((b) => ({ id: b.building!.id.toString(), label: b.building!.name })),
+            .map((b) => ({
+              id: b.building!.id.toString(),
+              label: b.building!.name,
+              siteId: (b.building!.siteId ?? 0n).toString(),
+            })),
         );
+        setAllBuildingsLoaded(true);
       },
     });
     return () => controller.abort();
   }, [listAllBuildings]);
 
-  // Sites lookup powers the new Site column on the rack list. Same one-shot
-  // load shape as buildings; renames are infrequent enough that polling here
-  // would be wasted bandwidth.
   useEffect(() => {
     const controller = new AbortController();
     void listSites({
@@ -191,17 +229,16 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch when the URL-driven building filter changes. The ref is read
-  // by useDeviceSetListState's fetchPage so this effect just kicks the
-  // pagination reset; the filter value itself flows through the ref.
+  // Refetch on resolved building-filter change (explicit + site-expanded).
+  // useDeviceSetListState reads the ref; this effect just kicks pagination.
+  const effectiveBuildingKey = useMemo(() => effectiveBuildingIds.map(String).join(","), [effectiveBuildingIds]);
   const prevBuildingKey = useRef<string | null>(null);
   useEffect(() => {
-    const key = selectedBuildingIdStrings.join(",");
-    if (prevBuildingKey.current !== null && prevBuildingKey.current !== key) {
+    if (prevBuildingKey.current !== null && prevBuildingKey.current !== effectiveBuildingKey) {
       resetAndFetch();
     }
-    prevBuildingKey.current = key;
-  }, [selectedBuildingIdStrings, resetAndFetch]);
+    prevBuildingKey.current = effectiveBuildingKey;
+  }, [effectiveBuildingKey, resetAndFetch]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
@@ -252,25 +289,41 @@ const RacksPage = () => {
   );
 
   const hasActiveFilters =
-    selectedBuildingIdStrings.length > 0 || selectedZones.length > 0 || selectedIssues.length > 0;
+    selectedBuildingIdStrings.length > 0 ||
+    selectedZones.length > 0 ||
+    selectedIssues.length > 0 ||
+    urlSiteIds.size > 0;
 
   const handleClearFilters = useCallback(() => {
-    // Snapshot before any state changes — drives whether the URL-change
-    // effect will refetch for us.
+    // Snapshot before state changes — these flags drive the "ride the
+    // URL-change effect" branch below.
     const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
+    const hadSiteFilter = urlSiteIds.size > 0;
     setSelectedZones([]);
     selectedZonesRef.current = [];
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
-    setBuildingFilter([]);
-    // When the building filter was active, clearing the URL fires the
-    // `prevBuildingKey` effect which calls resetAndFetch with the cleared
-    // ref. Calling it here too would double-fetch (the first call would
-    // read stale building ids from the ref before the URL change settles).
-    if (!hadBuildingFilter) {
+    // Single setSearchParams call so the second writer doesn't see a
+    // stale `prev` (react-router resolves the updater against the
+    // current location, not the value set by an earlier call in the
+    // same render).
+    if (hadBuildingFilter || hadSiteFilter) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("site");
+          next.delete(BUILDING_URL_PARAM);
+          return next;
+        },
+        { replace: true },
+      );
+    }
+    // URL changes trigger refetch via prevBuildingKey effect; call
+    // manually only when there's no URL transition to avoid double-fetch.
+    if (!hadBuildingFilter && !hadSiteFilter) {
       resetAndFetch();
     }
-  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setBuildingFilter]);
+  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setSearchParams, urlSiteIds]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
@@ -316,17 +369,79 @@ const RacksPage = () => {
     });
   }, [assignMinersRackId, deleteGroup, resetAndFetch, fetchZones]);
 
+  // Mirrors Edit building → ManageBuildingModal: row-level Edit opens
+  // the full-screen miners surface directly, with the small
+  // RackSettingsModal reachable from inside it for label/zone/dim edits.
+  const handleEditRack = useCallback((rack: DeviceSet) => {
+    const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+    if (!rackInfo) return;
+    setAssignMinersFormData({
+      label: rack.label,
+      zone: rackInfo.zone,
+      rows: rackInfo.rows,
+      columns: rackInfo.columns,
+      orderIndex: rackInfo.orderIndex,
+      coolingType: rackInfo.coolingType,
+    });
+    setAssignMinersRackId(rack.id);
+  }, []);
+
+  // Add-to-site stays deferred — no dedicated AssignRackToSite RPC,
+  // and SaveRack is a heavyweight full-replace.
+  const buildRackExtraActions = useCallback(
+    (rack: DeviceSet) => [
+      {
+        label: "View rack",
+        icon: <ArrowRight />,
+        onClick: () => navigate(`/racks/${rack.id}`),
+      },
+      {
+        label: "View miners",
+        icon: <ArrowRight />,
+        onClick: () => navigate(`/miners?rack=${rack.id}`),
+        showGroupDivider: true,
+      },
+      {
+        label: "Edit rack",
+        icon: <Edit />,
+        onClick: () => handleEditRack(rack),
+        hidden: !canEditRack,
+      },
+      {
+        label: "Add to building",
+        icon: <Plus />,
+        onClick: () => setReparentTarget(rack),
+        hidden: !canAssignRackToBuilding,
+      },
+    ],
+    [navigate, handleEditRack, canEditRack, canAssignRackToBuilding],
+  );
+
   const renderName = useCallback(
-    (item: DeviceSetListItem) => (
-      <button
-        type="button"
-        className="text-left hover:underline"
-        onClick={() => navigate(`/racks/${item.deviceSet.id}`)}
-      >
-        {item.deviceSet.label}
-      </button>
-    ),
-    [navigate],
+    (item: DeviceSetListItem) => {
+      const rack = item.deviceSet;
+      const label = rack.label || "(unnamed)";
+      return (
+        <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
+          <button
+            type="button"
+            className="truncate text-left hover:underline"
+            onClick={() => navigate(`/racks/${rack.id}`)}
+          >
+            {label}
+          </button>
+          {rack.id !== undefined && rack.id !== 0n ? (
+            <FleetGroupActionsMenu
+              scope={{ kind: "rack", id: rack.id, name: label }}
+              ariaLabel={`Actions for ${label}`}
+              testIdPrefix={`rack-list-row-${rack.id.toString()}-actions`}
+              extraActions={buildRackExtraActions(rack)}
+            />
+          ) : null}
+        </div>
+      );
+    },
+    [navigate, buildRackExtraActions],
   );
 
   const renderMiners = useCallback((item: DeviceSetListItem) => <span>{item.deviceSet.deviceCount}</span>, []);
@@ -624,6 +739,47 @@ const RacksPage = () => {
           existingRacks={racks}
           onDismiss={handleAssignMinersDismiss}
           onSave={handleAssignMinersSave}
+        />
+      ) : null}
+      {reparentTarget ? (
+        <ParentPickerModal
+          kind="building"
+          show
+          selectionMode="single"
+          sourceLabel={reparentTarget.label || "rack"}
+          description={
+            reparentTarget.deviceCount > 0
+              ? `${reparentTarget.deviceCount} ${reparentTarget.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
+              : undefined
+          }
+          currentParentId={
+            reparentTarget.typeDetails.case === "rackInfo" ? reparentTarget.typeDetails.value.buildingId : undefined
+          }
+          onDismiss={() => setReparentTarget(null)}
+          onConfirm={(buildingIds) =>
+            new Promise<void>((resolve, reject) => {
+              const buildingId = buildingIds[0];
+              if (buildingId === undefined) {
+                resolve();
+                return;
+              }
+              const rackName = reparentTarget.label || "rack";
+              void assignRackToBuilding({
+                rackId: reparentTarget.id,
+                buildingId,
+                onSuccess: () => {
+                  pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
+                  resetAndFetch();
+                  setReparentTarget(null);
+                  resolve();
+                },
+                onError: (msg) => {
+                  pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error });
+                  reject(new Error(msg));
+                },
+              });
+            })
+          }
         />
       ) : null}
     </div>

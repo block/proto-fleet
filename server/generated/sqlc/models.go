@@ -445,48 +445,40 @@ type CurtailmentEvent struct {
 }
 
 type CurtailmentMqttSourceConfig struct {
-	ID                      int64
-	OrganizationID          int64
-	ServiceUserID           int64
-	SourceName              string
-	Topic                   string
-	BrokerPrimaryHost       string
-	BrokerSecondaryHost     string
-	BrokerPort              sql.NullInt32
-	BrokerTransport         string
-	MqttUsername            string
-	MqttPasswordEnc         string
-	ContractedCurtailmentKw sql.NullInt32
-	CurtailMode             string
-	PayloadFormat           string
-	ScopeType               string
-	ScopeSiteID             sql.NullInt64
-	ScopeDeviceIdentifiers  []string
-	StalenessThresholdSec   sql.NullInt32
-	MinCurtailedDurationSec sql.NullInt32
-	Enabled                 bool
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                    int64
+	OrganizationID        int64
+	ServiceUserID         int64
+	SourceName            string
+	Topic                 string
+	BrokerPrimaryHost     string
+	BrokerSecondaryHost   string
+	BrokerPort            sql.NullInt32
+	BrokerTransport       string
+	MqttUsername          string
+	MqttPasswordEnc       string
+	PayloadFormat         string
+	StalenessThresholdSec sql.NullInt32
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type CurtailmentMqttSourceState struct {
-	SourceConfigID                int64
-	LastTarget                    sql.NullString
-	LastTargetAt                  sql.NullTime
-	LastProcessedTarget           sql.NullString
-	LastProcessedTargets          []string
-	LastReceivedAt                sql.NullTime
-	LastReceivedBroker            sql.NullString
-	LastEdgeAt                    sql.NullTime
-	LastEdgeEventUuid             uuid.NullUUID
-	PendingDirection              sql.NullString
-	PendingTarget                 sql.NullString
-	PendingTargetAt               sql.NullTime
-	PendingReceivedAt             sql.NullTime
-	PendingReceivedBroker         sql.NullString
-	PendingPriorEdgeAt            sql.NullTime
-	LastEmptyFullFleetWatchdogRef sql.NullString
-	UpdatedAt                     time.Time
+	SourceConfigID        int64
+	LastTarget            sql.NullString
+	LastTargetAt          sql.NullTime
+	LastProcessedTarget   sql.NullString
+	LastProcessedTargets  []string
+	LastReceivedAt        sql.NullTime
+	LastReceivedBroker    sql.NullString
+	LastEdgeAt            sql.NullTime
+	PendingDirection      sql.NullString
+	PendingTarget         sql.NullString
+	PendingTargetAt       sql.NullTime
+	PendingReceivedAt     sql.NullTime
+	PendingReceivedBroker sql.NullString
+	PendingPriorEdgeAt    sql.NullTime
+	UpdatedAt             time.Time
 	// Earliest retry time for durable pending MQTT edge dispatches that intentionally throttle retryable outcomes.
 	PendingRetryAt sql.NullTime
 }

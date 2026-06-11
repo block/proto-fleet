@@ -64,6 +64,27 @@ const (
 	// CurtailmentServiceIngestCurtailmentSignalProcedure is the fully-qualified name of the
 	// CurtailmentService's IngestCurtailmentSignal RPC.
 	CurtailmentServiceIngestCurtailmentSignalProcedure = "/curtailment.v1.CurtailmentService/IngestCurtailmentSignal"
+	// CurtailmentServiceListMqttCurtailmentSourcesProcedure is the fully-qualified name of the
+	// CurtailmentService's ListMqttCurtailmentSources RPC.
+	CurtailmentServiceListMqttCurtailmentSourcesProcedure = "/curtailment.v1.CurtailmentService/ListMqttCurtailmentSources"
+	// CurtailmentServiceGetMqttCurtailmentSourceProcedure is the fully-qualified name of the
+	// CurtailmentService's GetMqttCurtailmentSource RPC.
+	CurtailmentServiceGetMqttCurtailmentSourceProcedure = "/curtailment.v1.CurtailmentService/GetMqttCurtailmentSource"
+	// CurtailmentServiceCreateMqttCurtailmentSourceProcedure is the fully-qualified name of the
+	// CurtailmentService's CreateMqttCurtailmentSource RPC.
+	CurtailmentServiceCreateMqttCurtailmentSourceProcedure = "/curtailment.v1.CurtailmentService/CreateMqttCurtailmentSource"
+	// CurtailmentServiceUpdateMqttCurtailmentSourceProcedure is the fully-qualified name of the
+	// CurtailmentService's UpdateMqttCurtailmentSource RPC.
+	CurtailmentServiceUpdateMqttCurtailmentSourceProcedure = "/curtailment.v1.CurtailmentService/UpdateMqttCurtailmentSource"
+	// CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure is the fully-qualified name of the
+	// CurtailmentService's TestMqttCurtailmentSourceConnection RPC.
+	CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure = "/curtailment.v1.CurtailmentService/TestMqttCurtailmentSourceConnection"
+	// CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure is the fully-qualified name of the
+	// CurtailmentService's SetMqttCurtailmentSourceEnabled RPC.
+	CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure = "/curtailment.v1.CurtailmentService/SetMqttCurtailmentSourceEnabled"
+	// CurtailmentServiceDeleteMqttCurtailmentSourceProcedure is the fully-qualified name of the
+	// CurtailmentService's DeleteMqttCurtailmentSource RPC.
+	CurtailmentServiceDeleteMqttCurtailmentSourceProcedure = "/curtailment.v1.CurtailmentService/DeleteMqttCurtailmentSource"
 )
 
 // CurtailmentServiceClient is a client for the curtailment.v1.CurtailmentService service.
@@ -111,6 +132,16 @@ type CurtailmentServiceClient interface {
 	// (org_id, external_source, external_reference): replay during
 	// an in-flight event echoes, post-terminal fires fresh.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
+	// MQTT curtailment source settings. These RPCs manage broker
+	// configuration and source runtime state only. Binding a source to a
+	// response profile is handled by automation.
+	ListMqttCurtailmentSources(context.Context, *connect.Request[v1.ListMqttCurtailmentSourcesRequest]) (*connect.Response[v1.ListMqttCurtailmentSourcesResponse], error)
+	GetMqttCurtailmentSource(context.Context, *connect.Request[v1.GetMqttCurtailmentSourceRequest]) (*connect.Response[v1.GetMqttCurtailmentSourceResponse], error)
+	CreateMqttCurtailmentSource(context.Context, *connect.Request[v1.CreateMqttCurtailmentSourceRequest]) (*connect.Response[v1.CreateMqttCurtailmentSourceResponse], error)
+	UpdateMqttCurtailmentSource(context.Context, *connect.Request[v1.UpdateMqttCurtailmentSourceRequest]) (*connect.Response[v1.UpdateMqttCurtailmentSourceResponse], error)
+	TestMqttCurtailmentSourceConnection(context.Context, *connect.Request[v1.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[v1.TestMqttCurtailmentSourceConnectionResponse], error)
+	SetMqttCurtailmentSourceEnabled(context.Context, *connect.Request[v1.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[v1.SetMqttCurtailmentSourceEnabledResponse], error)
+	DeleteMqttCurtailmentSource(context.Context, *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error)
 }
 
 // NewCurtailmentServiceClient constructs a client for the curtailment.v1.CurtailmentService
@@ -173,21 +204,63 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+CurtailmentServiceIngestCurtailmentSignalProcedure,
 			opts...,
 		),
+		listMqttCurtailmentSources: connect.NewClient[v1.ListMqttCurtailmentSourcesRequest, v1.ListMqttCurtailmentSourcesResponse](
+			httpClient,
+			baseURL+CurtailmentServiceListMqttCurtailmentSourcesProcedure,
+			opts...,
+		),
+		getMqttCurtailmentSource: connect.NewClient[v1.GetMqttCurtailmentSourceRequest, v1.GetMqttCurtailmentSourceResponse](
+			httpClient,
+			baseURL+CurtailmentServiceGetMqttCurtailmentSourceProcedure,
+			opts...,
+		),
+		createMqttCurtailmentSource: connect.NewClient[v1.CreateMqttCurtailmentSourceRequest, v1.CreateMqttCurtailmentSourceResponse](
+			httpClient,
+			baseURL+CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+			opts...,
+		),
+		updateMqttCurtailmentSource: connect.NewClient[v1.UpdateMqttCurtailmentSourceRequest, v1.UpdateMqttCurtailmentSourceResponse](
+			httpClient,
+			baseURL+CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
+			opts...,
+		),
+		testMqttCurtailmentSourceConnection: connect.NewClient[v1.TestMqttCurtailmentSourceConnectionRequest, v1.TestMqttCurtailmentSourceConnectionResponse](
+			httpClient,
+			baseURL+CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
+			opts...,
+		),
+		setMqttCurtailmentSourceEnabled: connect.NewClient[v1.SetMqttCurtailmentSourceEnabledRequest, v1.SetMqttCurtailmentSourceEnabledResponse](
+			httpClient,
+			baseURL+CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure,
+			opts...,
+		),
+		deleteMqttCurtailmentSource: connect.NewClient[v1.DeleteMqttCurtailmentSourceRequest, v1.DeleteMqttCurtailmentSourceResponse](
+			httpClient,
+			baseURL+CurtailmentServiceDeleteMqttCurtailmentSourceProcedure,
+			opts...,
+		),
 	}
 }
 
 // curtailmentServiceClient implements CurtailmentServiceClient.
 type curtailmentServiceClient struct {
-	previewCurtailmentPlan  *connect.Client[v1.PreviewCurtailmentPlanRequest, v1.PreviewCurtailmentPlanResponse]
-	startCurtailment        *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
-	updateCurtailmentEvent  *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
-	stopCurtailment         *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
-	getActiveCurtailment    *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
-	listActiveCurtailments  *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
-	listCurtailmentEvents   *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
-	getCurtailmentEvent     *connect.Client[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse]
-	adminTerminateEvent     *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
-	ingestCurtailmentSignal *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
+	previewCurtailmentPlan              *connect.Client[v1.PreviewCurtailmentPlanRequest, v1.PreviewCurtailmentPlanResponse]
+	startCurtailment                    *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
+	updateCurtailmentEvent              *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
+	stopCurtailment                     *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
+	getActiveCurtailment                *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
+	listActiveCurtailments              *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
+	listCurtailmentEvents               *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
+	getCurtailmentEvent                 *connect.Client[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse]
+	adminTerminateEvent                 *connect.Client[v1.AdminTerminateEventRequest, v1.AdminTerminateEventResponse]
+	ingestCurtailmentSignal             *connect.Client[v1.IngestCurtailmentSignalRequest, v1.IngestCurtailmentSignalResponse]
+	listMqttCurtailmentSources          *connect.Client[v1.ListMqttCurtailmentSourcesRequest, v1.ListMqttCurtailmentSourcesResponse]
+	getMqttCurtailmentSource            *connect.Client[v1.GetMqttCurtailmentSourceRequest, v1.GetMqttCurtailmentSourceResponse]
+	createMqttCurtailmentSource         *connect.Client[v1.CreateMqttCurtailmentSourceRequest, v1.CreateMqttCurtailmentSourceResponse]
+	updateMqttCurtailmentSource         *connect.Client[v1.UpdateMqttCurtailmentSourceRequest, v1.UpdateMqttCurtailmentSourceResponse]
+	testMqttCurtailmentSourceConnection *connect.Client[v1.TestMqttCurtailmentSourceConnectionRequest, v1.TestMqttCurtailmentSourceConnectionResponse]
+	setMqttCurtailmentSourceEnabled     *connect.Client[v1.SetMqttCurtailmentSourceEnabledRequest, v1.SetMqttCurtailmentSourceEnabledResponse]
+	deleteMqttCurtailmentSource         *connect.Client[v1.DeleteMqttCurtailmentSourceRequest, v1.DeleteMqttCurtailmentSourceResponse]
 }
 
 // PreviewCurtailmentPlan calls curtailment.v1.CurtailmentService.PreviewCurtailmentPlan.
@@ -240,6 +313,43 @@ func (c *curtailmentServiceClient) IngestCurtailmentSignal(ctx context.Context, 
 	return c.ingestCurtailmentSignal.CallUnary(ctx, req)
 }
 
+// ListMqttCurtailmentSources calls curtailment.v1.CurtailmentService.ListMqttCurtailmentSources.
+func (c *curtailmentServiceClient) ListMqttCurtailmentSources(ctx context.Context, req *connect.Request[v1.ListMqttCurtailmentSourcesRequest]) (*connect.Response[v1.ListMqttCurtailmentSourcesResponse], error) {
+	return c.listMqttCurtailmentSources.CallUnary(ctx, req)
+}
+
+// GetMqttCurtailmentSource calls curtailment.v1.CurtailmentService.GetMqttCurtailmentSource.
+func (c *curtailmentServiceClient) GetMqttCurtailmentSource(ctx context.Context, req *connect.Request[v1.GetMqttCurtailmentSourceRequest]) (*connect.Response[v1.GetMqttCurtailmentSourceResponse], error) {
+	return c.getMqttCurtailmentSource.CallUnary(ctx, req)
+}
+
+// CreateMqttCurtailmentSource calls curtailment.v1.CurtailmentService.CreateMqttCurtailmentSource.
+func (c *curtailmentServiceClient) CreateMqttCurtailmentSource(ctx context.Context, req *connect.Request[v1.CreateMqttCurtailmentSourceRequest]) (*connect.Response[v1.CreateMqttCurtailmentSourceResponse], error) {
+	return c.createMqttCurtailmentSource.CallUnary(ctx, req)
+}
+
+// UpdateMqttCurtailmentSource calls curtailment.v1.CurtailmentService.UpdateMqttCurtailmentSource.
+func (c *curtailmentServiceClient) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.Request[v1.UpdateMqttCurtailmentSourceRequest]) (*connect.Response[v1.UpdateMqttCurtailmentSourceResponse], error) {
+	return c.updateMqttCurtailmentSource.CallUnary(ctx, req)
+}
+
+// TestMqttCurtailmentSourceConnection calls
+// curtailment.v1.CurtailmentService.TestMqttCurtailmentSourceConnection.
+func (c *curtailmentServiceClient) TestMqttCurtailmentSourceConnection(ctx context.Context, req *connect.Request[v1.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[v1.TestMqttCurtailmentSourceConnectionResponse], error) {
+	return c.testMqttCurtailmentSourceConnection.CallUnary(ctx, req)
+}
+
+// SetMqttCurtailmentSourceEnabled calls
+// curtailment.v1.CurtailmentService.SetMqttCurtailmentSourceEnabled.
+func (c *curtailmentServiceClient) SetMqttCurtailmentSourceEnabled(ctx context.Context, req *connect.Request[v1.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[v1.SetMqttCurtailmentSourceEnabledResponse], error) {
+	return c.setMqttCurtailmentSourceEnabled.CallUnary(ctx, req)
+}
+
+// DeleteMqttCurtailmentSource calls curtailment.v1.CurtailmentService.DeleteMqttCurtailmentSource.
+func (c *curtailmentServiceClient) DeleteMqttCurtailmentSource(ctx context.Context, req *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error) {
+	return c.deleteMqttCurtailmentSource.CallUnary(ctx, req)
+}
+
 // CurtailmentServiceHandler is an implementation of the curtailment.v1.CurtailmentService service.
 type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
@@ -285,6 +395,16 @@ type CurtailmentServiceHandler interface {
 	// (org_id, external_source, external_reference): replay during
 	// an in-flight event echoes, post-terminal fires fresh.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
+	// MQTT curtailment source settings. These RPCs manage broker
+	// configuration and source runtime state only. Binding a source to a
+	// response profile is handled by automation.
+	ListMqttCurtailmentSources(context.Context, *connect.Request[v1.ListMqttCurtailmentSourcesRequest]) (*connect.Response[v1.ListMqttCurtailmentSourcesResponse], error)
+	GetMqttCurtailmentSource(context.Context, *connect.Request[v1.GetMqttCurtailmentSourceRequest]) (*connect.Response[v1.GetMqttCurtailmentSourceResponse], error)
+	CreateMqttCurtailmentSource(context.Context, *connect.Request[v1.CreateMqttCurtailmentSourceRequest]) (*connect.Response[v1.CreateMqttCurtailmentSourceResponse], error)
+	UpdateMqttCurtailmentSource(context.Context, *connect.Request[v1.UpdateMqttCurtailmentSourceRequest]) (*connect.Response[v1.UpdateMqttCurtailmentSourceResponse], error)
+	TestMqttCurtailmentSourceConnection(context.Context, *connect.Request[v1.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[v1.TestMqttCurtailmentSourceConnectionResponse], error)
+	SetMqttCurtailmentSourceEnabled(context.Context, *connect.Request[v1.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[v1.SetMqttCurtailmentSourceEnabledResponse], error)
+	DeleteMqttCurtailmentSource(context.Context, *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error)
 }
 
 // NewCurtailmentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -343,6 +463,41 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 		svc.IngestCurtailmentSignal,
 		opts...,
 	)
+	curtailmentServiceListMqttCurtailmentSourcesHandler := connect.NewUnaryHandler(
+		CurtailmentServiceListMqttCurtailmentSourcesProcedure,
+		svc.ListMqttCurtailmentSources,
+		opts...,
+	)
+	curtailmentServiceGetMqttCurtailmentSourceHandler := connect.NewUnaryHandler(
+		CurtailmentServiceGetMqttCurtailmentSourceProcedure,
+		svc.GetMqttCurtailmentSource,
+		opts...,
+	)
+	curtailmentServiceCreateMqttCurtailmentSourceHandler := connect.NewUnaryHandler(
+		CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
+		svc.CreateMqttCurtailmentSource,
+		opts...,
+	)
+	curtailmentServiceUpdateMqttCurtailmentSourceHandler := connect.NewUnaryHandler(
+		CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
+		svc.UpdateMqttCurtailmentSource,
+		opts...,
+	)
+	curtailmentServiceTestMqttCurtailmentSourceConnectionHandler := connect.NewUnaryHandler(
+		CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
+		svc.TestMqttCurtailmentSourceConnection,
+		opts...,
+	)
+	curtailmentServiceSetMqttCurtailmentSourceEnabledHandler := connect.NewUnaryHandler(
+		CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure,
+		svc.SetMqttCurtailmentSourceEnabled,
+		opts...,
+	)
+	curtailmentServiceDeleteMqttCurtailmentSourceHandler := connect.NewUnaryHandler(
+		CurtailmentServiceDeleteMqttCurtailmentSourceProcedure,
+		svc.DeleteMqttCurtailmentSource,
+		opts...,
+	)
 	return "/curtailment.v1.CurtailmentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CurtailmentServicePreviewCurtailmentPlanProcedure:
@@ -365,6 +520,20 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceAdminTerminateEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceIngestCurtailmentSignalProcedure:
 			curtailmentServiceIngestCurtailmentSignalHandler.ServeHTTP(w, r)
+		case CurtailmentServiceListMqttCurtailmentSourcesProcedure:
+			curtailmentServiceListMqttCurtailmentSourcesHandler.ServeHTTP(w, r)
+		case CurtailmentServiceGetMqttCurtailmentSourceProcedure:
+			curtailmentServiceGetMqttCurtailmentSourceHandler.ServeHTTP(w, r)
+		case CurtailmentServiceCreateMqttCurtailmentSourceProcedure:
+			curtailmentServiceCreateMqttCurtailmentSourceHandler.ServeHTTP(w, r)
+		case CurtailmentServiceUpdateMqttCurtailmentSourceProcedure:
+			curtailmentServiceUpdateMqttCurtailmentSourceHandler.ServeHTTP(w, r)
+		case CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure:
+			curtailmentServiceTestMqttCurtailmentSourceConnectionHandler.ServeHTTP(w, r)
+		case CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure:
+			curtailmentServiceSetMqttCurtailmentSourceEnabledHandler.ServeHTTP(w, r)
+		case CurtailmentServiceDeleteMqttCurtailmentSourceProcedure:
+			curtailmentServiceDeleteMqttCurtailmentSourceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -412,4 +581,32 @@ func (UnimplementedCurtailmentServiceHandler) AdminTerminateEvent(context.Contex
 
 func (UnimplementedCurtailmentServiceHandler) IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.IngestCurtailmentSignal is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) ListMqttCurtailmentSources(context.Context, *connect.Request[v1.ListMqttCurtailmentSourcesRequest]) (*connect.Response[v1.ListMqttCurtailmentSourcesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.ListMqttCurtailmentSources is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) GetMqttCurtailmentSource(context.Context, *connect.Request[v1.GetMqttCurtailmentSourceRequest]) (*connect.Response[v1.GetMqttCurtailmentSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetMqttCurtailmentSource is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) CreateMqttCurtailmentSource(context.Context, *connect.Request[v1.CreateMqttCurtailmentSourceRequest]) (*connect.Response[v1.CreateMqttCurtailmentSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.CreateMqttCurtailmentSource is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) UpdateMqttCurtailmentSource(context.Context, *connect.Request[v1.UpdateMqttCurtailmentSourceRequest]) (*connect.Response[v1.UpdateMqttCurtailmentSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.UpdateMqttCurtailmentSource is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) TestMqttCurtailmentSourceConnection(context.Context, *connect.Request[v1.TestMqttCurtailmentSourceConnectionRequest]) (*connect.Response[v1.TestMqttCurtailmentSourceConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.TestMqttCurtailmentSourceConnection is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) SetMqttCurtailmentSourceEnabled(context.Context, *connect.Request[v1.SetMqttCurtailmentSourceEnabledRequest]) (*connect.Response[v1.SetMqttCurtailmentSourceEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.SetMqttCurtailmentSourceEnabled is not implemented"))
+}
+
+func (UnimplementedCurtailmentServiceHandler) DeleteMqttCurtailmentSource(context.Context, *connect.Request[v1.DeleteMqttCurtailmentSourceRequest]) (*connect.Response[v1.DeleteMqttCurtailmentSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.DeleteMqttCurtailmentSource is not implemented"))
 }

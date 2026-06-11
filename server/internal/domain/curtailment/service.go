@@ -22,10 +22,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// Scope identifies the target set: whole-org or explicit device-list;
+// Scope identifies the target set: whole-org, site, or explicit device-list;
 // device-sets are deferred (resolver lives outside the curtailment domain).
 type Scope struct {
 	Type              models.ScopeType
+	SiteID            int64
 	DeviceSetIDs      []string
 	DeviceIdentifiers []string
 }
@@ -541,6 +542,9 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 	if req.ExternalReference != nil {
 		metadata["external_reference"] = *req.ExternalReference
 	}
+	if req.Scope.Type == models.ScopeTypeSite {
+		metadata["site_id"] = req.Scope.SiteID
+	}
 
 	actorType := mapSourceActorTypeToActivity(req.SourceActorType)
 	emit := func(eventType, description string) {
@@ -555,6 +559,10 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 			ScopeCount:  &scopeCount,
 			Metadata:    metadata,
 			ActorType:   actorType,
+		}
+		if req.Scope.Type == models.ScopeTypeSite {
+			siteID := req.Scope.SiteID
+			event.SiteID = &siteID
 		}
 		activity.StampActor(ctx, &event)
 		if err := s.audit.LogStrict(ctx, event); err != nil {
@@ -792,6 +800,26 @@ func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*mod
 	})
 }
 
+// GetEvent returns a single event row without hydrating target details.
+// Handlers use this to derive resource-scoped authorization from immutable
+// persisted event scope before running lifecycle RPCs.
+func (s *Service) GetEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if eventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	event, err := s.store.GetEventByUUID(ctx, orgID, eventUUID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	return event, nil
+}
+
 // GetEventWithTargets returns a single historical or active event with a page
 // of durable target phase summaries. ListEvents intentionally omits this heavy
 // payload; activity detail views fetch it by event_uuid.
@@ -854,18 +882,27 @@ func (s *Service) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start
 // can resolve max_duration_seconds=0 without a second DB read).
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
-	deviceFilter, err := resolveScope(req.Scope)
+	candidateFilter, err := resolveScope(req.Scope)
 	if err != nil {
 		return nil, 0, nil, err
 	}
 	// Empty-but-non-nil would match nothing under the query's `IS NULL` check.
-	if len(deviceFilter) == 0 {
-		deviceFilter = nil
+	if len(candidateFilter.DeviceIdentifiers) == 0 {
+		candidateFilter.DeviceIdentifiers = nil
 	}
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
 		return nil, 0, nil, err
+	}
+	if candidateFilter.SiteID != nil {
+		exists, err := s.store.SiteBelongsToOrg(ctx, req.OrgID, *candidateFilter.SiteID)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		if !exists {
+			return nil, 0, nil, fleeterror.NewNotFoundErrorf("site %d not found", *candidateFilter.SiteID)
+		}
 	}
 
 	// Effective candidate floor: per-org default, admin-overridable.
@@ -893,15 +930,16 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		cooldownSet = toStringSet(cd)
 	}
 
-	candidates, err := s.store.ListCandidates(ctx, req.OrgID, deviceFilter)
+	candidateFilter.OrgID = req.OrgID
+	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
 	if err != nil {
 		return nil, 0, nil, err
 	}
 
 	// Cross-org ids are silently dropped by the SQL org_id filter; surface
 	// them as NotFound rather than masquerading as InsufficientLoad.
-	if len(deviceFilter) > 0 {
-		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
+	if len(candidateFilter.DeviceIdentifiers) > 0 {
+		if missing := missingDeviceIdentifiers(candidateFilter.DeviceIdentifiers, candidates); len(missing) > 0 {
 			return nil, 0, nil, fleeterror.NewNotFoundErrorf(
 				"device_identifiers not found in caller's org: %v", missing,
 			)
@@ -1142,41 +1180,52 @@ func validatePreviewRequest(req PreviewRequest) error {
 	return nil
 }
 
-func resolveScope(s Scope) ([]string, error) {
+func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 	switch s.Type {
 	case models.ScopeTypeWholeOrg, "":
 		// Empty Type defaults to whole-org, but device IDs alongside it
 		// signal mismatched intent — reject rather than silently widening.
-		if len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
-			return nil, fleeterror.NewInvalidArgumentError(
-				"scope type must be set when device_identifiers or device_set_ids are provided",
+		if s.SiteID > 0 || len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
+				"site_id, device_identifiers, and device_set_ids must be empty for whole-org scope",
 			)
 		}
-		return nil, nil
+		return interfaces.ListCandidatesParams{}, nil
+	case models.ScopeTypeSite:
+		if s.SiteID <= 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("site_id must be set for site scope")
+		}
+		if len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
+				"device_identifiers and device_set_ids must be empty when scope type is site",
+			)
+		}
+		siteID := s.SiteID
+		return interfaces.ListCandidatesParams{SiteID: &siteID}, nil
 	case models.ScopeTypeDeviceList:
 		if len(s.DeviceIdentifiers) == 0 {
-			return nil, fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device-list scope")
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device-list scope")
 		}
 		// Oneof-style mutual exclusion for non-Connect callers.
-		if len(s.DeviceSetIDs) > 0 {
-			return nil, fleeterror.NewInvalidArgumentError(
-				"device_set_ids must be empty when scope type is device_list",
+		if s.SiteID > 0 || len(s.DeviceSetIDs) > 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
+				"site_id and device_set_ids must be empty when scope type is device_list",
 			)
 		}
-		return s.DeviceIdentifiers, nil
+		return interfaces.ListCandidatesParams{DeviceIdentifiers: s.DeviceIdentifiers}, nil
 	case models.ScopeTypeDeviceSets:
 		// Deferred: device-set resolution requires DeviceSetStore wiring
 		// outside the curtailment domain. Whole-org and device-list cover
 		// the critical paths. Symmetric mutual-exclusion guard for callers
 		// who set this Type with DeviceIdentifiers populated.
-		if len(s.DeviceIdentifiers) > 0 {
-			return nil, fleeterror.NewInvalidArgumentError(
-				"device_identifiers must be empty when scope type is device_sets",
+		if s.SiteID > 0 || len(s.DeviceIdentifiers) > 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
+				"site_id and device_identifiers must be empty when scope type is device_sets",
 			)
 		}
-		return nil, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org or device_list")
+		return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org, site, or device_list")
 	default:
-		return nil, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
+		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
 	}
 }
 
@@ -1425,6 +1474,14 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 	switch s.Type {
 	case models.ScopeTypeWholeOrg, "":
 		return []byte("{}"), nil
+	case models.ScopeTypeSite:
+		b, err := json.Marshal(map[string]int64{
+			"site_id": s.SiteID,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		}
+		return b, nil
 	case models.ScopeTypeDeviceList:
 		b, err := json.Marshal(map[string][]string{
 			"device_identifiers": s.DeviceIdentifiers,

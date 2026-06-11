@@ -17,7 +17,14 @@ import useValueWidth from "./useValueWidth";
 import { DismissCircle, Eye } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Tooltip from "@/shared/components/Tooltip";
-import { positions } from "@/shared/constants";
+import { type Position, positions } from "@/shared/constants";
+
+type InputTooltip = {
+  header?: string;
+  body: string;
+  position?: Position;
+  widthClassName?: string;
+};
 
 interface InputProps {
   autoFocus?: boolean;
@@ -28,6 +35,7 @@ interface InputProps {
   // Error message is optional in error state
   error?: boolean | string;
   hideLabelOnFocus?: boolean;
+  hidePasswordToggle?: boolean;
   id: string;
   initValue?: string | number;
   inputRef?: RefObject<HTMLInputElement>;
@@ -39,7 +47,7 @@ interface InputProps {
   onChangeBlur?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
   testId?: string;
-  tooltip?: { header: string; body: string };
+  tooltip?: InputTooltip;
   type?: string;
   statusIcon?: ReactNode;
   onFocus?: () => void;
@@ -64,6 +72,7 @@ const Input = ({
   disabled,
   error = false,
   hideLabelOnFocus,
+  hidePasswordToggle = false,
   id,
   initValue = "",
   inputRef,
@@ -110,6 +119,8 @@ const Input = ({
   const fallbackRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
   const hasFloatingLabel = type === "date" || !!length(value) || focused;
+  const showPasswordToggle = type === "password" && !hidePasswordToggle;
+  const showTrailingIcon = showPasswordToggle || statusIcon !== undefined;
 
   useEffect(() => {
     if (error) return;
@@ -181,9 +192,9 @@ const Input = ({
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
-            { "pr-4": !compact && !tooltip && type !== "password" },
-            { "pr-10": !compact && tooltip && type !== "password" },
-            { "pr-20": !compact && tooltip && type === "password" },
+            { "pr-4": !compact && !tooltip && !showTrailingIcon },
+            { "pr-10": !compact && ((!tooltip && showTrailingIcon) || (tooltip && !showTrailingIcon)) },
+            { "pr-20": !compact && tooltip && showTrailingIcon },
             { "h-6": compact },
             { "no-spinner": type === "number" },
             { uppercase: type === "date" },
@@ -254,8 +265,13 @@ const Input = ({
           {label}
         </label>
         {tooltip ? (
-          <div className="absolute top-7 right-4 -translate-y-1/2 transform">
-            <Tooltip header={tooltip.header} body={tooltip.body} position={positions["top left"]} />
+          <div className="absolute top-7 right-4 z-50 -translate-y-1/2 transform">
+            <Tooltip
+              header={tooltip.header}
+              body={tooltip.body}
+              position={tooltip.position ?? positions["top left"]}
+              widthClassName={tooltip.widthClassName}
+            />
           </div>
         ) : null}
         {dismiss && length(value) && !compact ? (
@@ -275,7 +291,7 @@ const Input = ({
             ))}
           </div>
         ) : undefined}
-        {type === "password" || statusIcon !== undefined ? (
+        {showTrailingIcon ? (
           <div
             className={clsx("absolute", {
               "top-1": compact,

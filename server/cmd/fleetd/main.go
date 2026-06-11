@@ -493,7 +493,6 @@ func start(config *Config) error {
 
 	mqttSubscriber, err := mqttingest.NewSubscriber(mqttingest.Config{
 		Store:     mqttingest.NewSQLCStore(mqttQueries),
-		Driver:    mqttingest.NewDriver(curtailmentSvc),
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 		Decryptor: encryptSvc,
 		Logger:    slog.Default(),
@@ -505,6 +504,21 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
 	}
 	defer mqttSubscriber.Stop()
+	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
+		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize curtailment mqtt connection tester: %w", err)
+	}
+	mqttSettingsSvc, err := mqttingest.NewSettingsService(mqttingest.SettingsServiceConfig{
+		Store:            mqttingest.NewSQLCSettingsStore(mqttQueries),
+		Cipher:           encryptSvc,
+		Runtime:          mqttSubscriber,
+		ConnectionTester: mqttConnectionTester,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
+	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
@@ -560,7 +574,7 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry), li))

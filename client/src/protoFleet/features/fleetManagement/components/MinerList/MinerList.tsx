@@ -912,6 +912,17 @@ const MinerList = ({
         });
       }
 
+      // `?site=<id>` deep links live in ActiveFilters.dropdownFilters.site
+      // — without this branch, any subsequent visible filter change (e.g.
+      // applying a Model filter) rebuilds the proto without siteIds and
+      // expands the results back to the whole fleet.
+      const siteFilters = filters.dropdownFilters.site;
+      if (siteFilters && siteFilters.length > 0) {
+        siteFilters.forEach((id) => {
+          minerFilter.siteIds.push(BigInt(id));
+        });
+      }
+
       const firmwareFilters = filters.dropdownFilters.firmware;
       if (firmwareFilters && firmwareFilters.length > 0) {
         minerFilter.firmwareVersions.push(...firmwareFilters);

@@ -19,6 +19,7 @@ const URL_PARAMS = {
   GROUP: "group",
   RACK: "rack",
   BUILDING: "building",
+  SITE: "site",
   FIRMWARE: "firmware",
   ZONE: "zone",
   SUBNET: "subnet",
@@ -157,6 +158,10 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     setMulti(params, URL_PARAMS.BUILDING, filter.buildingIds.map(String).sort());
   }
 
+  if (filter.siteIds.length > 0) {
+    setMulti(params, URL_PARAMS.SITE, filter.siteIds.map(String).sort());
+  }
+
   if (filter.firmwareVersions.length > 0) {
     setMulti(params, URL_PARAMS.FIRMWARE, [...filter.firmwareVersions].sort());
   }
@@ -253,6 +258,13 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     const trimmed = id.trim();
     if (trimmed && /^\d+$/.test(trimmed)) {
       filter.buildingIds.push(BigInt(trimmed));
+    }
+  });
+
+  getMultiLegacy(params, URL_PARAMS.SITE).forEach((id) => {
+    const trimmed = id.trim();
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      filter.siteIds.push(BigInt(trimmed));
     }
   });
 
@@ -358,6 +370,13 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.building = Array.from(new Set(buildingValues));
   }
 
+  const siteValues = getMultiLegacy(params, URL_PARAMS.SITE)
+    .map((value) => value.trim())
+    .filter((value) => value !== "" && /^\d+$/.test(value));
+  if (siteValues.length > 0) {
+    activeFilters.dropdownFilters.site = Array.from(new Set(siteValues));
+  }
+
   const firmwareValues = getMulti(params, URL_PARAMS.FIRMWARE).filter((v) => v !== "");
   if (firmwareValues.length > 0) {
     activeFilters.dropdownFilters.firmware = Array.from(new Set(firmwareValues));
@@ -406,6 +425,11 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   const buildingFilters = filters.dropdownFilters.building;
   if (buildingFilters && buildingFilters.length > 0) {
     setMulti(params, URL_PARAMS.BUILDING, [...buildingFilters].sort());
+  }
+
+  const siteFilters = filters.dropdownFilters.site;
+  if (siteFilters && siteFilters.length > 0) {
+    setMulti(params, URL_PARAMS.SITE, [...siteFilters].sort());
   }
 
   const firmwareFilters = filters.dropdownFilters.firmware;

@@ -86,6 +86,9 @@ func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string
 func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
 }
+func (f *fakeStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	panic("SiteBelongsToOrg not exercised")
+}
 func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	for _, ev := range f.events {
 		if ev.OrgID == orgID && ev.EventUUID == eventUUID {
@@ -136,12 +139,12 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 	panic("GetTargetRollupByEvent not exercised by reconciler tests")
 }
 
-func (f *fakeStore) ListCandidates(_ context.Context, _ int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
-	if len(deviceIdentifiers) == 0 {
+func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
+	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
 	want := map[string]struct{}{}
-	for _, id := range deviceIdentifiers {
+	for _, id := range params.DeviceIdentifiers {
 		want[id] = struct{}{}
 	}
 	out := make([]*models.Candidate, 0, len(f.candidates))
