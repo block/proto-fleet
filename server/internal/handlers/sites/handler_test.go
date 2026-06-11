@@ -203,7 +203,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	// Cascade: 7 store calls, all returning non-zero counts (the
+	// Cascade store calls, all returning non-zero counts (the
 	// LockSiteForWrite + LockBuildingsBySiteForWrite at the top of the
 	// tx are part of the TOCTOU fix vs concurrent DeleteSite/
 	// AssignBuildingToSite).
@@ -213,6 +213,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(9), nil)
+	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(3), nil)
 	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(11)).Return(int64(1), nil)
 
 	resp, err := h.handler.DeleteSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
