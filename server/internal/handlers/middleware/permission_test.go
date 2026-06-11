@@ -309,3 +309,146 @@ func connectMessage(t *testing.T, err error) string {
 	require.True(t, errors.As(err, &fe), "expected FleetError, got %T", err)
 	return fe.DebugMessage
 }
+
+func TestRequirePermissionAnywhere_AllowsOrgScope(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermNoteRead))
+
+	info, err := middleware.RequirePermissionAnywhere(ctx, authz.PermNoteRead)
+	require.NoError(t, err)
+	require.Equal(t, "alice", info.Username)
+}
+
+func TestRequirePermissionAnywhere_AllowsSiteScopeOnly(t *testing.T) {
+	// The gate's reason to exist: a caller whose only assignment is
+	// site-scoped is still a member of the org-shared surface.
+	ctx := ctxWithEffective(t, userInfo(), siteAssignment(7, authz.PermNoteRead))
+
+	info, err := middleware.RequirePermissionAnywhere(ctx, authz.PermNoteRead)
+	require.NoError(t, err)
+	require.NotNil(t, info)
+}
+
+func TestRequirePermissionAnywhere_DeniesWithStructuredPayload(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermFleetRead))
+
+	info, err := middleware.RequirePermissionAnywhere(ctx, authz.PermNoteRead)
+	require.Error(t, err)
+	require.Nil(t, info)
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+
+	// Same payload contract as RequirePermission; scope is the empty
+	// object because the resource has no site dimension.
+	var payload struct {
+		Required string         `json:"required"`
+		Scope    map[string]any `json:"scope"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(connectMessage(t, err)), &payload))
+	require.Equal(t, authz.PermNoteRead, payload.Required)
+	require.Empty(t, payload.Scope)
+}
+
+func TestRequirePermissionAnywhere_UnauthenticatedWhenNoSessionInfo(t *testing.T) {
+	_, err := middleware.RequirePermissionAnywhere(context.Background(), authz.PermNoteRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeUnauthenticated, connectCode(t, err))
+}
+
+func TestRequirePermissionAnywhere_FailClosedOnMissingEffective(t *testing.T) {
+	ctx := ctxWithInfo(userInfo()) // no WithEffectivePermissions
+
+	_, err := middleware.RequirePermissionAnywhere(ctx, authz.PermNoteRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err))
+}
+
+func TestRequirePermissionAnywhere_SchedulerShortCircuitsToAllow(t *testing.T) {
+	info := &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		Actor:          session.ActorScheduler,
+		OrganizationID: 1,
+	}
+	ctx := ctxWithInfo(info) // deliberately no WithEffectivePermissions
+
+	got, err := middleware.RequirePermissionAnywhere(ctx, authz.PermNoteCreate)
+	require.NoError(t, err)
+	require.Equal(t, session.ActorScheduler, got.Actor)
+}
+
+func TestRequirePermissionAnywhere_UnknownActorDoesNotBypass(t *testing.T) {
+	info := &session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.Actor("future-orchestrator-typo"),
+	}
+	ctx := ctxWithInfo(info)
+
+	_, err := middleware.RequirePermissionAnywhere(ctx, authz.PermNoteRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err))
+}
+
+func TestRequireAnyPermissionAnywhere_AllowsWhenSecondKeyMatches(t *testing.T) {
+	// Moderator-only role: holds note:manage but not note:create.
+	ctx := ctxWithEffective(t, userInfo(), siteAssignment(3, authz.PermNoteManage))
+
+	info, err := middleware.RequireAnyPermissionAnywhere(ctx, []string{authz.PermNoteCreate, authz.PermNoteManage})
+	require.NoError(t, err)
+	require.NotNil(t, info)
+}
+
+func TestRequireAnyPermissionAnywhere_DeniesWhenNoKeyMatches(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermFleetRead))
+
+	_, err := middleware.RequireAnyPermissionAnywhere(ctx, []string{authz.PermNoteCreate, authz.PermNoteManage})
+	require.Error(t, err)
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+
+	// Denial reports the first (primary) key, matching
+	// RequireAnyPermission's contract.
+	var payload struct {
+		Required string `json:"required"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(connectMessage(t, err)), &payload))
+	require.Equal(t, authz.PermNoteCreate, payload.Required)
+}
+
+func TestRequireAnyPermissionAnywhere_FailClosedOnEmptyKeys(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermNoteRead))
+
+	_, err := middleware.RequireAnyPermissionAnywhere(ctx, nil)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err))
+}
+
+func TestCallerHasPermissionAnywhere_TrueForAnyScope(t *testing.T) {
+	require.True(t, middleware.CallerHasPermissionAnywhere(
+		ctxWithEffective(t, userInfo(), orgAssignment(authz.PermNoteManage)), authz.PermNoteManage))
+	require.True(t, middleware.CallerHasPermissionAnywhere(
+		ctxWithEffective(t, userInfo(), siteAssignment(5, authz.PermNoteManage)), authz.PermNoteManage))
+}
+
+func TestCallerHasPermissionAnywhere_FalseWhenAbsentOrUnwired(t *testing.T) {
+	require.False(t, middleware.CallerHasPermissionAnywhere(
+		ctxWithEffective(t, userInfo(), orgAssignment(authz.PermNoteRead)), authz.PermNoteManage),
+		"missing key probes false")
+	require.False(t, middleware.CallerHasPermissionAnywhere(
+		ctxWithInfo(userInfo()), authz.PermNoteManage),
+		"missing EffectivePermissions probes false — fail closed")
+	require.False(t, middleware.CallerHasPermissionAnywhere(
+		context.Background(), authz.PermNoteManage),
+		"no session probes false")
+}
+
+func TestCallerHasPermissionAnywhere_ActorAllowlist(t *testing.T) {
+	scheduler := ctxWithInfo(&session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.ActorScheduler,
+	})
+	require.True(t, middleware.CallerHasPermissionAnywhere(scheduler, authz.PermNoteManage))
+
+	unknown := ctxWithInfo(&session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.Actor("future-orchestrator-typo"),
+	})
+	require.False(t, middleware.CallerHasPermissionAnywhere(unknown, authz.PermNoteManage),
+		"unknown actor probes false — fail closed")
+}

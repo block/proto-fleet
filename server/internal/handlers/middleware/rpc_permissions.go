@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notes/v1/notesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -233,6 +234,18 @@ var ProcedurePermissions = map[string]string{
 	// site's network identity and stays on site:manage.
 	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure:        authz.PermFleetRead,
 	networkinfov1connect.NetworkInfoServiceUpdateNetworkNicknameProcedure: authz.PermSiteManage,
+
+	// NoteService — the shared team notepad, an org-shared resource with
+	// no site dimension. All four RPCs gate through the *Anywhere
+	// middleware variants, so a grant at any scope (org or site)
+	// passes. DeleteNote's handler calls RequireAnyPermissionAnywhere
+	// with [note:create, note:manage] — the map records the primary
+	// gate; the moderation alternate and the author-only rule are
+	// enforced in the handler/domain.
+	notesv1connect.NoteServiceListNotesProcedure:  authz.PermNoteRead,
+	notesv1connect.NoteServiceCreateNoteProcedure: authz.PermNoteCreate,
+	notesv1connect.NoteServiceUpdateNoteProcedure: authz.PermNoteCreate,
+	notesv1connect.NoteServiceDeleteNoteProcedure: authz.PermNoteCreate,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).

@@ -67,7 +67,10 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
               }}
             >
               <div data-testid="type" className="flex items-start gap-2">
-                <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
+                {/* mt-1 optically centers the 16px glyph on the first
+                    24px text line; items-center would mis-center it
+                    against wrapped multi-line descriptions. */}
+                <div className={clsx("mt-1 shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
                   <Icon width="w-4" />
                   {isFailed ? <span className="sr-only">Failed</span> : null}
                 </div>

@@ -128,6 +128,22 @@ func TestValidateReadPairing(t *testing.T) {
 			t.Fatalf("combined manage-only permissions should not require partners: %v", err)
 		}
 	})
+	t.Run("note actions need note:read", func(t *testing.T) {
+		err := validateReadPairing([]string{PermNoteCreate})
+		if err == nil {
+			t.Fatal("expected error for missing note:read")
+		}
+		if !strings.Contains(err.Error(), PermNoteRead) {
+			t.Fatalf("error should mention note:read: %v", err)
+		}
+		err = validateReadPairing([]string{PermNoteManage})
+		if err == nil {
+			t.Fatal("expected error for missing note:read")
+		}
+		if err := validateReadPairing([]string{PermNoteCreate, PermNoteManage, PermNoteRead}); err != nil {
+			t.Fatalf("note actions with note:read should pass: %v", err)
+		}
+	})
 }
 
 func TestMapRolePersistError(t *testing.T) {

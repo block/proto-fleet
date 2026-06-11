@@ -85,6 +85,13 @@ const (
 
 	// role — custom role + ADMIN/FIELD_TECH editing.
 	PermRoleManage = "role:manage"
+
+	// note — the shared team notepad: an org-wide feed every member can
+	// read and post to. note:manage is the moderation key (delete any
+	// note); editing stays author-only regardless of role.
+	PermNoteRead   = "note:read"
+	PermNoteCreate = "note:create"
+	PermNoteManage = "note:manage"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -104,6 +111,7 @@ const (
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
 	ResourceRole        = "role"
+	ResourceNote        = "note"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -169,6 +177,10 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, reset, and deactivate users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles. Built-in roles cannot be modified.", ResourceRole},
+
+	{PermNoteRead, "View the shared team notepad.", ResourceNote},
+	{PermNoteCreate, "Add notes to the shared team notepad and edit or delete your own notes.", ResourceNote},
+	{PermNoteManage, "Delete any note on the shared team notepad.", ResourceNote},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The
