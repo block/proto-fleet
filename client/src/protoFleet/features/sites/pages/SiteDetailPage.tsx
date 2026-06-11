@@ -171,7 +171,7 @@ const SiteDetailPage = () => {
         onEditBuilding={(row, siteName) => buildingModals.openDetailsEdit(row, siteName)}
         buildingsRefreshKey={buildingsRefreshKey}
       />
-      <BuildingModals modals={buildingModals} />
+      <BuildingModals modals={buildingModals} sites={sites} />
     </>
   );
 };

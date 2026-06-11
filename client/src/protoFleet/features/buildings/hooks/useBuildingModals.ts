@@ -23,7 +23,11 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // — matching the SiteModals pattern.
 export type BuildingModalState =
   | { kind: "none" }
-  | { kind: "detailsCreate"; siteId: bigint; siteName?: string; draft: BuildingFormValues }
+  // siteId undefined when opened from the global Buildings-tab CTA — the
+  // modal renders a Site dropdown for the operator to pick. When set
+  // (entry from /sites/:id or a site-scoped row), the dropdown locks to
+  // that site so the parent context is unambiguous.
+  | { kind: "detailsCreate"; siteId?: bigint; siteName?: string; draft: BuildingFormValues }
   | { kind: "detailsEdit"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues }
   | { kind: "manage"; row: BuildingWithCounts; siteName?: string }
   | { kind: "manageEditingDetails"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues };
@@ -54,7 +58,9 @@ export interface BuildingModalsApi {
   deleteTarget: BuildingWithCounts | null;
   saving: boolean;
   deleting: boolean;
-  openDetailsCreate: (siteId: bigint, siteName?: string) => void;
+  // siteId optional so the Buildings-tab CTA can open the modal without
+  // a parent-site context — the dropdown inside the modal collects it.
+  openDetailsCreate: (siteId?: bigint, siteName?: string) => void;
   openDetailsEdit: (row: BuildingWithCounts, siteName?: string) => void;
   openManage: (row: BuildingWithCounts, siteName?: string) => void;
   // Closes the topmost modal: drops details if details is stacked on manage,
@@ -64,7 +70,10 @@ export interface BuildingModalsApi {
   // BuildingSettingsModal handlers. Create returns the created Building so
   // hosts that want to chain (e.g. open ManageBuildingModal on the new
   // building) can do so; today every caller just closes the modal.
-  detailsCreate: (values: BuildingFormValues) => Promise<Building | null>;
+  // siteId is collected by the modal itself (either pre-filled from the
+  // caller or chosen from the Site dropdown), so callers pass it through
+  // to the mutation rather than relying on state.siteId.
+  detailsCreate: (values: BuildingFormValues, siteId: bigint) => Promise<Building | null>;
   detailsSaveEdit: (values: BuildingFormValues) => Promise<Building | null>;
   // Stack details (edit) on top of manage. Used by the ManageBuildingModal
   // header's "Edit building" button.
@@ -98,7 +107,7 @@ const useBuildingModals = ({
 
   const { createBuilding, updateBuilding, deleteBuilding } = useBuildings();
 
-  const openDetailsCreate = useCallback((siteId: bigint, siteName?: string) => {
+  const openDetailsCreate = useCallback((siteId?: bigint, siteName?: string) => {
     setState({ kind: "detailsCreate", siteId, siteName, draft: emptyBuildingFormValues() });
   }, []);
 
@@ -139,10 +148,9 @@ const useBuildingModals = ({
   }, []);
 
   const detailsCreate = useCallback(
-    async (values: BuildingFormValues): Promise<Building | null> => {
+    async (values: BuildingFormValues, siteId: bigint): Promise<Building | null> => {
       if (savingRef.current) return null;
       if (state.kind !== "detailsCreate") return null;
-      const siteId = state.siteId;
       savingRef.current = true;
       setSaving(true);
       return await new Promise<Building | null>((resolve) => {

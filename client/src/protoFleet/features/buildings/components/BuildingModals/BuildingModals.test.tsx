@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import BuildingModals from "./BuildingModals";
 import { emptyBuildingFormValues } from "@/protoFleet/api/buildings";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type BuildingModalsApi } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 
 // The ManageBuildingModal fetches building racks on mount — mock the API
@@ -33,6 +34,11 @@ vi.mock("@/protoFleet/api/buildings", async () => {
 const makeRow = (id: bigint, name: string, rackCount: bigint = 0n) =>
   create(BuildingWithCountsSchema, { building: create(BuildingSchema, { id, name, siteId: 7n }), rackCount });
 
+const makeSites = () => [
+  create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 7n, name: "North DC" }) }),
+  create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 9n, name: "South DC" }) }),
+];
+
 const makeApi = (overrides: Partial<BuildingModalsApi> = {}): BuildingModalsApi => ({
   state: { kind: "none" },
   deleteTarget: null,
@@ -57,7 +63,7 @@ describe("BuildingModals", () => {
     const modals = makeApi({
       state: { kind: "detailsCreate", siteId: 7n, siteName: "North DC", draft: emptyBuildingFormValues() },
     });
-    render(<BuildingModals modals={modals} />);
+    render(<BuildingModals modals={modals} sites={makeSites()} />);
     expect(screen.getByTestId("building-settings-modal")).toBeInTheDocument();
     expect(screen.getByTestId("building-settings-modal-save")).toBeInTheDocument();
   });
@@ -70,7 +76,7 @@ describe("BuildingModals", () => {
       requestDeleteCurrent,
     });
 
-    render(<BuildingModals modals={modals} />);
+    render(<BuildingModals modals={modals} sites={makeSites()} />);
     fireEvent.click(screen.getByTestId("building-settings-modal-delete"));
 
     expect(requestDeleteCurrent).toHaveBeenCalled();
@@ -85,7 +91,7 @@ describe("BuildingModals", () => {
       deleteTarget: row,
     });
 
-    render(<BuildingModals modals={modals} />);
+    render(<BuildingModals modals={modals} sites={makeSites()} />);
 
     expect(screen.getByTestId("building-delete-dialog")).toBeInTheDocument();
     expect(screen.getByText(/Delete building "Main"\?/)).toBeInTheDocument();
@@ -98,7 +104,7 @@ describe("BuildingModals", () => {
       deleteTarget: row,
     });
 
-    render(<BuildingModals modals={modals} />);
+    render(<BuildingModals modals={modals} sites={makeSites()} />);
     fireEvent.click(screen.getByTestId("building-delete-dialog-cancel"));
 
     expect(modals.dismissDeleteConfirm).toHaveBeenCalled();

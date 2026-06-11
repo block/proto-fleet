@@ -1,16 +1,21 @@
 import BuildingDeleteDialog from "../BuildingDeleteDialog";
 import BuildingSettingsModal from "../BuildingSettingsModal";
 import ManageBuildingModal from "../ManageBuildingModal";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 
 interface BuildingModalsProps {
   modals: ReturnType<typeof useBuildingModals>;
+  // Site list powers BuildingSettingsModal's Site dropdown in create mode.
+  // Hosts already fetch sites for their own rendering, so we forward the
+  // existing list instead of fetching again here.
+  sites: SiteWithCounts[];
 }
 
 // Renders whichever building modal is on top of the stack. The modals hook
 // owns BuildingWithCounts in its edit-bearing states, so this host needs no
 // external buildings cache to resolve cascade-dialog rack_count.
-const BuildingModals = ({ modals }: BuildingModalsProps) => {
+const BuildingModals = ({ modals, sites }: BuildingModalsProps) => {
   const { state, deleteTarget } = modals;
   const showManage = state.kind === "manage" || state.kind === "manageEditingDetails";
 
@@ -46,8 +51,10 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
           mode="create"
           initialValues={state.draft}
           parentSiteLabel={state.siteName}
-          onSave={async (values) => {
-            await modals.detailsCreate(values);
+          sites={sites}
+          initialSiteId={state.siteId}
+          onSave={async (values, siteId) => {
+            await modals.detailsCreate(values, siteId);
           }}
           onDismiss={modals.dismiss}
           saving={modals.saving}

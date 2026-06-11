@@ -71,6 +71,16 @@ describe("useBuildingModals", () => {
     }
   });
 
+  it("openDetailsCreate with no args opens detailsCreate with undefined siteId (Buildings-tab CTA path)", () => {
+    const { result } = renderHook(() => useBuildingModals());
+    act(() => result.current.openDetailsCreate());
+    expect(result.current.state.kind).toBe("detailsCreate");
+    if (result.current.state.kind === "detailsCreate") {
+      expect(result.current.state.siteId).toBeUndefined();
+      expect(result.current.state.siteName).toBeUndefined();
+    }
+  });
+
   it("openManage seeds manage state with the row + site label", () => {
     const row = makeBuildingRow(11n, "Main");
     const { result } = renderHook(() => useBuildingModals());
@@ -99,12 +109,35 @@ describe("useBuildingModals", () => {
     act(() => result.current.openDetailsCreate(7n, "North DC"));
 
     await act(async () => {
-      await result.current.detailsCreate(emptyBuildingFormValues());
+      await result.current.detailsCreate(emptyBuildingFormValues(), 7n);
     });
 
     await waitFor(() => {
       expect(buildingsClient.createBuilding).toHaveBeenCalledTimes(1);
     });
+    expect(refetch).toHaveBeenCalled();
+    expect(result.current.state.kind).toBe("none");
+  });
+
+  it("global create path: openDetailsCreate() + detailsCreate(values, siteId) threads the chosen siteId to CreateBuilding", async () => {
+    vi.mocked(buildingsClient.createBuilding).mockResolvedValue(makeCreateResp(11n, "Main"));
+    const refetch = vi.fn();
+    const { result } = renderHook(() => useBuildingModals({ refetchBuildings: refetch }));
+    // Buildings-tab CTA opens with no preselected site; the modal's Site
+    // dropdown collects siteId and passes it through detailsCreate.
+    act(() => result.current.openDetailsCreate());
+
+    await act(async () => {
+      await result.current.detailsCreate(emptyBuildingFormValues(), 9n);
+    });
+
+    await waitFor(() => {
+      expect(buildingsClient.createBuilding).toHaveBeenCalledTimes(1);
+    });
+    // The CreateBuilding RPC request carries the siteId the modal collected,
+    // not anything from state (which had none).
+    const call = vi.mocked(buildingsClient.createBuilding).mock.calls[0]?.[0];
+    expect(call?.siteId).toBe(9n);
     expect(refetch).toHaveBeenCalled();
     expect(result.current.state.kind).toBe("none");
   });
