@@ -27,8 +27,8 @@ export class EnergyPage extends BasePage {
   }
 
   async openCurtailmentPlanner() {
-    await this.clickButton("Plan curtailment");
-    await expect(this.page.getByTestId("full-screen-two-pane-modal").getByText("Plan a curtailment")).toBeVisible();
+    await this.clickButton("Run curtailment");
+    await expect(this.page.getByTestId("full-screen-two-pane-modal").getByText("New curtailment")).toBeVisible();
   }
 
   async fillCurtailmentPlan({
@@ -50,7 +50,7 @@ export class EnergyPage extends BasePage {
   async waitForPreview(targetKw: string) {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
     const targetInput = modal.locator("#curtailment-target-kw");
-    const startButton = modal.getByRole("button", { name: "Start curtailment" });
+    const startButton = modal.getByRole("button", { name: "Run curtailment" });
     const deadline = Date.now() + DEFAULT_TIMEOUT * 2;
 
     do {
@@ -74,14 +74,16 @@ export class EnergyPage extends BasePage {
   }
 
   async startCurtailment() {
-    await this.page
-      .getByTestId("full-screen-two-pane-modal")
-      .getByRole("button", { name: "Start curtailment" })
-      .click();
+    await this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }).click();
     const maintenanceConfirmation = this.page.getByTestId("curtailment-maintenance-confirmation");
-    if (await maintenanceConfirmation.isVisible().catch(() => false)) {
+    const runConfirmation = this.page.getByTestId("curtailment-run-confirmation");
+
+    await expect(maintenanceConfirmation.or(runConfirmation)).toBeVisible();
+    if (await maintenanceConfirmation.isVisible()) {
       await maintenanceConfirmation.getByRole("button", { name: "Force include" }).click();
     }
+    await expect(runConfirmation).toBeVisible();
+    await runConfirmation.getByRole("button", { name: "Run curtailment" }).click();
     await expect(this.page.getByTestId("full-screen-two-pane-modal")).toBeHidden();
   }
 
