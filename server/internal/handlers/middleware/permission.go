@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -175,6 +176,125 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 		}
 	}
 	return nil, permissionDeniedError(keys[0], rc)
+}
+
+// RequirePermissionAnywhere gates a handler on the caller holding the
+// named permission key under ANY of their assignments — org scope or
+// any site scope. Use it only for org-shared collaborative resources
+// (the team notepad) that have no site dimension to narrow on: a
+// site-scoped FIELD_TECH is as much a member of the team such a
+// resource serves as an org-scoped ADMIN, so membership — not scope —
+// is the gate. For anything tied to a site, use RequirePermission with
+// a ResourceContext so narrowing applies.
+//
+// Authentication, internal-actor allowlisting, fail-closed handling,
+// and the structured denial payload match RequirePermission exactly;
+// the payload's scope object is empty because there is no resource
+// scope to echo.
+func RequirePermissionAnywhere(ctx context.Context, key string) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	// Same allowlisted internal-actor short-circuit as RequirePermission.
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return info, nil
+		default:
+			return nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+
+	if !eff.HasAnywhere(key) {
+		return nil, permissionDeniedError(key, authz.ResourceContext{})
+	}
+	return info, nil
+}
+
+// RequireAnyPermissionAnywhere is RequireAnyPermission with
+// HasAnywhere semantics: the caller must hold at least one of the keys
+// under any of their assignments. The first key is the "primary" gate
+// for error messaging, matching RequireAnyPermission's contract.
+func RequireAnyPermissionAnywhere(ctx context.Context, keys []string) (*session.Info, error) {
+	if len(keys) == 0 {
+		// Programming error — surface as Internal so a misuse fails
+		// closed rather than silently allowing.
+		return nil, fleeterror.NewInternalError(
+			"authz: RequireAnyPermissionAnywhere called with no keys; refusing to short-circuit RBAC",
+		)
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	// Same allowlisted internal-actor short-circuit as RequirePermission.
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return info, nil
+		default:
+			return nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+
+	if slices.ContainsFunc(keys, eff.HasAnywhere) {
+		return info, nil
+	}
+	return nil, permissionDeniedError(keys[0], authz.ResourceContext{})
+}
+
+// CallerHasPermissionAnywhere reports whether the caller holds the key
+// under any of their assignments, without erroring. It is a capability
+// probe for handlers that branch on an extra grant after their primary
+// gate has already passed (e.g. DeleteNote consults note:manage to
+// decide whether the caller may moderate other authors' notes).
+// Allowlisted internal actors probe true; an unknown actor or a
+// missing EffectivePermissions probes false — fail closed, consistent
+// with the Require* gates.
+func CallerHasPermissionAnywhere(ctx context.Context, key string) bool {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return false
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return true
+		default:
+			return false
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return false
+	}
+	return eff.HasAnywhere(key)
 }
 
 // permissionDeniedError builds a Connect PermissionDenied error whose

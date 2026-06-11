@@ -248,3 +248,74 @@ func TestEffective_IsSubsumedBy(t *testing.T) {
 	require.False(t, adminOrg.IsSubsumedBy(callerOrgFullPlusNarrowSite7),
 		"caller's site-7 narrowing strips miner:reboot, but the org-scope ADMIN target's miner:reboot authority remains live at site 7 — caller must not subsume target")
 }
+
+func TestEffective_HasAnywhere_OrgScopeGrant(t *testing.T) {
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermNoteRead),
+	})
+	require.True(t, eff.HasAnywhere(authz.PermNoteRead))
+}
+
+func TestEffective_HasAnywhere_SiteScopeOnlyGrant(t *testing.T) {
+	// The regression target: a FIELD_TECH whose only assignment is
+	// site-scoped must still pass the notepad gate, even though Has()
+	// with an org resource context denies (no org-scope grant).
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		siteScope(1, authz.PermNoteRead, authz.PermNoteCreate),
+	})
+
+	require.False(t, eff.Has(authz.PermNoteRead, orgResource()),
+		"sanity: an org-scoped Has() denies a site-only grant")
+	require.True(t, eff.HasAnywhere(authz.PermNoteRead))
+	require.True(t, eff.HasAnywhere(authz.PermNoteCreate))
+}
+
+func TestEffective_HasAnywhere_AbsentKeyDenied(t *testing.T) {
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermFleetRead),
+		siteScope(1, authz.PermMinerRead),
+	})
+	require.False(t, eff.HasAnywhere(authz.PermNoteRead))
+}
+
+func TestEffective_HasAnywhere_NilAndEmptyDeny(t *testing.T) {
+	var nilEff *authz.EffectivePermissions
+	require.False(t, nilEff.HasAnywhere(authz.PermNoteRead))
+	require.False(t, authz.NewEffectivePermissions(nil).HasAnywhere(authz.PermNoteRead))
+}
+
+func TestEffective_HasAnywhere_NarrowedOrgKeyStillCountsAnywhere(t *testing.T) {
+	// Union semantics, documented on purpose: a site assignment that
+	// narrows away note:read at site 1 still leaves the org-scope grant
+	// counting for HasAnywhere — the notepad has no site dimension, so
+	// narrowing has nothing to act on.
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermNoteRead),
+		siteScope(1, authz.PermMinerRead), // no note:read at site 1
+	})
+
+	require.False(t, eff.Has(authz.PermNoteRead, site(1)),
+		"sanity: narrowing strips the key at site 1 for site-scoped checks")
+	require.True(t, eff.HasAnywhere(authz.PermNoteRead))
+}
+
+func TestEffective_HasAnywhere_MatchesFlatKeys(t *testing.T) {
+	// HasAnywhere is the decision-time twin of FlatKeys(), which is
+	// what UserInfo.permissions projects for the client's coarse
+	// gating. The two must agree so client visibility and server
+	// authorization can't drift.
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermFleetRead),
+		siteScope(3, authz.PermNoteRead, authz.PermNoteCreate),
+	})
+
+	flat := make(map[string]bool)
+	for _, k := range eff.FlatKeys() {
+		flat[k] = true
+	}
+	for _, key := range []string{
+		authz.PermFleetRead, authz.PermNoteRead, authz.PermNoteCreate, authz.PermNoteManage,
+	} {
+		require.Equal(t, flat[key], eff.HasAnywhere(key), "FlatKeys/HasAnywhere parity for %s", key)
+	}
+}

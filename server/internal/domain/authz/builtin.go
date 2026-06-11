@@ -71,7 +71,7 @@ func BuiltinRoles() []BuiltinRoleSpec {
 		{
 			Key:             BuiltinKeyFieldTech,
 			Name:            "FIELD_TECH",
-			Description:     "Field tech. Read fleet data, blink the locator LED, download logs, manage racks. Built-in role; cannot be modified.",
+			Description:     "Field tech. Read fleet data, blink the locator LED, download logs, manage racks, read and post team notes. Built-in role; cannot be modified.",
 			Mode:            ReconcileAdditive,
 			SeedPermissions: fieldTechSeedPermissions(),
 		},
@@ -121,5 +121,7 @@ func fieldTechSeedPermissions() []string {
 		PermMinerDownloadLogs,
 		PermRackRead,
 		PermRackManage,
+		PermNoteRead,
+		PermNoteCreate,
 	}
 }

@@ -20,6 +20,7 @@ func TestEventCategoryValid(t *testing.T) {
 		{CategoryPool, true},
 		{CategorySchedule, true},
 		{CategoryCurtailment, true},
+		{CategoryNote, true},
 		{CategorySystem, true},
 		{EventCategory(""), false},
 		{EventCategory("unknown"), false},

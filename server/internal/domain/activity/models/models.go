@@ -15,6 +15,7 @@ const (
 	CategoryPool            EventCategory = "pool"
 	CategorySchedule        EventCategory = "schedule"
 	CategoryCurtailment     EventCategory = "curtailment"
+	CategoryNote            EventCategory = "note"
 	CategorySystem          EventCategory = "system"
 )
 
@@ -38,7 +39,7 @@ func (c EventCategory) Valid() bool {
 	switch c {
 	case CategoryAuth, CategoryDeviceCommand, CategoryFleetManagement,
 		CategoryCollection, CategoryPool, CategorySchedule,
-		CategoryCurtailment, CategorySystem:
+		CategoryCurtailment, CategoryNote, CategorySystem:
 		return true
 	}
 	return false

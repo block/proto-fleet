@@ -112,6 +112,31 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// HasAnywhere reports whether the user holds the key under ANY
+// assignment in this org — org scope or any site bucket. It is the
+// decision-time gate for org-shared collaborative resources (the team
+// notepad) where a role assignment at any scope makes the caller a
+// member of the surface the resource serves; such resources have no
+// site dimension, so narrowing has nothing to act on and union
+// semantics are deliberate. Membership matches FlatKeys(), which is
+// what UserInfo.permissions projects for the client's coarse gating —
+// gating the server on HasAnywhere keeps both sides of that contract
+// in agreement.
+func (e *EffectivePermissions) HasAnywhere(key string) bool {
+	if e == nil {
+		return false
+	}
+	if e.orgScope[key] {
+		return true
+	}
+	for _, siteKeys := range e.bySite {
+		if siteKeys[key] {
+			return true
+		}
+	}
+	return false
+}
+
 // StrictlyDominates reports whether this EffectivePermissions
 // subsumes other AND holds at least one (key, scope) pair other does
 // not — i.e., a proper superset. Used as the no-role:manage branch of

@@ -144,6 +144,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createFleetNodeApiKeyStmt, err = db.PrepareContext(ctx, createFleetNodeApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFleetNodeApiKey: %w", err)
 	}
+	if q.createNoteStmt, err = db.PrepareContext(ctx, createNote); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateNote: %w", err)
+	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
 	}
@@ -456,6 +459,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
 	}
+	if q.getNoteStmt, err = db.PrepareContext(ctx, getNote); err != nil {
+		return nil, fmt.Errorf("error preparing query GetNote: %w", err)
+	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
 	}
@@ -705,6 +711,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listNonTerminalCurtailmentEventsStmt, err = db.PrepareContext(ctx, listNonTerminalCurtailmentEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNonTerminalCurtailmentEvents: %w", err)
 	}
+	if q.listNotesStmt, err = db.PrepareContext(ctx, listNotes); err != nil {
+		return nil, fmt.Errorf("error preparing query ListNotes: %w", err)
+	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
 	}
@@ -912,6 +921,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteFleetNodesForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteFleetNodesForExpiredEnrollments); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteFleetNodesForExpiredEnrollments: %w", err)
 	}
+	if q.softDeleteNoteStmt, err = db.PrepareContext(ctx, softDeleteNote); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteNote: %w", err)
+	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
 	}
@@ -1040,6 +1052,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateMinerPasswordStmt, err = db.PrepareContext(ctx, updateMinerPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMinerPassword: %w", err)
+	}
+	if q.updateNoteContentStmt, err = db.PrepareContext(ctx, updateNoteContent); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateNoteContent: %w", err)
 	}
 	if q.updateOpenErrorStmt, err = db.PrepareContext(ctx, updateOpenError); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateOpenError: %w", err)
@@ -1325,6 +1340,11 @@ func (q *Queries) Close() error {
 	if q.createFleetNodeApiKeyStmt != nil {
 		if cerr := q.createFleetNodeApiKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFleetNodeApiKeyStmt: %w", cerr)
+		}
+	}
+	if q.createNoteStmt != nil {
+		if cerr := q.createNoteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createNoteStmt: %w", cerr)
 		}
 	}
 	if q.createOrganizationStmt != nil {
@@ -1847,6 +1867,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
 		}
 	}
+	if q.getNoteStmt != nil {
+		if cerr := q.getNoteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getNoteStmt: %w", cerr)
+		}
+	}
 	if q.getOfflineDevicesStmt != nil {
 		if cerr := q.getOfflineDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
@@ -2262,6 +2287,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listNonTerminalCurtailmentEventsStmt: %w", cerr)
 		}
 	}
+	if q.listNotesStmt != nil {
+		if cerr := q.listNotesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listNotesStmt: %w", cerr)
+		}
+	}
 	if q.listOrganizationsStmt != nil {
 		if cerr := q.listOrganizationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
@@ -2607,6 +2637,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteFleetNodesForExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteNoteStmt != nil {
+		if cerr := q.softDeleteNoteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteNoteStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
@@ -2820,6 +2855,11 @@ func (q *Queries) Close() error {
 	if q.updateMinerPasswordStmt != nil {
 		if cerr := q.updateMinerPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMinerPasswordStmt: %w", cerr)
+		}
+	}
+	if q.updateNoteContentStmt != nil {
+		if cerr := q.updateNoteContentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateNoteContentStmt: %w", cerr)
 		}
 	}
 	if q.updateOpenErrorStmt != nil {
@@ -3036,6 +3076,7 @@ type Queries struct {
 	createDeviceSetStmt                                 *sql.Stmt
 	createFleetNodeStmt                                 *sql.Stmt
 	createFleetNodeApiKeyStmt                           *sql.Stmt
+	createNoteStmt                                      *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
 	createPendingEnrollmentStmt                         *sql.Stmt
 	createPoolStmt                                      *sql.Stmt
@@ -3140,6 +3181,7 @@ type Queries struct {
 	getMinerModelGroupsStmt                             *sql.Stmt
 	getMinerStateCountsByDeviceIDsStmt                  *sql.Stmt
 	getMinerStateSnapshotsStmt                          *sql.Stmt
+	getNoteStmt                                         *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                          *sql.Stmt
 	getOrgScopeAssignmentForUserStmt                    *sql.Stmt
@@ -3223,6 +3265,7 @@ type Queries struct {
 	listMQTTSourceStatesByOrgStmt                       *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                *sql.Stmt
+	listNotesStmt                                       *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPermissionsStmt                                 *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
@@ -3292,6 +3335,7 @@ type Queries struct {
 	softDeleteDiscoveredDevicesForDeletedDevicesStmt    *sql.Stmt
 	softDeleteFleetNodeStmt                             *sql.Stmt
 	softDeleteFleetNodesForExpiredEnrollmentsStmt       *sql.Stmt
+	softDeleteNoteStmt                                  *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
@@ -3335,6 +3379,7 @@ type Queries struct {
 	updateMessagePermanentlyFailedStmt                  *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
 	updateMinerPasswordStmt                             *sql.Stmt
+	updateNoteContentStmt                               *sql.Stmt
 	updateOpenErrorStmt                                 *sql.Stmt
 	updateOrganizationStmt                              *sql.Stmt
 	updatePoolStmt                                      *sql.Stmt
@@ -3408,6 +3453,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createDeviceSetStmt:                                 q.createDeviceSetStmt,
 		createFleetNodeStmt:                                 q.createFleetNodeStmt,
 		createFleetNodeApiKeyStmt:                           q.createFleetNodeApiKeyStmt,
+		createNoteStmt:                                      q.createNoteStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
 		createPendingEnrollmentStmt:                         q.createPendingEnrollmentStmt,
 		createPoolStmt:                                      q.createPoolStmt,
@@ -3512,6 +3558,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
 		getMinerStateCountsByDeviceIDsStmt:                  q.getMinerStateCountsByDeviceIDsStmt,
 		getMinerStateSnapshotsStmt:                          q.getMinerStateSnapshotsStmt,
+		getNoteStmt:                                         q.getNoteStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,
 		getOrgScopeAssignmentForUserStmt:                    q.getOrgScopeAssignmentForUserStmt,
@@ -3595,6 +3642,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMQTTSourceStatesByOrgStmt:                       q.listMQTTSourceStatesByOrgStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                q.listNonTerminalCurtailmentEventsStmt,
+		listNotesStmt:                                       q.listNotesStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPermissionsStmt:                                 q.listPermissionsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
@@ -3664,6 +3712,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteDiscoveredDevicesForDeletedDevicesStmt:    q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
 		softDeleteFleetNodeStmt:                             q.softDeleteFleetNodeStmt,
 		softDeleteFleetNodesForExpiredEnrollmentsStmt:       q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
+		softDeleteNoteStmt:                                  q.softDeleteNoteStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
@@ -3707,6 +3756,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateMessagePermanentlyFailedStmt:                  q.updateMessagePermanentlyFailedStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
 		updateMinerPasswordStmt:                             q.updateMinerPasswordStmt,
+		updateNoteContentStmt:                               q.updateNoteContentStmt,
 		updateOpenErrorStmt:                                 q.updateOpenErrorStmt,
 		updateOrganizationStmt:                              q.updateOrganizationStmt,
 		updatePoolStmt:                                      q.updatePoolStmt,
