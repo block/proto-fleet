@@ -37,6 +37,39 @@ describe("BuildingSettingsModal — create mode", () => {
     expect(save).not.toBeDisabled();
   });
 
+  it("surfaces a stale-site error and disables Save when the chosen site disappears from the list", () => {
+    const { rerender } = render(
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
+    fireEvent.click(screen.getByTestId("building-settings-site-select"));
+    fireEvent.click(screen.getByText("South DC"));
+    expect(screen.getByTestId("building-settings-modal-save")).not.toBeDisabled();
+
+    // Sites list refreshes and drops the chosen site (e.g. another operator
+    // deleted it). The dropdown's local state still holds the stale id, but
+    // Save must lock and an inline error must surface.
+    rerender(
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={[create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 7n, name: "North DC" }) })]}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("building-settings-modal-save")).toBeDisabled();
+    expect(screen.getByText(/Selected site is no longer available/)).toBeInTheDocument();
+  });
+
   it("locks the Site dropdown when initialSiteId is supplied (entry from /sites/:id)", () => {
     render(
       <BuildingSettingsModal

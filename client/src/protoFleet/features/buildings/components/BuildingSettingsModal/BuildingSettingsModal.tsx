@@ -169,11 +169,23 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
     initialValues.defaultRackOrderIndex,
   ]);
 
+  const siteOptions = useMemo(
+    () =>
+      (sites ?? [])
+        .filter((s) => s.site !== undefined)
+        .map((s) => ({ value: s.site!.id.toString(), label: s.site!.name }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [sites],
+  );
+
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
     if (!values) return;
     if (props.mode === "create") {
-      if (siteIdText === "") return;
+      // Belt-and-suspenders against a stale `sites` snapshot — the
+      // disabled Save button gates the same condition, but a click that
+      // races a `sites` refresh shouldn't slip a deleted siteId through.
+      if (siteIdText === "" || !siteOptions.some((o) => o.value === siteIdText)) return;
       let siteId: bigint;
       try {
         siteId = BigInt(siteIdText);
@@ -184,22 +196,21 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
       return;
     }
     await props.onSave(values);
-  }, [buildValues, props, siteIdText]);
+  }, [buildValues, props, siteIdText, siteOptions]);
 
   const nameValid = name.trim().length > 0;
-  // Create mode also gates Save on a site selection — buildings can't be
-  // created without a parent. Edit mode ignores the dropdown entirely.
-  const siteValid = !isCreate || siteIdText !== "";
+  // Create mode gates Save on a site selection that still exists in the
+  // current `sites` list. Otherwise a stale or deleted site id (e.g. the
+  // list refreshed and dropped the chosen site after selection) could be
+  // submitted to CreateBuilding. Edit mode ignores the dropdown entirely.
+  const siteInOptions = siteIdText !== "" && siteOptions.some((o) => o.value === siteIdText);
+  const siteValid = !isCreate || siteInOptions;
+  // Surface an inline error when the chosen site has disappeared from the
+  // list — including the locked / site-scoped case, where the operator
+  // can't pick another site and needs the page to be reloaded.
+  const siteStale = isCreate && siteIdText !== "" && !siteInOptions;
+  const siteError = siteStale ? "Selected site is no longer available. Refresh and try again." : undefined;
   const primaryDisabled = !nameValid || !siteValid || saving;
-
-  const siteOptions = useMemo(
-    () =>
-      (sites ?? [])
-        .filter((s) => s.site !== undefined)
-        .map((s) => ({ value: s.site!.id.toString(), label: s.site!.name }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [sites],
-  );
 
   const buttons =
     props.mode === "create"
@@ -259,6 +270,7 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
             value={siteIdText}
             onChange={(v) => setSiteIdText(v)}
             disabled={siteLocked}
+            error={siteError ?? false}
             forceBelow
             testId="building-settings-site-select"
           />

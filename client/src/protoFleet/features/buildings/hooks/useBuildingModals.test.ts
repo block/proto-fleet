@@ -119,6 +119,29 @@ describe("useBuildingModals", () => {
     expect(result.current.state.kind).toBe("none");
   });
 
+  it("global create path: openDetailsCreate() + detailsCreate(values, siteId) threads the chosen siteId to CreateBuilding", async () => {
+    vi.mocked(buildingsClient.createBuilding).mockResolvedValue(makeCreateResp(11n, "Main"));
+    const refetch = vi.fn();
+    const { result } = renderHook(() => useBuildingModals({ refetchBuildings: refetch }));
+    // Buildings-tab CTA opens with no preselected site; the modal's Site
+    // dropdown collects siteId and passes it through detailsCreate.
+    act(() => result.current.openDetailsCreate());
+
+    await act(async () => {
+      await result.current.detailsCreate(emptyBuildingFormValues(), 9n);
+    });
+
+    await waitFor(() => {
+      expect(buildingsClient.createBuilding).toHaveBeenCalledTimes(1);
+    });
+    // The CreateBuilding RPC request carries the siteId the modal collected,
+    // not anything from state (which had none).
+    const call = vi.mocked(buildingsClient.createBuilding).mock.calls[0]?.[0];
+    expect(call?.siteId).toBe(9n);
+    expect(refetch).toHaveBeenCalled();
+    expect(result.current.state.kind).toBe("none");
+  });
+
   it("detailsSaveEdit (manageEditingDetails) refreshes the manage row with server canonical values", async () => {
     vi.mocked(buildingsClient.updateBuilding).mockResolvedValue(makeUpdateResp(11n, "Renamed"));
     const initial = makeBuildingRow(11n, "Old");
