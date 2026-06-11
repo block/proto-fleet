@@ -1150,17 +1150,30 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 	ctx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
 	defer cancel()
 
-	body, contentType, contentLength, err := multipartFirmwareBody(firmware)
+	parts, err := multipartFirmwareParts(firmware)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, body)
+	pr, pw := io.Pipe()
+	defer pr.Close()
+
+	writerDone := make(chan error, 1)
+	go func() {
+		if err := writeMultipartFirmwareBody(pw, firmware, parts); err != nil {
+			_ = pw.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		writerDone <- pw.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, pr)
 	if err != nil {
 		return fmt.Errorf("failed to create firmware upload request: %w", err)
 	}
-	req.Header.Set("Content-Type", contentType)
-	req.ContentLength = contentLength
+	req.Header.Set("Content-Type", parts.contentType)
+	req.ContentLength = parts.contentLength
 	if c.bearerToken.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearerToken.Token)
 	}
@@ -1184,6 +1197,9 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 
 	switch resp.StatusCode {
 	case http.StatusOK:
+		if err := <-writerDone; err != nil {
+			return fmt.Errorf("firmware upload: multipart writer failed: %w", err)
+		}
 		return nil
 	case http.StatusUnauthorized:
 		return fmt.Errorf("firmware upload unauthorized: %s", withDetail("check bearer token", detail))
@@ -1200,18 +1216,51 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 	}
 }
 
-func multipartFirmwareBody(firmware sdk.FirmwareFile) (io.Reader, string, int64, error) {
+type multipartFirmwareUpload struct {
+	header        []byte
+	footer        []byte
+	contentType   string
+	contentLength int64
+}
+
+func multipartFirmwareParts(firmware sdk.FirmwareFile) (multipartFirmwareUpload, error) {
 	var header bytes.Buffer
 	writer := multipart.NewWriter(&header)
 	if _, err := writer.CreateFormFile("file", firmware.Filename); err != nil {
-		return nil, "", 0, fmt.Errorf("failed to create multipart form file: %w", err)
+		return multipartFirmwareUpload{}, fmt.Errorf("failed to create multipart form file: %w", err)
 	}
 
-	footer := "\r\n--" + writer.Boundary() + "--\r\n"
-	contentLength := int64(header.Len()) + firmware.Size + int64(len(footer))
-	body := io.MultiReader(bytes.NewReader(header.Bytes()), firmware.Reader, strings.NewReader(footer))
+	var footer bytes.Buffer
+	footerWriter := multipart.NewWriter(&footer)
+	if err := footerWriter.SetBoundary(writer.Boundary()); err != nil {
+		return multipartFirmwareUpload{}, fmt.Errorf("failed to set multipart boundary: %w", err)
+	}
+	if err := footerWriter.Close(); err != nil {
+		return multipartFirmwareUpload{}, fmt.Errorf("failed to close multipart writer: %w", err)
+	}
 
-	return body, writer.FormDataContentType(), contentLength, nil
+	return multipartFirmwareUpload{
+		header:        header.Bytes(),
+		footer:        footer.Bytes(),
+		contentType:   writer.FormDataContentType(),
+		contentLength: int64(header.Len()) + firmware.Size + int64(footer.Len()),
+	}, nil
+}
+
+func writeMultipartFirmwareBody(w io.Writer, firmware sdk.FirmwareFile, parts multipartFirmwareUpload) error {
+	if _, err := w.Write(parts.header); err != nil {
+		return fmt.Errorf("failed to write multipart header: %w", err)
+	}
+	if _, err := io.CopyN(w, firmware.Reader, firmware.Size); err != nil {
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("firmware reader ended before declared size %d: %w", firmware.Size, io.ErrUnexpectedEOF)
+		}
+		return fmt.Errorf("failed to write firmware data: %w", err)
+	}
+	if _, err := w.Write(parts.footer); err != nil {
+		return fmt.Errorf("failed to write multipart footer: %w", err)
+	}
+	return nil
 }
 
 // withDetail returns detail if non-empty, otherwise falls back to fallback.
