@@ -5,5 +5,5 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-just -f "${REPO_ROOT}/justfile" build-fleet-cli >/dev/null
-exec "${REPO_ROOT}/server/.fleet/fleetcli" "$@"
+just --quiet -f "${REPO_ROOT}/justfile" build-fleet-cli >/dev/null
+exec "${REPO_ROOT}/.cache/fleet-cli/fleetcli" "$@"

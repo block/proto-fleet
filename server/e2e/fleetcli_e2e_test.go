@@ -18,7 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const fleetCLIBinaryPath = "../.fleet/fleetcli-e2e"
+// fleetCLIBinaryPath sits under the repo-root .cache directory so writing the
+// test binary never triggers the docker compose watch on server/.
+const fleetCLIBinaryPath = "../../.cache/fleet-cli/fleetcli-e2e"
 
 // TestFleetCLIWorkflow drives the local sim-rig workflow through the fleetcli
 // binary: create admin -> pairing discover -> pairing pair -> miners list ->
