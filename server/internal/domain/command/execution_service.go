@@ -535,12 +535,12 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if err != nil {
 			break
 		}
-		installVerified, pollErr := es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID)
+		shouldReboot, pollErr := es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID)
 		if pollErr != nil {
 			err = pollErr
 			break
 		}
-		if installVerified {
+		if shouldReboot {
 			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
 		}
 	case commandtype.Unpair:
@@ -949,8 +949,9 @@ const (
 	firmwareInstallGraceWindow  = 60 * time.Second
 )
 
-// clearFirmwareUpdateStatus resets the device status from REBOOT_REQUIRED back to ACTIVE
-// after a successful reboot command, allowing telemetry to take over status management.
+// clearFirmwareUpdateStatus resets stale firmware statuses back to ACTIVE after
+// a reboot command or firmware cleanup path, allowing telemetry to take over
+// status management.
 func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, deviceID int64) {
 	if es.conn == nil {
 		return
@@ -1001,21 +1002,24 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 }
 
 // pollFirmwareInstallStatus polls the rig's install status after a successful firmware
-// upload until installation completes or fails. The device status is set to UPDATING
-// only after the probe confirms the device supports install status reporting, then
-// transitions to REBOOT_REQUIRED on success. Returns true only when install
-// completion was verified and the device is ready for an activation reboot.
-// For miners that don't support install status polling, returns false, nil.
+// upload until installation completes or fails. Devices without install-status
+// reporting are still reboot-ready after upload success; capability dispatch has
+// already verified reboot support for firmware updates. For polling-capable
+// devices, status transitions to UPDATING while installation runs, then
+// REBOOT_REQUIRED on success.
 func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) (bool, error) {
 	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
 	if !canPoll {
-		return false, nil
+		slog.Info("firmware update status provider unavailable, rebooting after upload", "device_id", deviceID)
+		es.markFirmwareRebootRequired(ctx, deviceID)
+		return true, nil
 	}
 
 	probeStatus, probeErr := provider.GetFirmwareUpdateStatus(ctx)
 	if probeErr == nil && probeStatus == nil {
-		slog.Info("firmware update status provider does not report install status, skipping polling", "device_id", deviceID)
-		return false, nil
+		slog.Info("firmware update status provider does not report install status, rebooting after upload", "device_id", deviceID)
+		es.markFirmwareRebootRequired(ctx, deviceID)
+		return true, nil
 	}
 
 	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
@@ -1037,6 +1041,24 @@ func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, miner
 		}
 	}
 	return installVerified, pollResult
+}
+
+func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, deviceID int64) {
+	if es.conn == nil || es.deviceStore == nil {
+		return
+	}
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(ctx, deviceID)
+	})
+	if err != nil {
+		slog.Warn("failed to resolve device identifier for firmware reboot status", "device_id", deviceID, "error", err)
+		return
+	}
+
+	devID := tmodels.DeviceIdentifier(deviceIdentifier)
+	if upsertErr := es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusRebootRequired, ""); upsertErr != nil {
+		slog.Warn("failed to set firmware status to REBOOT_REQUIRED before automatic reboot", "device_id", deviceID, "error", upsertErr)
+	}
 }
 
 func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, probeStatus *sdk.FirmwareUpdateStatus, probeErr error) (bool, error) {

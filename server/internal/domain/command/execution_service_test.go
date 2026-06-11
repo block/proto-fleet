@@ -596,7 +596,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		assert.Contains(t, err.Error(), "automatic reboot failed")
 	})
 
-	t.Run("miner without firmware status provider does not auto reboot", func(t *testing.T) {
+	t.Run("miner without firmware status provider is reboot ready after upload", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -606,10 +606,10 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), mockMiner, 42)
 
 		require.NoError(t, err)
-		assert.False(t, installVerified)
+		assert.True(t, installVerified)
 	})
 
-	t.Run("status provider with nil status does not auto reboot", func(t *testing.T) {
+	t.Run("status provider with nil status is reboot ready after upload", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -623,7 +623,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), miner, 42)
 
 		require.NoError(t, err)
-		assert.False(t, installVerified)
+		assert.True(t, installVerified)
 	})
 }
 

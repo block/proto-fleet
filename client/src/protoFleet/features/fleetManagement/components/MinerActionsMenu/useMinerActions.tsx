@@ -381,6 +381,8 @@ export const useMinerActions = ({
                 status: TOAST_STATUSES.error,
               });
               onActionComplete?.();
+              // Returning true means "handled": keep firmware updates
+              // fail-closed without showing the unsupported-miners modal.
               resolve(true);
               return;
             }
@@ -740,23 +742,27 @@ export const useMinerActions = ({
             completionHandled = true;
 
             if (successCount > 0) {
-              const rebootDeviceIds =
-                successIds.length > 0 ? successIds : deviceIdsToUse.filter((id) => !failureIds.includes(id));
+              const rebootDeviceIds = successIds;
+              const hasRebootDeviceIds = rebootDeviceIds.length > 0;
 
               updateToast(toastId, {
-                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage}; rebooting`,
+                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage}${
+                  hasRebootDeviceIds ? "; rebooting" : ""
+                }`,
                 status: TOAST_STATUSES.success,
                 progress: undefined,
                 longRunning: true,
                 ttl: false,
               });
 
-              if (rebootDeviceIds.length > 0) {
+              if (hasRebootDeviceIds) {
                 startBatchOperation({
                   batchIdentifier: value.batchIdentifier,
                   action: deviceActions.reboot,
                   deviceIdentifiers: rebootDeviceIds,
                 });
+              } else {
+                completeBatchOperation(value.batchIdentifier);
               }
             } else {
               removeToast(toastId);
@@ -835,6 +841,7 @@ export const useMinerActions = ({
       deviceSelector,
       firmwareUpdate,
       startBatchOperation,
+      completeBatchOperation,
       removeDevicesFromBatch,
       streamCommandBatchUpdates,
       deviceIdentifiers,

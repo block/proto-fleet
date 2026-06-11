@@ -3682,6 +3682,57 @@ describe("useMinerActions", () => {
       ).toBe(false);
     });
 
+    it("does not infer rebooting devices when successful identifiers are omitted", async () => {
+      mockFirmwareUpdate.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-firmware" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(0),
+              successDeviceIdentifiers: [],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      await act(async () => {
+        result.current.handleFirmwareUpdateConfirm("firmware-file-1");
+        await Promise.resolve();
+      });
+
+      expect(mockStartBatchOperation).toHaveBeenCalledTimes(1);
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier: "batch-firmware",
+        action: deviceActions.firmwareUpdate,
+        deviceIdentifiers: ["device-1", "device-2"],
+      });
+      expect(mockCompleteBatchOperation).toHaveBeenCalledWith("batch-firmware");
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: expect.not.stringContaining("rebooting"),
+          status: toaster.STATUSES.success,
+        }),
+      );
+    });
+
     it("does not open the firmware modal when capability verification fails", async () => {
       mockCheckCommandCapabilities.mockImplementationOnce(({ onError }: any) => {
         onError(new Error("Network error"));
