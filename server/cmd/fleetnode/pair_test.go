@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -215,6 +217,30 @@ func TestControlLoop_PairAcksAndReportsResults(t *testing.T) {
 	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, got["mac:bb"])
 }
 
+func TestControlLoop_PairPartialPersistAcksPartial(t *testing.T) {
+	// Arrange: the gateway accepts the upload but reports it failed to persist one
+	// paired miner (RejectedCount > 0).
+	cmd := &RunCmd{pairer: &stubPairer{results: map[string]*pb.FleetNodePairResult{
+		"mac:aa": {DeviceIdentifier: "mac:aa", Outcome: pb.PairOutcome_PAIR_OUTCOME_PAIRED, SerialNumber: "SN1"},
+	}}}
+	fake := &controlFakeGateway{}
+	fake.setBehavior(controlFakeBehavior{pairRejected: 1})
+	fake.queue(pairCmd(t, &pairingpb.FleetNodePairRequest{
+		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"}},
+	}))
+
+	// Act
+	runControlLoopOnce(t, cmd, fake)
+
+	// Assert: a rejected result acks PARTIAL, not OK, so the cloud isn't told the
+	// command fully succeeded when a paired miner wasn't stored.
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, acks[0].GetCode())
+	assert.Contains(t, acks[0].GetErrorMessage(), "did not persist")
+}
+
 func TestControlLoop_PairAgentIncapableWithoutPairer(t *testing.T) {
 	// Arrange: no pairer wired (plugins failed to load / discovery-only build).
 	cmd := &RunCmd{}
@@ -273,6 +299,66 @@ func TestControlLoop_PairReportFailureAcksReportFailed(t *testing.T) {
 	require.Len(t, fake.pairReportsCopy(), 1, "REPORT_FAILED implies the report was attempted")
 }
 
+// recordingAcker captures acks for direct handlePairCommand tests.
+type recordingAcker struct {
+	mu   sync.Mutex
+	acks []*pb.ControlAck
+}
+
+func (a *recordingAcker) Send(req *pb.ControlStreamRequest) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if ack := req.GetAck(); ack != nil {
+		a.acks = append(a.acks, ack)
+	}
+	return nil
+}
+
+func TestHandlePairCommand_BusyWhileAbandonedWorkersStillRunning(t *testing.T) {
+	// Shrink the supervisor budget into a unit-test window.
+	prev := perPairTimeout
+	perPairTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { perPairTimeout = prev })
+
+	// Arrange: a worker that ignores ctx and stays stuck past the supervisor
+	// budget, so the first command acks PARTIAL with the worker abandoned but
+	// still running. This exercises the window AFTER the handler returns (the
+	// receive loop's exclusive lane is already released) where only the pair
+	// gate prevents a second command from racing the mutating worker.
+	block := make(chan struct{})
+	cmd := &RunCmd{pairer: &ctxIgnoringPairer{
+		stuck: map[string]bool{"mac:stuck": true},
+		block: block,
+	}}
+	client := newControlClient(t, &controlFakeGateway{})
+	acks := &recordingAcker{}
+	target := func(id, ip string) *pairingpb.FleetNodePairRequest {
+		return &pairingpb.FleetNodePairRequest{
+			Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: id, IpAddress: ip, Port: "80", DriverName: "antminer"}},
+		}
+	}
+
+	// Act: the first command truncates and returns; the second arrives while the
+	// abandoned worker is still running.
+	cmd.handlePairCommand(context.Background(), client, acks, "pair-1", target("mac:stuck", "10.0.0.6"), discardLogger(t))
+	cmd.handlePairCommand(context.Background(), client, acks, "pair-2", target("mac:other", "10.0.0.7"), discardLogger(t))
+
+	// Assert
+	require.Len(t, acks.acks, 2)
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, acks.acks[0].GetCode())
+	assert.Equal(t, pb.AckCode_ACK_CODE_BUSY, acks.acks[1].GetCode())
+
+	// Releasing the stuck worker frees the gate for the next command.
+	close(block)
+	require.Eventually(t, func() bool {
+		if cmd.pairMu.TryLock() {
+			cmd.pairMu.Unlock()
+			return true
+		}
+		return false
+	}, 3*time.Second, 10*time.Millisecond, "gate must release once all workers exit")
+}
+
 func TestControlLoop_PairSupervisorTruncatedAcksPartial(t *testing.T) {
 	// Shrink the supervisor budget into a unit-test window.
 	prev := perPairTimeout
@@ -313,6 +399,177 @@ func TestControlLoop_PairSupervisorTruncatedAcksPartial(t *testing.T) {
 	assert.False(t, acks[0].GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, acks[0].GetCode())
 	assert.Contains(t, acks[0].GetErrorMessage(), "supervisor")
+}
+
+// fakePairDriver is a minimal sdk.Driver for exercising pluginPairer.Pair: it
+// records the bundles PairDevice was called with and returns a configurable
+// result, and (as a DefaultCredentialsProvider) yields the configured defaults.
+type fakePairDriver struct {
+	pairResult sdk.DeviceInfo
+	pairErr    error
+	defaults   []sdk.UsernamePassword
+	gotBundles []sdk.SecretBundle
+}
+
+func (d *fakePairDriver) Handshake(context.Context) (sdk.DriverIdentifier, error) {
+	return sdk.DriverIdentifier{}, nil
+}
+
+func (d *fakePairDriver) DescribeDriver(context.Context) (sdk.DriverIdentifier, sdk.Capabilities, error) {
+	return sdk.DriverIdentifier{}, sdk.Capabilities{}, nil
+}
+
+func (d *fakePairDriver) DiscoverDevice(context.Context, string, string) (sdk.DeviceInfo, error) {
+	return sdk.DeviceInfo{}, nil
+}
+
+func (d *fakePairDriver) PairDevice(_ context.Context, _ sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
+	d.gotBundles = append(d.gotBundles, access)
+	return d.pairResult, d.pairErr
+}
+
+func (d *fakePairDriver) NewDevice(context.Context, string, sdk.DeviceInfo, sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+	return sdk.NewDeviceResult{}, nil
+}
+
+func (d *fakePairDriver) GetDefaultCredentials(context.Context, string, string) []sdk.UsernamePassword {
+	return d.defaults
+}
+
+func newTestPairer(t *testing.T, caps sdk.Capabilities, driver sdk.Driver) *pluginPairer {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), hex.EncodeToString(priv))
+	require.NoError(t, err)
+	require.NoError(t, p.manager.RegisterPluginForTest(&plugins.LoadedPlugin{
+		Name:       "fake",
+		Identifier: sdk.DriverIdentifier{DriverName: "fakedrv"},
+		Driver:     driver,
+		Caps:       caps,
+	}))
+	return p
+}
+
+func fakePairTarget() *pairingpb.FleetNodePairTarget {
+	return &pairingpb.FleetNodePairTarget{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "fakedrv"}
+}
+
+func TestPluginPairer_BasicAuthRejectsUnreportableCredentials(t *testing.T) {
+	longPw := strings.Repeat("p", maxUsedPasswordBytes+1)
+	longUser := strings.Repeat("u", maxPairIdentityBytes+1)
+	shortPw := "pw"
+	cases := []struct {
+		name  string
+		creds *pairingpb.Credentials
+	}{
+		{name: "password exceeds cap", creds: &pairingpb.Credentials{Username: "root", Password: &longPw}},
+		{name: "username exceeds cap", creds: &pairingpb.Credentials{Username: longUser, Password: &shortPw}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+			p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+
+			// Act
+			res := p.Pair(context.Background(), fakePairTarget(), tc.creds)
+
+			// Assert: refused before any pair attempt so the cloud never stores an
+			// unusable secret.
+			assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+			assert.Contains(t, res.GetErrorMessage(), "exceed the maximum reportable size")
+			assert.Empty(t, drv.gotBundles)
+		})
+	}
+}
+
+func TestPluginPairer_BasicAuthReportsUsedCredentials(t *testing.T) {
+	// Arrange
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+	pw := "hunter2"
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
+
+	// Assert: the node reports the credentials it authenticated with so the cloud persists them.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
+	require.NotNil(t, res.GetUsedCredentials())
+	assert.Equal(t, "root", res.GetUsedCredentials().GetUsername())
+	assert.Equal(t, "hunter2", res.GetUsedCredentials().GetPassword())
+}
+
+func TestPluginPairer_AsymmetricReportsNoCredentials(t *testing.T) {
+	// Arrange: an asymmetric-auth driver pairs with the node's signing key.
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityAsymmetricAuth: true}, drv)
+	pw := "ignored"
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
+
+	// Assert: paired with the node key, no credentials reported back.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
+	assert.Nil(t, res.GetUsedCredentials())
+	require.Len(t, drv.gotBundles, 1)
+	_, isAPIKey := drv.gotBundles[0].Kind.(sdk.APIKey)
+	assert.True(t, isAPIKey)
+}
+
+func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
+	// Arrange: no operator creds; the driver provides a working default.
+	drv := &fakePairDriver{
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1"},
+		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
+	}
+	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), nil)
+
+	// Assert: the default that worked is reported so the cloud stores it.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
+	require.NotNil(t, res.GetUsedCredentials())
+	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
+	assert.Equal(t, "admin", res.GetUsedCredentials().GetPassword())
+}
+
+func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {
+	// Arrange: the first default is unreportable (oversized), the second is usable.
+	drv := &fakePairDriver{
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1"},
+		defaults: []sdk.UsernamePassword{
+			{Username: "big", Password: strings.Repeat("p", maxUsedPasswordBytes+1)},
+			{Username: "admin", Password: "admin"},
+		},
+	}
+	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), nil)
+
+	// Assert: the oversized default is skipped without a pair attempt; the usable one pairs.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
+	require.NotNil(t, res.GetUsedCredentials())
+	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
+	require.Len(t, drv.gotBundles, 1)
+	up, ok := drv.gotBundles[0].Kind.(sdk.UsernamePassword)
+	require.True(t, ok)
+	assert.Equal(t, "admin", up.Username)
+}
+
+func TestPluginPairer_NoCredentialsNoDefaultsAuthNeeded(t *testing.T) {
+	// Arrange: basic-auth driver, no operator creds, no usable defaults.
+	drv := &fakePairDriver{}
+	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), nil)
+
+	// Assert
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, res.GetOutcome())
+	assert.Empty(t, drv.gotBundles)
 }
 
 // Ignores ctx for identifiers in stuck (blocks on `block`); fast for the rest.

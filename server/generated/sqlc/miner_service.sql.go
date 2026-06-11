@@ -24,7 +24,8 @@ SELECT
     mc.password_enc,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    d.site_id
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -55,6 +56,7 @@ type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	SiteID           sql.NullInt64
 }
 
 func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetDeviceWithCredentialsAndIPByDeviceIdentifierRow, error) {
@@ -74,6 +76,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.SiteID,
 	)
 	return i, err
 }
@@ -92,7 +95,8 @@ SELECT
     mc.password_enc,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    d.site_id
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -123,6 +127,7 @@ type GetDeviceWithCredentialsAndIPByIDRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	SiteID           sql.NullInt64
 }
 
 func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int64) (GetDeviceWithCredentialsAndIPByIDRow, error) {
@@ -142,6 +147,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int6
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.SiteID,
 	)
 	return i, err
 }

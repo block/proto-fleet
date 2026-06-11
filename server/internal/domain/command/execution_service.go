@@ -256,7 +256,7 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 				"command_type", r.commandType, "error", err)
 			continue
 		}
-		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, kind, errReapedStuck)
+		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, 0, kind, errReapedStuck)
 	}
 }
 
@@ -337,7 +337,7 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
 	// Step 1: Execute the command (pure execution, no queue status side-effects).
-	orgID, workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
+	orgID, siteID, workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
 
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits
@@ -389,7 +389,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	// actually landed: retries leaving the row PENDING and stale/reaped messages
 	// are not terminal command results.
 	if queueUpdated && queueTerminal {
-		emitTerminalCommand(ctx, es.metricsEmitter, orgID, message.CommandType, workerError)
+		emitTerminalCommand(ctx, es.metricsEmitter, orgID, siteID, message.CommandType, workerError)
 	}
 }
 
@@ -442,12 +442,13 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 // executeCommandOnDevice runs the command and returns the resolved owning org
 // id along with the execution error (if any). It does NOT mark queue message
 // status — the caller is responsible for that.
-func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, error) {
+func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, int64, error) {
 	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
 	if err != nil {
-		return message.OrgID, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
+		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
+	siteID := minerInfo.GetSiteID()
 
 	switch commandType {
 	case commandtype.Reboot:
@@ -463,21 +464,21 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		var p dto.CoolingModePayload
 		coolingExtractErr := json.Unmarshal(message.Payload, &p)
 		if coolingExtractErr != nil {
-			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
+			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
 		}
 		err = minerInfo.SetCoolingMode(ctx, p)
 	case commandtype.SetPowerTarget:
 		var p dto.PowerTargetPayload
 		powerExtractErr := json.Unmarshal(message.Payload, &p)
 		if powerExtractErr != nil {
-			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", powerExtractErr)
+			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", powerExtractErr)
 		}
 		err = minerInfo.SetPowerTarget(ctx, p)
 	case commandtype.UpdateMiningPools:
 		var p dto.UpdateMiningPoolsPayload
 		updateExtractErr := json.Unmarshal(message.Payload, &p)
 		if updateExtractErr != nil {
-			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
+			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
 		}
 		var workerNameToPersist string
 		if p.ReapplyCurrentPoolsWithStoredWorkerName {
@@ -488,9 +489,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			}
 			if !shouldUpdate {
 				if workerNameToPersist == "" {
-					return orgID, nil
+					return orgID, siteID, nil
 				}
-				return orgID, es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
+				return orgID, siteID, es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
 			}
 		} else {
 			p, err = es.applyMinerNameToPoolUsernames(ctx, minerInfo, p)
@@ -549,10 +550,10 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if curtailExtractErr := json.Unmarshal(message.Payload, &p); curtailExtractErr != nil {
 			// FailedPrecondition fails permanently on the first attempt;
 			// Internal would burn MaxFailureRetries on a deterministic bug.
-			return orgID, fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
 		}
 		if p.Level < int32(sdk.CurtailLevelEfficiency) || p.Level > int32(sdk.CurtailLevelFull) {
-			return orgID, fleeterror.NewFailedPreconditionErrorf("invalid curtail level %d: must be %d (Efficiency) or %d (Full)", p.Level, sdk.CurtailLevelEfficiency, sdk.CurtailLevelFull)
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("invalid curtail level %d: must be %d (Efficiency) or %d (Full)", p.Level, sdk.CurtailLevelEfficiency, sdk.CurtailLevelFull)
 		}
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
@@ -561,7 +562,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		var p dto.UpdateMinerPasswordPayload
 		credExtractErr := json.Unmarshal(message.Payload, &p)
 		if credExtractErr != nil {
-			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
+			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
 		}
 
 		// Update device via plugin
@@ -583,7 +584,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		// Evict so the next lookup re-reads updated credentials from DB.
 		es.minerService.InvalidateMiner(minerInfo.GetID())
 	default:
-		return orgID, fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
+		return orgID, siteID, fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
 
 	if err != nil {
@@ -592,7 +593,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
-	return orgID, err
+	return orgID, siteID, err
 }
 
 func (es *ExecutionService) applyMinerNameToPoolUsernames(

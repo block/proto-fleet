@@ -181,6 +181,7 @@ func (m *mockMinerForPassword) UpdateMinerPassword(ctx context.Context, payload 
 func (m *mockMinerForPassword) GetDriverName() string          { return "antminer" }
 func (m *mockMinerForPassword) GetID() models.DeviceIdentifier { return "test-device" }
 func (m *mockMinerForPassword) GetOrgID() int64                { return 1 }
+func (m *mockMinerForPassword) GetSiteID() int64               { return 0 }
 func (m *mockMinerForPassword) GetSerialNumber() string        { return "SN123" }
 func (m *mockMinerForPassword) GetConnectionInfo() networking.ConnectionInfo {
 	return networking.ConnectionInfo{}

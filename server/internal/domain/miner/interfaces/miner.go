@@ -19,6 +19,7 @@ type MinerInfo interface {
 	GetDriverName() string
 	GetID() models.DeviceIdentifier
 	GetOrgID() int64
+	GetSiteID() int64
 	GetSerialNumber() string
 	GetConnectionInfo() networking.ConnectionInfo
 	GetWebViewURL() *url.URL

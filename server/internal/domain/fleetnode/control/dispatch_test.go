@@ -1,4 +1,4 @@
-package discovery
+package control
 
 import (
 	"testing"
@@ -7,15 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// discoverAckFailure must translate each structured AckCode into a distinct,
+// AckFailure must translate each structured AckCode into a distinct,
 // operator-meaningful gRPC code so a retryable BUSY and a capability gap
 // (AGENT_INCAPABLE) don't both surface as an opaque Internal error.
-func TestDiscoverAckFailure_MapsCodes(t *testing.T) {
+func TestAckFailure_MapsCodes(t *testing.T) {
 	tests := []struct {
 		name     string
 		ack      *gatewaypb.ControlAck
@@ -44,8 +43,11 @@ func TestDiscoverAckFailure_MapsCodes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			ack := tc.ack
+
 			// Act
-			err := discoverAckFailure(tc.ack)
+			err := AckFailure(ack, "discovery")
 
 			// Assert
 			var fe fleeterror.FleetError

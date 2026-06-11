@@ -113,8 +113,8 @@ message DiscoverOnFleetNodeResponse {
 message ListFleetNodeDiscoveredDevicesRequest {
     // 0 = all fleet nodes in org; > 0 restricts to that fleet node.
     int64 fleet_node_id = 1 [(buf.validate.field).int64.gte = 0];
-    // Max devices to return; 0 = no limit. A node can discover thousands of
-    // devices, so operators should page.
+    // Max devices to return; 0 = server default page size (1024, also the cap).
+    // A node can discover thousands of devices, so operators page via next_cursor.
     int32 limit = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1024}];
     // Forward cursor: pass the previous response's next_cursor; 0 = first page.
     int64 cursor = 3 [(buf.validate.field).int64.gte = 0];

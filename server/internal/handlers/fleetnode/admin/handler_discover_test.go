@@ -601,7 +601,7 @@ func startAdminServerWithRole(t *testing.T, h *pairingHarness, role string) flee
 	t.Helper()
 	var perms []string
 	if role == "ADMIN" || role == "SUPER_ADMIN" {
-		perms = []string{authz.PermFleetnodeManage, authz.PermFleetnodeRead}
+		perms = []string{authz.PermFleetnodeManage, authz.PermFleetnodeRead, authz.PermMinerPair}
 	}
 	injector := sessionInjector{role: role, orgID: h.orgID, userID: 1, perms: perms}
 	mux := http.NewServeMux()

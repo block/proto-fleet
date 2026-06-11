@@ -1,20 +1,21 @@
+# Dev-mode notifications overlay used by `just dev-notifs`.
+#
+# Mirrors deployment-files/docker-compose.notifications.yaml but mounts
+# the in-tree provisioning bundle directly so edits to the YAML files
+# are picked up on container restart without a release rebuild.
 services:
   fleet-api:
     environment:
       FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
       FLEET_METRICS_ENABLED: "${FLEET_METRICS_ENABLED:-true}"
+      FLEET_METRICS_FLUSH_INTERVAL: "${FLEET_METRICS_FLUSH_INTERVAL:-5s}"
+      FLEET_METRICS_BUFFER_SIZE: "${FLEET_METRICS_BUFFER_SIZE:-4096}"
+      FLEET_METRICS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
     depends_on:
       otel-collector:
         condition: service_started
-      victoria-metrics:
+      grafana:
         condition: service_healthy
-      vmalert:
-        condition: service_healthy
-      alertmanager:
-        condition: service_healthy
-    volumes:
-      - ../deployment-files/server/monitoring/vmalert:/etc/proto-fleet/monitoring/vmalert:rw
-      - ../deployment-files/server/monitoring/alertmanager:/etc/proto-fleet/monitoring/alertmanager:rw
     networks:
       - monitoring
 
@@ -37,35 +38,26 @@ services:
     ports:
       - "127.0.0.1:16686:16686" # UI
 
-  victoria-metrics:
+  grafana:
+    environment:
+      # db creds for dev only
+      GRAFANA_DB_NAME: "${DB_NAME:-fleet}"
+      GRAFANA_DB_USERNAME: "${GRAFANA_DB_USERNAME:-fleet}"
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:-fleet}"
+      GF_SECURITY_ADMIN_PASSWORD: localdev-grafana-admin-not-for-prod
+      GF_SECURITY_SECRET_KEY: localdev-grafana-secret-key-not-for-prod
+      FLEET_METRICS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
     extends:
       file: ./docker-compose.base.yaml
-      service: victoria-metrics
-    ports:
-      - "127.0.0.1:8428:8428"
-
-  vmalert:
-    extends:
-      file: ./docker-compose.base.yaml
-      service: vmalert
+      service: grafana
     volumes:
-      - ../deployment-files/server/monitoring/vmalert/rules.yml:/etc/vmalert/rules.yml:rw
-      - ../deployment-files/server/monitoring/vmalert/rules.d:/etc/vmalert/rules.d:ro
+      - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "127.0.0.1:8880:8880"
-
-  alertmanager:
-    extends:
-      file: ./docker-compose.base.yaml
-      service: alertmanager
-    volumes:
-      - ../deployment-files/server/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:rw
-    ports:
-      - "127.0.0.1:9093:9093"
+      - "127.0.0.1:3000:3000"
 
 volumes:
-  victoria-metrics-data:
-  alertmanager-data:
+  grafana-data:
 
 networks:
   monitoring:

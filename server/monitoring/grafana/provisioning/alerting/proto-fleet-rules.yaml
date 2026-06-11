@@ -1,0 +1,209 @@
+# Proto Fleet alert rules — provisioned for Grafana's built-in alerting engine.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: proto-fleet-defaults
+    folder: Proto Fleet
+    interval: 30s
+    rules:
+      - uid: protofleet-device-offline
+        title: Device Offline
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    organization_id,
+                    device_id,
+                    1 AS value
+                FROM notification_metric_sample
+                WHERE metric = 'fleet_device_online'
+                  AND time > NOW() - INTERVAL '10 minutes'
+                GROUP BY organization_id, device_id
+                HAVING last(value, time) = 0
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          rule_group: proto-fleet-defaults
+          template: offline
+        annotations:
+          summary: "Device is offline for at least five minutes."
+          description: |
+            Device {{ $labels.device_id }} (org {{ $labels.organization_id }})
+            has been reporting fleet_device_online=0 for at least five minutes.
+
+      - uid: protofleet-device-temperature-high
+        title: Device Temperature High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                WITH latest_per_kind AS (
+                    SELECT
+                        organization_id,
+                        device_id,
+                        sensor_kind,
+                        last(value, time) AS latest_temp
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_device_temperature_max_celsius'
+                      AND time > NOW() - INTERVAL '10 minutes'
+                    GROUP BY organization_id, device_id, sensor_kind
+                )
+                SELECT
+                    organization_id,
+                    device_id,
+                    max(latest_temp) AS latest_temp
+                FROM latest_per_kind
+                GROUP BY organization_id, device_id
+                HAVING max(latest_temp) > 90
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: warning
+          rule_group: proto-fleet-defaults
+          template: temperature
+        annotations:
+          summary: "Max sensor temperature for device is above 90C for ten minutes."
+          description: |
+            Maximum sensor temperature for device {{ $labels.device_id }}
+            has been above 90C for at least ten minutes.
+
+      - uid: protofleet-telemetry-poll-failure-rate
+        title: Telemetry Poll Failure Rate High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                WITH poll_window AS (
+                    SELECT organization_id, result, sum(value) AS total
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_telemetry_poll_total'
+                      AND time > NOW() - INTERVAL '10 minutes'
+                    GROUP BY organization_id, result
+                )
+                SELECT
+                    organization_id,
+                    coalesce(failures.total, 0) - coalesce(successes.total, 0) AS value
+                FROM (SELECT DISTINCT organization_id FROM poll_window) orgs
+                LEFT JOIN (SELECT * FROM poll_window WHERE result = 'failure') failures
+                    USING (organization_id)
+                LEFT JOIN (SELECT * FROM poll_window WHERE result = 'success') successes
+                    USING (organization_id)
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A > 0
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: warning
+          rule_group: proto-fleet-defaults
+          template: telemetry-poll
+        annotations:
+          summary: "Telemetry polling is failing for the last ten minutes."
+          description: |
+            More telemetry polls are failing than succeeding for the
+            last ten minutes. This typically indicates a fleet-wide
+            connectivity or credential problem.
+
+  - orgId: 1
+    name: proto-fleet-self
+    folder: Proto Fleet
+    interval: 30s
+    rules:
+      - uid: protofleet-ingest-stalled
+        title: Metric Ingest Stalled
+        condition: B
+        # Edge cases:
+        #   - Fresh deploy with no samples ever emitted → the inner
+        #     SELECT returns no orgs; Grafana falls through to
+        #     noDataState=Alerting and emits an unscoped instance.
+        #     That's acceptable; "no org is emitting metrics yet" is
+        #     fundamentally global.
+        #   - Ingest stalled globally for >24h → ditto: every active
+        #     org ages out of the inner SELECT, the query returns no
+        #     rows, noDataState=Alerting fires a single global alert.
+        #     By that point operators have had 24h of per-org alerts
+        #     and this fallback is informational.
+        #   - Heartbeat lag: the aggregate refreshes every 30s with a
+        #     1m end_offset, so observed staleness can run up to ~1.5m
+        #     ahead of true ingest staleness. The 5m threshold and 5m
+        #     `for` clause absorb that lag.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    organization_id,
+                    extract(epoch from now() - max(bucket))::float8 AS staleness_seconds
+                FROM fleet_telemetry_poll_heartbeat
+                WHERE bucket > NOW() - INTERVAL '24 hours'
+                GROUP BY organization_id
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A > 300
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: critical
+          rule_group: proto-fleet-self
+          component: metric-ingest
+        annotations:
+          summary: "Proto Fleet metric ingest has stalled."
+          description: |
+            No samples have been written to notification_metric_sample for
+            organization {{ $labels.organization_id }} in the last five
+            minutes, despite that org having emitted samples in the past
+            day. Either fleet-api is down or the in-process metrics writer
+            is wedged. Alerts cannot fire until ingest resumes.

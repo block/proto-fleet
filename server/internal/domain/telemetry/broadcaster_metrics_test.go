@@ -83,7 +83,7 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceMetrics(context.Background(), 7, "antminer", "ant-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 7, 42, "antminer", "ant-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-1",
 		HashrateHS:       metricVal(110e12), // 110 TH/s
 		Health:           modelsV2.HealthHealthyActive,
@@ -94,6 +94,7 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	require.Equal(t, "ant-1", rec.hashrate[0].labels.DeviceID)
 	require.Equal(t, "antminer", rec.hashrate[0].labels.Driver)
 	require.Equal(t, "7", rec.hashrate[0].labels.OrganizationID)
+	require.Equal(t, "42", rec.hashrate[0].labels.SiteID)
 }
 
 // Five chips at varied temps must collapse to one (chip, max=85, avg=80) emission.
@@ -113,7 +114,7 @@ func TestObserverAggregatesPerSensorKindMaxAvg(t *testing.T) {
 		},
 	}
 
-	obs.onDeviceMetrics(context.Background(), 1, "proto", "proto-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "proto", "proto-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "proto-1",
 		HashBoards:       []modelsV2.HashBoardMetrics{hb},
 		Health:           modelsV2.HealthHealthyActive,
@@ -151,7 +152,7 @@ func TestObserverDoesNotEmitPoolGaugeFromHealth(t *testing.T) {
 	for _, h := range healths {
 		rec := &recordingEmitter{}
 		obs := newMetricsObserver(rec)
-		obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+		obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "v-1", modelsV2.DeviceMetrics{
 			DeviceIdentifier: "v-1",
 			Health:           h,
 		})
@@ -164,9 +165,9 @@ func TestObserverEmitsExplicitZeroOnOffline(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceStatus(context.Background(), 1, "virtual", "v-1", mm.MinerStatusOffline)
-	obs.onDeviceStatus(context.Background(), 1, "virtual", "v-1", mm.MinerStatusError)
-	obs.onDeviceStatus(context.Background(), 1, "virtual", "v-1", mm.MinerStatusActive)
+	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusOffline)
+	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusError)
+	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusActive)
 
 	require.Len(t, rec.online, 3)
 	require.False(t, rec.online[0].online, "offline must emit 0")
@@ -179,8 +180,8 @@ func TestObserverPollResultIsClosedEnum(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onPollResult(context.Background(), 1, "v-1", true)
-	obs.onPollResult(context.Background(), 1, "v-1", false)
+	obs.onPollResult(context.Background(), 1, 0, "v-1", true)
+	obs.onPollResult(context.Background(), 1, 0, "v-1", false)
 
 	require.Len(t, rec.telemetryPoll, 2)
 	require.Equal(t, metrics.ResultSuccess, rec.telemetryPoll[0].labels.Result)
@@ -191,7 +192,7 @@ func TestObserverPollResultIsClosedEnum(t *testing.T) {
 func TestObserverFallsBackToAggregatedTempWhenNoComponents(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, "antminer", "ant-2", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "antminer", "ant-2", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-2",
 		TempC:            metricVal(68.5),
 		Health:           modelsV2.HealthHealthyActive,
@@ -259,7 +260,7 @@ func TestObserverHandlesAllKnownDriversInFixture(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &recordingEmitter{}
 			obs := newMetricsObserver(rec)
-			obs.onDeviceMetrics(context.Background(), 1, tc.driver, models.DeviceIdentifier(tc.dm.DeviceIdentifier), tc.dm)
+			obs.onDeviceMetrics(context.Background(), 1, 0, tc.driver, models.DeviceIdentifier(tc.dm.DeviceIdentifier), tc.dm)
 
 			require.GreaterOrEqual(t, len(rec.hashrate), 1, "hashrate gauge required")
 			require.Empty(t, rec.pool, "pool gauge must not be emitted until plugins surface real pool state")
@@ -301,7 +302,7 @@ func TestObserverDropsSampleWithMismatchedPluginDeviceID(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceMetrics(context.Background(), 1, "antminer", "ant-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "antminer", "ant-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-spoofed",
 		HashrateHS:       metricVal(110e12),
 		TempC:            metricVal(70),
@@ -319,7 +320,7 @@ func TestObserverAllowsEmptyPluginDeviceID(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "v-1", modelsV2.DeviceMetrics{
 		// DeviceIdentifier intentionally omitted.
 		HashrateHS: metricVal(50e12),
 		Health:     modelsV2.HealthHealthyActive,
@@ -369,7 +370,7 @@ func TestAggregateTemperaturesTruncatesUnboundedComponentArrays(t *testing.T) {
 
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", "hostile-1", dm)
+	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "hostile-1", dm)
 
 	// The exact aggregate counts depend on the caps; what matters is the
 	// aggregator returns within bounded work — bounded by the per-kind caps
@@ -408,7 +409,7 @@ func TestAggregateTemperaturesDropsNonFiniteSamples(t *testing.T) {
 
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", "bad-1", dm)
+	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "bad-1", dm)
 
 	byKind := map[string]temperatureEvent{}
 	for _, e := range rec.temperature {
@@ -441,7 +442,7 @@ func TestAggregateTemperaturesClampsOutOfRangeReadings(t *testing.T) {
 
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", "stuck-1", dm)
+	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "stuck-1", dm)
 
 	require.Len(t, rec.temperature, 1)
 	require.Equal(t, metrics.SensorKindChip, rec.temperature[0].kind)
@@ -455,7 +456,7 @@ func TestObserverDropsNonFiniteHashrate(t *testing.T) {
 	for _, v := range cases {
 		rec := &recordingEmitter{}
 		obs := newMetricsObserver(rec)
-		obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+		obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "v-1", modelsV2.DeviceMetrics{
 			DeviceIdentifier: "v-1",
 			HashrateHS:       metricVal(v),
 		})
@@ -470,7 +471,7 @@ func TestObserverEmitsObservedWhenNameplateIsNonFinite(t *testing.T) {
 	bogus := math.NaN()
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "v-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "v-1",
 		HashrateHS: &modelsV2.MetricValue{
 			Value:    110e12,
@@ -486,11 +487,11 @@ func TestObserverEmitsObservedWhenNameplateIsNonFinite(t *testing.T) {
 func TestObserverHandlesNilEmitter(t *testing.T) {
 	obs := newMetricsObserver(nil) // installs NoMetrics()
 	require.NotNil(t, obs)
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "v-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "v-1",
 		HashrateHS:       metricVal(50e12),
 		Health:           modelsV2.HealthHealthyActive,
 	})
-	obs.onDeviceStatus(context.Background(), 1, "virtual", "v-1", mm.MinerStatusActive)
-	obs.onPollResult(context.Background(), 1, "v-1", true)
+	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusActive)
+	obs.onPollResult(context.Background(), 1, 0, "v-1", true)
 }

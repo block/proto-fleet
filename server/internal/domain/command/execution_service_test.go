@@ -248,6 +248,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Return(mockMiner, nil)
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 		mockMiner.EXPECT().
 			Reboot(gomock.Any()).
@@ -260,7 +261,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
@@ -287,6 +288,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			GetMiner(gomock.Any(), int64(43)).
 			Return(mockMiner, nil)
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 		mockMiner.EXPECT().
 			Reboot(gomock.Any()).
@@ -299,7 +301,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
@@ -326,6 +328,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			GetMiner(gomock.Any(), int64(44)).
 			Return(mockMiner, nil)
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 		mockMiner.EXPECT().
 			Reboot(gomock.Any()).
@@ -338,7 +341,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		assert.NoError(t, err)
@@ -371,7 +374,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		orgID, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		orgID, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
@@ -398,6 +401,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
 		mockMiner.EXPECT().
 			Curtail(gomock.Any(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}).
@@ -409,7 +413,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			WorkerExecutionTimeout: 5 * time.Second,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		_, err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
 		require.NoError(t, err)
 	})
 
@@ -429,6 +433,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(51)).Return(mockMiner, nil)
 		// Curtail must NOT be called when payload unmarshal fails.
 
@@ -438,7 +443,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			WorkerExecutionTimeout: 5 * time.Second,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
 		require.Error(t, err)
 		assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
 		assert.Contains(t, err.Error(), "unmarshalling curtail payload")
@@ -466,6 +471,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			}
 
 			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(53)).Return(mockMiner, nil)
 			// No mockMiner.EXPECT().Curtail(...) — bounds check must short-circuit.
 
@@ -475,7 +481,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 				WorkerExecutionTimeout: 5 * time.Second,
 			}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-			_, err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+			_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
 			assert.Contains(t, err.Error(), "invalid curtail level")
@@ -497,6 +503,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(52)).Return(mockMiner, nil)
 		mockMiner.EXPECT().
 			Uncurtail(gomock.Any(), sdk.UncurtailRequest{}).
@@ -508,7 +515,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			WorkerExecutionTimeout: 5 * time.Second,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Uncurtail, message)
+		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Uncurtail, message)
 		require.NoError(t, err)
 	})
 }
@@ -555,6 +562,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testin
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(7)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-123")).AnyTimes()
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -586,7 +594,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testin
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -624,6 +632,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerNameAfterLooku
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(10)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-timeout")).AnyTimes()
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -658,7 +667,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerNameAfterLooku
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(commandCtx, commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(commandCtx, commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -697,6 +706,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 		GetMiner(gomock.Any(), int64(47)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -728,7 +738,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, nil, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -763,6 +773,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_FallsBackToStoredMacAddress(t 
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(8)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-456")).AnyTimes()
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -790,7 +801,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_FallsBackToStoredMacAddress(t 
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -825,6 +836,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesUsernameUnchangedWhenWor
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(9)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-789")).AnyTimes()
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -857,7 +869,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesUsernameUnchangedWhenWor
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -889,6 +901,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 		GetMiner(gomock.Any(), int64(43)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
@@ -903,7 +916,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, nil, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -937,6 +950,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 		GetMiner(gomock.Any(), int64(44)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
@@ -951,7 +965,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -989,6 +1003,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username"},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(11)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply")).AnyTimes()
 
 	mockMiner.EXPECT().
@@ -1011,7 +1026,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1041,6 +1056,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 		GetMiner(gomock.Any(), int64(149)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -1065,7 +1081,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1101,6 +1117,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet"},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(12)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-append")).AnyTimes()
 
 	mockMiner.EXPECT().
@@ -1120,7 +1137,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1156,6 +1173,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.primary.worker"},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(13)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-dotted-worker")).AnyTimes()
 
 	mockMiner.EXPECT().
@@ -1174,7 +1192,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1212,6 +1230,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username"},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(14)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-normalize-all")).AnyTimes()
 
 	mockMiner.EXPECT().
@@ -1234,7 +1253,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1264,6 +1283,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 		GetMiner(gomock.Any(), int64(51)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return(nil, nil)
@@ -1278,7 +1298,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 

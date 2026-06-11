@@ -956,8 +956,8 @@ type ListFleetNodeDiscoveredDevicesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 0 = all fleet nodes in org; > 0 restricts to that fleet node.
 	FleetNodeId int64 `protobuf:"varint,1,opt,name=fleet_node_id,json=fleetNodeId,proto3" json:"fleet_node_id,omitempty"`
-	// Max devices to return; 0 = no limit. A node can discover thousands of
-	// devices, so operators should page.
+	// Max devices to return; 0 = server default page size (1024, also the cap).
+	// A node can discover thousands of devices, so operators page via next_cursor.
 	Limit int32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
 	// Forward cursor: pass the previous response's next_cursor; 0 = first page.
 	Cursor        int64 `protobuf:"varint,3,opt,name=cursor,proto3" json:"cursor,omitempty"`

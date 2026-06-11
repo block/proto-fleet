@@ -119,6 +119,20 @@ func (mr *MockMinerInfoMockRecorder) GetSerialNumber() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMinerInfo)(nil).GetSerialNumber))
 }
 
+// GetSiteID mocks base method.
+func (m *MockMinerInfo) GetSiteID() int64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSiteID")
+	ret0, _ := ret[0].(int64)
+	return ret0
+}
+
+// GetSiteID indicates an expected call of GetSiteID.
+func (mr *MockMinerInfoMockRecorder) GetSiteID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSiteID", reflect.TypeOf((*MockMinerInfo)(nil).GetSiteID))
+}
+
 // GetWebViewURL mocks base method.
 func (m *MockMinerInfo) GetWebViewURL() *url.URL {
 	m.ctrl.T.Helper()
@@ -356,6 +370,20 @@ func (m *MockMiner) GetSerialNumber() string {
 func (mr *MockMinerMockRecorder) GetSerialNumber() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMiner)(nil).GetSerialNumber))
+}
+
+// GetSiteID mocks base method.
+func (m *MockMiner) GetSiteID() int64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSiteID")
+	ret0, _ := ret[0].(int64)
+	return ret0
+}
+
+// GetSiteID indicates an expected call of GetSiteID.
+func (mr *MockMinerMockRecorder) GetSiteID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSiteID", reflect.TypeOf((*MockMiner)(nil).GetSiteID))
 }
 
 // GetWebViewURL mocks base method.

@@ -63,19 +63,24 @@ var (
 	// command. Unexported; callers map it to FailedPrecondition like any non-quota admit failure.
 	errNoInFlightCommand = errors.New("no in-flight command for fleet_node")
 
-	// ErrReportQuotaExceeded: a report would exceed maxReportsPerCommand.
-	ErrReportQuotaExceeded = errors.New("discovery report quota exceeded for command")
+	// ErrReportQuotaExceeded: a report would exceed the command's report quota.
+	ErrReportQuotaExceeded = errors.New("report quota exceeded for command")
+
+	// ErrEmptyReport: a pair report carried no results (consumes no quota);
+	// callers map it to InvalidArgument.
+	ErrEmptyReport = errors.New("report carried no results")
 
 	// errDuplicateCommandID: a command_id is already in flight for the fleet_node.
 	// id.GenerateID() makes this practically impossible; callers map it to Internal.
 	errDuplicateCommandID = errors.New("duplicate command_id in flight for fleet_node")
 )
 
-// CommandEvent is one message of a report-bearing command's result stream: exactly
-// one of Batch or Ack is set.
+// CommandEvent is one message of a command's result stream: exactly one of Batch,
+// PairResults, or Ack is set.
 type CommandEvent struct {
-	Batch *pairingpb.DiscoverResponse
-	Ack   *gatewaypb.ControlAck
+	Batch       *pairingpb.DiscoverResponse
+	PairResults []*gatewaypb.FleetNodePairResult
+	Ack         *gatewaypb.ControlAck
 }
 
 // ReportScope reports whether a device discovered at (ipAddress, port) falls
@@ -83,6 +88,25 @@ type CommandEvent struct {
 // to Send; the report path checks every device against it so a node can't report
 // devices outside what it was asked to scan. A nil ReportScope is unconstrained.
 type ReportScope func(ipAddress, port string) bool
+
+// ReportKind tags a report-bearing command so a discovery command_id admits only
+// discovered-device reports and a pair command_id only pair results -- otherwise an
+// authenticated node could poison inventory across the wrong command.
+type ReportKind int
+
+const (
+	ReportKindDiscovery ReportKind = iota
+	ReportKindPair
+)
+
+// PairMeta is the operator context a pair command carries so the gateway can
+// persist results authoritatively, scope them to the dispatched targets, and bound
+// the report quota. nil for discovery.
+type PairMeta struct {
+	OrgID      int64
+	AssignedBy *int64              // operator user id; nullable end-to-end
+	Targets    map[string]struct{} // dispatched device identifiers; also the report quota
+}
 
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
@@ -99,9 +123,15 @@ type inflightCommand struct {
 	id string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
-	scope    ReportScope       // admits only reported devices within the requested scope; nil = unconstrained
-	events   chan CommandEvent // buffered, never closed
-	reported int               // cumulative admitted device count, for quota
+	kind       ReportKind        // which gateway report RPC may admit reports for this command
+	scope      ReportScope       // admits only reported devices within the requested scope; nil = unconstrained
+	events     chan CommandEvent // buffered, never closed
+	reported   int               // cumulative admitted device count, for quota
+	maxReports int               // per-command report quota: scan ceiling for discovery, target count for pair
+
+	// pair-only: gateway persistence metadata, scoped to the dispatched targets
+	// (consuming each to bar replay). nil for discovery/ack-only commands.
+	pair *PairMeta
 
 	// ack-only (ack != nil): the terminal ack for a per-miner command.
 	ack chan *gatewaypb.ControlAck // cap 1, never closed

@@ -48,6 +48,7 @@ type logSaver interface {
 
 type PluginMiner struct {
 	orgID          int64
+	siteID         int64
 	deviceID       models.DeviceIdentifier
 	driverName     string
 	caps           sdk.Capabilities
@@ -61,6 +62,7 @@ type PluginMiner struct {
 // NewPluginMiner creates a new PluginMiner wrapper around an SDK Device
 func NewPluginMiner(
 	orgID int64,
+	siteID int64,
 	deviceID models.DeviceIdentifier,
 	driverName string,
 	caps sdk.Capabilities,
@@ -72,6 +74,7 @@ func NewPluginMiner(
 ) *PluginMiner {
 	return &PluginMiner{
 		orgID:          orgID,
+		siteID:         siteID,
 		deviceID:       deviceID,
 		driverName:     driverName,
 		caps:           caps,
@@ -91,6 +94,11 @@ func (p *PluginMiner) GetID() models.DeviceIdentifier {
 // GetOrgID implements interfaces.MinerInfo
 func (p *PluginMiner) GetOrgID() int64 {
 	return p.orgID
+}
+
+// GetSiteID implements interfaces.MinerInfo
+func (p *PluginMiner) GetSiteID() int64 {
+	return p.siteID
 }
 
 // GetDriverName implements interfaces.MinerInfo

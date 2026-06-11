@@ -201,6 +201,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deviceHasActiveCloudPairingStmt, err = db.PrepareContext(ctx, deviceHasActiveCloudPairing); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceHasActiveCloudPairing: %w", err)
 	}
+	if q.deviceHasActivePairingStmt, err = db.PrepareContext(ctx, deviceHasActivePairing); err != nil {
+		return nil, fmt.Errorf("error preparing query DeviceHasActivePairing: %w", err)
+	}
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
@@ -603,6 +606,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertMinerStateSnapshotStmt, err = db.PrepareContext(ctx, insertMinerStateSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertMinerStateSnapshot: %w", err)
 	}
+	if q.insertNotificationHistoryStmt, err = db.PrepareContext(ctx, insertNotificationHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertNotificationHistory: %w", err)
+	}
+	if q.insertNotificationMetricSamplesStmt, err = db.PrepareContext(ctx, insertNotificationMetricSamples); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertNotificationMetricSamples: %w", err)
+	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
@@ -851,6 +860,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
+	}
+	if q.setDevicePairingAuthNeededIfNotPairedStmt, err = db.PrepareContext(ctx, setDevicePairingAuthNeededIfNotPaired); err != nil {
+		return nil, fmt.Errorf("error preparing query SetDevicePairingAuthNeededIfNotPaired: %w", err)
 	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
@@ -1408,6 +1420,11 @@ func (q *Queries) Close() error {
 	if q.deviceHasActiveCloudPairingStmt != nil {
 		if cerr := q.deviceHasActiveCloudPairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deviceHasActiveCloudPairingStmt: %w", cerr)
+		}
+	}
+	if q.deviceHasActivePairingStmt != nil {
+		if cerr := q.deviceHasActivePairingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deviceHasActivePairingStmt: %w", cerr)
 		}
 	}
 	if q.deviceSetBelongsToOrgStmt != nil {
@@ -2080,6 +2097,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertMinerStateSnapshotStmt: %w", cerr)
 		}
 	}
+	if q.insertNotificationHistoryStmt != nil {
+		if cerr := q.insertNotificationHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertNotificationHistoryStmt: %w", cerr)
+		}
+	}
+	if q.insertNotificationMetricSamplesStmt != nil {
+		if cerr := q.insertNotificationMetricSamplesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertNotificationMetricSamplesStmt: %w", cerr)
+		}
+	}
 	if q.isBatchFinishedStmt != nil {
 		if cerr := q.isBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
@@ -2493,6 +2520,11 @@ func (q *Queries) Close() error {
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
+		}
+	}
+	if q.setDevicePairingAuthNeededIfNotPairedStmt != nil {
+		if cerr := q.setDevicePairingAuthNeededIfNotPairedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setDevicePairingAuthNeededIfNotPairedStmt: %w", cerr)
 		}
 	}
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
@@ -3023,6 +3055,7 @@ type Queries struct {
 	deletePoolStmt                                      *sql.Stmt
 	deleteScheduleTargetsStmt                           *sql.Stmt
 	deviceHasActiveCloudPairingStmt                     *sql.Stmt
+	deviceHasActivePairingStmt                          *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                      *sql.Stmt
 	findDeviceSiteConflictsStmt                         *sql.Stmt
@@ -3157,6 +3190,8 @@ type Queries struct {
 	insertErrorStmt                                     *sql.Stmt
 	insertMQTTSourceConfigStmt                          *sql.Stmt
 	insertMinerStateSnapshotStmt                        *sql.Stmt
+	insertNotificationHistoryStmt                       *sql.Stmt
+	insertNotificationMetricSamplesStmt                 *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                 *sql.Stmt
@@ -3240,6 +3275,7 @@ type Queries struct {
 	revokeApiKeysByFleetNodeIDStmt                      *sql.Stmt
 	revokePermissionFromRoleStmt                        *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
+	setDevicePairingAuthNeededIfNotPairedStmt           *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                    *sql.Stmt
 	setMQTTSourceConfigEnabledStmt                      *sql.Stmt
 	setRackBuildingPositionStmt                         *sql.Stmt
@@ -3391,6 +3427,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
 		deviceHasActiveCloudPairingStmt:                     q.deviceHasActiveCloudPairingStmt,
+		deviceHasActivePairingStmt:                          q.deviceHasActivePairingStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
 		ensureCurtailmentOrgConfigStmt:                      q.ensureCurtailmentOrgConfigStmt,
 		findDeviceSiteConflictsStmt:                         q.findDeviceSiteConflictsStmt,
@@ -3525,6 +3562,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertErrorStmt:                                     q.insertErrorStmt,
 		insertMQTTSourceConfigStmt:                          q.insertMQTTSourceConfigStmt,
 		insertMinerStateSnapshotStmt:                        q.insertMinerStateSnapshotStmt,
+		insertNotificationHistoryStmt:                       q.insertNotificationHistoryStmt,
+		insertNotificationMetricSamplesStmt:                 q.insertNotificationMetricSamplesStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActiveCurtailedDevicesByOrgStmt:                 q.listActiveCurtailedDevicesByOrgStmt,
@@ -3608,6 +3647,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokeApiKeysByFleetNodeIDStmt:                      q.revokeApiKeysByFleetNodeIDStmt,
 		revokePermissionFromRoleStmt:                        q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
+		setDevicePairingAuthNeededIfNotPairedStmt:           q.setDevicePairingAuthNeededIfNotPairedStmt,
 		setFleetNodeEnrollmentStatusStmt:                    q.setFleetNodeEnrollmentStatusStmt,
 		setMQTTSourceConfigEnabledStmt:                      q.setMQTTSourceConfigEnabledStmt,
 		setRackBuildingPositionStmt:                         q.setRackBuildingPositionStmt,

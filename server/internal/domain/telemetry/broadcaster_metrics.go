@@ -75,7 +75,7 @@ func newMetricsObserver(emitter MetricsEmitter) *metricsObserver {
 
 // onDeviceMetrics is called by the metrics writer pathway every time a device returns a successful telemetry sample.
 // The aggregation for sensor kinds happens here, per-board / per-chip detail collapses to _max and _avg.
-func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driver string, deviceID models.DeviceIdentifier, dm modelsV2.DeviceMetrics) {
+func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int64, driver string, deviceID models.DeviceIdentifier, dm modelsV2.DeviceMetrics) {
 	if o == nil {
 		return
 	}
@@ -89,6 +89,7 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driv
 	}
 	labels := metrics.DeviceLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
+		SiteID:         metrics.SiteIDToLabel(siteID),
 		DeviceID:       string(deviceID),
 		Driver:         driver,
 	}
@@ -130,12 +131,13 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driv
 }
 
 // onDeviceStatus is called from the status writer every time the cached device status is updated.
-func (o *metricsObserver) onDeviceStatus(ctx context.Context, orgID int64, driver string, deviceID models.DeviceIdentifier, status mm.MinerStatus) {
+func (o *metricsObserver) onDeviceStatus(ctx context.Context, orgID, siteID int64, driver string, deviceID models.DeviceIdentifier, status mm.MinerStatus) {
 	if o == nil {
 		return
 	}
 	labels := metrics.DeviceLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
+		SiteID:         metrics.SiteIDToLabel(siteID),
 		DeviceID:       string(deviceID),
 		Driver:         driver,
 	}
@@ -148,7 +150,7 @@ func (o *metricsObserver) onDeviceRemoved(_ context.Context, _ models.DeviceIden
 }
 
 // onPollResult is called by the telemetry workers for every poll attempt.
-func (o *metricsObserver) onPollResult(ctx context.Context, orgID int64, deviceID models.DeviceIdentifier, success bool) {
+func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64, deviceID models.DeviceIdentifier, success bool) {
 	if o == nil {
 		return
 	}
@@ -158,6 +160,7 @@ func (o *metricsObserver) onPollResult(ctx context.Context, orgID int64, deviceI
 	}
 	o.emitter.EmitTelemetryPoll(ctx, metrics.TelemetryPollLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
+		SiteID:         metrics.SiteIDToLabel(siteID),
 		DeviceID:       string(deviceID),
 		Result:         result,
 	})

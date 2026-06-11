@@ -1,0 +1,16 @@
+# Contact points consumed by Grafana's built-in Alertmanager.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: protofleet-internal
+    receivers:
+      - uid: protofleet-internal-webhook
+        type: webhook
+        settings:
+          url: http://fleet-api:4000/internal/alertmanager-webhook
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: ${FLEET_METRICS_WEBHOOK_TOKEN}
+          maxAlerts: 50
+        disableResolveMessage: false

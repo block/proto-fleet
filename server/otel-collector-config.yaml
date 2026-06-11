@@ -14,9 +14,6 @@ exporters:
   # Traces -> jaeger (dev only).
   otlphttp/jaeger:
     endpoint: http://jaeger:4318
-  # Metrics -> victoria-metrics (OTLP/HTTP write endpoint).
-  otlphttp/vm:
-    endpoint: http://victoria-metrics:8428/opentelemetry
 
 extensions:
   health_check:
@@ -29,7 +26,3 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlphttp/jaeger]
-    metrics:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [otlphttp/vm]

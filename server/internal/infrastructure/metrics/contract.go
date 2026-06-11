@@ -63,6 +63,9 @@ const (
 	// compiler injects organization_id="<caller-org>" into every vector.
 	LabelOrganizationID = "organization_id"
 
+	// LabelSiteID identifies the site a device is placed at.
+	LabelSiteID = "site_id"
+
 	// LabelDeviceID is the stable device identifier.
 	LabelDeviceID = "device_id"
 
@@ -118,6 +121,7 @@ var AllMetricNames = []string{
 // AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.
 var AllLabelKeys = []string{
 	LabelOrganizationID,
+	LabelSiteID,
 	LabelDeviceID,
 	LabelDeviceGroup,
 	LabelDriver,
@@ -166,4 +170,11 @@ func OrgIDToLabel(orgID int64) string {
 		return ""
 	}
 	return strconv.FormatInt(orgID, 10)
+}
+
+func SiteIDToLabel(siteID int64) string {
+	if siteID == 0 {
+		return ""
+	}
+	return strconv.FormatInt(siteID, 10)
 }

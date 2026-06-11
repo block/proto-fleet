@@ -33,7 +33,16 @@ const pairConcurrency = 16
 const (
 	maxPairIdentityBytes = 255
 	maxPairMACBytes      = 64
+	maxUsedPasswordBytes = 1024
 )
+
+// credentialsReportable reports whether username/password fit the
+// FleetNodePairResult caps. We refuse an oversized credential rather than pair with
+// it: the node could authenticate but the cloud couldn't persist it back, leaving
+// the device PAIRED but unusable.
+func credentialsReportable(username, password string) bool {
+	return len(username) <= maxPairIdentityBytes && len(password) <= maxUsedPasswordBytes
+}
 
 // perPairTimeout bounds one device's auth handshake. var so tests can shrink it.
 var perPairTimeout = 60 * time.Second
@@ -88,19 +97,30 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	// Asymmetric-auth drivers (Proto) pair with the node's own miner-signing key;
 	// operator-supplied username/password covers basic-auth drivers.
 	if bundle, ok := secretBundleFor(plugin.Caps, p.minerSigningPubKey, creds); ok {
+		basicAuth := !plugin.Caps[sdk.CapabilityAsymmetricAuth]
+		if basicAuth && !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
+			res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+			res.ErrorMessage = "supplied credentials exceed the maximum reportable size"
+			return res
+		}
 		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
 		if pairErr != nil {
 			classifyNodePairError(pairErr, res)
 			return res
 		}
 		setPaired(res, updated)
+		if basicAuth {
+			res.UsedCredentials = &pb.UsedCredentials{Username: creds.GetUsername(), Password: creds.GetPassword()}
+		}
 		return res
 	}
 
-	// No credentials supplied: try plugin-provided defaults.
 	if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
 		defaults := provider.GetDefaultCredentials(ctx, target.GetManufacturer(), target.GetFirmwareVersion())
 		for _, c := range defaults {
+			if !credentialsReportable(c.Username, c.Password) {
+				continue
+			}
 			bundle := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: c.Username, Password: c.Password}}
 			updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
 			if pairErr != nil {
@@ -111,6 +131,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				return res
 			}
 			setPaired(res, updated)
+			res.UsedCredentials = &pb.UsedCredentials{Username: c.Username, Password: c.Password}
 			return res
 		}
 	}
@@ -205,14 +226,27 @@ func (r *RunCmd) handlePairCommand(ctx context.Context, client gatewayClient, st
 	targets := req.GetTargets()
 	logger.Info("pair command received", "command_id", commandID, "targets", len(targets))
 
+	// One pair command at a time, held until every worker has exited: a truncated
+	// batch abandons ctx-ignoring workers that may still be mutating miners, and a
+	// second command must not race them. BUSY maps to a retryable operator error.
+	if !r.pairMu.TryLock() {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BUSY, "a pair command is still running on this node; retry shortly", logger)
+		return
+	}
+
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	results, truncated := fanOutPairs(cmdCtx, targets, req.GetCredentials(), pairConcurrency, r.pairer.Pair, logger)
+	results, truncated, workersDone := fanOutPairs(cmdCtx, targets, req.GetCredentials(), pairConcurrency, r.pairer.Pair, logger)
+	go func() {
+		<-workersDone
+		r.pairMu.Unlock()
+	}()
 
 	// Stream on the parent ctx, not cmdCtx: a deadline-hit cmdCtx must not
 	// suppress upload of the results already collected.
-	if err := r.streamPairResults(ctx, client, commandID, results, logger); err != nil {
+	rejected, err := r.streamPairResults(ctx, client, commandID, results, logger)
+	if err != nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_REPORT_FAILED, err.Error(), logger)
 		return
 	}
@@ -224,45 +258,65 @@ func (r *RunCmd) handlePairCommand(ctx context.Context, client gatewayClient, st
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("pair supervisor budget exceeded; %d of %d result(s) uploaded", len(results), len(targets)), logger)
 		return
 	}
+	// RejectedCount > 0 means the cloud didn't store a miner the node paired, so ack
+	// PARTIAL (not OK) and let the operator re-list and re-issue the remainder.
+	if rejected > 0 {
+		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_PARTIAL, fmt.Sprintf("cloud did not persist %d of %d reported result(s); re-list and retry", rejected, len(results)), logger)
+		return
+	}
 	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
 }
 
-func (r *RunCmd) streamPairResults(ctx context.Context, client gatewayClient, commandID string, results []*pb.FleetNodePairResult, logger *slog.Logger) error {
+// streamPairResults uploads results in chunks and returns how many the gateway
+// failed to persist, so the caller can ack PARTIAL instead of claiming full success.
+func (r *RunCmd) streamPairResults(ctx context.Context, client gatewayClient, commandID string, results []*pb.FleetNodePairResult, logger *slog.Logger) (int64, error) {
+	var rejected int64
 	for chunk := range slices.Chunk(results, maxDevicesPerReport) {
 		callCtx, cancel := context.WithTimeout(ctx, discoveryReportTimeout)
-		_, err := client.ReportPairedDevices(callCtx, connect.NewRequest(&pb.ReportPairedDevicesRequest{
+		resp, err := client.ReportPairedDevices(callCtx, connect.NewRequest(&pb.ReportPairedDevicesRequest{
 			CommandId: commandID,
 			Results:   chunk,
 		}))
 		cancel()
 		if err != nil {
 			logger.Error("pair report failed", "command_id", commandID, "err", err)
-			return fmt.Errorf("report paired devices: %w", err)
+			return rejected, fmt.Errorf("report paired devices: %w", err)
 		}
-		logger.Info("pair report accepted", "command_id", commandID, "batch_size", len(chunk))
+		rejected += resp.Msg.GetRejectedCount()
+		logger.Info("pair report accepted", "command_id", commandID, "batch_size", len(chunk), "rejected", resp.Msg.GetRejectedCount())
 	}
-	return nil
+	return rejected, nil
 }
 
 // fanOutPairs pairs targets with bounded concurrency, returning collected
-// results and whether the batch was truncated (a hung plugin or a cancelled
-// parent ctx left some targets unattempted; the operator re-lists and retries).
-func fanOutPairs(ctx context.Context, targets []*pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials, concurrency int, pair func(context.Context, *pairingpb.FleetNodePairTarget, *pairingpb.Credentials) *pb.FleetNodePairResult, logger *slog.Logger) ([]*pb.FleetNodePairResult, bool) {
-	if len(targets) == 0 {
-		return nil, false
-	}
+// results, whether the batch was truncated (a hung plugin or a cancelled parent
+// ctx left some targets unattempted; the operator re-lists and retries), and a
+// channel closed once every started worker has exited. A truncated batch abandons
+// ctx-ignoring workers that may still be mutating miners; the caller must not
+// admit another pair command until that channel closes.
+func fanOutPairs(ctx context.Context, targets []*pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials, concurrency int, pair func(context.Context, *pairingpb.FleetNodePairTarget, *pairingpb.Credentials) *pb.FleetNodePairResult, logger *slog.Logger) ([]*pb.FleetNodePairResult, bool, <-chan struct{}) {
 	var (
 		mu      sync.Mutex
 		results []*pb.FleetNodePairResult
 		wg      sync.WaitGroup
 	)
+	// Called only after the spawn loop stops, so a transient wg zero-crossing
+	// mid-spawn can't close the channel while workers are still being added.
+	workersDone := func() <-chan struct{} {
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		return done
+	}
+	if len(targets) == 0 {
+		return nil, false, workersDone()
+	}
 	sem := make(chan struct{}, concurrency)
 	for _, t := range targets {
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
 			out, _ := waitSupervisor(&wg, &mu, &results, perPairTimeout*2, "pair", logger)
-			return out, true
+			return out, true, workersDone()
 		}
 		wg.Add(1)
 		go func(target *pairingpb.FleetNodePairTarget) {
@@ -276,7 +330,8 @@ func fanOutPairs(ctx context.Context, targets []*pairingpb.FleetNodePairTarget, 
 			mu.Unlock()
 		}(t)
 	}
-	return waitSupervisor(&wg, &mu, &results, perPairTimeout*2, "pair", logger)
+	out, truncated := waitSupervisor(&wg, &mu, &results, perPairTimeout*2, "pair", logger)
+	return out, truncated, workersDone()
 }
 
 // truncateUTF8 trims s to at most maxLen bytes on a rune boundary so it stays valid

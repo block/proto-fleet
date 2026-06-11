@@ -121,6 +121,7 @@ func (q *Queries) GetOrganizationPrivateKey(ctx context.Context, id int64) (stri
 const listOrganizations = `-- name: ListOrganizations :many
 SELECT id, org_id, name, miner_auth_private_key, created_at, updated_at, deleted_at
 FROM organization
+WHERE deleted_at IS NULL
 ORDER BY name
 `
 

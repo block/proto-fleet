@@ -47,6 +47,13 @@ func (s *SQLFleetNodePairingStore) DeviceHasActiveCloudPairing(ctx context.Conte
 	})
 }
 
+func (s *SQLFleetNodePairingStore) DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error) {
+	return s.q(ctx).DeviceHasActivePairing(ctx, sqlc.DeviceHasActivePairingParams{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+	})
+}
+
 func (s *SQLFleetNodePairingStore) UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error) {
 	return s.q(ctx).UnpairDevice(ctx, sqlc.UnpairDeviceParams{
 		DeviceID: deviceID,
@@ -76,12 +83,14 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	return out, nil
 }
 
-func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID, cursorID, limit *int64) ([]pairing.FleetNodeDiscoveredDevice, error) {
+func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, identifiers []string, cursorID, limit *int64, excludeAuthNeeded bool) ([]pairing.FleetNodeDiscoveredDevice, error) {
 	rows, err := s.q(ctx).ListFleetNodeDiscoveredDevices(ctx, sqlc.ListFleetNodeDiscoveredDevicesParams{
-		OrgID:       orgID,
-		FleetNodeID: ptrToNullInt64(fleetNodeID),
-		CursorID:    ptrToNullInt64(cursorID),
-		Limit:       ptrToNullInt64(limit),
+		OrgID:             orgID,
+		FleetNodeID:       ptrToNullInt64(fleetNodeID),
+		Identifiers:       identifiers,
+		CursorID:          ptrToNullInt64(cursorID),
+		Limit:             ptrToNullInt64(limit),
+		ExcludeAuthNeeded: sql.NullBool{Bool: excludeAuthNeeded, Valid: excludeAuthNeeded},
 	})
 	if err != nil {
 		return nil, err
@@ -119,6 +128,10 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 		FirmwareVersion:         emptyToNullString(report.FirmwareVersion),
 		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
 	})
+}
+
+func (s *SQLFleetNodePairingStore) GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error) {
+	return s.q(ctx).GetDeviceIDByDeviceIdentifier(ctx, identifier)
 }
 
 func (s *SQLFleetNodePairingStore) DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error) {

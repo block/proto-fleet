@@ -137,16 +137,14 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 
 func (s *SQLDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error {
 	err := s.getQueries(ctx).UpdateDeviceInfo(ctx, sqlc.UpdateDeviceInfoParams{
-		MacAddress: networking.NormalizeMAC(device.MacAddress),
-		SerialNumber: sql.NullString{
-			String: device.SerialNumber,
-			Valid:  device.SerialNumber != "",
-		},
+		MacAddress:       networking.NormalizeMAC(device.MacAddress),
+		SerialNumber:     device.SerialNumber,
 		DeviceIdentifier: device.DeviceIdentifier,
 		OrgID:            orgID,
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to update device info for identifier=%s org_id=%d: %v", device.DeviceIdentifier, orgID, err)
+		// %w so callers can recover the DB cause (e.g. a serial unique-violation).
+		return fleeterror.NewInternalErrorf("failed to update device info for identifier=%s org_id=%d: %w", device.DeviceIdentifier, orgID, err)
 	}
 	return nil
 }
@@ -217,6 +215,23 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 		return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 	}
 	return nil
+}
+
+func (s *SQLDeviceStore) SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error) {
+	dbDevice, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: device.DeviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return false, handleQueryError(err,
+			fmt.Sprintf("device not found for pairing update with identifier=%s org_id=%d", device.DeviceIdentifier, orgID),
+			"failed to query device")
+	}
+	rows, err := s.getQueries(ctx).SetDevicePairingAuthNeededIfNotPaired(ctx, dbDevice.ID)
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to set auth-needed pairing: %v", err)
+	}
+	return rows > 0, nil
 }
 
 // UpdateDevicePairingStatusByIdentifier writes the new pairing_status for
@@ -341,15 +356,20 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	return deviceIDs, nil
 }
 
-// GetDeviceOrgAndDriver returns the trusted (org_id, driver_name) for a paired device.
-func (s *SQLDeviceStore) GetDeviceOrgAndDriver(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, error) {
+// GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
+// for a paired device. site_id is 0 when the device is not assigned to a site.
+func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error) {
 	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceIdentifier))
 	if err != nil {
-		return 0, "", handleQueryError(err,
+		return 0, "", 0, handleQueryError(err,
 			fmt.Sprintf("device not found with identifier=%s", deviceIdentifier),
-			fmt.Sprintf("failed to resolve org/driver for device identifier=%s", deviceIdentifier))
+			fmt.Sprintf("failed to resolve org/driver/site for device identifier=%s", deviceIdentifier))
 	}
-	return row.OrgID, row.DriverName, nil
+	var siteID int64
+	if row.SiteID.Valid {
+		siteID = row.SiteID.Int64
+	}
+	return row.OrgID, row.DriverName, siteID, nil
 }
 
 // GetMinerStateCounts returns counts of miners by operational state.

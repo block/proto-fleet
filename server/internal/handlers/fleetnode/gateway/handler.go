@@ -95,7 +95,7 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	in := req.Msg.GetDevices()
 	// Bind to the in-flight command and reserve quota so an agent can't stream
 	// unbounded batches against one command_id.
-	if admitErr := h.registry.AdmitReport(subject.FleetNodeID, commandID, len(in)); admitErr != nil {
+	if admitErr := h.registry.AdmitReport(subject.FleetNodeID, commandID, len(in), control.ReportKindDiscovery); admitErr != nil {
 		if errors.Is(admitErr, control.ErrReportQuotaExceeded) {
 			return nil, connect.NewError(connect.CodeResourceExhausted, admitErr)
 		}
@@ -155,6 +155,80 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 		AcceptedCount: int64(len(acceptedIdx)),
 		RejectedCount: ownershipRejected + outOfScope,
 	}), nil
+}
+
+func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[pb.ReportPairedDevicesRequest]) (*connect.Response[pb.ReportPairedDevicesResponse], error) {
+	subject, err := auth.GetSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	commandID := req.Msg.GetCommandId()
+	if commandID == "" {
+		return nil, fleeterror.NewFailedPreconditionError("pairing report requires a command_id from a server-issued ControlCommand")
+	}
+	results := req.Msg.GetResults()
+	// Admit, scope to the dispatched targets (consuming each to bar replay), then
+	// persist authoritatively here -- the node-authenticated path is the source of
+	// truth, so a disconnected operator can't lose a paired miner.
+	kept, meta, admitErr := h.registry.AdmitAndScopePairResults(subject.FleetNodeID, commandID, results)
+	if admitErr != nil {
+		switch {
+		case errors.Is(admitErr, control.ErrReportQuotaExceeded):
+			return nil, connect.NewError(connect.CodeResourceExhausted, admitErr)
+		case errors.Is(admitErr, control.ErrEmptyReport):
+			return nil, fleeterror.NewInvalidArgumentError("pairing report carried no results")
+		default:
+			return nil, fleeterror.NewFailedPreconditionError("pairing report does not match an in-flight server-issued command")
+		}
+	}
+
+	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
+	var persistFailed []string
+	for _, r := range kept {
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, subject.FleetNodeID, meta.OrgID, r, meta.AssignedBy)
+		if err != nil {
+			// Per-device isolation: one persist failure must not drop the others
+			// (already paired on the node). A failed result isn't forwarded as paired;
+			// the operator synthesizes a terminal FAILED so it surfaces for re-issue.
+			slog.Error("failed to persist fleet node pair result",
+				"fleet_node_id", subject.FleetNodeID, "device_identifier", r.GetDeviceIdentifier(), "err", err)
+			persistFailed = append(persistFailed, r.GetDeviceIdentifier())
+			continue
+		}
+		// Forward the persisted status, not the raw report: a stale AUTH_NEEDED for
+		// an already-PAIRED device persists as PAIRED, so the operator must see PAIRED.
+		r.Outcome = pairOutcomeForStatus(status)
+		persisted = append(persisted, r)
+	}
+	// Admission consumed these targets; return them so a retried report for the
+	// same command can persist after a transient failure.
+	if len(persistFailed) > 0 {
+		h.registry.ReinstatePairTargets(subject.FleetNodeID, commandID, persistFailed)
+	}
+
+	// Forward only persisted results for live display; lossy is fine now that
+	// persistence above is authoritative, like discovery's PublishBatch.
+	if len(persisted) > 0 {
+		h.registry.PublishPairResults(subject.FleetNodeID, commandID, persisted)
+	}
+	return connect.NewResponse(&pb.ReportPairedDevicesResponse{
+		AcceptedCount: int64(len(persisted)),
+		RejectedCount: int64(len(results) - len(persisted)),
+	}), nil
+}
+
+// pairOutcomeForStatus maps the persisted device_pairing status back to the pair
+// outcome forwarded to the operator, so the live display reflects what was stored
+// (PAIRED / AUTHENTICATION_NEEDED / FAILED) rather than the raw node report.
+func pairOutcomeForStatus(status string) pb.PairOutcome {
+	switch status {
+	case pairing.StatusPaired:
+		return pb.PairOutcome_PAIR_OUTCOME_PAIRED
+	case pairing.StatusAuthenticationNeeded:
+		return pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED
+	default:
+		return pb.PairOutcome_PAIR_OUTCOME_ERROR
+	}
 }
 
 func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
