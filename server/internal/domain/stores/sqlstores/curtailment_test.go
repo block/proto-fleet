@@ -103,6 +103,16 @@ func TestNormalizeListCandidatesParams(t *testing.T) {
 	assert.Equal(t, []string{"miner-1"}, nonEmpty.DeviceIdentifiers)
 }
 
+func TestResponseProfileSiteIDsForLock(t *testing.T) {
+	t.Parallel()
+
+	siteA := int64(7)
+	siteB := int64(3)
+
+	assert.Equal(t, []int64{3, 7}, responseProfileSiteIDsForLock(&siteA, nil, &siteB, &siteA))
+	assert.Empty(t, responseProfileSiteIDsForLock(nil))
+}
+
 // TestBuildBulkTargetPayload pins the JSON contract consumed by
 // BulkInsertCurtailmentTargets via jsonb_to_recordset:
 //   - nil baseline_power_w marshals to JSON null so the NUMERIC column

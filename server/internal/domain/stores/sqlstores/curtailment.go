@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sort"
 	"strconv"
 	"time"
 
@@ -135,7 +136,7 @@ func (s *SQLCurtailmentStore) GetResponseProfile(ctx context.Context, orgID, pro
 
 func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
-		if err := lockResponseProfileSiteForWrite(ctx, q, profile.OrgID, profile.SiteID); err != nil {
+		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, profile.SiteID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
@@ -148,7 +149,7 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile
 
 func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
-		if err := lockResponseProfileSiteForWrite(ctx, q, profile.OrgID, profile.SiteID); err != nil {
+		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, expectedSiteID, profile.SiteID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID))
@@ -194,17 +195,33 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, 
 	return nil
 }
 
-func lockResponseProfileSiteForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, siteID *int64) error {
-	if siteID == nil {
-		return nil
-	}
-	if _, err := q.LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: *siteID, OrgID: orgID}); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewNotFoundErrorf("site not found: %d", *siteID)
+func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, siteIDs ...*int64) error {
+	for _, siteID := range responseProfileSiteIDsForLock(siteIDs...) {
+		if _, err := q.LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: siteID, OrgID: orgID}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
+			}
+			return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
 		}
-		return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
 	}
 	return nil
+}
+
+func responseProfileSiteIDsForLock(siteIDs ...*int64) []int64 {
+	seen := make(map[int64]struct{}, len(siteIDs))
+	out := make([]int64, 0, len(siteIDs))
+	for _, siteID := range siteIDs {
+		if siteID == nil {
+			continue
+		}
+		if _, ok := seen[*siteID]; ok {
+			continue
+		}
+		seen[*siteID] = struct{}{}
+		out = append(out, *siteID)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // InsertEventWithTargets writes event + targets in one transaction.
