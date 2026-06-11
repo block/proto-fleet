@@ -2225,16 +2225,16 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 
 	ctx := t.Context()
 
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
-		assert.NoError(t, service.processDevice(ctx, device))
-		close(done)
+		done <- service.processDevice(ctx, device)
 	}()
 
 	// Act & Assert - processDevice should complete without blocking
 	select {
-	case <-done:
+	case err := <-done:
 		// Success - processDevice completed without blocking
+		assert.ErrorContains(t, err, "status results channel full")
 	case <-time.After(2 * time.Second):
 		t.Fatal("processDevice blocked on full channel - non-blocking send not working")
 	}
