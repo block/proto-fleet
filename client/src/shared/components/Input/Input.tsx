@@ -123,6 +123,7 @@ const Input = ({
   const hasFloatingLabel = type === "date" || !!length(value) || focused;
   const showPasswordToggle = type === "password" && !hidePasswordToggle;
   const showTrailingIcon = showPasswordToggle || statusIcon !== undefined;
+  const trailingAdornmentCount = [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length;
 
   useEffect(() => {
     if (error) return;
@@ -194,9 +195,10 @@ const Input = ({
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
-            { "pr-4": !compact && !tooltip && !showTrailingIcon && !suffixAction },
-            { "pr-10": !compact && [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length === 1 },
-            { "pr-20": !compact && [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length >= 2 },
+            { "pr-4": !compact && trailingAdornmentCount === 0 },
+            { "pr-10": !compact && trailingAdornmentCount === 1 },
+            { "pr-20": !compact && trailingAdornmentCount === 2 },
+            { "pr-28": !compact && trailingAdornmentCount >= 3 },
             { "h-6": compact },
             { "no-spinner": type === "number" },
             { uppercase: type === "date" },
@@ -280,7 +282,8 @@ const Input = ({
           <div
             className={clsx("absolute top-7 z-50 -translate-y-1/2 transform", {
               "right-4": !tooltip && !showTrailingIcon,
-              "right-12": tooltip || showTrailingIcon,
+              "right-12": (tooltip || showTrailingIcon) && !(tooltip && showTrailingIcon),
+              "right-20": tooltip && showTrailingIcon,
             })}
           >
             {suffixAction}

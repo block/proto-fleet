@@ -177,6 +177,30 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(createRequest?.site).toBeUndefined();
   });
 
+  it("rejects invalid site IDs before creating a CRUD request", async () => {
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false, siteLabelsById));
+    let caughtError: unknown;
+
+    await act(async () => {
+      try {
+        await result.current.createResponseProfile({
+          ...fixedKwFormValues,
+          siteId: "site-101",
+        });
+      } catch (error) {
+        caughtError = error;
+      }
+    });
+
+    expect(caughtError).toEqual(
+      expect.objectContaining({
+        message: "Select a valid site before saving the response profile.",
+      }),
+    );
+    expect(result.current.createError).toBe("Select a valid site before saving the response profile.");
+    expect(mockCreateCurtailmentResponseProfile).not.toHaveBeenCalled();
+  });
+
   it("keeps unresolved API sites as site-scoped profiles", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
 

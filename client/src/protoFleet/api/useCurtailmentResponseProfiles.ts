@@ -168,12 +168,25 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+function getOptionalSiteId(value: string): bigint | undefined {
+  const siteId = value.trim();
+  if (siteId === "") {
+    return undefined;
+  }
+
+  if (!/^\d+$/.test(siteId)) {
+    throw new Error("Select a valid site before saving the response profile.");
+  }
+
+  return BigInt(siteId);
+}
+
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
-  const siteId = values.siteId.trim();
+  const siteId = getOptionalSiteId(values.siteId);
 
   return {
     profileName: values.name.trim(),
-    site: siteId ? create(ScopeSiteSchema, { siteId: BigInt(siteId) }) : undefined,
+    site: siteId === undefined ? undefined : create(ScopeSiteSchema, { siteId }),
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,

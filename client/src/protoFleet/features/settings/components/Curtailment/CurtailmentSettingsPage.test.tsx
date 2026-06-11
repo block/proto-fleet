@@ -450,6 +450,31 @@ describe("CurtailmentSettingsPage", () => {
     });
   });
 
+  it("keeps the response profile modal open and shows create failures", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createResponseProfileMock.mockRejectedValue(new Error("Profile name already exists"));
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("curtailment-action-error")).toHaveTextContent("Profile name already exists"),
+    );
+    expect(screen.getByText("Create response profile")).toBeInTheDocument();
+    expect(screen.getByTestId("full-screen-two-pane-modal")).toBeInTheDocument();
+    expect(pushToast).not.toHaveBeenCalledWith({
+      message: "Response profile added",
+      status: "success",
+    });
+  });
+
   it("saves a response profile, runs a curtailment, and redirects to energy", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
@@ -575,6 +600,25 @@ describe("CurtailmentSettingsPage", () => {
       message: "Response profile deleted",
       status: "success",
     });
+  });
+
+  it("keeps the response profile modal open and shows delete failures", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
+    deleteResponseProfileMock.mockRejectedValue(new Error("Delete failed"));
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+    fireEvent.click(getEnabledButton("Delete"));
+
+    await waitFor(() => expect(screen.getByTestId("curtailment-action-error")).toHaveTextContent("Delete failed"));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByTestId("full-screen-two-pane-modal")).toBeInTheDocument();
   });
 
   it("updates a response profile before running curtailment from edit mode", async () => {

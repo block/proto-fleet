@@ -99,6 +99,7 @@ interface CurtailmentStartModalProps {
   errors?: CurtailmentFormErrors;
   preview?: CurtailmentPlanPreview;
   previewError?: string;
+  actionError?: string | null;
   isSubmitting?: boolean;
   isTestingCurtailment?: boolean;
   isDeleting?: boolean;
@@ -591,6 +592,7 @@ function CurtailmentStartModalContent({
   errors,
   preview,
   previewError,
+  actionError,
   isSubmitting = false,
   isTestingCurtailment = false,
   isDeleting = false,
@@ -903,6 +905,14 @@ function CurtailmentStartModalContent({
         abovePanes={previewPane ? <div className="px-6 pb-6 laptop:hidden">{previewPane}</div> : null}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
+            {actionError ? (
+              <div
+                className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical"
+                data-testid="curtailment-action-error"
+              >
+                {actionError}
+              </div>
+            ) : null}
             {isResponseProfileVariant ? (
               <Section title="Profile" subtext={responseProfileDescription}>
                 <Input

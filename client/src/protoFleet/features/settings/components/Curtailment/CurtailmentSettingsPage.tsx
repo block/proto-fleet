@@ -1062,6 +1062,7 @@ export function CurtailmentSettingsContent({
   ]);
   const [isResponseProfileModalOpen, setIsResponseProfileModalOpen] = useState(initialResponseProfileModalOpen);
   const [editingResponseProfile, setEditingResponseProfile] = useState<ResponseProfile | null>(null);
+  const [responseProfileActionError, setResponseProfileActionError] = useState<string | null>(null);
   const [localSources, setLocalSources] = useState<CurtailmentSource[]>(() => [...initialSources]);
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(initialSourceModalOpen);
   const [editingSource, setEditingSource] = useState<CurtailmentSource | null>(null);
@@ -1090,16 +1091,19 @@ export function CurtailmentSettingsContent({
   const isEditingSource = editingSource ? updatingSourceIds.has(editingSource.id) : false;
 
   const openCreateResponseProfileModal = useCallback(() => {
+    setResponseProfileActionError(null);
     setEditingResponseProfile(null);
     setIsResponseProfileModalOpen(true);
   }, []);
 
   const openEditResponseProfileModal = useCallback((profile: ResponseProfile) => {
+    setResponseProfileActionError(null);
     setEditingResponseProfile(profile);
     setIsResponseProfileModalOpen(true);
   }, []);
 
   const closeResponseProfileModal = useCallback(() => {
+    setResponseProfileActionError(null);
     setIsResponseProfileModalOpen(false);
     setEditingResponseProfile(null);
   }, []);
@@ -1195,6 +1199,33 @@ export function CurtailmentSettingsContent({
     await handleDeleteResponseProfile();
     closeResponseProfileModal();
   }, [closeResponseProfileModal, handleDeleteResponseProfile]);
+
+  const handleResponseProfileModalSubmit = useCallback(
+    (values: CurtailmentSubmitValues) => {
+      setResponseProfileActionError(null);
+      void handleSaveResponseProfileFromCurtailment(values).catch((error) => {
+        setResponseProfileActionError(getErrorMessage(error, "Failed to save response profile."));
+      });
+    },
+    [handleSaveResponseProfileFromCurtailment],
+  );
+
+  const handleResponseProfileModalTestCurtailment = useCallback(
+    (values: CurtailmentSubmitValues) => {
+      setResponseProfileActionError(null);
+      void handleTestResponseProfileCurtailmentFromCurtailment(values).catch((error) => {
+        setResponseProfileActionError(getErrorMessage(error, "Failed to run curtailment."));
+      });
+    },
+    [handleTestResponseProfileCurtailmentFromCurtailment],
+  );
+
+  const handleResponseProfileModalDelete = useCallback(() => {
+    setResponseProfileActionError(null);
+    void handleDeleteResponseProfileFromCurtailment().catch((error) => {
+      setResponseProfileActionError(getErrorMessage(error, "Failed to delete response profile."));
+    });
+  }, [handleDeleteResponseProfileFromCurtailment]);
 
   const toggleSource = useCallback(
     (sourceId: string) => {
@@ -1331,16 +1362,11 @@ export function CurtailmentSettingsContent({
         variant="responseProfile"
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
+        actionError={responseProfileActionError}
         onDismiss={closeResponseProfileModal}
-        onSubmit={(values) => void handleSaveResponseProfileFromCurtailment(values).catch(() => {})}
-        onTestCurtailment={
-          onTestResponseProfileCurtailment
-            ? (values) => void handleTestResponseProfileCurtailmentFromCurtailment(values).catch(() => {})
-            : undefined
-        }
-        onDeleteResponseProfile={
-          editingResponseProfile ? () => void handleDeleteResponseProfileFromCurtailment().catch(() => {}) : undefined
-        }
+        onSubmit={handleResponseProfileModalSubmit}
+        onTestCurtailment={onTestResponseProfileCurtailment ? handleResponseProfileModalTestCurtailment : undefined}
+        onDeleteResponseProfile={editingResponseProfile ? handleResponseProfileModalDelete : undefined}
         isSubmitting={editingResponseProfile ? isEditingResponseProfile : isSavingResponseProfile}
         isTestingCurtailment={isTestingResponseProfileCurtailment}
         isDeleting={editingResponseProfile ? isDeletingResponseProfile || isEditingResponseProfile : false}
