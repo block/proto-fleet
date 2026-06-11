@@ -74,7 +74,7 @@ func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
 	assert.Equal(t, 0, store.siteCheckCount)
 }
 
-func TestResponseProfileService_CreateAppliesBackendBatchDefaults(t *testing.T) {
+func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwritingImmediateRestore(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
@@ -96,7 +96,33 @@ func TestResponseProfileService_CreateAppliesBackendBatchDefaults(t *testing.T) 
 	assert.Nil(t, profile.CurtailBatchSize)
 	assert.Equal(t, DefaultResponseProfileCurtailBatchIntervalSec, profile.CurtailBatchIntervalSec)
 	assert.Equal(t, DefaultResponseProfileRestoreBatchSize, profile.RestoreBatchSize)
-	assert.Equal(t, DefaultResponseProfileRestoreBatchIntervalSec, profile.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
+}
+
+func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	svc := NewResponseProfileService(store)
+
+	profile, err := svc.Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:                      101,
+			OrgID:                   42,
+			ProfileName:             "Standard shed",
+			Mode:                    models.ModeFixedKw,
+			TargetKW:                &targetKW,
+			RestoreBatchSize:        DefaultResponseProfileRestoreBatchSize,
+			RestoreBatchIntervalSec: 0,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
+	require.NotNil(t, store.updated)
+	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {

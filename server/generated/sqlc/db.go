@@ -183,6 +183,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteCurtailmentResponseProfileByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentResponseProfileByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteCurtailmentResponseProfileByOrg: %w", err)
 	}
+	if q.deleteCurtailmentResponseProfilesBySiteStmt, err = db.PrepareContext(ctx, deleteCurtailmentResponseProfilesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCurtailmentResponseProfilesBySite: %w", err)
+	}
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, deleteDisabledMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteDisabledMQTTSourceConfigByOrg: %w", err)
 	}
@@ -1393,6 +1396,11 @@ func (q *Queries) Close() error {
 	if q.deleteCurtailmentResponseProfileByOrgStmt != nil {
 		if cerr := q.deleteCurtailmentResponseProfileByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteCurtailmentResponseProfileByOrgStmt: %w", cerr)
+		}
+	}
+	if q.deleteCurtailmentResponseProfilesBySiteStmt != nil {
+		if cerr := q.deleteCurtailmentResponseProfilesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCurtailmentResponseProfilesBySiteStmt: %w", cerr)
 		}
 	}
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt != nil {
@@ -3057,6 +3065,7 @@ type Queries struct {
 	createUserOrganizationStmt                          *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt              *sql.Stmt
 	deleteCurtailmentResponseProfileByOrgStmt           *sql.Stmt
+	deleteCurtailmentResponseProfilesBySiteStmt         *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt             *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
@@ -3430,6 +3439,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:              q.curtailmentEventHasInFlightTargetsStmt,
 		deleteCurtailmentResponseProfileByOrgStmt:           q.deleteCurtailmentResponseProfileByOrgStmt,
+		deleteCurtailmentResponseProfilesBySiteStmt:         q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:             q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,

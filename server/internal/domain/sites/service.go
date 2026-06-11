@@ -179,8 +179,9 @@ func (s *Service) ListSites(ctx context.Context, orgID int64) ([]models.SiteWith
 	return s.store.ListSites(ctx, orgID)
 }
 
-// DeleteSite soft-deletes the site and cascade-unassigns its devices,
-// racks, and buildings in one transaction. Returns the impact counts.
+// DeleteSite soft-deletes the site and cascade-unassigns or deletes its
+// devices, racks, buildings, and response profiles in one transaction. Returns
+// the impact counts.
 func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.DeleteSiteResult, error) {
 	var out models.DeleteSiteResult
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
@@ -197,30 +198,37 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		if err := s.store.LockBuildingsBySiteForWrite(txCtx, orgID, id); err != nil {
 			return err
 		}
-		// 1. Clear rack→building linkage + zone for racks under any
+		// Clear rack→building linkage + zone for racks under any
 		// building of this site, BEFORE the buildings disappear.
 		if _, err := s.store.UnassignRacksFromBuildingsBySite(txCtx, orgID, id); err != nil {
 			return err
 		}
-		// 2. Soft-delete buildings under the site.
+		// Soft-delete buildings under the site.
 		deletedBuildings, err := s.store.SoftDeleteBuildingsBySite(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
 		out.DeletedBuildingCount = deletedBuildings
-		// 3. Unassign racks directly under the site.
+		// Unassign racks directly under the site.
 		rackCount, err := s.store.UnassignRacksFromSite(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
 		out.UnassignedRackCount = rackCount
-		// 4. Unassign devices.
+		// Unassign devices.
 		deviceCount, err := s.store.UnassignDevicesFromSite(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
 		out.UnassignedDeviceCount = deviceCount
-		// 5. Soft-delete the site row last.
+		// Delete response profiles scoped to this site so reusable
+		// curtailment behavior cannot outlive the site row.
+		profileCount, err := s.store.DeleteCurtailmentResponseProfilesBySite(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		out.DeletedResponseProfileCount = profileCount
+		// Soft-delete the site row last.
 		n, err := s.store.SoftDeleteSite(txCtx, orgID, id)
 		if err != nil {
 			return err
@@ -245,13 +253,18 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		OrganizationID: &orgIDVal,
 		SiteID:         &siteIDVal,
 		Description: fmt.Sprintf(
-			"Deleted site %d (%d buildings, %d racks, %d devices unassigned)",
-			id, out.DeletedBuildingCount, out.UnassignedRackCount, out.UnassignedDeviceCount,
+			"Deleted site %d (%d buildings, %d racks, %d devices unassigned, %d response profiles deleted)",
+			id,
+			out.DeletedBuildingCount,
+			out.UnassignedRackCount,
+			out.UnassignedDeviceCount,
+			out.DeletedResponseProfileCount,
 		),
 		Metadata: map[string]any{
-			"deleted_building_count":  out.DeletedBuildingCount,
-			"unassigned_rack_count":   out.UnassignedRackCount,
-			"unassigned_device_count": out.UnassignedDeviceCount,
+			"deleted_building_count":         out.DeletedBuildingCount,
+			"unassigned_rack_count":          out.UnassignedRackCount,
+			"unassigned_device_count":        out.UnassignedDeviceCount,
+			"deleted_response_profile_count": out.DeletedResponseProfileCount,
 		},
 	}
 	activity.StampActor(ctx, &event)

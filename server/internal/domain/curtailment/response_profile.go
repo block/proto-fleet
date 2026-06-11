@@ -142,9 +142,6 @@ func normalizeResponseProfile(profile models.ResponseProfile) models.ResponsePro
 	if profile.RestoreBatchSize == 0 {
 		profile.RestoreBatchSize = DefaultResponseProfileRestoreBatchSize
 	}
-	if profile.RestoreBatchIntervalSec == 0 {
-		profile.RestoreBatchIntervalSec = DefaultResponseProfileRestoreBatchIntervalSec
-	}
 	return profile
 }
 

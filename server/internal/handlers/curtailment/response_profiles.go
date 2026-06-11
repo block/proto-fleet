@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -26,9 +27,27 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*pb.CurtailmentResponseProfile, len(profiles))
-	for i, profile := range profiles {
-		out[i] = toResponseProfileProto(profile)
+	out := make([]*pb.CurtailmentResponseProfile, 0, len(profiles))
+	siteAllowed := make(map[int64]bool)
+	for _, profile := range profiles {
+		if profile.SiteID != nil {
+			allowed, ok := siteAllowed[*profile.SiteID]
+			if !ok {
+				if err := requireResponseProfileSitePermission(ctx, authz.PermCurtailmentManage, profile); err != nil {
+					if fleeterror.IsForbiddenError(err) {
+						siteAllowed[*profile.SiteID] = false
+						continue
+					}
+					return nil, err
+				}
+				allowed = true
+				siteAllowed[*profile.SiteID] = true
+			}
+			if !allowed {
+				continue
+			}
+		}
+		out = append(out, toResponseProfileProto(profile))
 	}
 	return connect.NewResponse(&pb.ListCurtailmentResponseProfilesResponse{Profiles: out}), nil
 }
@@ -41,7 +60,7 @@ func (h *Handler) GetCurtailmentResponseProfile(ctx context.Context, req *connec
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("GetCurtailmentResponseProfile")
 	}
-	profile, err := h.responseProfiles.Get(ctx, info.OrganizationID, req.Msg.GetProfileId())
+	profile, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +68,7 @@ func (h *Handler) GetCurtailmentResponseProfile(ctx context.Context, req *connec
 }
 
 func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.CreateCurtailmentResponseProfileRequest]) (*connect.Response[pb.CreateCurtailmentResponseProfileResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, responseProfileSiteResourceContext(req.Msg.GetSite()))
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +97,14 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("UpdateCurtailmentResponseProfile")
 	}
+	if _, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId()); err != nil {
+		return nil, err
+	}
 	profile, err := responseProfileFromUpdateRequest(info.OrganizationID, req.Msg)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireResponseProfileSitePermission(ctx, authz.PermCurtailmentManage, &profile); err != nil {
 		return nil, err
 	}
 	updated, err := h.responseProfiles.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
@@ -100,10 +125,40 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("DeleteCurtailmentResponseProfile")
 	}
+	if _, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId()); err != nil {
+		return nil, err
+	}
 	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId()); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentResponseProfileResponse{}), nil
+}
+
+func (h *Handler) getResponseProfileWithSitePermission(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error) {
+	profile, err := h.responseProfiles.Get(ctx, orgID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireResponseProfileSitePermission(ctx, authz.PermCurtailmentManage, profile); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func responseProfileSiteResourceContext(site *pb.ScopeSite) authz.ResourceContext {
+	if site == nil {
+		return authz.ResourceContext{}
+	}
+	siteID := site.GetSiteId()
+	return authz.ResourceContext{SiteID: &siteID}
+}
+
+func requireResponseProfileSitePermission(ctx context.Context, permission string, profile *models.ResponseProfile) error {
+	if profile == nil || profile.SiteID == nil {
+		return nil
+	}
+	_, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: profile.SiteID})
+	return err
 }
 
 func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {

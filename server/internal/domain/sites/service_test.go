@@ -122,6 +122,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil),
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
 		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil),
+		store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(5), nil),
 		store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(11)).Return(int64(1), nil),
 	)
 
@@ -129,7 +130,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.UnassignedDeviceCount != 3 || out.DeletedBuildingCount != 2 || out.UnassignedRackCount != 4 {
+	if out.UnassignedDeviceCount != 3 || out.DeletedBuildingCount != 2 || out.UnassignedRackCount != 4 || out.DeletedResponseProfileCount != 5 {
 		t.Fatalf("unexpected counts: %+v", out)
 	}
 	if tx.calls != 1 {
@@ -146,13 +147,14 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	// LockSiteForWrite succeeds (row exists at start of tx) but the
 	// final SoftDeleteSite affects 0 rows because nothing matched the
 	// org filter (or the test is asserting the affects-zero defensive
-	// branch). All 7 calls happen inside RunInTx.
+	// branch). All cascade calls happen inside RunInTx.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 
 	_, err := svc.DeleteSite(context.Background(), testOrgID, 99)

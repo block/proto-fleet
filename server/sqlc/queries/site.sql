@@ -111,6 +111,13 @@ WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL;
 
+-- name: DeleteCurtailmentResponseProfilesBySite :execrows
+-- Deletes reusable response profiles tied to a site as part of the
+-- site delete cascade so they cannot outlive a soft-deleted site.
+DELETE FROM curtailment_response_profile
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id');
+
 -- name: SoftDeleteBuildingsBySite :execrows
 -- Soft-deletes every live building under the given site. Caller wraps
 -- this in the same tx as the SoftDeleteSite + cascade.

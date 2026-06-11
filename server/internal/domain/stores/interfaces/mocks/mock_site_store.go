@@ -71,6 +71,21 @@ func (mr *MockSiteStoreMockRecorder) CreateSite(ctx, params any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSite", reflect.TypeOf((*MockSiteStore)(nil).CreateSite), ctx, params)
 }
 
+// DeleteCurtailmentResponseProfilesBySite mocks base method.
+func (m *MockSiteStore) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCurtailmentResponseProfilesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteCurtailmentResponseProfilesBySite indicates an expected call of DeleteCurtailmentResponseProfilesBySite.
+func (mr *MockSiteStoreMockRecorder) DeleteCurtailmentResponseProfilesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCurtailmentResponseProfilesBySite", reflect.TypeOf((*MockSiteStore)(nil).DeleteCurtailmentResponseProfilesBySite), ctx, orgID, siteID)
+}
+
 // FindDeviceSiteConflicts mocks base method.
 func (m *MockSiteStore) FindDeviceSiteConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error) {
 	m.ctrl.T.Helper()
