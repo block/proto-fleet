@@ -7,6 +7,8 @@ interface OptionalUint32FieldOptions {
 
 export const curtailmentNumericFieldLimits = {
   maxDurationSec: 604800,
+  curtailBatchSize: 10000,
+  curtailBatchIntervalSec: 3600,
   restoreBatchSize: 10000,
   restoreIntervalSec: 3600,
   minDurationSec: 2147483647,

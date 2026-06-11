@@ -21,6 +21,8 @@ const baseValues: CurtailmentSubmitValues = {
   priority: "normal",
   minDurationSec: "",
   maxDurationSec: "",
+  curtailBatchSize: "",
+  curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
   reason: "Grid peak",

@@ -50,6 +50,7 @@ interface InputProps {
   tooltip?: InputTooltip;
   type?: string;
   statusIcon?: ReactNode;
+  suffixAction?: ReactNode;
   onFocus?: () => void;
   onBlur?: () => void;
   autoComplete?: string;
@@ -87,6 +88,7 @@ const Input = ({
   tooltip,
   type = "text",
   statusIcon,
+  suffixAction,
   onFocus,
   onBlur,
   autoComplete,
@@ -192,9 +194,9 @@ const Input = ({
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
-            { "pr-4": !compact && !tooltip && !showTrailingIcon },
-            { "pr-10": !compact && ((!tooltip && showTrailingIcon) || (tooltip && !showTrailingIcon)) },
-            { "pr-20": !compact && tooltip && showTrailingIcon },
+            { "pr-4": !compact && !tooltip && !showTrailingIcon && !suffixAction },
+            { "pr-10": !compact && [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length === 1 },
+            { "pr-20": !compact && [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length >= 2 },
             { "h-6": compact },
             { "no-spinner": type === "number" },
             { uppercase: type === "date" },
@@ -272,6 +274,16 @@ const Input = ({
               position={tooltip.position ?? positions["top left"]}
               widthClassName={tooltip.widthClassName}
             />
+          </div>
+        ) : null}
+        {suffixAction ? (
+          <div
+            className={clsx("absolute top-7 z-50 -translate-y-1/2 transform", {
+              "right-4": !tooltip && !showTrailingIcon,
+              "right-12": tooltip || showTrailingIcon,
+            })}
+          >
+            {suffixAction}
           </div>
         ) : null}
         {dismiss && length(value) && !compact ? (

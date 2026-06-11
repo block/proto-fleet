@@ -46,6 +46,8 @@ const baseValues: CurtailmentFormValues = {
   priority: "normal",
   minDurationSec: "300",
   maxDurationSec: "1800",
+  curtailBatchSize: "",
+  curtailBatchIntervalSec: "",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak",

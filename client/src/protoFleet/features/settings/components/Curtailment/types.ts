@@ -30,14 +30,39 @@ export type CurtailmentSourceFormValues = {
   password: string;
 };
 
+export type ResponseProfileActionType = "fullFleet" | "fixedKwReduction";
+export type ResponseProfileSelectionStrategy = "leastEfficientFirst";
+export type ResponseProfileRestoreBehavior = "automaticBatchRestore" | "automaticImmediateRestore";
+
+export type ResponseProfileFormValues = {
+  name: string;
+  actionType: ResponseProfileActionType;
+  targetKw: string;
+  deviceIdentifiers: string[];
+  siteId: string;
+  siteName: string;
+  selectionStrategy: ResponseProfileSelectionStrategy;
+  restoreBehavior: ResponseProfileRestoreBehavior;
+  minDurationSec: string;
+  maxDurationSec: string;
+  curtailBatchSize: string;
+  curtailBatchIntervalSec: string;
+  restoreBatchSize: string;
+  restoreIntervalSec: string;
+  responseDeadlineMinutes: string;
+  includeMaintenance: boolean;
+};
+
 export type ResponseProfile = {
   id: string;
   name: string;
   targetSummary: string;
+  siteId: string;
   scope: string;
   selectionStrategy: string;
   restoreBehavior: string;
   deadlineSummary: string;
+  formValues?: ResponseProfileFormValues;
 };
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";

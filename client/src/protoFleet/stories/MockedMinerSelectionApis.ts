@@ -1,0 +1,144 @@
+import { createElement, Fragment, type ReactNode, useEffect } from "react";
+import { create } from "@bufbuild/protobuf";
+
+import { deviceSetClient, fleetManagementClient } from "@/protoFleet/api/clients";
+import {
+  DeviceSetSchema,
+  DeviceSetType,
+  GroupInfoSchema,
+  ListDeviceSetsResponseSchema,
+  RackInfoSchema,
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  ListMinerStateSnapshotsResponseSchema,
+  MinerStateSnapshotSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { createRefCountedStoryMock } from "@/shared/stories/createRefCountedStoryMock";
+
+type MutableClient<T> = { -readonly [K in keyof T]: T[K] };
+
+const mutableDeviceSetClient = deviceSetClient as MutableClient<typeof deviceSetClient>;
+const mutableFleetManagementClient = fleetManagementClient as MutableClient<typeof fleetManagementClient>;
+
+const mockRacks = [
+  create(DeviceSetSchema, {
+    id: 101n,
+    type: DeviceSetType.RACK,
+    label: "Rack A1",
+    deviceCount: 8,
+    typeDetails: {
+      case: "rackInfo",
+      value: create(RackInfoSchema, {
+        rows: 4,
+        columns: 2,
+        zone: "North Hall",
+      }),
+    },
+  }),
+  create(DeviceSetSchema, {
+    id: 102n,
+    type: DeviceSetType.RACK,
+    label: "Rack B4",
+    deviceCount: 12,
+    typeDetails: {
+      case: "rackInfo",
+      value: create(RackInfoSchema, {
+        rows: 6,
+        columns: 2,
+        zone: "South Hall",
+      }),
+    },
+  }),
+];
+
+const mockGroups = [
+  create(DeviceSetSchema, {
+    id: 201n,
+    type: DeviceSetType.GROUP,
+    label: "High priority",
+    deviceCount: 10,
+    typeDetails: {
+      case: "groupInfo",
+      value: create(GroupInfoSchema, {}),
+    },
+  }),
+  create(DeviceSetSchema, {
+    id: 202n,
+    type: DeviceSetType.GROUP,
+    label: "Low efficiency",
+    deviceCount: 6,
+    typeDetails: {
+      case: "groupInfo",
+      value: create(GroupInfoSchema, {}),
+    },
+  }),
+];
+
+const mockMiners = [
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier: "miner-9",
+    name: "Miner 9",
+    model: "S21 Pro",
+    ipAddress: "10.0.0.9",
+    rackLabel: "Rack A1",
+    groupLabels: ["High priority"],
+  }),
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier: "miner-14",
+    name: "Miner 14",
+    model: "S19 XP",
+    ipAddress: "10.0.0.14",
+    rackLabel: "Rack B4",
+    groupLabels: ["Low efficiency"],
+  }),
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier: "miner-22",
+    name: "Miner 22",
+    model: "S21 Pro",
+    ipAddress: "10.0.0.22",
+    rackLabel: "Rack B4",
+    groupLabels: [],
+  }),
+];
+
+const mockMinerModels = Array.from(new Set(mockMiners.map((miner) => miner.model)));
+
+export function MockedMinerSelectionApis({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    return installMockedMinerSelectionApis();
+  }, []);
+
+  return createElement(Fragment, null, children);
+}
+
+export function withMockedMinerSelectionApis(Story: () => ReactNode) {
+  return createElement(MockedMinerSelectionApis, null, createElement(Story));
+}
+
+const installMockedMinerSelectionApis = createRefCountedStoryMock(() => {
+  const originalListDeviceSets = mutableDeviceSetClient.listDeviceSets;
+  const originalListMinerStateSnapshots = mutableFleetManagementClient.listMinerStateSnapshots;
+
+  mutableDeviceSetClient.listDeviceSets = async (request) => {
+    const deviceSets = request.type === DeviceSetType.RACK ? mockRacks : mockGroups;
+
+    return create(ListDeviceSetsResponseSchema, {
+      deviceSets,
+      nextPageToken: "",
+      totalCount: deviceSets.length,
+    });
+  };
+
+  mutableFleetManagementClient.listMinerStateSnapshots = async () =>
+    create(ListMinerStateSnapshotsResponseSchema, {
+      miners: mockMiners,
+      cursor: "",
+      totalMiners: mockMiners.length,
+      models: mockMinerModels,
+    });
+
+  return () => {
+    mutableDeviceSetClient.listDeviceSets = originalListDeviceSets;
+    mutableFleetManagementClient.listMinerStateSnapshots = originalListMinerStateSnapshots;
+  };
+});

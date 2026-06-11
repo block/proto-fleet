@@ -1,7 +1,8 @@
-import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
+import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import ActiveCurtailmentStatus, {
   type ActiveCurtailmentEvent,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
@@ -9,6 +10,7 @@ import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtail
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
+  type CurtailmentResponseProfileOption,
   type CurtailmentStartModalMode,
   type CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
@@ -16,6 +18,10 @@ import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { createCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
+import type {
+  ResponseProfile,
+  ResponseProfileFormValues,
+} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -43,6 +49,98 @@ interface CurtailmentMessageProps {
 
 const activeCurtailmentRefreshIntervalMs = 3_000;
 const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
+const defaultResponseDeadlineMinutes = "15";
+const defaultMaxDurationSec = "900";
+const immediateRestoreBatchSize = "10000";
+
+function minutesToSeconds(value: string): string {
+  const minutes = Number(value);
+
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return defaultMaxDurationSec;
+  }
+
+  return String(minutes * 60);
+}
+
+function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
+  if (profile.formValues) {
+    return profile.formValues;
+  }
+
+  const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
+  const actionType: ResponseProfileFormValues["actionType"] = targetKwMatch ? "fixedKwReduction" : "fullFleet";
+  const responseDeadlineMinutes = profile.deadlineSummary.match(/(\d+)/)?.[1] ?? defaultResponseDeadlineMinutes;
+
+  return {
+    name: profile.name,
+    actionType,
+    targetKw: targetKwMatch?.[1] ?? "",
+    deviceIdentifiers: [],
+    siteId: profile.siteId,
+    siteName: profile.scope,
+    selectionStrategy: "leastEfficientFirst",
+    restoreBehavior: profile.restoreBehavior.toLowerCase().includes("immediate")
+      ? "automaticImmediateRestore"
+      : "automaticBatchRestore",
+    minDurationSec: "",
+    maxDurationSec: minutesToSeconds(responseDeadlineMinutes),
+    curtailBatchSize: "",
+    curtailBatchIntervalSec: "",
+    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate") ? immediateRestoreBatchSize : "",
+    restoreIntervalSec: "",
+    responseDeadlineMinutes,
+    includeMaintenance: true,
+  };
+}
+
+function createCurtailmentResponseProfileOption(profile: ResponseProfile): CurtailmentResponseProfileOption {
+  const values = createResponseProfileFormValuesFromProfile(profile);
+  const restoreBatchSize =
+    values.restoreBatchSize ||
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+  const selectedMinerIds = values.deviceIdentifiers;
+  const scopeValues =
+    selectedMinerIds.length > 0
+      ? {
+          scopeType: "explicitMiners" as const,
+          scopeId: undefined,
+          siteId: "",
+          deviceSetIds: [],
+          deviceIdentifiers: selectedMinerIds,
+        }
+      : values.siteId
+        ? {
+            scopeType: "site" as const,
+            scopeId: values.siteName || `Site ${values.siteId}`,
+            siteId: values.siteId,
+            deviceSetIds: [],
+            deviceIdentifiers: [],
+          }
+        : {
+            scopeType: "wholeOrg" as const,
+            scopeId: "whole-org",
+            siteId: "",
+            deviceSetIds: [],
+            deviceIdentifiers: [],
+          };
+
+  return {
+    id: profile.id,
+    label: profile.name,
+    values: {
+      ...scopeValues,
+      curtailmentMode: values.actionType,
+      minerSelectionStrategy: values.selectionStrategy,
+      targetKw: values.targetKw,
+      curtailBatchSize: values.curtailBatchSize,
+      curtailBatchIntervalSec: values.curtailBatchIntervalSec,
+      restoreBatchSize,
+      restoreIntervalSec: values.restoreIntervalSec,
+      includeMaintenance: values.includeMaintenance,
+    },
+  };
+}
 
 function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement {
   return (
@@ -94,6 +192,11 @@ function CurtailmentManagementPanel({
     updateCurtailment,
     stopCurtailment,
   } = useCurtailmentApi();
+  const { responseProfiles } = useCurtailmentResponseProfiles(canManageCurtailment);
+  const responseProfileOptions = useMemo(
+    () => responseProfiles.map(createCurtailmentResponseProfileOption),
+    [responseProfiles],
+  );
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
@@ -280,7 +383,7 @@ function CurtailmentManagementPanel({
           <Button
             variant={variants.primary}
             size={sizes.base}
-            text="Plan curtailment"
+            text="Run curtailment"
             onClick={openCreateModal}
             disabled={isStarting || isUpdating}
             className="phone:w-full"
@@ -326,6 +429,7 @@ function CurtailmentManagementPanel({
           open
           mode={modalMode}
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
+          responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           preview={isEditingCurtailment ? editSession?.preview : undefined}
           onDismiss={closeModal}
           onSubmit={handleModalSubmit}
