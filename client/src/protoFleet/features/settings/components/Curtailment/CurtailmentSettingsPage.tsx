@@ -204,7 +204,7 @@ function getResponseProfileScopeSummary(values: ResponseProfileFormValues): stri
     return selectedMinerCount === 1 ? "1 miner" : `${selectedMinerCount.toLocaleString()} miners`;
   }
 
-  return values.siteName || (values.siteId ? `Site ${values.siteId}` : "All sites");
+  return values.siteName || (values.siteId ? `Site ${values.siteId}` : "Whole fleet");
 }
 
 function secondsToDeadlineMinutes(value: string): string {
@@ -1177,10 +1177,13 @@ export function CurtailmentSettingsContent({
 
   const handleTestResponseProfileCurtailmentFromCurtailment = useCallback(
     async (values: CurtailmentSubmitValues) => {
-      await onTestResponseProfileCurtailment?.(createResponseProfileFormValuesFromCurtailmentValues(values), values);
+      const responseProfileValues = createResponseProfileFormValuesFromCurtailmentValues(values);
+
+      await handleSaveResponseProfile(responseProfileValues);
+      await onTestResponseProfileCurtailment?.(responseProfileValues, values);
       closeResponseProfileModal();
     },
-    [closeResponseProfileModal, onTestResponseProfileCurtailment],
+    [closeResponseProfileModal, handleSaveResponseProfile, onTestResponseProfileCurtailment],
   );
 
   const handleDeleteResponseProfile = useCallback(async () => {
@@ -1339,7 +1342,7 @@ export function CurtailmentSettingsContent({
         onDismiss={closeResponseProfileModal}
         onSubmit={(values) => void handleSaveResponseProfileFromCurtailment(values).catch(() => {})}
         onTestCurtailment={
-          !editingResponseProfile && onTestResponseProfileCurtailment
+          onTestResponseProfileCurtailment
             ? (values) => void handleTestResponseProfileCurtailmentFromCurtailment(values).catch(() => {})
             : undefined
         }
@@ -1445,24 +1448,23 @@ function CurtailmentSettingsPage(): ReactElement {
   );
 
   const handleTestResponseProfileCurtailment = useCallback(
-    async (values: ResponseProfileFormValues, curtailmentValues: CurtailmentSubmitValues) => {
+    async (_values: ResponseProfileFormValues, curtailmentValues: CurtailmentSubmitValues) => {
       setIsTestingResponseProfileCurtailment(true);
 
       try {
-        await handleCreateResponseProfile(values);
         await startCurtailment(curtailmentValues);
         setIsTestingResponseProfileCurtailment(false);
         navigate("/energy");
       } catch (error) {
         pushToast({
-          message: getErrorMessage(error, "Failed to test curtailment."),
+          message: getErrorMessage(error, "Failed to run curtailment."),
           status: STATUSES.error,
         });
         setIsTestingResponseProfileCurtailment(false);
         throw error;
       }
     },
-    [handleCreateResponseProfile, navigate, startCurtailment],
+    [navigate, startCurtailment],
   );
 
   const handleDeleteResponseProfile = useCallback(

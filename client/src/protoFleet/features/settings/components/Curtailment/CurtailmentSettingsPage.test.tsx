@@ -290,6 +290,10 @@ function getEnabledButton(name: string): HTMLButtonElement {
   return button;
 }
 
+function confirmCurtailmentAction(name = "Run curtailment"): void {
+  fireEvent.click(within(screen.getByTestId("curtailment-run-confirmation")).getByRole("button", { name }));
+}
+
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
     vi.mocked(useHasPermission).mockReset();
@@ -446,7 +450,7 @@ describe("CurtailmentSettingsPage", () => {
     });
   });
 
-  it("saves a response profile, starts a test curtailment, and redirects to energy", async () => {
+  it("saves a response profile, runs a curtailment, and redirects to energy", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
 
@@ -462,7 +466,14 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
-    fireEvent.click(getEnabledButton("Test curtailment"));
+    fireEvent.click(getEnabledButton("Run curtailment"));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for the whole fleet. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    confirmCurtailmentAction();
 
     await waitFor(() =>
       expect(createResponseProfileMock).toHaveBeenCalledWith(
@@ -564,6 +575,73 @@ describe("CurtailmentSettingsPage", () => {
     });
   });
 
+  it("updates a response profile before running curtailment from edit mode", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
+    updateResponseProfileMock.mockResolvedValue({
+      ...testResponseProfiles[1],
+      name: "Site Alpha 750 kW",
+      targetSummary: "750 kW target",
+    });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
+    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.click(getEnabledButton("Run curtailment"));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for miners in Denver, CO. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    confirmCurtailmentAction();
+
+    await waitFor(() =>
+      expect(updateResponseProfileMock).toHaveBeenCalledWith(
+        "site-alpha-500-kw",
+        expect.objectContaining({
+          name: "Site Alpha 750 kW",
+          targetKw: "750",
+          curtailBatchSize: "75",
+          curtailBatchIntervalSec: "45",
+          restoreBatchSize: "50",
+          restoreIntervalSec: "120",
+          siteId: "102",
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(startCurtailmentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "Site Alpha 750 kW",
+          targetKw: "750",
+          curtailmentMode: "fixedKwReduction",
+          siteId: "102",
+          curtailBatchSize: "75",
+          curtailBatchIntervalSec: "45",
+          restoreBatchSize: "50",
+          restoreIntervalSec: "120",
+        }),
+      ),
+    );
+    expect(createResponseProfileMock).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith("/energy");
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+  });
+
   it("renders provided response profiles as cards", () => {
     render(<CurtailmentSettingsContent initialResponseProfiles={testResponseProfiles} />);
 
@@ -630,7 +708,7 @@ describe("CurtailmentSettingsPage", () => {
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
     expect(screen.getByText("Emergency full shed")).toBeVisible();
     expect(screen.getByText("100% reduction")).toBeVisible();
-    expect(screen.getByText("All sites")).toBeVisible();
+    expect(screen.getByText("Whole fleet")).toBeVisible();
     expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 

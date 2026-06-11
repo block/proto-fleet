@@ -15,7 +15,7 @@ import {
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
-import { Alert, Question } from "@/shared/assets/icons";
+import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -74,6 +74,11 @@ export interface CurtailmentPlanPreview {
 }
 
 export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, string>>;
+
+type PendingCurtailmentConfirmation = {
+  action: "run" | "test";
+  values: CurtailmentSubmitValues;
+};
 
 interface CurtailmentStartModalProps {
   open: boolean;
@@ -459,6 +464,55 @@ function formatCountLabel(count: number, singular: string): string {
   return getTargetButtonLabel(count, singular);
 }
 
+function formatScopeLabelForSentence(scopeLabel: string): string {
+  return scopeLabel === "All sites" ? "all sites" : scopeLabel;
+}
+
+function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, selectedMinerCount?: number): string {
+  if (values.scopeType === "explicitMiners") {
+    return formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase();
+  }
+
+  if (values.scopeType === "deviceSet") {
+    return `miners in ${formatCountLabel(values.deviceSetIds.length, "device set").toLowerCase()}`;
+  }
+
+  if (values.scopeType === "site") {
+    return `miners in ${values.scopeId ? formatScopeLabelForSentence(values.scopeId) : "the selected site"}`;
+  }
+
+  if (values.curtailmentMode === "fullFleet") {
+    return "the whole fleet";
+  }
+
+  if (selectedMinerCount !== undefined && selectedMinerCount > 0) {
+    return formatCountLabel(selectedMinerCount, "miner").toLowerCase();
+  }
+
+  return "miners across the fleet";
+}
+
+function getCurtailmentConfirmationCopy(
+  pendingConfirmation: PendingCurtailmentConfirmation | null,
+  selectedMinerCount?: number,
+) {
+  if (!pendingConfirmation) {
+    return null;
+  }
+
+  const target = formatCurtailmentConfirmationTarget(pendingConfirmation.values, selectedMinerCount);
+  const body =
+    pendingConfirmation.action === "test"
+      ? `This will save the profile, then trigger curtailment for ${target}. Schedules stay suppressed until miners are restored.`
+      : `This will curtail ${target} immediately. Schedules stay suppressed until miners are restored.`;
+
+  return {
+    title: "Run curtailment?",
+    body,
+    confirmText: "Run curtailment",
+  };
+}
+
 function getApplyToTarget(
   values: CurtailmentFormValues,
   isEditMode: boolean,
@@ -546,6 +600,8 @@ function CurtailmentStartModalContent({
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
   const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
+  const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
+    useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
   const isEditMode = mode === "edit";
@@ -562,7 +618,11 @@ function CurtailmentStartModalContent({
   };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
     setEditedFields((current) => (current.has(key) ? current : new Set(current).add(key)));
-    setValues((current) => resetResponseProfileSelection({ ...current, [key]: value }));
+    setValues((current) => {
+      const nextValues = { ...current, [key]: value };
+
+      return key === "reason" ? nextValues : resetResponseProfileSelection(nextValues);
+    });
   };
   const updateValues = (
     updater: (current: CurtailmentFormValues) => CurtailmentFormValues,
@@ -605,22 +665,19 @@ function CurtailmentStartModalContent({
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values,
-    disabled: isLiveCurtailmentEditMode || isResponseProfileVariant || controlledPreview !== undefined,
+    disabled: isLiveCurtailmentEditMode || controlledPreview !== undefined,
   });
   const previewState = getPreviewState({
-    apiPreview: isResponseProfileVariant
-      ? { preview: undefined, previewError: undefined, isPreviewLoading: false }
-      : apiPreview,
+    apiPreview,
     controlledPreview,
     isEditMode: isLiveCurtailmentEditMode,
     unsupportedDeviceSetPreviewError,
   });
 
-  const hasBlockingValidationError =
-    previewState.previewError !== undefined ||
-    previewState.isPreviewLoading ||
-    Object.keys(localErrors).length > 0 ||
-    Object.keys(errors ?? {}).length > 0;
+  const hasBlockingFormError = Object.keys(localErrors).length > 0 || Object.keys(errors ?? {}).length > 0;
+  const hasBlockingPreviewState =
+    previewState.previewError !== undefined || (!isResponseProfileVariant && previewState.isPreviewLoading);
+  const hasBlockingValidationError = hasBlockingPreviewState || hasBlockingFormError;
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingValidationError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
@@ -640,6 +697,10 @@ function CurtailmentStartModalContent({
   const shouldShowPreviewPane =
     !isLiveCurtailmentEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
   const previewPane = shouldShowPreviewPane ? <PreviewPane {...previewState} /> : null;
+  const curtailmentConfirmationCopy = getCurtailmentConfirmationCopy(
+    pendingCurtailmentConfirmation,
+    previewState.preview?.selectedMinerCount,
+  );
   const useSinglePaneLayout = isLiveCurtailmentEditMode && previewPane === null;
   const paneContainerClassName = useSinglePaneLayout
     ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
@@ -719,6 +780,33 @@ function CurtailmentStartModalContent({
     setShowMaintenanceConfirmation(false);
   };
 
+  const closeCurtailmentConfirmation = () => {
+    setPendingCurtailmentConfirmation(null);
+  };
+
+  const requestCurtailmentConfirmation = (
+    action: PendingCurtailmentConfirmation["action"],
+    confirmationValues: CurtailmentSubmitValues,
+  ) => {
+    setPendingCurtailmentConfirmation({ action, values: confirmationValues });
+  };
+
+  const confirmCurtailmentAction = () => {
+    if (!pendingCurtailmentConfirmation) {
+      return;
+    }
+
+    const { action, values: confirmedValues } = pendingCurtailmentConfirmation;
+    setPendingCurtailmentConfirmation(null);
+
+    if (action === "test") {
+      onTestCurtailment?.(confirmedValues);
+      return;
+    }
+
+    onSubmit(confirmedValues);
+  };
+
   const handleSubmit = () => {
     if (isSubmitDisabled) {
       return;
@@ -727,6 +815,11 @@ function CurtailmentStartModalContent({
     if (!isResponseProfileVariant && !isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
       setSubmitAfterMaintenanceConfirmation(true);
       setShowMaintenanceConfirmation(true);
+      return;
+    }
+
+    if (!isResponseProfileVariant && !isEditMode) {
+      requestCurtailmentConfirmation("run", values);
       return;
     }
 
@@ -754,11 +847,11 @@ function CurtailmentStartModalContent({
     });
   }
 
-  if (isResponseProfileVariant && !isResponseProfileEditMode && onTestCurtailment) {
+  if (isResponseProfileVariant && onTestCurtailment) {
     buttons.push({
-      text: "Test curtailment",
+      text: "Run curtailment",
       variant: variants.secondary,
-      onClick: () => onTestCurtailment(values),
+      onClick: () => requestCurtailmentConfirmation("test", values),
       disabled: isBusy || hasBlockingValidationError,
       loading: isTestingCurtailment,
     });
@@ -781,7 +874,7 @@ function CurtailmentStartModalContent({
 
     if (submitAfterMaintenanceConfirmation) {
       setSubmitAfterMaintenanceConfirmation(false);
-      onSubmit(nextValues);
+      requestCurtailmentConfirmation("run", nextValues);
     }
   };
 
@@ -1031,6 +1124,35 @@ function CurtailmentStartModalContent({
         <div className="text-300 text-text-primary-70">
           This will run Curtail on miners that are currently flagged for maintenance work.
         </div>
+      </Dialog>
+
+      <Dialog
+        open={pendingCurtailmentConfirmation !== null}
+        title={curtailmentConfirmationCopy?.title ?? "Run curtailment?"}
+        testId="curtailment-run-confirmation"
+        onDismiss={closeCurtailmentConfirmation}
+        icon={
+          <DialogIcon intent="warning">
+            <LightningAlt />
+          </DialogIcon>
+        }
+        buttons={[
+          {
+            text: "Cancel",
+            onClick: closeCurtailmentConfirmation,
+            variant: variants.secondary,
+            disabled: isBusy,
+          },
+          {
+            text: curtailmentConfirmationCopy?.confirmText ?? "Run curtailment",
+            onClick: confirmCurtailmentAction,
+            variant: variants.primary,
+            disabled: isBusy,
+            loading: pendingCurtailmentConfirmation?.action === "test" ? isTestingCurtailment : isSubmitting,
+          },
+        ]}
+      >
+        <div className="text-300 text-text-primary-70">{curtailmentConfirmationCopy?.body}</div>
       </Dialog>
 
       {showMinerSelectionModal ? (

@@ -111,6 +111,12 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredPermission: "schedule:manage",
   },
   {
+    path: "/settings/curtailment",
+    label: "Curtailment",
+    parent: "/settings",
+    requiredPermission: "curtailment:manage",
+  },
+  {
     path: "/settings/api-keys",
     label: "API Keys",
     parent: "/settings",

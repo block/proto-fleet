@@ -168,6 +168,14 @@ function getMaintenanceCheckbox(): HTMLInputElement {
   return checkbox;
 }
 
+function getCurtailmentConfirmation(): HTMLElement {
+  return screen.getByTestId("curtailment-run-confirmation");
+}
+
+async function confirmCurtailment(user: ReturnType<typeof userEvent.setup>, confirmText = "Run curtailment") {
+  await user.click(within(getCurtailmentConfirmation()).getByRole("button", { name: confirmText }));
+}
+
 describe("CurtailmentStartModal", () => {
   beforeEach(() => {
     mockUseCurtailmentPlanPreview.mockReturnValue({
@@ -263,6 +271,12 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByLabelText("Batch size (miners)")[1]).toHaveValue("10");
     expect(screen.getAllByLabelText("Batch interval (sec)")[1]).toHaveValue("120");
 
+    await user.clear(screen.getByLabelText("Reason"));
+    await user.type(screen.getByLabelText("Reason"), "Updated operator reason");
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
+    expect(screen.getByLabelText("Reason")).toHaveValue("Updated operator reason");
+
     await user.clear(screen.getByLabelText("Fixed target reduction (kW)"));
     await user.type(screen.getByLabelText("Fixed target reduction (kW)"), "75");
 
@@ -273,8 +287,8 @@ describe("CurtailmentStartModal", () => {
     const user = userEvent.setup();
     const onTestCurtailment = vi.fn();
     mockUseCurtailmentPlanPreview.mockReturnValue({
-      preview: undefined,
-      previewError: "No miners match this curtailment.",
+      preview,
+      previewError: undefined,
       isPreviewLoading: false,
     });
     const { onSubmit } = renderModal({
@@ -310,9 +324,18 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("120");
-    expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(expect.objectContaining({ disabled: true }));
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(expect.objectContaining({ disabled: false }));
+    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: "Test curtailment" }));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for miners in Austin, TX. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    expect(onTestCurtailment).not.toHaveBeenCalled();
+    await confirmCurtailment(user);
     expect(onTestCurtailment).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Grid peak - ERCOT 4CP signal",
@@ -349,6 +372,46 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("keeps response profile actions enabled while preview is loading", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: undefined,
+      isPreviewLoading: true,
+    });
+
+    renderModal({
+      variant: "responseProfile",
+      initialValues: configuredValues,
+      onTestCurtailment: vi.fn(),
+    });
+
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+    expect(screen.getAllByLabelText("Loading curtailment preview")).toHaveLength(2);
+  });
+
+  it("lowercases all-sites scope labels inside response profile confirmation sentences", async () => {
+    const user = userEvent.setup();
+    renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "All sites",
+        siteId: "101",
+      },
+      onTestCurtailment: vi.fn(),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for miners in all sites. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows field help popovers for response profile inputs", async () => {
     const user = userEvent.setup();
     renderModal({
@@ -383,10 +446,12 @@ describe("CurtailmentStartModal", () => {
   it("renders the response profile edit variant with prefilled fields and delete action", async () => {
     const user = userEvent.setup();
     const onDeleteResponseProfile = vi.fn();
+    const onTestCurtailment = vi.fn();
     const { onSubmit } = renderModal({
       variant: "responseProfile",
       responseProfileMode: "edit",
       onDeleteResponseProfile,
+      onTestCurtailment,
       initialValues: {
         ...configuredValues,
         reason: "Site Alpha 500 kW",
@@ -420,11 +485,34 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
 
     await user.clear(screen.getByLabelText("Profile name"));
     await user.type(screen.getByLabelText("Profile name"), "Site Alpha 750 kW");
     await user.clear(screen.getByLabelText("Fixed target reduction (kW)"));
     await user.type(screen.getByLabelText("Fixed target reduction (kW)"), "750");
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for miners in Denver, CO. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    expect(onTestCurtailment).not.toHaveBeenCalled();
+    await confirmCurtailment(user);
+
+    expect(onTestCurtailment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "Site Alpha 750 kW",
+        siteId: "102",
+        targetKw: "750",
+        curtailBatchSize: "50",
+        curtailBatchIntervalSec: "30",
+        restoreBatchSize: "10000",
+        restoreIntervalSec: "0",
+      }),
+    );
+
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
@@ -737,6 +825,14 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Force include" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail miners across the fleet immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+    await confirmCurtailment(user);
 
     const submittedValues = onSubmit.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(submittedValues).toMatchObject({
@@ -782,6 +878,13 @@ describe("CurtailmentStartModal", () => {
     expect(startButton).toBeEnabled();
 
     await user.click(startButton);
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail the whole fleet immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -821,6 +924,17 @@ describe("CurtailmentStartModal", () => {
     expect(startButton).toBeEnabled();
 
     await user.click(startButton);
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail miners across the fleet immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(getCurtailmentConfirmation()).getByRole("button", { name: "Cancel" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(startButton);
+    await confirmCurtailment(user);
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         curtailmentMode: "fixedKwReduction",
@@ -859,6 +973,8 @@ describe("CurtailmentStartModal", () => {
     expect(getMaintenanceCheckbox()).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
   });
 
@@ -876,6 +992,11 @@ describe("CurtailmentStartModal", () => {
     expect(startButton).toBeEnabled();
 
     await user.click(startButton);
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText("This will curtail 3 miners immediately. Schedules stay suppressed until miners are restored."),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
     expect(onSubmit).toHaveBeenLastCalledWith(
       expect.objectContaining({
         scopeType: "explicitMiners",

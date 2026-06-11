@@ -1,4 +1,5 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -24,6 +25,7 @@ import type {
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -166,6 +168,7 @@ function CurtailmentManagementPanel({
   canManageCurtailment = true,
   className,
 }: CurtailmentManagementPanelProps): ReactElement {
+  const navigate = useNavigate();
   const {
     activeEvent,
     activeEventId,
@@ -200,6 +203,7 @@ function CurtailmentManagementPanel({
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
+  const [showActiveCurtailmentDialog, setShowActiveCurtailmentDialog] = useState(false);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const foregroundRefreshInFlightRef = useRef(false);
@@ -210,6 +214,7 @@ function CurtailmentManagementPanel({
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
   const activeEventState = activeEvent?.state;
+  const hasOngoingCurtailment = activeEventState ? nonTerminalActiveEventStates.has(activeEventState) : false;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -234,7 +239,7 @@ function CurtailmentManagementPanel({
   }, [refreshCurtailment, runAbortableRefresh]);
 
   useEffect(() => {
-    if (!activeEventState || !nonTerminalActiveEventStates.has(activeEventState)) {
+    if (!hasOngoingCurtailment) {
       return undefined;
     }
 
@@ -268,7 +273,7 @@ function CurtailmentManagementPanel({
       activeRefreshAbortControllerRef.current?.abort();
       activeRefreshAbortControllerRef.current = null;
     };
-  }, [activeEventState, refreshCurtailment]);
+  }, [hasOngoingCurtailment, refreshCurtailment]);
 
   const closeModal = useCallback(() => {
     setModalMode(null);
@@ -276,9 +281,14 @@ function CurtailmentManagementPanel({
   }, []);
 
   const openCreateModal = useCallback(() => {
+    if (hasOngoingCurtailment) {
+      setShowActiveCurtailmentDialog(true);
+      return;
+    }
+
     setEditSession(null);
     setModalMode("create");
-  }, []);
+  }, [hasOngoingCurtailment]);
 
   const openEditModal = useCallback(() => {
     if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {
@@ -374,20 +384,32 @@ function CurtailmentManagementPanel({
     closeModal();
     openStopConfirmation("stopCurtailment", editEventId);
   }, [activeEventId, closeModal, editSession, openStopConfirmation]);
+  const handleEditSettings = useCallback(() => {
+    navigate("/settings/curtailment");
+  }, [navigate]);
 
   return (
     <section className={clsx("grid gap-6", className)}>
       <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
         <Header title="Curtailment" titleSize="text-heading-300" />
         {canManageCurtailment ? (
-          <Button
-            variant={variants.primary}
-            size={sizes.base}
-            text="Run curtailment"
-            onClick={openCreateModal}
-            disabled={isStarting || isUpdating}
-            className="phone:w-full"
-          />
+          <div className="flex items-center gap-2 phone:flex-col phone:items-stretch">
+            <Button
+              variant={variants.secondary}
+              size={sizes.base}
+              text="Edit settings"
+              onClick={handleEditSettings}
+              className="phone:w-full"
+            />
+            <Button
+              variant={variants.primary}
+              size={sizes.base}
+              text="Run curtailment"
+              onClick={openCreateModal}
+              disabled={isStarting || isUpdating}
+              className="phone:w-full"
+            />
+          </div>
         ) : null}
       </div>
 
@@ -446,6 +468,29 @@ function CurtailmentManagementPanel({
           onCancel={() => setPendingStopConfirmation(null)}
           onConfirm={handleConfirmStop}
         />
+      ) : null}
+
+      {showActiveCurtailmentDialog ? (
+        <Dialog
+          open
+          title="Curtailment already active"
+          testId="active-curtailment-limit-dialog"
+          onDismiss={() => setShowActiveCurtailmentDialog(false)}
+          icon={
+            <DialogIcon intent="warning">
+              <Alert />
+            </DialogIcon>
+          }
+          buttons={[
+            {
+              text: "Got it",
+              variant: variants.primary,
+              onClick: () => setShowActiveCurtailmentDialog(false),
+            },
+          ]}
+        >
+          <div className="text-300 text-text-primary-70">You can only have one active curtailment at a time.</div>
+        </Dialog>
       ) : null}
     </section>
   );

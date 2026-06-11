@@ -15,6 +15,7 @@ import type {
 const mocks = vi.hoisted(() => ({
   dismissTerminalCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
+  navigate: vi.fn(),
   refreshCurtailment: vi.fn(),
   setHistoryStatusFilter: vi.fn(),
   setHistoryStatusFilters: vi.fn(),
@@ -32,6 +33,10 @@ vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
   default: () => mocks.useCurtailmentResponseProfiles(),
+}));
+
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => mocks.navigate,
 }));
 
 vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
@@ -295,6 +300,17 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("history-events")).toHaveTextContent("curt-2");
   });
 
+  it("navigates to curtailment settings from the secondary CTA", async () => {
+    const user = userEvent.setup();
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Edit settings" }));
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/curtailment");
+    expect(screen.queryByRole("dialog", { name: "New curtailment" })).not.toBeInTheDocument();
+  });
+
   it("passes response profiles to the plan modal", async () => {
     const user = userEvent.setup();
     mocks.useCurtailmentResponseProfiles.mockReturnValue({
@@ -348,6 +364,31 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent(
       '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
     );
+  });
+
+  it("shows an active curtailment limit dialog instead of opening a new plan", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("active-curtailment-limit-dialog")).toBeInTheDocument();
+    expect(screen.getByText("Curtailment already active")).toBeInTheDocument();
+    expect(screen.getByText("You can only have one active curtailment at a time.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "New curtailment" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+
+    await waitFor(() => expect(screen.queryByTestId("active-curtailment-limit-dialog")).not.toBeInTheDocument());
+    expect(mocks.startCurtailment).not.toHaveBeenCalled();
   });
 
   it("calls stop curtailment from restore, stop, and history requests", async () => {
@@ -551,6 +592,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop history event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run curtailment" })).not.toBeInTheDocument();
   });
 

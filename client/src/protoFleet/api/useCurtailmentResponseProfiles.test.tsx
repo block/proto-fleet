@@ -188,7 +188,7 @@ describe("useCurtailmentResponseProfiles", () => {
 
     expect(result.current.responseProfiles[0]).toMatchObject({
       siteId: "",
-      scope: "All sites",
+      scope: "Whole fleet",
       formValues: expect.objectContaining({
         siteId: "",
         siteName: "",

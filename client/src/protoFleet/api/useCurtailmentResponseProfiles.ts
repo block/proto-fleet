@@ -107,7 +107,7 @@ function mapApiResponseProfile(
     name: profile.profileName,
     targetSummary,
     siteId,
-    scope: selectedMinerCount > 0 ? `${selectedMinerCount.toLocaleString()} miners` : siteName || "All sites",
+    scope: selectedMinerCount > 0 ? `${selectedMinerCount.toLocaleString()} miners` : siteName || "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,

@@ -1,7 +1,14 @@
 import { createElement, Fragment, type ReactNode, useEffect } from "react";
 import { create } from "@bufbuild/protobuf";
 
-import { deviceSetClient, fleetManagementClient } from "@/protoFleet/api/clients";
+import { curtailmentClient, deviceSetClient, fleetManagementClient } from "@/protoFleet/api/clients";
+import {
+  CurtailmentCandidateSchema,
+  CurtailmentMode,
+  type FixedKwParams,
+  FixedKwParamsSchema,
+  PreviewCurtailmentPlanResponseSchema,
+} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   DeviceSetSchema,
   DeviceSetType,
@@ -19,6 +26,7 @@ type MutableClient<T> = { -readonly [K in keyof T]: T[K] };
 
 const mutableDeviceSetClient = deviceSetClient as MutableClient<typeof deviceSetClient>;
 const mutableFleetManagementClient = fleetManagementClient as MutableClient<typeof fleetManagementClient>;
+const mutableCurtailmentClient = curtailmentClient as MutableClient<typeof curtailmentClient>;
 
 const mockRacks = [
   create(DeviceSetSchema, {
@@ -102,6 +110,14 @@ const mockMiners = [
 ];
 
 const mockMinerModels = Array.from(new Set(mockMiners.map((miner) => miner.model)));
+const mockCurtailmentCandidates = mockMiners.map((miner, index) =>
+  create(CurtailmentCandidateSchema, {
+    deviceIdentifier: miner.deviceIdentifier,
+    currentPowerW: 2800 + index * 400,
+    efficiencyJh: 18 + index,
+    reasonSelected: "Least efficient available miner",
+  }),
+);
 
 export function MockedMinerSelectionApis({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -118,6 +134,7 @@ export function withMockedMinerSelectionApis(Story: () => ReactNode) {
 const installMockedMinerSelectionApis = createRefCountedStoryMock(() => {
   const originalListDeviceSets = mutableDeviceSetClient.listDeviceSets;
   const originalListMinerStateSnapshots = mutableFleetManagementClient.listMinerStateSnapshots;
+  const originalPreviewCurtailmentPlan = mutableCurtailmentClient.previewCurtailmentPlan;
 
   mutableDeviceSetClient.listDeviceSets = async (request) => {
     const deviceSets = request.type === DeviceSetType.RACK ? mockRacks : mockGroups;
@@ -137,8 +154,37 @@ const installMockedMinerSelectionApis = createRefCountedStoryMock(() => {
       models: mockMinerModels,
     });
 
+  mutableCurtailmentClient.previewCurtailmentPlan = async (request) => {
+    const fixedKw =
+      request.modeParams?.case === "fixedKw" ? (request.modeParams.value as Partial<FixedKwParams>) : undefined;
+    const fixedTargetKw = typeof fixedKw?.targetKw === "number" ? fixedKw.targetKw : undefined;
+    const fixedToleranceKw = typeof fixedKw?.toleranceKw === "number" ? fixedKw.toleranceKw : undefined;
+    const estimatedReductionKw =
+      request.mode === CurtailmentMode.FIXED_KW && fixedTargetKw
+        ? fixedTargetKw
+        : mockCurtailmentCandidates.length * 3.2;
+
+    return create(PreviewCurtailmentPlanResponseSchema, {
+      candidates: mockCurtailmentCandidates,
+      estimatedReductionKw,
+      estimatedRemainingPowerKw: 12.5,
+      mode: request.mode,
+      modeParams: fixedKw
+        ? {
+            case: "fixedKw",
+            value: create(FixedKwParamsSchema, {
+              targetKw: fixedTargetKw,
+              toleranceKw: fixedToleranceKw,
+            }),
+          }
+        : { case: undefined },
+      skippedCandidates: [],
+    });
+  };
+
   return () => {
     mutableDeviceSetClient.listDeviceSets = originalListDeviceSets;
     mutableFleetManagementClient.listMinerStateSnapshots = originalListMinerStateSnapshots;
+    mutableCurtailmentClient.previewCurtailmentPlan = originalPreviewCurtailmentPlan;
   };
 });
