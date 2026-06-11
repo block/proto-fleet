@@ -109,7 +109,9 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
 
   return (
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
-      <div className="text-text-secondary mt-2 text-300">Upload the firmware payload file to update your miners.</div>
+      <div className="text-text-secondary mt-2 text-300">
+        Select a firmware payload to update your miners. They will reboot automatically after installation completes.
+      </div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner ? (
           <div className="flex items-center justify-center p-8">

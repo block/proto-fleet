@@ -39,6 +39,7 @@ export function hasReachedExpectedStatus(
     // After 15s, complete when device is no longer OFFLINE
     return deviceStatus !== DeviceStatus.OFFLINE;
   } else if (action === deviceActions.firmwareUpdate) {
+    // Fallback for failed automatic reboots and legacy in-flight firmware updates.
     return deviceStatus === DeviceStatus.REBOOT_REQUIRED;
   }
 
