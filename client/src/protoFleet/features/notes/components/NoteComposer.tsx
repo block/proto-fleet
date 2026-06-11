@@ -8,6 +8,10 @@ interface NoteComposerProps {
   onCreated: () => void;
 }
 
+// Show the countdown only once it could plausibly matter; a permanent
+// "4096 left" is noise.
+const COUNTER_THRESHOLD = MAX_NOTE_CONTENT_LENGTH - 200;
+
 const NoteComposer = ({ onCreated }: NoteComposerProps): ReactElement => {
   const { createNote } = useNotes();
   const [draft, setDraft] = useState("");
@@ -19,6 +23,7 @@ const NoteComposer = ({ onCreated }: NoteComposerProps): ReactElement => {
 
   const trimmed = draft.trim();
   const canSubmit = !isPending && trimmed !== "" && trimmed.length <= MAX_NOTE_CONTENT_LENGTH;
+  const remaining = MAX_NOTE_CONTENT_LENGTH - draft.length;
 
   const submit = () => {
     if (!canSubmit) return;
@@ -37,18 +42,23 @@ const NoteComposer = ({ onCreated }: NoteComposerProps): ReactElement => {
   };
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border-10 px-4 py-3" data-testid="note-composer">
+    <div className="flex flex-col gap-2 border-b border-border-5 px-4 pt-3 pb-3" data-testid="note-composer">
       <Textarea
         key={composerKey}
         id="note-composer"
         label="Add a note"
         maxLength={MAX_NOTE_CONTENT_LENGTH}
-        rows={3}
+        rows={2}
         disabled={isPending}
         onChange={(value) => setDraft(value)}
       />
-      {error ? <p className="text-emphasis-100 text-text-critical">{error}</p> : null}
-      <div className="flex justify-end">
+      {error ? <p className="text-200 text-text-critical">{error}</p> : null}
+      <div className="flex items-center justify-end gap-3">
+        {draft.length >= COUNTER_THRESHOLD ? (
+          <span className={`font-mono text-[11px] ${remaining < 0 ? "text-text-critical" : "text-text-primary-50"}`}>
+            {remaining} left
+          </span>
+        ) : null}
         <Button
           variant={variants.primary}
           size={sizes.compact}

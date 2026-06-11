@@ -61,6 +61,10 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   create_pool: MiningPools,
   update_pool: MiningPools,
   delete_pool: Trash,
+
+  "note.created": Edit,
+  "note.updated": Edit,
+  "note.deleted": Trash,
 };
 
 export function getActivityIcon(eventType: string): (props: IconProps) => ReactNode {
