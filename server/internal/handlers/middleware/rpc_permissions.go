@@ -178,6 +178,7 @@ var ProcedurePermissions = map[string]string{
 	// FleetManagementService — list/read against fleet/miner reads,
 	// mutations against matching miner action keys.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure: authz.PermMinerRead,
+	fleetmanagementv1connect.FleetManagementServiceRefreshMinersProcedure:           authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerPoolAssignmentsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerCoolingModeProcedure:     authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerStateCountsProcedure:     authz.PermFleetRead,

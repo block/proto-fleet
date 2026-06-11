@@ -27,6 +27,7 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
     refetch: vi.fn(),
     refreshCurrentPage: vi.fn(),
     updateMinerWorkerName: vi.fn(),
+    mergeMiners: vi.fn(),
   })),
 }));
 
@@ -100,6 +101,7 @@ const createFleetMock = (overrides: Record<string, unknown> = {}) => ({
   goToNextPage: vi.fn() as () => void,
   goToPrevPage: vi.fn() as () => void,
   updateMinerWorkerName: vi.fn() as (deviceIdentifier: string, workerName: string) => void,
+  mergeMiners: vi.fn(),
   ...overrides,
 });
 

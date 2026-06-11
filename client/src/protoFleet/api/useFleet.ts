@@ -355,6 +355,28 @@ const useFleet = (options: UseFleetOptions = {}) => {
     });
   }, []);
 
+  const mergeMiners = useCallback((snapshots: MinerStateSnapshot[]) => {
+    if (snapshots.length === 0) {
+      return;
+    }
+
+    setMiners((prev) => {
+      let next: Record<string, MinerStateSnapshot> | undefined;
+
+      snapshots.forEach((snapshot) => {
+        const existingMiner = prev[snapshot.deviceIdentifier];
+        if (existingMiner && equals(MinerStateSnapshotSchema, existingMiner, snapshot)) {
+          return;
+        }
+
+        next ??= { ...prev };
+        next[snapshot.deviceIdentifier] = snapshot;
+      });
+
+      return next ?? prev;
+    });
+  }, []);
+
   // Track if this is the initial load and previous filter/sort
   const hasLoadedRef = useRef(false);
   const wasEnabledRef = useRef(enabled);
@@ -423,6 +445,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     refetch,
     refreshCurrentPage,
     updateMinerWorkerName,
+    mergeMiners,
     availableModels,
     availableFirmwareVersions,
   };

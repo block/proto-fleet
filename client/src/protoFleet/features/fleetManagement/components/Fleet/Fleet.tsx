@@ -111,6 +111,7 @@ const Fleet = () => {
     refetch,
     refreshCurrentPage,
     updateMinerWorkerName,
+    mergeMiners,
     availableModels,
     availableFirmwareVersions,
     currentPage,
@@ -186,9 +187,10 @@ const Fleet = () => {
 
   const refetchAll = useCallback(() => {
     refetch();
+    refetchErrors();
     refreshUnfilteredCount();
     refetchAuthNeededMiners();
-  }, [refetch, refreshUnfilteredCount, refetchAuthNeededMiners]);
+  }, [refetch, refetchErrors, refreshUnfilteredCount, refetchAuthNeededMiners]);
 
   useEffect(() => {
     if (minersChangedAt > 0) refetchAll();
@@ -259,6 +261,7 @@ const Fleet = () => {
           exportCsvLoading={isExportingCsv}
           onRefetchMiners={refetchAll}
           onWorkerNameUpdated={updateMinerWorkerName}
+          onMergeMiners={mergeMiners}
           onPairingCompleted={notifyPairingCompleted}
         />
       </ErrorBoundary>

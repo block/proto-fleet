@@ -8,4 +8,5 @@ export type DeviceListItem = {
   miner: MinerStateSnapshot;
   errors: ErrorMessage[];
   activeBatches: BatchOperation[];
+  isRefreshing?: boolean;
 };

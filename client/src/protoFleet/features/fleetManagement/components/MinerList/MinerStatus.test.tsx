@@ -103,6 +103,18 @@ describe("MinerStatus", () => {
       expect(container.querySelector(".animate-spin")).toBeInTheDocument();
     });
 
+    it("should show refreshing state with spinner during explicit row refresh", () => {
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
+
+      const { container } = render(
+        <MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded isRefreshing />,
+      );
+
+      expect(screen.getByText("Refreshing")).toBeInTheDocument();
+      expect(screen.queryByText("Hashing")).not.toBeInTheDocument();
+      expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+    });
+
     it("should prioritize loading state over normal status", async () => {
       const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
       vi.mocked(useMinerStatus).mockReturnValue("Hashing");

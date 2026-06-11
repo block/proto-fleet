@@ -192,6 +192,10 @@ type statusResult struct {
 	driverName       string
 }
 
+type statusFlushRequest struct {
+	done chan error
+}
+
 // metricsResult holds device metrics queued by a worker for batch DB writes.
 type metricsResult struct {
 	deviceID   models.DeviceIdentifier
@@ -217,6 +221,9 @@ type TelemetryService struct {
 	statusTasks chan models.Device
 	// statusResults receives status updates from workers for batch DB writes.
 	statusResults chan statusResult
+	// statusFlushRequests asks statusWriterRoutine to flush pending status
+	// updates immediately and report the result to the caller.
+	statusFlushRequests chan statusFlushRequest
 	// metricsResults receives device metrics from workers for batch DB writes.
 	// Uses a blocking send so metrics are never dropped; backpressure slows workers
 	// if the DB falls behind rather than losing data.
@@ -241,18 +248,19 @@ type TelemetryService struct {
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
 	return &TelemetryService{
-		config:             config,
-		telemetryDataStore: telemetryDataStore,
-		minerManager:       minerManager,
-		updateScheduler:    scheduler,
-		deviceStore:        deviceStore,
-		errorPoller:        errorPoller,
-		tasks:              make(chan models.Device, config.ConcurrencyLimit),
-		statusTasks:        make(chan models.Device, config.ConcurrencyLimit),
-		statusResults:      make(chan statusResult, resultsChannelBuffer),
-		metricsResults:     make(chan metricsResult, resultsChannelBuffer),
-		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
-		metricsObserver:    newMetricsObserver(NoMetrics()),
+		config:              config,
+		telemetryDataStore:  telemetryDataStore,
+		minerManager:        minerManager,
+		updateScheduler:     scheduler,
+		deviceStore:         deviceStore,
+		errorPoller:         errorPoller,
+		tasks:               make(chan models.Device, config.ConcurrencyLimit),
+		statusTasks:         make(chan models.Device, config.ConcurrencyLimit),
+		statusResults:       make(chan statusResult, resultsChannelBuffer),
+		statusFlushRequests: make(chan statusFlushRequest),
+		metricsResults:      make(chan metricsResult, resultsChannelBuffer),
+		lookBackDuration:    -1 * (config.StalenessThreshold - config.FetchInterval),
+		metricsObserver:     newMetricsObserver(NoMetrics()),
 	}
 }
 
@@ -283,6 +291,34 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
+}
+
+// RefreshDevice runs the same collection path used by scheduled telemetry for
+// one device, then asks the status writer to flush pending status updates.
+func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Device) error {
+	processErr := s.processDevice(ctx, device)
+	flushErr := s.FlushStatusNow(ctx)
+	if processErr != nil {
+		return processErr
+	}
+	return flushErr
+}
+
+func (s *TelemetryService) FlushStatusNow(ctx context.Context) error {
+	req := statusFlushRequest{done: make(chan error, 1)}
+
+	select {
+	case s.statusFlushRequests <- req:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	select {
+	case err := <-req.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *TelemetryService) Start(ctx context.Context) error {
@@ -523,8 +559,10 @@ func (s *TelemetryService) worker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			s.inFlight.Store(device.ID, struct{}{})
-			s.processDevice(ctx, device)
+			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, struct{}{}); alreadyClaimed {
+				continue
+			}
+			_ = s.processDevice(ctx, device)
 			s.inFlight.Delete(device.ID)
 
 		case device, ok := <-s.statusTasks:
@@ -546,10 +584,11 @@ func (s *TelemetryService) worker(ctx context.Context) {
 //
 // Connection errors during status fetch are converted to MinerStatusOffline (not errors),
 // so the flow continues. Only auth failures and other non-connection errors cause early return.
-func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) {
+func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) error {
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
 	metricsStatus, hasMetricsStatus, orgID, driverName, pollSuccess, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	var collectionErr error
 	s.metricsObserver.onPollResult(
 		ctx,
 		orgID,
@@ -557,6 +596,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		pollSuccess,
 	)
 	if telemetryErr != nil {
+		collectionErr = telemetryErr
 		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", telemetryErr)
 
 		if requiresCredentialRemediation(telemetryErr) {
@@ -593,7 +633,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 						"deviceID", device.ID, "error", updateErr)
 				}
 			}
-			return
+			return statusErr
 		}
 		// The telemetry path may have failed before resolving org/driver; if so,
 		// fill them in from the status fetch which already has the miner handle.
@@ -614,12 +654,16 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		driverName:       driverName,
 	}:
 	case <-ctx.Done():
-		return
+		return ctx.Err()
 	default:
 		slog.Error("status results channel full, dropping update", "deviceID", device.ID)
+		if collectionErr == nil {
+			collectionErr = fmt.Errorf("status results channel full for device %s", device.ID)
+		}
 	}
 
 	s.pollErrorsForDevice(ctx, device)
+	return collectionErr
 }
 
 // processStatusOnly handles status-only checks for a device.
@@ -708,9 +752,31 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
-	flush := func(flushCtx context.Context) {
+	addPendingUpdate := func(result statusResult) {
+		pendingUpdates[result.deviceIdentifier] = pendingStatusUpdate{
+			status:     result.status,
+			orgID:      result.orgID,
+			driverName: result.driverName,
+		}
+	}
+
+	drainReadyStatusResults := func() {
+		for {
+			select {
+			case result, ok := <-s.statusResults:
+				if !ok {
+					return
+				}
+				addPendingUpdate(result)
+			default:
+				return
+			}
+		}
+	}
+
+	flush := func(flushCtx context.Context) error {
 		if len(pendingUpdates) == 0 {
-			return
+			return nil
 		}
 
 		// Check current DB statuses to avoid overwriting firmware update states
@@ -723,7 +789,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		currentStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(flushCtx, deviceIDs)
 		if err != nil {
 			slog.Warn("failed to check current device statuses for firmware update guard, skipping flush", "error", err)
-			return
+			return err
 		}
 
 		statusUpdates := make([]stores.DeviceStatusUpdate, 0, len(pendingUpdates))
@@ -744,10 +810,12 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		// Write new statuses to DB in a single bulk INSERT.
 		// Each row is ~100 bytes. With maxStatusBatchSize=500, batches are ~50KB.
 		upsertOK := true
+		var flushErr error
 		if len(statusUpdates) > 0 {
 			if err := s.deviceStore.UpsertDeviceStatuses(flushCtx, statusUpdates); err != nil {
 				slog.Error("status upsert failed", "count", len(statusUpdates), "error", err)
 				upsertOK = false
+				flushErr = err
 			}
 		}
 
@@ -783,6 +851,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		}
 
 		clear(pendingUpdates)
+		return flushErr
 	}
 
 	for {
@@ -791,22 +860,25 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			// Use a fresh context with timeout for final flush to ensure pending
 			// updates are written even after the parent context is cancelled.
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
-			flush(shutdownCtx)
+			_ = flush(shutdownCtx)
 			cancel()
 			return
 
-		case result := <-s.statusResults:
-			pendingUpdates[result.deviceIdentifier] = pendingStatusUpdate{
-				status:     result.status,
-				orgID:      result.orgID,
-				driverName: result.driverName,
+		case result, ok := <-s.statusResults:
+			if !ok {
+				return
 			}
+			addPendingUpdate(result)
 			if len(pendingUpdates) >= maxStatusBatchSize {
-				flush(ctx)
+				_ = flush(ctx)
 			}
 
 		case <-ticker.C:
-			flush(ctx)
+			_ = flush(ctx)
+
+		case req := <-s.statusFlushRequests:
+			drainReadyStatusResults()
+			req.done <- flush(ctx)
 		}
 	}
 }

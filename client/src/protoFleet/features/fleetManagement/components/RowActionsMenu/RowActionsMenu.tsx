@@ -16,6 +16,7 @@ export interface RowAction {
   // Thick divider rendered below the row; suppressed on the last row.
   showGroupDivider?: boolean;
   hidden?: boolean;
+  disabled?: boolean;
   testId?: string;
 }
 
@@ -110,6 +111,7 @@ const RowActionsMenuInner = ({
                     setIsOpen(false);
                     action.onClick();
                   }}
+                  disabled={action.disabled}
                   compact
                   divider={false}
                 >

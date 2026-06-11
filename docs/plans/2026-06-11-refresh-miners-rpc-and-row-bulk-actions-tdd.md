@@ -1,11 +1,11 @@
 ---
-title: "RefreshMiners RPC + row & bulk refresh actions"
+title: "RefreshMiners RPC + row refresh action"
 date: 2026-06-11
 status: draft
 type: tdd
 ---
 
-# RefreshMiners RPC + row & bulk refresh actions
+# RefreshMiners RPC + row refresh action
 
 ## Context
 
@@ -23,20 +23,17 @@ fresh status flushes, the next list call sees it. The bottleneck is
 "how do we force a fresh fetch and flush right now."
 
 This PR introduces a `RefreshMiners(device_ids[])` Connect-RPC and
-wires it to both the single-row action menu and the bulk-action toolbar
-that already exists for firmware / reboot / pool / etc. A follow-up
-PR (separate TDD) reuses this RPC inside the status modal for live
-updates.
+wires it to the single-row action menu. Follow-up PRs can reuse this
+RPC inside the status modal for live updates and after status-changing
+commands to shorten the time rows spend in a pending state.
 
 ## Goals
 
 - A field tech can refresh one miner from the row-action menu and see
   the updated row within ~1–2s of the plugin fetch completing.
-- A field tech can select N miners (existing `ActionBar`) and run
-  "Refresh status" against the selection; progress is reported with the
-  same toast UX used by firmware/reboot batches.
-- The new RPC is the single server entry point — list row, bulk action,
-  and (in the follow-up PR) the status modal all funnel through it.
+- The new RPC is the single server entry point for explicit device
+  refreshes — row refresh in this PR, status modal and post-command
+  verification in follow-up PRs.
 - No regressions to the scheduled telemetry path or the 60s rollup.
 
 ## Non-goals
@@ -45,6 +42,10 @@ updates.
 - Lowering the global 60s client list poll.
 - Changing the 60s state-snapshot rollup interval.
 - Modal-side polling (lives in the follow-up TDD).
+- Bulk/action-bar refresh. V1 only exposes a row action; the RPC still
+  accepts up to 50 explicit ids so follow-up callers can reuse it.
+- Post-command verification refreshes after sleep / wake / reboot /
+  pool / firmware actions.
 - A general-purpose priority queue in the scheduler.
 
 ## Architecture today (verified)
@@ -64,13 +65,12 @@ updates.
   (`server/sqlc/queries/device.sql:464`).
 - **Row-action menu** ships in PR #412 — insertion point is
   `client/src/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu.tsx`.
-- **Multi-select & bulk bar.** Selection state lives in
-  `ScopedMinerListBody` (`MinerList.tsx:290-299`); the `ActionBar`
-  component renders `MinerActionsMenu` when selection is non-empty.
-- **Bulk command pattern.** Existing bulk actions go through
+- **Status-changing command actions.** Existing bulk actions go through
   `useMinerCommand` (`api/useMinerCommand.ts:258-288`) with a server
   `batchIdentifier` and `StreamCommandBatchUpdates` streaming progress
-  back. Real-time toast tracks success/failure counts.
+  back. The row status cell keeps showing a pending spinner until the
+  normal 60s list poll observes the expected status; this PR does not
+  change that behavior.
 - **`useFleet`** (`api/useFleet.ts`) holds page-level miner data as
   `Record<string, MinerStateSnapshot>` and uses protobuf `equals()` to
   suppress no-op re-renders.
@@ -85,8 +85,7 @@ Add to `proto/fleetmanagement/v1/fleetmanagement.proto`:
 rpc RefreshMiners(RefreshMinersRequest) returns (RefreshMinersResponse) {}
 
 message RefreshMinersRequest {
-  // 1..=50 device identifiers. Bulk selections larger than 50 are
-  // chunked client-side; see "Client — bulk action" below.
+  // 1..=50 explicit device identifiers.
   repeated string device_ids = 1;
 }
 
@@ -110,8 +109,7 @@ Existing bulk actions use `StreamCommandBatchUpdates` because each
 device command can take seconds-to-minutes and the user needs progress.
 Refresh is bounded by plugin RTT (sub-second typical) and we cap at 50
 ids per request. Unary keeps the server simpler — no `batchIdentifier`,
-no streaming lifecycle, no in-memory batch state. The client batches
-large selections itself and updates a toast tally between batches.
+no streaming lifecycle, no in-memory batch state.
 
 ### Server handler
 
@@ -123,17 +121,13 @@ New `RefreshMiners` in
 2. Apply existing org/permission scoping. For ids the caller cannot
    see, return them as `errors[id] = "not found"` to avoid leaking
    existence.
-3. Per-device debounce: in-process LRU keyed by device_id, 2s TTL. If a
-   refresh ran for that device within the window, skip re-collect and
-   return the latest row directly. Reason: two tabs or rapid clicks
-   shouldn't double plugin load.
-4. Fan out to a goroutine pool capped at `min(len(device_ids), 10)`:
+3. Fan out to a goroutine pool capped at `min(len(device_ids), 10)`:
    - Look up `models.Device` via `deviceStore`.
    - Call `TelemetryService.RefreshDevice(ctx, device)` (see below).
    - Read the post-refresh row via a new store method
      `GetMinerStateSnapshot(ctx, deviceID)` — the single-row equivalent
      of the list query.
-5. Assemble `RefreshMinersResponse{snapshots, errors}`.
+4. Assemble `RefreshMinersResponse{snapshots, errors}`.
 
 Timeouts: request ctx capped at 8s; per-device ctx 5s.
 
@@ -172,54 +166,33 @@ useRefreshMiners(): {
 }
 ```
 
-The hook handles the 50-id server cap by chunking large arrays into
-batches and running them with a small concurrency limit (e.g. 3
-parallel batches). It aggregates `snapshots[]` and `errors{}` from
-each batch into a single `RefreshResult`. Callers don't need to know
-about the cap.
+V1 row refresh calls the hook with exactly one id. The hook still
+validates `deviceIds.length > 0 && <= 50` so callers receive a clear
+client-side error before the RPC would reject the request.
 
 ### Client — `useFleet.mergeMiners`
 
 Add `mergeMiners(snapshots: MinerStateSnapshot[])` to `useFleet`. It
 upserts into the existing local map and uses the same protobuf
 `equals()` short-circuit so no-op merges don't re-render. This is the
-single merge point used by both row and bulk actions (and by the modal
-in the follow-up PR).
+single merge point used by row refresh in this PR and by follow-up
+modal / post-command refresh loops.
 
 ### Client — row action
 
-In `SingleMinerActionsMenu.tsx`, add "Refresh status":
+In `SingleMinerActionsMenu.tsx`, add "Refresh":
 
 - Click → `refreshMiners([device.id])` → on success
   `mergeMiners(result.snapshots)`; on failure show a toast with the
   per-device error message.
 - Disable the item with a small spinner while in-flight (`refreshing`
   Set from the hook).
-- After success, keep the item disabled for 2s (matches server
-  debounce) to prevent button-mashing.
-
-### Client — bulk action
-
-In `MinerActionsMenu` / `ActionBar` flow, add "Refresh status (N
-selected)":
-
-- Click → resolve the selection to a concrete id list. For
-  `selectionMode === "all"` the client requests the filtered id list
-  using the same selector pattern existing bulk actions use, then runs
-  the same chunked refresh.
-- Toast UX modeled on existing batch toasts: a single toast that
-  updates `succeeded / total` and `failed / total` as each chunk
-  resolves. No `batchIdentifier` is involved — the toast is purely
-  client-side and updates between unary RPC responses.
-- On any failures, the toast offers a "Retry failures" action that
-  re-invokes the hook with only the failed ids.
-- Selection is preserved until the toast is dismissed (consistent with
-  existing bulk actions).
-
-Hard cap: the bulk action declines to run for selections > 500 with a
-toast explaining the cap. Rationale: at 50/request and 3 in parallel,
-500 ids = ~3–4 plugin-RTT cycles, well bounded; beyond that the user
-should narrow the filter.
+- While in-flight, render the status cell with a spinner and render
+  telemetry cells as skeleton bars so the operator can see the row is
+  waiting on a fresh miner read.
+- After success, the item can be clicked again; v1 relies on the
+  in-flight disabled state and telemetry `inFlight` guard rather than a
+  separate cache or throttling layer.
 
 ## Test plan
 
@@ -230,9 +203,6 @@ should narrow the filter.
 - Mixed-result request (one healthy, one unreachable, one not in org) →
   one `snapshots[]` entry, two `errors{}` entries; "not in org" is
   surfaced as `"not found"` (no existence leak).
-- Two back-to-back refreshes for the same device within 2s → second
-  call returns latest row without invoking `processDevice` a second
-  time (assert via call counter on a fake `MinerGetter`).
 - Concurrent `RefreshDevice` for the same id (worker already in
   flight) → only one `processDevice` runs; the second returns after
   the first releases `inFlight`.
@@ -243,28 +213,24 @@ should narrow the filter.
 
 **Client**
 
-- `useRefreshMiners` chunks a 120-id selection into 50/50/20 with
-  bounded parallelism; aggregated result preserves order-independent
-  `snapshots` and `errors`.
+- `useRefreshMiners` rejects empty arrays and >50 ids before calling
+  the RPC.
+- `useRefreshMiners` returns the unary RPC's `snapshots` and `errors`
+  for a valid single-id request.
 - Row action click → `mergeMiners` called with returned snapshot →
   next render of the row reflects new status (protobuf `equals()`
   prevents re-render when unchanged).
-- Bulk action click → toast appears, updates tally as chunks resolve,
-  offers "Retry failures" on any error, dismiss clears selection.
-- Bulk action declines selections > 500 with a clear toast.
 
 **E2E (`just test-e2e-fleet`)**
 
 - Single-row refresh updates a row before the next 60s list poll.
-- Bulk refresh against ≥ 60 selected miners completes, toast shows
-  final tally, list rows reflect updated statuses.
 
 ## Risks and tradeoffs
 
-- **Plugin load.** Worst-case bulk: 500 ids × one plugin fetch each at
-  ≤ 3 parallel batches of 50. Plugins already absorb worse during
-  scheduler bursts. Per-device debounce prevents accidental double-load
-  from rapid retries.
+- **Plugin load.** V1 row refresh adds one explicit plugin fetch per
+  click. The existing `inFlight` guard prevents duplicate concurrent
+  fetches inside one process; v1 does not add cross-process throttling
+  or distributed lock.
 - **In-flight contention.** Refreshing a device the scheduler just
   picked up costs one bounded wait, not a duplicate fetch.
 - **Snapshot rollup divergence.** The 60s `fleetStateSnapshotRoutine`
@@ -274,14 +240,26 @@ should narrow the filter.
   proposed default; reviewers may want it gated as a write. The
   decision lives in `rpc_permissions.go` and flips without proto
   churn.
-- **Unary vs streaming.** If a future requirement makes individual
-  refreshes slow (e.g. plugins added with multi-second handshakes), we
-  may want to switch the bulk path to streaming. The unary RPC stays
-  useful for single-row and modal use cases; a parallel streaming RPC
-  could be added without removing it.
+- **Unary vs streaming.** If a future requirement makes refreshes slow
+  or introduces bulk refresh, we may want a parallel streaming RPC. The
+  unary RPC stays useful for single-row and modal use cases.
 
 ## Follow-up
 
 - Live status modal: separate TDD at
   `docs/plans/2026-06-11-status-modal-live-refresh-tdd.md`. Reuses
   `RefreshMiners` on a ~10s interval while open.
+- Post-command verification refreshes: after `StreamCommandBatchUpdates`
+  reports success for status-changing actions (sleep, wake, reboot,
+  pool assignment, firmware), start a short client-side loop over the
+  successful device ids:
+  - call `RefreshMiners` every ~2s for ids that have not reached
+    `hasReachedExpectedStatus(action, snapshot.device_status)`;
+  - merge returned snapshots through `useFleet.mergeMiners`;
+  - remove ids from the loop as soon as their row reaches the expected
+    status;
+  - stop the loop after a bounded timeout (for example 30–60s) and let
+    the existing stale batch cleanup handle stragglers.
+- Bulk/action-bar refresh: not in v1. If added later, keep explicit
+  ids and a client cap; do not introduce empty-array or implicit
+  "all miners" semantics.

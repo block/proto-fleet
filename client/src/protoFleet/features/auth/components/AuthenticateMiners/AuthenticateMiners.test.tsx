@@ -88,6 +88,7 @@ beforeEach(() => {
     refetch: mockRefetchFleet,
     refreshCurrentPage: vi.fn(),
     updateMinerWorkerName: vi.fn(),
+    mergeMiners: vi.fn(),
     availableModels: [],
     availableFirmwareVersions: [],
   });

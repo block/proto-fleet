@@ -19,15 +19,17 @@ import type {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import useRefreshMiners from "@/protoFleet/api/useRefreshMiners";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { ArrowRight, Edit, MiningPools, Plus } from "@/shared/assets/icons";
+import { ArrowRight, Edit, MiningPools, Plus, Reboot } from "@/shared/assets/icons";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
-type SingleMinerAction = SupportedAction | "viewMiner";
+type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";
 
-const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner"]);
+const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner", "refreshStatus"]);
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
@@ -41,6 +43,8 @@ interface SingleMinerActionsMenuProps {
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
+  onMergeMiners?: (snapshots: MinerStateSnapshot[]) => void;
+  onMinerRefreshStateChange?: (deviceIdentifier: string, isRefreshing: boolean) => void;
 }
 
 const SingleMinerActionsMenu = ({
@@ -55,9 +59,12 @@ const SingleMinerActionsMenu = ({
   miners,
   onRefetchMiners,
   onWorkerNameUpdated,
+  onMergeMiners,
+  onMinerRefreshStateChange,
 }: SingleMinerActionsMenuProps) => {
   const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
   const { streamCommandBatchUpdates } = useMinerCommand();
+  const { refreshMiners, refreshing } = useRefreshMiners();
   const { updateSingleWorkerName } = useUpdateWorkerNames();
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
@@ -65,6 +72,7 @@ const SingleMinerActionsMenu = ({
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
+  const isRefreshingStatus = refreshing.has(deviceIdentifier);
 
   const minerActionsResult = useMinerActions({
     selectedMiners,
@@ -102,6 +110,46 @@ const SingleMinerActionsMenu = ({
       window.open(minerUrl, "_blank", "noopener,noreferrer");
     }
   }, [minerUrl]);
+
+  const handleRefreshStatus = useCallback(async () => {
+    if (isRefreshingStatus) {
+      return;
+    }
+
+    onActionStart?.();
+    onMinerRefreshStateChange?.(deviceIdentifier, true);
+    try {
+      const response = await refreshMiners([deviceIdentifier]);
+      onMergeMiners?.(response.snapshots);
+      onRefetchMiners?.();
+
+      const errorMessage = response.errors[deviceIdentifier];
+      if (errorMessage) {
+        pushToast({
+          status: TOAST_STATUSES.error,
+          message: `Failed to refresh ${minerName ?? deviceIdentifier}: ${errorMessage}`,
+        });
+      }
+    } catch {
+      pushToast({
+        status: TOAST_STATUSES.error,
+        message: `Failed to refresh ${minerName ?? deviceIdentifier}.`,
+      });
+    } finally {
+      onMinerRefreshStateChange?.(deviceIdentifier, false);
+      onActionComplete?.();
+    }
+  }, [
+    deviceIdentifier,
+    isRefreshingStatus,
+    minerName,
+    onActionComplete,
+    onActionStart,
+    onMergeMiners,
+    onMinerRefreshStateChange,
+    onRefetchMiners,
+    refreshMiners,
+  ]);
 
   const resetWorkerNameFlow = useCallback(() => {
     setShowWorkerNameAuthenticateModal(false);
@@ -299,6 +347,19 @@ const SingleMinerActionsMenu = ({
       requiresConfirmation: false,
     };
 
+    const refreshStatusAction: BulkAction<SingleMinerAction> = {
+      action: "refreshStatus",
+      title: "Refresh",
+      icon: isRefreshingStatus ? <ProgressCircular size={14} indeterminate /> : <Reboot />,
+      actionHandler: handleRefreshStatus,
+      requiresConfirmation: false,
+      disabled: isRefreshingStatus,
+      showGroupDivider: viewMinerAction?.showGroupDivider,
+    };
+    if (viewMinerAction) {
+      viewMinerAction.showGroupDivider = false;
+    }
+
     // Inserted before addToGroup so the cluster reads site → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
       action: groupActions.addToRack,
@@ -322,7 +383,9 @@ const SingleMinerActionsMenu = ({
     const withAddToSite = insertActionBefore(withAddToRack, groupActions.addToRack, addToSiteAction);
 
     if (actionsWithRenameBeforeGroup !== actions) {
-      return viewMinerAction ? [viewMinerAction, ...withAddToSite] : withAddToSite;
+      return viewMinerAction
+        ? [viewMinerAction, refreshStatusAction, ...withAddToSite]
+        : [refreshStatusAction, ...withAddToSite];
     }
 
     const actionsWithRenameBeforeSecurity = insertActionBefore(withAddToSite, settingsActions.security, {
@@ -331,11 +394,23 @@ const SingleMinerActionsMenu = ({
     });
 
     if (actionsWithRenameBeforeSecurity !== withAddToSite) {
-      return viewMinerAction ? [viewMinerAction, ...actionsWithRenameBeforeSecurity] : actionsWithRenameBeforeSecurity;
+      return viewMinerAction
+        ? [viewMinerAction, refreshStatusAction, ...actionsWithRenameBeforeSecurity]
+        : [refreshStatusAction, ...actionsWithRenameBeforeSecurity];
     }
 
-    return viewMinerAction ? [viewMinerAction, ...withAddToSite, renameAction] : [...withAddToSite, renameAction];
-  }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, minerUrl, popoverActions]);
+    return viewMinerAction
+      ? [viewMinerAction, refreshStatusAction, ...withAddToSite, renameAction]
+      : [refreshStatusAction, ...withAddToSite, renameAction];
+  }, [
+    handleRefreshStatus,
+    handleRenameOpen,
+    handleUpdateWorkerNameAction,
+    handleViewMiner,
+    isRefreshingStatus,
+    minerUrl,
+    popoverActions,
+  ]);
 
   // viewMiner has no RPC and passes through unfiltered.
   const permittedActions = usePermittedActions(actionsWithSingleNameFlows);
@@ -375,6 +450,7 @@ const SingleMinerActionsMenu = ({
         label: action.title,
         icon: action.icon,
         showGroupDivider: action.showGroupDivider,
+        disabled: action.disabled,
         testId: `${action.action}-popover-button`,
         onClick: () => handleAction(action),
       })),

@@ -60,6 +60,11 @@ const (
 	// above any plausible scan time on a healthy DB (target p99 < 250ms)
 	// so a slow-but-valid query is not artificially capped.
 	fleetOptionsFetchTimeout = 60 * time.Second
+
+	refreshMinersMaxDevices       = 50
+	refreshMinersRequestTimeout   = 8 * time.Second
+	refreshMinersPerDeviceTimeout = 5 * time.Second
+	refreshMinersConcurrencyLimit = 10
 )
 
 // bracketIPv6Host wraps bare IPv6 addresses in brackets for use in URLs.
@@ -247,6 +252,113 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 	return s.buildSnapshot(ctx, info.OrganizationID, req.PageSize, req.Cursor, req.Filter, sortConfig)
 }
 
+func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error) {
+	if len(req.DeviceIds) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("device_ids must contain at least one device identifier")
+	}
+	if len(req.DeviceIds) > refreshMinersMaxDevices {
+		return nil, fleeterror.NewInvalidArgumentErrorf("device_ids must contain at most %d device identifiers", refreshMinersMaxDevices)
+	}
+	for _, id := range req.DeviceIds {
+		if strings.TrimSpace(id) == "" {
+			return nil, fleeterror.NewInvalidArgumentError("device_ids cannot contain empty device identifiers")
+		}
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, refreshMinersRequestTimeout)
+	defer cancel()
+
+	resp := &pb.RefreshMinersResponse{
+		Snapshots: []*pb.MinerStateSnapshot{},
+		Errors:    map[string]string{},
+	}
+
+	type refreshResult struct {
+		snapshot *pb.MinerStateSnapshot
+		id       string
+		errMsg   string
+	}
+
+	results := make(chan refreshResult, len(req.DeviceIds))
+	sem := make(chan struct{}, refreshMinersConcurrencyLimit)
+	var wg sync.WaitGroup
+
+	for _, id := range req.DeviceIds {
+		deviceID := id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-refreshCtx.Done():
+				results <- refreshResult{id: deviceID, errMsg: refreshCtx.Err().Error()}
+				return
+			}
+
+			device, err := s.deviceStore.GetDeviceByDeviceIdentifier(refreshCtx, deviceID, info.OrganizationID)
+			if err != nil {
+				if fleeterror.IsNotFoundError(err) {
+					results <- refreshResult{id: deviceID, errMsg: "not found"}
+					return
+				}
+				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				return
+			}
+
+			deviceCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersPerDeviceTimeout)
+			defer cancel()
+
+			var refreshErrMsg string
+			if err := s.telemetry.RefreshDevice(deviceCtx, telemetryModels.Device{
+				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
+			}); err != nil {
+				refreshErrMsg = err.Error()
+			}
+
+			snapshots, err := s.getMinerStateSnapshotsByIDs(deviceCtx, info.OrganizationID, []string{deviceID})
+			if err != nil {
+				if refreshErrMsg != "" {
+					results <- refreshResult{id: deviceID, errMsg: refreshErrMsg}
+					return
+				}
+				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				return
+			}
+			if len(snapshots) == 0 {
+				if refreshErrMsg != "" {
+					results <- refreshResult{id: deviceID, errMsg: refreshErrMsg}
+					return
+				}
+				results <- refreshResult{id: deviceID, errMsg: "not found"}
+				return
+			}
+
+			results <- refreshResult{id: deviceID, snapshot: snapshots[0], errMsg: refreshErrMsg}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	for result := range results {
+		if result.errMsg != "" {
+			resp.Errors[result.id] = result.errMsg
+		}
+		if result.snapshot != nil {
+			resp.Snapshots = append(resp.Snapshots, result.snapshot)
+		}
+	}
+
+	return resp, nil
+}
+
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
 func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -352,6 +464,26 @@ func (s *Service) buildSnapshot(
 		Models:           options.Models,
 		FirmwareVersions: options.FirmwareVersions,
 	}, nil
+}
+
+func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, deviceIDs []string) ([]*pb.MinerStateSnapshot, error) {
+	if len(deviceIDs) == 0 {
+		return nil, nil
+	}
+
+	snapshots, _, _, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, "", int32(len(deviceIDs)), &interfaces.MinerFilter{
+		DeviceIdentifiers: deviceIDs,
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
+	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
+	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
+
+	return snapshots, nil
 }
 
 // getCachedFleetOptions returns the per-org option arrays surfaced by
