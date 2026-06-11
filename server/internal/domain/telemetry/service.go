@@ -91,7 +91,7 @@ import (
 const (
 	// Default intervals
 	defaultStatusUpdateInterval    = 1 * time.Second
-	defaultFetchInterval           = 10 * time.Second
+	defaultFetchInterval           = 5 * time.Second
 	defaultDevicePollInterval      = 10 * time.Minute
 	defaultHeartbeatInterval       = 30 * time.Second
 	defaultBroadcasterPollInterval = 5 * time.Second
