@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +34,7 @@ import (
 var _ sdk.Device = (*Device)(nil)
 
 const (
-	defaultStatusTTL          = 30 * time.Second
+	defaultStatusTTL          = 5 * time.Second
 	maxLogLines               = 10000
 	deviceVerificationTimeout = 10 * time.Second
 	firmwareRefreshInterval   = 5 * time.Minute
@@ -41,6 +42,17 @@ const (
 	teraHashToHashConversion                   = 1e12
 	joulesPerTeraHashToJoulesPerHashConversion = 1e-12
 )
+
+// statusCacheTTL returns the status cache TTL, reading from PROTO_STATUS_CACHE_TTL
+// env var (Go duration string) with a default of 5s.
+func statusCacheTTL() time.Duration {
+	if v := os.Getenv("PROTO_STATUS_CACHE_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return defaultStatusTTL
+}
 
 // Device implements the SDK Device interface for a single Proto miner.
 //
@@ -131,7 +143,7 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 		id:         deviceID,
 		deviceInfo: deviceInfo,
 		client:     client,
-		statusTTL:  defaultStatusTTL,
+		statusTTL:  statusCacheTTL(),
 		mutex:      sync.Mutex{},
 	}
 
