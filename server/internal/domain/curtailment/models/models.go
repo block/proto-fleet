@@ -30,10 +30,10 @@ type ResponseProfile struct {
 	Priority                Priority
 	TargetKW                *float64
 	ToleranceKW             *float64
+	CurtailBatchSize        *int32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      *int32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
 	CreatedAt               time.Time

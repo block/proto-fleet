@@ -30,7 +30,7 @@ func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg
 }
 
 const getCurtailmentResponseProfileByOrg = `-- name: GetCurtailmentResponseProfileByOrg :one
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, restore_batch_size, restore_batch_interval_sec, min_curtailed_duration_sec, max_duration_seconds, include_maintenance, force_include_maintenance, created_at, updated_at
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
 FROM curtailment_response_profile
 WHERE id = $1
   AND org_id = $2
@@ -55,10 +55,10 @@ func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg Ge
 		&i.Priority,
 		&i.TargetKw,
 		&i.ToleranceKw,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 		&i.RestoreBatchSize,
 		&i.RestoreBatchIntervalSec,
-		&i.MinCurtailedDurationSec,
-		&i.MaxDurationSeconds,
 		&i.IncludeMaintenance,
 		&i.ForceIncludeMaintenance,
 		&i.CreatedAt,
@@ -78,10 +78,10 @@ INSERT INTO curtailment_response_profile (
     priority,
     target_kw,
     tolerance_kw,
+    curtail_batch_size,
+    curtail_batch_interval_sec,
     restore_batch_size,
     restore_batch_interval_sec,
-    min_curtailed_duration_sec,
-    max_duration_seconds,
     include_maintenance,
     force_include_maintenance
 ) VALUES (
@@ -101,7 +101,7 @@ INSERT INTO curtailment_response_profile (
     $14,
     $15
 )
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, restore_batch_size, restore_batch_interval_sec, min_curtailed_duration_sec, max_duration_seconds, include_maintenance, force_include_maintenance, created_at, updated_at
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
 `
 
 type InsertCurtailmentResponseProfileParams struct {
@@ -114,10 +114,10 @@ type InsertCurtailmentResponseProfileParams struct {
 	Priority                string
 	TargetKw                sql.NullString
 	ToleranceKw             sql.NullString
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      sql.NullInt32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
 }
@@ -133,10 +133,10 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		arg.Priority,
 		arg.TargetKw,
 		arg.ToleranceKw,
+		arg.CurtailBatchSize,
+		arg.CurtailBatchIntervalSec,
 		arg.RestoreBatchSize,
 		arg.RestoreBatchIntervalSec,
-		arg.MinCurtailedDurationSec,
-		arg.MaxDurationSeconds,
 		arg.IncludeMaintenance,
 		arg.ForceIncludeMaintenance,
 	)
@@ -152,10 +152,10 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		&i.Priority,
 		&i.TargetKw,
 		&i.ToleranceKw,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 		&i.RestoreBatchSize,
 		&i.RestoreBatchIntervalSec,
-		&i.MinCurtailedDurationSec,
-		&i.MaxDurationSeconds,
 		&i.IncludeMaintenance,
 		&i.ForceIncludeMaintenance,
 		&i.CreatedAt,
@@ -165,7 +165,7 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 }
 
 const listCurtailmentResponseProfilesByOrg = `-- name: ListCurtailmentResponseProfilesByOrg :many
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, restore_batch_size, restore_batch_interval_sec, min_curtailed_duration_sec, max_duration_seconds, include_maintenance, force_include_maintenance, created_at, updated_at
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
 FROM curtailment_response_profile
 WHERE org_id = $1
 ORDER BY profile_name, id
@@ -191,10 +191,10 @@ func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgI
 			&i.Priority,
 			&i.TargetKw,
 			&i.ToleranceKw,
+			&i.CurtailBatchSize,
+			&i.CurtailBatchIntervalSec,
 			&i.RestoreBatchSize,
 			&i.RestoreBatchIntervalSec,
-			&i.MinCurtailedDurationSec,
-			&i.MaxDurationSeconds,
 			&i.IncludeMaintenance,
 			&i.ForceIncludeMaintenance,
 			&i.CreatedAt,
@@ -224,15 +224,15 @@ SET
     priority = $6,
     target_kw = $7,
     tolerance_kw = $8,
-    restore_batch_size = $9,
-    restore_batch_interval_sec = $10,
-    min_curtailed_duration_sec = $11,
-    max_duration_seconds = $12,
+    curtail_batch_size = $9,
+    curtail_batch_interval_sec = $10,
+    restore_batch_size = $11,
+    restore_batch_interval_sec = $12,
     include_maintenance = $13,
     force_include_maintenance = $14
 WHERE id = $15
   AND org_id = $16
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, restore_batch_size, restore_batch_interval_sec, min_curtailed_duration_sec, max_duration_seconds, include_maintenance, force_include_maintenance, created_at, updated_at
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
 `
 
 type UpdateCurtailmentResponseProfileParams struct {
@@ -244,10 +244,10 @@ type UpdateCurtailmentResponseProfileParams struct {
 	Priority                string
 	TargetKw                sql.NullString
 	ToleranceKw             sql.NullString
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      sql.NullInt32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
 	ID                      int64
@@ -264,10 +264,10 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.Priority,
 		arg.TargetKw,
 		arg.ToleranceKw,
+		arg.CurtailBatchSize,
+		arg.CurtailBatchIntervalSec,
 		arg.RestoreBatchSize,
 		arg.RestoreBatchIntervalSec,
-		arg.MinCurtailedDurationSec,
-		arg.MaxDurationSeconds,
 		arg.IncludeMaintenance,
 		arg.ForceIncludeMaintenance,
 		arg.ID,
@@ -285,10 +285,10 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		&i.Priority,
 		&i.TargetKw,
 		&i.ToleranceKw,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 		&i.RestoreBatchSize,
 		&i.RestoreBatchIntervalSec,
-		&i.MinCurtailedDurationSec,
-		&i.MaxDurationSeconds,
 		&i.IncludeMaintenance,
 		&i.ForceIncludeMaintenance,
 		&i.CreatedAt,

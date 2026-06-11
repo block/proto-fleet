@@ -34,10 +34,10 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 2500, ToleranceKw: ptrFloat64(25)},
 			},
-			RestoreBatchSize:        20,
-			RestoreBatchIntervalSec: 30,
-			MinCurtailedDurationSec: 10,
-			MaxDurationSeconds:      ptrUint32(3600),
+			CurtailBatchSize:        ptrUint32(100),
+			CurtailBatchIntervalSec: ptrUint32(15),
+			RestoreBatchSize:        ptrUint32(20),
+			RestoreBatchIntervalSec: ptrUint32(30),
 		}),
 	)
 
@@ -48,10 +48,11 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, "Standard shed", profile.GetProfileName())
 	assert.Equal(t, int64(7), profile.GetSite().GetSiteId())
 	assert.Equal(t, float64(2500), profile.GetFixedKw().GetTargetKw())
+	require.NotNil(t, profile.CurtailBatchSize)
+	assert.Equal(t, uint32(100), profile.GetCurtailBatchSize())
+	assert.Equal(t, uint32(15), profile.GetCurtailBatchIntervalSec())
 	assert.Equal(t, uint32(20), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(30), profile.GetRestoreBatchIntervalSec())
-	assert.Equal(t, uint32(10), profile.GetMinCurtailedDurationSec())
-	assert.Equal(t, uint32(3600), profile.GetMaxDurationSeconds())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
 	assert.Equal(t, int64(7), store.created.SiteID)
@@ -117,7 +118,6 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 			},
 			IncludeMaintenance:      true,
 			ForceIncludeMaintenance: true,
-			MaxDurationSeconds:      ptrUint32(7201),
 		}),
 	)
 
@@ -128,7 +128,6 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	orgConfig   *models.OrgConfig
 	siteBelongs bool
 	created     *models.ResponseProfile
 	profiles    []*models.ResponseProfile
@@ -136,16 +135,8 @@ type handlerResponseProfileStore struct {
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
 	return &handlerResponseProfileStore{
-		orgConfig: &models.OrgConfig{
-			OrgID:                 42,
-			MaxDurationDefaultSec: 7200,
-		},
 		siteBelongs: true,
 	}
-}
-
-func (s *handlerResponseProfileStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
-	return s.orgConfig, nil
 }
 
 func (s *handlerResponseProfileStore) ListResponseProfiles(context.Context, int64) ([]*models.ResponseProfile, error) {

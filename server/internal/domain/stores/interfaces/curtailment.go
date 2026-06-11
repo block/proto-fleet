@@ -85,7 +85,6 @@ type ListTargetsByEventPageParams struct {
 // ResponseProfileStore is the persistence boundary for reusable curtailment
 // response profiles. Automation uses these later; CRUD is org-scoped.
 type ResponseProfileStore interface {
-	GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error)
 	ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error)
 	GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error)
 	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error)

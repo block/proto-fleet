@@ -21,10 +21,10 @@ INSERT INTO curtailment_response_profile (
     priority,
     target_kw,
     tolerance_kw,
+    curtail_batch_size,
+    curtail_batch_interval_sec,
     restore_batch_size,
     restore_batch_interval_sec,
-    min_curtailed_duration_sec,
-    max_duration_seconds,
     include_maintenance,
     force_include_maintenance
 ) VALUES (
@@ -37,10 +37,10 @@ INSERT INTO curtailment_response_profile (
     sqlc.arg('priority'),
     sqlc.narg('target_kw'),
     sqlc.narg('tolerance_kw'),
+    sqlc.narg('curtail_batch_size'),
+    sqlc.arg('curtail_batch_interval_sec'),
     sqlc.arg('restore_batch_size'),
     sqlc.arg('restore_batch_interval_sec'),
-    sqlc.arg('min_curtailed_duration_sec'),
-    sqlc.narg('max_duration_seconds'),
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance')
 )
@@ -57,10 +57,10 @@ SET
     priority = sqlc.arg('priority'),
     target_kw = sqlc.narg('target_kw'),
     tolerance_kw = sqlc.narg('tolerance_kw'),
+    curtail_batch_size = sqlc.narg('curtail_batch_size'),
+    curtail_batch_interval_sec = sqlc.arg('curtail_batch_interval_sec'),
     restore_batch_size = sqlc.arg('restore_batch_size'),
     restore_batch_interval_sec = sqlc.arg('restore_batch_interval_sec'),
-    min_curtailed_duration_sec = sqlc.arg('min_curtailed_duration_sec'),
-    max_duration_seconds = sqlc.narg('max_duration_seconds'),
     include_maintenance = sqlc.arg('include_maintenance'),
     force_include_maintenance = sqlc.arg('force_include_maintenance')
 WHERE id = sqlc.arg('id')

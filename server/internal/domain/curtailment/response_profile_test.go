@@ -15,7 +15,7 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
-	maxDuration := int32(3600)
+	curtailBatchSize := int32(100)
 	store := newResponseProfileFakeStore()
 	svc := NewResponseProfileService(store)
 
@@ -26,9 +26,10 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 			SiteID:                  7,
 			Mode:                    models.ModeFixedKw,
 			TargetKW:                &targetKW,
+			CurtailBatchSize:        &curtailBatchSize,
+			CurtailBatchIntervalSec: 15,
 			RestoreBatchSize:        25,
 			RestoreBatchIntervalSec: 30,
-			MaxDurationSeconds:      &maxDuration,
 		},
 	})
 
@@ -40,9 +41,39 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	assert.Equal(t, models.StrategyLeastEfficientFirst, profile.Strategy)
 	assert.Equal(t, models.LevelFull, profile.Level)
 	assert.Equal(t, models.PriorityNormal, profile.Priority)
+	require.NotNil(t, profile.CurtailBatchSize)
+	assert.Equal(t, int32(100), *profile.CurtailBatchSize)
+	assert.Equal(t, int32(15), profile.CurtailBatchIntervalSec)
+	assert.Equal(t, int32(25), profile.RestoreBatchSize)
+	assert.Equal(t, int32(30), profile.RestoreBatchIntervalSec)
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
 	assert.Equal(t, int64(7), store.siteCheckSiteID)
+}
+
+func TestResponseProfileService_CreateAppliesBackendBatchDefaults(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	svc := NewResponseProfileService(store)
+
+	profile, err := svc.Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Standard shed",
+			SiteID:      7,
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	assert.Nil(t, profile.CurtailBatchSize)
+	assert.Equal(t, DefaultResponseProfileCurtailBatchIntervalSec, profile.CurtailBatchIntervalSec)
+	assert.Equal(t, DefaultResponseProfileRestoreBatchSize, profile.RestoreBatchSize)
+	assert.Equal(t, DefaultResponseProfileRestoreBatchIntervalSec, profile.RestoreBatchIntervalSec)
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
@@ -91,16 +122,22 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 1000.0
-	tooLong := int32(7201)
+	slowInterval := nonAdminRestoreBatchIntervalMax + 1
 
 	tests := []struct {
 		name   string
 		mutate func(*models.ResponseProfile)
 	}{
 		{
-			name: "max duration above org default",
+			name: "slow curtail batching",
 			mutate: func(profile *models.ResponseProfile) {
-				profile.MaxDurationSeconds = &tooLong
+				profile.CurtailBatchIntervalSec = slowInterval
+			},
+		},
+		{
+			name: "slow restore batching",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.RestoreBatchIntervalSec = slowInterval
 			},
 		},
 		{
@@ -136,7 +173,6 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 }
 
 type responseProfileFakeStore struct {
-	orgConfig       *models.OrgConfig
 	siteBelongs     bool
 	siteCheckOrgID  int64
 	siteCheckSiteID int64
@@ -147,16 +183,8 @@ type responseProfileFakeStore struct {
 
 func newResponseProfileFakeStore() *responseProfileFakeStore {
 	return &responseProfileFakeStore{
-		orgConfig: &models.OrgConfig{
-			OrgID:                 42,
-			MaxDurationDefaultSec: 7200,
-		},
 		siteBelongs: true,
 	}
-}
-
-func (s *responseProfileFakeStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
-	return s.orgConfig, nil
 }
 
 func (s *responseProfileFakeStore) ListResponseProfiles(context.Context, int64) ([]*models.ResponseProfile, error) {

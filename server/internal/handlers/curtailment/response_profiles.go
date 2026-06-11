@@ -118,10 +118,10 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 		msg.GetPriority(),
 		msg.GetFixedKw(),
 		msg.GetModeParams() != nil,
-		msg.GetRestoreBatchSize(),
-		msg.GetRestoreBatchIntervalSec(),
-		msg.GetMinCurtailedDurationSec(),
-		msg.MaxDurationSeconds,
+		msg.CurtailBatchSize,
+		msg.CurtailBatchIntervalSec,
+		msg.RestoreBatchSize,
+		msg.RestoreBatchIntervalSec,
 		msg.GetIncludeMaintenance(),
 		msg.GetForceIncludeMaintenance(),
 	)
@@ -143,10 +143,10 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.GetPriority(),
 		msg.GetFixedKw(),
 		msg.GetModeParams() != nil,
-		msg.GetRestoreBatchSize(),
-		msg.GetRestoreBatchIntervalSec(),
-		msg.GetMinCurtailedDurationSec(),
-		msg.MaxDurationSeconds,
+		msg.CurtailBatchSize,
+		msg.CurtailBatchIntervalSec,
+		msg.RestoreBatchSize,
+		msg.RestoreBatchIntervalSec,
 		msg.GetIncludeMaintenance(),
 		msg.GetForceIncludeMaintenance(),
 	)
@@ -163,10 +163,10 @@ func responseProfileFromPayload(
 	priorityProto pb.CurtailmentPriority,
 	fixedKw *pb.FixedKwParams,
 	hasModeParams bool,
-	restoreBatchSize uint32,
-	restoreBatchIntervalSec uint32,
-	minCurtailedDurationSec uint32,
-	maxDurationSeconds *uint32,
+	curtailBatchSize *uint32,
+	curtailBatchIntervalSec *uint32,
+	restoreBatchSize *uint32,
+	restoreBatchIntervalSec *uint32,
 	includeMaintenance bool,
 	forceIncludeMaintenance bool,
 ) (models.ResponseProfile, error) {
@@ -174,19 +174,31 @@ func responseProfileFromPayload(
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
-	restoreBatchSizeInt, err := uint32ToInt32Strict("restore_batch_size", restoreBatchSize)
+	curtailBatchSizeInt, err := optionalUint32ToInt32("curtail_batch_size", curtailBatchSize)
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
-	restoreBatchIntervalInt, err := uint32ToInt32Strict("restore_batch_interval_sec", restoreBatchIntervalSec)
+	curtailBatchIntervalInt, err := optionalUint32ToInt32Default(
+		"curtail_batch_interval_sec",
+		curtailBatchIntervalSec,
+		domainCurtailment.DefaultResponseProfileCurtailBatchIntervalSec,
+	)
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
-	minCurtailedDurationInt, err := uint32ToInt32Strict("min_curtailed_duration_sec", minCurtailedDurationSec)
+	restoreBatchSizeInt, err := optionalUint32ToInt32Default(
+		"restore_batch_size",
+		restoreBatchSize,
+		domainCurtailment.DefaultResponseProfileRestoreBatchSize,
+	)
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
-	maxDurationInt, err := optionalUint32ToInt32("max_duration_seconds", maxDurationSeconds)
+	restoreBatchIntervalInt, err := optionalUint32ToInt32Default(
+		"restore_batch_interval_sec",
+		restoreBatchIntervalSec,
+		domainCurtailment.DefaultResponseProfileRestoreBatchIntervalSec,
+	)
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
@@ -210,10 +222,10 @@ func responseProfileFromPayload(
 		Priority:                priorityName(priorityProto),
 		TargetKW:                targetKW,
 		ToleranceKW:             toleranceKW,
+		CurtailBatchSize:        curtailBatchSizeInt,
+		CurtailBatchIntervalSec: curtailBatchIntervalInt,
 		RestoreBatchSize:        restoreBatchSizeInt,
 		RestoreBatchIntervalSec: restoreBatchIntervalInt,
-		MinCurtailedDurationSec: minCurtailedDurationInt,
-		MaxDurationSeconds:      maxDurationInt,
 		IncludeMaintenance:      includeMaintenance,
 		ForceIncludeMaintenance: forceIncludeMaintenance,
 	}
@@ -235,10 +247,10 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		Strategy:                strategyProto(profile.Strategy),
 		Level:                   levelProto(profile.Level),
 		Priority:                priorityProto(profile.Priority),
+		CurtailBatchSize:        uint32PtrSaturating(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec: uint32Saturating(profile.CurtailBatchIntervalSec),
 		RestoreBatchSize:        uint32Saturating(profile.RestoreBatchSize),
 		RestoreBatchIntervalSec: uint32Saturating(profile.RestoreBatchIntervalSec),
-		MinCurtailedDurationSec: uint32Saturating(profile.MinCurtailedDurationSec),
-		MaxDurationSeconds:      uint32PtrSaturating(profile.MaxDurationSeconds),
 		IncludeMaintenance:      profile.IncludeMaintenance,
 		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
 		CreatedAt:               profileTimeProto(profile.CreatedAt),
@@ -263,6 +275,13 @@ func optionalUint32ToInt32(field string, v *uint32) (*int32, error) {
 		return nil, err
 	}
 	return &converted, nil
+}
+
+func optionalUint32ToInt32Default(field string, v *uint32, defaultValue int32) (int32, error) {
+	if v == nil {
+		return defaultValue, nil
+	}
+	return uint32ToInt32Strict(field, *v)
 }
 
 func uint32PtrSaturating(v *int32) *uint32 {

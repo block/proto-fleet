@@ -13,10 +13,11 @@ CREATE TABLE curtailment_response_profile (
     target_kw                   NUMERIC(12,3) NULL,
     tolerance_kw                NUMERIC(12,3) NULL,
 
-    restore_batch_size          INT          NOT NULL DEFAULT 0,
-    restore_batch_interval_sec  INT          NOT NULL DEFAULT 0,
-    min_curtailed_duration_sec  INT          NOT NULL DEFAULT 0,
-    max_duration_seconds        INT          NULL,
+    -- curtail_batch_size NULL means curtail all selected miners in scope.
+    curtail_batch_size          INT          NULL,
+    curtail_batch_interval_sec  INT          NOT NULL DEFAULT 0,
+    restore_batch_size          INT          NOT NULL DEFAULT 50,
+    restore_batch_interval_sec  INT          NOT NULL DEFAULT 5,
     include_maintenance         BOOLEAN      NOT NULL DEFAULT FALSE,
     force_include_maintenance   BOOLEAN      NOT NULL DEFAULT FALSE,
 
@@ -51,14 +52,14 @@ CREATE TABLE curtailment_response_profile (
             OR
             (mode = 'FULL_FLEET' AND target_kw IS NULL AND tolerance_kw IS NULL)
         ),
+    CONSTRAINT ck_curtailment_response_profile_curtail_batch_size
+        CHECK (curtail_batch_size IS NULL OR (curtail_batch_size > 0 AND curtail_batch_size <= 10000)),
+    CONSTRAINT ck_curtailment_response_profile_curtail_batch_interval
+        CHECK (curtail_batch_interval_sec >= 0 AND curtail_batch_interval_sec <= 3600),
     CONSTRAINT ck_curtailment_response_profile_restore_batch_size
-        CHECK (restore_batch_size >= 0 AND restore_batch_size <= 10000),
+        CHECK (restore_batch_size > 0 AND restore_batch_size <= 10000),
     CONSTRAINT ck_curtailment_response_profile_restore_batch_interval
         CHECK (restore_batch_interval_sec >= 0 AND restore_batch_interval_sec <= 3600),
-    CONSTRAINT ck_curtailment_response_profile_min_duration_nonnegative
-        CHECK (min_curtailed_duration_sec >= 0),
-    CONSTRAINT ck_curtailment_response_profile_max_duration
-        CHECK (max_duration_seconds IS NULL OR (max_duration_seconds > 0 AND max_duration_seconds <= 604800)),
     CONSTRAINT ck_curtailment_response_profile_maintenance_consistency
         CHECK (include_maintenance = force_include_maintenance)
 );

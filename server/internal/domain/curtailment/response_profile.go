@@ -11,7 +11,17 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-const maxResponseProfileNameLength = 64
+const (
+	maxResponseProfileNameLength = 64
+
+	// Response profile defaults are intentionally backend-owned so the
+	// frontend can omit empty form fields without baking policy into the UI.
+	DefaultResponseProfileCurtailBatchIntervalSec int32 = 0
+	DefaultResponseProfileRestoreBatchSize        int32 = 50
+	DefaultResponseProfileRestoreBatchIntervalSec int32 = 5
+
+	responseProfileBatchSizeMax int32 = 10000
+)
 
 // ResponseProfileService validates and persists reusable curtailment response
 // behavior. It does not execute profiles; automation owns trigger binding.
@@ -110,19 +120,6 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
 		return models.ResponseProfile{}, err
 	}
-	if profile.MaxDurationSeconds != nil && !req.CanUseAdminControls {
-		orgConfig, err := s.store.GetOrgConfig(ctx, profile.OrgID)
-		if err != nil {
-			return models.ResponseProfile{}, err
-		}
-		if orgConfig.MaxDurationDefaultSec > 0 &&
-			*profile.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec {
-			return models.ResponseProfile{}, fleeterror.NewForbiddenErrorf(
-				"only admins can set max_duration_seconds above org default %d",
-				orgConfig.MaxDurationDefaultSec,
-			)
-		}
-	}
 	return profile, nil
 }
 
@@ -136,6 +133,15 @@ func normalizeResponseProfile(profile models.ResponseProfile) models.ResponsePro
 	}
 	if profile.Priority == "" {
 		profile.Priority = models.PriorityNormal
+	}
+	if profile.CurtailBatchIntervalSec == 0 {
+		profile.CurtailBatchIntervalSec = DefaultResponseProfileCurtailBatchIntervalSec
+	}
+	if profile.RestoreBatchSize == 0 {
+		profile.RestoreBatchSize = DefaultResponseProfileRestoreBatchSize
+	}
+	if profile.RestoreBatchIntervalSec == 0 {
+		profile.RestoreBatchIntervalSec = DefaultResponseProfileRestoreBatchIntervalSec
 	}
 	return profile
 }
@@ -183,15 +189,48 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.ToleranceKW != nil && math.IsInf(*profile.ToleranceKW, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be finite, got %v", *profile.ToleranceKW)
 	}
-	if profile.RestoreBatchSize < 0 {
+	if profile.CurtailBatchSize != nil && *profile.CurtailBatchSize <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be >= 0, got %d",
+			"curtail_batch_size must be > 0 when set, got %d",
+			*profile.CurtailBatchSize,
+		)
+	}
+	if profile.CurtailBatchSize != nil && *profile.CurtailBatchSize > responseProfileBatchSizeMax {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_size must be <= %d, got %d",
+			responseProfileBatchSizeMax,
+			*profile.CurtailBatchSize,
+		)
+	}
+	if profile.CurtailBatchIntervalSec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_interval_sec must be >= 0, got %d",
+			profile.CurtailBatchIntervalSec,
+		)
+	}
+	if profile.CurtailBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_interval_sec must be <= %d, got %d",
+			restoreBatchIntervalUpperBoundSec,
+			profile.CurtailBatchIntervalSec,
+		)
+	}
+	if profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !canUseAdminControls {
+		return fleeterror.NewForbiddenErrorf(
+			"only admins can set curtail_batch_interval_sec above %d",
+			nonAdminRestoreBatchIntervalMax,
+		)
+	}
+	if profile.RestoreBatchSize <= 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_size must be > 0, got %d",
 			profile.RestoreBatchSize,
 		)
 	}
-	if profile.RestoreBatchSize > 10000 {
+	if profile.RestoreBatchSize > responseProfileBatchSizeMax {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be <= 10000, got %d",
+			"restore_batch_size must be <= %d, got %d",
+			responseProfileBatchSizeMax,
 			profile.RestoreBatchSize,
 		)
 	}
@@ -213,27 +252,6 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 			"only admins can set restore_batch_interval_sec above %d",
 			nonAdminRestoreBatchIntervalMax,
 		)
-	}
-	if profile.MinCurtailedDurationSec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"min_curtailed_duration_sec must be >= 0, got %d",
-			profile.MinCurtailedDurationSec,
-		)
-	}
-	if profile.MaxDurationSeconds != nil {
-		if *profile.MaxDurationSeconds <= 0 {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"max_duration_seconds must be > 0, got %d",
-				*profile.MaxDurationSeconds,
-			)
-		}
-		if *profile.MaxDurationSeconds > maxFiniteDurationSeconds {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"max_duration_seconds must be <= %d, got %d",
-				maxFiniteDurationSeconds,
-				*profile.MaxDurationSeconds,
-			)
-		}
 	}
 	if profile.ForceIncludeMaintenance && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")

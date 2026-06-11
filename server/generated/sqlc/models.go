@@ -511,10 +511,10 @@ type CurtailmentResponseProfile struct {
 	Priority                string
 	TargetKw                sql.NullString
 	ToleranceKw             sql.NullString
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      sql.NullInt32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
 	CreatedAt               time.Time
