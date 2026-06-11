@@ -323,9 +323,7 @@ const MinerReparentPicker = ({
     ids: string[],
     minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
   ) =>
-    kind === "site"
-      ? dispatchReparentToSite(targetId, ids, minerSnapshots)
-      : dispatchReparentToRack(targetId, ids);
+    kind === "site" ? dispatchReparentToSite(targetId, ids, minerSnapshots) : dispatchReparentToRack(targetId, ids);
 
   const settleDialog = () => {
     const resolve = dialogResolveRef.current;
