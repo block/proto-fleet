@@ -239,7 +239,7 @@ function validateCurtailmentFormValues(
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
-  const shouldValidateCurtailBatchFields = isResponseProfileVariant || !isEditMode;
+  const shouldValidateCurtailBatchFields = isResponseProfileVariant;
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
@@ -599,7 +599,9 @@ function CurtailmentStartModalContent({
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
-  const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
+  const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState<
+    PendingCurtailmentConfirmation["action"] | null
+  >(null);
   const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
     useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
@@ -687,7 +689,7 @@ function CurtailmentStartModalContent({
     ? undefined
     : "Fleet will automatically curtail the least efficient miners first.";
   const curtailmentTargetGridClassName = isFullFleetMode ? "grid gap-3" : "grid gap-3 tablet:grid-cols-2";
-  const shouldShowCurtailBatchFields = isResponseProfileVariant || !isLiveCurtailmentEditMode;
+  const shouldShowCurtailBatchFields = isResponseProfileVariant;
   const curtailBatchSizeTestId = isResponseProfileVariant
     ? "response-profile-curtail-batch-size"
     : "curtailment-curtail-batch-size";
@@ -776,7 +778,7 @@ function CurtailmentStartModalContent({
   };
 
   const closeMaintenanceConfirmation = () => {
-    setSubmitAfterMaintenanceConfirmation(false);
+    setSubmitAfterMaintenanceConfirmation(null);
     setShowMaintenanceConfirmation(false);
   };
 
@@ -813,7 +815,7 @@ function CurtailmentStartModalContent({
     }
 
     if (!isResponseProfileVariant && !isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
-      setSubmitAfterMaintenanceConfirmation(true);
+      setSubmitAfterMaintenanceConfirmation("run");
       setShowMaintenanceConfirmation(true);
       return;
     }
@@ -824,6 +826,16 @@ function CurtailmentStartModalContent({
     }
 
     onSubmit(values);
+  };
+
+  const requestResponseProfileCurtailment = () => {
+    if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
+      setSubmitAfterMaintenanceConfirmation("test");
+      setShowMaintenanceConfirmation(true);
+      return;
+    }
+
+    requestCurtailmentConfirmation("test", values);
   };
 
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [];
@@ -851,7 +863,7 @@ function CurtailmentStartModalContent({
     buttons.push({
       text: "Run curtailment",
       variant: variants.secondary,
-      onClick: () => requestCurtailmentConfirmation("test", values),
+      onClick: requestResponseProfileCurtailment,
       disabled: isBusy || hasBlockingValidationError,
       loading: isTestingCurtailment,
     });
@@ -873,8 +885,9 @@ function CurtailmentStartModalContent({
     setShowMaintenanceConfirmation(false);
 
     if (submitAfterMaintenanceConfirmation) {
-      setSubmitAfterMaintenanceConfirmation(false);
-      requestCurtailmentConfirmation("run", nextValues);
+      const pendingAction = submitAfterMaintenanceConfirmation;
+      setSubmitAfterMaintenanceConfirmation(null);
+      requestCurtailmentConfirmation(pendingAction, nextValues);
     }
   };
 
@@ -1054,19 +1067,21 @@ function CurtailmentStartModalContent({
               </div>
             </Section>
 
-            <Section
-              title="Apply to"
-              subtext="Applies to all miners by default. Use the options below to narrow the scope."
-            >
-              <div className="grid">
-                <TargetSelectButton
-                  label={applyToTarget.label}
-                  value={applyToTarget.value}
-                  disabled={isLiveCurtailmentEditMode}
-                  onClick={() => setShowMinerSelectionModal(true)}
-                />
-              </div>
-            </Section>
+            {!isResponseProfileVariant ? (
+              <Section
+                title="Apply to"
+                subtext="Applies to all miners by default. Use the options below to narrow the scope."
+              >
+                <div className="grid">
+                  <TargetSelectButton
+                    label={applyToTarget.label}
+                    value={applyToTarget.value}
+                    disabled={isLiveCurtailmentEditMode}
+                    onClick={() => setShowMinerSelectionModal(true)}
+                  />
+                </div>
+              </Section>
+            ) : null}
 
             <label
               className={`flex items-start gap-3 text-left ${
@@ -1078,7 +1093,7 @@ function CurtailmentStartModalContent({
                 disabled={isLiveCurtailmentEditMode}
                 onChange={(event) => {
                   if (!isResponseProfileVariant && event.currentTarget.checked) {
-                    setSubmitAfterMaintenanceConfirmation(false);
+                    setSubmitAfterMaintenanceConfirmation(null);
                     setShowMaintenanceConfirmation(true);
                     return;
                   }

@@ -177,10 +177,29 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(createRequest?.site).toBeUndefined();
   });
 
-  it("treats unresolved API sites as whole-fleet profiles", async () => {
+  it("keeps unresolved API sites as site-scoped profiles", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
 
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      siteId: "101",
+      scope: "Site 101",
+      formValues: expect.objectContaining({
+        siteId: "101",
+        siteName: "Site 101",
+      }),
+    });
+  });
+
+  it("maps API profiles without sites as whole-fleet profiles", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile({ site: undefined })] });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false, siteLabelsById));
 
     await act(async () => {
       await result.current.listResponseProfiles();
@@ -196,7 +215,7 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
-  it("preserves submitted miner selections for profiles during the current session", async () => {
+  it("does not preserve submitted miner selections for API-backed response profiles", async () => {
     mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false, siteLabelsById));
@@ -213,9 +232,9 @@ describe("useCurtailmentResponseProfiles", () => {
     });
 
     expect(result.current.responseProfiles[0]).toMatchObject({
-      scope: "3 miners",
+      scope: "Austin, TX",
       formValues: expect.objectContaining({
-        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+        deviceIdentifiers: [],
       }),
     });
   });

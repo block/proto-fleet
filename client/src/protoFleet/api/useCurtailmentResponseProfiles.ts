@@ -52,14 +52,17 @@ function formatKw(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
+  return { ...values, deviceIdentifiers: [] };
+}
+
 function mapApiResponseProfile(
   profile: ApiCurtailmentResponseProfile,
   siteLabelsById?: ReadonlyMap<string, string>,
 ): ResponseProfile {
   const apiSiteId = profile.site?.siteId.toString() ?? "";
-  const resolvedSiteName = apiSiteId ? (siteLabelsById?.get(apiSiteId) ?? "") : "";
-  const siteId = resolvedSiteName ? apiSiteId : "";
-  const siteName = resolvedSiteName;
+  const siteId = apiSiteId;
+  const siteName = apiSiteId ? (siteLabelsById?.get(apiSiteId) ?? `Site ${apiSiteId}`) : "";
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
@@ -98,16 +101,16 @@ function mapApiResponseProfile(
         name: profile.profileName,
         siteId,
         siteName,
+        deviceIdentifiers: [],
       }
     : formValues;
-  const selectedMinerCount = mergedFormValues.deviceIdentifiers.length;
 
   return {
     id: profile.profileId.toString(),
     name: profile.profileName,
     targetSummary,
     siteId,
-    scope: selectedMinerCount > 0 ? `${selectedMinerCount.toLocaleString()} miners` : siteName || "Whole fleet",
+    scope: siteName || "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
@@ -281,7 +284,10 @@ export default function useCurtailmentResponseProfiles(
         }
 
         const createdProfile = response.profile;
-        sessionFormValuesByProfileId.set(createdProfile.profileId.toString(), values);
+        sessionFormValuesByProfileId.set(
+          createdProfile.profileId.toString(),
+          getPersistedResponseProfileFormValues(values),
+        );
         setApiProfiles((currentProfiles) => [
           ...currentProfiles.filter((currentProfile) => currentProfile.profileId !== createdProfile.profileId),
           createdProfile,
@@ -314,7 +320,10 @@ export default function useCurtailmentResponseProfiles(
         }
 
         const updatedProfile = response.profile;
-        sessionFormValuesByProfileId.set(updatedProfile.profileId.toString(), values);
+        sessionFormValuesByProfileId.set(
+          updatedProfile.profileId.toString(),
+          getPersistedResponseProfileFormValues(values),
+        );
         setApiProfiles((currentProfiles) =>
           currentProfiles.map((currentProfile) =>
             currentProfile.profileId === updatedProfile.profileId ? updatedProfile : currentProfile,

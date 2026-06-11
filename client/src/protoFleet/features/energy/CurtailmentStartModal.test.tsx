@@ -206,11 +206,11 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
-    expect(screen.getByTestId("curtailment-curtail-batch-size")).toHaveAttribute("inputmode", "numeric");
-    expect(screen.getByTestId("curtailment-curtail-batch-interval")).toHaveAttribute("inputmode", "numeric");
+    expect(screen.queryByTestId("curtailment-curtail-batch-size")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("curtailment-curtail-batch-interval")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
-    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(
@@ -239,12 +239,6 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "About fixed target reduction" }));
     expect(screen.getByText("The amount to reduce based on the selected mode.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "About curtail batch size" }));
-    expect(screen.getByText("Number of miners to shut down in each wave.")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "About curtail batch interval" }));
-    expect(screen.getByText("Seconds to wait between each curtailment wave.")).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
     expect(screen.getByText("Number of miners to bring back online in each wave.")).toBeInTheDocument();
 
@@ -266,10 +260,10 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
-    expect(screen.getByTestId("curtailment-curtail-batch-size")).toHaveValue("20");
-    expect(screen.getByTestId("curtailment-curtail-batch-interval")).toHaveValue("60");
-    expect(screen.getAllByLabelText("Batch size (miners)")[1]).toHaveValue("10");
-    expect(screen.getAllByLabelText("Batch interval (sec)")[1]).toHaveValue("120");
+    expect(screen.queryByTestId("curtailment-curtail-batch-size")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("curtailment-curtail-batch-interval")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Batch size (miners)")[0]).toHaveValue("10");
+    expect(screen.getAllByLabelText("Batch interval (sec)")[0]).toHaveValue("120");
 
     await user.clear(screen.getByLabelText("Reason"));
     await user.type(screen.getByLabelText("Reason"), "Updated operator reason");
@@ -314,7 +308,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByLabelText("Profile name")).toHaveValue("Grid peak - ERCOT 4CP signal");
     expect(screen.queryByLabelText("Reason")).not.toBeInTheDocument();
     expect(screen.queryByText("No miners match this curtailment.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
@@ -328,6 +322,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
+    expect(onTestCurtailment).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Force include" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -345,16 +342,17 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+        includeMaintenance: true,
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
-    await user.click(screen.getByRole("button", { name: "Save miners" }));
-    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
-    expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Grid peak - ERCOT 4CP signal",
@@ -363,10 +361,10 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        scopeType: "explicitMiners",
-        scopeId: undefined,
+        scopeType: "site",
+        scopeId: "Austin, TX",
         deviceSetIds: [],
-        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+        deviceIdentifiers: [],
         includeMaintenance: true,
       }),
     );
@@ -399,6 +397,7 @@ describe("CurtailmentStartModal", () => {
         scopeType: "site",
         scopeId: "All sites",
         siteId: "101",
+        includeMaintenance: false,
       },
       onTestCurtailment: vi.fn(),
     });
@@ -483,7 +482,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
 
@@ -808,14 +807,10 @@ describe("CurtailmentStartModal", () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
-    const curtailBatchSizeInput = screen.getByTestId("curtailment-curtail-batch-size");
-    const curtailIntervalInput = screen.getByTestId("curtailment-curtail-batch-interval");
-    const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[1];
-    const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[1];
+    const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[0];
+    const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[0];
 
     await user.type(targetInput, "75");
-    await user.type(curtailBatchSizeInput, "20");
-    await user.type(curtailIntervalInput, "60");
     await user.type(restoreBatchSizeInput, "10");
     await user.type(restoreIntervalInput, "120");
     await user.type(screen.getByLabelText("Reason"), "Grid response");
@@ -845,8 +840,8 @@ describe("CurtailmentStartModal", () => {
       responseProfileId: "customPlan",
       curtailmentMode: "fixedKwReduction",
       minerSelectionStrategy: "leastEfficientFirst",
-      curtailBatchSize: "20",
-      curtailBatchIntervalSec: "60",
+      curtailBatchSize: "",
+      curtailBatchIntervalSec: "",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
       includeMaintenance: true,
@@ -1010,14 +1005,15 @@ describe("CurtailmentStartModal", () => {
   it("blocks invalid uint32-backed numeric settings", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
+      variant: "responseProfile",
       initialValues: {
         ...configuredValues,
         includeMaintenance: false,
       },
     });
-    const startButton = screen.getByRole("button", { name: "Run curtailment" });
-    const batchSizeInput = screen.getByTestId("curtailment-curtail-batch-size");
-    const batchIntervalInput = screen.getByTestId("curtailment-curtail-batch-interval");
+    const saveButton = screen.getByRole("button", { name: "Save profile" });
+    const batchSizeInput = screen.getByTestId("response-profile-curtail-batch-size");
+    const batchIntervalInput = screen.getByTestId("response-profile-curtail-batch-interval");
 
     await user.clear(batchSizeInput);
     await user.type(batchSizeInput, "10001");
@@ -1028,9 +1024,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
     expect(batchSizeInput).toHaveAttribute("aria-invalid", "true");
     expect(batchIntervalInput).toHaveAttribute("aria-invalid", "true");
-    expect(startButton).toBeDisabled();
+    expect(saveButton).toBeDisabled();
 
-    await user.click(startButton);
+    await user.click(saveButton);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 

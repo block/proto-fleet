@@ -199,11 +199,6 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  const selectedMinerCount = values.deviceIdentifiers.length;
-  if (selectedMinerCount > 0) {
-    return selectedMinerCount === 1 ? "1 miner" : `${selectedMinerCount.toLocaleString()} miners`;
-  }
-
   return values.siteName || (values.siteId ? `Site ${values.siteId}` : "Whole fleet");
 }
 
@@ -255,7 +250,7 @@ function createResponseProfileFromFormValues(
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
-    deviceIdentifiers: values.deviceIdentifiers,
+    deviceIdentifiers: [],
     siteId: values.siteId.trim(),
     siteName: values.siteName.trim(),
     minDurationSec: values.minDurationSec.trim(),
@@ -328,15 +323,13 @@ function createCurtailmentFormValuesFromResponseProfile(
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
-  const selectedMinerIds = values.deviceIdentifiers;
-  const hasSelectedMiners = selectedMinerIds.length > 0;
 
   return {
-    scopeType: hasSelectedMiners ? "explicitMiners" : values.siteId ? "site" : "wholeOrg",
-    scopeId: hasSelectedMiners ? undefined : values.siteName || (values.siteId ? `Site ${values.siteId}` : "whole-org"),
-    siteId: hasSelectedMiners ? "" : values.siteId,
+    scopeType: values.siteId ? "site" : "wholeOrg",
+    scopeId: values.siteName || (values.siteId ? `Site ${values.siteId}` : "whole-org"),
+    siteId: values.siteId,
     deviceSetIds: [],
-    deviceIdentifiers: selectedMinerIds,
+    deviceIdentifiers: [],
     responseProfileId: "customPlan",
     curtailmentMode: values.actionType,
     minerSelectionStrategy: values.selectionStrategy,
@@ -371,13 +364,12 @@ function createResponseProfileFormValuesFromCurtailmentValues(
 ): ResponseProfileFormValues {
   const siteId = values.siteId ?? "";
   const siteName = values.scopeType === "site" ? (values.scopeId ?? "") : "";
-  const deviceIdentifiers = values.scopeType === "explicitMiners" ? values.deviceIdentifiers : [];
 
   return {
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
-    deviceIdentifiers,
+    deviceIdentifiers: [],
     siteId,
     siteName,
     selectionStrategy: values.minerSelectionStrategy,
