@@ -167,15 +167,17 @@ func run() error {
 		return fmt.Errorf("no Fleet CLI groups were selected for generation")
 	}
 
-	if err := cleanGeneratedFiles(); err != nil {
-		return err
-	}
-
-	if err := renderGroups(groups); err != nil {
+	generated, err := renderGroups(groups)
+	if err != nil {
 		return err
 	}
 
 	if err := renderCommandsFile(groups); err != nil {
+		return err
+	}
+	generated["cmd_commands.go"] = true
+
+	if err := removeStaleGeneratedFiles(generated); err != nil {
 		return err
 	}
 
@@ -1050,7 +1052,11 @@ func renderSimpleExpr(
 	return strings.TrimSpace(buf.String())
 }
 
-func cleanGeneratedFiles() error {
+// removeStaleGeneratedFiles deletes previously generated cmd_*.go files whose
+// service group no longer exists. Freshly rendered files are left untouched so
+// unchanged output keeps its mtime; rewriting them on every run would
+// needlessly restart fleet-api through the docker compose watch on server/.
+func removeStaleGeneratedFiles(generated map[string]bool) error {
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		return fmt.Errorf("read output dir: %w", err)
@@ -1060,7 +1066,7 @@ func cleanGeneratedFiles() error {
 			continue
 		}
 		name := entry.Name()
-		if name == "cmd_manual.go" {
+		if name == "cmd_manual.go" || generated[name] {
 			continue
 		}
 		if strings.HasPrefix(name, "cmd_") && strings.HasSuffix(name, ".go") {
@@ -1072,14 +1078,31 @@ func cleanGeneratedFiles() error {
 	return nil
 }
 
-func renderGroups(groups []groupSpec) error {
+// writeFileIfChanged writes content to path only when it differs from what is
+// already on disk, keeping mtimes stable for unchanged generated files.
+func writeFileIfChanged(path string, content []byte) error {
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, content) {
+		return nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read existing %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func renderGroups(groups []groupSpec) (map[string]bool, error) {
 	tmpl, err := template.New(filepath.Base(groupTemplatePath)).Funcs(template.FuncMap{
 		"indent": indentBlock,
 	}).ParseFiles(groupTemplatePath)
 	if err != nil {
-		return fmt.Errorf("parse group template: %w", err)
+		return nil, fmt.Errorf("parse group template: %w", err)
 	}
 
+	generated := make(map[string]bool, len(groups))
 	for _, group := range groups {
 		data := groupTemplateData{
 			FuncName:     group.FuncName,
@@ -1090,14 +1113,15 @@ func renderGroups(groups []groupSpec) error {
 		}
 		var output bytes.Buffer
 		if err := tmpl.Execute(&output, data); err != nil {
-			return fmt.Errorf("render group %s: %w", group.Name, err)
+			return nil, fmt.Errorf("render group %s: %w", group.Name, err)
 		}
-		filename := filepath.Join(outputDir, "cmd_"+sanitizeFileName(group.Name)+".go")
-		if err := os.WriteFile(filename, output.Bytes(), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", filename, err)
+		name := "cmd_" + sanitizeFileName(group.Name) + ".go"
+		if err := writeFileIfChanged(filepath.Join(outputDir, name), output.Bytes()); err != nil {
+			return nil, err
 		}
+		generated[name] = true
 	}
-	return nil
+	return generated, nil
 }
 
 func renderCommandsFile(groups []groupSpec) error {
@@ -1115,7 +1139,7 @@ func renderCommandsFile(groups []groupSpec) error {
 	if err := tmpl.Execute(&output, commandsTemplateData{GroupFuncNames: groupFuncNames}); err != nil {
 		return fmt.Errorf("render commands file: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, "cmd_commands.go"), output.Bytes(), 0o644); err != nil {
+	if err := writeFileIfChanged(filepath.Join(outputDir, "cmd_commands.go"), output.Bytes()); err != nil {
 		return fmt.Errorf("write commands file: %w", err)
 	}
 	return nil

@@ -302,12 +302,13 @@ build-windows-installer:
 # generate the protobuf-driven Fleet CLI commands
 gen-fleet-cli: _gen-fleet-cli
 
-# build the Fleet CLI for local smoke testing
+# build the Fleet CLI for local smoke testing; output lives outside server/ so
+# the docker compose watch never restarts fleet-api over a CLI rebuild
 build-fleet-cli: _server-init _gen-fleet-cli
   #!/usr/bin/env bash
   set -euo pipefail
-  mkdir -p server/.fleet
-  go build -o server/.fleet/fleetcli ./server/cmd/fleetcli
+  mkdir -p .cache/fleet-cli
+  go build -o .cache/fleet-cli/fleetcli ./server/cmd/fleetcli
 
 # install git hooks via lefthook
 install-hooks:
