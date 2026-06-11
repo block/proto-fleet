@@ -8,5 +8,6 @@ func manualCommands() []*cli.Command {
 		apiKeyCommand(),
 		pairingCommand(),
 		performanceCommand(),
+		firmwareCommand(),
 	}
 }
