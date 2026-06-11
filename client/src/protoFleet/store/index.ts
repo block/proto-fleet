@@ -59,6 +59,7 @@ export {
   useBulkRenamePreferences,
   useBulkWorkerNamePreferences,
   useIsActionBarVisible,
+  useIsNotepadOpen,
   useSetTheme,
   useSetDeviceTheme,
   useSetTemperatureUnit,
@@ -66,6 +67,7 @@ export {
   useSetBulkRenamePreferences,
   useSetBulkWorkerNamePreferences,
   useSetActionBarVisible,
+  useSetNotepadOpen,
 } from "./hooks/useUI";
 
 // =============================================================================

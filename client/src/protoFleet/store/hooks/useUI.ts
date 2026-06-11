@@ -17,6 +17,8 @@ export const useBulkWorkerNamePreferences = () => useFleetStore((state) => state
 
 export const useIsActionBarVisible = () => useFleetStore((state) => state.ui.isActionBarVisible);
 
+export const useIsNotepadOpen = () => useFleetStore((state) => state.ui.isNotepadOpen);
+
 // =============================================================================
 // UI Action Selectors
 // =============================================================================
@@ -33,3 +35,5 @@ export const useSetBulkRenamePreferences = () => useFleetStore((state) => state.
 export const useSetBulkWorkerNamePreferences = () => useFleetStore((state) => state.ui.setBulkWorkerNamePreferences);
 
 export const useSetActionBarVisible = () => useFleetStore((state) => state.ui.setActionBarVisible);
+
+export const useSetNotepadOpen = () => useFleetStore((state) => state.ui.setNotepadOpen);

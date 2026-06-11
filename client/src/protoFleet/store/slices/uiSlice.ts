@@ -24,6 +24,9 @@ export interface UISlice {
   bulkWorkerNamePreferences: BulkRenamePreferences;
   racksViewMode: RacksViewMode;
   isActionBarVisible: boolean;
+  // Ephemeral by design — deliberately absent from the persist
+  // partialize so a reload never resurrects an open notepad.
+  isNotepadOpen: boolean;
   activeSite: ActiveSite;
 
   // Actions
@@ -35,6 +38,7 @@ export interface UISlice {
   setBulkWorkerNamePreferences: (preferences: BulkRenamePreferences) => void;
   setRacksViewMode: (mode: RacksViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
+  setNotepadOpen: (open: boolean) => void;
   setActiveSite: (next: ActiveSite) => void;
 }
 
@@ -52,6 +56,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   bulkWorkerNamePreferences: createDefaultBulkRenamePreferences(bulkRenameModes.worker),
   racksViewMode: "grid",
   isActionBarVisible: false,
+  isNotepadOpen: false,
   activeSite: DEFAULT_ACTIVE_SITE,
 
   // Actions
@@ -93,6 +98,11 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setActionBarVisible: (visible) =>
     set((state) => {
       state.ui.isActionBarVisible = visible;
+    }),
+
+  setNotepadOpen: (open) =>
+    set((state) => {
+      state.ui.isNotepadOpen = open;
     }),
 
   setActiveSite: (next) =>

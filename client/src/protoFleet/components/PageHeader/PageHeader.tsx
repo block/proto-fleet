@@ -11,8 +11,8 @@ import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { useSites } from "@/protoFleet/api/sites";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { useHasPermission } from "@/protoFleet/store";
-import { Pause } from "@/shared/assets/icons";
+import { useHasPermission, useIsNotepadOpen, useSetNotepadOpen } from "@/protoFleet/store";
+import { Edit, Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -76,6 +76,9 @@ function PageHeader({
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadNotes = useHasPermission("note:read");
+  const isNotepadOpen = useIsNotepadOpen();
+  const setNotepadOpen = useSetNotepadOpen();
 
   // Multi-site: the SitePicker replaces today's LocationSelector when the
   // feature flag is on. Sites are fetched once on mount and held here so the
@@ -143,7 +146,21 @@ function PageHeader({
               <LocationSelector />
             )}
           </div>
-          {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
+          <div className="flex items-center space-x-3">
+            {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
+            {canReadNotes ? (
+              <Button
+                variant={isNotepadOpen ? variants.primary : variants.secondary}
+                size={sizes.compact}
+                prefixIcon={<Edit width="w-4" />}
+                text={isPhone ? undefined : "Notepad"}
+                ariaLabel="Toggle notepad"
+                ariaExpanded={isNotepadOpen}
+                onClick={() => setNotepadOpen(!isNotepadOpen)}
+                testId="notepad-toggle"
+              />
+            ) : null}
+          </div>
         </div>
       </div>
       {showPhoneWidgets ? (

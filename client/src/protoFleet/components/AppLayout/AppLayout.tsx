@@ -7,6 +7,7 @@ import PageHeader from "@/protoFleet/components/PageHeader";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { NotepadPanel } from "@/protoFleet/features/notes";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -54,6 +55,8 @@ const AppLayoutContent = ({ children }: Props) => {
       >
         {children}
       </div>
+
+      <NotepadPanel />
     </div>
   );
 };
