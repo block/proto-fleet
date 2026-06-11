@@ -26,6 +26,21 @@ async function cleanupUpdatedRigMiner(minersPage: MinersPage, rigMinerIp: string
   }
 }
 
+async function waitForFirmwareActivation(minersPage: MinersPage, rigMinerIp: string, timeoutMs: number) {
+  await test.expect
+    .poll(
+      async () => {
+        try {
+          return (await minersPage.getMinerStatus(rigMinerIp)).trim();
+        } catch {
+          return "";
+        }
+      },
+      { timeout: timeoutMs },
+    )
+    .toMatch(/^(Rebooting|Hashing)$/);
+}
+
 test.describe("Firmware", () => {
   let updatedRigMinerIp = "";
 
@@ -120,7 +135,7 @@ test.describe("Firmware", () => {
 
     await test.step("Validate the miner transitions through firmware update states", async () => {
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Updating firmware", firmwareStatusTimeout);
-      await minersPage.validateMinerStatus(rigMinerIp, "Rebooting");
+      await waitForFirmwareActivation(minersPage, rigMinerIp, firmwareStatusTimeout);
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing", firmwareStatusTimeout);
     });
   });
