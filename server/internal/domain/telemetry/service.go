@@ -313,14 +313,14 @@ func (s *TelemetryService) FlushStatusNow(ctx context.Context) error {
 	select {
 	case s.statusFlushRequests <- req:
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("context cancelled before status flush request was queued: %w", ctx.Err())
 	}
 
 	select {
 	case err := <-req.done:
 		return err
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("context cancelled waiting for status flush: %w", ctx.Err())
 	}
 }
 
@@ -663,7 +663,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		driverName:       driverName,
 	}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("context cancelled enqueueing status for device %s: %w", device.ID, ctx.Err())
 	default:
 		slog.Error("status results channel full, dropping update", "deviceID", device.ID)
 		if collectionErr == nil {

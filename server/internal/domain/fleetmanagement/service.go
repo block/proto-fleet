@@ -475,7 +475,10 @@ func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, 
 		return nil, nil
 	}
 
-	snapshots, _, _, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, "", int32(len(deviceIDs)), &interfaces.MinerFilter{
+	pageSize := min(len(deviceIDs), math.MaxInt32)
+
+	// #nosec G115 -- Capped to math.MaxInt32 on the line above, safe for int32.
+	snapshots, _, _, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, "", int32(pageSize), &interfaces.MinerFilter{
 		DeviceIdentifiers: deviceIDs,
 	}, nil)
 	if err != nil {

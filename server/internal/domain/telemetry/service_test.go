@@ -2227,7 +2227,7 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 
 	done := make(chan struct{})
 	go func() {
-		service.processDevice(ctx, device)
+		assert.NoError(t, service.processDevice(ctx, device))
 		close(done)
 	}()
 
@@ -2322,7 +2322,7 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 	}()
 
 	// Act
-	service.processDevice(ctx, device)
+	require.NoError(t, service.processDevice(ctx, device))
 
 	// Assert — mock expectations verify GetDeviceStatus was called exactly once.
 }
@@ -2407,7 +2407,7 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 	}()
 
 	// Act
-	service.processDevice(ctx, device)
+	require.NoError(t, service.processDevice(ctx, device))
 	time.Sleep(50 * time.Millisecond)
 
 	// Assert — status was derived from metrics health, no GetDeviceStatus call.
@@ -2489,7 +2489,7 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 	}()
 
 	// Act
-	service.processDevice(ctx, device)
+	require.NoError(t, service.processDevice(ctx, device))
 
 	// Assert — mock expectations verify GetDeviceStatus was called exactly once.
 }
