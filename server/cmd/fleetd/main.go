@@ -217,7 +217,6 @@ func start(config *Config) error {
 	collectionStore := sqlstores.NewSQLCollectionStore(conn)
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
-	organizationStore := sqlstores.NewSQLOrganizationStore(conn)
 
 	activitySvc := activityDomain.NewService(activityStore)
 
@@ -550,7 +549,8 @@ func start(config *Config) error {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_METRICS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
-		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, organizationStore))
+		orgQueries := sqlc.New(db.NewRetryDB(conn))
+		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries))
 	}
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
 	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))

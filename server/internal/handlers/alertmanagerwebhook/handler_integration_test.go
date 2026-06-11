@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -183,8 +184,15 @@ type stubOrgLister struct {
 	err error
 }
 
-func (s stubOrgLister) ListActiveOrganizationIDs(context.Context) ([]int64, error) {
-	return s.ids, s.err
+func (s stubOrgLister) ListOrganizations(context.Context) ([]sqlc.Organization, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	orgs := make([]sqlc.Organization, len(s.ids))
+	for i, id := range s.ids {
+		orgs[i] = sqlc.Organization{ID: id}
+	}
+	return orgs, nil
 }
 
 // newAuthedRequest builds a POST to the webhook path with the test

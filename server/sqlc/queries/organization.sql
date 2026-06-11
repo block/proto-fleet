@@ -24,6 +24,7 @@ WHERE name = $1
 -- name: ListOrganizations :many
 SELECT *
 FROM organization
+WHERE deleted_at IS NULL
 ORDER BY name;
 
 -- name: UpdateOrganization :exec

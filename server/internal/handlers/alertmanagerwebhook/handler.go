@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
 
@@ -59,7 +60,7 @@ type alertmanagerAlert struct {
 }
 
 type OrgLister interface {
-	ListActiveOrganizationIDs(ctx context.Context) ([]int64, error)
+	ListOrganizations(ctx context.Context) ([]sqlc.Organization, error)
 }
 
 type Handler struct {
@@ -163,12 +164,16 @@ func (h *Handler) fanOutOrgIDs(ctx context.Context) []int64 {
 	if h.orgLister == nil {
 		return nil
 	}
-	orgIDs, err := h.orgLister.ListActiveOrganizationIDs(ctx)
+	orgs, err := h.orgLister.ListOrganizations(ctx)
 	if err != nil {
 		slog.Warn("alertmanager webhook: failed to list orgs for self-monitoring fan-out; recording as unscoped",
 			"error", err,
 		)
 		return nil
+	}
+	orgIDs := make([]int64, len(orgs))
+	for i := range orgs {
+		orgIDs[i] = orgs[i].ID
 	}
 	return orgIDs
 }
