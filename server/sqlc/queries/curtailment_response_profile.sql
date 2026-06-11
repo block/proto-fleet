@@ -30,7 +30,7 @@ INSERT INTO curtailment_response_profile (
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('profile_name'),
-    sqlc.arg('site_id'),
+    sqlc.narg('site_id'),
     sqlc.arg('mode'),
     sqlc.arg('strategy'),
     sqlc.arg('level'),
@@ -50,7 +50,7 @@ RETURNING *;
 UPDATE curtailment_response_profile
 SET
     profile_name = sqlc.arg('profile_name'),
-    site_id = sqlc.arg('site_id'),
+    site_id = sqlc.narg('site_id'),
     mode = sqlc.arg('mode'),
     strategy = sqlc.arg('strategy'),
     level = sqlc.arg('level'),

@@ -230,7 +230,8 @@ func responseProfileFromPayload(
 		ForceIncludeMaintenance: forceIncludeMaintenance,
 	}
 	if site != nil {
-		profile.SiteID = site.GetSiteId()
+		siteID := site.GetSiteId()
+		profile.SiteID = &siteID
 	}
 	return profile, nil
 }
@@ -242,7 +243,6 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 	out := &pb.CurtailmentResponseProfile{
 		ProfileId:               profile.ID,
 		ProfileName:             profile.ProfileName,
-		Site:                    &pb.ScopeSite{SiteId: profile.SiteID},
 		Mode:                    modeProto(profile.Mode),
 		Strategy:                strategyProto(profile.Strategy),
 		Level:                   levelProto(profile.Level),
@@ -255,6 +255,9 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
 		CreatedAt:               profileTimeProto(profile.CreatedAt),
 		UpdatedAt:               profileTimeProto(profile.UpdatedAt),
+	}
+	if profile.SiteID != nil {
+		out.Site = &pb.ScopeSite{SiteId: *profile.SiteID}
 	}
 	if profile.Mode == models.ModeFixedKw && profile.TargetKW != nil {
 		fixedKw := &pb.FixedKwParams{TargetKw: *profile.TargetKW}

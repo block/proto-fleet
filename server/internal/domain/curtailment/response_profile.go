@@ -107,15 +107,17 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 	if err := validateResponseProfileName(profile.ProfileName); err != nil {
 		return models.ResponseProfile{}, err
 	}
-	if profile.SiteID <= 0 {
-		return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError("site_id must be set")
-	}
-	belongs, err := s.store.SiteBelongsToOrg(ctx, profile.OrgID, profile.SiteID)
-	if err != nil {
-		return models.ResponseProfile{}, err
-	}
-	if !belongs {
-		return models.ResponseProfile{}, fleeterror.NewNotFoundErrorf("site not found: %d", profile.SiteID)
+	if profile.SiteID != nil {
+		if *profile.SiteID <= 0 {
+			return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError("site_id must be positive when set")
+		}
+		belongs, err := s.store.SiteBelongsToOrg(ctx, profile.OrgID, *profile.SiteID)
+		if err != nil {
+			return models.ResponseProfile{}, err
+		}
+		if !belongs {
+			return models.ResponseProfile{}, fleeterror.NewNotFoundErrorf("site not found: %d", *profile.SiteID)
+		}
 	}
 	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
 		return models.ResponseProfile{}, err
@@ -164,7 +166,7 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	targetKW, toleranceKW := float64Value(profile.TargetKW), float64Value(profile.ToleranceKW)
 	if err := validatePreviewRequest(PreviewRequest{
 		OrgID:    profile.OrgID,
-		Scope:    Scope{Type: models.ScopeTypeSite, SiteID: profile.SiteID},
+		Scope:    responseProfileScope(profile),
 		Mode:     profile.Mode,
 		Strategy: profile.Strategy,
 		Level:    profile.Level,
@@ -257,6 +259,13 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}
 	return nil
+}
+
+func responseProfileScope(profile models.ResponseProfile) Scope {
+	if profile.SiteID == nil {
+		return Scope{Type: models.ScopeTypeWholeOrg}
+	}
+	return Scope{Type: models.ScopeTypeSite, SiteID: *profile.SiteID}
 }
 
 func float64Value(v *float64) float64 {

@@ -2,7 +2,8 @@ CREATE TABLE curtailment_response_profile (
     id                          BIGSERIAL    PRIMARY KEY,
     org_id                      BIGINT       NOT NULL,
     profile_name                VARCHAR(64)  NOT NULL,
-    site_id                     BIGINT       NOT NULL,
+    -- NULL site_id means this profile applies to the whole org.
+    site_id                     BIGINT       NULL,
 
     -- Supported v1 response behavior. SITE_POWER_CAP remains reserved until
     -- the curtailment service implements residual site-cap semantics.

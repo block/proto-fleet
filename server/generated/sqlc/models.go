@@ -504,7 +504,7 @@ type CurtailmentResponseProfile struct {
 	ID                      int64
 	OrgID                   int64
 	ProfileName             string
-	SiteID                  int64
+	SiteID                  sql.NullInt64
 	Mode                    string
 	Strategy                string
 	Level                   string

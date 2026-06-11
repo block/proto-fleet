@@ -107,7 +107,7 @@ RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, ta
 type InsertCurtailmentResponseProfileParams struct {
 	OrgID                   int64
 	ProfileName             string
-	SiteID                  int64
+	SiteID                  sql.NullInt64
 	Mode                    string
 	Strategy                string
 	Level                   string
@@ -237,7 +237,7 @@ RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, ta
 
 type UpdateCurtailmentResponseProfileParams struct {
 	ProfileName             string
-	SiteID                  int64
+	SiteID                  sql.NullInt64
 	Mode                    string
 	Strategy                string
 	Level                   string

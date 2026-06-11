@@ -23,7 +23,7 @@ type ResponseProfile struct {
 	ID                      int64
 	OrgID                   int64
 	ProfileName             string
-	SiteID                  int64
+	SiteID                  *int64
 	Mode                    Mode
 	Strategy                Strategy
 	Level                   Level

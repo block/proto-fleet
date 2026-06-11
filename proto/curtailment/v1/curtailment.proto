@@ -908,8 +908,7 @@ message CurtailmentResponseProfile {
     int64 profile_id = 1;
     string profile_name = 2;
 
-    // The first profile-backed integration targets one site. Additional
-    // scopes should be added only when automation/product behavior needs them.
+    // Unset site means the profile applies to the whole org.
     ScopeSite site = 3;
 
     CurtailmentMode mode = 4;
@@ -949,11 +948,6 @@ message GetCurtailmentResponseProfileResponse {
 
 message CreateCurtailmentResponseProfileRequest {
     option (buf.validate.message).cel = {
-        id: "site_required"
-        message: "site must be set"
-        expression: "has(this.site)"
-    };
-    option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
         expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
@@ -965,6 +959,7 @@ message CreateCurtailmentResponseProfileRequest {
     };
 
     string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    // Unset site means the profile applies to the whole org.
     ScopeSite site = 2;
 
     CurtailmentMode mode = 3 [(buf.validate.field).enum = {
@@ -1003,11 +998,6 @@ message CreateCurtailmentResponseProfileResponse {
 
 message UpdateCurtailmentResponseProfileRequest {
     option (buf.validate.message).cel = {
-        id: "site_required"
-        message: "site must be set"
-        expression: "has(this.site)"
-    };
-    option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
         expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
@@ -1020,6 +1010,7 @@ message UpdateCurtailmentResponseProfileRequest {
 
     int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
     string profile_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    // Unset site means the profile applies to the whole org.
     ScopeSite site = 3;
 
     CurtailmentMode mode = 4 [(buf.validate.field).enum = {

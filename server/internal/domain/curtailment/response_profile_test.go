@@ -23,7 +23,7 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 		Profile: models.ResponseProfile{
 			OrgID:                   42,
 			ProfileName:             "  Standard shed  ",
-			SiteID:                  7,
+			SiteID:                  ptrInt64(7),
 			Mode:                    models.ModeFixedKw,
 			TargetKW:                &targetKW,
 			CurtailBatchSize:        &curtailBatchSize,
@@ -37,7 +37,8 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	require.NotNil(t, profile)
 	assert.Equal(t, int64(101), profile.ID)
 	assert.Equal(t, "Standard shed", profile.ProfileName)
-	assert.Equal(t, int64(7), profile.SiteID)
+	require.NotNil(t, profile.SiteID)
+	assert.Equal(t, int64(7), *profile.SiteID)
 	assert.Equal(t, models.StrategyLeastEfficientFirst, profile.Strategy)
 	assert.Equal(t, models.LevelFull, profile.Level)
 	assert.Equal(t, models.PriorityNormal, profile.Priority)
@@ -51,6 +52,28 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	assert.Equal(t, int64(7), store.siteCheckSiteID)
 }
 
+func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	svc := NewResponseProfileService(store)
+
+	profile, err := svc.Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Whole org shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	assert.Nil(t, profile.SiteID)
+	assert.Equal(t, 0, store.siteCheckCount)
+}
+
 func TestResponseProfileService_CreateAppliesBackendBatchDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -62,7 +85,7 @@ func TestResponseProfileService_CreateAppliesBackendBatchDefaults(t *testing.T) 
 		Profile: models.ResponseProfile{
 			OrgID:       42,
 			ProfileName: "Standard shed",
-			SiteID:      7,
+			SiteID:      ptrInt64(7),
 			Mode:        models.ModeFixedKw,
 			TargetKW:    &targetKW,
 		},
@@ -88,7 +111,7 @@ func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
 		Profile: models.ResponseProfile{
 			OrgID:       42,
 			ProfileName: "Standard shed",
-			SiteID:      404,
+			SiteID:      ptrInt64(404),
 			Mode:        models.ModeFixedKw,
 			TargetKW:    &targetKW,
 		},
@@ -108,7 +131,6 @@ func TestResponseProfileService_CreateRejectsFullFleetWithFixedKWParams(t *testi
 		Profile: models.ResponseProfile{
 			OrgID:       42,
 			ProfileName: "Emergency shed",
-			SiteID:      7,
 			Mode:        models.ModeFullFleet,
 			TargetKW:    &targetKW,
 		},
@@ -156,7 +178,6 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 			profile := models.ResponseProfile{
 				OrgID:       42,
 				ProfileName: "Standard shed",
-				SiteID:      7,
 				Mode:        models.ModeFixedKw,
 				TargetKW:    &targetKW,
 			}
@@ -174,6 +195,7 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 
 type responseProfileFakeStore struct {
 	siteBelongs     bool
+	siteCheckCount  int
 	siteCheckOrgID  int64
 	siteCheckSiteID int64
 	created         *models.ResponseProfile
@@ -216,7 +238,12 @@ func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64,
 }
 
 func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {
+	s.siteCheckCount++
 	s.siteCheckOrgID = orgID
 	s.siteCheckSiteID = siteID
 	return s.siteBelongs, nil
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
 }

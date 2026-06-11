@@ -55,7 +55,37 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, uint32(30), profile.GetRestoreBatchIntervalSec())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
-	assert.Equal(t, int64(7), store.created.SiteID)
+	require.NotNil(t, store.created.SiteID)
+	assert.Equal(t, int64(7), *store.created.SiteID)
+}
+
+func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	resp, err := h.CreateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Whole org shed",
+			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			Strategy:    pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+			Level:       pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+			Priority:    pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	profile := resp.Msg.GetProfile()
+	require.NotNil(t, profile)
+	assert.Nil(t, profile.GetSite())
+	require.NotNil(t, store.created)
+	assert.Nil(t, store.created.SiteID)
+	assert.Equal(t, 0, store.siteCheckCount)
 }
 
 func TestHandler_ResponseProfilesRequireManage(t *testing.T) {
@@ -128,9 +158,10 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	siteBelongs bool
-	created     *models.ResponseProfile
-	profiles    []*models.ResponseProfile
+	siteBelongs    bool
+	siteCheckCount int
+	created        *models.ResponseProfile
+	profiles       []*models.ResponseProfile
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
@@ -167,6 +198,7 @@ func (s *handlerResponseProfileStore) DeleteResponseProfile(context.Context, int
 }
 
 func (s *handlerResponseProfileStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
+	s.siteCheckCount++
 	return s.siteBelongs, nil
 }
 
