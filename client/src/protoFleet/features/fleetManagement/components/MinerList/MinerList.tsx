@@ -196,6 +196,8 @@ type MinerListProps = {
   currentSortConfig?: SortConfig;
   /** Callback to trigger a miner list refresh (e.g., after rename or unpair). */
   onRefetchMiners?: () => void;
+  /** Callback after a row-level refresh completes without resetting pagination. */
+  onRefreshMinersComplete?: () => void;
   /** Callback to update a visible worker name immediately after a successful save. */
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
   /** Callback to merge freshly refreshed miner snapshots into the visible table. */
@@ -487,6 +489,7 @@ const MinerList = ({
   currentFilter,
   currentSortConfig,
   onRefetchMiners,
+  onRefreshMinersComplete,
   onWorkerNameUpdated,
   onMergeMiners,
   onPairingCompleted,
@@ -566,6 +569,7 @@ const MinerList = ({
   // stale `miners` map / stale callbacks) after each poll.
   const minersRef = useRef(miners);
   const onRefetchMinersRef = useRef(onRefetchMiners);
+  const onRefreshMinersCompleteRef = useRef(onRefreshMinersComplete);
   const onWorkerNameUpdatedRef = useRef(onWorkerNameUpdated);
   const onMergeMinersRef = useRef(onMergeMiners);
   const onMinerRefreshStateChangeRef = useRef(handleMinerRefreshStateChange);
@@ -573,6 +577,8 @@ const MinerList = ({
   minersRef.current = miners;
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
   onRefetchMinersRef.current = onRefetchMiners;
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  onRefreshMinersCompleteRef.current = onRefreshMinersComplete;
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
   onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
@@ -647,6 +653,7 @@ const MinerList = ({
         errorsLoaded,
         minersRef,
         onRefetchMinersRef,
+        onRefreshMinersCompleteRef,
         onWorkerNameUpdatedRef,
         onMergeMinersRef,
         onMinerRefreshStateChangeRef,

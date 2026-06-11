@@ -42,6 +42,7 @@ interface SingleMinerActionsMenuProps {
   needsAuthentication?: boolean;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
+  onRefreshMinersComplete?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
   onMergeMiners?: (snapshots: MinerStateSnapshot[]) => void;
   onMinerRefreshStateChange?: (deviceIdentifier: string, isRefreshing: boolean) => void;
@@ -58,6 +59,7 @@ const SingleMinerActionsMenu = ({
   needsAuthentication = false,
   miners,
   onRefetchMiners,
+  onRefreshMinersComplete,
   onWorkerNameUpdated,
   onMergeMiners,
   onMinerRefreshStateChange,
@@ -121,7 +123,7 @@ const SingleMinerActionsMenu = ({
     try {
       const response = await refreshMiners([deviceIdentifier]);
       onMergeMiners?.(response.snapshots);
-      onRefetchMiners?.();
+      onRefreshMinersComplete?.();
 
       const errorMessage = response.errors[deviceIdentifier];
       if (errorMessage) {
@@ -147,7 +149,7 @@ const SingleMinerActionsMenu = ({
     onActionStart,
     onMergeMiners,
     onMinerRefreshStateChange,
-    onRefetchMiners,
+    onRefreshMinersComplete,
     refreshMiners,
   ]);
 

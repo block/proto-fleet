@@ -64,6 +64,7 @@ const (
 	refreshMinersMaxDevices       = 50
 	refreshMinersRequestTimeout   = 8 * time.Second
 	refreshMinersPerDeviceTimeout = 5 * time.Second
+	refreshMinersSnapshotTimeout  = 2 * time.Second
 	refreshMinersConcurrencyLimit = 10
 )
 
@@ -322,7 +323,10 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 				refreshErrMsg = err.Error()
 			}
 
-			snapshots, err := s.getMinerStateSnapshotsByIDs(deviceCtx, info.OrganizationID, []string{deviceID})
+			snapshotCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersSnapshotTimeout)
+			defer cancel()
+
+			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID})
 			if err != nil {
 				if refreshErrMsg != "" {
 					results <- refreshResult{id: deviceID, errMsg: refreshErrMsg}

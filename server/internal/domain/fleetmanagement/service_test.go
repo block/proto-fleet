@@ -1,6 +1,7 @@
 package fleetmanagement_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,8 +26,28 @@ import (
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsv2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+type deadlineRefreshTelemetryCollector struct{}
+
+func (deadlineRefreshTelemetryCollector) RemoveDevices(_ context.Context, _ ...minermodels.DeviceIdentifier) error {
+	return nil
+}
+
+func (deadlineRefreshTelemetryCollector) GetLatestDeviceMetrics(
+	_ context.Context,
+	_ []minermodels.DeviceIdentifier,
+) (map[minermodels.DeviceIdentifier]modelsv2.DeviceMetrics, error) {
+	return nil, nil
+}
+
+func (deadlineRefreshTelemetryCollector) RefreshDevice(ctx context.Context, _ telemetrymodels.Device) error {
+	<-ctx.Done()
+	return ctx.Err() //nolint:wrapcheck
+}
 
 func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	if testing.Short() {
@@ -84,6 +105,41 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	assert.Len(t, resp.Miners, 4, "Should return both paired and unpaired devices")
 	assert.Equal(t, int32(4), resp.TotalMiners)
 	assert.Empty(t, resp.Cursor) // No more pages
+}
+
+func TestService_RefreshMiners_ShouldReturnSnapshotWhenRefreshTimesOut(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB),
+		deadlineRefreshTelemetryCollector{},
+		testContext.ServiceProvider.MinerService,
+		testContext.ServiceProvider.PluginService,
+		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
+		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
+		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
+		testContext.ServiceProvider.CommandService,
+		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: deviceIDs})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	require.Contains(t, resp.Errors, deviceIDs[0])
+	assert.Contains(t, resp.Errors[deviceIDs[0]], "context deadline exceeded")
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.T) {

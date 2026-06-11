@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
 
-const { mockMinerList } = vi.hoisted(() => ({
+const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors } = vi.hoisted(() => ({
   mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
+  mockRefetchAuthNeededMiners: vi.fn(),
+  mockRefetchErrors: vi.fn(),
 }));
 
 // Mock all dependencies
@@ -53,14 +55,14 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
 vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
   default: vi.fn(() => ({
     totalMiners: 0,
-    refetch: vi.fn(),
+    refetch: mockRefetchAuthNeededMiners,
     hasInitialLoadCompleted: true,
     isLoading: false,
   })),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceErrors", () => ({
-  useDeviceErrors: vi.fn(() => ({ refetch: vi.fn() })),
+  useDeviceErrors: vi.fn(() => ({ refetch: mockRefetchErrors })),
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
@@ -258,5 +260,31 @@ describe("Fleet - Component Integration", () => {
     renderFleet();
 
     expect(mockMinerList).toHaveBeenCalledWith(expect.objectContaining({ loading: true }), undefined);
+  });
+
+  it("passes a row refresh callback that keeps the current page", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+    const mockRefetch = vi.fn();
+    const mockRefreshCurrentPage = vi.fn();
+
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner-1"],
+        totalMiners: 1,
+        refetch: mockRefetch,
+        refreshCurrentPage: mockRefreshCurrentPage,
+      }),
+    );
+
+    renderFleet();
+
+    const minerListCalls = mockMinerList.mock.calls as unknown as Array<[{ onRefreshMinersComplete: () => void }]>;
+    const latestMinerListProps = minerListCalls[minerListCalls.length - 1][0];
+    latestMinerListProps.onRefreshMinersComplete();
+
+    expect(mockRefreshCurrentPage).toHaveBeenCalledTimes(1);
+    expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
+    expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 });
