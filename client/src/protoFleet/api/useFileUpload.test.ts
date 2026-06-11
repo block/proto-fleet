@@ -147,6 +147,34 @@ describe("useFileUpload", () => {
   });
 
   describe("chunked upload (fetch)", () => {
+    let xhrInstances: ChunkXHR[];
+
+    class ChunkXHR {
+      open = vi.fn();
+      send = vi.fn();
+      abort = vi.fn();
+      setRequestHeader = vi.fn();
+      withCredentials = false;
+      status = 0;
+      statusText = "";
+      responseText = "";
+      upload = { addEventListener: vi.fn() };
+      private listeners: Record<string, (() => void)[]> = {};
+
+      constructor() {
+        xhrInstances.push(this);
+      }
+
+      addEventListener(event: string, handler: () => void) {
+        if (!this.listeners[event]) this.listeners[event] = [];
+        this.listeners[event].push(handler);
+      }
+
+      trigger(event: string) {
+        this.listeners[event]?.forEach((h) => h());
+      }
+    }
+
     function mockFetchSequence(...responses: Array<{ status: number; body?: object }>) {
       const mocked = vi.fn();
       for (const { status, body } of responses) {
@@ -161,6 +189,19 @@ describe("useFileUpload", () => {
       return mocked;
     }
 
+    async function completeChunk(index: number, status = 200) {
+      await vi.waitFor(() => expect(xhrInstances.length).toBeGreaterThan(index));
+      const xhr = xhrInstances[index];
+      xhr.status = status;
+      xhr.trigger("load");
+    }
+
+    function triggerChunkProgress(xhr: ChunkXHR, loaded: number, total: number) {
+      const handler = xhr.upload.addEventListener.mock.calls[0]?.[1];
+      expect(handler).toBeTypeOf("function");
+      handler({ lengthComputable: true, loaded, total });
+    }
+
     const chunkedConfig = {
       enabled: true,
       chunkSize: 5,
@@ -169,25 +210,32 @@ describe("useFileUpload", () => {
       completeUrl: (id: string) => `/upload/chunked/${id}/complete`,
     };
 
+    beforeEach(() => {
+      xhrInstances = [];
+      vi.stubGlobal("XMLHttpRequest", ChunkXHR);
+    });
+
     it("uploads via initiate → PUT chunks → complete", async () => {
       const mockFetch = mockFetchSequence(
         { status: 200, body: { upload_id: "u1" } },
-        { status: 200 },
-        { status: 200 },
         { status: 200, body: { firmware_file_id: "fw-1" } },
       );
 
       const file = new File(["a".repeat(10)], "file.swu");
       const { result } = renderHook(() => useFileUpload());
-      const data = await result.current.upload("/ignored", file, { chunked: chunkedConfig });
+      const promise = result.current.upload("/ignored", file, { chunked: chunkedConfig });
+
+      await completeChunk(0);
+      await completeChunk(1);
+      const data = await promise;
 
       expect(data).toEqual({ firmware_file_id: "fw-1" });
-      expect(mockFetch).toHaveBeenCalledTimes(4);
-
+      expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(mockFetch.mock.calls[0][0]).toBe("/upload/chunked");
-      expect(mockFetch.mock.calls[1][0]).toBe("/upload/chunked/u1");
-      expect(mockFetch.mock.calls[2][0]).toBe("/upload/chunked/u1");
-      expect(mockFetch.mock.calls[3][0]).toBe("/upload/chunked/u1/complete");
+      expect(mockFetch.mock.calls[1][0]).toBe("/upload/chunked/u1/complete");
+      expect(xhrInstances[0].open).toHaveBeenCalledWith("PUT", "/upload/chunked/u1");
+      expect(xhrInstances[0].setRequestHeader).toHaveBeenCalledWith("Content-Range", "bytes 0-4/10");
+      expect(xhrInstances[1].setRequestHeader).toHaveBeenCalledWith("Content-Range", "bytes 5-9/10");
     });
 
     it("calls logout on 401 during initiate", async () => {
@@ -200,32 +248,37 @@ describe("useFileUpload", () => {
     });
 
     it("calls logout on 401 during chunk upload", async () => {
-      mockFetchSequence({ status: 200, body: { upload_id: "u1" } }, { status: 401 });
+      mockFetchSequence({ status: 200, body: { upload_id: "u1" } });
       const file = new File(["a".repeat(10)], "file.swu");
       const { result } = renderHook(() => useFileUpload());
+      const promise = result.current.upload("/x", file, { chunked: chunkedConfig });
 
-      await expect(result.current.upload("/x", file, { chunked: chunkedConfig })).rejects.toThrow("Session expired");
+      await completeChunk(0, 401);
+
+      await expect(promise).rejects.toThrow("Session expired");
       expect(mockLogout).toHaveBeenCalledOnce();
     });
 
     it("reports progress after each chunk", async () => {
-      mockFetchSequence(
-        { status: 200, body: { upload_id: "u1" } },
-        { status: 200 },
-        { status: 200 },
-        { status: 200 },
-        { status: 200, body: { result: "ok" } },
-      );
+      mockFetchSequence({ status: 200, body: { upload_id: "u1" } }, { status: 200, body: { result: "ok" } });
 
       const file = new File(["a".repeat(15)], "file.swu");
       const onProgress = vi.fn();
       const { result } = renderHook(() => useFileUpload());
-      await result.current.upload("/x", file, { chunked: chunkedConfig, onProgress });
+      const promise = result.current.upload("/x", file, { chunked: chunkedConfig, onProgress });
 
-      expect(onProgress).toHaveBeenCalledTimes(3);
-      expect(onProgress).toHaveBeenNthCalledWith(1, 33);
-      expect(onProgress).toHaveBeenNthCalledWith(2, 67);
-      expect(onProgress).toHaveBeenNthCalledWith(3, 100);
+      await vi.waitFor(() => expect(xhrInstances).toHaveLength(1));
+      triggerChunkProgress(xhrInstances[0], 2, 5);
+      await completeChunk(0);
+      await vi.waitFor(() => expect(xhrInstances).toHaveLength(2));
+      triggerChunkProgress(xhrInstances[1], 2, 5);
+      await completeChunk(1);
+      await vi.waitFor(() => expect(xhrInstances).toHaveLength(3));
+      triggerChunkProgress(xhrInstances[2], 2, 5);
+      await completeChunk(2);
+      await promise;
+
+      expect(onProgress.mock.calls.map(([percent]) => percent)).toEqual([13, 33, 47, 67, 80, 100]);
     });
 
     it("respects abort signal between chunks", async () => {

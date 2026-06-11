@@ -47,6 +47,76 @@ function handleAuth401(status: number, logout: () => void): void {
   }
 }
 
+function uploadChunk(
+  url: string,
+  chunk: Blob,
+  range: { start: number; end: number; total: number },
+  options: Pick<FileUploadOptions, "signal"> & { onUploadedBytes?: (uploadedBytes: number) => void },
+  logout: () => void,
+): Promise<void> {
+  if (options.signal?.aborted) {
+    return Promise.reject(new Error("Upload was cancelled."));
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+
+    const abortHandler = () => xhr.abort();
+    const cleanup = () => {
+      options.signal?.removeEventListener("abort", abortHandler);
+    };
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    xhr.open("PUT", url);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.setRequestHeader("Content-Range", `bytes ${range.start}-${range.end - 1}/${range.total}`);
+
+    if (options.onUploadedBytes) {
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          options.onUploadedBytes?.(range.start + event.loaded);
+        }
+      });
+    }
+
+    options.signal?.addEventListener("abort", abortHandler, { once: true });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status === 401) {
+        logout();
+        settle(() => reject(new Error("Session expired. Please log in again.")));
+        return;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        options.onUploadedBytes?.(range.end);
+        settle(resolve);
+        return;
+      }
+
+      const message = extractXhrError(xhr.responseText, `Chunk upload failed: ${xhr.status} ${xhr.statusText}`);
+      settle(() => reject(new Error(message)));
+    });
+
+    xhr.addEventListener("error", () => {
+      settle(() => reject(new Error("Network error during upload.")));
+    });
+
+    xhr.addEventListener("abort", () => {
+      settle(() => reject(new Error("Upload was cancelled.")));
+    });
+
+    xhr.send(chunk);
+  });
+}
+
 async function uploadChunked(
   file: File,
   options: FileUploadOptions & { chunked: ChunkedUploadConfig },
@@ -54,6 +124,15 @@ async function uploadChunked(
 ): Promise<unknown> {
   const { chunked, onProgress, signal } = options;
   const totalChunks = Math.ceil(file.size / chunked.chunkSize);
+  let lastProgress = -1;
+  const reportProgress = (uploadedBytes: number) => {
+    if (!onProgress) return;
+    const percent = Math.min(100, Math.round((uploadedBytes / file.size) * 100));
+    if (percent !== lastProgress) {
+      lastProgress = percent;
+      onProgress(percent);
+    }
+  };
 
   const initResponse = await fetch(chunked.initiateUrl, {
     method: "POST",
@@ -87,28 +166,14 @@ async function uploadChunked(
     const start = i * chunked.chunkSize;
     const end = Math.min(start + chunked.chunkSize, file.size);
 
-    const chunkResponse = await fetch(chunked.chunkUrl(uploadId), {
-      method: "PUT",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Range": `bytes ${start}-${end - 1}/${file.size}`,
-      },
-      body: file.slice(start, end),
-      signal,
-    });
-
-    handleAuth401(chunkResponse.status, logout);
-    if (!chunkResponse.ok) {
-      throw new Error(
-        await extractFetchError(
-          chunkResponse,
-          `Chunk upload failed: ${chunkResponse.status} ${chunkResponse.statusText}`,
-        ),
-      );
-    }
-
-    onProgress?.(Math.round(((i + 1) / totalChunks) * 100));
+    await uploadChunk(
+      chunked.chunkUrl(uploadId),
+      file.slice(start, end),
+      { start, end, total: file.size },
+      { signal, onUploadedBytes: reportProgress },
+      logout,
+    );
+    reportProgress(end);
   }
 
   const completeResponse = await fetch(chunked.completeUrl(uploadId), {
