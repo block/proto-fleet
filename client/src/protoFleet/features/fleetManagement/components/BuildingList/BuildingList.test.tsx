@@ -51,6 +51,7 @@ vi.mock(import("@/protoFleet/store"), async (importOriginal) => {
   return {
     ...actual,
     usePermissions: () => [
+      "miner:read",
       "miner:blink_led",
       "miner:download_logs",
       "miner:firmware_update",

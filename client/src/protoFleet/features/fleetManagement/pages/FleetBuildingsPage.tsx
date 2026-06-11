@@ -283,22 +283,31 @@ const FleetBuildingsPage = () => {
           sourceLabel={reparentTarget.building.name || "building"}
           currentParentId={reparentTarget.building.siteId}
           onDismiss={() => setReparentTarget(null)}
-          onConfirm={(siteIds) => {
-            const targetSiteId = siteIds[0];
-            if (targetSiteId === undefined || !reparentTarget.building) return;
-            const name = reparentTarget.building.name || "building";
-            const buildingId = reparentTarget.building.id;
-            setReparentTarget(null);
-            void assignBuildingToSite({
-              buildingId,
-              targetSiteId,
-              onSuccess: () => {
-                pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });
-                fetchBuildings();
-              },
-              onError: (msg) => pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error }),
-            });
-          }}
+          onConfirm={(siteIds) =>
+            new Promise<void>((resolve, reject) => {
+              const targetSiteId = siteIds[0];
+              if (targetSiteId === undefined || !reparentTarget.building) {
+                resolve();
+                return;
+              }
+              const name = reparentTarget.building.name || "building";
+              const buildingId = reparentTarget.building.id;
+              void assignBuildingToSite({
+                buildingId,
+                targetSiteId,
+                onSuccess: () => {
+                  pushToast({ message: `Moved "${name}" to selected site.`, status: STATUSES.success });
+                  fetchBuildings();
+                  setReparentTarget(null);
+                  resolve();
+                },
+                onError: (msg) => {
+                  pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error });
+                  reject(new Error(msg));
+                },
+              });
+            })
+          }
         />
       ) : null}
     </>

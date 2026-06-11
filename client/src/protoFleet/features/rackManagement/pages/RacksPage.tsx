@@ -107,15 +107,17 @@ const RacksPage = () => {
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
   // Explicit building filter wins; otherwise expand `?site=` into the
-  // sites' buildings. `[0n]` is a sentinel for "site has zero buildings" —
-  // server treats `[]` as no filter, so without it a valid empty site
-  // would return every rack. Building IDs are positive autoincrement,
-  // so `WHERE building_id IN (0)` matches nothing.
+  // sites' buildings. `[0n]` is a sentinel for "no buildings match" —
+  // server treats `[]` as no filter, so without it a site-scoped view
+  // would briefly show every rack while buildings are still loading
+  // (or permanently if the site has zero buildings). Building IDs are
+  // positive autoincrement, so `WHERE building_id IN (0)` matches nothing.
   const effectiveBuildingIds = useMemo(() => {
     if (selectedBuildingIds.length > 0) return selectedBuildingIds;
     if (urlSiteIds.size === 0) return [] as bigint[];
+    if (!allBuildingsLoaded) return [0n];
     const matched = allBuildings.filter((b) => urlSiteIds.has(b.siteId)).map((b) => BigInt(b.id));
-    if (matched.length === 0 && allBuildingsLoaded) return [0n];
+    if (matched.length === 0) return [0n];
     return matched;
   }, [selectedBuildingIds, urlSiteIds, allBuildings, allBuildingsLoaded]);
   const effectiveBuildingIdsRef = useRef<bigint[]>(effectiveBuildingIds);
@@ -754,21 +756,30 @@ const RacksPage = () => {
             reparentTarget.typeDetails.case === "rackInfo" ? reparentTarget.typeDetails.value.buildingId : undefined
           }
           onDismiss={() => setReparentTarget(null)}
-          onConfirm={(buildingIds) => {
-            const buildingId = buildingIds[0];
-            if (buildingId === undefined) return;
-            const rackName = reparentTarget.label || "rack";
-            setReparentTarget(null);
-            void assignRackToBuilding({
-              rackId: reparentTarget.id,
-              buildingId,
-              onSuccess: () => {
-                pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
-                resetAndFetch();
-              },
-              onError: (msg) => pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error }),
-            });
-          }}
+          onConfirm={(buildingIds) =>
+            new Promise<void>((resolve, reject) => {
+              const buildingId = buildingIds[0];
+              if (buildingId === undefined) {
+                resolve();
+                return;
+              }
+              const rackName = reparentTarget.label || "rack";
+              void assignRackToBuilding({
+                rackId: reparentTarget.id,
+                buildingId,
+                onSuccess: () => {
+                  pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
+                  resetAndFetch();
+                  setReparentTarget(null);
+                  resolve();
+                },
+                onError: (msg) => {
+                  pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error });
+                  reject(new Error(msg));
+                },
+              });
+            })
+          }
         />
       ) : null}
     </div>

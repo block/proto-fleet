@@ -62,17 +62,19 @@ export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly strin
 
   // Each add-to flow lists candidates (read) before writing membership
   // (manage); require both up front so the picker doesn't 403 on the
-  // first list request.
-  //
-  // `addToGroup` also needs `miner:read` because the FleetGroupActionsMenu
-  // path resolves the scoped device list via listMinerStateSnapshots
-  // before opening the picker. `addToSite` needs `rack:read` because
-  // ReassignDevicesToSite is preceded by a fetchAllRacks preflight
-  // (rack-site conflict detection).
+  // first list request. Additional `*:read` entries cover preflight
+  // reads the flow performs before the write:
+  //   - addToGroup: FleetGroupActionsMenu resolves scoped devices via
+  //     ListMinerStateSnapshots → miner:read.
+  //   - addToRack: ParentPickerModal hydrates building-name hints via
+  //     ListBuildings → site:read; all-mode + capacity preflight reads
+  //     miner snapshots → miner:read.
+  //   - addToSite: rack-site conflict preflight calls ListRacks →
+  //     rack:read; all-mode resolves miners → miner:read.
   [groupActions.addToGroup]: ["rack:manage", "rack:read", "miner:read"],
-  [groupActions.addToRack]: ["rack:manage", "rack:read"],
+  [groupActions.addToRack]: ["rack:manage", "rack:read", "site:read", "miner:read"],
   [groupActions.addToBuilding]: ["site:manage", "site:read"],
-  [groupActions.addToSite]: ["site:manage", "site:read", "rack:read"],
+  [groupActions.addToSite]: ["site:manage", "site:read", "rack:read", "miner:read"],
 };
 
 // hasAllRequired returns true when every required key is present in
