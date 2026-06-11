@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import {
   FleetNodeEnrollmentStatus,
@@ -34,7 +33,6 @@ const colTitles: ColTitles<ColKey> = {
 };
 
 const FleetNodesPage = () => {
-  const navigate = useNavigate();
   const { listFleetNodes, confirmFleetNode, revokeFleetNode } = useFleetNodes();
 
   const [nodes, setNodes] = useState<FleetNodeSummary[] | undefined>(undefined);
@@ -122,11 +120,6 @@ const FleetNodesPage = () => {
   };
 
   const actions: ListAction<FleetNodeSummary>[] = [
-    {
-      title: "Open",
-      actionHandler: (node) => navigate(`/fleet-nodes/${node.fleetNodeId}`),
-      hidden: (node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED,
-    },
     {
       title: "Confirm",
       actionHandler: handleConfirm,

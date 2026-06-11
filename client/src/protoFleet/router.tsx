@@ -14,7 +14,6 @@ import {
   importFleetBuildingsPage,
   importFleetDown,
   importFleetLayout,
-  importFleetNodeDetailPage,
   importFleetNodesPage,
   importFleetSitesPage,
   importGroupOverviewPage,
@@ -87,7 +86,6 @@ const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetNodesPage = lazy(importFleetNodesPage);
-const FleetNodeDetailPage = lazy(importFleetNodeDetailPage);
 const FleetDown = lazy(importFleetDown);
 
 // Helper to check if an admin user has been created
@@ -177,7 +175,6 @@ const router = createBrowserRouter([
   { path: "/racks", loader: racksRedirectLoader },
 
   createRoute("/fleet-nodes", <FleetNodesPage />),
-  createRoute("/fleet-nodes/:fleetNodeId", <FleetNodeDetailPage />),
 
   createRoute("/groups", <GroupsPage />),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
