@@ -20,7 +20,8 @@ const (
 	DefaultResponseProfileRestoreBatchSize        int32 = 50
 	DefaultResponseProfileRestoreBatchIntervalSec int32 = 5
 
-	responseProfileBatchSizeMax int32 = 10000
+	responseProfileBatchSizeMax int32   = 10000
+	responseProfileNumericMax   float64 = 999999999.999
 )
 
 // ResponseProfileService validates and persists reusable curtailment response
@@ -36,6 +37,7 @@ func NewResponseProfileService(store interfaces.ResponseProfileStore) *ResponseP
 type SaveResponseProfileRequest struct {
 	Profile             models.ResponseProfile
 	CanUseAdminControls bool
+	ExpectedSiteID      *int64
 }
 
 func (s *ResponseProfileService) List(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error) {
@@ -83,10 +85,10 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
-	return s.store.UpdateResponseProfile(ctx, profile)
+	return s.store.UpdateResponseProfile(ctx, profile, req.ExpectedSiteID)
 }
 
-func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64) error {
+func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error {
 	if s == nil || s.store == nil {
 		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
 	}
@@ -96,7 +98,7 @@ func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID in
 	if profileID <= 0 {
 		return fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
-	return s.store.DeleteResponseProfile(ctx, orgID, profileID)
+	return s.store.DeleteResponseProfile(ctx, orgID, profileID, expectedSiteID)
 }
 
 func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req SaveResponseProfileRequest) (models.ResponseProfile, error) {
@@ -185,8 +187,14 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.TargetKW != nil && math.IsInf(*profile.TargetKW, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be finite, got %v", *profile.TargetKW)
 	}
+	if profile.TargetKW != nil && *profile.TargetKW > responseProfileNumericMax {
+		return fleeterror.NewInvalidArgumentErrorf("target_kw must be <= %.3f, got %v", responseProfileNumericMax, *profile.TargetKW)
+	}
 	if profile.ToleranceKW != nil && math.IsInf(*profile.ToleranceKW, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be finite, got %v", *profile.ToleranceKW)
+	}
+	if profile.ToleranceKW != nil && *profile.ToleranceKW > responseProfileNumericMax {
+		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be <= %.3f, got %v", responseProfileNumericMax, *profile.ToleranceKW)
 	}
 	if profile.CurtailBatchSize != nil && *profile.CurtailBatchSize <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(

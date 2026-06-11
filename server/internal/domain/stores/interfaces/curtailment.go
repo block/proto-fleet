@@ -88,8 +88,8 @@ type ResponseProfileStore interface {
 	ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error)
 	GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error)
 	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error)
-	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error)
-	DeleteResponseProfile(ctx context.Context, orgID, profileID int64) error
+	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error)
+	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 }
 

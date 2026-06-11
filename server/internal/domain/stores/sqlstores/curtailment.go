@@ -134,34 +134,75 @@ func (s *SQLCurtailmentStore) GetResponseProfile(ctx context.Context, orgID, pro
 }
 
 func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
-	row, err := s.GetQueries(ctx).InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
+		if err := lockResponseProfileSiteForWrite(ctx, q, profile.OrgID, profile.SiteID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
+	})
 	if err != nil {
 		return nil, mapResponseProfileWriteError("create", err)
 	}
 	return responseProfileFromRow(row), nil
 }
 
-func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
-	row, err := s.GetQueries(ctx).UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profile.ID)
+func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
+		if err := lockResponseProfileSiteForWrite(ctx, q, profile.OrgID, profile.SiteID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
 		}
+		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID))
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, getErr := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+				ID:    profile.ID,
+				OrgID: profile.OrgID,
+			}); errors.Is(getErr, sql.ErrNoRows) {
+				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profile.ID)
+			} else if getErr != nil {
+				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewInternalErrorf("failed to get curtailment response profile after update conflict: %v", getErr)
+			}
+			return sqlc.CurtailmentResponseProfile{}, fleeterror.NewFailedPreconditionError("curtailment response profile changed before update; retry")
+		}
+		return row, err
+	})
+	if err != nil {
 		return nil, mapResponseProfileWriteError("update", err)
 	}
 	return responseProfileFromRow(row), nil
 }
 
-func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, profileID int64) error {
+func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error {
 	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
-		ID:    profileID,
-		OrgID: orgID,
+		ID:             profileID,
+		OrgID:          orgID,
+		ExpectedSiteID: ptrToNullInt64(expectedSiteID),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to delete curtailment response profile: %v", err)
 	}
 	if rows == 0 {
-		return fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+		if _, getErr := s.GetQueries(ctx).GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+			ID:    profileID,
+			OrgID: orgID,
+		}); errors.Is(getErr, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+		} else if getErr != nil {
+			return fleeterror.NewInternalErrorf("failed to get curtailment response profile after delete conflict: %v", getErr)
+		}
+		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before delete; retry")
+	}
+	return nil
+}
+
+func lockResponseProfileSiteForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, siteID *int64) error {
+	if siteID == nil {
+		return nil
+	}
+	if _, err := q.LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: *siteID, OrgID: orgID}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("site not found: %d", *siteID)
+		}
+		return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
 	}
 	return nil
 }
@@ -1105,10 +1146,11 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 	}
 }
 
-func updateResponseProfileParams(profile models.ResponseProfile) sqlc.UpdateCurtailmentResponseProfileParams {
+func updateResponseProfileParams(profile models.ResponseProfile, expectedSiteID *int64) sqlc.UpdateCurtailmentResponseProfileParams {
 	return sqlc.UpdateCurtailmentResponseProfileParams{
 		ID:                      profile.ID,
 		OrgID:                   profile.OrgID,
+		ExpectedSiteID:          ptrToNullInt64(expectedSiteID),
 		ProfileName:             profile.ProfileName,
 		SiteID:                  ptrToNullInt64(profile.SiteID),
 		Mode:                    string(profile.Mode),
@@ -1127,6 +1169,10 @@ func updateResponseProfileParams(profile models.ResponseProfile) sqlc.UpdateCurt
 }
 
 func mapResponseProfileWriteError(action string, err error) error {
+	var fleetErr fleeterror.FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr
+	}
 	if isUniqueViolation(err) {
 		return fleeterror.NewAlreadyExistsError("a curtailment response profile with this name already exists")
 	}

@@ -205,6 +205,8 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, uint32(0), profile.GetRestoreBatchIntervalSec())
 	require.NotNil(t, store.updated)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
+	require.NotNil(t, store.updateExpectedSiteID)
+	assert.Equal(t, siteID, *store.updateExpectedSiteID)
 }
 
 func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T) {
@@ -259,6 +261,8 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(201), store.deletedProfileID)
+	require.NotNil(t, store.deleteExpectedSiteID)
+	assert.Equal(t, siteID, *store.deleteExpectedSiteID)
 }
 
 func TestHandler_DeleteCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
@@ -358,12 +362,14 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	siteBelongs      bool
-	siteCheckCount   int
-	created          *models.ResponseProfile
-	updated          *models.ResponseProfile
-	deletedProfileID int64
-	profiles         []*models.ResponseProfile
+	siteBelongs          bool
+	siteCheckCount       int
+	created              *models.ResponseProfile
+	updated              *models.ResponseProfile
+	updateExpectedSiteID *int64
+	deletedProfileID     int64
+	deleteExpectedSiteID *int64
+	profiles             []*models.ResponseProfile
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
@@ -391,13 +397,15 @@ func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, p
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
 	s.updated = &profile
+	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64) error {
+func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64) error {
 	s.deletedProfileID = profileID
+	s.deleteExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	return nil
 }
 

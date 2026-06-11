@@ -166,6 +166,48 @@ func TestResponseProfileService_CreateRejectsFullFleetWithFixedKWParams(t *testi
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestResponseProfileService_CreateRejectsPersistedNumericOverflow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		profile models.ResponseProfile
+	}{
+		{
+			name: "oversized target",
+			profile: models.ResponseProfile{
+				OrgID:       42,
+				ProfileName: "Huge target",
+				Mode:        models.ModeFixedKw,
+				TargetKW:    ptrFloat64(responseProfileNumericMax + 1),
+			},
+		},
+		{
+			name: "oversized tolerance",
+			profile: models.ResponseProfile{
+				OrgID:       42,
+				ProfileName: "Huge tolerance",
+				Mode:        models.ModeFixedKw,
+				TargetKW:    ptrFloat64(responseProfileNumericMax),
+				ToleranceKW: ptrFloat64(responseProfileNumericMax + 1),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+				Profile: tc.profile,
+			})
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
+}
+
 func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -254,12 +296,12 @@ func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, prof
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ *int64) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64) error {
+func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64) error {
 	return nil
 }
 
@@ -271,5 +313,9 @@ func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, si
 }
 
 func ptrInt64(v int64) *int64 {
+	return &v
+}
+
+func ptrFloat64(v float64) *float64 {
 	return &v
 }

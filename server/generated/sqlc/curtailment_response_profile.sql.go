@@ -14,15 +14,17 @@ const deleteCurtailmentResponseProfileByOrg = `-- name: DeleteCurtailmentRespons
 DELETE FROM curtailment_response_profile
 WHERE id = $1
   AND org_id = $2
+  AND site_id IS NOT DISTINCT FROM $3
 `
 
 type DeleteCurtailmentResponseProfileByOrgParams struct {
-	ID    int64
-	OrgID int64
+	ID             int64
+	OrgID          int64
+	ExpectedSiteID sql.NullInt64
 }
 
 func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error) {
-	result, err := q.exec(ctx, q.deleteCurtailmentResponseProfileByOrgStmt, deleteCurtailmentResponseProfileByOrg, arg.ID, arg.OrgID)
+	result, err := q.exec(ctx, q.deleteCurtailmentResponseProfileByOrgStmt, deleteCurtailmentResponseProfileByOrg, arg.ID, arg.OrgID, arg.ExpectedSiteID)
 	if err != nil {
 		return 0, err
 	}
@@ -232,6 +234,7 @@ SET
     force_include_maintenance = $14
 WHERE id = $15
   AND org_id = $16
+  AND site_id IS NOT DISTINCT FROM $17
 RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
 `
 
@@ -252,6 +255,7 @@ type UpdateCurtailmentResponseProfileParams struct {
 	ForceIncludeMaintenance bool
 	ID                      int64
 	OrgID                   int64
+	ExpectedSiteID          sql.NullInt64
 }
 
 func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg UpdateCurtailmentResponseProfileParams) (CurtailmentResponseProfile, error) {
@@ -272,6 +276,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.ForceIncludeMaintenance,
 		arg.ID,
 		arg.OrgID,
+		arg.ExpectedSiteID,
 	)
 	var i CurtailmentResponseProfile
 	err := row.Scan(

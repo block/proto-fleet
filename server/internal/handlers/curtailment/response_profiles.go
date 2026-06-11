@@ -97,7 +97,8 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("UpdateCurtailmentResponseProfile")
 	}
-	if _, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId()); err != nil {
+	existing, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
+	if err != nil {
 		return nil, err
 	}
 	profile, err := responseProfileFromUpdateRequest(info.OrganizationID, req.Msg)
@@ -110,6 +111,7 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 	updated, err := h.responseProfiles.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile:             profile,
 		CanUseAdminControls: canUseAdminControls(info),
+		ExpectedSiteID:      cloneInt64Ptr(existing.SiteID),
 	})
 	if err != nil {
 		return nil, err
@@ -125,10 +127,11 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("DeleteCurtailmentResponseProfile")
 	}
-	if _, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId()); err != nil {
+	profile, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
+	if err != nil {
 		return nil, err
 	}
-	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId()); err != nil {
+	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId(), cloneInt64Ptr(profile.SiteID)); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentResponseProfileResponse{}), nil
@@ -159,6 +162,14 @@ func requireResponseProfileSitePermission(ctx context.Context, permission string
 	}
 	_, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: profile.SiteID})
 	return err
+}
+
+func cloneInt64Ptr(v *int64) *int64 {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
 }
 
 func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {

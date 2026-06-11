@@ -65,9 +65,11 @@ SET
     force_include_maintenance = sqlc.arg('force_include_maintenance')
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
+  AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
 RETURNING *;
 
 -- name: DeleteCurtailmentResponseProfileByOrg :execrows
 DELETE FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id');
+  AND org_id = sqlc.arg('org_id')
+  AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id');
