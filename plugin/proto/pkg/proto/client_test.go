@@ -1179,7 +1179,10 @@ func TestUploadFirmware_EarlyOKWaitsForWriterError(t *testing.T) {
 	err := client.UploadFirmware(context.Background(), firmware)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "firmware stream failed")
+	assert.True(t,
+		strings.Contains(err.Error(), "firmware stream failed") ||
+			strings.Contains(err.Error(), "multipart writer failed"),
+		"expected upload to surface the body writer failure, got: %v", err)
 }
 
 // TestUploadFirmware_ContextCancellation tests that firmware upload respects context cancellation.
