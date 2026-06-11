@@ -17,5 +17,7 @@ SELECT add_continuous_aggregate_policy('fleet_telemetry_poll_heartbeat',
     end_offset => INTERVAL '1 minute',
     schedule_interval => INTERVAL '30 seconds');
 
+SELECT add_retention_policy('fleet_telemetry_poll_heartbeat', INTERVAL '7 days');
+
 CREATE INDEX idx_fleet_telemetry_poll_heartbeat_org_bucket
     ON fleet_telemetry_poll_heartbeat (organization_id, bucket DESC);

@@ -107,7 +107,7 @@ services:
       - monitoring
 
   grafana:
-    image: grafana/grafana:13.1.0-25771031703
+    image: grafana/grafana:13.0
     depends_on:
       timescaledb:
         condition: service_healthy
