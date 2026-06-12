@@ -21,6 +21,7 @@ import { API_PROXY_BASE } from "@/protoFleet/api/constants";
 import type {
   Channel,
   ChannelKind,
+  NotificationHistoryEntry,
   Rule,
   Silence,
   SilenceScope,
@@ -150,4 +151,16 @@ export async function updateSilence(input: SilenceMutationInput & { id: string }
 
 export async function deleteSilence(id: string): Promise<void> {
   await call<Record<string, never>>("SilenceService/DeleteSilence", { id });
+}
+
+// === History ============================================================
+
+export interface HistoryPage {
+  notifications: NotificationHistoryEntry[];
+  has_more: boolean;
+}
+
+export async function listHistory(input: { before_id?: string; page_size?: number }): Promise<HistoryPage> {
+  const out = await call<Partial<HistoryPage>>("HistoryService/ListNotifications", input);
+  return { notifications: out.notifications ?? [], has_more: out.has_more ?? false };
 }

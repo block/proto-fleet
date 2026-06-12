@@ -145,11 +145,13 @@ const RulesSection = () => {
             ) : null}
           </span>
         ),
-        width: "w-64",
+        width: "w-56",
       },
       when: {
+        // Wide enough that the longest provisioned rule summary stays
+        // on one line; allowWrap is the fallback for anything longer.
         component: (rule) => <span className="text-text-primary-50">{formatRuleCondition(rule)}</span>,
-        width: "w-96",
+        width: "w-[480px]",
         allowWrap: true,
       },
       severity: {

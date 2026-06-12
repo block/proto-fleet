@@ -33,12 +33,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/authn"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 	notifications "github.com/block/proto-fleet/server/internal/domain/notifications"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -53,11 +55,12 @@ type Handler struct {
 	svc        *notifications.Service
 	sessionSvc *session.Service
 	userStore  interfaces.UserStore
+	history    notificationhistory.Lister
 }
 
 // NewHandler returns a handler bound to the supplied service.
-func NewHandler(svc *notifications.Service, sessionSvc *session.Service, userStore interfaces.UserStore) *Handler {
-	return &Handler{svc: svc, sessionSvc: sessionSvc, userStore: userStore}
+func NewHandler(svc *notifications.Service, sessionSvc *session.Service, userStore interfaces.UserStore, history notificationhistory.Lister) *Handler {
+	return &Handler{svc: svc, sessionSvc: sessionSvc, userStore: userStore, history: history}
 }
 
 // Routes returns the set of (path, handler) pairs that main.go
@@ -80,6 +83,8 @@ func (h *Handler) Routes() map[string]http.Handler {
 		"POST /notifications.v1.SilenceService/CreateSilence": h.authed(h.createSilence),
 		"POST /notifications.v1.SilenceService/UpdateSilence": h.authed(h.updateSilence),
 		"POST /notifications.v1.SilenceService/DeleteSilence": h.authed(h.deleteSilence),
+
+		"POST /notifications.v1.HistoryService/ListNotifications": h.authed(h.listNotifications),
 	}
 }
 
@@ -322,6 +327,62 @@ func (h *Handler) deleteSilence(ctx context.Context, body json.RawMessage) (any,
 	return map[string]any{}, nil
 }
 
+// === History handlers ===================================================
+
+const (
+	historyDefaultPageSize = 50
+	historyMaxPageSize     = 200
+)
+
+func (h *Handler) listNotifications(ctx context.Context, body json.RawMessage) (any, error) {
+	orgID, err := orgIDFrom(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var req struct {
+		BeforeID string `json:"before_id"`
+		PageSize int32  `json:"page_size"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fleeterror.NewInvalidArgumentError("invalid request body: " + err.Error())
+		}
+	}
+	limit := req.PageSize
+	if limit <= 0 {
+		limit = historyDefaultPageSize
+	}
+	if limit > historyMaxPageSize {
+		limit = historyMaxPageSize
+	}
+	var beforeID *int64
+	if req.BeforeID != "" {
+		v, err := strconv.ParseInt(req.BeforeID, 10, 64)
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + req.BeforeID)
+		}
+		beforeID = &v
+	}
+	// Fetch one extra row so has_more is exact rather than inferred
+	// from a full page.
+	rows, err := h.history.List(ctx, orgID, beforeID, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	hasMore := len(rows) > int(limit)
+	if hasMore {
+		rows = rows[:limit]
+	}
+	wireOut := make([]historyEntryWire, 0, len(rows))
+	for _, n := range rows {
+		wireOut = append(wireOut, historyEntryToWire(n))
+	}
+	return map[string]any{
+		"notifications": wireOut,
+		"has_more":      hasMore,
+	}, nil
+}
+
 // === wire shapes ========================================================
 
 type webhookWire struct {
@@ -400,6 +461,23 @@ type silenceMutationWire struct {
 	StartsAt string           `json:"starts_at"`
 	EndsAt   *string          `json:"ends_at"`
 	Comment  string           `json:"comment"`
+}
+
+type historyEntryWire struct {
+	ID          string  `json:"id"`
+	ReceivedAt  string  `json:"received_at"`
+	AlertName   string  `json:"alert_name"`
+	Status      string  `json:"status"`
+	Severity    string  `json:"severity"`
+	RuleGroup   string  `json:"rule_group"`
+	Fingerprint string  `json:"fingerprint"`
+	DeviceID    string  `json:"device_id"`
+	DeviceName  string  `json:"device_name"`
+	DeviceMAC   string  `json:"device_mac"`
+	Template    string  `json:"template"`
+	Summary     string  `json:"summary"`
+	StartsAt    *string `json:"starts_at"`
+	EndsAt      *string `json:"ends_at"`
 }
 
 // === wire ↔ domain ======================================================
@@ -510,6 +588,32 @@ func silenceToWire(s notifications.Silence) silenceWire {
 	}
 	if !s.EndsAt.IsZero() {
 		v := s.EndsAt.UTC().Format(time.RFC3339Nano)
+		out.EndsAt = &v
+	}
+	return out
+}
+
+func historyEntryToWire(n notificationhistory.StoredNotification) historyEntryWire {
+	out := historyEntryWire{
+		ID:          strconv.FormatInt(n.ID, 10),
+		ReceivedAt:  n.ReceivedAt.UTC().Format(time.RFC3339Nano),
+		AlertName:   n.AlertName,
+		Status:      n.Status,
+		Severity:    n.Severity,
+		RuleGroup:   n.RuleGroup,
+		Fingerprint: n.Fingerprint,
+		DeviceID:    n.DeviceID,
+		DeviceName:  n.DeviceName,
+		DeviceMAC:   n.DeviceMAC,
+		Template:    n.Template,
+		Summary:     n.Summary,
+	}
+	if n.StartsAt != nil {
+		v := n.StartsAt.UTC().Format(time.RFC3339Nano)
+		out.StartsAt = &v
+	}
+	if n.EndsAt != nil {
+		v := n.EndsAt.UTC().Format(time.RFC3339Nano)
 		out.EndsAt = &v
 	}
 	return out

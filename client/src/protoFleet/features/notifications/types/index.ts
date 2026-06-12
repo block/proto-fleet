@@ -81,3 +81,25 @@ export interface Silence {
 export interface SilenceWithActive extends Silence {
   active: boolean;
 }
+
+// NotificationHistoryEntry — one alert delivery persisted by the
+// alertmanager webhook receiver into notification_history.
+
+export type NotificationHistoryStatus = "firing" | "resolved";
+
+export interface NotificationHistoryEntry {
+  id: string;
+  received_at: string;
+  alert_name: string;
+  status: NotificationHistoryStatus;
+  severity: string;
+  rule_group: string;
+  fingerprint: string;
+  device_id: string;
+  device_name: string;
+  device_mac: string;
+  template: string;
+  summary: string;
+  starts_at: string | null;
+  ends_at: string | null;
+}

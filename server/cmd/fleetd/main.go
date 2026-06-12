@@ -626,7 +626,7 @@ func start(config *Config) error {
 	// the notificationsv1connect package; the handler enforces
 	// session-cookie auth on each route internally so it doesn't
 	// depend on the Connect interceptor chain.
-	notifHandler := notificationsHandler.NewHandler(notificationsSvc, sessionSvc, userStore)
+	notifHandler := notificationsHandler.NewHandler(notificationsSvc, sessionSvc, userStore, notificationHistoryStore)
 	for pattern, h := range notifHandler.Routes() {
 		mux.Handle(pattern, h)
 	}

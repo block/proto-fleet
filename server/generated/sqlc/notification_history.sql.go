@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 )
 
 const insertNotificationHistory = `-- name: InsertNotificationHistory :exec
@@ -77,4 +78,111 @@ func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotif
 		arg.Annotations,
 	)
 	return err
+}
+
+const listNotificationHistory = `-- name: ListNotificationHistory :many
+SELECT
+    nh.id,
+    nh.received_at,
+    nh.alert_name,
+    nh.status,
+    nh.severity,
+    nh.rule_group,
+    nh.fingerprint,
+    nh.organization_id,
+    nh.device_id,
+    COALESCE(
+        TRIM(COALESCE(
+            NULLIF(d.custom_name, ''),
+            COALESCE(dd.manufacturer, '') || ' ' || COALESCE(dd.model, '')
+        )),
+        ''
+    )::text AS device_name,
+    COALESCE(d.mac_address, '') AS device_mac,
+    nh.template,
+    nh.summary,
+    nh.starts_at,
+    nh.ends_at
+FROM notification_history nh
+LEFT JOIN device d
+    ON d.device_identifier = nh.device_id
+    AND d.org_id = nh.organization_id
+    AND d.deleted_at IS NULL
+LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE nh.organization_id = $1
+  AND ($2::bigint IS NULL OR nh.id < $2)
+ORDER BY nh.id DESC
+LIMIT $3
+`
+
+type ListNotificationHistoryParams struct {
+	OrganizationID sql.NullInt64
+	BeforeID       sql.NullInt64
+	PageLimit      int32
+}
+
+type ListNotificationHistoryRow struct {
+	ID             int64
+	ReceivedAt     time.Time
+	AlertName      string
+	Status         string
+	Severity       string
+	RuleGroup      string
+	Fingerprint    string
+	OrganizationID sql.NullInt64
+	DeviceID       string
+	DeviceName     string
+	DeviceMac      string
+	Template       string
+	Summary        string
+	StartsAt       sql.NullTime
+	EndsAt         sql.NullTime
+}
+
+// One page of an organization's notifications, newest first. Keyset
+// pagination: pass the previous page's last id as before_id, or NULL
+// for the first page. id order matches received_at order (rows are
+// insert-only with a now() default) and stays stable across pages.
+// The device join resolves the Grafana device_id label (the device
+// identifier UUID) to a display name and MAC for the UI; device_name
+// follows the same custom_name → manufacturer+model precedence as the
+// device list sort. Both come back ” when the device is unknown or
+// has been deleted since the alert fired.
+func (q *Queries) ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error) {
+	rows, err := q.query(ctx, q.listNotificationHistoryStmt, listNotificationHistory, arg.OrganizationID, arg.BeforeID, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNotificationHistoryRow
+	for rows.Next() {
+		var i ListNotificationHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ReceivedAt,
+			&i.AlertName,
+			&i.Status,
+			&i.Severity,
+			&i.RuleGroup,
+			&i.Fingerprint,
+			&i.OrganizationID,
+			&i.DeviceID,
+			&i.DeviceName,
+			&i.DeviceMac,
+			&i.Template,
+			&i.Summary,
+			&i.StartsAt,
+			&i.EndsAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
