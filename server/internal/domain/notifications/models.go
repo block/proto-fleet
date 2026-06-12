@@ -32,6 +32,7 @@ type ChannelKind string
 const (
 	ChannelKindWebhook ChannelKind = "webhook"
 	ChannelKindSMTP    ChannelKind = "smtp"
+	ChannelKindSlack   ChannelKind = "slack"
 )
 
 // ValidationState mirrors the UI's lightweight state machine for a
@@ -51,6 +52,15 @@ const (
 type WebhookConfig struct {
 	URL          string
 	BearerHeader string
+}
+
+// SlackConfig configures a Slack incoming-webhook destination,
+// delivered via Grafana's native slack contact-point type. The URL
+// embeds the capability token, so the whole value is a secret:
+// Grafana stores it as a secure setting, reads return it empty, and
+// presence is signalled by Channel.HasSecret.
+type SlackConfig struct {
+	WebhookURL string
 }
 
 // SMTPConfig is the read shape returned to the UI. Password is
@@ -73,6 +83,7 @@ type Channel struct {
 	Kind            ChannelKind
 	Webhook         *WebhookConfig
 	SMTP            *SMTPConfig
+	Slack           *SlackConfig
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	ValidatedAt     *time.Time

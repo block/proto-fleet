@@ -85,6 +85,7 @@ enum ChannelKind {
     CHANNEL_KIND_UNSPECIFIED = 0;
     CHANNEL_KIND_WEBHOOK = 1;
     CHANNEL_KIND_SMTP = 2;
+    CHANNEL_KIND_SLACK = 3;
 }
 
 enum ValidationState {
@@ -113,6 +114,14 @@ message SmtpConfig {
     string password = 6;
 }
 
+message SlackConfig {
+    // webhook_url is the Slack incoming-webhook URL. The URL embeds
+    // the capability token, so the whole value is a secret: Grafana
+    // stores it as a secure setting, reads return it empty, and
+    // presence is signalled by Channel.has_secret.
+    string webhook_url = 1;
+}
+
 message Channel {
     string id = 1;
     int64 organization_id = 2;
@@ -125,10 +134,11 @@ message Channel {
     google.protobuf.Timestamp validated_at = 9;
     ValidationState validation_state = 10;
     string validation_error = 11;
-    // has_secret is true when a webhook bearer header or SMTP password
-    // is stored. Lets the UI render "•••• Set" without leaking the
-    // secret on the wire.
+    // has_secret is true when a webhook bearer header, SMTP password,
+    // or Slack webhook URL is stored. Lets the UI render "•••• Set"
+    // without leaking the secret on the wire.
     bool has_secret = 12;
+    SlackConfig slack = 13;
 }
 
 message ListChannelsRequest {}
@@ -141,6 +151,7 @@ message CreateChannelRequest {
     ChannelKind kind = 2;
     WebhookConfig webhook = 3;
     SmtpConfig smtp = 4;
+    SlackConfig slack = 5;
 }
 message CreateChannelResponse {
     Channel channel = 1;
@@ -152,6 +163,7 @@ message UpdateChannelRequest {
     ChannelKind kind = 3;
     WebhookConfig webhook = 4;
     SmtpConfig smtp = 5;
+    SlackConfig slack = 6;
 }
 message UpdateChannelResponse {
     Channel channel = 1;
@@ -170,6 +182,7 @@ message TestChannelRequest {
     ChannelKind kind = 2;
     WebhookConfig webhook = 3;
     SmtpConfig smtp = 4;
+    SlackConfig slack = 5;
 }
 message TestChannelResponse {
     bool ok = 1;

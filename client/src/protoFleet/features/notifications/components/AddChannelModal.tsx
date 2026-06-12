@@ -2,7 +2,13 @@ import { useCallback, useState } from "react";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { testChannel as testChannelApi } from "@/protoFleet/features/notifications/api/notificationsApi";
 import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
-import type { Channel, ChannelKind, SmtpConfig, WebhookConfig } from "@/protoFleet/features/notifications/types";
+import type {
+  Channel,
+  ChannelKind,
+  SlackConfig,
+  SmtpConfig,
+  WebhookConfig,
+} from "@/protoFleet/features/notifications/types";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -24,6 +30,8 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
   // Webhook fields
   const [webhookUrl, setWebhookUrl] = useState("");
   const [bearerHeader, setBearerHeader] = useState("");
+  // Slack fields
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
   // SMTP fields
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("");
@@ -43,6 +51,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
       setName("");
       setWebhookUrl("");
       setBearerHeader("");
+      setSlackWebhookUrl("");
       setSmtpHost("");
       setSmtpPort("");
       setSmtpUsername("");
@@ -63,6 +72,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
     kind: ChannelKind;
     webhook: WebhookConfig | null;
     smtp: SmtpConfig | null;
+    slack: SlackConfig | null;
   } | null => {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -71,6 +81,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
     }
     let webhook: WebhookConfig | null = null;
     let smtp: SmtpConfig | null = null;
+    let slack: SlackConfig | null = null;
     if (kind === "webhook") {
       const url = webhookUrl.trim();
       if (!url) {
@@ -78,6 +89,13 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
         return null;
       }
       webhook = { url, bearer_header: bearerHeader.trim() || null };
+    } else if (kind === "slack") {
+      const url = slackWebhookUrl.trim();
+      if (!url) {
+        setErrorMsg("Add a Slack webhook URL");
+        return null;
+      }
+      slack = { webhook_url: url };
     } else {
       const host = smtpHost.trim();
       const port = parseInt(smtpPort, 10) || 587;
@@ -98,8 +116,20 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
         password: smtpPassword || undefined,
       };
     }
-    return { name: trimmedName, kind, webhook, smtp };
-  }, [name, kind, webhookUrl, bearerHeader, smtpHost, smtpPort, smtpUsername, smtpFrom, smtpTo, smtpPassword]);
+    return { name: trimmedName, kind, webhook, smtp, slack };
+  }, [
+    name,
+    kind,
+    webhookUrl,
+    bearerHeader,
+    slackWebhookUrl,
+    smtpHost,
+    smtpPort,
+    smtpUsername,
+    smtpFrom,
+    smtpTo,
+    smtpPassword,
+  ]);
 
   const handleSendTest = useCallback(async () => {
     const payload = buildPayload();
@@ -142,9 +172,15 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
     }
   }, [buildPayload, createChannel, onDismiss]);
 
-  // Only surface "Send test" once there's something testable. For webhooks that's
-  // a URL; for SMTP we need at least one To address (matches the save validator).
-  const canTest = kind === "webhook" ? webhookUrl.trim().length > 0 : smtpTo.trim().length > 0;
+  // Only surface "Send test" once there's something testable. For webhooks and
+  // Slack that's a URL; for SMTP we need at least one To address (matches the
+  // save validator).
+  const canTest =
+    kind === "webhook"
+      ? webhookUrl.trim().length > 0
+      : kind === "slack"
+        ? slackWebhookUrl.trim().length > 0
+        : smtpTo.trim().length > 0;
 
   return (
     <Modal
@@ -184,6 +220,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
         <SegmentedControl
           segments={[
             { key: "webhook", title: "Webhook" },
+            { key: "slack", title: "Slack" },
             { key: "smtp", title: "SMTP (email)" },
           ]}
           initialSegmentKey={kind}
@@ -225,6 +262,16 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
               }}
             />
           </>
+        ) : kind === "slack" ? (
+          <Input
+            id="channel-slack-webhook-url"
+            label="Slack webhook URL"
+            initValue={slackWebhookUrl}
+            onChange={(value) => {
+              setSlackWebhookUrl(value);
+              clearError();
+            }}
+          />
         ) : (
           <>
             <div className="grid grid-cols-[1fr_120px] gap-4">

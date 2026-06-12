@@ -23,8 +23,9 @@
 //
 // Field names on the wire match the client-side hand-written
 // types/index.ts: snake_case identifiers, ISO-8601 timestamps,
-// channel kinds as the lowercase tokens "webhook" / "smtp", scope
-// kinds as the lowercase tokens "rule" / "group" / "site" / "device".
+// channel kinds as the lowercase tokens "webhook" / "smtp" / "slack",
+// scope kinds as the lowercase tokens "rule" / "group" / "site" /
+// "device".
 package notifications
 
 import (
@@ -418,6 +419,13 @@ type smtpWire struct {
 	Password string   `json:"password,omitempty"`
 }
 
+// slackWire carries the Slack incoming-webhook URL. Write-only: the
+// URL embeds the capability token, so reads return the empty string
+// and presence is signalled by has_secret.
+type slackWire struct {
+	WebhookURL string `json:"webhook_url"`
+}
+
 type channelWire struct {
 	ID              string       `json:"id"`
 	OrganizationID  string       `json:"organization_id"`
@@ -425,6 +433,7 @@ type channelWire struct {
 	Kind            string       `json:"kind"`
 	Webhook         *webhookWire `json:"webhook"`
 	SMTP            *smtpWire    `json:"smtp"`
+	Slack           *slackWire   `json:"slack"`
 	CreatedAt       string       `json:"created_at"`
 	UpdatedAt       string       `json:"updated_at"`
 	ValidatedAt     *string      `json:"validated_at"`
@@ -439,6 +448,7 @@ type channelMutationWire struct {
 	Kind    string       `json:"kind"`
 	Webhook *webhookWire `json:"webhook"`
 	SMTP    *smtpWire    `json:"smtp"`
+	Slack   *slackWire   `json:"slack"`
 }
 
 type ruleWire struct {
@@ -529,13 +539,17 @@ func channelToWire(c notifications.Channel) channelWire {
 			To:       c.SMTP.To,
 		}
 	}
+	if c.Slack != nil {
+		// URL deliberately omitted — it's the secret.
+		out.Slack = &slackWire{}
+	}
 	return out
 }
 
 func wireToChannel(req channelMutationWire) (notifications.Channel, error) {
 	kind := notifications.ChannelKind(strings.ToLower(req.Kind))
 	switch kind {
-	case notifications.ChannelKindWebhook, notifications.ChannelKindSMTP:
+	case notifications.ChannelKindWebhook, notifications.ChannelKindSMTP, notifications.ChannelKindSlack:
 	default:
 		return notifications.Channel{}, fleeterror.NewInvalidArgumentError("unknown channel kind: " + req.Kind)
 	}
@@ -561,6 +575,11 @@ func wireToChannel(req channelMutationWire) (notifications.Channel, error) {
 			From:     req.SMTP.From,
 			To:       req.SMTP.To,
 			Password: req.SMTP.Password,
+		}
+	}
+	if req.Slack != nil {
+		dom.Slack = &notifications.SlackConfig{
+			WebhookURL: req.Slack.WebhookURL,
 		}
 	}
 	return dom, nil

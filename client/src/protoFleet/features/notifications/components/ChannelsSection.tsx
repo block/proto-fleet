@@ -23,8 +23,18 @@ const colTitles: ColTitles<ChannelColumns> = {
 
 const activeCols: ChannelColumns[] = ["name", "destination", "status"];
 
-const formatDestination = (c: Channel) =>
-  c.kind === "webhook" ? (c.webhook?.url ?? "") : (c.smtp?.to ?? []).join(", ");
+const formatDestination = (c: Channel) => {
+  if (c.kind === "webhook") return c.webhook?.url ?? "";
+  // Slack webhook URLs are write-only (the URL is the secret), so
+  // reads have nothing to show — render a presence marker instead.
+  if (c.kind === "slack") return c.has_secret ? "Slack webhook (hidden)" : "";
+  return (c.smtp?.to ?? []).join(", ");
+};
+
+const destinationPlaceholder = (c: Channel) => {
+  if (c.kind === "slack") return "https://hooks.slack.com/services/…";
+  return c.kind === "webhook" ? "https://hooks…" : "oncall@example.com";
+};
 
 const ChannelsSection = () => {
   const channels = useNotificationsStore((s) => s.channels);
@@ -45,6 +55,7 @@ const ChannelsSection = () => {
           kind: channel.kind,
           webhook: channel.webhook,
           smtp: channel.smtp,
+          slack: channel.slack,
         });
         pushToast({ message: `Renamed: ${next}`, status: STATUSES.success });
       } catch (error) {
@@ -64,31 +75,27 @@ const ChannelsSection = () => {
   const handleSaveDestination = useCallback(
     async (channel: Channel, next: string) => {
       try {
+        const base = { id: channel.id, name: channel.name, kind: channel.kind };
         const input =
           channel.kind === "webhook"
-            ? {
-                id: channel.id,
-                name: channel.name,
-                kind: channel.kind,
-                webhook: { url: next, bearer_header: null },
-                smtp: null,
-              }
-            : {
-                id: channel.id,
-                name: channel.name,
-                kind: channel.kind,
-                webhook: null,
-                smtp: {
-                  host: channel.smtp?.host ?? "",
-                  port: channel.smtp?.port ?? 587,
-                  username: channel.smtp?.username ?? "",
-                  from: channel.smtp?.from ?? "",
-                  to: next
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                },
-              };
+            ? { ...base, webhook: { url: next, bearer_header: null }, smtp: null, slack: null }
+            : channel.kind === "slack"
+              ? { ...base, webhook: null, smtp: null, slack: { webhook_url: next } }
+              : {
+                  ...base,
+                  webhook: null,
+                  slack: null,
+                  smtp: {
+                    host: channel.smtp?.host ?? "",
+                    port: channel.smtp?.port ?? 587,
+                    username: channel.smtp?.username ?? "",
+                    from: channel.smtp?.from ?? "",
+                    to: next
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  },
+                };
         await updateChannel(input);
         pushToast({ message: "Destination updated", status: STATUSES.success });
       } catch (error) {
@@ -109,6 +116,7 @@ const ChannelsSection = () => {
         kind: channel.kind,
         webhook: channel.webhook,
         smtp: channel.smtp,
+        slack: channel.slack,
       });
       if (result.ok) {
         pushToast({ message: "Test delivery sent", status: STATUSES.success });
@@ -177,7 +185,7 @@ const ChannelsSection = () => {
         component: (channel) => (
           <ChannelEditableCell
             value={formatDestination(channel)}
-            placeholder={channel.kind === "webhook" ? "https://hooks…" : "oncall@example.com"}
+            placeholder={destinationPlaceholder(channel)}
             ariaLabel="destination"
             onSave={(next) => {
               void handleSaveDestination(channel, next);

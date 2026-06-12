@@ -25,6 +25,7 @@ import type {
   Rule,
   Silence,
   SilenceScope,
+  SlackConfig,
   SmtpConfig,
   WebhookConfig,
 } from "@/protoFleet/features/notifications/types";
@@ -81,6 +82,7 @@ export interface ChannelMutationInput {
   kind: ChannelKind;
   webhook?: WebhookConfig | null;
   smtp?: SmtpConfig | null;
+  slack?: SlackConfig | null;
 }
 
 export async function createChannel(input: ChannelMutationInput): Promise<Channel> {

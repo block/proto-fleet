@@ -37,7 +37,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_notifications_v1_notifications: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiRub3RpZmljYXRpb25zL3YxL25vdGlmaWNhdGlvbnMucHJvdG8SEG5vdGlmaWNhdGlvbnMudjEiMwoNV2ViaG9va0NvbmZpZxILCgN1cmwYASABKAkSFQoNYmVhcmVyX2hlYWRlchgCIAEoCSJmCgpTbXRwQ29uZmlnEgwKBGhvc3QYASABKAkSDAoEcG9ydBgCIAEoBRIQCgh1c2VybmFtZRgDIAEoCRIMCgRmcm9tGAQgASgJEgoKAnRvGAUgAygJEhAKCHBhc3N3b3JkGAYgASgJIsQDCgdDaGFubmVsEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoAxIMCgRuYW1lGAMgASgJEisKBGtpbmQYBCABKA4yHS5ub3RpZmljYXRpb25zLnYxLkNoYW5uZWxLaW5kEjAKB3dlYmhvb2sYBSABKAsyHy5ub3RpZmljYXRpb25zLnYxLldlYmhvb2tDb25maWcSKgoEc210cBgGIAEoCzIcLm5vdGlmaWNhdGlvbnMudjEuU210cENvbmZpZxIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgx2YWxpZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjsKEHZhbGlkYXRpb25fc3RhdGUYCiABKA4yIS5ub3RpZmljYXRpb25zLnYxLlZhbGlkYXRpb25TdGF0ZRIYChB2YWxpZGF0aW9uX2Vycm9yGAsgASgJEhIKCmhhc19zZWNyZXQYDCABKAgiFQoTTGlzdENoYW5uZWxzUmVxdWVzdCJDChRMaXN0Q2hhbm5lbHNSZXNwb25zZRIrCghjaGFubmVscxgBIAMoCzIZLm5vdGlmaWNhdGlvbnMudjEuQ2hhbm5lbCK7AQoUQ3JlYXRlQ2hhbm5lbFJlcXVlc3QSGAoEbmFtZRgBIAEoCUIKukgHcgUQARj/ARIrCgRraW5kGAIgASgOMh0ubm90aWZpY2F0aW9ucy52MS5DaGFubmVsS2luZBIwCgd3ZWJob29rGAMgASgLMh8ubm90aWZpY2F0aW9ucy52MS5XZWJob29rQ29uZmlnEioKBHNtdHAYBCABKAsyHC5ub3RpZmljYXRpb25zLnYxLlNtdHBDb25maWciQwoVQ3JlYXRlQ2hhbm5lbFJlc3BvbnNlEioKB2NoYW5uZWwYASABKAsyGS5ub3RpZmljYXRpb25zLnYxLkNoYW5uZWwi0AEKFFVwZGF0ZUNoYW5uZWxSZXF1ZXN0EhMKAmlkGAEgASgJQge6SARyAhABEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESKwoEa2luZBgDIAEoDjIdLm5vdGlmaWNhdGlvbnMudjEuQ2hhbm5lbEtpbmQSMAoHd2ViaG9vaxgEIAEoCzIfLm5vdGlmaWNhdGlvbnMudjEuV2ViaG9va0NvbmZpZxIqCgRzbXRwGAUgASgLMhwubm90aWZpY2F0aW9ucy52MS5TbXRwQ29uZmlnIkMKFVVwZGF0ZUNoYW5uZWxSZXNwb25zZRIqCgdjaGFubmVsGAEgASgLMhkubm90aWZpY2F0aW9ucy52MS5DaGFubmVsIisKFERlbGV0ZUNoYW5uZWxSZXF1ZXN0EhMKAmlkGAEgASgJQge6SARyAhABIhcKFURlbGV0ZUNoYW5uZWxSZXNwb25zZSKrAQoSVGVzdENoYW5uZWxSZXF1ZXN0EgoKAmlkGAEgASgJEisKBGtpbmQYAiABKA4yHS5ub3RpZmljYXRpb25zLnYxLkNoYW5uZWxLaW5kEjAKB3dlYmhvb2sYAyABKAsyHy5ub3RpZmljYXRpb25zLnYxLldlYmhvb2tDb25maWcSKgoEc210cBgEIAEoCzIcLm5vdGlmaWNhdGlvbnMudjEuU210cENvbmZpZyJHChNUZXN0Q2hhbm5lbFJlc3BvbnNlEgoKAm9rGAEgASgIEg0KBWVycm9yGAIgASgJEhUKDXJlc3BvbnNlX2NvZGUYAyABKAUi3QEKBFJ1bGUSCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgDEgwKBG5hbWUYAyABKAkSMAoIdGVtcGxhdGUYBCABKA4yHi5ub3RpZmljYXRpb25zLnYxLlJ1bGVUZW1wbGF0ZRINCgVncm91cBgFIAEoCRIQCghzZXZlcml0eRgGIAEoCRIPCgdzdW1tYXJ5GAcgASgJEhMKC2Rlc2NyaXB0aW9uGAggASgJEhgKEGR1cmF0aW9uX3NlY29uZHMYCSABKAUSDwoHZW5hYmxlZBgKIAEoCCISChBMaXN0UnVsZXNSZXF1ZXN0IjoKEUxpc3RSdWxlc1Jlc3BvbnNlEiUKBXJ1bGVzGAEgAygLMhYubm90aWZpY2F0aW9ucy52MS5SdWxlIicKEFBhdXNlUnVsZVJlcXVlc3QSEwoCaWQYASABKAlCB7pIBHICEAEiOQoRUGF1c2VSdWxlUmVzcG9uc2USJAoEcnVsZRgBIAEoCzIWLm5vdGlmaWNhdGlvbnMudjEuUnVsZSIoChFSZXN1bWVSdWxlUmVxdWVzdBITCgJpZBgBIAEoCUIHukgEcgIQASI6ChJSZXN1bWVSdWxlUmVzcG9uc2USJAoEcnVsZRgBIAEoCzIWLm5vdGlmaWNhdGlvbnMudjEuUnVsZSKIAQoMU2lsZW5jZVNjb3BlEjAKBGtpbmQYASABKA4yIi5ub3RpZmljYXRpb25zLnYxLlNpbGVuY2VTY29wZUtpbmQSDwoHcnVsZV9pZBgCIAEoCRIQCghncm91cF9pZBgDIAEoCRIPCgdzaXRlX2lkGAQgASgJEhIKCmRldmljZV9pZHMYBSADKAkingIKB1NpbGVuY2USCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgDEi0KBXNjb3BlGAMgASgLMh4ubm90aWZpY2F0aW9ucy52MS5TaWxlbmNlU2NvcGUSLQoJc3RhcnRzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdlbmRzX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdjb21tZW50GAYgASgJEhIKCmNyZWF0ZWRfYnkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGYWN0aXZlGAkgASgIIhUKE0xpc3RTaWxlbmNlc1JlcXVlc3QiQwoUTGlzdFNpbGVuY2VzUmVzcG9uc2USKwoIc2lsZW5jZXMYASADKAsyGS5ub3RpZmljYXRpb25zLnYxLlNpbGVuY2UivAEKFENyZWF0ZVNpbGVuY2VSZXF1ZXN0Ei0KBXNjb3BlGAEgASgLMh4ubm90aWZpY2F0aW9ucy52MS5TaWxlbmNlU2NvcGUSLQoJc3RhcnRzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdlbmRzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZCgdjb21tZW50GAQgASgJQgi6SAVyAxiACCJDChVDcmVhdGVTaWxlbmNlUmVzcG9uc2USKgoHc2lsZW5jZRgBIAEoCzIZLm5vdGlmaWNhdGlvbnMudjEuU2lsZW5jZSLRAQoUVXBkYXRlU2lsZW5jZVJlcXVlc3QSEwoCaWQYASABKAlCB7pIBHICEAESLQoFc2NvcGUYAiABKAsyHi5ub3RpZmljYXRpb25zLnYxLlNpbGVuY2VTY29wZRItCglzdGFydHNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB2VuZHNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKB2NvbW1lbnQYBSABKAlCCLpIBXIDGIAIIkMKFVVwZGF0ZVNpbGVuY2VSZXNwb25zZRIqCgdzaWxlbmNlGAEgASgLMhkubm90aWZpY2F0aW9ucy52MS5TaWxlbmNlIisKFERlbGV0ZVNpbGVuY2VSZXF1ZXN0EhMKAmlkGAEgASgJQge6SARyAhABIhcKFURlbGV0ZVNpbGVuY2VSZXNwb25zZSpcCgtDaGFubmVsS2luZBIcChhDSEFOTkVMX0tJTkRfVU5TUEVDSUZJRUQQABIYChRDSEFOTkVMX0tJTkRfV0VCSE9PSxABEhUKEUNIQU5ORUxfS0lORF9TTVRQEAIqhwEKD1ZhbGlkYXRpb25TdGF0ZRIgChxWQUxJREFUSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYVkFMSURBVElPTl9TVEFURV9QRU5ESU5HEAESFwoTVkFMSURBVElPTl9TVEFURV9PSxACEhsKF1ZBTElEQVRJT05fU1RBVEVfRkFJTEVEEAMq4AEKDFJ1bGVUZW1wbGF0ZRIdChlSVUxFX1RFTVBMQVRFX1VOU1BFQ0lGSUVEEAASGQoVUlVMRV9URU1QTEFURV9PRkZMSU5FEAESGgoWUlVMRV9URU1QTEFURV9IQVNIUkFURRACEh0KGVJVTEVfVEVNUExBVEVfVEVNUEVSQVRVUkUQAxIWChJSVUxFX1RFTVBMQVRFX1BPT0wQBBIhCh1SVUxFX1RFTVBMQVRFX0NPTU1BTkRfRkFJTFVSRRAFEiAKHFJVTEVfVEVNUExBVEVfVEVMRU1FVFJZX1BPTEwQBiqtAQoQU2lsZW5jZVNjb3BlS2luZBIiCh5TSUxFTkNFX1NDT1BFX0tJTkRfVU5TUEVDSUZJRUQQABIbChdTSUxFTkNFX1NDT1BFX0tJTkRfUlVMRRABEhwKGFNJTEVOQ0VfU0NPUEVfS0lORF9HUk9VUBACEhsKF1NJTEVOQ0VfU0NPUEVfS0lORF9TSVRFEAMSHQoZU0lMRU5DRV9TQ09QRV9LSU5EX0RFVklDRRAEMvEDCg5DaGFubmVsU2VydmljZRJdCgxMaXN0Q2hhbm5lbHMSJS5ub3RpZmljYXRpb25zLnYxLkxpc3RDaGFubmVsc1JlcXVlc3QaJi5ub3RpZmljYXRpb25zLnYxLkxpc3RDaGFubmVsc1Jlc3BvbnNlEmAKDUNyZWF0ZUNoYW5uZWwSJi5ub3RpZmljYXRpb25zLnYxLkNyZWF0ZUNoYW5uZWxSZXF1ZXN0Gicubm90aWZpY2F0aW9ucy52MS5DcmVhdGVDaGFubmVsUmVzcG9uc2USYAoNVXBkYXRlQ2hhbm5lbBImLm5vdGlmaWNhdGlvbnMudjEuVXBkYXRlQ2hhbm5lbFJlcXVlc3QaJy5ub3RpZmljYXRpb25zLnYxLlVwZGF0ZUNoYW5uZWxSZXNwb25zZRJgCg1EZWxldGVDaGFubmVsEiYubm90aWZpY2F0aW9ucy52MS5EZWxldGVDaGFubmVsUmVxdWVzdBonLm5vdGlmaWNhdGlvbnMudjEuRGVsZXRlQ2hhbm5lbFJlc3BvbnNlEloKC1Rlc3RDaGFubmVsEiQubm90aWZpY2F0aW9ucy52MS5UZXN0Q2hhbm5lbFJlcXVlc3QaJS5ub3RpZmljYXRpb25zLnYxLlRlc3RDaGFubmVsUmVzcG9uc2UykgIKC1J1bGVTZXJ2aWNlElQKCUxpc3RSdWxlcxIiLm5vdGlmaWNhdGlvbnMudjEuTGlzdFJ1bGVzUmVxdWVzdBojLm5vdGlmaWNhdGlvbnMudjEuTGlzdFJ1bGVzUmVzcG9uc2USVAoJUGF1c2VSdWxlEiIubm90aWZpY2F0aW9ucy52MS5QYXVzZVJ1bGVSZXF1ZXN0GiMubm90aWZpY2F0aW9ucy52MS5QYXVzZVJ1bGVSZXNwb25zZRJXCgpSZXN1bWVSdWxlEiMubm90aWZpY2F0aW9ucy52MS5SZXN1bWVSdWxlUmVxdWVzdBokLm5vdGlmaWNhdGlvbnMudjEuUmVzdW1lUnVsZVJlc3BvbnNlMpUDCg5TaWxlbmNlU2VydmljZRJdCgxMaXN0U2lsZW5jZXMSJS5ub3RpZmljYXRpb25zLnYxLkxpc3RTaWxlbmNlc1JlcXVlc3QaJi5ub3RpZmljYXRpb25zLnYxLkxpc3RTaWxlbmNlc1Jlc3BvbnNlEmAKDUNyZWF0ZVNpbGVuY2USJi5ub3RpZmljYXRpb25zLnYxLkNyZWF0ZVNpbGVuY2VSZXF1ZXN0Gicubm90aWZpY2F0aW9ucy52MS5DcmVhdGVTaWxlbmNlUmVzcG9uc2USYAoNVXBkYXRlU2lsZW5jZRImLm5vdGlmaWNhdGlvbnMudjEuVXBkYXRlU2lsZW5jZVJlcXVlc3QaJy5ub3RpZmljYXRpb25zLnYxLlVwZGF0ZVNpbGVuY2VSZXNwb25zZRJgCg1EZWxldGVTaWxlbmNlEiYubm90aWZpY2F0aW9ucy52MS5EZWxldGVTaWxlbmNlUmVxdWVzdBonLm5vdGlmaWNhdGlvbnMudjEuRGVsZXRlU2lsZW5jZVJlc3BvbnNlQuABChRjb20ubm90aWZpY2F0aW9ucy52MUISTm90aWZpY2F0aW9uc1Byb3RvUAFaU2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL25vdGlmaWNhdGlvbnMvdjE7bm90aWZpY2F0aW9uc3YxogIDTlhYqgIQTm90aWZpY2F0aW9ucy5WMcoCEE5vdGlmaWNhdGlvbnNcVjHiAhxOb3RpZmljYXRpb25zXFYxXEdQQk1ldGFkYXRh6gIRTm90aWZpY2F0aW9uczo6VjFiBnByb3RvMw",
+    "CiRub3RpZmljYXRpb25zL3YxL25vdGlmaWNhdGlvbnMucHJvdG8SEG5vdGlmaWNhdGlvbnMudjEiMwoNV2ViaG9va0NvbmZpZxILCgN1cmwYASABKAkSFQoNYmVhcmVyX2hlYWRlchgCIAEoCSJmCgpTbXRwQ29uZmlnEgwKBGhvc3QYASABKAkSDAoEcG9ydBgCIAEoBRIQCgh1c2VybmFtZRgDIAEoCRIMCgRmcm9tGAQgASgJEgoKAnRvGAUgAygJEhAKCHBhc3N3b3JkGAYgASgJIiIKC1NsYWNrQ29uZmlnEhMKC3dlYmhvb2tfdXJsGAEgASgJIvIDCgdDaGFubmVsEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoAxIMCgRuYW1lGAMgASgJEisKBGtpbmQYBCABKA4yHS5ub3RpZmljYXRpb25zLnYxLkNoYW5uZWxLaW5kEjAKB3dlYmhvb2sYBSABKAsyHy5ub3RpZmljYXRpb25zLnYxLldlYmhvb2tDb25maWcSKgoEc210cBgGIAEoCzIcLm5vdGlmaWNhdGlvbnMudjEuU210cENvbmZpZxIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgx2YWxpZGF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjsKEHZhbGlkYXRpb25fc3RhdGUYCiABKA4yIS5ub3RpZmljYXRpb25zLnYxLlZhbGlkYXRpb25TdGF0ZRIYChB2YWxpZGF0aW9uX2Vycm9yGAsgASgJEhIKCmhhc19zZWNyZXQYDCABKAgSLAoFc2xhY2sYDSABKAsyHS5ub3RpZmljYXRpb25zLnYxLlNsYWNrQ29uZmlnIhUKE0xpc3RDaGFubmVsc1JlcXVlc3QiQwoUTGlzdENoYW5uZWxzUmVzcG9uc2USKwoIY2hhbm5lbHMYASADKAsyGS5ub3RpZmljYXRpb25zLnYxLkNoYW5uZWwi6QEKFENyZWF0ZUNoYW5uZWxSZXF1ZXN0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESKwoEa2luZBgCIAEoDjIdLm5vdGlmaWNhdGlvbnMudjEuQ2hhbm5lbEtpbmQSMAoHd2ViaG9vaxgDIAEoCzIfLm5vdGlmaWNhdGlvbnMudjEuV2ViaG9va0NvbmZpZxIqCgRzbXRwGAQgASgLMhwubm90aWZpY2F0aW9ucy52MS5TbXRwQ29uZmlnEiwKBXNsYWNrGAUgASgLMh0ubm90aWZpY2F0aW9ucy52MS5TbGFja0NvbmZpZyJDChVDcmVhdGVDaGFubmVsUmVzcG9uc2USKgoHY2hhbm5lbBgBIAEoCzIZLm5vdGlmaWNhdGlvbnMudjEuQ2hhbm5lbCL+AQoUVXBkYXRlQ2hhbm5lbFJlcXVlc3QSEwoCaWQYASABKAlCB7pIBHICEAESGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ARIrCgRraW5kGAMgASgOMh0ubm90aWZpY2F0aW9ucy52MS5DaGFubmVsS2luZBIwCgd3ZWJob29rGAQgASgLMh8ubm90aWZpY2F0aW9ucy52MS5XZWJob29rQ29uZmlnEioKBHNtdHAYBSABKAsyHC5ub3RpZmljYXRpb25zLnYxLlNtdHBDb25maWcSLAoFc2xhY2sYBiABKAsyHS5ub3RpZmljYXRpb25zLnYxLlNsYWNrQ29uZmlnIkMKFVVwZGF0ZUNoYW5uZWxSZXNwb25zZRIqCgdjaGFubmVsGAEgASgLMhkubm90aWZpY2F0aW9ucy52MS5DaGFubmVsIisKFERlbGV0ZUNoYW5uZWxSZXF1ZXN0EhMKAmlkGAEgASgJQge6SARyAhABIhcKFURlbGV0ZUNoYW5uZWxSZXNwb25zZSLZAQoSVGVzdENoYW5uZWxSZXF1ZXN0EgoKAmlkGAEgASgJEisKBGtpbmQYAiABKA4yHS5ub3RpZmljYXRpb25zLnYxLkNoYW5uZWxLaW5kEjAKB3dlYmhvb2sYAyABKAsyHy5ub3RpZmljYXRpb25zLnYxLldlYmhvb2tDb25maWcSKgoEc210cBgEIAEoCzIcLm5vdGlmaWNhdGlvbnMudjEuU210cENvbmZpZxIsCgVzbGFjaxgFIAEoCzIdLm5vdGlmaWNhdGlvbnMudjEuU2xhY2tDb25maWciRwoTVGVzdENoYW5uZWxSZXNwb25zZRIKCgJvaxgBIAEoCBINCgVlcnJvchgCIAEoCRIVCg1yZXNwb25zZV9jb2RlGAMgASgFIt0BCgRSdWxlEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoAxIMCgRuYW1lGAMgASgJEjAKCHRlbXBsYXRlGAQgASgOMh4ubm90aWZpY2F0aW9ucy52MS5SdWxlVGVtcGxhdGUSDQoFZ3JvdXAYBSABKAkSEAoIc2V2ZXJpdHkYBiABKAkSDwoHc3VtbWFyeRgHIAEoCRITCgtkZXNjcmlwdGlvbhgIIAEoCRIYChBkdXJhdGlvbl9zZWNvbmRzGAkgASgFEg8KB2VuYWJsZWQYCiABKAgiEgoQTGlzdFJ1bGVzUmVxdWVzdCI6ChFMaXN0UnVsZXNSZXNwb25zZRIlCgVydWxlcxgBIAMoCzIWLm5vdGlmaWNhdGlvbnMudjEuUnVsZSInChBQYXVzZVJ1bGVSZXF1ZXN0EhMKAmlkGAEgASgJQge6SARyAhABIjkKEVBhdXNlUnVsZVJlc3BvbnNlEiQKBHJ1bGUYASABKAsyFi5ub3RpZmljYXRpb25zLnYxLlJ1bGUiKAoRUmVzdW1lUnVsZVJlcXVlc3QSEwoCaWQYASABKAlCB7pIBHICEAEiOgoSUmVzdW1lUnVsZVJlc3BvbnNlEiQKBHJ1bGUYASABKAsyFi5ub3RpZmljYXRpb25zLnYxLlJ1bGUiiAEKDFNpbGVuY2VTY29wZRIwCgRraW5kGAEgASgOMiIubm90aWZpY2F0aW9ucy52MS5TaWxlbmNlU2NvcGVLaW5kEg8KB3J1bGVfaWQYAiABKAkSEAoIZ3JvdXBfaWQYAyABKAkSDwoHc2l0ZV9pZBgEIAEoCRISCgpkZXZpY2VfaWRzGAUgAygJIp4CCgdTaWxlbmNlEgoKAmlkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoAxItCgVzY29wZRgDIAEoCzIeLm5vdGlmaWNhdGlvbnMudjEuU2lsZW5jZVNjb3BlEi0KCXN0YXJ0c19hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKwoHZW5kc19hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDwoHY29tbWVudBgGIAEoCRISCgpjcmVhdGVkX2J5GAcgASgJEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBmFjdGl2ZRgJIAEoCCIVChNMaXN0U2lsZW5jZXNSZXF1ZXN0IkMKFExpc3RTaWxlbmNlc1Jlc3BvbnNlEisKCHNpbGVuY2VzGAEgAygLMhkubm90aWZpY2F0aW9ucy52MS5TaWxlbmNlIrwBChRDcmVhdGVTaWxlbmNlUmVxdWVzdBItCgVzY29wZRgBIAEoCzIeLm5vdGlmaWNhdGlvbnMudjEuU2lsZW5jZVNjb3BlEi0KCXN0YXJ0c19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKwoHZW5kc19hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoHY29tbWVudBgEIAEoCUIIukgFcgMYgAgiQwoVQ3JlYXRlU2lsZW5jZVJlc3BvbnNlEioKB3NpbGVuY2UYASABKAsyGS5ub3RpZmljYXRpb25zLnYxLlNpbGVuY2Ui0QEKFFVwZGF0ZVNpbGVuY2VSZXF1ZXN0EhMKAmlkGAEgASgJQge6SARyAhABEi0KBXNjb3BlGAIgASgLMh4ubm90aWZpY2F0aW9ucy52MS5TaWxlbmNlU2NvcGUSLQoJc3RhcnRzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdlbmRzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZCgdjb21tZW50GAUgASgJQgi6SAVyAxiACCJDChVVcGRhdGVTaWxlbmNlUmVzcG9uc2USKgoHc2lsZW5jZRgBIAEoCzIZLm5vdGlmaWNhdGlvbnMudjEuU2lsZW5jZSIrChREZWxldGVTaWxlbmNlUmVxdWVzdBITCgJpZBgBIAEoCUIHukgEcgIQASIXChVEZWxldGVTaWxlbmNlUmVzcG9uc2UqdAoLQ2hhbm5lbEtpbmQSHAoYQ0hBTk5FTF9LSU5EX1VOU1BFQ0lGSUVEEAASGAoUQ0hBTk5FTF9LSU5EX1dFQkhPT0sQARIVChFDSEFOTkVMX0tJTkRfU01UUBACEhYKEkNIQU5ORUxfS0lORF9TTEFDSxADKocBCg9WYWxpZGF0aW9uU3RhdGUSIAocVkFMSURBVElPTl9TVEFURV9VTlNQRUNJRklFRBAAEhwKGFZBTElEQVRJT05fU1RBVEVfUEVORElORxABEhcKE1ZBTElEQVRJT05fU1RBVEVfT0sQAhIbChdWQUxJREFUSU9OX1NUQVRFX0ZBSUxFRBADKuABCgxSdWxlVGVtcGxhdGUSHQoZUlVMRV9URU1QTEFURV9VTlNQRUNJRklFRBAAEhkKFVJVTEVfVEVNUExBVEVfT0ZGTElORRABEhoKFlJVTEVfVEVNUExBVEVfSEFTSFJBVEUQAhIdChlSVUxFX1RFTVBMQVRFX1RFTVBFUkFUVVJFEAMSFgoSUlVMRV9URU1QTEFURV9QT09MEAQSIQodUlVMRV9URU1QTEFURV9DT01NQU5EX0ZBSUxVUkUQBRIgChxSVUxFX1RFTVBMQVRFX1RFTEVNRVRSWV9QT0xMEAYqrQEKEFNpbGVuY2VTY29wZUtpbmQSIgoeU0lMRU5DRV9TQ09QRV9LSU5EX1VOU1BFQ0lGSUVEEAASGwoXU0lMRU5DRV9TQ09QRV9LSU5EX1JVTEUQARIcChhTSUxFTkNFX1NDT1BFX0tJTkRfR1JPVVAQAhIbChdTSUxFTkNFX1NDT1BFX0tJTkRfU0lURRADEh0KGVNJTEVOQ0VfU0NPUEVfS0lORF9ERVZJQ0UQBDLxAwoOQ2hhbm5lbFNlcnZpY2USXQoMTGlzdENoYW5uZWxzEiUubm90aWZpY2F0aW9ucy52MS5MaXN0Q2hhbm5lbHNSZXF1ZXN0GiYubm90aWZpY2F0aW9ucy52MS5MaXN0Q2hhbm5lbHNSZXNwb25zZRJgCg1DcmVhdGVDaGFubmVsEiYubm90aWZpY2F0aW9ucy52MS5DcmVhdGVDaGFubmVsUmVxdWVzdBonLm5vdGlmaWNhdGlvbnMudjEuQ3JlYXRlQ2hhbm5lbFJlc3BvbnNlEmAKDVVwZGF0ZUNoYW5uZWwSJi5ub3RpZmljYXRpb25zLnYxLlVwZGF0ZUNoYW5uZWxSZXF1ZXN0Gicubm90aWZpY2F0aW9ucy52MS5VcGRhdGVDaGFubmVsUmVzcG9uc2USYAoNRGVsZXRlQ2hhbm5lbBImLm5vdGlmaWNhdGlvbnMudjEuRGVsZXRlQ2hhbm5lbFJlcXVlc3QaJy5ub3RpZmljYXRpb25zLnYxLkRlbGV0ZUNoYW5uZWxSZXNwb25zZRJaCgtUZXN0Q2hhbm5lbBIkLm5vdGlmaWNhdGlvbnMudjEuVGVzdENoYW5uZWxSZXF1ZXN0GiUubm90aWZpY2F0aW9ucy52MS5UZXN0Q2hhbm5lbFJlc3BvbnNlMpICCgtSdWxlU2VydmljZRJUCglMaXN0UnVsZXMSIi5ub3RpZmljYXRpb25zLnYxLkxpc3RSdWxlc1JlcXVlc3QaIy5ub3RpZmljYXRpb25zLnYxLkxpc3RSdWxlc1Jlc3BvbnNlElQKCVBhdXNlUnVsZRIiLm5vdGlmaWNhdGlvbnMudjEuUGF1c2VSdWxlUmVxdWVzdBojLm5vdGlmaWNhdGlvbnMudjEuUGF1c2VSdWxlUmVzcG9uc2USVwoKUmVzdW1lUnVsZRIjLm5vdGlmaWNhdGlvbnMudjEuUmVzdW1lUnVsZVJlcXVlc3QaJC5ub3RpZmljYXRpb25zLnYxLlJlc3VtZVJ1bGVSZXNwb25zZTKVAwoOU2lsZW5jZVNlcnZpY2USXQoMTGlzdFNpbGVuY2VzEiUubm90aWZpY2F0aW9ucy52MS5MaXN0U2lsZW5jZXNSZXF1ZXN0GiYubm90aWZpY2F0aW9ucy52MS5MaXN0U2lsZW5jZXNSZXNwb25zZRJgCg1DcmVhdGVTaWxlbmNlEiYubm90aWZpY2F0aW9ucy52MS5DcmVhdGVTaWxlbmNlUmVxdWVzdBonLm5vdGlmaWNhdGlvbnMudjEuQ3JlYXRlU2lsZW5jZVJlc3BvbnNlEmAKDVVwZGF0ZVNpbGVuY2USJi5ub3RpZmljYXRpb25zLnYxLlVwZGF0ZVNpbGVuY2VSZXF1ZXN0Gicubm90aWZpY2F0aW9ucy52MS5VcGRhdGVTaWxlbmNlUmVzcG9uc2USYAoNRGVsZXRlU2lsZW5jZRImLm5vdGlmaWNhdGlvbnMudjEuRGVsZXRlU2lsZW5jZVJlcXVlc3QaJy5ub3RpZmljYXRpb25zLnYxLkRlbGV0ZVNpbGVuY2VSZXNwb25zZULgAQoUY29tLm5vdGlmaWNhdGlvbnMudjFCEk5vdGlmaWNhdGlvbnNQcm90b1ABWlNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9ub3RpZmljYXRpb25zL3YxO25vdGlmaWNhdGlvbnN2MaICA05YWKoCEE5vdGlmaWNhdGlvbnMuVjHKAhBOb3RpZmljYXRpb25zXFYx4gIcTm90aWZpY2F0aW9uc1xWMVxHUEJNZXRhZGF0YeoCEU5vdGlmaWNhdGlvbnM6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -115,6 +115,29 @@ export const SmtpConfigSchema: GenMessage<SmtpConfig> =
   messageDesc(file_notifications_v1_notifications, 1);
 
 /**
+ * @generated from message notifications.v1.SlackConfig
+ */
+export type SlackConfig = Message<"notifications.v1.SlackConfig"> & {
+  /**
+   * webhook_url is the Slack incoming-webhook URL. The URL embeds
+   * the capability token, so the whole value is a secret: Grafana
+   * stores it as a secure setting, reads return it empty, and
+   * presence is signalled by Channel.has_secret.
+   *
+   * @generated from field: string webhook_url = 1;
+   */
+  webhookUrl: string;
+};
+
+/**
+ * Describes the message notifications.v1.SlackConfig.
+ * Use `create(SlackConfigSchema)` to create a new message.
+ */
+export const SlackConfigSchema: GenMessage<SlackConfig> =
+  /*@__PURE__*/
+  messageDesc(file_notifications_v1_notifications, 2);
+
+/**
  * @generated from message notifications.v1.Channel
  */
 export type Channel = Message<"notifications.v1.Channel"> & {
@@ -174,20 +197,25 @@ export type Channel = Message<"notifications.v1.Channel"> & {
   validationError: string;
 
   /**
-   * has_secret is true when a webhook bearer header or SMTP password
-   * is stored. Lets the UI render "•••• Set" without leaking the
-   * secret on the wire.
+   * has_secret is true when a webhook bearer header, SMTP password,
+   * or Slack webhook URL is stored. Lets the UI render "•••• Set"
+   * without leaking the secret on the wire.
    *
    * @generated from field: bool has_secret = 12;
    */
   hasSecret: boolean;
+
+  /**
+   * @generated from field: notifications.v1.SlackConfig slack = 13;
+   */
+  slack?: SlackConfig | undefined;
 };
 
 /**
  * Describes the message notifications.v1.Channel.
  * Use `create(ChannelSchema)` to create a new message.
  */
-export const ChannelSchema: GenMessage<Channel> = /*@__PURE__*/ messageDesc(file_notifications_v1_notifications, 2);
+export const ChannelSchema: GenMessage<Channel> = /*@__PURE__*/ messageDesc(file_notifications_v1_notifications, 3);
 
 /**
  * @generated from message notifications.v1.ListChannelsRequest
@@ -200,7 +228,7 @@ export type ListChannelsRequest = Message<"notifications.v1.ListChannelsRequest"
  */
 export const ListChannelsRequestSchema: GenMessage<ListChannelsRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 3);
+  messageDesc(file_notifications_v1_notifications, 4);
 
 /**
  * @generated from message notifications.v1.ListChannelsResponse
@@ -218,7 +246,7 @@ export type ListChannelsResponse = Message<"notifications.v1.ListChannelsRespons
  */
 export const ListChannelsResponseSchema: GenMessage<ListChannelsResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 4);
+  messageDesc(file_notifications_v1_notifications, 5);
 
 /**
  * @generated from message notifications.v1.CreateChannelRequest
@@ -243,6 +271,11 @@ export type CreateChannelRequest = Message<"notifications.v1.CreateChannelReques
    * @generated from field: notifications.v1.SmtpConfig smtp = 4;
    */
   smtp?: SmtpConfig | undefined;
+
+  /**
+   * @generated from field: notifications.v1.SlackConfig slack = 5;
+   */
+  slack?: SlackConfig | undefined;
 };
 
 /**
@@ -251,7 +284,7 @@ export type CreateChannelRequest = Message<"notifications.v1.CreateChannelReques
  */
 export const CreateChannelRequestSchema: GenMessage<CreateChannelRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 5);
+  messageDesc(file_notifications_v1_notifications, 6);
 
 /**
  * @generated from message notifications.v1.CreateChannelResponse
@@ -269,7 +302,7 @@ export type CreateChannelResponse = Message<"notifications.v1.CreateChannelRespo
  */
 export const CreateChannelResponseSchema: GenMessage<CreateChannelResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 6);
+  messageDesc(file_notifications_v1_notifications, 7);
 
 /**
  * @generated from message notifications.v1.UpdateChannelRequest
@@ -299,6 +332,11 @@ export type UpdateChannelRequest = Message<"notifications.v1.UpdateChannelReques
    * @generated from field: notifications.v1.SmtpConfig smtp = 5;
    */
   smtp?: SmtpConfig | undefined;
+
+  /**
+   * @generated from field: notifications.v1.SlackConfig slack = 6;
+   */
+  slack?: SlackConfig | undefined;
 };
 
 /**
@@ -307,7 +345,7 @@ export type UpdateChannelRequest = Message<"notifications.v1.UpdateChannelReques
  */
 export const UpdateChannelRequestSchema: GenMessage<UpdateChannelRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 7);
+  messageDesc(file_notifications_v1_notifications, 8);
 
 /**
  * @generated from message notifications.v1.UpdateChannelResponse
@@ -325,7 +363,7 @@ export type UpdateChannelResponse = Message<"notifications.v1.UpdateChannelRespo
  */
 export const UpdateChannelResponseSchema: GenMessage<UpdateChannelResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 8);
+  messageDesc(file_notifications_v1_notifications, 9);
 
 /**
  * @generated from message notifications.v1.DeleteChannelRequest
@@ -343,7 +381,7 @@ export type DeleteChannelRequest = Message<"notifications.v1.DeleteChannelReques
  */
 export const DeleteChannelRequestSchema: GenMessage<DeleteChannelRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 9);
+  messageDesc(file_notifications_v1_notifications, 10);
 
 /**
  * @generated from message notifications.v1.DeleteChannelResponse
@@ -356,7 +394,7 @@ export type DeleteChannelResponse = Message<"notifications.v1.DeleteChannelRespo
  */
 export const DeleteChannelResponseSchema: GenMessage<DeleteChannelResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 10);
+  messageDesc(file_notifications_v1_notifications, 11);
 
 /**
  * @generated from message notifications.v1.TestChannelRequest
@@ -385,6 +423,11 @@ export type TestChannelRequest = Message<"notifications.v1.TestChannelRequest"> 
    * @generated from field: notifications.v1.SmtpConfig smtp = 4;
    */
   smtp?: SmtpConfig | undefined;
+
+  /**
+   * @generated from field: notifications.v1.SlackConfig slack = 5;
+   */
+  slack?: SlackConfig | undefined;
 };
 
 /**
@@ -393,7 +436,7 @@ export type TestChannelRequest = Message<"notifications.v1.TestChannelRequest"> 
  */
 export const TestChannelRequestSchema: GenMessage<TestChannelRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 11);
+  messageDesc(file_notifications_v1_notifications, 12);
 
 /**
  * @generated from message notifications.v1.TestChannelResponse
@@ -421,7 +464,7 @@ export type TestChannelResponse = Message<"notifications.v1.TestChannelResponse"
  */
 export const TestChannelResponseSchema: GenMessage<TestChannelResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 12);
+  messageDesc(file_notifications_v1_notifications, 13);
 
 /**
  * @generated from message notifications.v1.Rule
@@ -503,7 +546,7 @@ export type Rule = Message<"notifications.v1.Rule"> & {
  * Describes the message notifications.v1.Rule.
  * Use `create(RuleSchema)` to create a new message.
  */
-export const RuleSchema: GenMessage<Rule> = /*@__PURE__*/ messageDesc(file_notifications_v1_notifications, 13);
+export const RuleSchema: GenMessage<Rule> = /*@__PURE__*/ messageDesc(file_notifications_v1_notifications, 14);
 
 /**
  * @generated from message notifications.v1.ListRulesRequest
@@ -516,7 +559,7 @@ export type ListRulesRequest = Message<"notifications.v1.ListRulesRequest"> & {}
  */
 export const ListRulesRequestSchema: GenMessage<ListRulesRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 14);
+  messageDesc(file_notifications_v1_notifications, 15);
 
 /**
  * @generated from message notifications.v1.ListRulesResponse
@@ -534,7 +577,7 @@ export type ListRulesResponse = Message<"notifications.v1.ListRulesResponse"> & 
  */
 export const ListRulesResponseSchema: GenMessage<ListRulesResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 15);
+  messageDesc(file_notifications_v1_notifications, 16);
 
 /**
  * @generated from message notifications.v1.PauseRuleRequest
@@ -552,7 +595,7 @@ export type PauseRuleRequest = Message<"notifications.v1.PauseRuleRequest"> & {
  */
 export const PauseRuleRequestSchema: GenMessage<PauseRuleRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 16);
+  messageDesc(file_notifications_v1_notifications, 17);
 
 /**
  * @generated from message notifications.v1.PauseRuleResponse
@@ -570,7 +613,7 @@ export type PauseRuleResponse = Message<"notifications.v1.PauseRuleResponse"> & 
  */
 export const PauseRuleResponseSchema: GenMessage<PauseRuleResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 17);
+  messageDesc(file_notifications_v1_notifications, 18);
 
 /**
  * @generated from message notifications.v1.ResumeRuleRequest
@@ -588,7 +631,7 @@ export type ResumeRuleRequest = Message<"notifications.v1.ResumeRuleRequest"> & 
  */
 export const ResumeRuleRequestSchema: GenMessage<ResumeRuleRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 18);
+  messageDesc(file_notifications_v1_notifications, 19);
 
 /**
  * @generated from message notifications.v1.ResumeRuleResponse
@@ -606,7 +649,7 @@ export type ResumeRuleResponse = Message<"notifications.v1.ResumeRuleResponse"> 
  */
 export const ResumeRuleResponseSchema: GenMessage<ResumeRuleResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 19);
+  messageDesc(file_notifications_v1_notifications, 20);
 
 /**
  * @generated from message notifications.v1.SilenceScope
@@ -644,7 +687,7 @@ export type SilenceScope = Message<"notifications.v1.SilenceScope"> & {
  */
 export const SilenceScopeSchema: GenMessage<SilenceScope> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 20);
+  messageDesc(file_notifications_v1_notifications, 21);
 
 /**
  * @generated from message notifications.v1.Silence
@@ -700,7 +743,7 @@ export type Silence = Message<"notifications.v1.Silence"> & {
  * Describes the message notifications.v1.Silence.
  * Use `create(SilenceSchema)` to create a new message.
  */
-export const SilenceSchema: GenMessage<Silence> = /*@__PURE__*/ messageDesc(file_notifications_v1_notifications, 21);
+export const SilenceSchema: GenMessage<Silence> = /*@__PURE__*/ messageDesc(file_notifications_v1_notifications, 22);
 
 /**
  * @generated from message notifications.v1.ListSilencesRequest
@@ -713,7 +756,7 @@ export type ListSilencesRequest = Message<"notifications.v1.ListSilencesRequest"
  */
 export const ListSilencesRequestSchema: GenMessage<ListSilencesRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 22);
+  messageDesc(file_notifications_v1_notifications, 23);
 
 /**
  * @generated from message notifications.v1.ListSilencesResponse
@@ -731,7 +774,7 @@ export type ListSilencesResponse = Message<"notifications.v1.ListSilencesRespons
  */
 export const ListSilencesResponseSchema: GenMessage<ListSilencesResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 23);
+  messageDesc(file_notifications_v1_notifications, 24);
 
 /**
  * @generated from message notifications.v1.CreateSilenceRequest
@@ -764,7 +807,7 @@ export type CreateSilenceRequest = Message<"notifications.v1.CreateSilenceReques
  */
 export const CreateSilenceRequestSchema: GenMessage<CreateSilenceRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 24);
+  messageDesc(file_notifications_v1_notifications, 25);
 
 /**
  * @generated from message notifications.v1.CreateSilenceResponse
@@ -782,7 +825,7 @@ export type CreateSilenceResponse = Message<"notifications.v1.CreateSilenceRespo
  */
 export const CreateSilenceResponseSchema: GenMessage<CreateSilenceResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 25);
+  messageDesc(file_notifications_v1_notifications, 26);
 
 /**
  * @generated from message notifications.v1.UpdateSilenceRequest
@@ -820,7 +863,7 @@ export type UpdateSilenceRequest = Message<"notifications.v1.UpdateSilenceReques
  */
 export const UpdateSilenceRequestSchema: GenMessage<UpdateSilenceRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 26);
+  messageDesc(file_notifications_v1_notifications, 27);
 
 /**
  * @generated from message notifications.v1.UpdateSilenceResponse
@@ -838,7 +881,7 @@ export type UpdateSilenceResponse = Message<"notifications.v1.UpdateSilenceRespo
  */
 export const UpdateSilenceResponseSchema: GenMessage<UpdateSilenceResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 27);
+  messageDesc(file_notifications_v1_notifications, 28);
 
 /**
  * @generated from message notifications.v1.DeleteSilenceRequest
@@ -856,7 +899,7 @@ export type DeleteSilenceRequest = Message<"notifications.v1.DeleteSilenceReques
  */
 export const DeleteSilenceRequestSchema: GenMessage<DeleteSilenceRequest> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 28);
+  messageDesc(file_notifications_v1_notifications, 29);
 
 /**
  * @generated from message notifications.v1.DeleteSilenceResponse
@@ -869,7 +912,7 @@ export type DeleteSilenceResponse = Message<"notifications.v1.DeleteSilenceRespo
  */
 export const DeleteSilenceResponseSchema: GenMessage<DeleteSilenceResponse> =
   /*@__PURE__*/
-  messageDesc(file_notifications_v1_notifications, 29);
+  messageDesc(file_notifications_v1_notifications, 30);
 
 /**
  * @generated from enum notifications.v1.ChannelKind
@@ -889,6 +932,11 @@ export enum ChannelKind {
    * @generated from enum value: CHANNEL_KIND_SMTP = 2;
    */
   SMTP = 2,
+
+  /**
+   * @generated from enum value: CHANNEL_KIND_SLACK = 3;
+   */
+  SLACK = 3,
 }
 
 /**

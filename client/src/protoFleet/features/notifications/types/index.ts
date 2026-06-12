@@ -2,7 +2,7 @@
 // JSON shapes the server-side handler emits — see
 // server/internal/handlers/notifications/handler.go for the source of truth.
 
-export type ChannelKind = "webhook" | "smtp";
+export type ChannelKind = "webhook" | "smtp" | "slack";
 export type ValidationState = "ok" | "failed" | "pending";
 
 export interface WebhookConfig {
@@ -20,6 +20,12 @@ export interface SmtpConfig {
   password?: string;
 }
 
+export interface SlackConfig {
+  // webhook_url is write-only — the URL embeds the capability token,
+  // so reads return it empty and has_secret signals one is stored.
+  webhook_url?: string;
+}
+
 export interface Channel {
   id: string;
   organization_id: string;
@@ -27,6 +33,7 @@ export interface Channel {
   kind: ChannelKind;
   webhook: WebhookConfig | null;
   smtp: SmtpConfig | null;
+  slack: SlackConfig | null;
   created_at: string;
   updated_at: string;
   validated_at: string | null;

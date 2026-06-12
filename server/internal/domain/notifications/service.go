@@ -37,8 +37,9 @@ import (
 // product decision. Operators can pause / resume / silence the
 // closed set of provisioned rules; new rules require a deploy.
 //
-// Secrets: webhook bearer headers and SMTP passwords are passed
-// straight through to Grafana, which stores them encrypted at rest
+// Secrets: webhook bearer headers, SMTP passwords, and Slack webhook
+// URLs are passed straight through to Grafana, which stores them
+// encrypted at rest
 // in its own datastore. We do not keep a parallel copy in fleet-api
 // — there's nothing for fleet-api to do with them (Grafana is the
 // one calling out to the destination), and storing them twice would
@@ -173,20 +174,55 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err != nil {
 		return nil, err
 	}
+	// Resolve the effective destination and decide whether it changed.
+	// This gates secret preservation below: a stored secret must never
+	// be carried onto a *new* destination, or a manage user could
+	// redirect the channel to infrastructure they control and have the
+	// old bearer token / SMTP password delivered there.
+	//
 	// Webhook URLs are returned host-only on reads (they embed
-	// capability tokens), so an ordinary edit echoes back the redacted
-	// host rather than the full URL. Treat an empty or still-redacted
-	// URL as "unchanged" and carry the stored full URL through, the
-	// same way secrets are preserved. A manage user replacing the
-	// destination submits a fresh full URL, which overrides this.
-	if c.Kind == ChannelKindWebhook && c.Webhook != nil {
-		stored := webhookURLFromSettings(ownedCP.Settings)
-		if c.Webhook.URL == "" || c.Webhook.URL == redactWebhookURL(stored) {
-			c.Webhook.URL = stored
+	// capability tokens), so an ordinary rename echoes back the
+	// redacted host rather than the full URL. Treat an empty or
+	// still-redacted URL as "unchanged" and restore the stored full
+	// URL; anything else is a real destination change.
+	destinationChanged := false
+	keepStoredSlackURL := false
+	switch c.Kind {
+	case ChannelKindWebhook:
+		if c.Webhook != nil {
+			stored := webhookURLFromSettings(ownedCP.Settings)
+			if c.Webhook.URL == "" || c.Webhook.URL == redactWebhookURL(stored) {
+				c.Webhook.URL = stored
+			}
+			destinationChanged = c.Webhook.URL != stored
 		}
+	case ChannelKindSMTP:
+		// The SMTP server (host:port) is the credential's audience;
+		// changing recipients or the display name reuses the same
+		// server and is not a destination change.
+		if c.SMTP != nil && owned.SMTP != nil {
+			destinationChanged = c.SMTP.Host != owned.SMTP.Host || c.SMTP.Port != owned.SMTP.Port
+		}
+	case ChannelKindSlack:
+		// Slack URLs are write-only — the whole URL is the secret,
+		// Grafana stores it as a secure setting, and reads return only
+		// a redacted placeholder. An edit without a fresh URL therefore
+		// means "keep the stored destination": carrySecretSettings below
+		// carries the stored value (Grafana's "[REDACTED]" placeholder,
+		// resolved back on PUT) into the payload. A fresh URL is both a
+		// destination change and its own new secret.
+		keepStoredSlackURL = c.Slack == nil || c.Slack.WebhookURL == ""
+		if c.Slack == nil {
+			c.Slack = &SlackConfig{}
+		}
+		destinationChanged = !keepStoredSlackURL
 	}
-	if err := s.validateDestination(ctx, &c); err != nil {
-		return nil, err
+	// A kept stored Slack URL has nothing new to validate (and the
+	// placeholder wouldn't parse as a URL anyway).
+	if !keepStoredSlackURL {
+		if err := s.validateDestination(ctx, &c); err != nil {
+			return nil, err
+		}
 	}
 	c.OrganizationID = orgID
 	c.UpdatedAt = s.now()
@@ -199,20 +235,29 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err != nil {
 		return nil, err
 	}
-	// Ordinary edits (rename, destination change) arrive without the
+	// Ordinary edits (rename, recipient change) arrive without the
 	// secret — reads never return it, so the UI can't echo it back.
 	// Writing the empty value would silently wipe the stored credential
 	// in Grafana, so carry the existing settings' secret field into the
 	// update payload instead. For webhook channels the carried value is
 	// Grafana's "[REDACTED]" placeholder, which Grafana's provisioning
 	// API resolves back to the stored secure value on PUT.
+	//
+	// The carry is gated on the destination being unchanged: a changed
+	// destination without a fresh secret drops the stored one (the PUT
+	// omits the field, which wipes it in Grafana) rather than deliver
+	// the old credential to the new destination.
 	if !hasNewSecret {
-		var carried bool
-		settings, carried, err = carrySecretSettings(ownedCP.Settings, settings, c.Kind)
-		if err != nil {
-			return nil, err
+		if destinationChanged {
+			c.HasSecret = false
+		} else {
+			var carried bool
+			settings, carried, err = carrySecretSettings(ownedCP.Settings, settings, c.Kind)
+			if err != nil {
+				return nil, err
+			}
+			c.HasSecret = owned.HasSecret || carried
 		}
-		c.HasSecret = owned.HasSecret || carried
 	}
 	cp := GrafanaContactPoint{
 		UID:      c.ID,
@@ -309,6 +354,8 @@ func (s *Service) requestHasNewSecret(c *Channel) bool {
 		return c.Webhook != nil && c.Webhook.BearerHeader != ""
 	case ChannelKindSMTP:
 		return c.SMTP != nil && c.SMTP.Password != ""
+	case ChannelKindSlack:
+		return c.Slack != nil && c.Slack.WebhookURL != ""
 	}
 	return false
 }
@@ -321,6 +368,8 @@ func secretSettingsKeyFor(kind ChannelKind) string {
 		return "authorization_credentials"
 	case ChannelKindSMTP:
 		return "smtpPassword"
+	case ChannelKindSlack:
+		return "url"
 	}
 	return ""
 }
@@ -365,17 +414,12 @@ func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
 		if c.Webhook == nil || c.Webhook.URL == "" {
 			return fleeterror.NewInvalidArgumentError("webhook url is required")
 		}
-		u, err := url.Parse(c.Webhook.URL)
-		if err != nil {
-			return fleeterror.NewInvalidArgumentError("invalid webhook url: " + err.Error())
+		return s.checkDestinationURL(ctx, c.Webhook.URL, "webhook")
+	case ChannelKindSlack:
+		if c.Slack == nil || c.Slack.WebhookURL == "" {
+			return fleeterror.NewInvalidArgumentError("slack webhook url is required")
 		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return fleeterror.NewInvalidArgumentErrorf("webhook url scheme must be http or https, got %q", u.Scheme)
-		}
-		if u.Hostname() == "" {
-			return fleeterror.NewInvalidArgumentError("webhook url must include a host")
-		}
-		return s.checkDestinationHost(ctx, u.Hostname())
+		return s.checkDestinationURL(ctx, c.Slack.WebhookURL, "slack webhook")
 	case ChannelKindSMTP:
 		if c.SMTP == nil || c.SMTP.Host == "" {
 			return fleeterror.NewInvalidArgumentError("smtp host is required")
@@ -386,6 +430,24 @@ func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
 		return s.checkDestinationHost(ctx, c.SMTP.Host)
 	}
 	return nil
+}
+
+// checkDestinationURL applies the URL-shaped half of the destination
+// policy: parseable, http(s) scheme, a host present, and the host
+// passes checkDestinationHost. label prefixes error messages so the
+// UI can tell webhook and slack failures apart.
+func (s *Service) checkDestinationURL(ctx context.Context, raw, label string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fleeterror.NewInvalidArgumentError("invalid " + label + " url: " + err.Error())
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fleeterror.NewInvalidArgumentErrorf("%s url scheme must be http or https, got %q", label, u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return fleeterror.NewInvalidArgumentError(label + " url must include a host")
+	}
+	return s.checkDestinationHost(ctx, u.Hostname())
 }
 
 // destinationLookupTimeout bounds the DNS check in
@@ -895,6 +957,8 @@ func grafanaTypeFor(kind ChannelKind) string {
 		return "webhook"
 	case ChannelKindSMTP:
 		return "email"
+	case ChannelKindSlack:
+		return "slack"
 	}
 	return ""
 }
@@ -939,6 +1003,23 @@ func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
 		b, err := json.Marshal(settings)
 		if err != nil {
 			return nil, fmt.Errorf("marshal smtp settings: %w", err)
+		}
+		return b, nil
+	case ChannelKindSlack:
+		if c.Slack == nil {
+			return nil, errors.New("slack config is required")
+		}
+		// The URL is the only setting and it's the secret. Omit it when
+		// empty so an edit that keeps the stored destination leaves the
+		// field for carrySecretSettings to fill.
+		settings := map[string]any{}
+		if c.Slack.WebhookURL != "" {
+			settings["url"] = c.Slack.WebhookURL
+		}
+		c.HasSecret = c.Slack.WebhookURL != ""
+		b, err := json.Marshal(settings)
+		if err != nil {
+			return nil, fmt.Errorf("marshal slack settings: %w", err)
 		}
 		return b, nil
 	}
@@ -1031,6 +1112,14 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 			out.HasSecret = true
 		}
 		out.SMTP = smtp
+	case "slack":
+		out.Kind = ChannelKindSlack
+		// The URL is the secret; Grafana already returns it redacted,
+		// and we don't expose even the placeholder. Presence only.
+		out.Slack = &SlackConfig{}
+		if raw, ok := settings["url"]; ok && len(raw) > 0 && string(raw) != `""` {
+			out.HasSecret = true
+		}
 	}
 	// Default unknown channels to pending; the encrypt-service metadata
 	// bag carries the real last-validated state but loading it on every

@@ -148,6 +148,30 @@ func TestValidateDestination(t *testing.T) {
 			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "http://127.0.0.1:9000/hook"}},
 		},
 		{
+			name:    "slack public ip allowed",
+			channel: Channel{Kind: ChannelKindSlack, Slack: &SlackConfig{WebhookURL: "https://203.0.113.10/services/T00/B00/XXX"}},
+		},
+		{
+			name:    "slack missing url",
+			channel: Channel{Kind: ChannelKindSlack, Slack: &SlackConfig{}},
+			wantErr: true,
+		},
+		{
+			name:    "slack nil config",
+			channel: Channel{Kind: ChannelKindSlack},
+			wantErr: true,
+		},
+		{
+			name:    "slack bad scheme",
+			channel: Channel{Kind: ChannelKindSlack, Slack: &SlackConfig{WebhookURL: "ftp://203.0.113.10/services/x"}},
+			wantErr: true,
+		},
+		{
+			name:    "slack loopback rejected",
+			channel: Channel{Kind: ChannelKindSlack, Slack: &SlackConfig{WebhookURL: "https://127.0.0.1/services/x"}},
+			wantErr: true,
+		},
+		{
 			name: "smtp public ip allowed",
 			channel: Channel{Kind: ChannelKindSMTP, SMTP: &SMTPConfig{
 				Host: "203.0.113.10", To: []string{"oncall@example.com"},
@@ -237,8 +261,9 @@ func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 		ID:   "cp-1",
 		Name: "pager",
 		Kind: ChannelKindWebhook,
-		// Ordinary edit: the UI never has the secret to echo back.
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/new"},
+		// Ordinary edit: same destination, and the UI never has the
+		// secret to echo back.
+		Webhook: &WebhookConfig{URL: "https://hooks.example.com/old"},
 	})
 	require.NoError(t, err)
 	assert.True(t, updated.HasSecret)
@@ -249,6 +274,41 @@ func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 	require.NoError(t, json.Unmarshal(putBody, &sent))
 	assert.Equal(t, "[REDACTED]", sent.Settings["authorization_credentials"],
 		"update without a new secret must carry the redacted placeholder so Grafana keeps the stored credential")
+	assert.Equal(t, "https://hooks.example.com/old", sent.Settings["url"])
+}
+
+// Changing the destination without supplying a fresh secret must drop
+// the stored one — carrying it would deliver the old credential to
+// whatever new destination the caller pointed the channel at.
+func TestUpdateChannelDropsSecretOnDestinationChange(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:  "cp-1",
+		Name: "org-7-pager",
+		Type: "webhook",
+		Settings: json.RawMessage(`{
+			"url": "https://hooks.example.com/old",
+			"authorization_scheme": "Bearer",
+			"authorization_credentials": "[REDACTED]"
+		}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
+
+	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID:      "cp-1",
+		Name:    "pager",
+		Kind:    ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://hooks.example.com/new"},
+	})
+	require.NoError(t, err)
+	assert.False(t, updated.HasSecret)
+
+	var sent struct {
+		Settings map[string]any `json:"settings"`
+	}
+	require.NoError(t, json.Unmarshal(putBody, &sent))
+	assert.Empty(t, sent.Settings["authorization_credentials"],
+		"a destination change without a fresh secret must wipe the stored credential, not carry the placeholder")
 	assert.Equal(t, "https://hooks.example.com/new", sent.Settings["url"])
 }
 
@@ -322,6 +382,7 @@ func TestUpdateChannelPreservesSMTPSecret(t *testing.T) {
 		Settings: json.RawMessage(`{
 			"addresses": "oncall@example.com",
 			"smtpHost": "smtp.example.com",
+			"smtpPort": 587,
 			"smtpPassword": "hunter2"
 		}`),
 	}}
@@ -343,6 +404,84 @@ func TestUpdateChannelPreservesSMTPSecret(t *testing.T) {
 	require.NoError(t, json.Unmarshal(putBody, &sent))
 	assert.Equal(t, "hunter2", sent.Settings["smtpPassword"],
 		"update without a new password must carry the stored one")
+}
+
+// A Slack channel read must expose only that a URL exists — the URL
+// is the secret (it embeds the capability token).
+func TestListChannelsHidesSlackURL(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:      "cp-3",
+		Name:     "org-7-oncall-slack",
+		Type:     "slack",
+		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
+
+	channels, err := svc.ListChannels(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	assert.Equal(t, ChannelKindSlack, channels[0].Kind)
+	require.NotNil(t, channels[0].Slack)
+	assert.Empty(t, channels[0].Slack.WebhookURL)
+	assert.True(t, channels[0].HasSecret)
+}
+
+// A rename without a fresh URL must carry Grafana's "[REDACTED]"
+// placeholder through so the stored secure URL survives the PUT.
+func TestUpdateChannelPreservesSlackURLOnRename(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:      "cp-3",
+		Name:     "org-7-oncall-slack",
+		Type:     "slack",
+		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
+
+	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID:   "cp-3",
+		Name: "renamed-slack",
+		Kind: ChannelKindSlack,
+		// Ordinary edit: reads never return the URL to echo back.
+		Slack: &SlackConfig{},
+	})
+	require.NoError(t, err)
+	assert.True(t, updated.HasSecret)
+
+	var sent struct {
+		Settings map[string]any `json:"settings"`
+	}
+	require.NoError(t, json.Unmarshal(putBody, &sent))
+	assert.Equal(t, "[REDACTED]", sent.Settings["url"],
+		"rename must carry the redacted placeholder so Grafana keeps the stored URL")
+}
+
+// A fresh Slack URL replaces the stored one outright.
+func TestUpdateChannelReplacesSlackURL(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:      "cp-3",
+		Name:     "org-7-oncall-slack",
+		Type:     "slack",
+		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
+
+	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID:    "cp-3",
+		Name:  "oncall-slack",
+		Kind:  ChannelKindSlack,
+		Slack: &SlackConfig{WebhookURL: "https://hooks.example.com/services/T1/B2/fresh"},
+	})
+	require.NoError(t, err)
+	assert.True(t, updated.HasSecret)
+
+	var sent struct {
+		Settings map[string]any `json:"settings"`
+	}
+	require.NoError(t, json.Unmarshal(putBody, &sent))
+	assert.Equal(t, "https://hooks.example.com/services/T1/B2/fresh", sent.Settings["url"])
 }
 
 func TestUpdateChannelReplacesSecretWhenProvided(t *testing.T) {
