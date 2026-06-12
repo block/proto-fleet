@@ -53,23 +53,23 @@ func generatedMinercommandCommand() *cli.Command {
 						switch normalizeEnum(cmd.String("command-type")) {
 						case "reboot":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_REBOOT
-						case "start-mining":
+						case "start_mining":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_START_MINING
-						case "stop-mining":
+						case "stop_mining":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_STOP_MINING
-						case "blink-led":
+						case "blink_led":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_BLINK_LED
-						case "set-cooling-mode":
+						case "set_cooling_mode":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_SET_COOLING_MODE
-						case "update-mining-pools":
+						case "update_mining_pools":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_UPDATE_MINING_POOLS
-						case "download-logs":
+						case "download_logs":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_DOWNLOAD_LOGS
-						case "firmware-update":
+						case "firmware_update":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE
-						case "set-power-target":
+						case "set_power_target":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_SET_POWER_TARGET
-						case "update-miner-password":
+						case "update_miner_password":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_UPDATE_MINER_PASSWORD
 						case "curtail":
 							req.CommandType = minercommandv1.CommandType_COMMAND_TYPE_CURTAIL
@@ -175,9 +175,9 @@ func generatedMinercommandCommand() *cli.Command {
 					req.DeviceSelector = selector
 					if cmd.IsSet("mode") {
 						switch normalizeEnum(cmd.String("mode")) {
-						case "air-cooled":
+						case "air_cooled":
 							req.Mode = commonv1.CoolingMode_COOLING_MODE_AIR_COOLED
-						case "immersion-cooled":
+						case "immersion_cooled":
 							req.Mode = commonv1.CoolingMode_COOLING_MODE_IMMERSION_COOLED
 						case "manual":
 							req.Mode = commonv1.CoolingMode_COOLING_MODE_MANUAL
@@ -206,7 +206,7 @@ func generatedMinercommandCommand() *cli.Command {
 					req.DeviceSelector = selector
 					if cmd.IsSet("performance-mode") {
 						switch normalizeEnum(cmd.String("performance-mode")) {
-						case "maximum-hashrate":
+						case "maximum_hashrate":
 							req.PerformanceMode = minercommandv1.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE
 						case "efficiency":
 							req.PerformanceMode = minercommandv1.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
