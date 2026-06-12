@@ -283,6 +283,13 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if sourceID <= 0 {
 		return fleeterror.NewInvalidArgumentError("source_id must be set")
 	}
+	count, err := s.store.CountAutomationRulesByMQTTSource(ctx, orgID, sourceID)
+	if err != nil {
+		return fmt.Errorf("count automation rules by mqtt source: %w", err)
+	}
+	if count > 0 {
+		return sourceStoreError("delete mqtt source setting", ErrSourceConfigReferenced)
+	}
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
 	}
@@ -542,6 +549,8 @@ func sourceStoreError(prefix string, err error) error {
 		return fleeterror.NewAlreadyExistsError("an MQTT curtailment source with this name already exists")
 	case errors.Is(err, ErrSourceConfigDeleteBlocked):
 		return fleeterror.NewFailedPreconditionError("disable the MQTT source before deleting it")
+	case errors.Is(err, ErrSourceConfigReferenced):
+		return fleeterror.NewFailedPreconditionError("MQTT source is referenced by a curtailment automation rule")
 	default:
 		return fmt.Errorf("%s: %w", prefix, err)
 	}

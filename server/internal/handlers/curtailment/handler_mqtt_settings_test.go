@@ -256,6 +256,10 @@ func (s *handlerMqttSettingsStore) DeleteDisabledSourceConfig(_ context.Context,
 	return nil
 }
 
+func (*handlerMqttSettingsStore) CountAutomationRulesByMQTTSource(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
 type handlerMqttCipher struct{}
 
 func (handlerMqttCipher) Encrypt(plaintext []byte) (string, error) {

@@ -221,6 +221,8 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 		{
 			name: "slow curtail batching",
 			mutate: func(profile *models.ResponseProfile) {
+				batchSize := int32(25)
+				profile.CurtailBatchSize = &batchSize
 				profile.CurtailBatchIntervalSec = slowInterval
 			},
 		},
@@ -261,14 +263,50 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	}
 }
 
+func TestResponseProfileService_CreateRejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 1000.0
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                   42,
+			ProfileName:             "Standard shed",
+			Mode:                    models.ModeFixedKw,
+			TargetKW:                &targetKW,
+			CurtailBatchIntervalSec: 15,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "curtail_batch_interval_sec")
+}
+
+func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
+	t.Parallel()
+
+	store := newResponseProfileFakeStore()
+	store.automationRuleCount = 1
+	svc := NewResponseProfileService(store)
+
+	err := svc.Delete(t.Context(), 42, 101, nil)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "referenced by automation")
+	assert.Equal(t, 0, store.deleteCalls)
+}
+
 type responseProfileFakeStore struct {
-	siteBelongs     bool
-	siteCheckCount  int
-	siteCheckOrgID  int64
-	siteCheckSiteID int64
-	created         *models.ResponseProfile
-	updated         *models.ResponseProfile
-	profiles        []*models.ResponseProfile
+	siteBelongs         bool
+	siteCheckCount      int
+	siteCheckOrgID      int64
+	siteCheckSiteID     int64
+	created             *models.ResponseProfile
+	updated             *models.ResponseProfile
+	deleteCalls         int
+	automationRuleCount int64
+	profiles            []*models.ResponseProfile
 }
 
 func newResponseProfileFakeStore() *responseProfileFakeStore {
@@ -302,7 +340,12 @@ func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, prof
 }
 
 func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64) error {
+	s.deleteCalls++
 	return nil
+}
+
+func (s *responseProfileFakeStore) CountAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return s.automationRuleCount, nil
 }
 
 func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {

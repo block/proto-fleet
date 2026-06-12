@@ -40,6 +40,45 @@ type ResponseProfile struct {
 	UpdatedAt               time.Time
 }
 
+// AutomationTriggerType identifies the kind of signal an automation rule
+// listens to. MQTT is the only supported v1 trigger.
+type AutomationTriggerType string
+
+const (
+	AutomationTriggerTypeMQTT AutomationTriggerType = "MQTT"
+)
+
+// AutomationSignal is the latest normalized trigger state for a rule.
+type AutomationSignal string
+
+const (
+	AutomationSignalOff AutomationSignal = "OFF"
+	AutomationSignalOn  AutomationSignal = "ON"
+)
+
+// AutomationRule binds an external trigger source to a response profile.
+type AutomationRule struct {
+	ID                    int64
+	OrgID                 int64
+	RuleName              string
+	TriggerType           AutomationTriggerType
+	MQTTSourceID          int64
+	MQTTSourceName        string
+	ResponseProfileID     int64
+	ResponseProfileName   string
+	ResponseProfileSiteID *int64
+	Enabled               bool
+	LastSignal            *AutomationSignal
+	LastSignalAt          *time.Time
+	ActiveEventUUID       *uuid.UUID
+	LastStartedAt         *time.Time
+	LastRestoredAt        *time.Time
+	LastError             *string
+	LastErrorAt           *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
 // EventState is a typed wrapper for `curtailment_event.state` to keep the
 // pending/active/restoring/terminal lifecycle visible in Go.
 type EventState string
@@ -115,10 +154,11 @@ const (
 type SourceActorType string
 
 const (
-	SourceActorUser      SourceActorType = "user"
-	SourceActorAPIKey    SourceActorType = "api_key"
-	SourceActorWebhook   SourceActorType = "webhook"
-	SourceActorScheduler SourceActorType = "scheduler"
+	SourceActorUser       SourceActorType = "user"
+	SourceActorAPIKey     SourceActorType = "api_key"
+	SourceActorWebhook    SourceActorType = "webhook"
+	SourceActorScheduler  SourceActorType = "scheduler"
+	SourceActorAutomation SourceActorType = "automation"
 )
 
 // Mode is the curtailment dispatch mode. FIXED_KW (select until a kW target)
@@ -171,6 +211,8 @@ type Event struct {
 	ScopeType               ScopeType
 	ScopeJSON               []byte
 	ModeParamsJSON          []byte
+	CurtailBatchSize        *int32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	EffectiveBatchSize      *int32
@@ -225,6 +267,8 @@ type InsertEventParams struct {
 	ScopeType               ScopeType
 	ScopeJSON               []byte
 	ModeParamsJSON          []byte
+	CurtailBatchSize        *int32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	MinCurtailedDurationSec int32

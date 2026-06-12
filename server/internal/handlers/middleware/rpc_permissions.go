@@ -130,6 +130,12 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceCreateCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceListCurtailmentAutomationRulesProcedure:      authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentAutomationRuleProcedure:        authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceCreateCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure: authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
 
 	// DeviceCollectionService — rack:read for reads, rack:manage for writes.

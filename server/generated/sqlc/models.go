@@ -407,6 +407,30 @@ type CommandOnDeviceLog struct {
 	SiteID            sql.NullInt64
 }
 
+type CurtailmentAutomationRule struct {
+	ID                int64
+	OrgID             int64
+	RuleName          string
+	TriggerType       string
+	MqttSourceID      int64
+	ResponseProfileID int64
+	Enabled           bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type CurtailmentAutomationRuleState struct {
+	RuleID          int64
+	LastSignal      sql.NullString
+	LastSignalAt    sql.NullTime
+	ActiveEventUuid uuid.NullUUID
+	LastStartedAt   sql.NullTime
+	LastRestoredAt  sql.NullTime
+	LastError       sql.NullString
+	LastErrorAt     sql.NullTime
+	UpdatedAt       time.Time
+}
+
 type CurtailmentEvent struct {
 	ID                      int64
 	EventUuid               uuid.UUID
@@ -442,6 +466,8 @@ type CurtailmentEvent struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	CreatedByUserID         int64
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 }
 
 type CurtailmentMqttSourceConfig struct {
