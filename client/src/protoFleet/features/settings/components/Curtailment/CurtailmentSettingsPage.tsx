@@ -810,6 +810,9 @@ function SourceModal({
     }
 
     if (!canTestConnection) {
+      if (showSavedPasswordPlaceholder && testConnectionValidationErrors.password) {
+        setPasswordPlaceholderActive(false);
+      }
       setValidationIntent("testConnection");
       return;
     }
@@ -824,7 +827,14 @@ function SourceModal({
     } finally {
       setShowConnectionCallout(true);
     }
-  }, [canTestConnection, isBusy, onTestConnection, values]);
+  }, [
+    canTestConnection,
+    isBusy,
+    onTestConnection,
+    showSavedPasswordPlaceholder,
+    testConnectionValidationErrors,
+    values,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!onDelete || isBusy) {

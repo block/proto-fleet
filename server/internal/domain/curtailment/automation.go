@@ -343,7 +343,7 @@ func (s *AutomationService) validateAndNormalize(
 		rule.TriggerType = models.AutomationTriggerTypeMQTT
 	}
 	if rule.TriggerType != models.AutomationTriggerTypeMQTT {
-		return models.AutomationRule{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MaestroOS sources are supported", rule.TriggerType)
+		return models.AutomationRule{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MQTT (MaestroOS source) is supported", rule.TriggerType)
 	}
 	if rule.MQTTSourceID <= 0 {
 		return models.AutomationRule{}, fleeterror.NewInvalidArgumentError("mqtt_source_id must be set")

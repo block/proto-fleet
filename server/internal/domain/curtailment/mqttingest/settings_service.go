@@ -480,7 +480,7 @@ func (s *SettingsService) quiesceSource(ctx context.Context, sourceID int64) err
 	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
 	if err := s.runtime.QuiesceSource(reconcileCtx, sourceID); err != nil {
-		return fleeterror.NewUnavailableErrorf("MaestroOS source saved but runtime reload failed: %v", err)
+		return fleeterror.NewUnavailableErrorf("MaestroOS source disable failed while quiescing runtime: %v", err)
 	}
 	return nil
 }

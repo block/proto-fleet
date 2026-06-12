@@ -2,6 +2,7 @@ package mqttingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -164,6 +165,7 @@ type fakeRuntimeController struct {
 	reconcileCalls     int
 	quiesceCalls       int
 	reconcileErr       error
+	quiesceErr         error
 	sawCanceledContext bool
 	contextValue       any
 	status             RuntimeStatus
@@ -186,7 +188,7 @@ func (f *fakeRuntimeController) SourceRuntimeStatus(int64) RuntimeStatus {
 
 func (f *fakeRuntimeController) QuiesceSource(context.Context, int64) error {
 	f.quiesceCalls++
-	return nil
+	return f.quiesceErr
 }
 
 type fakeSourceConnectionTester struct {
@@ -510,6 +512,29 @@ func TestSettingsService_DisableQuiescesRuntimeAndKeepsSourceState(t *testing.T)
 	assert.False(t, view.Config.Enabled)
 	assert.Equal(t, 1, runtime.quiesceCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)
+}
+
+func TestSettingsService_DisableReportsQuiesceFailureBeforeStoreUpdate(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	runtime := &fakeRuntimeController{quiesceErr: errors.New("broker still connected")}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Contains(t, err.Error(), "MaestroOS source disable failed while quiescing runtime")
+	assert.NotContains(t, err.Error(), "saved")
+	assert.Equal(t, 1, runtime.quiesceCalls)
+	assert.Equal(t, 0, runtime.reconcileCalls)
+	assert.True(t, store.configs[source.ID].Enabled)
 }
 
 func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {

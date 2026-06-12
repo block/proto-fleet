@@ -68,6 +68,30 @@ func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
+func TestAutomationService_CreateRejectsUnsupportedTriggerType(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.sources.configs[h.source.ID] = h.source
+	h.profiles.profiles = []*models.ResponseProfile{h.profile}
+
+	_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			OrgID:             h.orgID,
+			RuleName:          "MaestroOS curtailment",
+			TriggerType:       models.AutomationTriggerType("marketPriceAbove"),
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), `trigger_type "marketPriceAbove" is not supported`)
+	assert.Contains(t, err.Error(), "only MQTT (MaestroOS source) is supported")
+	assert.Equal(t, 0, h.rules.createCalls)
+}
+
 func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
 	t.Parallel()
 
