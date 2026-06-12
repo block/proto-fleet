@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
+import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
@@ -41,6 +42,10 @@ vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
+  default: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/api/useCurtailmentAutomationRules", () => ({
   default: vi.fn(),
 }));
 
@@ -248,7 +253,7 @@ const testAutomationRules: AutomationRule[] = [
     priority: 1,
     name: "Site Alpha automation",
     conditionType: "mqttTriggerTargetOff",
-    conditionSummary: "Site Alpha MQTT grid signal changes to 100",
+    conditionSummary: "Site Alpha MQTT grid signal changes to 0",
     sourceId: "site-alpha-mqtt",
     responseProfileId: "emergency-full-shed",
     enabled: true,
@@ -258,10 +263,28 @@ const testAutomationRules: AutomationRule[] = [
     priority: 2,
     name: "Site Beta automation",
     conditionType: "mqttTriggerTargetOff",
-    conditionSummary: "Site Beta MQTT grid signal changes to 100",
+    conditionSummary: "Site Beta MQTT grid signal changes to 0",
     sourceId: "site-beta-mqtt",
     responseProfileId: "site-alpha-500-kw",
     enabled: false,
+  },
+];
+
+const apiResponseProfiles: ResponseProfile[] = [
+  {
+    ...testResponseProfiles[0],
+    id: "21",
+  },
+];
+
+const apiAutomationRules: AutomationRule[] = [
+  {
+    ...testAutomationRules[0],
+    id: "7",
+    conditionSummary: "Site Alpha MQTT grid signal changes to 0",
+    sourceId: "11",
+    responseProfileId: "21",
+    responseProfileName: "Emergency full shed",
   },
 ];
 
@@ -283,6 +306,10 @@ const deleteSourceMock = vi.fn();
 const createResponseProfileMock = vi.fn();
 const updateResponseProfileMock = vi.fn();
 const deleteResponseProfileMock = vi.fn();
+const createAutomationRuleMock = vi.fn();
+const updateAutomationRuleMock = vi.fn();
+const setAutomationRuleEnabledMock = vi.fn();
+const deleteAutomationRuleMock = vi.fn();
 const startCurtailmentMock = vi.fn();
 
 const mockResponseProfilesApi = (overrides: Partial<ReturnType<typeof useCurtailmentResponseProfiles>> = {}) => {
@@ -316,6 +343,23 @@ const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentS
     isTestingConnection: false,
     setSourceEnabled: setSourceEnabledMock,
     deleteSource: deleteSourceMock,
+    ...overrides,
+  });
+};
+
+const mockAutomationRulesApi = (overrides: Partial<ReturnType<typeof useCurtailmentAutomationRules>> = {}) => {
+  vi.mocked(useCurtailmentAutomationRules).mockReturnValue({
+    automationRules: [],
+    isLoading: false,
+    isCreating: false,
+    updatingRuleIds: new Set<string>(),
+    loadError: null,
+    createError: null,
+    listAutomationRules: vi.fn(),
+    createAutomationRule: createAutomationRuleMock,
+    updateAutomationRule: updateAutomationRuleMock,
+    setAutomationRuleEnabled: setAutomationRuleEnabledMock,
+    deleteAutomationRule: deleteAutomationRuleMock,
     ...overrides,
   });
 };
@@ -363,6 +407,7 @@ describe("CurtailmentSettingsPage", () => {
     vi.mocked(useHasPermission).mockReset();
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(useCurtailmentResponseProfiles).mockReset();
+    vi.mocked(useCurtailmentAutomationRules).mockReset();
     vi.mocked(useCurtailmentApi).mockReset();
     vi.mocked(pushToast).mockReset();
     mockNavigate.mockReset();
@@ -380,6 +425,10 @@ describe("CurtailmentSettingsPage", () => {
     createResponseProfileMock.mockReset();
     updateResponseProfileMock.mockReset();
     deleteResponseProfileMock.mockReset();
+    createAutomationRuleMock.mockReset();
+    updateAutomationRuleMock.mockReset();
+    setAutomationRuleEnabledMock.mockReset();
+    deleteAutomationRuleMock.mockReset();
     startCurtailmentMock.mockReset();
     startCurtailmentMock.mockResolvedValue({});
     vi.mocked(useCurtailmentApi).mockReturnValue({
@@ -387,6 +436,7 @@ describe("CurtailmentSettingsPage", () => {
     } as Partial<ReturnType<typeof useCurtailmentApi>> as ReturnType<typeof useCurtailmentApi>);
     mockResponseProfilesApi();
     mockSourcesApi();
+    mockAutomationRulesApi();
   });
 
   it("renders the curtailment header, response profile cards, and sources table", () => {
@@ -401,6 +451,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
+    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true);
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
     expect(screen.getByText("Curtailment")).toBeVisible();
     expect(
@@ -823,8 +874,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(disabledRuleRow).not.toBeNull();
     const enabledRule = enabledRuleRow as HTMLTableRowElement;
     const disabledRule = disabledRuleRow as HTMLTableRowElement;
-    expect(within(enabledRule).getByText("Site Alpha MQTT grid signal changes to 100")).toBeVisible();
-    expect(within(disabledRule).getByText("Site Beta MQTT grid signal changes to 100")).toBeVisible();
+    expect(within(enabledRule).getByText("Site Alpha MQTT grid signal changes to 0")).toBeVisible();
+    expect(within(disabledRule).getByText("Site Beta MQTT grid signal changes to 0")).toBeVisible();
     expect(within(enabledRule).getByText("Emergency full shed")).toBeVisible();
     expect(within(disabledRule).getByText("Site Alpha 500 kW")).toBeVisible();
     expect(within(enabledRule).getByRole("checkbox")).toBeChecked();
@@ -1249,6 +1300,37 @@ describe("CurtailmentSettingsPage", () => {
     );
   });
 
+  it("creates automation rules through the API hook on the routed page", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createAutomationRuleMock.mockResolvedValue(apiAutomationRules[0]);
+    mockSourcesApi({ sources: apiSources });
+    mockResponseProfilesApi({ responseProfiles: apiResponseProfiles });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Site Alpha automation" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(createAutomationRuleMock).toHaveBeenCalledWith({
+        name: "Site Alpha automation",
+        sourceId: "11",
+        responseProfileId: "21",
+      }),
+    );
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({
+        message: "Automation added",
+        status: "success",
+      }),
+    );
+  });
+
   it("redirects callers without curtailment management permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
 
@@ -1261,6 +1343,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
+    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false);
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();
   });
 });

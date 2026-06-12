@@ -67,6 +67,12 @@ export type ResponseProfile = {
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
 
+export type AutomationRuleFormValues = {
+  name: string;
+  sourceId: string;
+  responseProfileId: string;
+};
+
 export type AutomationRule = {
   id: string;
   priority: number;
@@ -75,5 +81,6 @@ export type AutomationRule = {
   conditionSummary: string;
   sourceId?: string;
   responseProfileId: string;
+  responseProfileName?: string;
   enabled: boolean;
 };

@@ -3,6 +3,7 @@ import clsx from "clsx";
 
 import type {
   AutomationRule,
+  AutomationRuleFormValues,
   CurtailmentSource,
   ResponseProfile,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
@@ -14,6 +15,7 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select, { type SelectOption } from "@/shared/components/Select";
 import Switch from "@/shared/components/Switch";
 import { positions } from "@/shared/constants";
@@ -65,12 +67,6 @@ const emptyAutomations: AutomationRule[] = [];
 const emptySources: CurtailmentSource[] = [];
 const emptyResponseProfiles: ResponseProfile[] = [];
 
-type AutomationFormValues = {
-  name: string;
-  sourceId: string;
-  responseProfileId: string;
-};
-
 type AutomationRuleWithDetails = AutomationRule & {
   responseProfileName: string;
 };
@@ -78,16 +74,18 @@ type AutomationRuleWithDetails = AutomationRule & {
 type AutomationModalProps = {
   open: boolean;
   mode: "create" | "edit";
-  initialValues: AutomationFormValues;
+  initialValues: AutomationRuleFormValues;
   sources: CurtailmentSource[];
   responseProfiles: ResponseProfile[];
   isLoadingSources?: boolean;
   loadSourcesError?: string | null;
   isLoadingResponseProfiles?: boolean;
   loadResponseProfilesError?: string | null;
+  saving?: boolean;
+  deleting?: boolean;
   onDismiss: () => void;
-  onSave: (values: AutomationFormValues) => void;
-  onDelete?: () => void;
+  onSave: (values: AutomationRuleFormValues) => Promise<void>;
+  onDelete?: () => Promise<void>;
 };
 
 type InfoToggleContentProps = {
@@ -106,12 +104,21 @@ type SectionHeaderProps = {
 
 type CurtailmentAutomationsContentProps = {
   initialAutomationRules?: AutomationRule[];
+  automationRules?: AutomationRule[];
   sources?: CurtailmentSource[];
   responseProfiles?: ResponseProfile[];
+  isLoading?: boolean;
+  loadError?: string | null;
+  isCreating?: boolean;
+  updatingRuleIds?: ReadonlySet<string>;
   isLoadingSources?: boolean;
   loadSourcesError?: string | null;
   isLoadingResponseProfiles?: boolean;
   loadResponseProfilesError?: string | null;
+  onCreateAutomation?: (values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
+  onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
+  onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
+  onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
 };
 
 function createAutomationRuleId(name: string, existingRules: AutomationRule[]): string {
@@ -136,7 +143,7 @@ function createAutomationRuleId(name: string, existingRules: AutomationRule[]): 
 function getDefaultAutomationFormValues(
   sources: CurtailmentSource[],
   responseProfiles: ResponseProfile[],
-): AutomationFormValues {
+): AutomationRuleFormValues {
   return {
     name: "",
     sourceId: sources[0]?.id ?? "",
@@ -148,7 +155,7 @@ function getAutomationFormValuesFromRule(
   rule: AutomationRule | null,
   sources: CurtailmentSource[],
   responseProfiles: ResponseProfile[],
-): AutomationFormValues {
+): AutomationRuleFormValues {
   if (!rule) {
     return getDefaultAutomationFormValues(sources, responseProfiles);
   }
@@ -167,7 +174,7 @@ function createOption(entry: CurtailmentSource | ResponseProfile): SelectOption 
   };
 }
 
-function isAutomationFormValid(values: AutomationFormValues): boolean {
+function isAutomationFormValid(values: AutomationRuleFormValues): boolean {
   return values.name.trim() !== "" && values.sourceId !== "" && values.responseProfileId !== "";
 }
 
@@ -240,6 +247,23 @@ function AutomationsEmptyState(): ReactElement {
   );
 }
 
+function AutomationsLoadingState(): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full items-center justify-center py-14">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+}
+
+function AutomationsErrorState({ message }: { message: string }): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+      <div className="text-heading-200 text-text-primary">Unable to load automations</div>
+      <p className="mt-1 text-400 text-text-primary-70">{message}</p>
+    </div>
+  );
+}
+
 function AutomationDependencyMessage({ children }: { children: string }): ReactElement {
   return (
     <p className="mt-2 text-200 text-text-primary-70">
@@ -259,14 +283,18 @@ function AutomationModal({
   loadSourcesError = null,
   isLoadingResponseProfiles = false,
   loadResponseProfilesError = null,
+  saving = false,
+  deleting = false,
   onDismiss,
   onSave,
   onDelete,
 }: AutomationModalProps): ReactElement {
-  const [values, setValues] = useState<AutomationFormValues>(() => initialValues);
+  const [values, setValues] = useState<AutomationRuleFormValues>(() => initialValues);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const sourceOptions = useMemo(() => sources.map(createOption), [sources]);
   const responseProfileOptions = useMemo(() => responseProfiles.map(createOption), [responseProfiles]);
-  const canSave = isAutomationFormValid(values) && !isLoadingSources && !isLoadingResponseProfiles;
+  const isBusy = saving || deleting;
+  const canSave = isAutomationFormValid(values) && !isLoadingSources && !isLoadingResponseProfiles && !isBusy;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency options can load after the modal opens
@@ -281,14 +309,33 @@ function AutomationModal({
     setValues((currentValues) => ({ ...currentValues, name: value }));
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!canSave) {
       return;
     }
 
-    onSave(values);
-    onDismiss();
+    try {
+      setSaveError(null);
+      await onSave(values);
+      onDismiss();
+    } catch (error) {
+      setSaveError(error instanceof Error && error.message ? error.message : "Failed to save automation.");
+    }
   }, [canSave, onDismiss, onSave, values]);
+
+  const handleDelete = useCallback(async () => {
+    if (!onDelete || isBusy) {
+      return;
+    }
+
+    try {
+      setSaveError(null);
+      await onDelete();
+      onDismiss();
+    } catch (error) {
+      setSaveError(error instanceof Error && error.message ? error.message : "Failed to delete automation.");
+    }
+  }, [isBusy, onDelete, onDismiss]);
 
   const modalButtons = [
     ...(mode === "edit" && onDelete
@@ -296,8 +343,10 @@ function AutomationModal({
           {
             text: "Delete",
             variant: variants.secondaryDanger,
+            disabled: isBusy,
+            loading: deleting,
             dismissModalOnClick: false,
-            onClick: onDelete,
+            onClick: () => void handleDelete(),
           },
         ]
       : []),
@@ -305,8 +354,9 @@ function AutomationModal({
       text: "Save",
       variant: variants.primary,
       disabled: !canSave,
+      loading: saving,
       dismissModalOnClick: false,
-      onClick: handleSave,
+      onClick: () => void handleSave(),
     },
   ];
 
@@ -323,6 +373,9 @@ function AutomationModal({
       bodyClassName="text-text-primary"
     >
       <div className="grid gap-6 pb-2">
+        {saveError ? (
+          <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{saveError}</div>
+        ) : null}
         <Input id="automation-rule-name" label="Rule name" initValue={values.name} onChange={handleNameChange} />
 
         <div className="grid gap-3">
@@ -390,6 +443,7 @@ function AutomationModal({
 
 function createAutomationColConfig(
   onToggle: (ruleId: string) => void,
+  updatingRuleIds: ReadonlySet<string>,
 ): ColConfig<AutomationRuleWithDetails, string, AutomationColumn> {
   return {
     [automationCols.name]: {
@@ -409,7 +463,7 @@ function createAutomationColConfig(
     [automationCols.enabled]: {
       component: (rule) => (
         <div className="flex justify-end" data-interactive>
-          <Switch checked={rule.enabled} setChecked={() => onToggle(rule.id)} />
+          <Switch checked={rule.enabled} setChecked={() => onToggle(rule.id)} disabled={updatingRuleIds.has(rule.id)} />
         </div>
       ),
       width: "w-[6%] phone:w-9",
@@ -425,22 +479,49 @@ function mapAutomationRules(
 
   return automationRules.map((rule) => ({
     ...rule,
-    responseProfileName: responseProfileNamesById.get(rule.responseProfileId) ?? "Unknown profile",
+    responseProfileName:
+      responseProfileNamesById.get(rule.responseProfileId) ?? rule.responseProfileName ?? "Unknown profile",
   }));
+}
+
+function getAutomationConditionSummary(sourceName: string): string {
+  return sourceName ? `${sourceName} grid signal changes to 0` : "Grid signal changes to 0";
+}
+
+function getAutomationsEmptyState(loadError: string | null, isLoading: boolean): ReactElement {
+  if (loadError) {
+    return <AutomationsErrorState message={loadError} />;
+  }
+
+  if (isLoading) {
+    return <AutomationsLoadingState />;
+  }
+
+  return <AutomationsEmptyState />;
 }
 
 export function CurtailmentAutomationsContent({
   initialAutomationRules = emptyAutomations,
+  automationRules: controlledAutomationRules,
   sources = emptySources,
   responseProfiles = emptyResponseProfiles,
+  isLoading = false,
+  loadError = null,
+  isCreating = false,
+  updatingRuleIds = new Set<string>(),
   isLoadingSources = false,
   loadSourcesError = null,
   isLoadingResponseProfiles = false,
   loadResponseProfilesError = null,
+  onCreateAutomation,
+  onUpdateAutomation,
+  onToggleAutomation,
+  onDeleteAutomation,
 }: CurtailmentAutomationsContentProps): ReactElement {
-  const [automationRules, setAutomationRules] = useState<AutomationRule[]>(() => [...initialAutomationRules]);
+  const [localAutomationRules, setLocalAutomationRules] = useState<AutomationRule[]>(() => [...initialAutomationRules]);
   const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
   const [editingAutomationRule, setEditingAutomationRule] = useState<AutomationRule | null>(null);
+  const automationRules = controlledAutomationRules ?? localAutomationRules;
 
   const rulesWithDetails = useMemo(
     () => mapAutomationRules(automationRules, responseProfiles),
@@ -467,37 +548,81 @@ export function CurtailmentAutomationsContent({
     setEditingAutomationRule(null);
   }, []);
 
-  const toggleAutomation = useCallback((ruleId: string) => {
-    setAutomationRules((currentRules) =>
-      currentRules.map((rule) => (rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule)),
-    );
-  }, []);
+  const toggleAutomation = useCallback(
+    (ruleId: string) => {
+      const rule = automationRules.find((currentRule) => currentRule.id === ruleId);
+      if (!rule || updatingRuleIds.has(ruleId)) {
+        return;
+      }
 
-  const automationColConfig = useMemo(() => createAutomationColConfig(toggleAutomation), [toggleAutomation]);
+      const nextEnabled = !rule.enabled;
+      if (onToggleAutomation) {
+        void onToggleAutomation(rule, nextEnabled).catch(() => {});
+        return;
+      }
+
+      setLocalAutomationRules((currentRules) =>
+        currentRules.map((currentRule) =>
+          currentRule.id === ruleId ? { ...currentRule, enabled: nextEnabled } : currentRule,
+        ),
+      );
+    },
+    [automationRules, onToggleAutomation, updatingRuleIds],
+  );
+
+  const automationColConfig = useMemo(
+    () => createAutomationColConfig(toggleAutomation, updatingRuleIds),
+    [toggleAutomation, updatingRuleIds],
+  );
 
   const handleCreateAutomation = useCallback(
-    (values: AutomationFormValues) => {
+    async (values: AutomationRuleFormValues) => {
+      const createdRule = await onCreateAutomation?.(values);
+      if (controlledAutomationRules) {
+        return;
+      }
+
+      if (createdRule) {
+        setLocalAutomationRules((currentRules) => [
+          ...currentRules.filter((currentRule) => currentRule.id !== createdRule.id),
+          createdRule,
+        ]);
+        return;
+      }
+
       const source = sources.find((currentSource) => currentSource.id === values.sourceId);
       const nextRule: AutomationRule = {
         id: createAutomationRuleId(values.name, automationRules),
         priority: automationRules.length + 1,
         name: values.name.trim(),
         conditionType: "mqttTriggerTargetOff",
-        conditionSummary: source?.name ?? "Grid signal changes to 100",
+        conditionSummary: getAutomationConditionSummary(source?.name ?? ""),
         sourceId: values.sourceId,
         responseProfileId: values.responseProfileId,
         enabled: true,
       };
 
-      setAutomationRules((currentRules) => [...currentRules, nextRule]);
+      setLocalAutomationRules((currentRules) => [...currentRules, nextRule]);
     },
-    [automationRules, sources],
+    [automationRules, controlledAutomationRules, onCreateAutomation, sources],
   );
 
   const handleSaveAutomation = useCallback(
-    (values: AutomationFormValues) => {
+    async (values: AutomationRuleFormValues) => {
       if (!editingAutomationRule) {
-        handleCreateAutomation(values);
+        await handleCreateAutomation(values);
+        return;
+      }
+
+      const updatedRule = await onUpdateAutomation?.(editingAutomationRule, values);
+      if (controlledAutomationRules) {
+        return;
+      }
+
+      if (updatedRule) {
+        setLocalAutomationRules((currentRules) =>
+          currentRules.map((currentRule) => (currentRule.id === updatedRule.id ? updatedRule : currentRule)),
+        );
         return;
       }
 
@@ -505,8 +630,8 @@ export function CurtailmentAutomationsContent({
       const conditionSummary =
         values.sourceId === editingAutomationRule.sourceId
           ? editingAutomationRule.conditionSummary
-          : (source?.name ?? editingAutomationRule.conditionSummary);
-      const updatedRule: AutomationRule = {
+          : getAutomationConditionSummary(source?.name ?? "");
+      const nextRule: AutomationRule = {
         ...editingAutomationRule,
         name: values.name.trim(),
         conditionSummary,
@@ -514,21 +639,26 @@ export function CurtailmentAutomationsContent({
         responseProfileId: values.responseProfileId,
       };
 
-      setAutomationRules((currentRules) =>
-        currentRules.map((currentRule) => (currentRule.id === updatedRule.id ? updatedRule : currentRule)),
+      setLocalAutomationRules((currentRules) =>
+        currentRules.map((currentRule) => (currentRule.id === nextRule.id ? nextRule : currentRule)),
       );
     },
-    [editingAutomationRule, handleCreateAutomation, sources],
+    [controlledAutomationRules, editingAutomationRule, handleCreateAutomation, onUpdateAutomation, sources],
   );
 
-  const handleDeleteAutomation = useCallback(() => {
+  const handleDeleteAutomation = useCallback(async () => {
     if (!editingAutomationRule) {
       return;
     }
 
-    setAutomationRules((currentRules) => currentRules.filter((rule) => rule.id !== editingAutomationRule.id));
-    closeAutomationModal();
-  }, [closeAutomationModal, editingAutomationRule]);
+    await onDeleteAutomation?.(editingAutomationRule);
+    if (!controlledAutomationRules) {
+      setLocalAutomationRules((currentRules) => currentRules.filter((rule) => rule.id !== editingAutomationRule.id));
+    }
+  }, [controlledAutomationRules, editingAutomationRule, onDeleteAutomation]);
+
+  const isEditingAutomation = editingAutomationRule ? updatingRuleIds.has(editingAutomationRule.id) : false;
+  const automationsEmptyStateRow = getAutomationsEmptyState(loadError, isLoading);
 
   return (
     <section
@@ -557,7 +687,7 @@ export function CurtailmentAutomationsContent({
         isRowDisabled={(rule) => !rule.enabled}
         columnsExemptFromDisabledStyling={automationColumnsExemptFromDisabledStyling}
         tableClassName={automationTableClassName}
-        emptyStateRow={<AutomationsEmptyState />}
+        emptyStateRow={automationsEmptyStateRow}
         applyColumnWidthsToCells
         onRowClick={openEditAutomationModal}
       />
@@ -577,6 +707,8 @@ export function CurtailmentAutomationsContent({
         loadSourcesError={loadSourcesError}
         isLoadingResponseProfiles={isLoadingResponseProfiles}
         loadResponseProfilesError={loadResponseProfilesError}
+        saving={editingAutomationRule ? isEditingAutomation : isCreating}
+        deleting={isEditingAutomation}
         onDismiss={closeAutomationModal}
         onSave={handleSaveAutomation}
         onDelete={editingAutomationRule ? handleDeleteAutomation : undefined}

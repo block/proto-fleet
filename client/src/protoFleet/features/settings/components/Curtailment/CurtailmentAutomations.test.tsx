@@ -139,7 +139,7 @@ describe("CurtailmentAutomationsContent", () => {
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 
     const row = getAutomationRow("High LMP spike");
-    expect(within(row).getByText("Kati MaestroOS")).toBeVisible();
+    expect(within(row).getByText("Kati MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
   });
 
