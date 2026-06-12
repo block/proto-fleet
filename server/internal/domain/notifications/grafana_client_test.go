@@ -50,7 +50,12 @@ func TestRedactSecretsArrays(t *testing.T) {
 	assert.NotContains(t, out, "p2")
 }
 
-func TestRedactSecretsNonJSONPassthrough(t *testing.T) {
-	assert.Equal(t, "plain text error", redactSecrets([]byte("plain text error")))
+func TestRedactSecretsNonJSONIsNotPassedThrough(t *testing.T) {
+	// A non-JSON body can't be key-redacted and may echo the request
+	// payload, so it's replaced with a length marker — never the raw
+	// content.
+	out := redactSecrets([]byte("Bad Gateway: upstream sent authorization_credentials=sk-secret"))
+	assert.NotContains(t, out, "sk-secret")
+	assert.Contains(t, out, "non-JSON response body omitted")
 	assert.Equal(t, "", redactSecrets(nil))
 }

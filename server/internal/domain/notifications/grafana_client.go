@@ -264,12 +264,16 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 			"request_body", redactSecrets(reqJSON),
 			"response_body", redactSecrets(respBody),
 		)
-		// The message rides back to the browser via err.Error(), and a
-		// Grafana/proxy error can echo the request body — which on
-		// update paths carries stored secrets. Redact before returning.
-		msg := strings.TrimSpace(redactSecrets(respBody))
-		if msg == "" {
-			msg = http.StatusText(resp.StatusCode)
+		// The message rides back to the browser via err.Error(). Only
+		// surface Grafana's own structured (JSON) error after key-based
+		// redaction; a non-JSON body (proxy HTML, echoed payload) can't
+		// be scrubbed structurally and may carry secrets, so fall back
+		// to the generic status text instead.
+		msg := http.StatusText(resp.StatusCode)
+		if json.Valid(respBody) {
+			if red := strings.TrimSpace(redactSecrets(respBody)); red != "" {
+				msg = red
+			}
 		}
 		return &GrafanaError{StatusCode: resp.StatusCode, Message: msg}
 	}
@@ -307,16 +311,20 @@ var redactedLogKeys = map[string]bool{
 
 // redactSecrets returns body with every redactedLogKeys value replaced
 // by a placeholder, recursing through nested objects and arrays.
-// Non-JSON input is returned verbatim — request bodies are always
-// JSON we marshalled ourselves, so the redaction path always covers
-// the payloads that carry secrets.
+//
+// Non-JSON input is NOT passed through: key-based redaction can't reach
+// secrets in an HTML/plaintext error page, and Grafana (or an
+// intermediary proxy) can echo the request payload — bearer tokens,
+// SMTP passwords, webhook URLs — in such a body. We return only a
+// length marker so logs and client-facing errors never carry an
+// upstream body we couldn't structurally scrub.
 func redactSecrets(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
 	var v any
 	if err := json.Unmarshal(body, &v); err != nil {
-		return string(body)
+		return fmt.Sprintf("<non-JSON response body omitted, %d bytes>", len(body))
 	}
 	redacted, err := json.Marshal(redactValue(v))
 	if err != nil {
