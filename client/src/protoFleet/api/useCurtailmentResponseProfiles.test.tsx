@@ -239,16 +239,19 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
-  it("does not preserve submitted miner selections for API-backed response profiles", async () => {
+  it("preserves submitted miner selections for API-backed response profiles", async () => {
     mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false, siteLabelsById));
+    const minerScopedValues = {
+      ...fixedKwFormValues,
+      deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+      siteId: "",
+      siteName: "",
+    };
 
     await act(async () => {
-      await result.current.createResponseProfile({
-        ...fixedKwFormValues,
-        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
-      });
+      await result.current.createResponseProfile(minerScopedValues);
     });
 
     await act(async () => {
@@ -256,9 +259,12 @@ describe("useCurtailmentResponseProfiles", () => {
     });
 
     expect(result.current.responseProfiles[0]).toMatchObject({
-      scope: "Austin, TX",
+      siteId: "",
+      scope: "3 miners",
       formValues: expect.objectContaining({
-        deviceIdentifiers: [],
+        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+        siteId: "",
+        siteName: "",
       }),
     });
   });

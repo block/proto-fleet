@@ -308,7 +308,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByLabelText("Profile name")).toHaveValue("Grid peak - ERCOT 4CP signal");
     expect(screen.queryByLabelText("Reason")).not.toBeInTheDocument();
     expect(screen.queryByText("No miners match this curtailment.")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Apply to")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
@@ -482,7 +483,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Apply to")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
 

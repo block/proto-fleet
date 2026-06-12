@@ -1077,21 +1077,19 @@ function CurtailmentStartModalContent({
               </div>
             </Section>
 
-            {!isResponseProfileVariant ? (
-              <Section
-                title="Apply to"
-                subtext="Applies to all miners by default. Use the options below to narrow the scope."
-              >
-                <div className="grid">
-                  <TargetSelectButton
-                    label={applyToTarget.label}
-                    value={applyToTarget.value}
-                    disabled={isLiveCurtailmentEditMode}
-                    onClick={() => setShowMinerSelectionModal(true)}
-                  />
-                </div>
-              </Section>
-            ) : null}
+            <Section
+              title="Apply to"
+              subtext="Applies to all miners by default. Use the options below to narrow the scope."
+            >
+              <div className="grid">
+                <TargetSelectButton
+                  label={applyToTarget.label}
+                  value={applyToTarget.value}
+                  disabled={isLiveCurtailmentEditMode}
+                  onClick={() => setShowMinerSelectionModal(true)}
+                />
+              </div>
+            </Section>
 
             <label
               className={`flex items-start gap-3 text-left ${

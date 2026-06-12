@@ -10,7 +10,9 @@ import CurtailmentStartModal, {
   type CurtailmentSubmitValues,
   type ResponseProfileModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import type {
+  AutomationRule,
   CurtailmentHealth,
   CurtailmentSource,
   CurtailmentSourceFormValues,
@@ -123,6 +125,7 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
 
 const emptyCurtailmentSources: CurtailmentSource[] = [];
 const emptyResponseProfiles: ResponseProfile[] = [];
+const emptyAutomationRules: AutomationRule[] = [];
 const emptyUpdatingSourceIds = new Set<string>();
 const emptyUpdatingResponseProfileIds = new Set<string>();
 const savedPasswordPlaceholder = "......";
@@ -199,6 +202,11 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
+  if (values.deviceIdentifiers.length > 0) {
+    const selectedMinerCount = values.deviceIdentifiers.length;
+    return `${selectedMinerCount} ${selectedMinerCount === 1 ? "miner" : "miners"}`;
+  }
+
   return values.siteName || (values.siteId ? `Site ${values.siteId}` : "Whole fleet");
 }
 
@@ -250,7 +258,7 @@ function createResponseProfileFromFormValues(
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
-    deviceIdentifiers: [],
+    deviceIdentifiers: [...values.deviceIdentifiers],
     siteId: values.siteId.trim(),
     siteName: values.siteName.trim(),
     minDurationSec: values.minDurationSec.trim(),
@@ -323,13 +331,15 @@ function createCurtailmentFormValuesFromResponseProfile(
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+  const hasSelectedMiners = values.deviceIdentifiers.length > 0;
+  const scopeId = values.siteName || (values.siteId ? `Site ${values.siteId}` : "whole-org");
 
   return {
-    scopeType: values.siteId ? "site" : "wholeOrg",
-    scopeId: values.siteName || (values.siteId ? `Site ${values.siteId}` : "whole-org"),
-    siteId: values.siteId,
+    scopeType: hasSelectedMiners ? "explicitMiners" : values.siteId ? "site" : "wholeOrg",
+    scopeId: hasSelectedMiners ? undefined : scopeId,
+    siteId: hasSelectedMiners ? "" : values.siteId,
     deviceSetIds: [],
-    deviceIdentifiers: [],
+    deviceIdentifiers: [...values.deviceIdentifiers],
     responseProfileId: "customPlan",
     curtailmentMode: values.actionType,
     minerSelectionStrategy: values.selectionStrategy,
@@ -362,14 +372,14 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
-  const siteId = values.siteId ?? "";
+  const siteId = values.scopeType === "site" ? (values.siteId ?? "") : "";
   const siteName = values.scopeType === "site" ? (values.scopeId ?? "") : "";
 
   return {
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
-    deviceIdentifiers: [],
+    deviceIdentifiers: values.scopeType === "explicitMiners" ? [...values.deviceIdentifiers] : [],
     siteId,
     siteName,
     selectionStrategy: values.minerSelectionStrategy,
@@ -984,6 +994,7 @@ type CurtailmentSettingsContentProps = {
   initialResponseProfileModalOpen?: boolean;
   initialSources?: CurtailmentSource[];
   initialSourceModalOpen?: boolean;
+  initialAutomationRules?: AutomationRule[];
   responseProfiles?: ResponseProfile[];
   sources?: CurtailmentSource[];
   isLoadingResponseProfiles?: boolean;
@@ -1034,6 +1045,7 @@ export function CurtailmentSettingsContent({
   initialResponseProfileModalOpen = false,
   initialSources = emptyCurtailmentSources,
   initialSourceModalOpen = false,
+  initialAutomationRules = emptyAutomationRules,
   responseProfiles: controlledResponseProfiles,
   sources: controlledSources,
   isLoadingResponseProfiles = false,
@@ -1325,7 +1337,7 @@ export function CurtailmentSettingsContent({
         />
       </section>
 
-      <section className="curtailment-settings__section curtailment-settings__section--last">
+      <section className="curtailment-settings__section">
         <SectionHeader
           title="Sources"
           buttonText="Add source"
@@ -1351,6 +1363,16 @@ export function CurtailmentSettingsContent({
           onRowClick={openEditSourceModal}
         />
       </section>
+
+      <CurtailmentAutomationsContent
+        initialAutomationRules={initialAutomationRules}
+        sources={sources}
+        responseProfiles={responseProfiles}
+        isLoadingSources={isLoadingSources}
+        loadSourcesError={loadSourcesError}
+        isLoadingResponseProfiles={isLoadingResponseProfiles}
+        loadResponseProfilesError={loadResponseProfilesError}
+      />
 
       <CurtailmentStartModal
         key={

@@ -46,6 +46,7 @@ interface InputProps {
   onChange?: (value: string, id: string) => void;
   onChangeBlur?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
+  readOnly?: boolean;
   testId?: string;
   tooltip?: InputTooltip;
   type?: string;
@@ -84,6 +85,7 @@ const Input = ({
   onChange,
   onChangeBlur,
   onKeyDown,
+  readOnly,
   testId,
   tooltip,
   type = "text",
@@ -216,6 +218,7 @@ const Input = ({
           value={value}
           ref={inputRef ?? fallbackRef}
           disabled={disabled}
+          readOnly={readOnly}
           autoFocus={autoFocus}
           required={required}
           aria-required={required || undefined}

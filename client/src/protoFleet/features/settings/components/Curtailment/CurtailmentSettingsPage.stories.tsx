@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
-import type { CurtailmentSource, ResponseProfile } from "./types";
+import type { AutomationRule, CurtailmentSource, ResponseProfile } from "./types";
 
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
@@ -38,7 +38,7 @@ const storySources: CurtailmentSource[] = [
     lastTarget: "100",
     lastSeen: formatStorySignalUpdate("2026-06-09T15:10:30Z"),
     health: "connected",
-    enabled: true,
+    enabled: false,
   },
   {
     id: "site-gamma-mqtt",
@@ -139,6 +139,67 @@ const storyResponseProfiles: ResponseProfile[] = [
       includeMaintenance: false,
     },
   },
+  {
+    id: "targeted-miners",
+    name: "Targeted miners",
+    targetSummary: "650 kW target",
+    siteId: "",
+    scope: "3 miners",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 15 min",
+    formValues: {
+      name: "Targeted miners",
+      actionType: "fixedKwReduction",
+      targetKw: "650",
+      deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+      siteId: "",
+      siteName: "",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticBatchRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "10",
+      curtailBatchIntervalSec: "60",
+      restoreBatchSize: "10",
+      restoreIntervalSec: "120",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+];
+
+const storyAutomationRules: AutomationRule[] = [
+  {
+    id: "ercot-ers-obligation",
+    priority: 1,
+    name: "ERCOT ERS obligation",
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: "Site Alpha MQTT grid signal changes to 100",
+    sourceId: "site-alpha-mqtt",
+    responseProfileId: "emergency-shed",
+    enabled: true,
+  },
+  {
+    id: "high-lmp-spike",
+    priority: 2,
+    name: "High LMP spike",
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: "Site Beta MQTT grid signal changes to 100",
+    sourceId: "site-beta-mqtt",
+    responseProfileId: "partial-reduction",
+    enabled: true,
+  },
+  {
+    id: "peak-tou-window",
+    priority: 3,
+    name: "Peak TOU window",
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: "Site Gamma MQTT grid signal changes to 100",
+    sourceId: "site-gamma-mqtt",
+    responseProfileId: "targeted-miners",
+    enabled: false,
+  },
 ];
 
 const meta = {
@@ -147,6 +208,7 @@ const meta = {
   render: (args) => {
     const sourcesKey = args.initialSources?.map((source) => source.id).join(":") ?? "empty";
     const responseProfilesKey = args.initialResponseProfiles?.map((profile) => profile.id).join(":") ?? "empty";
+    const automationRulesKey = args.initialAutomationRules?.map((rule) => rule.id).join(":") ?? "empty";
 
     return (
       <div className="min-h-screen bg-surface-base p-10 phone:p-6">
@@ -154,6 +216,7 @@ const meta = {
           key={[
             responseProfilesKey,
             sourcesKey,
+            automationRulesKey,
             String(args.initialResponseProfileModalOpen),
             String(args.initialSourceModalOpen),
           ].join("-")}
@@ -177,6 +240,7 @@ export const SettingsPage: Story = {
   args: {
     initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
+    initialAutomationRules: storyAutomationRules,
   },
 };
 
@@ -186,6 +250,7 @@ export const AddSourceDialog: Story = {
   args: {
     initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
+    initialAutomationRules: storyAutomationRules,
     initialSourceModalOpen: true,
   },
 };
@@ -194,6 +259,7 @@ export const AddResponseProfileDialog: Story = {
   args: {
     initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
+    initialAutomationRules: storyAutomationRules,
     initialResponseProfileModalOpen: true,
     onTestResponseProfileCurtailment: async () => undefined,
   },

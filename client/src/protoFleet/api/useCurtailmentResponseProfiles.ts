@@ -53,7 +53,15 @@ function formatKw(value: number): string {
 }
 
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
-  return { ...values, deviceIdentifiers: [] };
+  return { ...values, deviceIdentifiers: [...values.deviceIdentifiers] };
+}
+
+function getMinerScopeSummary(deviceIdentifiers: readonly string[]): string | undefined {
+  if (deviceIdentifiers.length === 0) {
+    return undefined;
+  }
+
+  return `${deviceIdentifiers.length} ${deviceIdentifiers.length === 1 ? "miner" : "miners"}`;
 }
 
 function mapApiResponseProfile(
@@ -94,23 +102,26 @@ function mapApiResponseProfile(
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
   };
+  const cachedDeviceIdentifiers = cachedFormValues?.deviceIdentifiers ?? [];
+  const hasCachedMinerScope = cachedDeviceIdentifiers.length > 0;
   const mergedFormValues = cachedFormValues
     ? {
         ...formValues,
         ...cachedFormValues,
         name: profile.profileName,
-        siteId,
-        siteName,
-        deviceIdentifiers: [],
+        siteId: hasCachedMinerScope ? "" : siteId,
+        siteName: hasCachedMinerScope ? "" : siteName,
+        deviceIdentifiers: [...cachedDeviceIdentifiers],
       }
     : formValues;
+  const minerScopeSummary = getMinerScopeSummary(mergedFormValues.deviceIdentifiers);
 
   return {
     id: profile.profileId.toString(),
     name: profile.profileName,
     targetSummary,
-    siteId,
-    scope: siteName || "Whole fleet",
+    siteId: minerScopeSummary ? "" : siteId,
+    scope: minerScopeSummary ?? (siteName || "Whole fleet"),
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
