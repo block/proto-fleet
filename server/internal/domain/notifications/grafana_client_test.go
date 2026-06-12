@@ -50,6 +50,20 @@ func TestRedactSecretsArrays(t *testing.T) {
 	assert.NotContains(t, out, "p2")
 }
 
+// A secret echoed inside a generic JSON string field (not under a
+// known secret key) must still be scrubbed.
+func TestRedactSecretsScrubsSecretsInStringValues(t *testing.T) {
+	in := []byte(`{"message": "failed to POST to https://hooks.slack.com/services/T1/B2/SECRET: 403"}`)
+	out := redactSecrets(in)
+	assert.NotContains(t, out, "SECRET")
+	assert.NotContains(t, out, "hooks.slack.com")
+	assert.Contains(t, out, "[REDACTED-URL]")
+
+	bearer := redactSecrets([]byte(`{"error": "upstream rejected Authorization: Bearer sk-abc123def"}`))
+	assert.NotContains(t, bearer, "sk-abc123def")
+	assert.Contains(t, bearer, "[REDACTED]")
+}
+
 func TestRedactSecretsNonJSONIsNotPassedThrough(t *testing.T) {
 	// A non-JSON body can't be key-redacted and may echo the request
 	// payload, so it's replaced with a length marker — never the raw

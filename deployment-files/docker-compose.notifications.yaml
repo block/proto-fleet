@@ -10,10 +10,15 @@ services:
       # never holds the Grafana admin credential. Create one via
       # Grafana → Administration → Service accounts after first boot.
       FLEET_METRICS_GRAFANA_TOKEN: "${FLEET_METRICS_GRAFANA_TOKEN:-}"
-      # Admin basic-auth fallback used only while no service-account
-      # token is configured.
+      # Basic-auth fallback, used only when no service-account token is
+      # configured. Defaults EMPTY so a token deployment never receives
+      # the Grafana admin credential in fleet-api's environment (which
+      # would widen the blast radius of a fleet-api compromise). For a
+      # no-token deployment, the operator/run-fleet.sh must set
+      # FLEET_METRICS_GRAFANA_PASSWORD explicitly (e.g. to the admin
+      # password) so basic auth can authenticate.
       FLEET_METRICS_GRAFANA_USER: "${FLEET_METRICS_GRAFANA_USER:-admin}"
-      FLEET_METRICS_GRAFANA_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required (run-fleet.sh provisions it)}"
+      FLEET_METRICS_GRAFANA_PASSWORD: "${FLEET_METRICS_GRAFANA_PASSWORD:-}"
       FLEET_METRICS_WEBHOOK_TOKEN: "${FLEET_METRICS_WEBHOOK_TOKEN}"
     depends_on:
       grafana:

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -354,8 +355,29 @@ func redactValue(v any) any {
 			t[i] = redactValue(t[i])
 		}
 		return t
+	case string:
+		// Key-based redaction misses a secret Grafana echoes inside a
+		// generic string field (e.g. {"message":"failed to POST to
+		// https://hooks.slack.com/services/T/B/SECRET"}). Scrub the two
+		// shapes a destination secret takes — a webhook URL or a bearer
+		// token — out of any string value, wherever it sits.
+		return scrubSecretSubstrings(t)
 	}
 	return v
+}
+
+// urlValuePattern matches an http(s) URL embedded in a free-text value;
+// webhook URLs are themselves the secret (the capability token lives in
+// the path/query). bearerValuePattern matches an echoed bearer token.
+var (
+	urlValuePattern    = regexp.MustCompile(`https?://[^\s"']+`)
+	bearerValuePattern = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._\-]+`)
+)
+
+func scrubSecretSubstrings(s string) string {
+	s = urlValuePattern.ReplaceAllString(s, "[REDACTED-URL]")
+	s = bearerValuePattern.ReplaceAllString(s, "Bearer [REDACTED]")
+	return s
 }
 
 // requestWithBytes is the same as request, but takes a pre-marshalled
