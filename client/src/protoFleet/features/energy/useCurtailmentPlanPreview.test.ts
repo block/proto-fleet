@@ -339,7 +339,7 @@ describe("useCurtailmentPlanPreview", () => {
         curtailBatchSize: "1",
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "1",
-        restoreIntervalSec: "30",
+        restoreIntervalSec: "0",
         reason: "Updated reason",
       },
     });
@@ -347,7 +347,7 @@ describe("useCurtailmentPlanPreview", () => {
     expect(result.current.preview).toEqual(
       expect.objectContaining({
         curtailEstimate: "~1 minute",
-        restoreEstimate: "~1 minute",
+        restoreEstimate: "Immediately",
       }),
     );
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);

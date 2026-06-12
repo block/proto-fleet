@@ -110,17 +110,23 @@ describe("useCurtailmentResponseProfiles", () => {
       id: "7",
       name: "Partial reduction",
       targetSummary: "2,000 kW target",
-      scope: "Whole fleet",
+      scope: "Site 101",
       restoreBehavior: "Restore immediately",
       deadlineSummary: "Within 15 min",
-      formValues: fixedKwFormValues,
+      formValues: {
+        ...fixedKwFormValues,
+        siteId: "101",
+        siteName: "Site 101",
+      },
     });
     expect(result.current.isLoading).toBe(false);
   });
 
   it("creates and updates profiles using the generated CRUD payload shape", async () => {
-    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });
-    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile({ profileName: "Updated" }) });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile({ site: undefined }) });
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ profileName: "Updated", site: undefined }),
+    });
 
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 
@@ -157,24 +163,34 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.site).toBeUndefined();
   });
 
-  it("omits site from the CRUD payload when legacy site values are present", async () => {
+  it("preserves site in the CRUD payload when site values are present", async () => {
     mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile({ profileName: "Updated" }) });
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+    const siteScopedValues = {
+      ...fixedKwFormValues,
+      siteId: "101",
+      siteName: "Site 101",
+    };
 
     await act(async () => {
-      await result.current.createResponseProfile({
-        ...fixedKwFormValues,
-        siteId: "101",
-        siteName: "Austin, TX",
-      });
+      await result.current.createResponseProfile(siteScopedValues);
     });
 
     const createRequest = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
     expect(createRequest).toEqual(expect.objectContaining({ profileName: "Partial reduction" }));
-    expect(createRequest?.site).toBeUndefined();
+    expect(createRequest?.site?.siteId).toBe(101n);
+
+    await act(async () => {
+      await result.current.updateResponseProfile("7", { ...siteScopedValues, name: "Updated" });
+    });
+
+    const updateRequest = mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(updateRequest).toEqual(expect.objectContaining({ profileId: 7n, profileName: "Updated" }));
+    expect(updateRequest?.site?.siteId).toBe(101n);
   });
 
-  it("maps API profiles with sites as whole-fleet profiles", async () => {
+  it("maps API profiles with sites as site-scoped profiles", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
 
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
@@ -184,10 +200,10 @@ describe("useCurtailmentResponseProfiles", () => {
     });
 
     expect(result.current.responseProfiles[0]).toMatchObject({
-      scope: "Whole fleet",
+      scope: "Site 101",
       formValues: expect.objectContaining({
-        siteId: "",
-        siteName: "",
+        siteId: "101",
+        siteName: "Site 101",
       }),
     });
   });
@@ -234,8 +250,8 @@ describe("useCurtailmentResponseProfiles", () => {
   });
 
   it("drops submitted miner selections for API-backed response profiles", async () => {
-    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });
-    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile({ site: undefined }) });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile({ site: undefined })] });
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
     const minerScopedValues = {
       ...fixedKwFormValues,

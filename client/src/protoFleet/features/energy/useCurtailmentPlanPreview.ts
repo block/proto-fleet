@@ -99,6 +99,10 @@ function parsePositiveInteger(value: string): number | undefined {
   return parseNumber(value, (parsed) => parsed > 0 && Number.isInteger(parsed));
 }
 
+function parseNonNegativeInteger(value: string): number | undefined {
+  return parseNumber(value, (parsed) => parsed >= 0 && Number.isInteger(parsed));
+}
+
 function toApiPriority(priority: CurtailmentFormValues["priority"]): CurtailmentPriority {
   return priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL;
 }
@@ -250,7 +254,7 @@ function formatDurationEstimate(seconds: number, approximate = true): string {
 
 function estimateBatchDuration(batchSizeValue: string, intervalSecValue: string, selectedMinerCount: number): string {
   const batchSize = parsePositiveInteger(batchSizeValue);
-  const intervalSec = parsePositiveInteger(intervalSecValue);
+  const intervalSec = parseNonNegativeInteger(intervalSecValue);
 
   if (batchSize === undefined || intervalSec === undefined) {
     return "Server default";

@@ -132,6 +132,7 @@ const emptyResponseProfiles: ResponseProfile[] = [];
 const emptyAutomationRules: AutomationRule[] = [];
 const emptyUpdatingSourceIds = new Set<string>();
 const emptyUpdatingResponseProfileIds = new Set<string>();
+const emptyUpdatingAutomationRuleIds = new Set<string>();
 const savedPasswordPlaceholder = "......";
 const immediateRestoreBatchSize = "10000";
 
@@ -205,6 +206,12 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
   return minutes === 1 ? "Within 1 min" : `Within ${minutes} min`;
 }
 
+function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
+  return values.siteId
+    ? values.siteName || `Site ${values.siteId}`
+    : getResponseProfileScopeLabelForActionType(values.actionType);
+}
+
 function secondsToDeadlineMinutes(value: string): string {
   const seconds = Number(value);
 
@@ -254,8 +261,8 @@ function createResponseProfileFromFormValues(
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
     deviceIdentifiers: [],
-    siteId: "",
-    siteName: "",
+    siteId: values.siteId.trim(),
+    siteName: values.siteId.trim() ? values.siteName.trim() : "",
     minDurationSec: values.minDurationSec.trim(),
     maxDurationSec: values.maxDurationSec.trim(),
     curtailBatchSize: values.curtailBatchSize.trim(),
@@ -269,7 +276,7 @@ function createResponseProfileFromFormValues(
     id: existingProfile?.id ?? createResponseProfileId(normalizedValues.name, existingProfiles),
     name: normalizedValues.name,
     targetSummary: getResponseProfileTargetSummary(normalizedValues),
-    scope: getResponseProfileScopeLabelForActionType(normalizedValues.actionType),
+    scope: getResponseProfileScopeSummary(normalizedValues),
     selectionStrategy: responseProfileSelectionStrategyLabel[normalizedValues.selectionStrategy],
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
@@ -278,11 +285,13 @@ function createResponseProfileFromFormValues(
 }
 
 function removeResponseProfileScope(values: ResponseProfileFormValues): ResponseProfileFormValues {
+  const siteId = values.siteId.trim();
+
   return {
     ...values,
     deviceIdentifiers: [],
-    siteId: "",
-    siteName: "",
+    siteId,
+    siteName: siteId ? values.siteName.trim() : "",
   };
 }
 
@@ -334,11 +343,13 @@ function createCurtailmentFormValuesFromResponseProfile(
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+  const siteId = values.siteId.trim();
+  const siteName = siteId ? values.siteName || `Site ${siteId}` : "";
 
   return {
-    scopeType: "wholeOrg",
-    scopeId: "whole-org",
-    siteId: "",
+    scopeType: siteId ? "site" : "wholeOrg",
+    scopeId: siteId ? siteName : "whole-org",
+    siteId,
     deviceSetIds: [],
     deviceIdentifiers: [],
     responseProfileId: "customPlan",
@@ -373,13 +384,16 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
+  const siteId = values.scopeType === "site" ? (values.siteId ?? "") : "";
+  const siteName = siteId ? (values.scopeId ?? "") : "";
+
   return {
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
     deviceIdentifiers: [],
-    siteId: "",
-    siteName: "",
+    siteId,
+    siteName,
     selectionStrategy: values.minerSelectionStrategy,
     restoreBehavior: getResponseProfileRestoreBehavior(values),
     minDurationSec: values.minDurationSec,
@@ -1070,7 +1084,7 @@ export function CurtailmentSettingsContent({
   isSavingAutomationRule = false,
   updatingResponseProfileIds = emptyUpdatingResponseProfileIds,
   updatingSourceIds = emptyUpdatingSourceIds,
-  updatingAutomationRuleIds = new Set<string>(),
+  updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
   onCreateResponseProfile,
   onUpdateResponseProfile,
   onTestResponseProfileCurtailment,

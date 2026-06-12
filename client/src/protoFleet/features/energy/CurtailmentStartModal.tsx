@@ -185,6 +185,23 @@ function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValu
   };
 }
 
+function withResponseProfileScope(
+  values: CurtailmentFormValues,
+  responseProfileMode: ResponseProfileModalMode,
+): CurtailmentFormValues {
+  if (responseProfileMode === "edit" && values.scopeType === "site" && values.siteId) {
+    return {
+      ...values,
+      scopeType: "site",
+      scopeId: values.scopeId ?? `Site ${values.siteId}`,
+      deviceSetIds: [],
+      deviceIdentifiers: [],
+    };
+  }
+
+  return withWholeFleetScope(values);
+}
+
 function removeScopeValues(
   values: CurtailmentResponseProfileOption["values"],
 ): CurtailmentResponseProfileOption["values"] {
@@ -206,13 +223,14 @@ function isCurtailmentMode(value: string): value is CurtailmentMode {
 function getInitialValues(
   initialValues?: Partial<CurtailmentFormValues>,
   variant: CurtailmentStartModalVariant = "curtailment",
+  responseProfileMode: ResponseProfileModalMode = "create",
 ): CurtailmentFormValues {
   const values = {
     ...defaultValues,
     ...initialValues,
   };
 
-  return variant === "responseProfile" ? withWholeFleetScope(values) : values;
+  return variant === "responseProfile" ? withResponseProfileScope(values, responseProfileMode) : values;
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -627,7 +645,9 @@ function CurtailmentStartModalContent({
   isTestingCurtailment = false,
   isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues, variant));
+  const [initialFormValues] = useState<CurtailmentFormValues>(() =>
+    getInitialValues(initialValues, variant, responseProfileMode),
+  );
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);

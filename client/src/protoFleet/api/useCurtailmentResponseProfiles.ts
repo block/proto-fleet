@@ -12,6 +12,7 @@ import {
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
   ListCurtailmentResponseProfilesRequestSchema,
+  ScopeSiteSchema,
   type UpdateCurtailmentResponseProfileRequest,
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -67,16 +68,20 @@ export function getResponseProfileScopeLabelForActionType(actionType: ResponsePr
 }
 
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
+  const siteId = values.siteId.trim();
+
   return {
     ...values,
     deviceIdentifiers: [],
-    siteId: "",
-    siteName: "",
+    siteId,
+    siteName: siteId ? values.siteName.trim() : "",
   };
 }
 
 function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): ResponseProfile {
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
+  const siteId = profile.site?.siteId ? profile.site.siteId.toString() : "";
+  const siteName = siteId ? cachedFormValues?.siteName || `Site ${siteId}` : "";
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
@@ -94,8 +99,8 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): Response
     actionType,
     targetKw,
     deviceIdentifiers: [],
-    siteId: "",
-    siteName: "",
+    siteId,
+    siteName,
     selectionStrategy: "leastEfficientFirst",
     restoreBehavior,
     minDurationSec: "",
@@ -112,17 +117,18 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): Response
         ...formValues,
         ...cachedFormValues,
         name: profile.profileName,
-        siteId: "",
-        siteName: "",
+        siteId,
+        siteName,
         deviceIdentifiers: [],
       }
     : formValues;
+  const scope = siteId ? siteName || `Site ${siteId}` : getResponseProfileScopeLabel(profile.mode);
 
   return {
     id: profile.profileId.toString(),
     name: profile.profileName,
     targetSummary,
-    scope: getResponseProfileScopeLabel(profile.mode),
+    scope,
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
@@ -180,9 +186,19 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+function getResponseProfileSite(values: ResponseProfileFormValues) {
+  const siteId = values.siteId.trim();
+  if (!/^[1-9]\d*$/.test(siteId)) {
+    return undefined;
+  }
+
+  return create(ScopeSiteSchema, { siteId: BigInt(siteId) });
+}
+
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   return {
     profileName: values.name.trim(),
+    site: getResponseProfileSite(values),
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,

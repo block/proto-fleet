@@ -245,6 +245,34 @@ const targetedMinersResponseProfile: ResponseProfile = {
   },
 };
 
+const siteScopedResponseProfile: ResponseProfile = {
+  id: "site-scoped-profile",
+  name: "Site scoped profile",
+  targetSummary: "400 kW target",
+  scope: "Site 101",
+  selectionStrategy: "Least efficient first",
+  restoreBehavior: "Restore immediately",
+  deadlineSummary: "Within 15 min",
+  formValues: {
+    name: "Site scoped profile",
+    actionType: "fixedKwReduction",
+    targetKw: "400",
+    deviceIdentifiers: [],
+    siteId: "101",
+    siteName: "Site 101",
+    selectionStrategy: "leastEfficientFirst",
+    restoreBehavior: "automaticImmediateRestore",
+    minDurationSec: "",
+    maxDurationSec: "900",
+    curtailBatchSize: "40",
+    curtailBatchIntervalSec: "30",
+    restoreBatchSize: "10000",
+    restoreIntervalSec: "0",
+    responseDeadlineMinutes: "15",
+    includeMaintenance: false,
+  },
+};
+
 const testAutomationRules: AutomationRule[] = [
   {
     id: "site-alpha-automation",
@@ -722,6 +750,34 @@ describe("CurtailmentSettingsPage", () => {
       message: "Response profile deleted",
       status: "success",
     });
+  });
+
+  it("preserves site scope when saving an API response profile", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: [siteScopedResponseProfile] });
+    updateResponseProfileMock.mockResolvedValue(siteScopedResponseProfile);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    expect(within(getResponseProfileCard("Site scoped profile")).getByText("Site 101")).toBeVisible();
+
+    fireEvent.click(within(getResponseProfileCard("Site scoped profile")).getByRole("button", { name: "Edit" }));
+    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() =>
+      expect(updateResponseProfileMock).toHaveBeenCalledWith(
+        "site-scoped-profile",
+        expect.objectContaining({
+          siteId: "101",
+          siteName: "Site 101",
+        }),
+      ),
+    );
   });
 
   it("keeps the response profile modal open and shows delete failures", async () => {

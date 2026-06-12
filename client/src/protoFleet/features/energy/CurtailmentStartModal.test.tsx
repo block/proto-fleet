@@ -496,7 +496,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will save the profile, then trigger curtailment for miners across the fleet. Schedules stay suppressed until miners are restored.",
+        "This will save the profile, then trigger curtailment for miners in Denver, CO. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
@@ -505,9 +505,9 @@ describe("CurtailmentStartModal", () => {
     expect(onTestCurtailment).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Site Alpha 750 kW",
-        siteId: "",
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
+        siteId: "102",
+        scopeType: "site",
+        scopeId: "Denver, CO",
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
@@ -521,9 +521,9 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Site Alpha 750 kW",
-        siteId: "",
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
+        siteId: "102",
+        scopeType: "site",
+        scopeId: "Denver, CO",
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
