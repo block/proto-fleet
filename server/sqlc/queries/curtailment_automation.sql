@@ -14,8 +14,10 @@ SELECT
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
 JOIN curtailment_response_profile profile
     ON profile.id = r.response_profile_id
+    AND profile.org_id = r.org_id
 LEFT JOIN curtailment_automation_rule_state st
     ON st.rule_id = r.id
 WHERE r.org_id = sqlc.arg('org_id')
@@ -37,8 +39,10 @@ SELECT
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
 JOIN curtailment_response_profile profile
     ON profile.id = r.response_profile_id
+    AND profile.org_id = r.org_id
 LEFT JOIN curtailment_automation_rule_state st
     ON st.rule_id = r.id
 WHERE r.id = sqlc.arg('id')
@@ -60,8 +64,10 @@ SELECT
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
 JOIN curtailment_response_profile profile
     ON profile.id = r.response_profile_id
+    AND profile.org_id = r.org_id
 LEFT JOIN curtailment_automation_rule_state st
     ON st.rule_id = r.id
 WHERE r.mqtt_source_id = sqlc.arg('mqtt_source_id')

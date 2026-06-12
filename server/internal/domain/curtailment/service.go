@@ -581,6 +581,10 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 			event.SiteID = &siteID
 		}
 		activity.StampActor(ctx, &event)
+		if event.OrganizationID == nil {
+			orgID := req.OrgID
+			event.OrganizationID = &orgID
+		}
 		if err := s.audit.LogStrict(ctx, event); err != nil {
 			slog.Error("curtailment audit log failed",
 				"activity_type", eventType, "event_uuid", plan.EventUUID, "error", err)

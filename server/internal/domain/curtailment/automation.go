@@ -270,10 +270,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 }
 
 func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.AutomationRule, at time.Time) error {
-	if rule.ActiveEventUUID == nil {
-		return nil
-	}
-	event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	event, err := s.restoreCandidateEvent(ctx, rule)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, at)
@@ -281,7 +278,10 @@ func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.Autom
 		return err
 	}
 	if event == nil || event.State.IsTerminal() {
-		return s.store.ClearAutomationActiveEvent(ctx, rule.ID, at)
+		if rule.ActiveEventUUID != nil {
+			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, at)
+		}
+		return nil
 	}
 	_, err = s.curtailment.Stop(ctx, StopRequest{
 		OrgID:     rule.OrgID,
@@ -291,6 +291,18 @@ func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.Autom
 		return err
 	}
 	return s.store.RecordAutomationRestoreStarted(ctx, rule.ID, at)
+}
+
+func (s *AutomationService) restoreCandidateEvent(ctx context.Context, rule *models.AutomationRule) (*models.Event, error) {
+	if rule.ActiveEventUUID != nil {
+		return s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	}
+	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
+	event, err := s.curtailment.store.GetEventByIdempotencyKey(ctx, rule.OrgID, idempotencyKey)
+	if err != nil || event != nil {
+		return event, err
+	}
+	return s.curtailment.store.GetEventByExternalReference(ctx, rule.OrgID, automationExternalSource, externalReference)
 }
 
 func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, rule *models.AutomationRule, action string) error {
@@ -422,9 +434,8 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 	}
 	targetKW := float64Value(profile.TargetKW)
 	toleranceKW := float64Value(profile.ToleranceKW)
-	externalReference := strconv.FormatInt(rule.ID, 10)
-	idempotencyKey := "curtailment_automation_rule:" + externalReference
-	sourceActorID := strconv.FormatInt(rule.ID, 10)
+	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
+	sourceActorID := externalReference
 	reason := fmt.Sprintf("Automation %q from MQTT source %q", rule.RuleName, signal.Source.SourceName)
 	return StartRequest{
 		PreviewRequest: PreviewRequest{
@@ -455,6 +466,11 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 		// admin-only controls are admin-authorized before MQTT can execute them.
 		CanUseAdminControls: true,
 	}
+}
+
+func automationRuleEventReference(ruleID int64) (externalReference, idempotencyKey string) {
+	externalReference = strconv.FormatInt(ruleID, 10)
+	return externalReference, "curtailment_automation_rule:" + externalReference
 }
 
 func stringPtr(s string) *string {

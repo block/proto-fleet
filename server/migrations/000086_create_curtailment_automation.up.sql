@@ -12,6 +12,14 @@ UPDATE curtailment_event
 SET curtail_batch_size = effective_batch_size
 WHERE effective_batch_size IS NOT NULL;
 
+ALTER TABLE curtailment_mqtt_source_config
+    ADD CONSTRAINT uq_curtailment_mqtt_source_config_id_org
+        UNIQUE (id, organization_id);
+
+ALTER TABLE curtailment_response_profile
+    ADD CONSTRAINT uq_curtailment_response_profile_id_org
+        UNIQUE (id, org_id);
+
 CREATE TABLE curtailment_automation_rule (
     id                          BIGSERIAL    PRIMARY KEY,
     org_id                      BIGINT       NOT NULL,
@@ -25,10 +33,10 @@ CREATE TABLE curtailment_automation_rule (
 
     CONSTRAINT fk_curtailment_automation_rule_org FOREIGN KEY (org_id)
         REFERENCES organization(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_curtailment_automation_rule_mqtt_source FOREIGN KEY (mqtt_source_id)
-        REFERENCES curtailment_mqtt_source_config(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_curtailment_automation_rule_response_profile FOREIGN KEY (response_profile_id)
-        REFERENCES curtailment_response_profile(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_curtailment_automation_rule_mqtt_source FOREIGN KEY (mqtt_source_id, org_id)
+        REFERENCES curtailment_mqtt_source_config(id, organization_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_curtailment_automation_rule_response_profile FOREIGN KEY (response_profile_id, org_id)
+        REFERENCES curtailment_response_profile(id, org_id) ON DELETE RESTRICT,
     CONSTRAINT uq_curtailment_automation_rule_org_name UNIQUE (org_id, rule_name),
     CONSTRAINT ck_curtailment_automation_rule_name_nonempty
         CHECK (btrim(rule_name) <> ''),

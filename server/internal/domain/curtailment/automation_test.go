@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -330,6 +331,49 @@ func TestAutomationService_HandleMQTTSignal_OnStartsRestoreAndKeepsActiveEventFo
 	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
 }
 
+func TestAutomationService_HandleMQTTSignal_OnRestoresEventWhenActiveStateWasNotRecorded(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.rules.setActiveErr = errors.New("automation state unavailable")
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, h.rule.ActiveEventUUID)
+	require.Equal(t, 1, h.curtailments.insertEventCalls)
+	eventUUID := h.curtailments.lastInsertEvent.EventUUID
+	event := &models.Event{
+		ID:        77,
+		EventUUID: eventUUID,
+		OrgID:     h.orgID,
+		State:     models.EventStateActive,
+	}
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	h.curtailments.eventsByUUID[eventUUID] = event
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{idempotencyKey: event}
+	h.curtailments.eventsByExternalRef = map[string]*models.Event{
+		automationExternalSource + "|" + externalReference: event,
+	}
+	h.rules.setActiveErr = nil
+
+	err = h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOn,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.beginRestoreCalls)
+	assert.Equal(t, eventUUID, h.curtailments.beginRestoreLastEventID)
+	assert.Equal(t, 1, h.rules.restoreStartedCalls)
+	assert.Nil(t, h.rule.ActiveEventUUID)
+	require.NotNil(t, h.rule.LastRestoredAt)
+}
+
 func TestAutomationService_HandleMQTTSignal_OffDuringRestoreRecurtailsSameEvent(t *testing.T) {
 	t.Parallel()
 
@@ -498,6 +542,7 @@ type automationFakeStore struct {
 	setActiveCalls       int
 	lastActiveEvent      uuid.UUID
 	lastActiveAt         time.Time
+	setActiveErr         error
 	restoreStartedCalls  int
 	lastRestoreStartedAt time.Time
 	clearActiveCalls     int
@@ -629,6 +674,9 @@ func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID
 	f.setActiveCalls++
 	f.lastActiveEvent = eventUUID
 	f.lastActiveAt = at
+	if f.setActiveErr != nil {
+		return f.setActiveErr
+	}
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
 			rule.ActiveEventUUID = &eventUUID
