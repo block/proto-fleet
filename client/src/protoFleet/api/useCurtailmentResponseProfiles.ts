@@ -12,7 +12,6 @@ import {
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
   ListCurtailmentResponseProfilesRequestSchema,
-  ScopeSiteSchema,
   type UpdateCurtailmentResponseProfileRequest,
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -52,25 +51,31 @@ function formatKw(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+const responseProfileScopeLabelByMode: Partial<Record<CurtailmentMode, string>> = {
+  [CurtailmentMode.FIXED_KW]: "Whole fleet",
+  [CurtailmentMode.FULL_FLEET]: "Whole fleet",
+};
+
+export function getResponseProfileScopeLabel(mode: CurtailmentMode): string {
+  return responseProfileScopeLabelByMode[mode] ?? "Unknown scope";
+}
+
+export function getResponseProfileScopeLabelForActionType(actionType: ResponseProfileFormValues["actionType"]): string {
+  return getResponseProfileScopeLabel(
+    actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
+  );
+}
+
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
-  return { ...values, deviceIdentifiers: [...values.deviceIdentifiers] };
+  return {
+    ...values,
+    deviceIdentifiers: [],
+    siteId: "",
+    siteName: "",
+  };
 }
 
-function getMinerScopeSummary(deviceIdentifiers: readonly string[]): string | undefined {
-  if (deviceIdentifiers.length === 0) {
-    return undefined;
-  }
-
-  return `${deviceIdentifiers.length} ${deviceIdentifiers.length === 1 ? "miner" : "miners"}`;
-}
-
-function mapApiResponseProfile(
-  profile: ApiCurtailmentResponseProfile,
-  siteLabelsById?: ReadonlyMap<string, string>,
-): ResponseProfile {
-  const apiSiteId = profile.site?.siteId.toString() ?? "";
-  const siteId = apiSiteId;
-  const siteName = apiSiteId ? (siteLabelsById?.get(apiSiteId) ?? `Site ${apiSiteId}`) : "";
+function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): ResponseProfile {
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
@@ -89,8 +94,8 @@ function mapApiResponseProfile(
     actionType,
     targetKw,
     deviceIdentifiers: [],
-    siteId,
-    siteName,
+    siteId: "",
+    siteName: "",
     selectionStrategy: "leastEfficientFirst",
     restoreBehavior,
     minDurationSec: "",
@@ -102,26 +107,22 @@ function mapApiResponseProfile(
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
   };
-  const cachedDeviceIdentifiers = cachedFormValues?.deviceIdentifiers ?? [];
-  const hasCachedMinerScope = cachedDeviceIdentifiers.length > 0;
   const mergedFormValues = cachedFormValues
     ? {
         ...formValues,
         ...cachedFormValues,
         name: profile.profileName,
-        siteId: hasCachedMinerScope ? "" : siteId,
-        siteName: hasCachedMinerScope ? "" : siteName,
-        deviceIdentifiers: [...cachedDeviceIdentifiers],
+        siteId: "",
+        siteName: "",
+        deviceIdentifiers: [],
       }
     : formValues;
-  const minerScopeSummary = getMinerScopeSummary(mergedFormValues.deviceIdentifiers);
 
   return {
     id: profile.profileId.toString(),
     name: profile.profileName,
     targetSummary,
-    siteId: minerScopeSummary ? "" : siteId,
-    scope: minerScopeSummary ?? (siteName || "Whole fleet"),
+    scope: getResponseProfileScopeLabel(profile.mode),
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
@@ -179,25 +180,9 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function getOptionalSiteId(value: string): bigint | undefined {
-  const siteId = value.trim();
-  if (siteId === "") {
-    return undefined;
-  }
-
-  if (!/^\d+$/.test(siteId)) {
-    throw new Error("Select a valid site before saving the response profile.");
-  }
-
-  return BigInt(siteId);
-}
-
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
-  const siteId = getOptionalSiteId(values.siteId);
-
   return {
     profileName: values.name.trim(),
-    site: siteId === undefined ? undefined : create(ScopeSiteSchema, { siteId }),
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,
@@ -212,10 +197,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   };
 }
 
-export default function useCurtailmentResponseProfiles(
-  enabled = true,
-  siteLabelsById?: ReadonlyMap<string, string>,
-): UseCurtailmentResponseProfilesResult {
+export default function useCurtailmentResponseProfiles(enabled = true): UseCurtailmentResponseProfilesResult {
   const { handleAuthErrors } = useAuthErrors();
   const [apiProfiles, setApiProfiles] = useState<ApiCurtailmentResponseProfile[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -225,10 +207,7 @@ export default function useCurtailmentResponseProfiles(
   const [createError, setCreateError] = useState<string | null>(null);
   const hasLoadedProfilesRef = useRef(false);
 
-  const responseProfiles = useMemo(
-    () => apiProfiles.map((profile) => mapApiResponseProfile(profile, siteLabelsById)),
-    [apiProfiles, siteLabelsById],
-  );
+  const responseProfiles = useMemo(() => apiProfiles.map((profile) => mapApiResponseProfile(profile)), [apiProfiles]);
 
   const handleFailure = useCallback(
     (error: unknown, fallbackMessage: string): Error => {
@@ -240,8 +219,8 @@ export default function useCurtailmentResponseProfiles(
   );
 
   const mapProfile = useCallback(
-    (profile: ApiCurtailmentResponseProfile): ResponseProfile => mapApiResponseProfile(profile, siteLabelsById),
-    [siteLabelsById],
+    (profile: ApiCurtailmentResponseProfile): ResponseProfile => mapApiResponseProfile(profile),
+    [],
   );
 
   const listResponseProfiles = useCallback(

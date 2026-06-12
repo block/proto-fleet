@@ -57,7 +57,6 @@ export type ResponseProfile = {
   id: string;
   name: string;
   targetSummary: string;
-  siteId: string;
   scope: string;
   selectionStrategy: string;
   restoreBehavior: string;

@@ -67,7 +67,12 @@ function minutesToSeconds(value: string): string {
 
 function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
   if (profile.formValues) {
-    return profile.formValues;
+    return {
+      ...profile.formValues,
+      deviceIdentifiers: [],
+      siteId: "",
+      siteName: "",
+    };
   }
 
   const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
@@ -79,8 +84,8 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
     deviceIdentifiers: [],
-    siteId: profile.siteId,
-    siteName: profile.scope,
+    siteId: "",
+    siteName: "",
     selectionStrategy: "leastEfficientFirst",
     restoreBehavior: profile.restoreBehavior.toLowerCase().includes("immediate")
       ? "automaticImmediateRestore"
@@ -101,37 +106,11 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
-  const selectedMinerIds = values.deviceIdentifiers;
-  const scopeValues =
-    selectedMinerIds.length > 0
-      ? {
-          scopeType: "explicitMiners" as const,
-          scopeId: undefined,
-          siteId: "",
-          deviceSetIds: [],
-          deviceIdentifiers: selectedMinerIds,
-        }
-      : values.siteId
-        ? {
-            scopeType: "site" as const,
-            scopeId: values.siteName || `Site ${values.siteId}`,
-            siteId: values.siteId,
-            deviceSetIds: [],
-            deviceIdentifiers: [],
-          }
-        : {
-            scopeType: "wholeOrg" as const,
-            scopeId: "whole-org",
-            siteId: "",
-            deviceSetIds: [],
-            deviceIdentifiers: [],
-          };
 
   return {
     id: profile.id,
     label: profile.name,
     values: {
-      ...scopeValues,
       curtailmentMode: values.actionType,
       minerSelectionStrategy: values.selectionStrategy,
       targetKw: values.targetKw,

@@ -319,8 +319,7 @@ describe("CurtailmentManagementPanel", () => {
           id: "profile-1",
           name: "Standard shed",
           targetSummary: "50 kW target",
-          siteId: "101",
-          scope: "Austin, TX",
+          scope: "Whole fleet",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
           deadlineSummary: "Within 15 min",
@@ -360,10 +359,9 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
-    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
-    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent(
-      '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
-    );
+    expect(screen.getByTestId("modal-response-profile-values")).not.toHaveTextContent('"scopeType"');
+    expect(screen.getByTestId("modal-response-profile-values")).not.toHaveTextContent('"deviceIdentifiers"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
   });
 
   it("shows an active curtailment limit dialog instead of opening a new plan", async () => {

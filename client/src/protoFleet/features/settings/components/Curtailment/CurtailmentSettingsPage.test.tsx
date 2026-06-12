@@ -43,6 +43,7 @@ vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
   default: vi.fn(),
+  getResponseProfileScopeLabelForActionType: () => "Whole fleet",
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentAutomationRules", () => ({
@@ -164,8 +165,7 @@ const testResponseProfiles: ResponseProfile[] = [
     id: "emergency-full-shed",
     name: "Emergency full shed",
     targetSummary: "100% reduction",
-    siteId: "101",
-    scope: "Austin, TX",
+    scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 5 min",
@@ -174,8 +174,8 @@ const testResponseProfiles: ResponseProfile[] = [
       actionType: "fullFleet",
       targetKw: "",
       deviceIdentifiers: [],
-      siteId: "101",
-      siteName: "Austin, TX",
+      siteId: "",
+      siteName: "",
       selectionStrategy: "leastEfficientFirst",
       restoreBehavior: "automaticBatchRestore",
       minDurationSec: "",
@@ -192,8 +192,7 @@ const testResponseProfiles: ResponseProfile[] = [
     id: "site-alpha-500-kw",
     name: "Site Alpha 500 kW",
     targetSummary: "500 kW target",
-    siteId: "102",
-    scope: "Denver, CO",
+    scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 15 min",
@@ -202,8 +201,8 @@ const testResponseProfiles: ResponseProfile[] = [
       actionType: "fixedKwReduction",
       targetKw: "500",
       deviceIdentifiers: [],
-      siteId: "102",
-      siteName: "Denver, CO",
+      siteId: "",
+      siteName: "",
       selectionStrategy: "leastEfficientFirst",
       restoreBehavior: "automaticImmediateRestore",
       minDurationSec: "",
@@ -222,8 +221,7 @@ const targetedMinersResponseProfile: ResponseProfile = {
   id: "targeted-miners",
   name: "Targeted miners",
   targetSummary: "650 kW target",
-  siteId: "",
-  scope: "3 miners",
+  scope: "Whole fleet",
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore in batches",
   deadlineSummary: "Within 15 min",
@@ -522,7 +520,7 @@ describe("CurtailmentSettingsPage", () => {
 
     expect(screen.getByText("Emergency full shed")).toBeVisible();
     expect(screen.getByText("100% reduction")).toBeVisible();
-    expect(screen.getByText("Austin, TX")).toBeVisible();
+    expect(within(getResponseProfileCard("Emergency full shed")).getByText("Whole fleet")).toBeVisible();
   });
 
   it("creates a response profile through the API hook", async () => {
@@ -706,7 +704,7 @@ describe("CurtailmentSettingsPage", () => {
         curtailBatchIntervalSec: "45",
         restoreBatchSize: "50",
         restoreIntervalSec: "120",
-        siteId: "102",
+        siteId: "",
       }),
     );
     expect(pushToast).toHaveBeenCalledWith({
@@ -774,7 +772,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will save the profile, then trigger curtailment for miners in Denver, CO. Schedules stay suppressed until miners are restored.",
+        "This will save the profile, then trigger curtailment for miners across the fleet. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     confirmCurtailmentAction();
@@ -789,7 +787,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
-          siteId: "102",
+          siteId: "",
         }),
       ),
     );
@@ -799,7 +797,8 @@ describe("CurtailmentSettingsPage", () => {
           reason: "Site Alpha 750 kW",
           targetKw: "750",
           curtailmentMode: "fixedKwReduction",
-          siteId: "102",
+          scopeType: "wholeOrg",
+          siteId: "",
           curtailBatchSize: "75",
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
@@ -818,19 +817,19 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByTestId("response-profile-card-grid")).toBeVisible();
     expect(screen.getByText("Emergency full shed")).toBeVisible();
     expect(screen.getByText("100% reduction")).toBeVisible();
-    expect(screen.getByText("Austin, TX")).toBeVisible();
+    expect(within(getResponseProfileCard("Emergency full shed")).getByText("Whole fleet")).toBeVisible();
     expect(screen.getByText("Site Alpha 500 kW")).toBeVisible();
     expect(screen.getByText("500 kW target")).toBeVisible();
-    expect(screen.getByText("Denver, CO")).toBeVisible();
+    expect(within(getResponseProfileCard("Site Alpha 500 kW")).getByText("Whole fleet")).toBeVisible();
     expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
-  it("keeps targeted miner response profiles scoped to their selected miners", async () => {
+  it("renders legacy targeted miner response profiles as whole-fleet profiles", async () => {
     render(<CurtailmentSettingsContent initialResponseProfiles={[targetedMinersResponseProfile]} />);
 
     expect(screen.getByText("Targeted miners")).toBeVisible();
     expect(screen.getByText("650 kW target")).toBeVisible();
-    expect(screen.getByText("3 miners")).toBeVisible();
+    expect(within(getResponseProfileCard("Targeted miners")).getByText("Whole fleet")).toBeVisible();
 
     fireEvent.click(within(getResponseProfileCard("Targeted miners")).getByRole("button", { name: "Edit" }));
     expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
@@ -838,8 +837,8 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
-    expect(screen.getByText("3 miners")).toBeVisible();
-    expect(screen.queryByText("Whole fleet")).not.toBeInTheDocument();
+    expect(within(getResponseProfileCard("Targeted miners")).getByText("Whole fleet")).toBeVisible();
+    expect(screen.queryByText("3 miners")).not.toBeInTheDocument();
   });
 
   it("renders provided sources with the current table styling", () => {

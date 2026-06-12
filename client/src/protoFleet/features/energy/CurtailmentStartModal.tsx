@@ -174,15 +174,45 @@ const curtailmentModeOptions = [
   { value: "fullFleet", label: "Full shutdown" },
 ];
 
+function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
+  return {
+    ...values,
+    scopeType: "wholeOrg",
+    scopeId: "whole-org",
+    siteId: "",
+    deviceSetIds: [],
+    deviceIdentifiers: [],
+  };
+}
+
+function removeScopeValues(
+  values: CurtailmentResponseProfileOption["values"],
+): CurtailmentResponseProfileOption["values"] {
+  const behaviorValues = { ...values };
+
+  delete behaviorValues.scopeType;
+  delete behaviorValues.scopeId;
+  delete behaviorValues.siteId;
+  delete behaviorValues.deviceSetIds;
+  delete behaviorValues.deviceIdentifiers;
+
+  return behaviorValues;
+}
+
 function isCurtailmentMode(value: string): value is CurtailmentMode {
   return value === "fixedKwReduction" || value === "fullFleet";
 }
 
-function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
-  return {
+function getInitialValues(
+  initialValues?: Partial<CurtailmentFormValues>,
+  variant: CurtailmentStartModalVariant = "curtailment",
+): CurtailmentFormValues {
+  const values = {
     ...defaultValues,
     ...initialValues,
   };
+
+  return variant === "responseProfile" ? withWholeFleetScope(values) : values;
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -597,7 +627,7 @@ function CurtailmentStartModalContent({
   isTestingCurtailment = false,
   isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
+  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues, variant));
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
@@ -759,7 +789,7 @@ function CurtailmentStartModalContent({
     setMaintenanceInclusionConfirmed(false);
     setValues((current) => ({
       ...current,
-      ...responseProfile.values,
+      ...removeScopeValues(responseProfile.values),
       responseProfileId: responseProfile.id,
     }));
   };

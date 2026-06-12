@@ -4,7 +4,9 @@ import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
-import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useCurtailmentResponseProfiles, {
+  getResponseProfileScopeLabelForActionType,
+} from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
@@ -203,15 +205,6 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
   return minutes === 1 ? "Within 1 min" : `Within ${minutes} min`;
 }
 
-function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  if (values.deviceIdentifiers.length > 0) {
-    const selectedMinerCount = values.deviceIdentifiers.length;
-    return `${selectedMinerCount} ${selectedMinerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  return values.siteName || (values.siteId ? `Site ${values.siteId}` : "Whole fleet");
-}
-
 function secondsToDeadlineMinutes(value: string): string {
   const seconds = Number(value);
 
@@ -260,9 +253,9 @@ function createResponseProfileFromFormValues(
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
-    deviceIdentifiers: [...values.deviceIdentifiers],
-    siteId: values.siteId.trim(),
-    siteName: values.siteName.trim(),
+    deviceIdentifiers: [],
+    siteId: "",
+    siteName: "",
     minDurationSec: values.minDurationSec.trim(),
     maxDurationSec: values.maxDurationSec.trim(),
     curtailBatchSize: values.curtailBatchSize.trim(),
@@ -276,8 +269,7 @@ function createResponseProfileFromFormValues(
     id: existingProfile?.id ?? createResponseProfileId(normalizedValues.name, existingProfiles),
     name: normalizedValues.name,
     targetSummary: getResponseProfileTargetSummary(normalizedValues),
-    siteId: normalizedValues.siteId,
-    scope: getResponseProfileScopeSummary(normalizedValues),
+    scope: getResponseProfileScopeLabelForActionType(normalizedValues.actionType),
     selectionStrategy: responseProfileSelectionStrategyLabel[normalizedValues.selectionStrategy],
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
@@ -285,9 +277,18 @@ function createResponseProfileFromFormValues(
   };
 }
 
+function removeResponseProfileScope(values: ResponseProfileFormValues): ResponseProfileFormValues {
+  return {
+    ...values,
+    deviceIdentifiers: [],
+    siteId: "",
+    siteName: "",
+  };
+}
+
 function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
   if (profile.formValues) {
-    return profile.formValues;
+    return removeResponseProfileScope(profile.formValues);
   }
 
   const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
@@ -298,8 +299,8 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
     deviceIdentifiers: [],
-    siteId: profile.siteId,
-    siteName: profile.scope,
+    siteId: "",
+    siteName: "",
     selectionStrategy: getOptionValueByLabel(
       responseProfileSelectionStrategyOptions,
       profile.selectionStrategy,
@@ -333,15 +334,13 @@ function createCurtailmentFormValuesFromResponseProfile(
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
-  const hasSelectedMiners = values.deviceIdentifiers.length > 0;
-  const scopeId = values.siteName || (values.siteId ? `Site ${values.siteId}` : "whole-org");
 
   return {
-    scopeType: hasSelectedMiners ? "explicitMiners" : values.siteId ? "site" : "wholeOrg",
-    scopeId: hasSelectedMiners ? undefined : scopeId,
-    siteId: hasSelectedMiners ? "" : values.siteId,
+    scopeType: "wholeOrg",
+    scopeId: "whole-org",
+    siteId: "",
     deviceSetIds: [],
-    deviceIdentifiers: [...values.deviceIdentifiers],
+    deviceIdentifiers: [],
     responseProfileId: "customPlan",
     curtailmentMode: values.actionType,
     minerSelectionStrategy: values.selectionStrategy,
@@ -374,16 +373,13 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
-  const siteId = values.scopeType === "site" ? (values.siteId ?? "") : "";
-  const siteName = values.scopeType === "site" ? (values.scopeId ?? "") : "";
-
   return {
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
-    deviceIdentifiers: values.scopeType === "explicitMiners" ? [...values.deviceIdentifiers] : [],
-    siteId,
-    siteName,
+    deviceIdentifiers: [],
+    siteId: "",
+    siteName: "",
     selectionStrategy: values.minerSelectionStrategy,
     restoreBehavior: getResponseProfileRestoreBehavior(values),
     minDurationSec: values.minDurationSec,

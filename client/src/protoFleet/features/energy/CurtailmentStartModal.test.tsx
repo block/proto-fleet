@@ -257,7 +257,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
     expect(screen.getByLabelText("Reason")).toHaveValue("Operator-requested event");
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("50");
-    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByTestId("curtailment-curtail-batch-size")).not.toBeInTheDocument();
@@ -329,7 +329,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will save the profile, then trigger curtailment for miners in Austin, TX. Schedules stay suppressed until miners are restored.",
+        "This will save the profile, then trigger curtailment for the whole fleet. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
@@ -337,14 +337,14 @@ describe("CurtailmentStartModal", () => {
     expect(onTestCurtailment).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Grid peak - ERCOT 4CP signal",
-        siteId: "101",
+        siteId: "",
         curtailmentMode: "fullFleet",
         curtailBatchSize: "8",
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        scopeType: "site",
-        scopeId: "Austin, TX",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
         deviceSetIds: [],
         deviceIdentifiers: [],
         includeMaintenance: true,
@@ -357,13 +357,13 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Grid peak - ERCOT 4CP signal",
-        siteId: "101",
+        siteId: "",
         curtailBatchSize: "8",
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        scopeType: "site",
-        scopeId: "Austin, TX",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
         deviceSetIds: [],
         deviceIdentifiers: [],
         includeMaintenance: true,
@@ -389,7 +389,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByLabelText("Loading curtailment preview")).toHaveLength(2);
   });
 
-  it("lowercases all-sites scope labels inside response profile confirmation sentences", async () => {
+  it("normalizes response profile initial scopes inside confirmation sentences", async () => {
     const user = userEvent.setup();
     renderModal({
       variant: "responseProfile",
@@ -407,7 +407,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(
       screen.getByText(
-        "This will save the profile, then trigger curtailment for miners in all sites. Schedules stay suppressed until miners are restored.",
+        "This will save the profile, then trigger curtailment for miners across the fleet. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
   });
@@ -496,7 +496,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will save the profile, then trigger curtailment for miners in Denver, CO. Schedules stay suppressed until miners are restored.",
+        "This will save the profile, then trigger curtailment for miners across the fleet. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
@@ -505,7 +505,9 @@ describe("CurtailmentStartModal", () => {
     expect(onTestCurtailment).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Site Alpha 750 kW",
-        siteId: "102",
+        siteId: "",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
@@ -519,7 +521,9 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "Site Alpha 750 kW",
-        siteId: "102",
+        siteId: "",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
