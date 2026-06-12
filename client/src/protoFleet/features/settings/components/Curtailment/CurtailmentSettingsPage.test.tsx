@@ -371,7 +371,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("No response profiles configured")).toBeVisible();
     expect(screen.getByText("Add a profile to reuse curtailment actions across automation rules.")).toBeVisible();
     expect(screen.getByText("No sources configured")).toBeVisible();
-    expect(screen.getByText("Add a source to receive curtailment signals via Maestro.")).toBeVisible();
+    expect(screen.getByText("Add a source to receive curtailment signals via MaestroOS.")).toBeVisible();
   });
 
   it("renders sources returned by the API hook", () => {
@@ -807,7 +807,7 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add source" }));
 
     expect(screen.getByTestId("curtailment-source-modal")).toBeInTheDocument();
-    expect(screen.getByText("External systems that send curtailment signals via Maestro.")).toBeInTheDocument();
+    expect(screen.getByText("External systems that send curtailment signals via MaestroOS.")).toBeInTheDocument();
     expect(screen.getByText("Configuration name")).toBeInTheDocument();
     for (const fieldLabel of [
       "Configuration name",
@@ -820,10 +820,10 @@ describe("CurtailmentSettingsPage", () => {
     ]) {
       expect((screen.getByLabelText(fieldLabel) as HTMLInputElement).value).toBe("");
     }
-    expect(screen.getByLabelText("Source type")).toHaveValue("Maestro");
+    expect(screen.getByLabelText("Source type")).toHaveValue("MaestroOS");
     expect(screen.getByLabelText("Source type")).toBeDisabled();
-    const portTooltip = screen.getByText("Default Maestro port is 1883.").parentElement;
-    const topicTooltip = screen.getByText("The Maestro topic to subscribe to for curtailment signals.").parentElement;
+    const portTooltip = screen.getByText("Default MaestroOS port is 1883.").parentElement;
+    const topicTooltip = screen.getByText("The MaestroOS topic to subscribe to for curtailment signals.").parentElement;
     expect(portTooltip).toHaveClass("z-50", "w-72", "left-[16px]");
     expect(portTooltip?.parentElement?.parentElement).toHaveClass("z-50");
     expect(topicTooltip).toHaveClass("w-72");
@@ -1052,7 +1052,7 @@ describe("CurtailmentSettingsPage", () => {
 
     expect(infoButton).toHaveAttribute("aria-expanded", "true");
     const popover = screen.getByTestId("curtailment-sources-info-popover");
-    expect(popover).toHaveTextContent("External systems that send curtailment signals via Maestro.");
+    expect(popover).toHaveTextContent("External systems that send curtailment signals via MaestroOS.");
 
     fireEvent.click(infoButton);
 
