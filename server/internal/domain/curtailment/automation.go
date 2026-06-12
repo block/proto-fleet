@@ -65,7 +65,8 @@ func NewAutomationService(cfg AutomationServiceConfig) (*AutomationService, erro
 }
 
 type SaveAutomationRuleRequest struct {
-	Rule models.AutomationRule
+	Rule                models.AutomationRule
+	CanUseAdminControls bool
 }
 
 func (s *AutomationService) List(ctx context.Context, orgID int64) ([]*models.AutomationRule, error) {
@@ -95,7 +96,7 @@ func (s *AutomationService) Create(ctx context.Context, req SaveAutomationRuleRe
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
-	rule, err := s.validateAndNormalize(ctx, req.Rule)
+	rule, err := s.validateAndNormalize(ctx, req.Rule, req.CanUseAdminControls)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +110,7 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	if req.Rule.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("rule_id must be set")
 	}
-	rule, err := s.validateAndNormalize(ctx, req.Rule)
+	rule, err := s.validateAndNormalize(ctx, req.Rule, req.CanUseAdminControls)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,13 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	return s.store.UpdateAutomationRule(ctx, rule)
 }
 
-func (s *AutomationService) SetEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
+func (s *AutomationService) SetEnabled(
+	ctx context.Context,
+	orgID int64,
+	ruleID int64,
+	enabled bool,
+	canUseAdminControls bool,
+) (*models.AutomationRule, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
@@ -133,11 +140,16 @@ func (s *AutomationService) SetEnabled(ctx context.Context, orgID, ruleID int64,
 	if ruleID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("rule_id must be set")
 	}
-	if !enabled {
-		rule, err := s.store.GetAutomationRule(ctx, orgID, ruleID)
-		if err != nil {
+	rule, err := s.store.GetAutomationRule(ctx, orgID, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	if enabled {
+		if err := s.ensureProfileCanBeAutomated(ctx, rule, canUseAdminControls); err != nil {
 			return nil, err
 		}
+	}
+	if !enabled {
 		if err := s.ensureNoNonTerminalActiveEvent(ctx, rule, "disable"); err != nil {
 			return nil, err
 		}
@@ -275,7 +287,10 @@ func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.Autom
 		OrgID:     rule.OrgID,
 		EventUUID: event.EventUUID,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return s.store.RecordAutomationRestoreStarted(ctx, rule.ID, at)
 }
 
 func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, rule *models.AutomationRule, action string) error {
@@ -300,7 +315,11 @@ func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, 
 	)
 }
 
-func (s *AutomationService) validateAndNormalize(ctx context.Context, rule models.AutomationRule) (models.AutomationRule, error) {
+func (s *AutomationService) validateAndNormalize(
+	ctx context.Context,
+	rule models.AutomationRule,
+	canUseAdminControls bool,
+) (models.AutomationRule, error) {
 	rule.RuleName = strings.TrimSpace(rule.RuleName)
 	if rule.OrgID <= 0 {
 		return models.AutomationRule{}, fleeterror.NewInvalidArgumentError("org_id must be set")
@@ -323,10 +342,36 @@ func (s *AutomationService) validateAndNormalize(ctx context.Context, rule model
 	if _, err := s.sourceStore.GetSourceConfigByOrg(ctx, rule.OrgID, rule.MQTTSourceID); err != nil {
 		return models.AutomationRule{}, mqttSourceLookupError(err)
 	}
-	if _, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID); err != nil {
+	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
+	if err != nil {
+		return models.AutomationRule{}, err
+	}
+	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
 		return models.AutomationRule{}, err
 	}
 	return rule, nil
+}
+
+func (s *AutomationService) ensureProfileCanBeAutomated(
+	ctx context.Context,
+	rule *models.AutomationRule,
+	canUseAdminControls bool,
+) error {
+	if rule == nil {
+		return nil
+	}
+	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
+	if err != nil {
+		return err
+	}
+	return validateAutomationProfileBinding(profile, canUseAdminControls)
+}
+
+func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
+	if profile == nil || canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
+		return nil
+	}
+	return fleeterror.NewForbiddenError("only admins can bind automation rules to response profiles with admin-only controls")
 }
 
 func (s *AutomationService) ensureConfigured() error {
@@ -406,7 +451,9 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 		SourceActorType:           models.SourceActorAutomation,
 		SourceActorID:             &sourceActorID,
 		CreatedByUserID:           signal.Source.ServiceUserID,
-		CanUseAdminControls:       true,
+		// Automation rule create/update/enable validates that profiles using
+		// admin-only controls are admin-authorized before MQTT can execute them.
+		CanUseAdminControls: true,
 	}
 }
 

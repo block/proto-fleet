@@ -224,6 +224,11 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 			profile.CurtailBatchIntervalSec,
 		)
 	}
+	if profile.CurtailBatchSize == nil && profile.CurtailBatchIntervalSec > 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"curtail_batch_interval_sec must be 0 when curtail_batch_size is unset",
+		)
+	}
 	if profile.CurtailBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"curtail_batch_interval_sec must be <= %d, got %d",
@@ -273,6 +278,12 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}
 	return nil
+}
+
+func responseProfileRequiresAdminControls(profile models.ResponseProfile) bool {
+	return profile.ForceIncludeMaintenance ||
+		profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
+		profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax
 }
 
 func responseProfileScope(profile models.ResponseProfile) Scope {

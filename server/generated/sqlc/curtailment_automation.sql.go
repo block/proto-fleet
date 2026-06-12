@@ -121,7 +121,8 @@ SELECT
     st.last_restored_at,
     st.last_error,
     st.last_error_at,
-    profile.profile_name AS response_profile_name
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -139,24 +140,25 @@ type GetCurtailmentAutomationRuleByOrgParams struct {
 }
 
 type GetCurtailmentAutomationRuleByOrgRow struct {
-	ID                  int64
-	OrgID               int64
-	RuleName            string
-	TriggerType         string
-	MqttSourceID        int64
-	ResponseProfileID   int64
-	Enabled             bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	MqttSourceName      string
-	LastSignal          sql.NullString
-	LastSignalAt        sql.NullTime
-	ActiveEventUuid     uuid.NullUUID
-	LastStartedAt       sql.NullTime
-	LastRestoredAt      sql.NullTime
-	LastError           sql.NullString
-	LastErrorAt         sql.NullTime
-	ResponseProfileName string
+	ID                    int64
+	OrgID                 int64
+	RuleName              string
+	TriggerType           string
+	MqttSourceID          int64
+	ResponseProfileID     int64
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	MqttSourceName        string
+	LastSignal            sql.NullString
+	LastSignalAt          sql.NullTime
+	ActiveEventUuid       uuid.NullUUID
+	LastStartedAt         sql.NullTime
+	LastRestoredAt        sql.NullTime
+	LastError             sql.NullString
+	LastErrorAt           sql.NullTime
+	ResponseProfileName   string
+	ResponseProfileSiteID sql.NullInt64
 }
 
 func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error) {
@@ -181,6 +183,7 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 		&i.LastError,
 		&i.LastErrorAt,
 		&i.ResponseProfileName,
+		&i.ResponseProfileSiteID,
 	)
 	return i, err
 }
@@ -248,7 +251,8 @@ SELECT
     st.last_restored_at,
     st.last_error,
     st.last_error_at,
-    profile.profile_name AS response_profile_name
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -261,24 +265,25 @@ ORDER BY r.id
 `
 
 type ListCurtailmentAutomationRulesByOrgRow struct {
-	ID                  int64
-	OrgID               int64
-	RuleName            string
-	TriggerType         string
-	MqttSourceID        int64
-	ResponseProfileID   int64
-	Enabled             bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	MqttSourceName      string
-	LastSignal          sql.NullString
-	LastSignalAt        sql.NullTime
-	ActiveEventUuid     uuid.NullUUID
-	LastStartedAt       sql.NullTime
-	LastRestoredAt      sql.NullTime
-	LastError           sql.NullString
-	LastErrorAt         sql.NullTime
-	ResponseProfileName string
+	ID                    int64
+	OrgID                 int64
+	RuleName              string
+	TriggerType           string
+	MqttSourceID          int64
+	ResponseProfileID     int64
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	MqttSourceName        string
+	LastSignal            sql.NullString
+	LastSignalAt          sql.NullTime
+	ActiveEventUuid       uuid.NullUUID
+	LastStartedAt         sql.NullTime
+	LastRestoredAt        sql.NullTime
+	LastError             sql.NullString
+	LastErrorAt           sql.NullTime
+	ResponseProfileName   string
+	ResponseProfileSiteID sql.NullInt64
 }
 
 func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error) {
@@ -309,6 +314,7 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 			&i.LastError,
 			&i.LastErrorAt,
 			&i.ResponseProfileName,
+			&i.ResponseProfileSiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -334,7 +340,8 @@ SELECT
     st.last_restored_at,
     st.last_error,
     st.last_error_at,
-    profile.profile_name AS response_profile_name
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -348,24 +355,25 @@ ORDER BY r.id
 `
 
 type ListEnabledCurtailmentAutomationRulesByMQTTSourceRow struct {
-	ID                  int64
-	OrgID               int64
-	RuleName            string
-	TriggerType         string
-	MqttSourceID        int64
-	ResponseProfileID   int64
-	Enabled             bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	MqttSourceName      string
-	LastSignal          sql.NullString
-	LastSignalAt        sql.NullTime
-	ActiveEventUuid     uuid.NullUUID
-	LastStartedAt       sql.NullTime
-	LastRestoredAt      sql.NullTime
-	LastError           sql.NullString
-	LastErrorAt         sql.NullTime
-	ResponseProfileName string
+	ID                    int64
+	OrgID                 int64
+	RuleName              string
+	TriggerType           string
+	MqttSourceID          int64
+	ResponseProfileID     int64
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	MqttSourceName        string
+	LastSignal            sql.NullString
+	LastSignalAt          sql.NullTime
+	ActiveEventUuid       uuid.NullUUID
+	LastStartedAt         sql.NullTime
+	LastRestoredAt        sql.NullTime
+	LastError             sql.NullString
+	LastErrorAt           sql.NullTime
+	ResponseProfileName   string
+	ResponseProfileSiteID sql.NullInt64
 }
 
 func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error) {
@@ -396,6 +404,7 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 			&i.LastError,
 			&i.LastErrorAt,
 			&i.ResponseProfileName,
+			&i.ResponseProfileSiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -467,6 +476,35 @@ type SetCurtailmentAutomationExecutionErrorParams struct {
 
 func (q *Queries) SetCurtailmentAutomationExecutionError(ctx context.Context, arg SetCurtailmentAutomationExecutionErrorParams) error {
 	_, err := q.exec(ctx, q.setCurtailmentAutomationExecutionErrorStmt, setCurtailmentAutomationExecutionError, arg.RuleID, arg.LastError, arg.LastErrorAt)
+	return err
+}
+
+const setCurtailmentAutomationRestoreStarted = `-- name: SetCurtailmentAutomationRestoreStarted :exec
+INSERT INTO curtailment_automation_rule_state (
+    rule_id,
+    last_restored_at,
+    last_error,
+    last_error_at
+) VALUES (
+    $1,
+    $2,
+    NULL,
+    NULL
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET
+    last_restored_at = EXCLUDED.last_restored_at,
+    last_error = NULL,
+    last_error_at = NULL
+`
+
+type SetCurtailmentAutomationRestoreStartedParams struct {
+	RuleID         int64
+	LastRestoredAt sql.NullTime
+}
+
+func (q *Queries) SetCurtailmentAutomationRestoreStarted(ctx context.Context, arg SetCurtailmentAutomationRestoreStartedParams) error {
+	_, err := q.exec(ctx, q.setCurtailmentAutomationRestoreStartedStmt, setCurtailmentAutomationRestoreStarted, arg.RuleID, arg.LastRestoredAt)
 	return err
 }
 

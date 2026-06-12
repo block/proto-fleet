@@ -396,6 +396,16 @@ func (s *SQLCurtailmentStore) ClearAutomationActiveEvent(ctx context.Context, ru
 	return nil
 }
 
+func (s *SQLCurtailmentStore) RecordAutomationRestoreStarted(ctx context.Context, ruleID int64, at time.Time) error {
+	if err := s.GetQueries(ctx).SetCurtailmentAutomationRestoreStarted(ctx, sqlc.SetCurtailmentAutomationRestoreStartedParams{
+		RuleID:         ruleID,
+		LastRestoredAt: sql.NullTime{Time: at, Valid: !at.IsZero()},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to record curtailment automation restore start: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLCurtailmentStore) RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error {
 	if err := s.GetQueries(ctx).SetCurtailmentAutomationExecutionError(ctx, sqlc.SetCurtailmentAutomationExecutionErrorParams{
 		RuleID:      ruleID,
@@ -417,6 +427,7 @@ func automationRuleFromListRow(row sqlc.ListCurtailmentAutomationRulesByOrgRow) 
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileName,
+		row.ResponseProfileSiteID,
 		row.Enabled,
 		row.LastSignal,
 		row.LastSignalAt,
@@ -440,6 +451,7 @@ func automationRuleFromGetRow(row sqlc.GetCurtailmentAutomationRuleByOrgRow) *mo
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileName,
+		row.ResponseProfileSiteID,
 		row.Enabled,
 		row.LastSignal,
 		row.LastSignalAt,
@@ -463,6 +475,7 @@ func automationRuleFromEnabledMQTTRow(row sqlc.ListEnabledCurtailmentAutomationR
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileName,
+		row.ResponseProfileSiteID,
 		row.Enabled,
 		row.LastSignal,
 		row.LastSignalAt,
@@ -485,6 +498,7 @@ func automationRuleFromFields(
 	mqttSourceName string,
 	responseProfileID int64,
 	responseProfileName string,
+	responseProfileSiteID sql.NullInt64,
 	enabled bool,
 	lastSignal sql.NullString,
 	lastSignalAt sql.NullTime,
@@ -497,24 +511,25 @@ func automationRuleFromFields(
 	updatedAt time.Time,
 ) *models.AutomationRule {
 	return &models.AutomationRule{
-		ID:                  id,
-		OrgID:               orgID,
-		RuleName:            ruleName,
-		TriggerType:         models.AutomationTriggerType(triggerType),
-		MQTTSourceID:        mqttSourceID,
-		MQTTSourceName:      mqttSourceName,
-		ResponseProfileID:   responseProfileID,
-		ResponseProfileName: responseProfileName,
-		Enabled:             enabled,
-		LastSignal:          nullAutomationSignalToPtr(lastSignal),
-		LastSignalAt:        nullTimeToPtr(lastSignalAt),
-		ActiveEventUUID:     nullUUIDToPtr(activeEventUUID),
-		LastStartedAt:       nullTimeToPtr(lastStartedAt),
-		LastRestoredAt:      nullTimeToPtr(lastRestoredAt),
-		LastError:           nullStringToPtr(lastError),
-		LastErrorAt:         nullTimeToPtr(lastErrorAt),
-		CreatedAt:           createdAt,
-		UpdatedAt:           updatedAt,
+		ID:                    id,
+		OrgID:                 orgID,
+		RuleName:              ruleName,
+		TriggerType:           models.AutomationTriggerType(triggerType),
+		MQTTSourceID:          mqttSourceID,
+		MQTTSourceName:        mqttSourceName,
+		ResponseProfileID:     responseProfileID,
+		ResponseProfileName:   responseProfileName,
+		ResponseProfileSiteID: nullInt64ToPtr(responseProfileSiteID),
+		Enabled:               enabled,
+		LastSignal:            nullAutomationSignalToPtr(lastSignal),
+		LastSignalAt:          nullTimeToPtr(lastSignalAt),
+		ActiveEventUUID:       nullUUIDToPtr(activeEventUUID),
+		LastStartedAt:         nullTimeToPtr(lastStartedAt),
+		LastRestoredAt:        nullTimeToPtr(lastRestoredAt),
+		LastError:             nullStringToPtr(lastError),
+		LastErrorAt:           nullTimeToPtr(lastErrorAt),
+		CreatedAt:             createdAt,
+		UpdatedAt:             updatedAt,
 	}
 }
 

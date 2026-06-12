@@ -906,6 +906,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setCurtailmentAutomationExecutionErrorStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationExecutionError); err != nil {
 		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationExecutionError: %w", err)
 	}
+	if q.setCurtailmentAutomationRestoreStartedStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationRestoreStarted); err != nil {
+		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationRestoreStarted: %w", err)
+	}
 	if q.setCurtailmentAutomationRuleEnabledStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationRuleEnabled); err != nil {
 		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationRuleEnabled: %w", err)
 	}
@@ -2654,6 +2657,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setCurtailmentAutomationExecutionErrorStmt: %w", cerr)
 		}
 	}
+	if q.setCurtailmentAutomationRestoreStartedStmt != nil {
+		if cerr := q.setCurtailmentAutomationRestoreStartedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setCurtailmentAutomationRestoreStartedStmt: %w", cerr)
+		}
+	}
 	if q.setCurtailmentAutomationRuleEnabledStmt != nil {
 		if cerr := q.setCurtailmentAutomationRuleEnabledStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setCurtailmentAutomationRuleEnabledStmt: %w", cerr)
@@ -3442,6 +3450,7 @@ type Queries struct {
 	revokeSessionStmt                                     *sql.Stmt
 	setCurtailmentAutomationActiveEventStmt               *sql.Stmt
 	setCurtailmentAutomationExecutionErrorStmt            *sql.Stmt
+	setCurtailmentAutomationRestoreStartedStmt            *sql.Stmt
 	setCurtailmentAutomationRuleEnabledStmt               *sql.Stmt
 	setDevicePairingAuthNeededIfNotPairedStmt             *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                      *sql.Stmt
@@ -3833,6 +3842,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokeSessionStmt:                                     q.revokeSessionStmt,
 		setCurtailmentAutomationActiveEventStmt:               q.setCurtailmentAutomationActiveEventStmt,
 		setCurtailmentAutomationExecutionErrorStmt:            q.setCurtailmentAutomationExecutionErrorStmt,
+		setCurtailmentAutomationRestoreStartedStmt:            q.setCurtailmentAutomationRestoreStartedStmt,
 		setCurtailmentAutomationRuleEnabledStmt:               q.setCurtailmentAutomationRuleEnabledStmt,
 		setDevicePairingAuthNeededIfNotPairedStmt:             q.setDevicePairingAuthNeededIfNotPairedStmt,
 		setFleetNodeEnrollmentStatusStmt:                      q.setFleetNodeEnrollmentStatusStmt,

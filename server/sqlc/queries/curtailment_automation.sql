@@ -9,7 +9,8 @@ SELECT
     st.last_restored_at,
     st.last_error,
     st.last_error_at,
-    profile.profile_name AS response_profile_name
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -31,7 +32,8 @@ SELECT
     st.last_restored_at,
     st.last_error,
     st.last_error_at,
-    profile.profile_name AS response_profile_name
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -53,7 +55,8 @@ SELECT
     st.last_restored_at,
     st.last_error,
     st.last_error_at,
-    profile.profile_name AS response_profile_name
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -203,6 +206,24 @@ INSERT INTO curtailment_automation_rule_state (
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = NULL,
+    last_restored_at = EXCLUDED.last_restored_at,
+    last_error = NULL,
+    last_error_at = NULL;
+
+-- name: SetCurtailmentAutomationRestoreStarted :exec
+INSERT INTO curtailment_automation_rule_state (
+    rule_id,
+    last_restored_at,
+    last_error,
+    last_error_at
+) VALUES (
+    sqlc.arg('rule_id'),
+    sqlc.arg('last_restored_at'),
+    NULL,
+    NULL
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET
     last_restored_at = EXCLUDED.last_restored_at,
     last_error = NULL,
     last_error_at = NULL;

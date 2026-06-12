@@ -1111,6 +1111,11 @@ func validateStartRequest(req StartRequest) error {
 			req.CurtailBatchIntervalSec,
 		)
 	}
+	if req.CurtailBatchSize == nil && req.CurtailBatchIntervalSec > 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"curtail_batch_interval_sec must be 0 when curtail_batch_size is unset",
+		)
+	}
 	if req.RestoreBatchIntervalSec < 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"restore_batch_interval_sec must be >= 0, got %d", req.RestoreBatchIntervalSec,

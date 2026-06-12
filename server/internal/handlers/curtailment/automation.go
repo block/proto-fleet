@@ -29,22 +29,18 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	out := make([]*pb.CurtailmentAutomationRule, 0, len(rules))
 	siteAllowed := make(map[int64]bool)
 	for _, rule := range rules {
-		profile, err := h.responseProfiles.Get(ctx, info.OrganizationID, rule.ResponseProfileID)
-		if err != nil {
-			return nil, err
-		}
-		if profile.SiteID != nil {
-			allowed, ok := siteAllowed[*profile.SiteID]
+		if rule.ResponseProfileSiteID != nil {
+			allowed, ok := siteAllowed[*rule.ResponseProfileSiteID]
 			if !ok {
-				if err := requireResponseProfileSitePermission(ctx, authz.PermCurtailmentManage, profile); err != nil {
+				if err := requireAutomationProfileSitePermission(ctx, rule.ResponseProfileSiteID); err != nil {
 					if fleeterror.IsForbiddenError(err) {
-						siteAllowed[*profile.SiteID] = false
+						siteAllowed[*rule.ResponseProfileSiteID] = false
 						continue
 					}
 					return nil, err
 				}
 				allowed = true
-				siteAllowed[*profile.SiteID] = true
+				siteAllowed[*rule.ResponseProfileSiteID] = true
 			}
 			if !allowed {
 				continue
@@ -82,7 +78,10 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 		return nil, err
 	}
 	rule := automationRuleFromCreateRequest(info.OrganizationID, req.Msg)
-	created, err := h.automation.Create(ctx, domainCurtailment.SaveAutomationRuleRequest{Rule: rule})
+	created, err := h.automation.Create(ctx, domainCurtailment.SaveAutomationRuleRequest{
+		Rule:                rule,
+		CanUseAdminControls: canUseAdminControls(info),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +106,10 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 		}
 	}
 	rule := automationRuleFromUpdateRequest(info.OrganizationID, req.Msg)
-	updated, err := h.automation.Update(ctx, domainCurtailment.SaveAutomationRuleRequest{Rule: rule})
+	updated, err := h.automation.Update(ctx, domainCurtailment.SaveAutomationRuleRequest{
+		Rule:                rule,
+		CanUseAdminControls: canUseAdminControls(info),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +127,13 @@ func (h *Handler) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *
 	if _, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId()); err != nil {
 		return nil, err
 	}
-	rule, err := h.automation.SetEnabled(ctx, info.OrganizationID, req.Msg.GetRuleId(), req.Msg.GetEnabled())
+	rule, err := h.automation.SetEnabled(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetRuleId(),
+		req.Msg.GetEnabled(),
+		canUseAdminControls(info),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -154,10 +162,25 @@ func (h *Handler) getAutomationRuleWithProfilePermission(ctx context.Context, or
 	if err != nil {
 		return nil, err
 	}
-	if _, err := h.getResponseProfileWithSitePermission(ctx, orgID, rule.ResponseProfileID); err != nil {
+	if err := h.requireAutomationRuleProfilePermission(ctx, rule); err != nil {
 		return nil, err
 	}
 	return rule, nil
+}
+
+func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, rule *models.AutomationRule) error {
+	if rule == nil {
+		return nil
+	}
+	return requireAutomationProfileSitePermission(ctx, rule.ResponseProfileSiteID)
+}
+
+func requireAutomationProfileSitePermission(ctx context.Context, siteID *int64) error {
+	if siteID == nil {
+		return nil
+	}
+	_, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{SiteID: siteID})
+	return err
 }
 
 func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {

@@ -110,6 +110,7 @@ type AutomationStore interface {
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
 	SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error
 	ClearAutomationActiveEvent(ctx context.Context, ruleID int64, at time.Time) error
+	RecordAutomationRestoreStarted(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
 }
 

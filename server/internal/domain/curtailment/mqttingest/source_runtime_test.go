@@ -209,6 +209,42 @@ func TestSourceWorker_HandleMessageRetainsPendingEdgeWhenExecutorFails(t *testin
 	assert.Equal(t, TargetOn, persisted.LastTarget)
 }
 
+func TestSourceWorker_RetryPendingEdgeBacksOffExecutorFailures(t *testing.T) {
+	t.Parallel()
+
+	receivedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	now := receivedAt.Add(time.Minute)
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	w := newTestSourceWorker(store, src, func() time.Time { return now })
+	executor := &fakeSignalExecutor{err: errors.New("automation unavailable")}
+	w.cfg.SignalExecutor = executor
+
+	state, settled := w.retryPendingEdge(context.Background(), SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   receivedAt.Add(-time.Minute),
+		LastReceivedAt: receivedAt.Add(-time.Minute),
+		LastEdgeAt:     receivedAt.Add(-time.Minute),
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			ReceivedAt:     receivedAt,
+			ReceivedBroker: src.BrokerPrimaryHost,
+		},
+	})
+
+	require.True(t, settled)
+	require.NotNil(t, state.PendingEdge)
+	assert.Equal(t, now.Add(64*time.Second), state.PendingEdge.RetryAt)
+	assert.Equal(t, TargetOn, state.LastTarget)
+	assert.Equal(t, 1, executor.calls)
+
+	persisted := store.state[src.ID]
+	require.NotNil(t, persisted.PendingEdge)
+	assert.Equal(t, now.Add(64*time.Second), persisted.PendingEdge.RetryAt)
+}
+
 func TestNewSubscriberDoesNotRequireCurtailmentDriver(t *testing.T) {
 	t.Parallel()
 

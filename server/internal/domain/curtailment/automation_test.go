@@ -66,6 +66,101 @@ func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
+func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*models.ResponseProfile)
+	}{
+		{
+			name: "force maintenance",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.IncludeMaintenance = true
+				profile.ForceIncludeMaintenance = true
+			},
+		},
+		{
+			name: "slow curtail batch interval",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.CurtailBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+			},
+		},
+		{
+			name: "slow restore batch interval",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			tc.mutate(h.profile)
+
+			_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+				Rule: models.AutomationRule{
+					OrgID:             h.orgID,
+					RuleName:          "MaestroOS curtailment",
+					MQTTSourceID:      h.source.ID,
+					ResponseProfileID: h.profile.ID,
+				},
+			})
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsForbiddenError(err))
+			assert.Equal(t, 0, h.rules.createCalls)
+		})
+	}
+}
+
+func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.IncludeMaintenance = true
+	h.profile.ForceIncludeMaintenance = true
+
+	created, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			OrgID:             h.orgID,
+			RuleName:          "MaestroOS curtailment",
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	assert.Equal(t, 1, h.rules.createCalls)
+}
+
+func TestAutomationService_UpdateRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.IncludeMaintenance = true
+	h.profile.ForceIncludeMaintenance = true
+
+	_, err := h.automation.Update(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			ID:                h.rule.ID,
+			OrgID:             h.orgID,
+			RuleName:          "Renamed rule",
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Equal(t, "MaestroOS curtailment", h.rule.RuleName)
+}
+
 func TestAutomationService_UpdateRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
 	t.Parallel()
 
@@ -94,12 +189,27 @@ func TestAutomationService_SetEnabledRejectsDisableWhenRuleOwnsActiveEvent(t *te
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateRestoring)
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false)
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false)
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.True(t, h.rule.Enabled)
 	assert.Equal(t, 0, h.rules.clearActiveCalls)
+}
+
+func TestAutomationService_SetEnabledRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.rule.Enabled = false
+	h.profile.IncludeMaintenance = true
+	h.profile.ForceIncludeMaintenance = true
+
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, true, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.False(t, h.rule.Enabled)
 }
 
 func TestAutomationService_DeleteRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
@@ -122,7 +232,7 @@ func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *t
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateCompleted)
 
-	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false)
+	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false)
 
 	require.NoError(t, err)
 	require.NotNil(t, updated)
@@ -212,6 +322,9 @@ func TestAutomationService_HandleMQTTSignal_OnStartsRestoreAndKeepsActiveEventFo
 	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOn}, h.rules.recordedSignals)
 	assert.Equal(t, 1, h.curtailments.beginRestoreCalls)
 	assert.Equal(t, activeEventUUID, h.curtailments.beginRestoreLastEventID)
+	assert.Equal(t, 1, h.rules.restoreStartedCalls)
+	require.NotNil(t, h.rule.LastRestoredAt)
+	assert.Equal(t, *h.rule.LastRestoredAt, h.rules.lastRestoreStartedAt)
 	assert.Equal(t, 0, h.rules.clearActiveCalls)
 	require.NotNil(t, h.rule.ActiveEventUUID)
 	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
@@ -376,18 +489,20 @@ func (h *automationHarness) seedRunnableProfile() {
 }
 
 type automationFakeStore struct {
-	mu               sync.Mutex
-	nextID           int64
-	rules            []*models.AutomationRule
-	created          *models.AutomationRule
-	createCalls      int
-	recordedSignals  []models.AutomationSignal
-	setActiveCalls   int
-	lastActiveEvent  uuid.UUID
-	lastActiveAt     time.Time
-	clearActiveCalls int
-	lastClearedAt    time.Time
-	executionErrors  []string
+	mu                   sync.Mutex
+	nextID               int64
+	rules                []*models.AutomationRule
+	created              *models.AutomationRule
+	createCalls          int
+	recordedSignals      []models.AutomationSignal
+	setActiveCalls       int
+	lastActiveEvent      uuid.UUID
+	lastActiveAt         time.Time
+	restoreStartedCalls  int
+	lastRestoreStartedAt time.Time
+	clearActiveCalls     int
+	lastClearedAt        time.Time
+	executionErrors      []string
 }
 
 func newAutomationFakeStore(rules ...*models.AutomationRule) *automationFakeStore {
@@ -532,6 +647,20 @@ func (f *automationFakeStore) ClearAutomationActiveEvent(_ context.Context, rule
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
 			rule.ActiveEventUUID = nil
+			rule.LastRestoredAt = &at
+			return nil
+		}
+	}
+	return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+}
+
+func (f *automationFakeStore) RecordAutomationRestoreStarted(_ context.Context, ruleID int64, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.restoreStartedCalls++
+	f.lastRestoreStartedAt = at
+	for _, rule := range f.rules {
+		if rule.ID == ruleID {
 			rule.LastRestoredAt = &at
 			return nil
 		}

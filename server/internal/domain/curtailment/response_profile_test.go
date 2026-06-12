@@ -221,6 +221,8 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 		{
 			name: "slow curtail batching",
 			mutate: func(profile *models.ResponseProfile) {
+				batchSize := int32(25)
+				profile.CurtailBatchSize = &batchSize
 				profile.CurtailBatchIntervalSec = slowInterval
 			},
 		},
@@ -259,6 +261,25 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 			assert.True(t, fleeterror.IsForbiddenError(err))
 		})
 	}
+}
+
+func TestResponseProfileService_CreateRejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 1000.0
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                   42,
+			ProfileName:             "Standard shed",
+			Mode:                    models.ModeFixedKw,
+			TargetKW:                &targetKW,
+			CurtailBatchIntervalSec: 15,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "curtail_batch_interval_sec")
 }
 
 func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
