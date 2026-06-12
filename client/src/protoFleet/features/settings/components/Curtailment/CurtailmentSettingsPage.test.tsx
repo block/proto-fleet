@@ -61,7 +61,7 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
     selectedMinerCount: source.selectedMinerCount,
     targetKw: source.targetKw ?? Number(values.targetKw || "0"),
     estimatedReductionKw: source.estimatedReductionKw,
-    curtailEstimate: "5 minutes - 30 minutes",
+    curtailEstimate: "~1 minute",
     restoreEstimate: "~2 minutes",
     scopeLabel: values.scopeId ?? "across the fleet",
   }),

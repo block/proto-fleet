@@ -46,8 +46,8 @@ const baseValues: CurtailmentFormValues = {
   priority: "normal",
   minDurationSec: "300",
   maxDurationSec: "1800",
-  curtailBatchSize: "",
-  curtailBatchIntervalSec: "",
+  curtailBatchSize: "2",
+  curtailBatchIntervalSec: "30",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak",
@@ -233,7 +233,7 @@ describe("useCurtailmentPlanPreview", () => {
           selectedMinerCount: 3,
           targetKw: 40,
           estimatedReductionKw: 45,
-          curtailEstimate: "5 minutes - 30 minutes",
+          curtailEstimate: "~30 seconds",
           restoreEstimate: "Immediately",
           scopeLabel: "across the fleet",
         }),
@@ -289,7 +289,7 @@ describe("useCurtailmentPlanPreview", () => {
           selectedMinerCount: 3,
           targetKw: 45,
           estimatedReductionKw: 45,
-          curtailEstimate: "5 minutes - 30 minutes",
+          curtailEstimate: "~30 seconds",
           restoreEstimate: "Immediately",
           scopeLabel: "across the fleet",
         }),
@@ -322,13 +322,13 @@ describe("useCurtailmentPlanPreview", () => {
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();
   });
 
-  it("updates local preview labels without refetching for non-request edits", async () => {
+  it("updates local preview labels without refetching for batch edits", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
     const { result, rerender } = renderPreviewHook();
 
     await waitFor(() => {
-      expect(result.current.preview?.curtailEstimate).toBe("5 minutes - 30 minutes");
+      expect(result.current.preview?.curtailEstimate).toBe("~30 seconds");
     });
 
     rerender({
@@ -336,6 +336,8 @@ describe("useCurtailmentPlanPreview", () => {
         ...baseValues,
         minDurationSec: "60",
         maxDurationSec: "120",
+        curtailBatchSize: "1",
+        curtailBatchIntervalSec: "30",
         restoreBatchSize: "1",
         restoreIntervalSec: "30",
         reason: "Updated reason",
@@ -344,7 +346,7 @@ describe("useCurtailmentPlanPreview", () => {
 
     expect(result.current.preview).toEqual(
       expect.objectContaining({
-        curtailEstimate: "1 minute - 2 minutes",
+        curtailEstimate: "~1 minute",
         restoreEstimate: "~1 minute",
       }),
     );

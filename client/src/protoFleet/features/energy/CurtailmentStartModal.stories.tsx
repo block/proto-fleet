@@ -85,7 +85,7 @@ const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
-  curtailEstimate: "5 minutes - 30 minutes",
+  curtailEstimate: "~1 minute",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };

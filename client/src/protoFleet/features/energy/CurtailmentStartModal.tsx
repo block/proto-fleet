@@ -445,7 +445,7 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
             Curtail {preview.selectedMinerCount} miners {preview.scopeLabel} immediately
           </div>
           <div className="text-heading-100 text-text-primary-50">
-            {preview.curtailEstimate} duration, {preview.restoreEstimate} to restore
+            {preview.curtailEstimate} to curtail, {preview.restoreEstimate} to restore
           </div>
         </div>
       </div>

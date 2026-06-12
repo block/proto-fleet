@@ -33,7 +33,7 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
     selectedMinerCount: source.selectedMinerCount,
     targetKw: source.targetKw ?? Number(values.targetKw),
     estimatedReductionKw: source.estimatedReductionKw,
-    curtailEstimate: "5 minutes - 30 minutes",
+    curtailEstimate: "~1 minute",
     restoreEstimate: "~2 minutes",
     scopeLabel: "across the fleet",
   }),
@@ -144,7 +144,7 @@ const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
-  curtailEstimate: "5 minutes - 30 minutes",
+  curtailEstimate: "~1 minute",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };
@@ -707,7 +707,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
-    expect(screen.getAllByText("5 minutes - 30 minutes duration, ~2 minutes to restore")).toHaveLength(2);
+    expect(screen.getAllByText("~1 minute to curtail, ~2 minutes to restore")).toHaveLength(2);
   });
 
   it("blocks submission while the API preview reports a blocking error", async () => {
@@ -753,7 +753,7 @@ describe("CurtailmentStartModal", () => {
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
     expect(secondaryPane.getByText("Curtailment target reduction")).toBeInTheDocument();
-    expect(secondaryPane.getByText("5 minutes - 30 minutes duration, ~2 minutes to restore")).toBeInTheDocument();
+    expect(secondaryPane.getByText("~1 minute to curtail, ~2 minutes to restore")).toBeInTheDocument();
 
     rerender(
       <CurtailmentStartModal
