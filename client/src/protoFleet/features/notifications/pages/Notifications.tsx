@@ -28,10 +28,10 @@ const Notifications = () => {
     <div className="flex flex-col gap-6 pb-10">
       <Header title="Notifications" titleSize="text-heading-300" />
       <div className="flex flex-col gap-4">
-        <ChannelsSection />
         <RulesSection />
-        <SilencesSection />
         <HistorySection />
+        <ChannelsSection />
+        <SilencesSection />
       </div>
     </div>
   );
