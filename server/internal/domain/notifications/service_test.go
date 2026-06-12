@@ -28,6 +28,12 @@ func TestValidateSilenceScope(t *testing.T) {
 		{"site without target", SilenceScope{Kind: SilenceScopeSite}, true},
 		{"device with targets", SilenceScope{Kind: SilenceScopeDevice, DeviceIDs: []string{"d1"}}, false},
 		{"device without targets", SilenceScope{Kind: SilenceScopeDevice}, true},
+		{"device uuid and mac ids", SilenceScope{Kind: SilenceScopeDevice, DeviceIDs: []string{
+			"550e8400-e29b-41d4-a716-446655440000", "aa:bb:cc:dd:ee:ff", "SN.001",
+		}}, false},
+		{"device id regex wildcard rejected", SilenceScope{Kind: SilenceScopeDevice, DeviceIDs: []string{".*"}}, true},
+		{"device id regex alternation rejected", SilenceScope{Kind: SilenceScopeDevice, DeviceIDs: []string{"a|b"}}, true},
+		{"device id with anchors rejected", SilenceScope{Kind: SilenceScopeDevice, DeviceIDs: []string{"^d1$"}}, true},
 		{"unknown kind", SilenceScope{Kind: "everything"}, true},
 	}
 	for _, tc := range cases {
@@ -52,6 +58,30 @@ func TestCreateSilenceRejectsTargetlessScope(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+// Multi-device silences compile to an anchored, escaped regex matcher
+// and the matcher round-trips back to the plain id list on reads.
+func TestDeviceScopeRegexCompilation(t *testing.T) {
+	sil := Silence{Scope: SilenceScope{
+		Kind:      SilenceScopeDevice,
+		DeviceIDs: []string{"dev-1", "SN.001"},
+	}}
+	gs := domainSilenceToGrafana(7, sil)
+
+	var matcher *GrafanaSilenceMatcher
+	for i, m := range gs.Matchers {
+		if m.Name == "device_id" {
+			matcher = &gs.Matchers[i]
+		}
+	}
+	require.NotNil(t, matcher)
+	assert.True(t, matcher.IsRegex)
+	assert.Equal(t, `^(?:dev-1|SN\.001)$`, matcher.Value)
+
+	scope := matchersToScope(gs.Matchers)
+	assert.Equal(t, SilenceScopeDevice, scope.Kind)
+	assert.Equal(t, []string{"dev-1", "SN.001"}, scope.DeviceIDs)
 }
 
 func TestValidateDestination(t *testing.T) {
@@ -103,6 +133,13 @@ func TestValidateDestination(t *testing.T) {
 		{
 			name:    "webhook localhost rejected",
 			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "http://localhost:9000/hook"}},
+			wantErr: true,
+		},
+		{
+			// DNS failures fail closed: a host we can't classify is
+			// rejected. .invalid never resolves (RFC 6761).
+			name:    "webhook unresolvable host rejected",
+			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "https://definitely-not-real.invalid/hook"}},
 			wantErr: true,
 		},
 		{

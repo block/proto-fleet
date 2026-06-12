@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -379,9 +380,16 @@ const destinationLookupTimeout = 3 * time.Second
 
 // checkDestinationHost rejects hosts that are (or resolve to)
 // loopback, link-local, private, or unspecified addresses unless the
-// operator opted in via AllowPrivateDestinations. DNS failures are
-// not treated as policy violations — an unresolvable host can't be
-// used for SSRF, and Grafana surfaces the delivery failure on test.
+// operator opted in via AllowPrivateDestinations. DNS failures fail
+// closed: a host we can't classify is rejected rather than waved
+// through.
+//
+// Residual risk: Grafana resolves the hostname again at delivery
+// time, so a DNS-rebinding attacker (public IP at validation, private
+// IP at delivery) can still beat this pre-check. Deployments that
+// need a hard guarantee must enforce egress at the Grafana container's
+// network boundary; this check is the application-level backstop, not
+// the whole story.
 func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
 	if s.policy.AllowPrivateDestinations {
 		return nil
@@ -401,8 +409,9 @@ func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
 		lookupCtx, cancel := context.WithTimeout(ctx, destinationLookupTimeout)
 		defer cancel()
 		resolved, err := net.DefaultResolver.LookupIP(lookupCtx, "ip", host)
-		if err != nil {
-			return nil
+		if err != nil || len(resolved) == 0 {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"destination host %q could not be resolved; refusing a destination we cannot classify", host)
 		}
 		ips = resolved
 	}
@@ -728,11 +737,26 @@ func validateSilenceScope(scope SilenceScope) error {
 		if len(scope.DeviceIDs) == 0 {
 			return fleeterror.NewInvalidArgumentError("device_ids is required for a device-scoped silence")
 		}
+		// Device ids are compiled into an Alertmanager regex matcher.
+		// Restrict them to the identifier alphabet (UUIDs, MACs,
+		// serials) so a crafted id like ".*" can't broaden a
+		// device-scoped silence to the whole org.
+		for _, id := range scope.DeviceIDs {
+			if !deviceIDPattern.MatchString(id) {
+				return fleeterror.NewInvalidArgumentErrorf("invalid device id: %q", id)
+			}
+		}
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unknown silence scope kind: %q", scope.Kind)
 	}
 	return nil
 }
+
+// deviceIDPattern is the identifier alphabet accepted in device-scoped
+// silences: covers UUIDs, MAC addresses, and serial-style ids while
+// excluding every regex metacharacter except ".", which
+// domainSilenceToGrafana escapes.
+var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
 // === helpers ===========================================================
 
@@ -1095,10 +1119,15 @@ func matchersToScope(ms []GrafanaSilenceMatcher) SilenceScope {
 		case "device_id":
 			scope.Kind = SilenceScopeDevice
 			// device_id silences may carry many ids via a regex matcher,
-			// or a single id via an equality matcher. We split on `|`
-			// because that's how Alertmanager combines an OR'd list.
+			// or a single id via an equality matcher. The regex form is
+			// `^(?:id1|id2)$` with QuoteMeta-escaped ids (see
+			// domainSilenceToGrafana); strip the anchors and escapes to
+			// recover the plain id list.
 			if m.IsRegex {
-				scope.DeviceIDs = append(scope.DeviceIDs, strings.Split(m.Value, "|")...)
+				v := strings.TrimSuffix(strings.TrimPrefix(m.Value, "^(?:"), ")$")
+				for id := range strings.SplitSeq(v, "|") {
+					scope.DeviceIDs = append(scope.DeviceIDs, strings.ReplaceAll(id, `\`, ""))
+				}
 			} else {
 				scope.DeviceIDs = append(scope.DeviceIDs, m.Value)
 			}
@@ -1151,9 +1180,17 @@ func domainSilenceToGrafana(orgID int64, sil Silence) GrafanaSilence {
 				IsEqual: true,
 			})
 		} else if len(sil.Scope.DeviceIDs) > 1 {
+			// Anchor and escape: validateSilenceScope restricts ids to
+			// the identifier alphabet, but QuoteMeta still escapes "."
+			// and the anchors stop a partial match from widening the
+			// silence to ids that merely contain a target as substring.
+			quoted := make([]string, len(sil.Scope.DeviceIDs))
+			for i, id := range sil.Scope.DeviceIDs {
+				quoted[i] = regexp.QuoteMeta(id)
+			}
 			matchers = append(matchers, GrafanaSilenceMatcher{
 				Name:    "device_id",
-				Value:   strings.Join(sil.Scope.DeviceIDs, "|"),
+				Value:   "^(?:" + strings.Join(quoted, "|") + ")$",
 				IsRegex: true,
 				IsEqual: true,
 			})

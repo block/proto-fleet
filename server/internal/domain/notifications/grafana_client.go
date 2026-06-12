@@ -287,8 +287,10 @@ func (g *Grafana) rawPost(ctx context.Context, path string, body any) (*http.Res
 // redactedLogKeys are JSON field names whose values are secrets and
 // must never reach the log stream. Channel payloads carry webhook
 // bearer tokens and SMTP passwords inside the opaque settings object;
-// the extra keys cover credential fields of other Grafana receiver
-// types this client may round-trip in the future.
+// "url" is included because webhook URLs routinely embed capability
+// tokens in the path or query (Slack, PagerDuty, Teams); the extra
+// keys cover credential fields of other Grafana receiver types this
+// client may round-trip in the future.
 var redactedLogKeys = map[string]bool{
 	"authorization_credentials": true,
 	"smtpPassword":              true,
@@ -297,6 +299,7 @@ var redactedLogKeys = map[string]bool{
 	"bearerToken":               true,
 	"token":                     true,
 	"secureSettings":            true,
+	"url":                       true,
 }
 
 // redactSecrets returns body with every redactedLogKeys value replaced

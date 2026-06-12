@@ -24,6 +24,9 @@ func TestRedactSecrets(t *testing.T) {
 
 	assert.NotContains(t, out, "super-secret-token")
 	assert.NotContains(t, out, "hunter2")
+	// Webhook URLs routinely embed capability tokens in the path, so
+	// the whole value is redacted.
+	assert.NotContains(t, out, "hooks.example.com")
 
 	var v struct {
 		Name     string         `json:"name"`
@@ -33,7 +36,7 @@ func TestRedactSecrets(t *testing.T) {
 	assert.Equal(t, "org-7-pager", v.Name)
 	assert.Equal(t, "[REDACTED]", v.Settings["authorization_credentials"])
 	assert.Equal(t, "[REDACTED]", v.Settings["smtpPassword"])
-	assert.Equal(t, "https://hooks.example.com/x", v.Settings["url"])
+	assert.Equal(t, "[REDACTED]", v.Settings["url"])
 }
 
 func TestRedactSecretsKeepsEmptyValues(t *testing.T) {
