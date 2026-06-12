@@ -39,52 +39,61 @@ import (
 
 	"connectrpc.com/authn"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 	notifications "github.com/block/proto-fleet/server/internal/domain/notifications"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // Handler is the http.Handler that mounts every notifications RPC.
 // The Connect-RPC AuthInterceptor only runs on the typed service
 // handlers (which we don't have until codegen runs), so this handler
 // reuses the same session-cookie verification path the firmware
-// upload endpoints use.
+// upload endpoints use, then loads the caller's effective permissions
+// the same way the interceptor would so middleware.RequirePermission
+// gates every route.
 type Handler struct {
-	svc        *notifications.Service
-	sessionSvc *session.Service
-	userStore  interfaces.UserStore
-	history    notificationhistory.Lister
+	svc         *notifications.Service
+	sessionSvc  *session.Service
+	userStore   interfaces.UserStore
+	permissions *authz.PermissionResolver
+	history     notificationhistory.Lister
 }
 
 // NewHandler returns a handler bound to the supplied service.
-func NewHandler(svc *notifications.Service, sessionSvc *session.Service, userStore interfaces.UserStore, history notificationhistory.Lister) *Handler {
-	return &Handler{svc: svc, sessionSvc: sessionSvc, userStore: userStore, history: history}
+func NewHandler(svc *notifications.Service, sessionSvc *session.Service, userStore interfaces.UserStore, permissions *authz.PermissionResolver, history notificationhistory.Lister) *Handler {
+	return &Handler{svc: svc, sessionSvc: sessionSvc, userStore: userStore, permissions: permissions, history: history}
 }
 
 // Routes returns the set of (path, handler) pairs that main.go
 // wires under the global mux. Paths mirror the Connect-RPC URL
 // scheme (`/<package>.<Service>/<Method>`) so the SettingsNotifications
 // UI can keep one configurable base URL.
+//
+// Every route is gated on a catalog permission: reads sit on
+// notification:read, every mutation — including TestChannel, which
+// triggers an immediate outbound delivery — on notification:manage.
 func (h *Handler) Routes() map[string]http.Handler {
 	return map[string]http.Handler{
-		"POST /notifications.v1.ChannelService/ListChannels":  h.authed(h.listChannels),
-		"POST /notifications.v1.ChannelService/CreateChannel": h.authed(h.createChannel),
-		"POST /notifications.v1.ChannelService/UpdateChannel": h.authed(h.updateChannel),
-		"POST /notifications.v1.ChannelService/DeleteChannel": h.authed(h.deleteChannel),
-		"POST /notifications.v1.ChannelService/TestChannel":   h.authed(h.testChannel),
+		"POST /notifications.v1.ChannelService/ListChannels":  h.authed(authz.PermNotificationRead, h.listChannels),
+		"POST /notifications.v1.ChannelService/CreateChannel": h.authed(authz.PermNotificationManage, h.createChannel),
+		"POST /notifications.v1.ChannelService/UpdateChannel": h.authed(authz.PermNotificationManage, h.updateChannel),
+		"POST /notifications.v1.ChannelService/DeleteChannel": h.authed(authz.PermNotificationManage, h.deleteChannel),
+		"POST /notifications.v1.ChannelService/TestChannel":   h.authed(authz.PermNotificationManage, h.testChannel),
 
-		"POST /notifications.v1.RuleService/ListRules":  h.authed(h.listRules),
-		"POST /notifications.v1.RuleService/PauseRule":  h.authed(h.pauseRule),
-		"POST /notifications.v1.RuleService/ResumeRule": h.authed(h.resumeRule),
+		"POST /notifications.v1.RuleService/ListRules":  h.authed(authz.PermNotificationRead, h.listRules),
+		"POST /notifications.v1.RuleService/PauseRule":  h.authed(authz.PermNotificationManage, h.pauseRule),
+		"POST /notifications.v1.RuleService/ResumeRule": h.authed(authz.PermNotificationManage, h.resumeRule),
 
-		"POST /notifications.v1.SilenceService/ListSilences":  h.authed(h.listSilences),
-		"POST /notifications.v1.SilenceService/CreateSilence": h.authed(h.createSilence),
-		"POST /notifications.v1.SilenceService/UpdateSilence": h.authed(h.updateSilence),
-		"POST /notifications.v1.SilenceService/DeleteSilence": h.authed(h.deleteSilence),
+		"POST /notifications.v1.SilenceService/ListSilences":  h.authed(authz.PermNotificationRead, h.listSilences),
+		"POST /notifications.v1.SilenceService/CreateSilence": h.authed(authz.PermNotificationManage, h.createSilence),
+		"POST /notifications.v1.SilenceService/UpdateSilence": h.authed(authz.PermNotificationManage, h.updateSilence),
+		"POST /notifications.v1.SilenceService/DeleteSilence": h.authed(authz.PermNotificationManage, h.deleteSilence),
 
-		"POST /notifications.v1.HistoryService/ListNotifications": h.authed(h.listNotifications),
+		"POST /notifications.v1.HistoryService/ListNotifications": h.authed(authz.PermNotificationRead, h.listNotifications),
 	}
 }
 
@@ -662,14 +671,20 @@ func wireToSilence(req silenceMutationWire, id string) (notifications.Silence, e
 type jsonRPC func(ctx context.Context, body json.RawMessage) (any, error)
 
 // authed wraps a typed JSON handler with session-cookie
-// authentication. The Connect-RPC interceptor chain only runs on
-// the typed service handlers; this method reproduces the same
-// session-cookie validation path used by the firmware HTTP handlers.
-func (h *Handler) authed(fn jsonRPC) http.Handler {
+// authentication followed by an RBAC check on the supplied catalog
+// permission. The Connect-RPC interceptor chain only runs on the
+// typed service handlers; this method reproduces the same
+// session-cookie validation path used by the firmware HTTP handlers
+// and the same RequirePermission gate the Connect handlers apply.
+func (h *Handler) authed(permission string, fn jsonRPC) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ctx, err := h.authenticate(r)
 		if err != nil {
+			writeJSONError(w, statusForErr(err), codeForErr(err), err.Error())
+			return
+		}
+		if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{}); err != nil {
 			writeJSONError(w, statusForErr(err), codeForErr(err), err.Error())
 			return
 		}
@@ -690,7 +705,9 @@ func (h *Handler) authed(fn jsonRPC) http.Handler {
 }
 
 // authenticate mirrors the session-cookie path the firmware
-// handler uses. We don't accept API key auth here because the
+// handler uses, then loads the caller's effective permissions the
+// same way the Connect auth interceptor does so RequirePermission
+// can resolve. We don't accept API key auth here because the
 // notifications surface is settings-screen UI only.
 func (h *Handler) authenticate(r *http.Request) (context.Context, error) {
 	cookie, err := r.Cookie(h.sessionSvc.CookieName())
@@ -713,7 +730,13 @@ func (h *Handler) authenticate(r *http.Request) (context.Context, error) {
 		ExternalUserID: user.UserID,
 		Username:       user.Username,
 	}
-	return authn.SetInfo(r.Context(), info), nil
+	eff, err := h.permissions.LoadEffective(r.Context(), sess.UserID, sess.OrganizationID)
+	if err != nil {
+		// Fail closed: without the effective set, RequirePermission
+		// would reject anyway; surface the resolver failure directly.
+		return r.Context(), fleeterror.NewInternalError("effective permissions lookup failed")
+	}
+	return middleware.WithEffectivePermissions(authn.SetInfo(r.Context(), info), eff), nil
 }
 
 // orgIDFrom requires session.Info on the context and returns the
@@ -741,6 +764,8 @@ func statusForErr(err error) int {
 		return http.StatusBadRequest
 	case fleeterror.IsAuthenticationError(err):
 		return http.StatusUnauthorized
+	case fleeterror.IsForbiddenError(err):
+		return http.StatusForbidden
 	}
 	return http.StatusInternalServerError
 }
@@ -753,6 +778,8 @@ func codeForErr(err error) string {
 		return "invalid_argument"
 	case fleeterror.IsAuthenticationError(err):
 		return "unauthenticated"
+	case fleeterror.IsForbiddenError(err):
+		return "permission_denied"
 	}
 	return "internal"
 }

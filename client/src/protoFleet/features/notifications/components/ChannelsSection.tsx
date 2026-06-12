@@ -207,7 +207,8 @@ const ChannelsSection = () => {
         />
       </div>
       <p className="text-300 text-text-primary-50">
-        Webhook and email destinations the rule engine delivers notifications to.
+        Webhook and email destinations for alert delivery. Saved channels are not yet attached to alert routing — "Test"
+        sends a synthetic alert directly to the destination, but live alerts won't deliver here until routing ships.
       </p>
 
       <List<Channel, string, ChannelColumns>

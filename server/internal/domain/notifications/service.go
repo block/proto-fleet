@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // Service is the org-scoped domain layer. All public methods require
@@ -40,14 +44,25 @@ import (
 // double the rotation surface area.
 type Service struct {
 	grafana *Grafana
+	policy  DestinationPolicy
 	now     func() time.Time
+}
+
+// DestinationPolicy is the operator-facing egress policy for
+// notification destinations. Grafana (not fleet-api) opens the
+// outbound connection, so user-supplied webhook URLs and SMTP hosts
+// are an SSRF vector against whatever network the Grafana sidecar can
+// reach. By default destinations that resolve to loopback, link-local
+// (incl. cloud metadata), or RFC-1918 private ranges are rejected.
+type DestinationPolicy struct {
+	AllowPrivateDestinations bool `help:"Allow notification destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
 // NewService returns a notifications service bound to the supplied
 // Grafana client. The clock is `time.Now` outside tests; tests
 // inject a deterministic clock.
-func NewService(g *Grafana) *Service {
-	return &Service{grafana: g, now: time.Now}
+func NewService(g *Grafana, policy DestinationPolicy) *Service {
+	return &Service{grafana: g, policy: policy, now: time.Now}
 }
 
 // ErrZeroOrgID rejects callers that forgot to populate the org id on
@@ -107,6 +122,9 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
+	if err := s.validateDestination(ctx, &c); err != nil {
+		return nil, err
+	}
 	c.OrganizationID = orgID
 	c.CreatedAt = s.now()
 	c.UpdatedAt = c.CreatedAt
@@ -146,9 +164,12 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if c.ID == "" {
 		return nil, errors.New("channel id is required for update")
 	}
+	if err := s.validateDestination(ctx, &c); err != nil {
+		return nil, err
+	}
 	// Verify ownership before issuing the PUT — Grafana doesn't
 	// enforce our prefix scheme.
-	owned, err := s.findOwnedChannel(ctx, orgID, c.ID)
+	owned, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,16 +178,26 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	c.ValidationState = ValidationPending
 	c.ValidatedAt = nil
 	c.ValidationError = ""
-	// If the caller didn't include a fresh secret, carry the previous
-	// HasSecret signal through so the UI doesn't flip the "•••• Set"
-	// affordance on every rename.
-	if !s.requestHasNewSecret(&c) {
-		c.HasSecret = owned.HasSecret
-	}
+	hasNewSecret := s.requestHasNewSecret(&c)
 
 	settings, err := encodeChannelSettings(&c)
 	if err != nil {
 		return nil, err
+	}
+	// Ordinary edits (rename, destination change) arrive without the
+	// secret — reads never return it, so the UI can't echo it back.
+	// Writing the empty value would silently wipe the stored credential
+	// in Grafana, so carry the existing settings' secret field into the
+	// update payload instead. For webhook channels the carried value is
+	// Grafana's "[REDACTED]" placeholder, which Grafana's provisioning
+	// API resolves back to the stored secure value on PUT.
+	if !hasNewSecret {
+		var carried bool
+		settings, carried, err = carrySecretSettings(ownedCP.Settings, settings, c.Kind)
+		if err != nil {
+			return nil, err
+		}
+		c.HasSecret = owned.HasSecret || carried
 	}
 	cp := GrafanaContactPoint{
 		UID:      c.ID,
@@ -193,7 +224,7 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 	if err := requireOrg(orgID); err != nil {
 		return err
 	}
-	if _, err := s.findOwnedChannel(ctx, orgID, id); err != nil {
+	if _, _, err := s.findOwnedChannel(ctx, orgID, id); err != nil {
 		return err
 	}
 	if err := s.grafana.DeleteContactPoint(ctx, id); err != nil && !IsNotFound(err) {
@@ -208,6 +239,9 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 // prior write.
 func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool, int, string, error) {
 	if err := requireOrg(orgID); err != nil {
+		return false, 0, "", err
+	}
+	if err := s.validateDestination(ctx, &c); err != nil {
 		return false, 0, "", err
 	}
 	c.OrganizationID = orgID
@@ -228,17 +262,27 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 	return ok, code, "", nil
 }
 
-func (s *Service) findOwnedChannel(ctx context.Context, orgID int64, id string) (*Channel, error) {
-	channels, err := s.ListChannels(ctx, orgID)
+// findOwnedChannel returns the decoded channel together with the raw
+// Grafana contact point it came from. The raw row is needed by
+// UpdateChannel to carry secret settings (which the decoded Channel
+// deliberately drops) into the update payload.
+func (s *Service) findOwnedChannel(ctx context.Context, orgID int64, id string) (*Channel, *GrafanaContactPoint, error) {
+	cps, err := s.grafana.ListContactPoints(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	for i, c := range channels {
-		if c.ID == id {
-			return &channels[i], nil
+	prefix := channelNamePrefix(orgID)
+	for i, cp := range cps {
+		if cp.UID != id || !strings.HasPrefix(cp.Name, prefix) {
+			continue
 		}
+		c, err := contactPointToChannel(orgID, cp)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &c, &cps[i], nil
 	}
-	return nil, ErrNotFound
+	return nil, nil, ErrNotFound
 }
 
 // requestHasNewSecret tells whether the caller's update payload
@@ -252,6 +296,123 @@ func (s *Service) requestHasNewSecret(c *Channel) bool {
 		return c.SMTP != nil && c.SMTP.Password != ""
 	}
 	return false
+}
+
+// secretSettingsKeyFor names the Grafana settings field that carries
+// the channel kind's secret, or "" for kinds without one.
+func secretSettingsKeyFor(kind ChannelKind) string {
+	switch kind {
+	case ChannelKindWebhook:
+		return "authorization_credentials"
+	case ChannelKindSMTP:
+		return "smtpPassword"
+	}
+	return ""
+}
+
+// carrySecretSettings copies the secret field from the existing
+// contact point's settings into the update payload. Returns the
+// (possibly rewritten) settings and whether a secret was carried.
+func carrySecretSettings(existing, next json.RawMessage, kind ChannelKind) (json.RawMessage, bool, error) {
+	key := secretSettingsKeyFor(kind)
+	if key == "" {
+		return next, false, nil
+	}
+	var prev map[string]json.RawMessage
+	if err := json.Unmarshal(existing, &prev); err != nil {
+		return nil, false, fmt.Errorf("unmarshal existing contact point settings: %w", err)
+	}
+	raw, ok := prev[key]
+	if !ok || len(raw) == 0 || string(raw) == `""` || string(raw) == "null" {
+		return next, false, nil
+	}
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(next, &out); err != nil {
+		return nil, false, fmt.Errorf("unmarshal update settings: %w", err)
+	}
+	out[key] = raw
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal settings with carried secret: %w", err)
+	}
+	return b, true, nil
+}
+
+// validateDestination rejects malformed or policy-violating outbound
+// destinations before they reach Grafana. Grafana is the process that
+// connects to the destination, so without this check any caller with
+// notification:manage could point the sidecar at internal services or
+// the cloud metadata endpoint (and TestChannel triggers the connection
+// immediately).
+func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
+	switch c.Kind {
+	case ChannelKindWebhook:
+		if c.Webhook == nil || c.Webhook.URL == "" {
+			return fleeterror.NewInvalidArgumentError("webhook url is required")
+		}
+		u, err := url.Parse(c.Webhook.URL)
+		if err != nil {
+			return fleeterror.NewInvalidArgumentError("invalid webhook url: " + err.Error())
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fleeterror.NewInvalidArgumentErrorf("webhook url scheme must be http or https, got %q", u.Scheme)
+		}
+		if u.Hostname() == "" {
+			return fleeterror.NewInvalidArgumentError("webhook url must include a host")
+		}
+		return s.checkDestinationHost(ctx, u.Hostname())
+	case ChannelKindSMTP:
+		if c.SMTP == nil || c.SMTP.Host == "" {
+			return fleeterror.NewInvalidArgumentError("smtp host is required")
+		}
+		if len(c.SMTP.To) == 0 {
+			return fleeterror.NewInvalidArgumentError("at least one smtp recipient is required")
+		}
+		return s.checkDestinationHost(ctx, c.SMTP.Host)
+	}
+	return nil
+}
+
+// destinationLookupTimeout bounds the DNS check in
+// checkDestinationHost so a slow resolver can't hang a save.
+const destinationLookupTimeout = 3 * time.Second
+
+// checkDestinationHost rejects hosts that are (or resolve to)
+// loopback, link-local, private, or unspecified addresses unless the
+// operator opted in via AllowPrivateDestinations. DNS failures are
+// not treated as policy violations — an unresolvable host can't be
+// used for SSRF, and Grafana surfaces the delivery failure on test.
+func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
+	if s.policy.AllowPrivateDestinations {
+		return nil
+	}
+	reject := func() error {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"destination host %q is a private or internal address; only external destinations are allowed", host)
+	}
+	var ips []net.IP
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		lower := strings.ToLower(strings.TrimSuffix(host, "."))
+		if lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
+			return reject()
+		}
+		lookupCtx, cancel := context.WithTimeout(ctx, destinationLookupTimeout)
+		defer cancel()
+		resolved, err := net.DefaultResolver.LookupIP(lookupCtx, "ip", host)
+		if err != nil {
+			return nil
+		}
+		ips = resolved
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return reject()
+		}
+	}
+	return nil
 }
 
 // === Rules =============================================================
@@ -465,6 +626,9 @@ func (s *Service) CreateSilence(ctx context.Context, orgID int64, sil Silence) (
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
+	if err := validateSilenceScope(sil.Scope); err != nil {
+		return nil, err
+	}
 	sil.OrganizationID = orgID
 	sil.CreatedAt = s.now()
 	gs := domainSilenceToGrafana(orgID, sil)
@@ -485,6 +649,9 @@ func (s *Service) UpdateSilence(ctx context.Context, orgID int64, sil Silence) (
 	}
 	if sil.ID == "" {
 		return nil, errors.New("silence id is required for update")
+	}
+	if err := validateSilenceScope(sil.Scope); err != nil {
+		return nil, err
 	}
 	// Verify ownership.
 	existing, err := s.ListSilences(ctx, orgID)
@@ -534,6 +701,35 @@ func (s *Service) DeleteSilence(ctx context.Context, orgID int64, id string) err
 	}
 	if err := s.grafana.DeleteSilence(ctx, id); err != nil && !IsNotFound(err) {
 		return err
+	}
+	return nil
+}
+
+// validateSilenceScope rejects scopes without a concrete target. The
+// Grafana compiler in domainSilenceToGrafana only emits a target
+// matcher when the scope's field is populated — a targetless scope
+// would compile to just the org matcher and silence every alert in
+// the organization.
+func validateSilenceScope(scope SilenceScope) error {
+	switch scope.Kind {
+	case SilenceScopeRule:
+		if scope.RuleID == "" {
+			return fleeterror.NewInvalidArgumentError("rule_id is required for a rule-scoped silence")
+		}
+	case SilenceScopeGroup:
+		if scope.GroupID == "" {
+			return fleeterror.NewInvalidArgumentError("group_id is required for a group-scoped silence")
+		}
+	case SilenceScopeSite:
+		if scope.SiteID == "" {
+			return fleeterror.NewInvalidArgumentError("site_id is required for a site-scoped silence")
+		}
+	case SilenceScopeDevice:
+		if len(scope.DeviceIDs) == 0 {
+			return fleeterror.NewInvalidArgumentError("device_ids is required for a device-scoped silence")
+		}
+	default:
+		return fleeterror.NewInvalidArgumentErrorf("unknown silence scope kind: %q", scope.Kind)
 	}
 	return nil
 }

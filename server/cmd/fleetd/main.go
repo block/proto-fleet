@@ -547,7 +547,7 @@ func start(config *Config) error {
 	// does not persist anything itself; org isolation is enforced at
 	// the read/write boundary inside the package.
 	grafanaClient := notificationsDomain.NewGrafana(config.Metrics.Grafana)
-	notificationsSvc := notificationsDomain.NewService(grafanaClient)
+	notificationsSvc := notificationsDomain.NewService(grafanaClient, config.Metrics.NotificationDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -624,9 +624,10 @@ func start(config *Config) error {
 	// Notifications uses plain HTTP routes (matching the Connect wire
 	// shape but without the typed bindings) until buf generate produces
 	// the notificationsv1connect package; the handler enforces
-	// session-cookie auth on each route internally so it doesn't
-	// depend on the Connect interceptor chain.
-	notifHandler := notificationsHandler.NewHandler(notificationsSvc, sessionSvc, userStore, notificationHistoryStore)
+	// session-cookie auth plus a RequirePermission RBAC gate
+	// (notification:read / notification:manage) on each route
+	// internally so it doesn't depend on the Connect interceptor chain.
+	notifHandler := notificationsHandler.NewHandler(notificationsSvc, sessionSvc, userStore, permissionResolver, notificationHistoryStore)
 	for pattern, h := range notifHandler.Routes() {
 		mux.Handle(pattern, h)
 	}

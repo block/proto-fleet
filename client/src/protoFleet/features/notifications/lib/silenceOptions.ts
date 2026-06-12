@@ -1,12 +1,10 @@
 import type { PickerOption } from "@/protoFleet/features/notifications/components/SinglePickerField";
 
-// Scopes a silence can target. Mirrors prototype's SILENCE_SCOPE_OPTIONS.
-export const SILENCE_SCOPE_OPTIONS: PickerOption[] = [
-  { id: "rule", label: "A rule" },
-  { id: "group", label: "A group" },
-  { id: "site", label: "A site" },
-  { id: "device", label: "Specific devices" },
-];
+// Scopes a silence can target. Only "rule" has a target picker so far;
+// group/site/device join this list once their pickers exist. The server
+// rejects a scope without a target (an untargeted scope would compile
+// to an org-wide silence), so don't re-add an option without its picker.
+export const SILENCE_SCOPE_OPTIONS: PickerOption[] = [{ id: "rule", label: "A rule" }];
 
 export interface QuickWindowOption extends PickerOption {
   hours: number;

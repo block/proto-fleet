@@ -233,12 +233,13 @@ func (g *Grafana) DeleteSilence(ctx context.Context, id string) error {
 // do is the generic JSON request/response helper. Pass nil body for
 // requests without one; pass nil out for responses you want to discard.
 //
-// On a non-2xx response, do() logs the full request body and the
-// response body at WARN. The body field is opaque JSON from
-// Grafana's perspective (`data` for alert rules is dozens of lines),
-// so the only way to debug a 500 is to see what we sent and what
-// came back. Operators can grep `notifications.grafana_error` in
-// fleet-api's stdout.
+// On a non-2xx response, do() logs the request body and the response
+// body at WARN, with secret-bearing fields redacted (see
+// redactSecrets). The body field is opaque JSON from Grafana's
+// perspective (`data` for alert rules is dozens of lines), so the
+// only way to debug a 500 is to see what we sent and what came back.
+// Operators can grep `notifications.grafana_error` in fleet-api's
+// stdout.
 func (g *Grafana) do(ctx context.Context, method, path string, body, out any) error {
 	var reqJSON []byte
 	if body != nil {
@@ -260,8 +261,8 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 			"method", method,
 			"path", path,
 			"status", resp.StatusCode,
-			"request_body", string(reqJSON),
-			"response_body", string(respBody),
+			"request_body", redactSecrets(reqJSON),
+			"response_body", redactSecrets(respBody),
 		)
 		msg := strings.TrimSpace(string(respBody))
 		if msg == "" {
@@ -281,6 +282,66 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 
 func (g *Grafana) rawPost(ctx context.Context, path string, body any) (*http.Response, error) {
 	return g.request(ctx, http.MethodPost, path, body)
+}
+
+// redactedLogKeys are JSON field names whose values are secrets and
+// must never reach the log stream. Channel payloads carry webhook
+// bearer tokens and SMTP passwords inside the opaque settings object;
+// the extra keys cover credential fields of other Grafana receiver
+// types this client may round-trip in the future.
+var redactedLogKeys = map[string]bool{
+	"authorization_credentials": true,
+	"smtpPassword":              true,
+	"password":                  true,
+	"basicAuthPassword":         true,
+	"bearerToken":               true,
+	"token":                     true,
+	"secureSettings":            true,
+}
+
+// redactSecrets returns body with every redactedLogKeys value replaced
+// by a placeholder, recursing through nested objects and arrays.
+// Non-JSON input is returned verbatim — request bodies are always
+// JSON we marshalled ourselves, so the redaction path always covers
+// the payloads that carry secrets.
+func redactSecrets(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(body, &v); err != nil {
+		return string(body)
+	}
+	redacted, err := json.Marshal(redactValue(v))
+	if err != nil {
+		return "<failed to re-marshal redacted body>"
+	}
+	return string(redacted)
+}
+
+func redactValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			if redactedLogKeys[k] {
+				// Keep empty strings as-is so the log still shows
+				// whether a secret was present at all.
+				if s, ok := val.(string); ok && s == "" {
+					continue
+				}
+				t[k] = "[REDACTED]"
+				continue
+			}
+			t[k] = redactValue(val)
+		}
+		return t
+	case []any:
+		for i := range t {
+			t[i] = redactValue(t[i])
+		}
+		return t
+	}
+	return v
 }
 
 // requestWithBytes is the same as request, but takes a pre-marshalled

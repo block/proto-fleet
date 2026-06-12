@@ -28,6 +28,8 @@ type Config struct {
 	MaxRetryBackoff time.Duration               `help:"Upper bound on the exponential backoff between retries after a failed flush" default:"1m" env:"MAX_RETRY_BACKOFF"`
 	WebhookToken    string                      `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
 	Grafana         notifications.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
+
+	NotificationDestinations notifications.DestinationPolicy `embed:"" prefix:"notifications-" envprefix:"NOTIFICATIONS_"`
 }
 
 type Provider struct {
