@@ -156,6 +156,16 @@ const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
   },
 ];
 
+const scopeLessResponseProfiles: CurtailmentResponseProfileOption[] = [
+  {
+    ...responseProfiles[1],
+    values: {
+      ...responseProfiles[1].values,
+      includeMaintenance: false,
+    },
+  },
+];
+
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
@@ -327,6 +337,41 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
+      }),
+    );
+  });
+
+  it("preserves the selected target when a response profile option has no scope values", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: scopeLessResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Emergency shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Emergency shed");
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText("This will curtail 3 miners immediately. Schedules stay suppressed until miners are restored."),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "emergency-shed",
+        scopeType: "explicitMiners",
+        scopeId: undefined,
+        deviceSetIds: [],
+        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
   });

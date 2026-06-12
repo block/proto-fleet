@@ -67,11 +67,13 @@ function minutesToSeconds(value: string): string {
 
 function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
   if (profile.formValues) {
+    const siteId = profile.formValues.siteId.trim();
+
     return {
       ...profile.formValues,
       deviceIdentifiers: [],
-      siteId: "",
-      siteName: "",
+      siteId,
+      siteName: siteId ? profile.formValues.siteName.trim() : "",
     };
   }
 
@@ -106,11 +108,18 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+  const siteId = values.siteId.trim();
+  const siteName = siteId ? values.siteName || `Site ${siteId}` : "";
 
   return {
     id: profile.id,
     label: profile.name,
     values: {
+      scopeType: siteId ? "site" : "wholeOrg",
+      scopeId: siteId ? siteName : "whole-org",
+      siteId,
+      deviceSetIds: [],
+      deviceIdentifiers: [],
       curtailmentMode: values.actionType,
       minerSelectionStrategy: values.selectionStrategy,
       targetKw: values.targetKw,

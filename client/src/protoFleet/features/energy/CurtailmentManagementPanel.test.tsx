@@ -359,8 +359,10 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
-    expect(screen.getByTestId("modal-response-profile-values")).not.toHaveTextContent('"scopeType"');
-    expect(screen.getByTestId("modal-response-profile-values")).not.toHaveTextContent('"deviceIdentifiers"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"site"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeId":"Austin, TX"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteId":"101"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"deviceIdentifiers":[]');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
   });
 

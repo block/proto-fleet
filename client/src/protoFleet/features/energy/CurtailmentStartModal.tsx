@@ -206,11 +206,32 @@ function withSelectedResponseProfileValues(
   values: CurtailmentFormValues,
   responseProfileValues: CurtailmentResponseProfileOption["values"],
 ): CurtailmentFormValues {
+  const hasScopeValues =
+    "scopeType" in responseProfileValues ||
+    "scopeId" in responseProfileValues ||
+    "siteId" in responseProfileValues ||
+    "deviceSetIds" in responseProfileValues ||
+    "deviceIdentifiers" in responseProfileValues;
   const nextValues = {
     ...values,
     ...responseProfileValues,
-    scopeType: responseProfileValues.scopeType ?? "wholeOrg",
   };
+
+  if (!hasScopeValues) {
+    return nextValues;
+  }
+
+  const scopeType =
+    responseProfileValues.scopeType ??
+    (responseProfileValues.siteId
+      ? "site"
+      : responseProfileValues.deviceSetIds?.length
+        ? "deviceSet"
+        : responseProfileValues.deviceIdentifiers?.length
+          ? "explicitMiners"
+          : "wholeOrg");
+
+  nextValues.scopeType = scopeType;
 
   if (nextValues.scopeType === "site") {
     const siteId = responseProfileValues.siteId ?? "";
