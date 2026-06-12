@@ -194,6 +194,8 @@ function CurtailmentManagementPanel({
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
   const activeEventState = activeEvent?.state;
   const hasOngoingCurtailment = activeEventState ? nonTerminalActiveEventStates.has(activeEventState) : false;
+  const hasOngoingHistoryEvent = historyEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
+  const shouldPollCurtailment = hasOngoingCurtailment || hasOngoingHistoryEvent;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -218,7 +220,7 @@ function CurtailmentManagementPanel({
   }, [refreshCurtailment, runAbortableRefresh]);
 
   useEffect(() => {
-    if (!hasOngoingCurtailment) {
+    if (!shouldPollCurtailment) {
       return undefined;
     }
 
@@ -252,7 +254,7 @@ function CurtailmentManagementPanel({
       activeRefreshAbortControllerRef.current?.abort();
       activeRefreshAbortControllerRef.current = null;
     };
-  }, [hasOngoingCurtailment, refreshCurtailment]);
+  }, [refreshCurtailment, shouldPollCurtailment]);
 
   const closeModal = useCallback(() => {
     setModalMode(null);

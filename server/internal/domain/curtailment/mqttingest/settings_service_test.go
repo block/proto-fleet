@@ -301,6 +301,32 @@ func TestSettingsService_TestConnectionRejectsMissingPasswordBeforeBrokerCall(t 
 	assert.Zero(t, tester.calls)
 }
 
+func TestSettingsService_TestConnectionUsesMaestroOSCopyForNonLocalTCPBroker(t *testing.T) {
+	t.Parallel()
+
+	tester := &fakeSourceConnectionTester{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(),
+		Cipher:           &fakeSettingsCipher{},
+		ConnectionTester: tester,
+	})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.SourceName = ""
+	source.BrokerPrimaryHost = "1"
+	_, err = svc.TestConnection(t.Context(), TestSourceConnectionRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), `MaestroOS source "connection-test" uses TCP transport with non-local broker host "1"`)
+	assert.NotContains(t, err.Error(), "mqttingest")
+	assert.Zero(t, tester.calls)
+}
+
 func TestSettingsService_CreateDuplicateNameReturnsAlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -318,6 +344,7 @@ func TestSettingsService_CreateDuplicateNameReturnsAlreadyExists(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+	assert.Contains(t, err.Error(), "a MaestroOS curtailment source with this name already exists")
 	assert.Zero(t, runtime.reconcileCalls, "duplicate-name writes must not trigger runtime reload")
 }
 
@@ -498,7 +525,7 @@ func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 
 	err = svc.Delete(t.Context(), 42, 7)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disable the MQTT source")
+	assert.Contains(t, err.Error(), "disable the MaestroOS source")
 }
 
 func TestSettingsService_DeleteRejectsReferencedSource(t *testing.T) {

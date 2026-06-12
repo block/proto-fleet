@@ -1,4 +1,4 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
@@ -14,6 +14,7 @@ import CurtailmentStartModal, {
   type ResponseProfileModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
+import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import type {
   AutomationRule,
   AutomationRuleFormValues,
@@ -447,21 +448,36 @@ function sourceCredentialFieldsChanged(
   );
 }
 
-function isSourceFormValid(values: CurtailmentSourceFormValues, passwordRequired: boolean): boolean {
-  const requiredTrimmedValues = [
-    values.name,
-    values.brokerPrimaryHost,
-    values.brokerSecondaryHost,
-    values.topic,
-    values.username,
-  ];
+function validateSourceFormValues(values: CurtailmentSourceFormValues, passwordRequired: boolean): SourceFormErrors {
+  const errors: SourceFormErrors = {};
 
-  return (
-    requiredTrimmedValues.every((value) => value.trim() !== "") &&
-    (!passwordRequired || values.password !== "") &&
-    isPositiveInteger(values.brokerPort) &&
-    Number(values.brokerPort) <= MAX_BROKER_PORT
-  );
+  if (values.name.trim() === "") {
+    errors.name = "Enter a configuration name.";
+  }
+  if (values.brokerPrimaryHost.trim() === "") {
+    errors.brokerPrimaryHost = "Enter broker host 1.";
+  }
+  if (values.brokerSecondaryHost.trim() === "") {
+    errors.brokerSecondaryHost = "Enter broker host 2.";
+  }
+  if (values.topic.trim() === "") {
+    errors.topic = "Enter a topic.";
+  }
+  if (values.username.trim() === "") {
+    errors.username = "Enter a username.";
+  }
+  if (passwordRequired && values.password === "") {
+    errors.password = "Enter a password.";
+  }
+  if (values.brokerPort.trim() === "") {
+    errors.brokerPort = "Enter a port.";
+  } else if (!isPositiveInteger(values.brokerPort)) {
+    errors.brokerPort = "Enter port as a whole number greater than 0.";
+  } else if (Number(values.brokerPort) > MAX_BROKER_PORT) {
+    errors.brokerPort = `Enter port of ${MAX_BROKER_PORT.toLocaleString()} or less.`;
+  }
+
+  return errors;
 }
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
@@ -689,6 +705,9 @@ type SourceModalProps = {
   deleting?: boolean;
 };
 
+type SourceFormErrors = Partial<Record<keyof CurtailmentSourceFormValues, string>>;
+type SourceValidationIntent = "save" | "testConnection";
+
 function SourceModal({
   open,
   mode = "create",
@@ -705,13 +724,25 @@ function SourceModal({
   const [values, setValues] = useState<CurtailmentSourceFormValues>(() => initialValues);
   const [passwordPlaceholderActive, setPasswordPlaceholderActive] = useState(() => mode === "edit" && hasSavedPassword);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [validationIntent, setValidationIntent] = useState<SourceValidationIntent | null>(null);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const isEditMode = mode === "edit";
   const isBusy = saving || deleting || testingConnection;
   const passwordRequired = !isEditMode || sourceCredentialFieldsChanged(values, initialValues);
-  const canSave = isSourceFormValid(values, passwordRequired);
-  const canTestConnection = isSourceFormValid(values, true);
+  const saveValidationErrors = useMemo(
+    () => validateSourceFormValues(values, passwordRequired),
+    [passwordRequired, values],
+  );
+  const testConnectionValidationErrors = useMemo(() => validateSourceFormValues(values, true), [values]);
+  const visibleValidationErrors =
+    validationIntent === "testConnection"
+      ? testConnectionValidationErrors
+      : validationIntent === "save"
+        ? saveValidationErrors
+        : {};
+  const canSave = Object.keys(saveValidationErrors).length === 0;
+  const canTestConnection = Object.keys(testConnectionValidationErrors).length === 0;
   const showSavedPasswordPlaceholder = isEditMode && hasSavedPassword && passwordPlaceholderActive;
   const passwordInputValue = showSavedPasswordPlaceholder ? savedPasswordPlaceholder : values.password;
   const showConnectionSuccessCallout = showConnectionCallout && !testingConnection && !connectionError;
@@ -743,7 +774,12 @@ function SourceModal({
   }, [showSavedPasswordPlaceholder]);
 
   const handleSave = useCallback(async () => {
-    if (!canSave || isBusy) {
+    if (isBusy) {
+      return;
+    }
+
+    if (!canSave) {
+      setValidationIntent("save");
       return;
     }
 
@@ -756,8 +792,25 @@ function SourceModal({
     }
   }, [canSave, isBusy, onDismiss, onSave, values]);
 
+  const handleFormKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!isInputEnterSaveEvent(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleSave();
+    },
+    [handleSave],
+  );
+
   const handleTestConnection = useCallback(async () => {
-    if (!canTestConnection || isBusy || !onTestConnection) {
+    if (isBusy || !onTestConnection) {
+      return;
+    }
+
+    if (!canTestConnection) {
+      setValidationIntent("testConnection");
       return;
     }
 
@@ -814,7 +867,7 @@ function SourceModal({
           variant: variants.secondary,
           className: "whitespace-nowrap overflow-clip",
           testId: "curtailment-source-test-connection-button",
-          disabled: !canTestConnection || isBusy || !onTestConnection,
+          disabled: isBusy || !onTestConnection,
           loading: testingConnection,
           dismissModalOnClick: false,
           onClick: () => void handleTestConnection(),
@@ -822,7 +875,7 @@ function SourceModal({
         {
           text: "Save",
           variant: variants.primary,
-          disabled: !canSave || isBusy,
+          disabled: isBusy,
           loading: saving,
           dismissModalOnClick: false,
           onClick: () => void handleSave(),
@@ -830,7 +883,7 @@ function SourceModal({
       ]}
       bodyClassName="text-text-primary"
     >
-      <div className="grid gap-3 pb-2">
+      <div className="grid gap-3 pb-2" onKeyDown={handleFormKeyDown}>
         <DismissibleCalloutWrapper
           icon={<Success />}
           intent={intents.success}
@@ -855,6 +908,7 @@ function SourceModal({
             id={sourceInputIds.name}
             label="Configuration name"
             initValue={values.name}
+            error={visibleValidationErrors.name}
             onChange={updateSourceValue}
           />
           <Input id="source-type" label="Source type" initValue="MaestroOS" disabled />
@@ -864,12 +918,14 @@ function SourceModal({
             id={sourceInputIds.brokerPrimaryHost}
             label="Broker host 1"
             initValue={values.brokerPrimaryHost}
+            error={visibleValidationErrors.brokerPrimaryHost}
             onChange={updateSourceValue}
           />
           <Input
             id={sourceInputIds.brokerSecondaryHost}
             label="Broker host 2"
             initValue={values.brokerSecondaryHost}
+            error={visibleValidationErrors.brokerSecondaryHost}
             onChange={updateSourceValue}
           />
         </div>
@@ -880,6 +936,7 @@ function SourceModal({
             type="number"
             inputMode="numeric"
             initValue={values.brokerPort}
+            error={visibleValidationErrors.brokerPort}
             onChange={updateSourceValue}
             tooltip={{
               body: "Default MaestroOS port is 1883.",
@@ -891,6 +948,7 @@ function SourceModal({
             id={sourceInputIds.topic}
             label="Topic"
             initValue={values.topic}
+            error={visibleValidationErrors.topic}
             onChange={updateSourceValue}
             tooltip={{
               body: "The MaestroOS topic to subscribe to for curtailment signals.",
@@ -903,6 +961,7 @@ function SourceModal({
             id={sourceInputIds.username}
             label="Username"
             initValue={values.username}
+            error={visibleValidationErrors.username}
             onChange={updateSourceValue}
           />
           <Input
@@ -910,6 +969,7 @@ function SourceModal({
             label="Password"
             type="password"
             initValue={passwordInputValue}
+            error={visibleValidationErrors.password}
             onChange={updateSourceValue}
             onFocus={handlePasswordFocus}
             hidePasswordToggle={showSavedPasswordPlaceholder}

@@ -64,6 +64,7 @@ func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err))
+	assert.Contains(t, err.Error(), "MaestroOS source not found")
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
@@ -264,6 +265,11 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, int32(15), h.curtailments.lastInsertEvent.CurtailBatchIntervalSec)
 	assert.Equal(t, int32(50), h.curtailments.lastInsertEvent.RestoreBatchSize)
 	assert.Equal(t, int32(5), h.curtailments.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(
+		t,
+		`Automation "MaestroOS curtailment" from MaestroOS source "Dorothy 2 MaestroOS"`,
+		h.curtailments.lastInsertEvent.Reason,
+	)
 	assert.Equal(t, models.SourceActorAutomation, h.curtailments.lastInsertEvent.SourceActorType)
 	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
 	assert.Equal(t, automationExternalSource, *h.curtailments.lastInsertEvent.ExternalSource)

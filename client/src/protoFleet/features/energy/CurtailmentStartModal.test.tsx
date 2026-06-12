@@ -140,6 +140,22 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
   },
 ];
 
+const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
+  {
+    id: "standard-shed",
+    label: "Standard shed",
+    values: {
+      ...responseProfiles[0].values,
+      scopeType: "wholeOrg",
+      scopeId: "whole-org",
+      siteId: "",
+      deviceSetIds: [],
+      deviceIdentifiers: [],
+      includeMaintenance: false,
+    },
+  },
+];
+
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
@@ -257,7 +273,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
     expect(screen.getByLabelText("Reason")).toHaveValue("Operator-requested event");
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("50");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByTestId("curtailment-curtail-batch-size")).not.toBeInTheDocument();
@@ -275,6 +291,44 @@ describe("CurtailmentStartModal", () => {
     await user.type(screen.getByLabelText("Fixed target reduction (kW)"), "75");
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+  });
+
+  it("restores the selected response profile scope after a target selection", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: wholeFleetResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail miners across the fleet immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "standard-shed",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteId: "",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
   });
 
   it("renders the response profile create variant", async () => {
@@ -617,7 +671,7 @@ describe("CurtailmentStartModal", () => {
     await user.clear(screen.getByLabelText("Batch interval (sec)"));
 
     expect(screen.getByText("Restore interval cannot be cleared.")).toBeInTheDocument();
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
     expect(onSubmit).not.toHaveBeenCalled();
@@ -639,7 +693,7 @@ describe("CurtailmentStartModal", () => {
     await user.type(screen.getByLabelText("Batch interval (sec)"), "0");
 
     expect(screen.getByText("Enter batch interval greater than 0.")).toBeInTheDocument();
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
     expect(onSubmit).not.toHaveBeenCalled();
@@ -867,7 +921,7 @@ describe("CurtailmentStartModal", () => {
     });
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
 
-    expect(startButton).toBeDisabled();
+    expect(startButton).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
     const fullShutdownOption = await screen.findByText("Full shutdown");
@@ -1030,7 +1084,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
     expect(batchSizeInput).toHaveAttribute("aria-invalid", "true");
     expect(batchIntervalInput).toHaveAttribute("aria-invalid", "true");
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
     expect(onSubmit).not.toHaveBeenCalled();
@@ -1093,15 +1147,25 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("keeps required start-field validation hidden until fields are edited", async () => {
+  it("shows required start-field validation when the CTA is clicked or fields are edited", async () => {
     const user = userEvent.setup();
-    renderModal();
+    const { onSubmit } = renderModal();
 
+    const startButton = screen.getByRole("button", { name: "Run curtailment" });
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
     const reasonInput = screen.getByLabelText("Reason");
 
     expect(screen.queryByText("Enter a target reduction.")).not.toBeInTheDocument();
     expect(screen.queryByText("Enter a reason.")).not.toBeInTheDocument();
+    expect(startButton).toBeEnabled();
+
+    await user.click(startButton);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(reasonInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter a reason.")).toBeInTheDocument();
+    expect(targetInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter a target reduction.")).toBeInTheDocument();
 
     await user.type(reasonInput, " ");
     await user.type(targetInput, "5");

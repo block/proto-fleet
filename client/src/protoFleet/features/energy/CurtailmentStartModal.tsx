@@ -202,18 +202,49 @@ function withResponseProfileScope(
   return withWholeFleetScope(values);
 }
 
-function removeScopeValues(
-  values: CurtailmentResponseProfileOption["values"],
-): CurtailmentResponseProfileOption["values"] {
-  const behaviorValues = { ...values };
+function withSelectedResponseProfileValues(
+  values: CurtailmentFormValues,
+  responseProfileValues: CurtailmentResponseProfileOption["values"],
+): CurtailmentFormValues {
+  const nextValues = {
+    ...values,
+    ...responseProfileValues,
+    scopeType: responseProfileValues.scopeType ?? "wholeOrg",
+  };
 
-  delete behaviorValues.scopeType;
-  delete behaviorValues.scopeId;
-  delete behaviorValues.siteId;
-  delete behaviorValues.deviceSetIds;
-  delete behaviorValues.deviceIdentifiers;
+  if (nextValues.scopeType === "site") {
+    const siteId = responseProfileValues.siteId ?? "";
 
-  return behaviorValues;
+    return {
+      ...nextValues,
+      siteId,
+      scopeId: responseProfileValues.scopeId ?? (siteId ? `Site ${siteId}` : undefined),
+      deviceSetIds: [],
+      deviceIdentifiers: [],
+    };
+  }
+
+  if (nextValues.scopeType === "deviceSet") {
+    return {
+      ...nextValues,
+      scopeId: undefined,
+      siteId: "",
+      deviceSetIds: responseProfileValues.deviceSetIds ?? [],
+      deviceIdentifiers: [],
+    };
+  }
+
+  if (nextValues.scopeType === "explicitMiners") {
+    return {
+      ...nextValues,
+      scopeId: undefined,
+      siteId: "",
+      deviceSetIds: [],
+      deviceIdentifiers: responseProfileValues.deviceIdentifiers ?? [],
+    };
+  }
+
+  return withWholeFleetScope(nextValues);
 }
 
 function isCurtailmentMode(value: string): value is CurtailmentMode {
@@ -728,12 +759,12 @@ function CurtailmentStartModalContent({
     unsupportedDeviceSetPreviewError,
   });
 
-  const hasBlockingFormError = Object.keys(localErrors).length > 0 || Object.keys(errors ?? {}).length > 0;
+  const hasLocalFormError = Object.keys(localErrors).length > 0;
+  const hasExternalFormError = Object.keys(errors ?? {}).length > 0;
   const hasBlockingPreviewState =
     previewState.previewError !== undefined || (!isResponseProfileVariant && previewState.isPreviewLoading);
-  const hasBlockingValidationError = hasBlockingPreviewState || hasBlockingFormError;
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
-  const isSubmitDisabled = isBusy || hasBlockingValidationError || !hasEditableChanges;
+  const isSubmitDisabled = isBusy || hasBlockingPreviewState || hasExternalFormError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
   const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode, previewState.preview?.selectedMinerCount);
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
@@ -808,8 +839,7 @@ function CurtailmentStartModalContent({
     setEditedFields(new Set());
     setMaintenanceInclusionConfirmed(false);
     setValues((current) => ({
-      ...current,
-      ...removeScopeValues(responseProfile.values),
+      ...withSelectedResponseProfileValues(current, responseProfile.values),
       responseProfileId: responseProfile.id,
     }));
   };
@@ -845,6 +875,12 @@ function CurtailmentStartModalContent({
     setPendingCurtailmentConfirmation({ action, values: confirmationValues });
   };
 
+  const showLocalFormErrors = () => {
+    setEditedFields(
+      (current) => new Set([...current, ...(Object.keys(localErrors) as (keyof CurtailmentFormValues)[])]),
+    );
+  };
+
   const confirmCurtailmentAction = () => {
     if (!pendingCurtailmentConfirmation) {
       return;
@@ -862,6 +898,15 @@ function CurtailmentStartModalContent({
   };
 
   const handleSubmit = () => {
+    if (isBusy) {
+      return;
+    }
+
+    if (hasLocalFormError) {
+      showLocalFormErrors();
+      return;
+    }
+
     if (isSubmitDisabled) {
       return;
     }
@@ -881,6 +926,19 @@ function CurtailmentStartModalContent({
   };
 
   const requestResponseProfileCurtailment = () => {
+    if (isBusy) {
+      return;
+    }
+
+    if (hasLocalFormError) {
+      showLocalFormErrors();
+      return;
+    }
+
+    if (hasBlockingPreviewState || hasExternalFormError) {
+      return;
+    }
+
     if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
       setSubmitAfterMaintenanceConfirmation("test");
       setShowMaintenanceConfirmation(true);
@@ -916,7 +974,7 @@ function CurtailmentStartModalContent({
       text: "Run curtailment",
       variant: variants.secondary,
       onClick: requestResponseProfileCurtailment,
-      disabled: isBusy || hasBlockingValidationError,
+      disabled: isBusy || hasBlockingPreviewState || hasExternalFormError,
       loading: isTestingCurtailment,
     });
   }

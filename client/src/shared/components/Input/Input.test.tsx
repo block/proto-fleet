@@ -97,6 +97,18 @@ describe("Input", () => {
     expect(inputElement).not.toHaveClass("pr-20");
     expect(suffixActionWrapper).toHaveClass("right-20");
   });
+
+  test("does not apply focus highlight classes to readonly inputs", () => {
+    render(<Input id="readonly-field" label="Readonly field" initValue="0" readOnly />);
+
+    const inputElement = screen.getByLabelText("Readonly field");
+
+    expect(inputElement).toHaveAttribute("readonly");
+    expect(inputElement).toHaveClass("cursor-default");
+    expect(inputElement).not.toHaveClass("focus:border-border-20");
+    expect(inputElement).not.toHaveClass("focus:ring-4");
+    expect(inputElement).not.toHaveClass("focus:ring-core-primary-5");
+  });
 });
 
 describe("Input ARIA attributes", () => {

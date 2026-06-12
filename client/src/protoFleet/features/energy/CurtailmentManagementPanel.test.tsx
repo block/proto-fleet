@@ -484,6 +484,34 @@ describe("CurtailmentManagementPanel", () => {
     }
   });
 
+  it("keeps polling while visible history has a non-terminal event after active clears", async () => {
+    vi.useFakeTimers();
+    const restoringHistoryEvent = {
+      ...historyEvent,
+      state: "restoring",
+    } as CurtailmentHistoryEvent;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: null,
+        activeEventId: null,
+        historyEvents: [restoringHistoryEvent],
+      }),
+    );
+
+    try {
+      render(<CurtailmentManagementPanel />);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(mocks.refreshCurtailment).toHaveBeenCalledWith({
+        background: true,
+        signal: expect.any(AbortSignal),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets user-driven history navigation supersede active polling", async () => {
     vi.useFakeTimers();
     const pollingSignals: AbortSignal[] = [];
