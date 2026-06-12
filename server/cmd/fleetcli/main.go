@@ -45,7 +45,20 @@ func main() {
 	_ = commit
 	_ = date
 
-	cmd := &cli.Command{
+	if err := newRootCommand().Run(context.Background(), os.Args); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) {
+			fmt.Fprintf(os.Stderr, "%s returned %s:\n", apiErr.Method, apiErr.Status)
+			colorizeJSON(apiErr.Body)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		os.Exit(1)
+	}
+}
+
+func newRootCommand() *cli.Command {
+	return &cli.Command{
 		Name:    "fleetcli",
 		Usage:   "Interact with Fleet gRPC services generated from protobuf definitions",
 		Version: version,
@@ -57,17 +70,17 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:    "api-key",
-				Usage:   "Fleet API key",
+				Usage:   "Fleet API key; preferred over username/password for bearer-auth commands when both are set",
 				Sources: cli.EnvVars(envFleetAPIKey),
 			},
 			&cli.StringFlag{
 				Name:    "username",
-				Usage:   "Fleet username when no API key is provided",
+				Usage:   "Fleet username for session-authenticated commands",
 				Sources: cli.EnvVars(envFleetUsername),
 			},
 			&cli.StringFlag{
 				Name:    "password",
-				Usage:   "Fleet password when no API key is provided",
+				Usage:   "Fleet password for session-authenticated commands",
 				Sources: cli.EnvVars(envFleetPassword),
 			},
 			&cli.BoolFlag{
@@ -83,17 +96,6 @@ func main() {
 		},
 		Commands:              allCommands(),
 		EnableShellCompletion: true,
-	}
-
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		var apiErr *APIError
-		if errors.As(err, &apiErr) {
-			fmt.Fprintf(os.Stderr, "%s returned %s:\n", apiErr.Method, apiErr.Status)
-			colorizeJSON(apiErr.Body)
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
-		os.Exit(1)
 	}
 }
 
@@ -507,10 +509,7 @@ func compactMeasurementName(value telemetryv1.MeasurementType) string {
 }
 
 func openClient(ctx context.Context, cmd *cli.Command) (*Client, Options, error) {
-	opts, err := resolvedClientOptions(cmd)
-	if err != nil {
-		return nil, Options{}, err
-	}
+	opts := resolvedClientOptions(cmd)
 	client, err := New(ctx, opts)
 	if err != nil {
 		return nil, Options{}, err
@@ -519,8 +518,9 @@ func openClient(ctx context.Context, cmd *cli.Command) (*Client, Options, error)
 }
 
 func usernamePassword(cmd *cli.Command) (string, string, error) {
-	username := cmd.String("username")
-	password := cmd.String("password")
+	root := cmd.Root()
+	username := root.String("username")
+	password := root.String("password")
 	if username == "" || password == "" {
 		return "", "", fmt.Errorf("username and password must both be provided")
 	}
@@ -567,12 +567,12 @@ func printJSON(value any) error {
 	return nil
 }
 
-func resolvedClientOptions(cmd *cli.Command) (Options, error) {
-	apiKey, username, password, err := resolvedAuthInputs(cmd)
-	if err != nil {
-		return Options{}, err
-	}
-	server := cmd.String("server")
+// resolvedClientOptions reads the global connection and auth flags from the
+// root command, so subcommand-local flags never shadow them.
+func resolvedClientOptions(cmd *cli.Command) Options {
+	apiKey, username, password := resolvedAuthInputs(cmd)
+	root := cmd.Root()
+	server := root.String("server")
 	if server == "" {
 		server = defaultFleetServer
 	}
@@ -581,46 +581,18 @@ func resolvedClientOptions(cmd *cli.Command) (Options, error) {
 		APIKey:   apiKey,
 		Username: username,
 		Password: password,
-		Insecure: cmd.Bool("insecure"),
-		Debug:    cmd.Bool("debug"),
-	}, nil
+		Insecure: root.Bool("insecure"),
+		Debug:    root.Bool("debug"),
+	}
 }
 
-func resolvedAuthInputs(cmd *cli.Command) (string, string, string, error) {
-	if value, ok := explicitStringFlag(cmd, "api-key"); ok {
-		return value, "", "", nil
-	}
-
-	if flagProvidedOnCLI("username") || flagProvidedOnCLI("password") {
-		return "", cmd.String("username"), cmd.String("password"), nil
-	}
-
-	if value := cmd.String("api-key"); value != "" {
-		return value, "", "", nil
-	}
-
-	username := cmd.String("username")
-	password := cmd.String("password")
-	if username != "" || password != "" {
-		return "", username, password, nil
-	}
-
-	return "", "", "", nil
-}
-
-func explicitStringFlag(cmd *cli.Command, name string) (string, bool) {
-	if !flagProvidedOnCLI(name) {
-		return "", false
-	}
-	return cmd.String(name), true
-}
-
-func flagProvidedOnCLI(name string) bool {
-	prefix := "--" + name
-	for _, arg := range os.Args[1:] {
-		if arg == prefix || strings.HasPrefix(arg, prefix+"=") {
-			return true
-		}
-	}
-	return false
+// resolvedAuthInputs reads the global auth flags from the root command, so
+// subcommand-local flags that happen to be named "username" or "password"
+// (e.g. pool credentials) never leak into Fleet auth. All three values pass
+// through together: bearer-auth commands prefer the API key, session-auth
+// commands use username/password, and urfave/cli already gives an explicit
+// CLI flag precedence over its environment variable.
+func resolvedAuthInputs(cmd *cli.Command) (string, string, string) {
+	root := cmd.Root()
+	return root.String("api-key"), root.String("username"), root.String("password")
 }
