@@ -1,6 +1,8 @@
 import { expect, test } from "../fixtures/pageFixtures";
 import { getAuthAccessToken, waitForAuthenticatedApiRecovery } from "../helpers/apiAuthHelper";
 
+const REBOOT_RECOVERY_TIMEOUT_MS = 30_000;
+
 test.describe("Power management", () => {
   test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
@@ -23,14 +25,15 @@ test.describe("Power management", () => {
     });
 
     await test.step("Confirm the reboot request starts", async () => {
+      const rebootingDialogPromise = headerComponent.validateRebootingDialogVisible();
       await headerComponent.clickRebootMinerInDialog();
+      await rebootingDialogPromise;
 
       const rebootRequest = await rebootRequestPromise;
       const rebootResponse = await rebootResponsePromise;
 
       expect(rebootRequest.method()).toBe("POST");
       expect(rebootResponse.status()).toBe(202);
-      await headerComponent.validateRebootingDialogVisible();
     });
 
     await test.step("Wait for the miner to come back and validate the UI recovers", async () => {
@@ -38,6 +41,7 @@ test.describe("Power management", () => {
         accessToken,
         path: "/api/v1/mining",
         request,
+        timeoutMs: REBOOT_RECOVERY_TIMEOUT_MS,
       });
 
       await page.goto("/");

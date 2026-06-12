@@ -4,7 +4,7 @@ type WaitForAuthenticatedApiRecoveryParams = {
   accessToken: string;
   path: string;
   request: APIRequestContext;
-  timeoutMs?: number;
+  timeoutMs: number;
 };
 
 export async function getAuthAccessToken(page: Page) {
@@ -37,7 +37,7 @@ export async function waitForAuthenticatedApiRecovery({
   accessToken,
   path,
   request,
-  timeoutMs = 20_000,
+  timeoutMs,
 }: WaitForAuthenticatedApiRecoveryParams) {
   await expect
     .poll(
