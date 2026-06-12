@@ -148,6 +148,7 @@ func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
 		ResourcePool,
 		ResourceSchedule,
 		ResourceFleetNode,
+		ResourceNotification,
 		ResourceAPIKey,
 		ResourceUser,
 		ResourceRole,
