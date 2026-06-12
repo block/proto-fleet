@@ -202,7 +202,15 @@ func (h *Handler) testChannel(ctx context.Context, body json.RawMessage) (any, e
 	if err != nil {
 		return nil, err
 	}
-	ok, code, errMsg, _ := h.svc.TestChannel(ctx, orgID, dom)
+	ok, code, errMsg, err := h.svc.TestChannel(ctx, orgID, dom)
+	if err != nil {
+		// A genuine service error (unknown/foreign channel id, invalid
+		// destination, Grafana unreachable) is surfaced as a 4xx/5xx so
+		// the client distinguishes it from a delivery failure — the
+		// latter being a reachable Grafana reporting a non-2xx test
+		// result via the ok/error/response_code body below.
+		return nil, err
+	}
 	return map[string]any{
 		"ok":            ok,
 		"error":         errMsg,

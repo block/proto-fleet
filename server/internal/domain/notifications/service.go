@@ -301,19 +301,44 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 	if err := requireOrg(orgID); err != nil {
 		return false, 0, "", err
 	}
-	if err := s.validateDestination(ctx, &c); err != nil {
-		return false, 0, "", err
+
+	var body map[string]any
+	if c.ID != "" {
+		// Saved channel: test the receiver exactly as stored in Grafana.
+		// Reads hand the UI a redacted destination (webhook URLs are
+		// host-only, Slack URLs omitted, secrets stripped), so testing
+		// the echoed-back request payload would probe the wrong target —
+		// or succeed against a host root that isn't the real
+		// destination. Resolve the owned contact point and test its
+		// stored settings, which carry the full URL and Grafana's secure
+		// fields. Ownership is enforced by findOwnedChannel.
+		_, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
+		if err != nil {
+			return false, 0, "", err
+		}
+		body = map[string]any{
+			"name":     ownedCP.Name,
+			"type":     ownedCP.Type,
+			"settings": ownedCP.Settings,
+		}
+	} else {
+		// Unsaved preview ("Test before save"): validate and test the
+		// supplied definition directly.
+		if err := s.validateDestination(ctx, &c); err != nil {
+			return false, 0, "", err
+		}
+		c.OrganizationID = orgID
+		settings, err := encodeChannelSettings(&c)
+		if err != nil {
+			return false, 0, "", err
+		}
+		body = map[string]any{
+			"name":     channelGrafanaName(orgID, c.Name),
+			"type":     grafanaTypeFor(c.Kind),
+			"settings": settings,
+		}
 	}
-	c.OrganizationID = orgID
-	settings, err := encodeChannelSettings(&c)
-	if err != nil {
-		return false, 0, "", err
-	}
-	body := map[string]any{
-		"name":     channelGrafanaName(orgID, c.Name),
-		"type":     grafanaTypeFor(c.Kind),
-		"settings": settings,
-	}
+
 	code, err := s.grafana.TestContactPoint(ctx, body)
 	if err != nil {
 		return false, code, err.Error(), err

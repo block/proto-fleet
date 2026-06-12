@@ -312,6 +312,76 @@ func TestUpdateChannelDropsSecretOnDestinationChange(t *testing.T) {
 	assert.Equal(t, "https://hooks.example.com/new", sent.Settings["url"])
 }
 
+// Testing a saved channel must probe the stored full webhook URL, not
+// the host-only URL the UI echoes back from a redacted read.
+func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
+	const fullURL = "https://hooks.slack.com/services/T1/B2/SECRET"
+	listed := []GrafanaContactPoint{{
+		UID:      "cp-1",
+		Name:     "org-7-pager",
+		Type:     "webhook",
+		Settings: json.RawMessage(`{"url": "` + fullURL + `", "authorization_credentials": "[REDACTED]"}`),
+	}}
+
+	var testedBody []byte
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("POST /api/v1/provisioning/contact-points/test", func(w http.ResponseWriter, r *http.Request) {
+		testedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
+
+	// UI sends the saved channel with the redacted host-only URL.
+	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{
+		ID:      "cp-1",
+		Name:    "pager",
+		Kind:    ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://hooks.slack.com"},
+	})
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	var sent struct {
+		Settings map[string]any `json:"settings"`
+	}
+	require.NoError(t, json.Unmarshal(testedBody, &sent))
+	assert.Equal(t, fullURL, sent.Settings["url"], "saved-channel test must use the stored full URL, not the redacted host")
+}
+
+// Testing a saved channel the caller's org doesn't own is rejected
+// before any outbound test fires.
+func TestTestChannelRejectsForeignSavedChannel(t *testing.T) {
+	listed := []GrafanaContactPoint{{
+		UID:      "cp-1",
+		Name:     "org-8-pager",
+		Type:     "webhook",
+		Settings: json.RawMessage(`{"url": "https://hooks.example.com/x"}`),
+	}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("POST /api/v1/provisioning/contact-points/test", func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("test endpoint must not be called for a foreign channel")
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
+
+	_, _, _, err := svc.TestChannel(context.Background(), 7, Channel{
+		ID: "cp-1", Name: "pager", Kind: ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://hooks.example.com"},
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestRedactWebhookURL(t *testing.T) {
 	cases := map[string]string{
 		"https://hooks.slack.com/services/T00/B00/XXXSECRETXXX": "https://hooks.slack.com",
