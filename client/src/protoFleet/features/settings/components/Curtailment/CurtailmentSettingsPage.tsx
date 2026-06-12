@@ -40,7 +40,7 @@ import "./CurtailmentSettingsPage.css";
 const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
-const SOURCES_DESCRIPTION = "External systems that send curtailment signals via MQTT.";
+const SOURCES_DESCRIPTION = "External systems that send curtailment signals via Maestro.";
 const SOURCE_CONNECTION_FAILURE_MESSAGE =
   "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
@@ -527,7 +527,7 @@ function SourcesEmptyState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
       <div className="text-heading-200 text-text-primary">No sources configured</div>
-      <p className="mt-1 text-400 text-text-primary-70">Add a source to receive curtailment signals via MQTT.</p>
+      <p className="mt-1 text-400 text-text-primary-70">Add a source to receive curtailment signals via Maestro.</p>
     </div>
   );
 }
@@ -835,7 +835,7 @@ function SourceModal({
             initValue={values.name}
             onChange={updateSourceValue}
           />
-          <Input id="source-type" label="Source type" initValue="MQTT" disabled />
+          <Input id="source-type" label="Source type" initValue="Maestro" disabled />
         </div>
         <div className="grid gap-4 laptop:grid-cols-2">
           <Input
@@ -860,7 +860,7 @@ function SourceModal({
             initValue={values.brokerPort}
             onChange={updateSourceValue}
             tooltip={{
-              body: "Default MQTT port is 1883.",
+              body: "Default Maestro port is 1883.",
               position: positions["top right"],
               widthClassName: "w-72",
             }}
@@ -871,7 +871,7 @@ function SourceModal({
             initValue={values.topic}
             onChange={updateSourceValue}
             tooltip={{
-              body: "The MQTT topic to subscribe to for curtailment signals.",
+              body: "The Maestro topic to subscribe to for curtailment signals.",
               widthClassName: "w-72",
             }}
           />
