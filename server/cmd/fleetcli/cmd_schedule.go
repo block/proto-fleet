@@ -43,7 +43,7 @@ func generatedScheduleCommand() *cli.Command {
 					}
 					if cmd.IsSet("action") {
 						switch normalizeEnum(cmd.String("action")) {
-						case "set-power-target":
+						case "set_power_target":
 							req.Action = schedulev1.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET
 						case "reboot":
 							req.Action = schedulev1.ScheduleAction_SCHEDULE_ACTION_REBOOT
@@ -55,7 +55,7 @@ func generatedScheduleCommand() *cli.Command {
 					}
 					if cmd.IsSet("schedule-type") {
 						switch normalizeEnum(cmd.String("schedule-type")) {
-						case "one-time":
+						case "one_time":
 							req.ScheduleType = schedulev1.ScheduleType_SCHEDULE_TYPE_ONE_TIME
 						case "recurring":
 							req.ScheduleType = schedulev1.ScheduleType_SCHEDULE_TYPE_RECURRING
@@ -126,7 +126,7 @@ func generatedScheduleCommand() *cli.Command {
 					}
 					if cmd.IsSet("action") {
 						switch normalizeEnum(cmd.String("action")) {
-						case "set-power-target":
+						case "set_power_target":
 							req.Action = schedulev1.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET
 						case "reboot":
 							req.Action = schedulev1.ScheduleAction_SCHEDULE_ACTION_REBOOT
@@ -227,7 +227,7 @@ func generatedScheduleCommand() *cli.Command {
 					}
 					if cmd.IsSet("action") {
 						switch normalizeEnum(cmd.String("action")) {
-						case "set-power-target":
+						case "set_power_target":
 							req.Action = schedulev1.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET
 						case "reboot":
 							req.Action = schedulev1.ScheduleAction_SCHEDULE_ACTION_REBOOT
@@ -239,7 +239,7 @@ func generatedScheduleCommand() *cli.Command {
 					}
 					if cmd.IsSet("schedule-type") {
 						switch normalizeEnum(cmd.String("schedule-type")) {
-						case "one-time":
+						case "one_time":
 							req.ScheduleType = schedulev1.ScheduleType_SCHEDULE_TYPE_ONE_TIME
 						case "recurring":
 							req.ScheduleType = schedulev1.ScheduleType_SCHEDULE_TYPE_RECURRING

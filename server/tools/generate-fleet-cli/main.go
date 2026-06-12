@@ -838,7 +838,9 @@ func buildFieldPlan(
 		lines = append(lines, fmt.Sprintf("if cmd.IsSet(%q) {", flagName))
 		lines = append(lines, fmt.Sprintf("\tswitch normalizeEnum(cmd.String(%q)) {", flagName))
 		for _, enumValue := range enumValues {
-			lines = append(lines, fmt.Sprintf("\tcase %q:", enumValue.Input))
+			// Case labels must be in normalizeEnum's canonical (underscored)
+			// form so the hyphenated spellings advertised in help text match.
+			lines = append(lines, fmt.Sprintf("\tcase %q:", normalizeInput(enumValue.Input)))
 			enumExpr := fmt.Sprintf("%s.%s_%s", enumMeta.GoAlias, enumMeta.GoIdent, enumValue.ConstName)
 			if oneof := field.ContainingOneof(); oneof != nil && !oneof.IsSynthetic() {
 				oneofGoFieldName := toGoFieldName(oneof.Name())
