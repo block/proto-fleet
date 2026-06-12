@@ -261,14 +261,31 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	}
 }
 
+func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
+	t.Parallel()
+
+	store := newResponseProfileFakeStore()
+	store.automationRuleCount = 1
+	svc := NewResponseProfileService(store)
+
+	err := svc.Delete(t.Context(), 42, 101, nil)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "referenced by automation")
+	assert.Equal(t, 0, store.deleteCalls)
+}
+
 type responseProfileFakeStore struct {
-	siteBelongs     bool
-	siteCheckCount  int
-	siteCheckOrgID  int64
-	siteCheckSiteID int64
-	created         *models.ResponseProfile
-	updated         *models.ResponseProfile
-	profiles        []*models.ResponseProfile
+	siteBelongs         bool
+	siteCheckCount      int
+	siteCheckOrgID      int64
+	siteCheckSiteID     int64
+	created             *models.ResponseProfile
+	updated             *models.ResponseProfile
+	deleteCalls         int
+	automationRuleCount int64
+	profiles            []*models.ResponseProfile
 }
 
 func newResponseProfileFakeStore() *responseProfileFakeStore {
@@ -302,7 +319,12 @@ func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, prof
 }
 
 func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64) error {
+	s.deleteCalls++
 	return nil
+}
+
+func (s *responseProfileFakeStore) CountAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return s.automationRuleCount, nil
 }
 
 func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {

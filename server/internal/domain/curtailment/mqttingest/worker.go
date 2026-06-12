@@ -483,7 +483,7 @@ func (w *sourceWorker) retryPendingEdge(ctx context.Context, prior SourceState) 
 	}
 	state, settled := w.settlePendingSignal(ctx, prior)
 	if !settled {
-		return prior, false
+		return state, true
 	}
 	if !w.persistState(ctx, state) {
 		return state, true
@@ -498,6 +498,31 @@ func (w *sourceWorker) settlePendingSignal(ctx context.Context, prior SourceStat
 	}
 	if !w.pendingEdgeRetryReady(pending) {
 		return prior, false
+	}
+
+	if w.cfg.SignalExecutor != nil {
+		if err := w.cfg.SignalExecutor.HandleMQTTSignal(ctx, SignalEdge{
+			Source:         w.source,
+			Direction:      pending.Direction,
+			Target:         pending.Target,
+			TargetAt:       pending.TargetAt,
+			ReceivedAt:     pending.ReceivedAt,
+			ReceivedBroker: pending.ReceivedBroker,
+			PriorEdgeAt:    pending.PriorEdgeAt,
+		}); err != nil {
+			state := prior
+			retry := *pending
+			retry.RetryAt = w.cfg.Clock().Add(w.startupRetryEvery())
+			state.PendingEdge = &retry
+			w.cfg.Logger.Warn("mqttingest: edge executor failed; retaining pending edge",
+				slog.String("source", w.source.SourceName),
+				slog.String("direction", pending.Direction.String()),
+				slog.Any("error", err))
+			if !w.persistState(ctx, state) {
+				return prior, false
+			}
+			return state, false
+		}
 	}
 
 	state := w.settlePendingEdge(prior, pending, pending.Target)

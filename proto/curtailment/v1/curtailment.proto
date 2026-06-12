@@ -101,6 +101,22 @@ service CurtailmentService {
         returns (UpdateCurtailmentResponseProfileResponse);
     rpc DeleteCurtailmentResponseProfile(DeleteCurtailmentResponseProfileRequest)
         returns (DeleteCurtailmentResponseProfileResponse);
+
+    // Curtailment automation rules. Automation binds an MQTT source trigger to
+    // a response profile; MQTT target=0 starts curtailment and target=100
+    // restores/no-ops.
+    rpc ListCurtailmentAutomationRules(ListCurtailmentAutomationRulesRequest)
+        returns (ListCurtailmentAutomationRulesResponse);
+    rpc GetCurtailmentAutomationRule(GetCurtailmentAutomationRuleRequest)
+        returns (GetCurtailmentAutomationRuleResponse);
+    rpc CreateCurtailmentAutomationRule(CreateCurtailmentAutomationRuleRequest)
+        returns (CreateCurtailmentAutomationRuleResponse);
+    rpc UpdateCurtailmentAutomationRule(UpdateCurtailmentAutomationRuleRequest)
+        returns (UpdateCurtailmentAutomationRuleResponse);
+    rpc SetCurtailmentAutomationRuleEnabled(SetCurtailmentAutomationRuleEnabledRequest)
+        returns (SetCurtailmentAutomationRuleEnabledResponse);
+    rpc DeleteCurtailmentAutomationRule(DeleteCurtailmentAutomationRuleRequest)
+        returns (DeleteCurtailmentAutomationRuleResponse);
 }
 
 // --- Enums ---
@@ -295,6 +311,11 @@ message CurtailmentEvent {
     // max(restore_batch_size, ceil(0.01 × selected_target_count))
     // clamped to [10, 100]. Clients display this; restorer reads it.
     uint32 effective_batch_size = 24;
+
+    // Profile-backed executions can throttle Curtail dispatch separately from
+    // Restore. Unset curtail_batch_size means all selected targets.
+    optional uint32 curtail_batch_size = 26;
+    uint32 curtail_batch_interval_sec = 27;
 
     // Operator-supplied reason.
     string reason = 20;
@@ -1052,3 +1073,93 @@ message DeleteCurtailmentResponseProfileRequest {
 }
 
 message DeleteCurtailmentResponseProfileResponse {}
+
+// --- Automation rules ---
+
+enum CurtailmentAutomationTriggerType {
+    CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED = 0;
+    CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT        = 1;
+}
+
+enum CurtailmentAutomationSignal {
+    CURTAILMENT_AUTOMATION_SIGNAL_UNSPECIFIED = 0;
+    CURTAILMENT_AUTOMATION_SIGNAL_OFF         = 1;
+    CURTAILMENT_AUTOMATION_SIGNAL_ON          = 2;
+}
+
+message CurtailmentAutomationRule {
+    int64 rule_id = 1;
+    string rule_name = 2;
+    CurtailmentAutomationTriggerType trigger_type = 3;
+
+    int64 mqtt_source_id = 4;
+    string mqtt_source_name = 5;
+    int64 response_profile_id = 6;
+    string response_profile_name = 7;
+
+    bool enabled = 8;
+
+    CurtailmentAutomationSignal current_signal = 10;
+    google.protobuf.Timestamp last_signal_at = 11;
+    string active_event_uuid = 12;
+    google.protobuf.Timestamp last_started_at = 13;
+    google.protobuf.Timestamp last_restored_at = 14;
+    string last_error = 15;
+    google.protobuf.Timestamp last_error_at = 16;
+
+    google.protobuf.Timestamp created_at = 20;
+    google.protobuf.Timestamp updated_at = 21;
+}
+
+message ListCurtailmentAutomationRulesRequest {}
+
+message ListCurtailmentAutomationRulesResponse {
+    repeated CurtailmentAutomationRule rules = 1;
+}
+
+message GetCurtailmentAutomationRuleRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetCurtailmentAutomationRuleResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message CreateCurtailmentAutomationRuleRequest {
+    string rule_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    CurtailmentAutomationTriggerType trigger_type = 2 [(buf.validate.field).enum.defined_only = true];
+    int64 mqtt_source_id = 3 [(buf.validate.field).int64.gt = 0];
+    int64 response_profile_id = 4 [(buf.validate.field).int64.gt = 0];
+    optional bool enabled = 5;
+}
+
+message CreateCurtailmentAutomationRuleResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message UpdateCurtailmentAutomationRuleRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+    string rule_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    CurtailmentAutomationTriggerType trigger_type = 3 [(buf.validate.field).enum.defined_only = true];
+    int64 mqtt_source_id = 4 [(buf.validate.field).int64.gt = 0];
+    int64 response_profile_id = 5 [(buf.validate.field).int64.gt = 0];
+}
+
+message UpdateCurtailmentAutomationRuleResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message SetCurtailmentAutomationRuleEnabledRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+    bool enabled = 2;
+}
+
+message SetCurtailmentAutomationRuleEnabledResponse {
+    CurtailmentAutomationRule rule = 1;
+}
+
+message DeleteCurtailmentAutomationRuleRequest {
+    int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteCurtailmentAutomationRuleResponse {}

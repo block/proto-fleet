@@ -37,7 +37,7 @@ WHERE curtailment_event.id = locked_event.id
             AND desired_state = 'curtailed'
             AND state IN ('dispatching', 'dispatched', 'confirmed', 'drifted')
     )
-RETURNING curtailment_event.id, curtailment_event.event_uuid, curtailment_event.org_id, curtailment_event.state, curtailment_event.mode, curtailment_event.strategy, curtailment_event.level, curtailment_event.priority, curtailment_event.loop_type, curtailment_event.scope_type, curtailment_event.scope_jsonb, curtailment_event.mode_params_jsonb, curtailment_event.restore_batch_size, curtailment_event.restore_batch_interval_sec, curtailment_event.effective_batch_size, curtailment_event.min_curtailed_duration_sec, curtailment_event.max_duration_seconds, curtailment_event.allow_unbounded, curtailment_event.include_maintenance, curtailment_event.force_include_maintenance, curtailment_event.decision_snapshot_jsonb, curtailment_event.source_actor_type, curtailment_event.source_actor_id, curtailment_event.external_source, curtailment_event.external_reference, curtailment_event.idempotency_key, curtailment_event.supersedes_event_id, curtailment_event.reason, curtailment_event.scheduled_start_at, curtailment_event.started_at, curtailment_event.ended_at, curtailment_event.created_at, curtailment_event.updated_at, curtailment_event.created_by_user_id
+RETURNING curtailment_event.id, curtailment_event.event_uuid, curtailment_event.org_id, curtailment_event.state, curtailment_event.mode, curtailment_event.strategy, curtailment_event.level, curtailment_event.priority, curtailment_event.loop_type, curtailment_event.scope_type, curtailment_event.scope_jsonb, curtailment_event.mode_params_jsonb, curtailment_event.restore_batch_size, curtailment_event.restore_batch_interval_sec, curtailment_event.effective_batch_size, curtailment_event.min_curtailed_duration_sec, curtailment_event.max_duration_seconds, curtailment_event.allow_unbounded, curtailment_event.include_maintenance, curtailment_event.force_include_maintenance, curtailment_event.decision_snapshot_jsonb, curtailment_event.source_actor_type, curtailment_event.source_actor_id, curtailment_event.external_source, curtailment_event.external_reference, curtailment_event.idempotency_key, curtailment_event.supersedes_event_id, curtailment_event.reason, curtailment_event.scheduled_start_at, curtailment_event.started_at, curtailment_event.ended_at, curtailment_event.created_at, curtailment_event.updated_at, curtailment_event.created_by_user_id, curtailment_event.curtail_batch_size, curtailment_event.curtail_batch_interval_sec
 `
 
 type AdminTerminateCurtailmentEventParams struct {
@@ -89,6 +89,8 @@ func (q *Queries) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminT
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
@@ -98,7 +100,7 @@ UPDATE curtailment_event
 SET state = 'restoring'
 WHERE id = $1
   AND state IN ('pending', 'active')
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 `
 
 // Stop's event-side flip to 'restoring'. The WHERE state-guard is the
@@ -142,6 +144,8 @@ func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, id int64) (Cu
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
@@ -317,7 +321,7 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 }
 
 const getActiveCurtailmentEvent = `-- name: GetActiveCurtailmentEvent :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
@@ -366,12 +370,14 @@ func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
 
 const getCurtailmentEventByExternalReference = `-- name: GetCurtailmentEventByExternalReference :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
 WHERE org_id = $1
     AND external_source = $2
@@ -426,12 +432,14 @@ func (q *Queries) GetCurtailmentEventByExternalReference(ctx context.Context, ar
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
 
 const getCurtailmentEventByIdempotencyKey = `-- name: GetCurtailmentEventByIdempotencyKey :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
 WHERE org_id = $1
     AND idempotency_key = $2
@@ -484,12 +492,14 @@ func (q *Queries) GetCurtailmentEventByIdempotencyKey(ctx context.Context, arg G
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
 
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
 WHERE event_uuid = $1
     AND org_id = $2
@@ -539,6 +549,8 @@ func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailm
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
@@ -547,6 +559,7 @@ const getCurtailmentEventDetailByUUID = `-- name: GetCurtailmentEventDetailByUUI
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance,
@@ -598,6 +611,8 @@ type GetCurtailmentEventDetailByUUIDRow struct {
 	ScopeType               string
 	ScopeJsonb              json.RawMessage
 	ModeParamsJsonb         json.RawMessage
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	EffectiveBatchSize      sql.NullInt32
@@ -641,6 +656,8 @@ func (q *Queries) GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCu
 		&i.ScopeType,
 		&i.ScopeJsonb,
 		&i.ModeParamsJsonb,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 		&i.RestoreBatchSize,
 		&i.RestoreBatchIntervalSec,
 		&i.EffectiveBatchSize,
@@ -778,6 +795,8 @@ INSERT INTO curtailment_event (
     scope_type,
     scope_jsonb,
     mode_params_jsonb,
+    curtail_batch_size,
+    curtail_batch_interval_sec,
     restore_batch_size,
     restore_batch_interval_sec,
     min_curtailed_duration_sec,
@@ -825,7 +844,9 @@ INSERT INTO curtailment_event (
     $26,
     $27,
     $28,
-    $29
+    $29,
+    $30,
+    $31
 )
 RETURNING id, event_uuid, created_at, updated_at
 `
@@ -842,6 +863,8 @@ type InsertCurtailmentEventParams struct {
 	ScopeType               string
 	ScopeJsonb              json.RawMessage
 	ModeParamsJsonb         json.RawMessage
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	MinCurtailedDurationSec int32
@@ -884,6 +907,8 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		arg.ScopeType,
 		arg.ScopeJsonb,
 		arg.ModeParamsJsonb,
+		arg.CurtailBatchSize,
+		arg.CurtailBatchIntervalSec,
 		arg.RestoreBatchSize,
 		arg.RestoreBatchIntervalSec,
 		arg.MinCurtailedDurationSec,
@@ -948,7 +973,7 @@ func (q *Queries) ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int
 }
 
 const listActiveCurtailmentEvents = `-- name: ListActiveCurtailmentEvents :many
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
@@ -1002,6 +1027,8 @@ func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedByUserID,
+			&i.CurtailBatchSize,
+			&i.CurtailBatchIntervalSec,
 		); err != nil {
 			return nil, err
 		}
@@ -1133,6 +1160,7 @@ const listCurtailmentEventsForOrg = `-- name: ListCurtailmentEventsForOrg :many
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance,
@@ -1192,6 +1220,8 @@ type ListCurtailmentEventsForOrgRow struct {
 	ScopeType               string
 	ScopeJsonb              json.RawMessage
 	ModeParamsJsonb         json.RawMessage
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	EffectiveBatchSize      sql.NullInt32
@@ -1249,6 +1279,8 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 			&i.ScopeType,
 			&i.ScopeJsonb,
 			&i.ModeParamsJsonb,
+			&i.CurtailBatchSize,
+			&i.CurtailBatchIntervalSec,
 			&i.RestoreBatchSize,
 			&i.RestoreBatchIntervalSec,
 			&i.EffectiveBatchSize,
@@ -1438,7 +1470,7 @@ func (q *Queries) ListCurtailmentTargetsByEventPage(ctx context.Context, arg Lis
 }
 
 const listNonTerminalCurtailmentEvents = `-- name: ListNonTerminalCurtailmentEvents :many
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
 WHERE state IN ('pending', 'active', 'restoring')
 ORDER BY id
@@ -1490,6 +1522,8 @@ func (q *Queries) ListNonTerminalCurtailmentEvents(ctx context.Context) ([]Curta
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedByUserID,
+			&i.CurtailBatchSize,
+			&i.CurtailBatchIntervalSec,
 		); err != nil {
 			return nil, err
 		}
@@ -1641,7 +1675,7 @@ UPDATE curtailment_event
 SET state = 'pending'
 WHERE id = $1
   AND state = 'restoring'
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 `
 
 // Restore reversal: go back through pending so the curtail dispatcher picks
@@ -1684,6 +1718,8 @@ func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }
@@ -1752,7 +1788,7 @@ SET reason                     = COALESCE($1::TEXT, reason),
 WHERE id = $5
     AND org_id = $6
     AND state IN ('pending', 'active')
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 `
 
 type UpdateCurtailmentEventOperatorFieldsParams struct {
@@ -1812,6 +1848,8 @@ func (q *Queries) UpdateCurtailmentEventOperatorFields(ctx context.Context, arg 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
 }

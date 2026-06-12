@@ -31,6 +31,7 @@ const deviceNonTerminalUniqueIndex = "uq_curtailment_target_one_non_terminal_per
 const (
 	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
 	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
+	automationRuleOrgNameUnique  = "uq_curtailment_automation_rule_org_name"
 )
 
 func mapOrgConfigError(err error, orgID int64) error {
@@ -51,6 +52,7 @@ func mapOrgConfigError(err error, orgID int64) error {
 
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
+var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
 
 type SQLCurtailmentStore struct {
 	SQLConnectionManager
@@ -173,6 +175,13 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile
 }
 
 func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error {
+	count, err := s.CountAutomationRulesByResponseProfile(ctx, orgID, profileID)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return fleeterror.NewFailedPreconditionError("curtailment response profile is referenced by an automation rule")
+	}
 	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
 		ID:             profileID,
 		OrgID:          orgID,
@@ -193,6 +202,318 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, 
 		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before delete; retry")
 	}
 	return nil
+}
+
+func (s *SQLCurtailmentStore) CountAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountCurtailmentAutomationRulesByResponseProfile(ctx, sqlc.CountCurtailmentAutomationRulesByResponseProfileParams{
+		OrgID:             orgID,
+		ResponseProfileID: profileID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count curtailment automation rules by response profile: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLCurtailmentStore) ListAutomationRules(ctx context.Context, orgID int64) ([]*models.AutomationRule, error) {
+	rows, err := s.GetQueries(ctx).ListCurtailmentAutomationRulesByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment automation rules: %v", err)
+	}
+	out := make([]*models.AutomationRule, len(rows))
+	for i, row := range rows {
+		out[i] = automationRuleFromListRow(row)
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) GetAutomationRule(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentAutomationRuleByOrg(ctx, sqlc.GetCurtailmentAutomationRuleByOrgParams{
+		ID:    ruleID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get curtailment automation rule: %v", err)
+	}
+	return automationRuleFromGetRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error) {
+	rows, err := s.GetQueries(ctx).ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx, mqttSourceID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list enabled curtailment automation rules by MQTT source: %v", err)
+	}
+	out := make([]*models.AutomationRule, len(rows))
+	for i, row := range rows {
+		out[i] = automationRuleFromEnabledMQTTRow(row)
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+	inserted, err := s.GetQueries(ctx).InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
+		OrgID:             rule.OrgID,
+		RuleName:          rule.RuleName,
+		TriggerType:       string(rule.TriggerType),
+		MqttSourceID:      rule.MQTTSourceID,
+		ResponseProfileID: rule.ResponseProfileID,
+		Enabled:           rule.Enabled,
+	})
+	if err != nil {
+		return nil, mapAutomationRuleWriteError("create", err)
+	}
+	return s.GetAutomationRule(ctx, inserted.OrgID, inserted.ID)
+}
+
+func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+	updated, err := s.GetQueries(ctx).UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
+		ID:                rule.ID,
+		OrgID:             rule.OrgID,
+		RuleName:          rule.RuleName,
+		MqttSourceID:      rule.MQTTSourceID,
+		ResponseProfileID: rule.ResponseProfileID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", rule.ID)
+		}
+		return nil, mapAutomationRuleWriteError("update", err)
+	}
+	return s.GetAutomationRule(ctx, updated.OrgID, updated.ID)
+}
+
+func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
+	updated, err := s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+		ID:      ruleID,
+		OrgID:   orgID,
+		Enabled: enabled,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to set curtailment automation rule enabled: %v", err)
+	}
+	return s.GetAutomationRule(ctx, updated.OrgID, updated.ID)
+}
+
+func (s *SQLCurtailmentStore) DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error {
+	rows, err := s.GetQueries(ctx).DeleteCurtailmentAutomationRuleByOrg(ctx, sqlc.DeleteCurtailmentAutomationRuleByOrgParams{
+		ID:    ruleID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to delete curtailment automation rule: %v", err)
+	}
+	if rows == 0 {
+		return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountCurtailmentAutomationRulesByMQTTSource(ctx, sqlc.CountCurtailmentAutomationRulesByMQTTSourceParams{
+		OrgID:        orgID,
+		MqttSourceID: sourceID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count curtailment automation rules by MQTT source: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLCurtailmentStore) RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error {
+	if err := s.GetQueries(ctx).UpsertCurtailmentAutomationSignalState(ctx, sqlc.UpsertCurtailmentAutomationSignalStateParams{
+		RuleID:       ruleID,
+		LastSignal:   sql.NullString{String: string(signal), Valid: true},
+		LastSignalAt: sql.NullTime{Time: at, Valid: !at.IsZero()},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to record curtailment automation signal: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
+	if err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
+		RuleID:          ruleID,
+		ActiveEventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+		LastStartedAt:   sql.NullTime{Time: at, Valid: !at.IsZero()},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to set curtailment automation active event: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) ClearAutomationActiveEvent(ctx context.Context, ruleID int64, at time.Time) error {
+	if err := s.GetQueries(ctx).ClearCurtailmentAutomationActiveEvent(ctx, sqlc.ClearCurtailmentAutomationActiveEventParams{
+		RuleID:         ruleID,
+		LastRestoredAt: sql.NullTime{Time: at, Valid: !at.IsZero()},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to clear curtailment automation active event: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error {
+	if err := s.GetQueries(ctx).SetCurtailmentAutomationExecutionError(ctx, sqlc.SetCurtailmentAutomationExecutionErrorParams{
+		RuleID:      ruleID,
+		LastError:   sql.NullString{String: message, Valid: message != ""},
+		LastErrorAt: sql.NullTime{Time: at, Valid: !at.IsZero()},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to record curtailment automation execution error: %v", err)
+	}
+	return nil
+}
+
+func automationRuleFromListRow(row sqlc.ListCurtailmentAutomationRulesByOrgRow) *models.AutomationRule {
+	return automationRuleFromFields(
+		row.ID,
+		row.OrgID,
+		row.RuleName,
+		row.TriggerType,
+		row.MqttSourceID,
+		row.MqttSourceName,
+		row.ResponseProfileID,
+		row.ResponseProfileName,
+		row.Enabled,
+		row.LastSignal,
+		row.LastSignalAt,
+		row.ActiveEventUuid,
+		row.LastStartedAt,
+		row.LastRestoredAt,
+		row.LastError,
+		row.LastErrorAt,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func automationRuleFromGetRow(row sqlc.GetCurtailmentAutomationRuleByOrgRow) *models.AutomationRule {
+	return automationRuleFromFields(
+		row.ID,
+		row.OrgID,
+		row.RuleName,
+		row.TriggerType,
+		row.MqttSourceID,
+		row.MqttSourceName,
+		row.ResponseProfileID,
+		row.ResponseProfileName,
+		row.Enabled,
+		row.LastSignal,
+		row.LastSignalAt,
+		row.ActiveEventUuid,
+		row.LastStartedAt,
+		row.LastRestoredAt,
+		row.LastError,
+		row.LastErrorAt,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func automationRuleFromEnabledMQTTRow(row sqlc.ListEnabledCurtailmentAutomationRulesByMQTTSourceRow) *models.AutomationRule {
+	return automationRuleFromFields(
+		row.ID,
+		row.OrgID,
+		row.RuleName,
+		row.TriggerType,
+		row.MqttSourceID,
+		row.MqttSourceName,
+		row.ResponseProfileID,
+		row.ResponseProfileName,
+		row.Enabled,
+		row.LastSignal,
+		row.LastSignalAt,
+		row.ActiveEventUuid,
+		row.LastStartedAt,
+		row.LastRestoredAt,
+		row.LastError,
+		row.LastErrorAt,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func automationRuleFromFields(
+	id int64,
+	orgID int64,
+	ruleName string,
+	triggerType string,
+	mqttSourceID int64,
+	mqttSourceName string,
+	responseProfileID int64,
+	responseProfileName string,
+	enabled bool,
+	lastSignal sql.NullString,
+	lastSignalAt sql.NullTime,
+	activeEventUUID uuid.NullUUID,
+	lastStartedAt sql.NullTime,
+	lastRestoredAt sql.NullTime,
+	lastError sql.NullString,
+	lastErrorAt sql.NullTime,
+	createdAt time.Time,
+	updatedAt time.Time,
+) *models.AutomationRule {
+	return &models.AutomationRule{
+		ID:                  id,
+		OrgID:               orgID,
+		RuleName:            ruleName,
+		TriggerType:         models.AutomationTriggerType(triggerType),
+		MQTTSourceID:        mqttSourceID,
+		MQTTSourceName:      mqttSourceName,
+		ResponseProfileID:   responseProfileID,
+		ResponseProfileName: responseProfileName,
+		Enabled:             enabled,
+		LastSignal:          nullAutomationSignalToPtr(lastSignal),
+		LastSignalAt:        nullTimeToPtr(lastSignalAt),
+		ActiveEventUUID:     nullUUIDToPtr(activeEventUUID),
+		LastStartedAt:       nullTimeToPtr(lastStartedAt),
+		LastRestoredAt:      nullTimeToPtr(lastRestoredAt),
+		LastError:           nullStringToPtr(lastError),
+		LastErrorAt:         nullTimeToPtr(lastErrorAt),
+		CreatedAt:           createdAt,
+		UpdatedAt:           updatedAt,
+	}
+}
+
+func nullAutomationSignalToPtr(n sql.NullString) *models.AutomationSignal {
+	if !n.Valid {
+		return nil
+	}
+	v := models.AutomationSignal(n.String)
+	return &v
+}
+
+func nullUUIDToPtr(n uuid.NullUUID) *uuid.UUID {
+	if !n.Valid {
+		return nil
+	}
+	v := n.UUID
+	return &v
+}
+
+func mapAutomationRuleWriteError(action string, err error) error {
+	var fleetErr fleeterror.FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgErrCodeUniqueViolation:
+			if pgErr.ConstraintName == automationRuleOrgNameUnique {
+				return fleeterror.NewAlreadyExistsError("a curtailment automation rule with this name already exists")
+			}
+		case pgErrCodeForeignKeyViolation:
+			return fleeterror.NewNotFoundError("organization, MQTT source, or response profile not found for curtailment automation rule")
+		case "23514": // check_violation
+			return fleeterror.NewInvalidArgumentError("curtailment automation rule violates persisted constraints")
+		}
+	}
+	return fleeterror.NewInternalErrorf("failed to %s curtailment automation rule: %v", action, err)
 }
 
 func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, siteIDs ...*int64) error {
@@ -251,6 +572,8 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			ScopeType:               string(event.ScopeType),
 			ScopeJsonb:              event.ScopeJSON,
 			ModeParamsJsonb:         event.ModeParamsJSON,
+			CurtailBatchSize:        ptrToNullInt32(event.CurtailBatchSize),
+			CurtailBatchIntervalSec: event.CurtailBatchIntervalSec,
 			RestoreBatchSize:        event.RestoreBatchSize,
 			RestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
 			MinCurtailedDurationSec: event.MinCurtailedDurationSec,
@@ -351,7 +674,7 @@ func (s *SQLCurtailmentStore) GetEventDetailByUUID(ctx context.Context, orgID in
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment event detail: %v", err)
 	}
-	return convertEventRow(sqlc.CurtailmentEvent(row)), nil
+	return convertEventDetailRow(row), nil
 }
 
 func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error) {
@@ -460,11 +783,7 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 
 	out := make([]*models.Event, len(rows))
 	for i, row := range rows {
-		// ListCurtailmentEventsForOrgRow's field layout matches
-		// sqlc.CurtailmentEvent (different name only because the query
-		// projects a derived snapshot expression); sqlc regen fails the
-		// build if these ever drift.
-		out[i] = convertEventRow(sqlc.CurtailmentEvent(row))
+		out[i] = convertEventListRow(row)
 	}
 	return out, nextToken, nil
 }
@@ -977,41 +1296,203 @@ func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbe
 // convertEventRow maps a sqlc row to the domain Event so callers outside
 // the store don't import sqlc-generated code.
 func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
+	return convertEventFields(
+		row.ID,
+		row.EventUuid,
+		row.OrgID,
+		row.State,
+		row.Mode,
+		row.Strategy,
+		row.Level,
+		row.Priority,
+		row.LoopType,
+		row.ScopeType,
+		row.ScopeJsonb,
+		row.ModeParamsJsonb,
+		row.CurtailBatchSize,
+		row.CurtailBatchIntervalSec,
+		row.RestoreBatchSize,
+		row.RestoreBatchIntervalSec,
+		row.EffectiveBatchSize,
+		row.MinCurtailedDurationSec,
+		row.MaxDurationSeconds,
+		row.AllowUnbounded,
+		row.IncludeMaintenance,
+		row.ForceIncludeMaintenance,
+		row.DecisionSnapshotJsonb,
+		row.SourceActorType,
+		row.SourceActorID,
+		row.ExternalSource,
+		row.ExternalReference,
+		row.IdempotencyKey,
+		row.SupersedesEventID,
+		row.Reason,
+		row.ScheduledStartAt,
+		row.StartedAt,
+		row.EndedAt,
+		row.CreatedByUserID,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.Event {
+	return convertEventFields(
+		row.ID,
+		row.EventUuid,
+		row.OrgID,
+		row.State,
+		row.Mode,
+		row.Strategy,
+		row.Level,
+		row.Priority,
+		row.LoopType,
+		row.ScopeType,
+		row.ScopeJsonb,
+		row.ModeParamsJsonb,
+		row.CurtailBatchSize,
+		row.CurtailBatchIntervalSec,
+		row.RestoreBatchSize,
+		row.RestoreBatchIntervalSec,
+		row.EffectiveBatchSize,
+		row.MinCurtailedDurationSec,
+		row.MaxDurationSeconds,
+		row.AllowUnbounded,
+		row.IncludeMaintenance,
+		row.ForceIncludeMaintenance,
+		row.DecisionSnapshotJsonb,
+		row.SourceActorType,
+		row.SourceActorID,
+		row.ExternalSource,
+		row.ExternalReference,
+		row.IdempotencyKey,
+		row.SupersedesEventID,
+		row.Reason,
+		row.ScheduledStartAt,
+		row.StartedAt,
+		row.EndedAt,
+		row.CreatedByUserID,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event {
+	return convertEventFields(
+		row.ID,
+		row.EventUuid,
+		row.OrgID,
+		row.State,
+		row.Mode,
+		row.Strategy,
+		row.Level,
+		row.Priority,
+		row.LoopType,
+		row.ScopeType,
+		row.ScopeJsonb,
+		row.ModeParamsJsonb,
+		row.CurtailBatchSize,
+		row.CurtailBatchIntervalSec,
+		row.RestoreBatchSize,
+		row.RestoreBatchIntervalSec,
+		row.EffectiveBatchSize,
+		row.MinCurtailedDurationSec,
+		row.MaxDurationSeconds,
+		row.AllowUnbounded,
+		row.IncludeMaintenance,
+		row.ForceIncludeMaintenance,
+		row.DecisionSnapshotJsonb,
+		row.SourceActorType,
+		row.SourceActorID,
+		row.ExternalSource,
+		row.ExternalReference,
+		row.IdempotencyKey,
+		row.SupersedesEventID,
+		row.Reason,
+		row.ScheduledStartAt,
+		row.StartedAt,
+		row.EndedAt,
+		row.CreatedByUserID,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func convertEventFields(
+	id int64,
+	eventUUID uuid.UUID,
+	orgID int64,
+	state string,
+	mode string,
+	strategy string,
+	level string,
+	priority string,
+	loopType string,
+	scopeType string,
+	scopeJSON []byte,
+	modeParamsJSON []byte,
+	curtailBatchSize sql.NullInt32,
+	curtailBatchIntervalSec int32,
+	restoreBatchSize int32,
+	restoreBatchIntervalSec int32,
+	effectiveBatchSize sql.NullInt32,
+	minCurtailedDurationSec int32,
+	maxDurationSeconds sql.NullInt32,
+	allowUnbounded bool,
+	includeMaintenance bool,
+	forceIncludeMaintenance bool,
+	decisionSnapshotJSON []byte,
+	sourceActorType string,
+	sourceActorID sql.NullString,
+	externalSource sql.NullString,
+	externalReference sql.NullString,
+	idempotencyKey sql.NullString,
+	supersedesEventID sql.NullInt64,
+	reason string,
+	scheduledStartAt sql.NullTime,
+	startedAt sql.NullTime,
+	endedAt sql.NullTime,
+	createdByUserID int64,
+	createdAt time.Time,
+	updatedAt time.Time,
+) *models.Event {
 	return &models.Event{
-		ID:                      row.ID,
-		EventUUID:               row.EventUuid,
-		OrgID:                   row.OrgID,
-		State:                   models.EventState(row.State),
-		Mode:                    models.Mode(row.Mode),
-		Strategy:                models.Strategy(row.Strategy),
-		Level:                   models.Level(row.Level),
-		Priority:                models.Priority(row.Priority),
-		LoopType:                models.LoopType(row.LoopType),
-		ScopeType:               models.ScopeType(row.ScopeType),
-		ScopeJSON:               row.ScopeJsonb,
-		ModeParamsJSON:          row.ModeParamsJsonb,
-		RestoreBatchSize:        row.RestoreBatchSize,
-		RestoreBatchIntervalSec: row.RestoreBatchIntervalSec,
-		EffectiveBatchSize:      nullInt32ToPtr(row.EffectiveBatchSize),
-		MinCurtailedDurationSec: row.MinCurtailedDurationSec,
-		MaxDurationSeconds:      nullInt32ToPtr(row.MaxDurationSeconds),
-		AllowUnbounded:          row.AllowUnbounded,
-		IncludeMaintenance:      row.IncludeMaintenance,
-		ForceIncludeMaintenance: row.ForceIncludeMaintenance,
-		DecisionSnapshotJSON:    row.DecisionSnapshotJsonb,
-		SourceActorType:         models.SourceActorType(row.SourceActorType),
-		SourceActorID:           nullStringToPtr(row.SourceActorID),
-		ExternalSource:          nullStringToPtr(row.ExternalSource),
-		ExternalReference:       nullStringToPtr(row.ExternalReference),
-		IdempotencyKey:          nullStringToPtr(row.IdempotencyKey),
-		SupersedesEventID:       nullInt64ToPtr(row.SupersedesEventID),
-		Reason:                  row.Reason,
-		ScheduledStartAt:        nullTimeToPtr(row.ScheduledStartAt),
-		StartedAt:               nullTimeToPtr(row.StartedAt),
-		EndedAt:                 nullTimeToPtr(row.EndedAt),
-		CreatedByUserID:         row.CreatedByUserID,
-		CreatedAt:               row.CreatedAt,
-		UpdatedAt:               row.UpdatedAt,
+		ID:                      id,
+		EventUUID:               eventUUID,
+		OrgID:                   orgID,
+		State:                   models.EventState(state),
+		Mode:                    models.Mode(mode),
+		Strategy:                models.Strategy(strategy),
+		Level:                   models.Level(level),
+		Priority:                models.Priority(priority),
+		LoopType:                models.LoopType(loopType),
+		ScopeType:               models.ScopeType(scopeType),
+		ScopeJSON:               scopeJSON,
+		ModeParamsJSON:          modeParamsJSON,
+		CurtailBatchSize:        nullInt32ToPtr(curtailBatchSize),
+		CurtailBatchIntervalSec: curtailBatchIntervalSec,
+		RestoreBatchSize:        restoreBatchSize,
+		RestoreBatchIntervalSec: restoreBatchIntervalSec,
+		EffectiveBatchSize:      nullInt32ToPtr(effectiveBatchSize),
+		MinCurtailedDurationSec: minCurtailedDurationSec,
+		MaxDurationSeconds:      nullInt32ToPtr(maxDurationSeconds),
+		AllowUnbounded:          allowUnbounded,
+		IncludeMaintenance:      includeMaintenance,
+		ForceIncludeMaintenance: forceIncludeMaintenance,
+		DecisionSnapshotJSON:    decisionSnapshotJSON,
+		SourceActorType:         models.SourceActorType(sourceActorType),
+		SourceActorID:           nullStringToPtr(sourceActorID),
+		ExternalSource:          nullStringToPtr(externalSource),
+		ExternalReference:       nullStringToPtr(externalReference),
+		IdempotencyKey:          nullStringToPtr(idempotencyKey),
+		SupersedesEventID:       nullInt64ToPtr(supersedesEventID),
+		Reason:                  reason,
+		ScheduledStartAt:        nullTimeToPtr(scheduledStartAt),
+		StartedAt:               nullTimeToPtr(startedAt),
+		EndedAt:                 nullTimeToPtr(endedAt),
+		CreatedByUserID:         createdByUserID,
+		CreatedAt:               createdAt,
+		UpdatedAt:               updatedAt,
 	}
 }
 

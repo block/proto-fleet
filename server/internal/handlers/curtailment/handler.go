@@ -31,6 +31,7 @@ type Handler struct {
 	service          *curtailment.Service
 	mqttSettings     *mqttingest.SettingsService
 	responseProfiles *curtailment.ResponseProfileService
+	automation       *curtailment.AutomationService
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
@@ -50,6 +51,17 @@ func NewHandlerWithResponseProfiles(
 ) *Handler {
 	h := NewHandler(service, mqttSettings...)
 	h.responseProfiles = profiles
+	return h
+}
+
+func NewHandlerWithCurtailmentSettings(
+	service *curtailment.Service,
+	profiles *curtailment.ResponseProfileService,
+	automation *curtailment.AutomationService,
+	mqttSettings *mqttingest.SettingsService,
+) *Handler {
+	h := NewHandlerWithResponseProfiles(service, profiles, mqttSettings)
+	h.automation = automation
 	return h
 }
 

@@ -98,6 +98,15 @@ func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID in
 	if profileID <= 0 {
 		return fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
+	count, err := s.store.CountAutomationRulesByResponseProfile(ctx, orgID, profileID)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return fleeterror.NewFailedPreconditionError(
+			"curtailment response profile is referenced by automation rules; delete or update those rules first",
+		)
+	}
 	return s.store.DeleteResponseProfile(ctx, orgID, profileID, expectedSiteID)
 }
 

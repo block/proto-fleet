@@ -56,6 +56,7 @@ type Config struct {
 	ShutdownDeadline  time.Duration
 	ReconcileTimeout  time.Duration
 	StatusReporter    RuntimeStatusReporter
+	SignalExecutor    SignalExecutor
 }
 
 type sourceWorkerHandle struct {

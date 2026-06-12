@@ -253,6 +253,8 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
 		Priority:                resolvePriority(req.GetPriority()),
 		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, req),
+		CurtailBatchSize:        int32PtrToUint32Ptr(plan.EffectiveCurtailBatchSize),
+		CurtailBatchIntervalSec: uint32Saturating(plan.EffectiveCurtailBatchIntervalSec),
 		RestoreBatchSize:        req.GetRestoreBatchSize(),
 		RestoreBatchIntervalSec: effectiveRestoreBatchIntervalSec(plan, req),
 		MinCurtailedDurationSec: req.GetMinCurtailedDurationSec(),
@@ -687,6 +689,8 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 		Strategy:                strategyProto(event.Strategy),
 		Level:                   levelProto(event.Level),
 		Priority:                priorityProto(event.Priority),
+		CurtailBatchSize:        int32PtrToUint32Ptr(event.CurtailBatchSize),
+		CurtailBatchIntervalSec: uint32Saturating(event.CurtailBatchIntervalSec),
 		RestoreBatchSize:        uint32Saturating(event.RestoreBatchSize),
 		RestoreBatchIntervalSec: uint32Saturating(event.RestoreBatchIntervalSec),
 		MinCurtailedDurationSec: uint32Saturating(event.MinCurtailedDurationSec),
@@ -931,6 +935,14 @@ func uint32Saturating(v int32) uint32 {
 		return 0
 	}
 	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
+func int32PtrToUint32Ptr(v *int32) *uint32 {
+	if v == nil {
+		return nil
+	}
+	out := uint32Saturating(*v)
+	return &out
 }
 
 // eventStateFromProto is the inverse of eventStateProto. UNSPECIFIED maps

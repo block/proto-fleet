@@ -409,6 +409,10 @@ func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _
 	return nil
 }
 
+func (*handlerResponseProfileStore) CountAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
 func (s *handlerResponseProfileStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
 	s.siteCheckCount++
 	return s.siteBelongs, nil

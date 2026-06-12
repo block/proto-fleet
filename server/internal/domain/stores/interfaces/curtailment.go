@@ -90,7 +90,27 @@ type ResponseProfileStore interface {
 	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error)
 	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error)
 	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error
+	CountAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
+}
+
+// AutomationStore is the persistence boundary for curtailment automation rule
+// CRUD and executor state.
+//
+//nolint:interfacebloat // Rule CRUD and durable executor state are one transactional persistence boundary.
+type AutomationStore interface {
+	ListAutomationRules(ctx context.Context, orgID int64) ([]*models.AutomationRule, error)
+	GetAutomationRule(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error)
+	ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error)
+	CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error)
+	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error)
+	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
+	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
+	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
+	SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error
+	ClearAutomationActiveEvent(ctx context.Context, ruleID int64, at time.Time) error
+	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
 }
 
 // ListCandidatesParams scopes selector candidate reads. A nil SiteID and

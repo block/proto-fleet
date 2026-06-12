@@ -17,12 +17,13 @@ import (
 )
 
 type fakeSettingsStore struct {
-	mu        sync.Mutex
-	nextID    int64
-	configs   map[int64]SourceConfig
-	states    map[int64]SourceState
-	createErr error
-	updateErr error
+	mu                  sync.Mutex
+	nextID              int64
+	configs             map[int64]SourceConfig
+	states              map[int64]SourceState
+	createErr           error
+	updateErr           error
+	automationRuleCount int64
 }
 
 func newFakeSettingsStore(configs ...SourceConfig) *fakeSettingsStore {
@@ -137,6 +138,10 @@ func (f *fakeSettingsStore) DeleteDisabledSourceConfig(_ context.Context, orgID,
 	delete(f.configs, sourceID)
 	delete(f.states, sourceID)
 	return nil
+}
+
+func (f *fakeSettingsStore) CountAutomationRulesByMQTTSource(context.Context, int64, int64) (int64, error) {
+	return f.automationRuleCount, nil
 }
 
 type fakeSettingsCipher struct {
@@ -494,6 +499,24 @@ func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 	err = svc.Delete(t.Context(), 42, 7)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disable the MQTT source")
+}
+
+func TestSettingsService_DeleteRejectsReferencedSource(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	store.automationRuleCount = 1
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
+	require.NoError(t, err)
+
+	err = svc.Delete(t.Context(), 42, 7)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "referenced by a curtailment automation rule")
 }
 
 func TestSettingsService_DeleteDisabledSourceWithSignalState(t *testing.T) {
