@@ -539,7 +539,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Create response profile")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
     expect(screen.getByRole("checkbox", { name: "Include miners in maintenance" })).toBeChecked();
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
@@ -684,7 +685,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
     fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
@@ -831,7 +833,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("3 miners")).toBeVisible();
 
     fireEvent.click(within(getResponseProfileCard("Targeted miners")).getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeEnabled();
+    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+3 miners/ })).not.toBeInTheDocument();
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
@@ -891,7 +894,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByLabelText("Profile name")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Full shutdown");
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Include miners in maintenance" })).toBeChecked();
@@ -920,31 +924,6 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
-  it("keeps selected miners when creating a response profile in local state", async () => {
-    render(<CurtailmentSettingsContent initialSources={testSources} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
-    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Two miner shed" } });
-    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "2" } });
-    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
-    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "2" } });
-    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
-    fireEvent.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save miners" }));
-
-    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeEnabled();
-
-    fireEvent.click(getEnabledButton("Save profile"));
-
-    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
-    expect(screen.getByText("Two miner shed")).toBeVisible();
-    expect(screen.getByText("2 miners")).toBeVisible();
-
-    fireEvent.click(within(getResponseProfileCard("Two miner shed")).getByRole("button", { name: "Edit" }));
-
-    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeEnabled();
-  });
-
   it("edits and deletes a response profile in local state", async () => {
     render(<CurtailmentSettingsContent initialResponseProfiles={testResponseProfiles} initialSources={testSources} />);
 
@@ -960,7 +939,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
     fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
