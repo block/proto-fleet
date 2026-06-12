@@ -85,8 +85,16 @@ func (q *Queries) CountCurtailmentAutomationRulesByResponseProfile(ctx context.C
 
 const deleteCurtailmentAutomationRuleByOrg = `-- name: DeleteCurtailmentAutomationRuleByOrg :execrows
 DELETE FROM curtailment_automation_rule
-WHERE id = $1
-  AND org_id = $2
+WHERE curtailment_automation_rule.id = $1
+  AND curtailment_automation_rule.org_id = $2
+  AND NOT EXISTS (
+      SELECT 1
+      FROM curtailment_automation_rule_state st
+      JOIN curtailment_event e
+          ON e.event_uuid = st.active_event_uuid
+      WHERE st.rule_id = curtailment_automation_rule.id
+        AND e.state IN ('pending', 'active', 'restoring')
+  )
 `
 
 type DeleteCurtailmentAutomationRuleByOrgParams struct {
@@ -465,8 +473,19 @@ func (q *Queries) SetCurtailmentAutomationExecutionError(ctx context.Context, ar
 const setCurtailmentAutomationRuleEnabled = `-- name: SetCurtailmentAutomationRuleEnabled :one
 UPDATE curtailment_automation_rule
 SET enabled = $1
-WHERE id = $2
-  AND org_id = $3
+WHERE curtailment_automation_rule.id = $2
+  AND curtailment_automation_rule.org_id = $3
+  AND (
+      $1 = TRUE
+      OR NOT EXISTS (
+          SELECT 1
+          FROM curtailment_automation_rule_state st
+          JOIN curtailment_event e
+              ON e.event_uuid = st.active_event_uuid
+          WHERE st.rule_id = curtailment_automation_rule.id
+            AND e.state IN ('pending', 'active', 'restoring')
+      )
+  )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
 `
 
@@ -499,8 +518,16 @@ SET
     rule_name = $1,
     mqtt_source_id = $2,
     response_profile_id = $3
-WHERE id = $4
-  AND org_id = $5
+WHERE curtailment_automation_rule.id = $4
+  AND curtailment_automation_rule.org_id = $5
+  AND NOT EXISTS (
+      SELECT 1
+      FROM curtailment_automation_rule_state st
+      JOIN curtailment_event e
+          ON e.event_uuid = st.active_event_uuid
+      WHERE st.rule_id = curtailment_automation_rule.id
+        AND e.state IN ('pending', 'active', 'restoring')
+  )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
 `
 

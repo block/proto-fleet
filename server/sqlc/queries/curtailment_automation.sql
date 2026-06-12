@@ -89,21 +89,48 @@ SET
     rule_name = sqlc.arg('rule_name'),
     mqtt_source_id = sqlc.arg('mqtt_source_id'),
     response_profile_id = sqlc.arg('response_profile_id')
-WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id')
+WHERE curtailment_automation_rule.id = sqlc.arg('id')
+  AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
+  AND NOT EXISTS (
+      SELECT 1
+      FROM curtailment_automation_rule_state st
+      JOIN curtailment_event e
+          ON e.event_uuid = st.active_event_uuid
+      WHERE st.rule_id = curtailment_automation_rule.id
+        AND e.state IN ('pending', 'active', 'restoring')
+  )
 RETURNING *;
 
 -- name: SetCurtailmentAutomationRuleEnabled :one
 UPDATE curtailment_automation_rule
 SET enabled = sqlc.arg('enabled')
-WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id')
+WHERE curtailment_automation_rule.id = sqlc.arg('id')
+  AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
+  AND (
+      sqlc.arg('enabled') = TRUE
+      OR NOT EXISTS (
+          SELECT 1
+          FROM curtailment_automation_rule_state st
+          JOIN curtailment_event e
+              ON e.event_uuid = st.active_event_uuid
+          WHERE st.rule_id = curtailment_automation_rule.id
+            AND e.state IN ('pending', 'active', 'restoring')
+      )
+  )
 RETURNING *;
 
 -- name: DeleteCurtailmentAutomationRuleByOrg :execrows
 DELETE FROM curtailment_automation_rule
-WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id');
+WHERE curtailment_automation_rule.id = sqlc.arg('id')
+  AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
+  AND NOT EXISTS (
+      SELECT 1
+      FROM curtailment_automation_rule_state st
+      JOIN curtailment_event e
+          ON e.event_uuid = st.active_event_uuid
+      WHERE st.rule_id = curtailment_automation_rule.id
+        AND e.state IN ('pending', 'active', 'restoring')
+  );
 
 -- name: CountCurtailmentAutomationRulesByMQTTSource :one
 SELECT count(*)

@@ -66,6 +66,71 @@ func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
+func TestAutomationService_UpdateRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedAutomationEvent(models.EventStateActive)
+
+	_, err := h.automation.Update(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			ID:                h.rule.ID,
+			OrgID:             h.orgID,
+			RuleName:          "Renamed rule",
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, "MaestroOS curtailment", h.rule.RuleName)
+	assert.Equal(t, 0, h.rules.clearActiveCalls)
+}
+
+func TestAutomationService_SetEnabledRejectsDisableWhenRuleOwnsActiveEvent(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedAutomationEvent(models.EventStateRestoring)
+
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.True(t, h.rule.Enabled)
+	assert.Equal(t, 0, h.rules.clearActiveCalls)
+}
+
+func TestAutomationService_DeleteRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedAutomationEvent(models.EventStateActive)
+
+	err := h.automation.Delete(t.Context(), h.orgID, h.rule.ID)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Len(t, h.rules.rules, 1)
+	assert.Equal(t, 0, h.rules.clearActiveCalls)
+}
+
+func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedAutomationEvent(models.EventStateCompleted)
+
+	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false)
+
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.False(t, updated.Enabled)
+	assert.Nil(t, updated.ActiveEventUUID)
+	assert.Equal(t, 1, h.rules.clearActiveCalls)
+}
+
 func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProfile(t *testing.T) {
 	t.Parallel()
 
@@ -281,6 +346,20 @@ func newAutomationHarness(t *testing.T) *automationHarness {
 		curtailments: curtailments,
 		automation:   automation,
 	}
+}
+
+func (h *automationHarness) seedAutomationEvent(state models.EventState) uuid.UUID {
+	h.t.Helper()
+
+	activeEventUUID := uuid.New()
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.curtailments.eventsByUUID[activeEventUUID] = &models.Event{
+		ID:        77,
+		EventUUID: activeEventUUID,
+		OrgID:     h.orgID,
+		State:     state,
+	}
+	return activeEventUUID
 }
 
 func (h *automationHarness) seedRunnableProfile() {

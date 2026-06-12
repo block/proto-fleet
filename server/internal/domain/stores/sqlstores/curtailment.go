@@ -278,7 +278,7 @@ func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule mod
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", rule.ID)
+			return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
 		}
 		return nil, mapAutomationRuleWriteError("update", err)
 	}
@@ -293,6 +293,9 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgI
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if !enabled {
+				return nil, s.automationRuleLifecycleNoRowsError(ctx, "disable", orgID, ruleID)
+			}
 			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to set curtailment automation rule enabled: %v", err)
@@ -309,9 +312,45 @@ func (s *SQLCurtailmentStore) DeleteAutomationRule(ctx context.Context, orgID, r
 		return fleeterror.NewInternalErrorf("failed to delete curtailment automation rule: %v", err)
 	}
 	if rows == 0 {
-		return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+		return s.automationRuleLifecycleNoRowsError(ctx, "delete", orgID, ruleID)
 	}
 	return nil
+}
+
+func (s *SQLCurtailmentStore) automationRuleLifecycleNoRowsError(ctx context.Context, action string, orgID, ruleID int64) error {
+	rule, err := s.GetAutomationRule(ctx, orgID, ruleID)
+	if err != nil {
+		return err
+	}
+	if err := s.nonTerminalAutomationEventError(ctx, action, rule); err != nil {
+		return err
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"curtailment automation rule changed before %s; retry",
+		action,
+	)
+}
+
+func (s *SQLCurtailmentStore) nonTerminalAutomationEventError(ctx context.Context, action string, rule *models.AutomationRule) error {
+	if rule == nil || rule.ActiveEventUUID == nil {
+		return nil
+	}
+	event, err := s.GetEventByUUID(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil
+		}
+		return err
+	}
+	if event == nil || event.State.IsTerminal() {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"cannot %s curtailment automation rule while automation event %s is %s; restore or complete the event first",
+		action,
+		event.EventUUID,
+		event.State,
+	)
 }
 
 func (s *SQLCurtailmentStore) CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error) {

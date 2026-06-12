@@ -113,6 +113,13 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	if err != nil {
 		return nil, err
 	}
+	existing, err := s.store.GetAutomationRule(ctx, rule.OrgID, rule.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureNoNonTerminalActiveEvent(ctx, existing, "update"); err != nil {
+		return nil, err
+	}
 	return s.store.UpdateAutomationRule(ctx, rule)
 }
 
@@ -126,6 +133,15 @@ func (s *AutomationService) SetEnabled(ctx context.Context, orgID, ruleID int64,
 	if ruleID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("rule_id must be set")
 	}
+	if !enabled {
+		rule, err := s.store.GetAutomationRule(ctx, orgID, ruleID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.ensureNoNonTerminalActiveEvent(ctx, rule, "disable"); err != nil {
+			return nil, err
+		}
+	}
 	return s.store.SetAutomationRuleEnabled(ctx, orgID, ruleID, enabled)
 }
 
@@ -138,6 +154,13 @@ func (s *AutomationService) Delete(ctx context.Context, orgID, ruleID int64) err
 	}
 	if ruleID <= 0 {
 		return fleeterror.NewInvalidArgumentError("rule_id must be set")
+	}
+	rule, err := s.store.GetAutomationRule(ctx, orgID, ruleID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureNoNonTerminalActiveEvent(ctx, rule, "delete"); err != nil {
+		return err
 	}
 	return s.store.DeleteAutomationRule(ctx, orgID, ruleID)
 }
@@ -253,6 +276,28 @@ func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.Autom
 		EventUUID: event.EventUUID,
 	})
 	return err
+}
+
+func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, rule *models.AutomationRule, action string) error {
+	if rule == nil || rule.ActiveEventUUID == nil {
+		return nil
+	}
+	event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, s.clock())
+		}
+		return err
+	}
+	if event == nil || event.State.IsTerminal() {
+		return s.store.ClearAutomationActiveEvent(ctx, rule.ID, s.clock())
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"cannot %s curtailment automation rule while automation event %s is %s; restore or complete the event first",
+		action,
+		event.EventUUID,
+		event.State,
+	)
 }
 
 func (s *AutomationService) validateAndNormalize(ctx context.Context, rule models.AutomationRule) (models.AutomationRule, error) {
