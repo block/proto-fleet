@@ -264,7 +264,10 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 			"request_body", redactSecrets(reqJSON),
 			"response_body", redactSecrets(respBody),
 		)
-		msg := strings.TrimSpace(string(respBody))
+		// The message rides back to the browser via err.Error(), and a
+		// Grafana/proxy error can echo the request body — which on
+		// update paths carries stored secrets. Redact before returning.
+		msg := strings.TrimSpace(redactSecrets(respBody))
 		if msg == "" {
 			msg = http.StatusText(resp.StatusCode)
 		}

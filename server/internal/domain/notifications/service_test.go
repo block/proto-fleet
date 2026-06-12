@@ -252,6 +252,68 @@ func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 	assert.Equal(t, "https://hooks.example.com/new", sent.Settings["url"])
 }
 
+func TestRedactWebhookURL(t *testing.T) {
+	cases := map[string]string{
+		"https://hooks.slack.com/services/T00/B00/XXXSECRETXXX": "https://hooks.slack.com",
+		"https://events.pagerduty.com/x?token=abc":              "https://events.pagerduty.com",
+		"http://relay.example.com:8443/path":                    "http://relay.example.com:8443",
+		"https://user:pass@relay.example.com/h":                 "https://relay.example.com",
+		"":                                                      "",
+		"not a url":                                             "",
+		"://bad":                                                "",
+	}
+	for in, want := range cases {
+		assert.Equalf(t, want, redactWebhookURL(in), "redactWebhookURL(%q)", in)
+	}
+}
+
+// Reads expose webhook URLs host-only — the path/query where tokens
+// live must never reach a notification:read holder.
+func TestListChannelsRedactsWebhookURL(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:      "cp-1",
+		Name:     "org-7-pager",
+		Type:     "webhook",
+		Settings: json.RawMessage(`{"url": "https://hooks.slack.com/services/T1/B2/SECRET"}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
+
+	channels, err := svc.ListChannels(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	assert.Equal(t, "https://hooks.slack.com", channels[0].Webhook.URL)
+}
+
+// A rename echoes back the host-only URL the read returned; the stored
+// full URL must be carried through rather than truncated.
+func TestUpdateChannelPreservesWebhookURLOnRename(t *testing.T) {
+	const fullURL = "https://hooks.slack.com/services/T1/B2/SECRET"
+	existing := []GrafanaContactPoint{{
+		UID:      "cp-1",
+		Name:     "org-7-pager",
+		Type:     "webhook",
+		Settings: json.RawMessage(`{"url": "` + fullURL + `", "authorization_credentials": "[REDACTED]"}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
+
+	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID:   "cp-1",
+		Name: "renamed-pager",
+		Kind: ChannelKindWebhook,
+		// UI echoes back the redacted host-only URL on a rename.
+		Webhook: &WebhookConfig{URL: "https://hooks.slack.com"},
+	})
+	require.NoError(t, err)
+
+	var sent struct {
+		Settings map[string]any `json:"settings"`
+	}
+	require.NoError(t, json.Unmarshal(putBody, &sent))
+	assert.Equal(t, fullURL, sent.Settings["url"], "rename must keep the stored full URL, not the redacted host")
+}
+
 func TestUpdateChannelPreservesSMTPSecret(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:  "cp-2",

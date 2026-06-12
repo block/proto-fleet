@@ -97,6 +97,16 @@ func (h *Handler) Routes() map[string]http.Handler {
 	}
 }
 
+// Wire-contract limits. These mirror the buf.validate constraints on
+// notifications.proto — the hand-written routes don't run the Connect
+// validateInterceptor, so the same bounds are enforced here until the
+// generated handlers take over.
+const (
+	maxRequestBodyBytes  = 1 << 20 // 1 MiB
+	maxChannelNameLen    = 255
+	maxSilenceCommentLen = 1024
+)
+
 // === Channel handlers ===================================================
 
 func (h *Handler) listChannels(ctx context.Context, _ json.RawMessage) (any, error) {
@@ -529,6 +539,9 @@ func wireToChannel(req channelMutationWire) (notifications.Channel, error) {
 	default:
 		return notifications.Channel{}, fleeterror.NewInvalidArgumentError("unknown channel kind: " + req.Kind)
 	}
+	if len(req.Name) > maxChannelNameLen {
+		return notifications.Channel{}, fleeterror.NewInvalidArgumentErrorf("name must be at most %d characters", maxChannelNameLen)
+	}
 	dom := notifications.Channel{
 		ID:   req.ID,
 		Name: req.Name,
@@ -640,6 +653,9 @@ func wireToSilence(req silenceMutationWire, id string) (notifications.Silence, e
 			return notifications.Silence{}, fleeterror.NewInvalidArgumentError("invalid ends_at: " + err.Error())
 		}
 	}
+	if len(req.Comment) > maxSilenceCommentLen {
+		return notifications.Silence{}, fleeterror.NewInvalidArgumentErrorf("comment must be at most %d characters", maxSilenceCommentLen)
+	}
 	kind := notifications.SilenceScopeKind(strings.ToLower(req.Scope.Kind))
 	switch kind {
 	case notifications.SilenceScopeRule, notifications.SilenceScopeGroup,
@@ -690,6 +706,10 @@ func (h *Handler) authed(permission string, fn jsonRPC) http.Handler {
 		}
 		var body json.RawMessage
 		if r.Body != nil && r.ContentLength != 0 {
+			// Cap the body — these routes decode into json.RawMessage
+			// without the Connect server's built-in read limit, so an
+			// oversized payload would otherwise buffer unbounded.
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				writeJSONError(w, http.StatusBadRequest, "invalid_argument", "invalid JSON body: "+err.Error())
 				return

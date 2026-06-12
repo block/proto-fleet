@@ -165,13 +165,27 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if c.ID == "" {
 		return nil, errors.New("channel id is required for update")
 	}
-	if err := s.validateDestination(ctx, &c); err != nil {
-		return nil, err
-	}
 	// Verify ownership before issuing the PUT — Grafana doesn't
-	// enforce our prefix scheme.
+	// enforce our prefix scheme. Fetched before validation so we can
+	// resolve the carried-over webhook URL (see below) and validate
+	// the URL we will actually write.
 	owned, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
 	if err != nil {
+		return nil, err
+	}
+	// Webhook URLs are returned host-only on reads (they embed
+	// capability tokens), so an ordinary edit echoes back the redacted
+	// host rather than the full URL. Treat an empty or still-redacted
+	// URL as "unchanged" and carry the stored full URL through, the
+	// same way secrets are preserved. A manage user replacing the
+	// destination submits a fresh full URL, which overrides this.
+	if c.Kind == ChannelKindWebhook && c.Webhook != nil {
+		stored := webhookURLFromSettings(ownedCP.Settings)
+		if c.Webhook.URL == "" || c.Webhook.URL == redactWebhookURL(stored) {
+			c.Webhook.URL = stored
+		}
+	}
+	if err := s.validateDestination(ctx, &c); err != nil {
 		return nil, err
 	}
 	c.OrganizationID = orgID
@@ -737,6 +751,9 @@ func validateSilenceScope(scope SilenceScope) error {
 		if len(scope.DeviceIDs) == 0 {
 			return fleeterror.NewInvalidArgumentError("device_ids is required for a device-scoped silence")
 		}
+		if len(scope.DeviceIDs) > maxSilenceDeviceIDs {
+			return fleeterror.NewInvalidArgumentErrorf("too many device_ids: %d (max %d)", len(scope.DeviceIDs), maxSilenceDeviceIDs)
+		}
 		// Device ids are compiled into an Alertmanager regex matcher.
 		// Restrict them to the identifier alphabet (UUIDs, MACs,
 		// serials) so a crafted id like ".*" can't broaden a
@@ -751,6 +768,11 @@ func validateSilenceScope(scope SilenceScope) error {
 	}
 	return nil
 }
+
+// maxSilenceDeviceIDs caps the device list on a device-scoped silence
+// so a single request can't compile to an unbounded regex matcher or
+// an oversized Grafana write.
+const maxSilenceDeviceIDs = 500
 
 // deviceIDPattern is the identifier alphabet accepted in device-scoped
 // silences: covers UUIDs, MAC addresses, and serial-style ids while
@@ -923,6 +945,39 @@ func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
 	return nil, fmt.Errorf("unsupported channel kind %q", c.Kind)
 }
 
+// redactWebhookURL reduces a webhook URL to scheme://host[:port],
+// dropping the userinfo, path, query, and fragment where capability
+// tokens (Slack/PagerDuty/Teams) live. Returns "" for an empty or
+// unparseable URL. This is the value reads expose; the full URL is
+// kept only in Grafana's stored settings.
+func redactWebhookURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// webhookURLFromSettings pulls the full (unredacted) webhook URL out of
+// a stored Grafana contact-point settings blob. Used by UpdateChannel
+// to carry the stored URL through an edit that didn't replace it.
+func webhookURLFromSettings(raw json.RawMessage) string {
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return ""
+	}
+	v, ok := settings["url"]
+	if !ok {
+		return ""
+	}
+	var url string
+	_ = json.Unmarshal(v, &url)
+	return url
+}
+
 // contactPointToChannel reverses encodeChannelSettings on reads. The
 // secret value is never returned — only the boolean indicating one
 // exists.
@@ -943,7 +998,10 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 		if raw, ok := settings["url"]; ok {
 			_ = json.Unmarshal(raw, &url)
 		}
-		out.Webhook = &WebhookConfig{URL: url}
+		// URLs go out host-only — webhook URLs embed capability tokens
+		// in the path/query, and these reads are reachable by
+		// notification:read holders who can't otherwise see secrets.
+		out.Webhook = &WebhookConfig{URL: redactWebhookURL(url)}
 		if raw, ok := settings["authorization_credentials"]; ok && len(raw) > 0 && string(raw) != `""` {
 			out.HasSecret = true
 		}
