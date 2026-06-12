@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
-import type { CurtailmentSource } from "./types";
+import type { CurtailmentSource, ResponseProfile } from "./types";
 
+import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 const formatStorySignalUpdate = (isoString: string): string =>
@@ -71,21 +72,100 @@ const storySources: CurtailmentSource[] = [
   },
 ];
 
+const storyResponseProfiles: ResponseProfile[] = [
+  {
+    id: "standard-shed",
+    name: "Standard shed",
+    targetSummary: "50% reduction",
+    siteId: "101",
+    scope: "All sites",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 15 min",
+  },
+  {
+    id: "emergency-shed",
+    name: "Emergency shed",
+    targetSummary: "100% reduction",
+    siteId: "",
+    scope: "Whole fleet",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore immediately",
+    deadlineSummary: "Within 15 min",
+    formValues: {
+      name: "Emergency shed",
+      actionType: "fullFleet",
+      targetKw: "",
+      deviceIdentifiers: [],
+      siteId: "",
+      siteName: "",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticImmediateRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "50",
+      curtailBatchIntervalSec: "30",
+      restoreBatchSize: "10000",
+      restoreIntervalSec: "0",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+  {
+    id: "partial-reduction",
+    name: "Partial reduction",
+    targetSummary: "2,000 kW target",
+    siteId: "101",
+    scope: "Austin, TX",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 15 min",
+    formValues: {
+      name: "Partial reduction",
+      actionType: "fixedKwReduction",
+      targetKw: "2000",
+      deviceIdentifiers: [],
+      siteId: "101",
+      siteName: "Austin, TX",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticBatchRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "50",
+      curtailBatchIntervalSec: "30",
+      restoreBatchSize: "",
+      restoreIntervalSec: "",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+];
+
 const meta = {
   title: "Proto Fleet/Settings/Curtailment",
   component: CurtailmentSettingsContent,
   render: (args) => {
     const sourcesKey = args.initialSources?.map((source) => source.id).join(":") ?? "empty";
+    const responseProfilesKey = args.initialResponseProfiles?.map((profile) => profile.id).join(":") ?? "empty";
 
     return (
       <div className="min-h-screen bg-surface-base p-10 phone:p-6">
-        <CurtailmentSettingsContent key={`${sourcesKey}-${String(args.initialSourceModalOpen)}`} {...args} />
+        <CurtailmentSettingsContent
+          key={[
+            responseProfilesKey,
+            sourcesKey,
+            String(args.initialResponseProfileModalOpen),
+            String(args.initialSourceModalOpen),
+          ].join("-")}
+          {...args}
+        />
       </div>
     );
   },
   parameters: {
     layout: "fullscreen",
   },
+  decorators: [withMockedMinerSelectionApis],
   tags: ["autodocs"],
 } satisfies Meta<typeof CurtailmentSettingsContent>;
 
@@ -95,6 +175,7 @@ type Story = StoryObj<typeof meta>;
 
 export const SettingsPage: Story = {
   args: {
+    initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
   },
 };
@@ -103,7 +184,17 @@ export const EmptyState: Story = {};
 
 export const AddSourceDialog: Story = {
   args: {
+    initialResponseProfiles: storyResponseProfiles,
     initialSources: storySources,
     initialSourceModalOpen: true,
+  },
+};
+
+export const AddResponseProfileDialog: Story = {
+  args: {
+    initialResponseProfiles: storyResponseProfiles,
+    initialSources: storySources,
+    initialResponseProfileModalOpen: true,
+    onTestResponseProfileCurtailment: async () => undefined,
   },
 };

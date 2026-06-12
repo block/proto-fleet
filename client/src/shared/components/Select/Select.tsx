@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { ChevronDown } from "@/shared/assets/icons";
@@ -26,6 +26,7 @@ interface SelectProps {
   testId?: string;
   className?: string;
   showSelectedIndicator?: boolean;
+  suffixAction?: ReactNode;
   // Default behavior flips the popover above the trigger when more space is
   // available there. Set forceBelow when the caller knows the dropdown must
   // open downward (e.g. inside a modal whose footer would otherwise hide it).
@@ -43,6 +44,7 @@ const SelectContent = ({
   testId,
   className,
   showSelectedIndicator = true,
+  suffixAction,
   forceBelow,
 }: SelectProps) => {
   const [open, setOpen] = useState(false);
@@ -159,9 +161,13 @@ const SelectContent = ({
           </div>
           <ChevronDown
             width="w-3"
-            className={clsx("shrink-0 text-text-primary-70 transition-transform", { "rotate-180": open })}
+            className={clsx("shrink-0 text-text-primary-70 transition-transform", {
+              "mr-8": suffixAction,
+              "rotate-180": open,
+            })}
           />
         </button>
+        {suffixAction ? <div className="absolute top-1/2 right-4 z-10 -translate-y-1/2">{suffixAction}</div> : null}
       </div>
       {open ? (
         <Popover

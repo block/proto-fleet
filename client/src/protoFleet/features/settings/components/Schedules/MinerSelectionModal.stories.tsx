@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { action } from "storybook/actions";
+
 import MinerSelectionModal from "./MinerSelectionModal";
+
+import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 
 export default {
   title: "Proto Fleet/Settings/Schedules/MinerSelectionModal",
   component: MinerSelectionModal,
+  decorators: [withMockedMinerSelectionApis],
 };
 
 export const Default = () => {

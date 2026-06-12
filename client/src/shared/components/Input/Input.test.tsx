@@ -73,6 +73,30 @@ describe("Input", () => {
     expect(passwordInput).not.toHaveClass("pr-20");
     expect(screen.queryByRole("button", { name: "Show password" })).not.toBeInTheDocument();
   });
+
+  test("reserves space for tooltip, trailing icon, and suffix action together", () => {
+    render(
+      <Input
+        id="secret"
+        label="Secret"
+        type="password"
+        tooltip={{ body: "Use the saved password placeholder." }}
+        suffixAction={
+          <button type="button" aria-label="Suffix action">
+            ?
+          </button>
+        }
+      />,
+    );
+
+    const inputElement = screen.getByLabelText("Secret");
+    const suffixAction = screen.getByRole("button", { name: "Suffix action" });
+    const suffixActionWrapper = suffixAction.parentElement as HTMLElement;
+
+    expect(inputElement).toHaveClass("pr-28");
+    expect(inputElement).not.toHaveClass("pr-20");
+    expect(suffixActionWrapper).toHaveClass("right-20");
+  });
 });
 
 describe("Input ARIA attributes", () => {

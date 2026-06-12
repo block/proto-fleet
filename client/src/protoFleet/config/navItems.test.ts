@@ -18,11 +18,17 @@ describe("primaryNavItems", () => {
 });
 
 describe("secondaryNavItems", () => {
-  it("keeps the curtailment settings page out of navigation", () => {
-    expect(secondaryNavItems).not.toContainEqual(
+  it("shows Curtailment above API Keys in settings navigation", () => {
+    const labels = secondaryNavItems.map((item) => item.label);
+
+    expect(secondaryNavItems).toContainEqual(
       expect.objectContaining({
         path: "/settings/curtailment",
+        label: "Curtailment",
+        parent: "/settings",
+        requiredPermission: "curtailment:manage",
       }),
     );
+    expect(labels.indexOf("Curtailment")).toBe(labels.indexOf("API Keys") - 1);
   });
 });

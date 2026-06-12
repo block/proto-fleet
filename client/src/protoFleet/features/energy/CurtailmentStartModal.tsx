@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
@@ -15,20 +15,24 @@ import {
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
+import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
+import { positions } from "@/shared/constants";
 
 export type CurtailmentPriority = "normal" | "emergency";
 export type CurtailmentScopeType = "wholeOrg" | "site" | "deviceSet" | "explicitMiners";
-export type ResponseProfileId = "customPlan";
+export type ResponseProfileId = string;
 export type CurtailmentMode = "fixedKwReduction" | "fullFleet";
 export type MinerSelectionStrategy = "leastEfficientFirst";
 export type CurtailmentStartModalMode = "create" | "edit";
+export type CurtailmentStartModalVariant = "curtailment" | "responseProfile";
+export type ResponseProfileModalMode = "create" | "edit";
 
 export interface CurtailmentFormValues {
   scopeType: CurtailmentScopeType;
@@ -44,6 +48,8 @@ export interface CurtailmentFormValues {
   priority: CurtailmentPriority;
   minDurationSec: string;
   maxDurationSec: string;
+  curtailBatchSize: string;
+  curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
   reason: string;
@@ -51,6 +57,12 @@ export interface CurtailmentFormValues {
 }
 
 export type CurtailmentSubmitValues = CurtailmentFormValues;
+
+export interface CurtailmentResponseProfileOption {
+  id: ResponseProfileId;
+  label: string;
+  values: Partial<Omit<CurtailmentFormValues, "responseProfileId">>;
+}
 
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
@@ -63,6 +75,11 @@ export interface CurtailmentPlanPreview {
 
 export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, string>>;
 
+type PendingCurtailmentConfirmation = {
+  action: "run" | "test";
+  values: CurtailmentSubmitValues;
+};
+
 interface CurtailmentStartModalProps {
   open: boolean;
   onDismiss: () => void;
@@ -72,12 +89,20 @@ interface CurtailmentStartModalProps {
    * parent owns confirmation and the stop-curtailment RPC.
    */
   onStopCurtailment?: () => void;
+  onTestCurtailment?: (values: CurtailmentSubmitValues) => void;
+  onDeleteResponseProfile?: () => void;
   mode?: CurtailmentStartModalMode;
+  variant?: CurtailmentStartModalVariant;
+  responseProfileMode?: ResponseProfileModalMode;
   initialValues?: Partial<CurtailmentFormValues>;
+  responseProfiles?: CurtailmentResponseProfileOption[];
   errors?: CurtailmentFormErrors;
   preview?: CurtailmentPlanPreview;
   previewError?: string;
+  actionError?: string | null;
   isSubmitting?: boolean;
+  isTestingCurtailment?: boolean;
+  isDeleting?: boolean;
 }
 
 interface SectionProps {
@@ -110,15 +135,25 @@ interface ApplyToTarget {
 }
 
 type ParsedNumberField = { parsed?: number; error?: string };
-type EditableCurtailmentField = "reason" | "maxDurationSec" | "restoreIntervalSec";
+type EditableCurtailmentField = "reason" | "restoreIntervalSec";
 
+export const customResponseProfileId = "customPlan";
+const responseProfileDescription = "Saved configurations that define how much power to shed and how to restore it.";
+const fieldHelp = {
+  curtailmentMode: "How power reduction is measured: fixed kW target or full shutdown.",
+  fixedTargetReduction: "The amount to reduce based on the selected mode.",
+  curtailBatchSize: "Number of miners to shut down in each wave.",
+  curtailBatchInterval: "Seconds to wait between each curtailment wave.",
+  restoreBatchSize: "Number of miners to bring back online in each wave.",
+  restoreBatchInterval: "Seconds to wait between each restore wave.",
+} as const;
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
   siteId: "",
   deviceSetIds: [],
   deviceIdentifiers: [],
-  responseProfileId: "customPlan",
+  responseProfileId: customResponseProfileId,
   curtailmentMode: "fixedKwReduction",
   minerSelectionStrategy: "leastEfficientFirst",
   targetKw: "",
@@ -126,12 +161,14 @@ const defaultValues: CurtailmentFormValues = {
   priority: "normal",
   minDurationSec: "",
   maxDurationSec: "",
+  curtailBatchSize: "",
+  curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
   reason: "",
   includeMaintenance: true,
 };
-const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "maxDurationSec", "restoreIntervalSec"];
+const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "restoreIntervalSec"];
 const curtailmentModeOptions = [
   { value: "fixedKwReduction", label: "Fixed kW reduction" },
   { value: "fullFleet", label: "Full shutdown" },
@@ -187,13 +224,6 @@ function hasEditableCurtailmentChanges(values: CurtailmentFormValues, initialVal
       return values.reason.trim() !== initialValues.reason.trim();
     }
 
-    if (field === "maxDurationSec") {
-      return (
-        parseComparableUint32Field(values.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec) !==
-        parseComparableUint32Field(initialValues.maxDurationSec, curtailmentNumericFieldLimits.maxDurationSec)
-      );
-    }
-
     return (
       parseComparableUint32Field(values.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec) !==
       parseComparableUint32Field(initialValues.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec)
@@ -205,41 +235,39 @@ function validateCurtailmentFormValues(
   values: CurtailmentFormValues,
   mode: CurtailmentStartModalMode = "create",
   initialValues: CurtailmentFormValues = defaultValues,
+  variant: CurtailmentStartModalVariant = "curtailment",
 ): CurtailmentFormErrors {
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
-  const maxDuration = parseOptionalUint32Field(values.maxDurationSec, {
-    label: "max duration",
-    max: curtailmentNumericFieldLimits.maxDurationSec,
-  });
-  const minDuration = parseOptionalUint32Field(isEditMode ? initialValues.minDurationSec : values.minDurationSec, {
-    label: "min duration",
-    max: curtailmentNumericFieldLimits.minDurationSec,
-  });
+  const isResponseProfileVariant = variant === "responseProfile";
+  const shouldValidateCurtailBatchFields = isResponseProfileVariant;
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
   });
+  const curtailBatchSize = parseOptionalUint32Field(values.curtailBatchSize, {
+    label: "batch size",
+    max: curtailmentNumericFieldLimits.curtailBatchSize,
+  });
+  const curtailBatchInterval = parseOptionalUint32Field(values.curtailBatchIntervalSec, {
+    label: "batch interval",
+    max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
+  });
 
   if (values.reason.trim() === "") {
-    localErrors.reason = "Enter a reason.";
-  }
-  if (maxDuration.error) {
-    localErrors.maxDurationSec = maxDuration.error;
-  }
-  if (isEditMode && maxDuration.error === undefined && maxDuration.parsed === 0) {
-    localErrors.maxDurationSec = "Enter max duration greater than 0.";
-  }
-  if (
-    isEditMode &&
-    maxDuration.error === undefined &&
-    values.maxDurationSec.trim() === "" &&
-    initialValues.maxDurationSec.trim() !== ""
-  ) {
-    localErrors.maxDurationSec = "Max duration cannot be cleared.";
+    localErrors.reason = variant === "responseProfile" ? "Enter a profile name." : "Enter a reason.";
   }
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
+  }
+  if (shouldValidateCurtailBatchFields && curtailBatchSize.error) {
+    localErrors.curtailBatchSize = curtailBatchSize.error;
+  }
+  if (shouldValidateCurtailBatchFields && curtailBatchSize.error === undefined && curtailBatchSize.parsed === 0) {
+    localErrors.curtailBatchSize = "Enter batch size greater than 0.";
+  }
+  if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
+    localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
   }
   if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
     localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
@@ -252,16 +280,6 @@ function validateCurtailmentFormValues(
   ) {
     localErrors.restoreIntervalSec = "Restore interval cannot be cleared.";
   }
-  if (
-    minDuration.error === undefined &&
-    maxDuration.error === undefined &&
-    minDuration.parsed !== undefined &&
-    maxDuration.parsed !== undefined &&
-    minDuration.parsed > maxDuration.parsed
-  ) {
-    localErrors.maxDurationSec = "Max duration must be greater than or equal to min duration.";
-  }
-
   if (isEditMode) {
     return localErrors;
   }
@@ -288,10 +306,9 @@ function validateCurtailmentFormValues(
   if (restoreBatchSize.error) {
     localErrors.restoreBatchSize = restoreBatchSize.error;
   }
-  if (minDuration.error) {
-    localErrors.minDurationSec = minDuration.error;
+  if (isResponseProfileVariant && restoreBatchSize.error === undefined && restoreBatchSize.parsed === 0) {
+    localErrors.restoreBatchSize = "Enter batch size greater than 0.";
   }
-
   return localErrors;
 }
 
@@ -304,6 +321,62 @@ function Section({ title, subtext, children }: SectionProps): ReactElement {
       </div>
       {children}
     </section>
+  );
+}
+
+interface FieldInfoToggleProps {
+  ariaLabel: string;
+  body: string;
+  testId: string;
+  popoverTestId: string;
+}
+
+function FieldInfoToggleContent({ ariaLabel, body, testId, popoverTestId }: FieldInfoToggleProps): ReactElement {
+  const [isOpen, setIsOpen] = useState(false);
+  const { triggerRef, setPopoverRenderMode } = usePopover();
+
+  useEffect(() => {
+    setPopoverRenderMode("portal-scrolling");
+  }, [setPopoverRenderMode]);
+
+  return (
+    <div ref={triggerRef} className="relative">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        data-testid={testId}
+        className="flex h-6 w-6 items-center justify-center rounded-full text-text-primary-50 transition-colors hover:text-text-primary-70 focus-visible:ring-2 focus-visible:ring-core-primary-20 focus-visible:outline-hidden"
+        onClick={(event) => {
+          event.stopPropagation();
+          setIsOpen((current) => !current);
+        }}
+      >
+        <Question className="h-4 w-4" />
+      </button>
+      {isOpen ? (
+        <Popover
+          position={positions["bottom right"]}
+          size={popoverSizes.normal}
+          offset={8}
+          className="!space-y-0 !rounded-2xl !bg-surface-elevated-base !p-6 !shadow-300 !backdrop-blur-none"
+          closePopover={() => setIsOpen(false)}
+          closeIgnoreSelectors={[`[data-testid='${testId}']`]}
+          testId={popoverTestId}
+        >
+          <p className="text-300 leading-6 text-text-primary-70">{body}</p>
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+function FieldInfoToggle(props: FieldInfoToggleProps): ReactElement {
+  return (
+    <PopoverProvider>
+      <FieldInfoToggleContent {...props} />
+    </PopoverProvider>
   );
 }
 
@@ -392,6 +465,55 @@ function formatCountLabel(count: number, singular: string): string {
   return getTargetButtonLabel(count, singular);
 }
 
+function formatScopeLabelForSentence(scopeLabel: string): string {
+  return scopeLabel === "All sites" ? "all sites" : scopeLabel;
+}
+
+function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, selectedMinerCount?: number): string {
+  if (values.scopeType === "explicitMiners") {
+    return formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase();
+  }
+
+  if (values.scopeType === "deviceSet") {
+    return `miners in ${formatCountLabel(values.deviceSetIds.length, "device set").toLowerCase()}`;
+  }
+
+  if (values.scopeType === "site") {
+    return `miners in ${values.scopeId ? formatScopeLabelForSentence(values.scopeId) : "the selected site"}`;
+  }
+
+  if (values.curtailmentMode === "fullFleet") {
+    return "the whole fleet";
+  }
+
+  if (selectedMinerCount !== undefined && selectedMinerCount > 0) {
+    return formatCountLabel(selectedMinerCount, "miner").toLowerCase();
+  }
+
+  return "miners across the fleet";
+}
+
+function getCurtailmentConfirmationCopy(
+  pendingConfirmation: PendingCurtailmentConfirmation | null,
+  selectedMinerCount?: number,
+) {
+  if (!pendingConfirmation) {
+    return null;
+  }
+
+  const target = formatCurtailmentConfirmationTarget(pendingConfirmation.values, selectedMinerCount);
+  const body =
+    pendingConfirmation.action === "test"
+      ? `This will save the profile, then trigger curtailment for ${target}. Schedules stay suppressed until miners are restored.`
+      : `This will curtail ${target} immediately. Schedules stay suppressed until miners are restored.`;
+
+  return {
+    title: "Run curtailment?",
+    body,
+    confirmText: "Run curtailment",
+  };
+}
+
 function getApplyToTarget(
   values: CurtailmentFormValues,
   isEditMode: boolean,
@@ -460,29 +582,65 @@ function CurtailmentStartModalContent({
   onDismiss,
   onSubmit,
   onStopCurtailment,
+  onTestCurtailment,
+  onDeleteResponseProfile,
   mode = "create",
+  variant = "curtailment",
+  responseProfileMode = "create",
   initialValues,
+  responseProfiles = [],
   errors,
   preview,
   previewError,
+  actionError,
   isSubmitting = false,
+  isTestingCurtailment = false,
+  isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
   const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
-  const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
+  const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState<
+    PendingCurtailmentConfirmation["action"] | null
+  >(null);
+  const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
+    useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
+  const isEditMode = mode === "edit";
+  const isResponseProfileVariant = variant === "responseProfile";
+  const isResponseProfileEditMode = isResponseProfileVariant && responseProfileMode === "edit";
+  const isLiveCurtailmentEditMode = isEditMode && !isResponseProfileVariant;
+  const shouldResetResponseProfileOnEdit = !isResponseProfileVariant && !isEditMode;
+  const resetResponseProfileSelection = (nextValues: CurtailmentFormValues): CurtailmentFormValues => {
+    if (!shouldResetResponseProfileOnEdit || nextValues.responseProfileId === customResponseProfileId) {
+      return nextValues;
+    }
+
+    return { ...nextValues, responseProfileId: customResponseProfileId };
+  };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
     setEditedFields((current) => (current.has(key) ? current : new Set(current).add(key)));
-    setValues((current) => ({ ...current, [key]: value }));
+    setValues((current) => {
+      const nextValues = { ...current, [key]: value };
+
+      return key === "reason" ? nextValues : resetResponseProfileSelection(nextValues);
+    });
   };
-  const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
-  const isEditMode = mode === "edit";
+  const updateValues = (
+    updater: (current: CurtailmentFormValues) => CurtailmentFormValues,
+    options: { resetResponseProfileSelection?: boolean } = {},
+  ) =>
+    setValues((current) => {
+      const nextValues = updater(current);
+      return options.resetResponseProfileSelection ? resetResponseProfileSelection(nextValues) : nextValues;
+    });
+  const validationMode: CurtailmentStartModalMode = isLiveCurtailmentEditMode ? "edit" : "create";
+  const isBusy = isSubmitting || isTestingCurtailment || isDeleting;
   const localErrors = useMemo(
-    () => validateCurtailmentFormValues(values, mode, initialFormValues),
-    [initialFormValues, mode, values],
+    () => validateCurtailmentFormValues(values, validationMode, initialFormValues, variant),
+    [initialFormValues, validationMode, values, variant],
   );
   const visibleLocalErrors = useMemo(() => {
     const visibleErrors: CurtailmentFormErrors = {};
@@ -511,33 +669,43 @@ function CurtailmentStartModalContent({
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values,
-    disabled: isEditMode || controlledPreview !== undefined,
+    disabled: isLiveCurtailmentEditMode || controlledPreview !== undefined,
   });
   const previewState = getPreviewState({
     apiPreview,
     controlledPreview,
-    isEditMode,
+    isEditMode: isLiveCurtailmentEditMode,
     unsupportedDeviceSetPreviewError,
   });
 
-  const hasBlockingValidationError =
-    previewState.previewError !== undefined ||
-    previewState.isPreviewLoading ||
-    Object.keys(localErrors).length > 0 ||
-    Object.keys(errors ?? {}).length > 0;
-  const hasEditableChanges = !isEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
-  const isSubmitDisabled = hasBlockingValidationError || !hasEditableChanges;
+  const hasBlockingFormError = Object.keys(localErrors).length > 0 || Object.keys(errors ?? {}).length > 0;
+  const hasBlockingPreviewState =
+    previewState.previewError !== undefined || (!isResponseProfileVariant && previewState.isPreviewLoading);
+  const hasBlockingValidationError = hasBlockingPreviewState || hasBlockingFormError;
+  const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
+  const isSubmitDisabled = isBusy || hasBlockingValidationError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
-  const applyToTarget = getApplyToTarget(values, isEditMode, previewState.preview?.selectedMinerCount);
+  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode, previewState.preview?.selectedMinerCount);
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
-  const curtailmentBehaviorSubtext = isEditMode
+  const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
     : "Fleet will automatically curtail the least efficient miners first.";
   const curtailmentTargetGridClassName = isFullFleetMode ? "grid gap-3" : "grid gap-3 tablet:grid-cols-2";
+  const shouldShowCurtailBatchFields = isResponseProfileVariant;
+  const curtailBatchSizeTestId = isResponseProfileVariant
+    ? "response-profile-curtail-batch-size"
+    : "curtailment-curtail-batch-size";
+  const curtailBatchIntervalTestId = isResponseProfileVariant
+    ? "response-profile-curtail-batch-interval"
+    : "curtailment-curtail-batch-interval";
   const shouldShowPreviewPane =
-    !isEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
+    !isLiveCurtailmentEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
   const previewPane = shouldShowPreviewPane ? <PreviewPane {...previewState} /> : null;
-  const useSinglePaneLayout = isEditMode && previewPane === null;
+  const curtailmentConfirmationCopy = getCurtailmentConfirmationCopy(
+    pendingCurtailmentConfirmation,
+    previewState.preview?.selectedMinerCount,
+  );
+  const useSinglePaneLayout = isLiveCurtailmentEditMode && previewPane === null;
   const paneContainerClassName = useSinglePaneLayout
     ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
     : undefined;
@@ -545,22 +713,102 @@ function CurtailmentStartModalContent({
   const secondaryPaneClassName = useSinglePaneLayout
     ? "!hidden"
     : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
+  const nameFieldId = isResponseProfileVariant ? "response-profile-name" : "curtailment-reason";
+  const nameFieldLabel = isResponseProfileVariant ? "Profile name" : "Reason";
+  const modalTitle = isResponseProfileVariant
+    ? isResponseProfileEditMode
+      ? "Edit response profile"
+      : "Create response profile"
+    : isEditMode
+      ? "Manage curtailment"
+      : "New curtailment";
+  const closeAriaLabel = isResponseProfileVariant
+    ? isResponseProfileEditMode
+      ? "Close response profile editor"
+      : "Close response profile creator"
+    : isEditMode
+      ? "Close curtailment editor"
+      : "Close curtailment planner";
+  const primaryButtonText = isResponseProfileVariant ? "Save profile" : isEditMode ? "Save" : "Run curtailment";
+  const shouldShowResponseProfileSelector = !isResponseProfileVariant && !isEditMode;
+  const responseProfileSelectOptions = useMemo(
+    () => [
+      { value: customResponseProfileId, label: "Custom plan" },
+      ...responseProfiles.map((profile) => ({ value: profile.id, label: profile.label })),
+    ],
+    [responseProfiles],
+  );
+  const selectedResponseProfileValue = responseProfileSelectOptions.some(
+    (option) => option.value === values.responseProfileId,
+  )
+    ? values.responseProfileId
+    : customResponseProfileId;
+
+  const handleResponseProfileChange = (responseProfileId: string) => {
+    if (responseProfileId === customResponseProfileId) {
+      setValues((current) => ({ ...current, responseProfileId: customResponseProfileId }));
+      return;
+    }
+
+    const responseProfile = responseProfiles.find((profile) => profile.id === responseProfileId);
+    if (!responseProfile) {
+      return;
+    }
+
+    setEditedFields(new Set());
+    setMaintenanceInclusionConfirmed(false);
+    setValues((current) => ({
+      ...current,
+      ...responseProfile.values,
+      responseProfileId: responseProfile.id,
+    }));
+  };
 
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
     const hasSelectedMiners = deviceIdentifiers.length > 0;
 
-    updateValues((current) => ({
-      ...current,
-      scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
-      scopeId: hasSelectedMiners ? undefined : "whole-org",
-      deviceSetIds: [],
-      deviceIdentifiers,
-    }));
+    updateValues(
+      (current) => ({
+        ...current,
+        scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
+        scopeId: hasSelectedMiners ? undefined : "whole-org",
+        deviceSetIds: [],
+        deviceIdentifiers,
+      }),
+      { resetResponseProfileSelection: true },
+    );
   };
 
   const closeMaintenanceConfirmation = () => {
-    setSubmitAfterMaintenanceConfirmation(false);
+    setSubmitAfterMaintenanceConfirmation(null);
     setShowMaintenanceConfirmation(false);
+  };
+
+  const closeCurtailmentConfirmation = () => {
+    setPendingCurtailmentConfirmation(null);
+  };
+
+  const requestCurtailmentConfirmation = (
+    action: PendingCurtailmentConfirmation["action"],
+    confirmationValues: CurtailmentSubmitValues,
+  ) => {
+    setPendingCurtailmentConfirmation({ action, values: confirmationValues });
+  };
+
+  const confirmCurtailmentAction = () => {
+    if (!pendingCurtailmentConfirmation) {
+      return;
+    }
+
+    const { action, values: confirmedValues } = pendingCurtailmentConfirmation;
+    setPendingCurtailmentConfirmation(null);
+
+    if (action === "test") {
+      onTestCurtailment?.(confirmedValues);
+      return;
+    }
+
+    onSubmit(confirmedValues);
   };
 
   const handleSubmit = () => {
@@ -568,28 +816,63 @@ function CurtailmentStartModalContent({
       return;
     }
 
-    if (!isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
-      setSubmitAfterMaintenanceConfirmation(true);
+    if (!isResponseProfileVariant && !isEditMode && values.includeMaintenance && !maintenanceInclusionConfirmed) {
+      setSubmitAfterMaintenanceConfirmation("run");
       setShowMaintenanceConfirmation(true);
+      return;
+    }
+
+    if (!isResponseProfileVariant && !isEditMode) {
+      requestCurtailmentConfirmation("run", values);
       return;
     }
 
     onSubmit(values);
   };
 
+  const requestResponseProfileCurtailment = () => {
+    if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
+      setSubmitAfterMaintenanceConfirmation("test");
+      setShowMaintenanceConfirmation(true);
+      return;
+    }
+
+    requestCurtailmentConfirmation("test", values);
+  };
+
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [];
 
-  if (isEditMode && onStopCurtailment) {
+  if (isLiveCurtailmentEditMode && onStopCurtailment) {
     buttons.push({
       text: "Stop curtailment",
       variant: variants.secondaryDanger,
       onClick: onStopCurtailment,
-      disabled: isSubmitting,
+      disabled: isBusy,
+    });
+  }
+
+  if (isResponseProfileEditMode && onDeleteResponseProfile) {
+    buttons.push({
+      text: "Delete",
+      variant: variants.secondaryDanger,
+      onClick: onDeleteResponseProfile,
+      disabled: isBusy,
+      loading: isDeleting,
+    });
+  }
+
+  if (isResponseProfileVariant && onTestCurtailment) {
+    buttons.push({
+      text: "Run curtailment",
+      variant: variants.secondary,
+      onClick: requestResponseProfileCurtailment,
+      disabled: isBusy || hasBlockingValidationError,
+      loading: isTestingCurtailment,
     });
   }
 
   buttons.push({
-    text: isEditMode ? "Save" : "Start curtailment",
+    text: primaryButtonText,
     variant: variants.primary,
     onClick: handleSubmit,
     disabled: isSubmitDisabled,
@@ -597,15 +880,16 @@ function CurtailmentStartModalContent({
   });
 
   const confirmMaintenanceInclusion = () => {
-    const nextValues = { ...values, includeMaintenance: true };
+    const nextValues = resetResponseProfileSelection({ ...values, includeMaintenance: true });
 
     setMaintenanceInclusionConfirmed(true);
     setValues(nextValues);
     setShowMaintenanceConfirmation(false);
 
     if (submitAfterMaintenanceConfirmation) {
-      setSubmitAfterMaintenanceConfirmation(false);
-      onSubmit(nextValues);
+      const pendingAction = submitAfterMaintenanceConfirmation;
+      setSubmitAfterMaintenanceConfirmation(null);
+      requestCurtailmentConfirmation(pendingAction, nextValues);
     }
   };
 
@@ -613,22 +897,59 @@ function CurtailmentStartModalContent({
     <>
       <FullScreenTwoPaneModal
         open={open}
-        title={isEditMode ? "Manage curtailment" : "Plan a curtailment"}
-        closeAriaLabel={isEditMode ? "Close curtailment editor" : "Close curtailment planner"}
+        title={modalTitle}
+        closeAriaLabel={closeAriaLabel}
         onDismiss={onDismiss}
-        isBusy={isSubmitting}
+        isBusy={isBusy}
         buttons={buttons}
         abovePanes={previewPane ? <div className="px-6 pb-6 laptop:hidden">{previewPane}</div> : null}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-            <Input
-              id="curtailment-reason"
-              label="Reason"
-              initValue={values.reason}
-              type="text"
-              error={effectiveErrors.reason}
-              onChange={(value) => updateValue("reason", value)}
-            />
+            {actionError ? (
+              <div
+                className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical"
+                data-testid="curtailment-action-error"
+              >
+                {actionError}
+              </div>
+            ) : null}
+            {isResponseProfileVariant ? (
+              <Section title="Profile" subtext={responseProfileDescription}>
+                <Input
+                  id={nameFieldId}
+                  label={nameFieldLabel}
+                  initValue={values.reason}
+                  type="text"
+                  error={effectiveErrors.reason}
+                  onChange={(value) => updateValue("reason", value)}
+                />
+              </Section>
+            ) : (
+              <div className="grid gap-3">
+                {shouldShowResponseProfileSelector ? (
+                  <Section title="Response profile">
+                    <Select
+                      id="curtailment-response-profile"
+                      label="Profile"
+                      value={selectedResponseProfileValue}
+                      options={responseProfileSelectOptions}
+                      forceBelow
+                      showSelectedIndicator={false}
+                      testId="curtailment-response-profile-select"
+                      onChange={handleResponseProfileChange}
+                    />
+                  </Section>
+                ) : null}
+                <Input
+                  id={nameFieldId}
+                  label={nameFieldLabel}
+                  initValue={values.reason}
+                  type="text"
+                  error={effectiveErrors.reason}
+                  onChange={(value) => updateValue("reason", value)}
+                />
+              </div>
+            )}
 
             <Section title="Curtail behavior" subtext={curtailmentBehaviorSubtext}>
               <div className="grid gap-3">
@@ -638,9 +959,17 @@ function CurtailmentStartModalContent({
                     label="Curtailment mode"
                     value={values.curtailmentMode}
                     options={curtailmentModeOptions}
-                    disabled={isEditMode}
+                    disabled={isLiveCurtailmentEditMode}
                     forceBelow
                     showSelectedIndicator={false}
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About curtailment mode"
+                        body={fieldHelp.curtailmentMode}
+                        testId="curtailment-mode-info-button"
+                        popoverTestId="curtailment-mode-info-popover"
+                      />
+                    }
                     onChange={(value) => {
                       if (isCurtailmentMode(value)) {
                         updateValue("curtailmentMode", value);
@@ -652,32 +981,59 @@ function CurtailmentStartModalContent({
                       id="curtailment-target-kw"
                       label="Fixed target reduction (kW)"
                       initValue={values.targetKw}
-                      disabled={isEditMode}
+                      disabled={isLiveCurtailmentEditMode}
                       inputMode="decimal"
                       error={effectiveErrors.targetKw}
+                      suffixAction={
+                        <FieldInfoToggle
+                          ariaLabel="About fixed target reduction"
+                          body={fieldHelp.fixedTargetReduction}
+                          testId="fixed-target-reduction-info-button"
+                          popoverTestId="fixed-target-reduction-info-popover"
+                        />
+                      }
                       onChange={(value) => updateValue("targetKw", value)}
                     />
                   ) : null}
                 </div>
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <Input
-                    id="curtailment-min-duration"
-                    label="Min duration (sec)"
-                    initValue={values.minDurationSec}
-                    disabled={isEditMode}
-                    inputMode="numeric"
-                    error={effectiveErrors.minDurationSec}
-                    onChange={(value) => updateValue("minDurationSec", value)}
-                  />
-                  <Input
-                    id="curtailment-max-duration"
-                    label="Max duration (sec)"
-                    initValue={values.maxDurationSec}
-                    inputMode="numeric"
-                    error={effectiveErrors.maxDurationSec}
-                    onChange={(value) => updateValue("maxDurationSec", value)}
-                  />
-                </div>
+                {shouldShowCurtailBatchFields ? (
+                  <div className="grid gap-3 tablet:grid-cols-2">
+                    <Input
+                      id="curtailment-batch-size"
+                      label="Batch size (miners)"
+                      initValue={values.curtailBatchSize}
+                      inputMode="numeric"
+                      error={effectiveErrors.curtailBatchSize}
+                      testId={curtailBatchSizeTestId}
+                      suffixAction={
+                        <FieldInfoToggle
+                          ariaLabel="About curtail batch size"
+                          body={fieldHelp.curtailBatchSize}
+                          testId="curtail-batch-size-info-button"
+                          popoverTestId="curtail-batch-size-info-popover"
+                        />
+                      }
+                      onChange={(value) => updateValue("curtailBatchSize", value)}
+                    />
+                    <Input
+                      id="curtailment-batch-interval"
+                      label="Batch interval (sec)"
+                      initValue={values.curtailBatchIntervalSec}
+                      inputMode="numeric"
+                      error={effectiveErrors.curtailBatchIntervalSec}
+                      testId={curtailBatchIntervalTestId}
+                      suffixAction={
+                        <FieldInfoToggle
+                          ariaLabel="About curtail batch interval"
+                          body={fieldHelp.curtailBatchInterval}
+                          testId="curtail-batch-interval-info-button"
+                          popoverTestId="curtail-batch-interval-info-popover"
+                        />
+                      }
+                      onChange={(value) => updateValue("curtailBatchIntervalSec", value)}
+                    />
+                  </div>
+                ) : null}
               </div>
             </Section>
 
@@ -687,9 +1043,18 @@ function CurtailmentStartModalContent({
                   id="curtailment-restore-batch-size"
                   label="Batch size (miners)"
                   initValue={values.restoreBatchSize}
-                  disabled={isEditMode}
+                  disabled={isLiveCurtailmentEditMode}
                   inputMode="numeric"
                   error={effectiveErrors.restoreBatchSize}
+                  testId={isResponseProfileVariant ? "response-profile-restore-batch-size" : undefined}
+                  suffixAction={
+                    <FieldInfoToggle
+                      ariaLabel="About restore batch size"
+                      body={fieldHelp.restoreBatchSize}
+                      testId="restore-batch-size-info-button"
+                      popoverTestId="restore-batch-size-info-popover"
+                    />
+                  }
                   onChange={(value) => updateValue("restoreBatchSize", value)}
                 />
                 <Input
@@ -698,37 +1063,53 @@ function CurtailmentStartModalContent({
                   initValue={values.restoreIntervalSec}
                   inputMode="numeric"
                   error={effectiveErrors.restoreIntervalSec}
+                  testId={isResponseProfileVariant ? "response-profile-restore-batch-interval" : undefined}
+                  suffixAction={
+                    <FieldInfoToggle
+                      ariaLabel="About restore batch interval"
+                      body={fieldHelp.restoreBatchInterval}
+                      testId="restore-batch-interval-info-button"
+                      popoverTestId="restore-batch-interval-info-popover"
+                    />
+                  }
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
               </div>
             </Section>
 
-            <Section title="Apply to">
-              <div className="grid">
-                <TargetSelectButton
-                  label={applyToTarget.label}
-                  value={applyToTarget.value}
-                  disabled={isEditMode}
-                  onClick={() => setShowMinerSelectionModal(true)}
-                />
-              </div>
-            </Section>
+            {!isResponseProfileVariant ? (
+              <Section
+                title="Apply to"
+                subtext="Applies to all miners by default. Use the options below to narrow the scope."
+              >
+                <div className="grid">
+                  <TargetSelectButton
+                    label={applyToTarget.label}
+                    value={applyToTarget.value}
+                    disabled={isLiveCurtailmentEditMode}
+                    onClick={() => setShowMinerSelectionModal(true)}
+                  />
+                </div>
+              </Section>
+            ) : null}
 
             <label
-              className={`flex items-start gap-3 text-left ${isEditMode ? "cursor-not-allowed" : "cursor-pointer"}`}
+              className={`flex items-start gap-3 text-left ${
+                isLiveCurtailmentEditMode ? "cursor-not-allowed" : "cursor-pointer"
+              }`}
             >
               <Checkbox
                 checked={values.includeMaintenance}
-                disabled={isEditMode}
+                disabled={isLiveCurtailmentEditMode}
                 onChange={(event) => {
-                  if (event.currentTarget.checked) {
-                    setSubmitAfterMaintenanceConfirmation(false);
+                  if (!isResponseProfileVariant && event.currentTarget.checked) {
+                    setSubmitAfterMaintenanceConfirmation(null);
                     setShowMaintenanceConfirmation(true);
                     return;
                   }
 
-                  setMaintenanceInclusionConfirmed(false);
-                  updateValue("includeMaintenance", false);
+                  setMaintenanceInclusionConfirmed(event.currentTarget.checked);
+                  updateValue("includeMaintenance", event.currentTarget.checked);
                 }}
               />
               <span>
@@ -768,6 +1149,35 @@ function CurtailmentStartModalContent({
         <div className="text-300 text-text-primary-70">
           This will run Curtail on miners that are currently flagged for maintenance work.
         </div>
+      </Dialog>
+
+      <Dialog
+        open={pendingCurtailmentConfirmation !== null}
+        title={curtailmentConfirmationCopy?.title ?? "Run curtailment?"}
+        testId="curtailment-run-confirmation"
+        onDismiss={closeCurtailmentConfirmation}
+        icon={
+          <DialogIcon intent="warning">
+            <LightningAlt />
+          </DialogIcon>
+        }
+        buttons={[
+          {
+            text: "Cancel",
+            onClick: closeCurtailmentConfirmation,
+            variant: variants.secondary,
+            disabled: isBusy,
+          },
+          {
+            text: curtailmentConfirmationCopy?.confirmText ?? "Run curtailment",
+            onClick: confirmCurtailmentAction,
+            variant: variants.primary,
+            disabled: isBusy,
+            loading: pendingCurtailmentConfirmation?.action === "test" ? isTestingCurtailment : isSubmitting,
+          },
+        ]}
+      >
+        <div className="text-300 text-text-primary-70">{curtailmentConfirmationCopy?.body}</div>
       </Dialog>
 
       {showMinerSelectionModal ? (

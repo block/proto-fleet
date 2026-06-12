@@ -2,16 +2,34 @@ import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
+import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
+import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentSettingsPage, {
   CurtailmentSettingsContent,
 } from "@/protoFleet/features/settings/components/Curtailment";
 import type {
   CurtailmentSource,
   CurtailmentSourceFormValues,
+  ResponseProfile,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
+
+const { mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
+  mockUseCurtailmentPlanPreview: vi.fn(),
+}));
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
@@ -19,6 +37,30 @@ vi.mock("@/protoFleet/store", () => ({
 
 vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
   default: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
+  default: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
+  useCurtailmentApi: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
+  createCurtailmentPlanPreview: (
+    values: CurtailmentFormValues,
+    source: { selectedMinerCount: number; targetKw?: number; estimatedReductionKw: number },
+  ): CurtailmentPlanPreview => ({
+    selectedMinerCount: source.selectedMinerCount,
+    targetKw: source.targetKw ?? Number(values.targetKw || "0"),
+    estimatedReductionKw: source.estimatedReductionKw,
+    curtailEstimate: "5 minutes - 30 minutes",
+    restoreEstimate: "~2 minutes",
+    scopeLabel: values.scopeId ?? "across the fleet",
+  }),
+  getUnsupportedDeviceSetPreviewError: () => undefined,
+  useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
 vi.mock("@/shared/features/toaster", () => ({
@@ -100,6 +142,65 @@ const apiSources: CurtailmentSource[] = [
   },
 ];
 
+const testResponseProfiles: ResponseProfile[] = [
+  {
+    id: "emergency-full-shed",
+    name: "Emergency full shed",
+    targetSummary: "100% reduction",
+    siteId: "101",
+    scope: "Austin, TX",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore in batches",
+    deadlineSummary: "Within 5 min",
+    formValues: {
+      name: "Emergency full shed",
+      actionType: "fullFleet",
+      targetKw: "",
+      deviceIdentifiers: [],
+      siteId: "101",
+      siteName: "Austin, TX",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticBatchRestore",
+      minDurationSec: "",
+      maxDurationSec: "300",
+      curtailBatchSize: "",
+      curtailBatchIntervalSec: "",
+      restoreBatchSize: "",
+      restoreIntervalSec: "",
+      responseDeadlineMinutes: "5",
+      includeMaintenance: false,
+    },
+  },
+  {
+    id: "site-alpha-500-kw",
+    name: "Site Alpha 500 kW",
+    targetSummary: "500 kW target",
+    siteId: "102",
+    scope: "Denver, CO",
+    selectionStrategy: "Least efficient first",
+    restoreBehavior: "Restore immediately",
+    deadlineSummary: "Within 15 min",
+    formValues: {
+      name: "Site Alpha 500 kW",
+      actionType: "fixedKwReduction",
+      targetKw: "500",
+      deviceIdentifiers: [],
+      siteId: "102",
+      siteName: "Denver, CO",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticImmediateRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "50",
+      curtailBatchIntervalSec: "30",
+      restoreBatchSize: "10000",
+      restoreIntervalSec: "0",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
+  },
+];
+
 const testSourceFormValues: CurtailmentSourceFormValues = {
   name: "Site Alpha MQTT",
   brokerPrimaryHost: "site-alpha-primary.broker.test",
@@ -115,6 +216,26 @@ const updateSourceMock = vi.fn();
 const testConnectionMock = vi.fn();
 const setSourceEnabledMock = vi.fn();
 const deleteSourceMock = vi.fn();
+const createResponseProfileMock = vi.fn();
+const updateResponseProfileMock = vi.fn();
+const deleteResponseProfileMock = vi.fn();
+const startCurtailmentMock = vi.fn();
+
+const mockResponseProfilesApi = (overrides: Partial<ReturnType<typeof useCurtailmentResponseProfiles>> = {}) => {
+  vi.mocked(useCurtailmentResponseProfiles).mockReturnValue({
+    responseProfiles: [],
+    isLoading: false,
+    isCreating: false,
+    updatingProfileIds: new Set<string>(),
+    loadError: null,
+    createError: null,
+    listResponseProfiles: vi.fn(),
+    createResponseProfile: createResponseProfileMock,
+    updateResponseProfile: updateResponseProfileMock,
+    deleteResponseProfile: deleteResponseProfileMock,
+    ...overrides,
+  });
+};
 
 const mockSourcesApi = (overrides: Partial<ReturnType<typeof useMqttCurtailmentSources>> = {}) => {
   vi.mocked(useMqttCurtailmentSources).mockReturnValue({
@@ -151,20 +272,60 @@ function getSourceRow(sourceName: string): HTMLTableRowElement {
   return row as HTMLTableRowElement;
 }
 
+function getResponseProfileCard(profileName: string): HTMLElement {
+  const card = screen.getByText(profileName).closest(".rounded-xl");
+  expect(card).not.toBeNull();
+  return card as HTMLElement;
+}
+
+function getEnabledButton(name: string): HTMLButtonElement {
+  const button = screen
+    .getAllByRole("button", { name })
+    .find((element): element is HTMLButtonElement => element instanceof HTMLButtonElement && !element.disabled);
+
+  if (!button) {
+    throw new Error(`No enabled ${name} button found`);
+  }
+
+  return button;
+}
+
+function confirmCurtailmentAction(name = "Run curtailment"): void {
+  fireEvent.click(within(screen.getByTestId("curtailment-run-confirmation")).getByRole("button", { name }));
+}
+
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
     vi.mocked(useHasPermission).mockReset();
     vi.mocked(useMqttCurtailmentSources).mockReset();
+    vi.mocked(useCurtailmentResponseProfiles).mockReset();
+    vi.mocked(useCurtailmentApi).mockReset();
     vi.mocked(pushToast).mockReset();
+    mockNavigate.mockReset();
     createSourceMock.mockReset();
     updateSourceMock.mockReset();
     testConnectionMock.mockReset();
     setSourceEnabledMock.mockReset();
     deleteSourceMock.mockReset();
+    mockUseCurtailmentPlanPreview.mockReset();
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+    createResponseProfileMock.mockReset();
+    updateResponseProfileMock.mockReset();
+    deleteResponseProfileMock.mockReset();
+    startCurtailmentMock.mockReset();
+    startCurtailmentMock.mockResolvedValue({});
+    vi.mocked(useCurtailmentApi).mockReturnValue({
+      startCurtailment: startCurtailmentMock,
+    } as Partial<ReturnType<typeof useCurtailmentApi>> as ReturnType<typeof useCurtailmentApi>);
+    mockResponseProfilesApi();
     mockSourcesApi();
   });
 
-  it("renders the curtailment header and sources table", () => {
+  it("renders the curtailment header, response profile cards, and sources table", () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
 
     render(
@@ -174,6 +335,7 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
+    expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
     expect(screen.getByText("Curtailment")).toBeVisible();
@@ -182,6 +344,9 @@ describe("CurtailmentSettingsPage", () => {
         "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.",
       ),
     ).toBeVisible();
+    expect(screen.getByText("Response profiles")).toBeVisible();
+    expect(screen.getByRole("button", { name: "About response profiles" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create profile" })).toBeEnabled();
     expect(screen.getByText("Sources")).toBeVisible();
     expect(screen.getByRole("button", { name: "About sources" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Add source" })).toBeEnabled();
@@ -190,8 +355,12 @@ describe("CurtailmentSettingsPage", () => {
       "[&_thead_th]:text-text-primary-50",
     );
 
-    for (const columnName of ["Name", "Last signal", "Updated", "Connection", "Enabled"]) {
+    for (const columnName of ["Last signal", "Updated", "Connection", "Enabled"]) {
       expect(screen.getByRole("columnheader", { name: columnName })).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("columnheader", { name: "Name" })).toHaveLength(1);
+    for (const profileColumnName of ["Target", "Scope", "Selection", "Restore", "Deadline"]) {
+      expect(screen.queryByRole("columnheader", { name: profileColumnName })).not.toBeInTheDocument();
     }
     expect(screen.queryByRole("columnheader", { name: "Last target" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Type" })).not.toBeInTheDocument();
@@ -199,6 +368,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.queryByText("Site Alpha MQTT")).not.toBeInTheDocument();
     expect(screen.queryByText("Site Beta MQTT")).not.toBeInTheDocument();
     expect(screen.getByTestId("list-empty-row")).toBeInTheDocument();
+    expect(screen.getByText("No response profiles configured")).toBeVisible();
+    expect(screen.getByText("Add a profile to reuse curtailment actions across automation rules.")).toBeVisible();
     expect(screen.getByText("No sources configured")).toBeVisible();
     expect(screen.getByText("Add a source to receive curtailment signals via MQTT.")).toBeVisible();
   });
@@ -215,6 +386,319 @@ describe("CurtailmentSettingsPage", () => {
 
     expect(screen.getByText("Site Alpha MQTT")).toBeVisible();
     expect(screen.getByText("38 seconds ago")).toBeVisible();
+  });
+
+  it("renders response profiles returned by the API hook", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Emergency full shed")).toBeVisible();
+    expect(screen.getByText("100% reduction")).toBeVisible();
+    expect(screen.getByText("Austin, TX")).toBeVisible();
+  });
+
+  it("creates a response profile through the API hook", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+    expect(screen.getByText("Create response profile")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
+    expect(screen.getByRole("checkbox", { name: "Include miners in maintenance" })).toBeChecked();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "25" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(createResponseProfileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Emergency full shed",
+        actionType: "fullFleet",
+        siteId: "",
+        siteName: "",
+        maxDurationSec: "900",
+        curtailBatchSize: "25",
+        curtailBatchIntervalSec: "60",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "120",
+        responseDeadlineMinutes: "15",
+        includeMaintenance: true,
+      }),
+    );
+    expect(pushToast).toHaveBeenCalledWith({
+      message: "Response profile added",
+      status: "success",
+    });
+  });
+
+  it("keeps the response profile modal open and shows create failures", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createResponseProfileMock.mockRejectedValue(new Error("Profile name already exists"));
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("curtailment-action-error")).toHaveTextContent("Profile name already exists"),
+    );
+    expect(screen.getByText("Create response profile")).toBeInTheDocument();
+    expect(screen.getByTestId("full-screen-two-pane-modal")).toBeInTheDocument();
+    expect(pushToast).not.toHaveBeenCalledWith({
+      message: "Response profile added",
+      status: "success",
+    });
+  });
+
+  it("saves a response profile, runs a curtailment, and redirects to energy", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "25" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.click(getEnabledButton("Run curtailment"));
+    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Force include" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for the whole fleet. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    confirmCurtailmentAction();
+
+    await waitFor(() =>
+      expect(createResponseProfileMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Emergency full shed",
+          actionType: "fullFleet",
+          curtailBatchSize: "25",
+          curtailBatchIntervalSec: "60",
+          restoreBatchSize: "10",
+          restoreIntervalSec: "120",
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(startCurtailmentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "Emergency full shed",
+          curtailmentMode: "fullFleet",
+          scopeType: "wholeOrg",
+          siteId: "",
+          curtailBatchSize: "25",
+          curtailBatchIntervalSec: "60",
+          restoreBatchSize: "10",
+          restoreIntervalSec: "120",
+          includeMaintenance: true,
+        }),
+      ),
+    );
+    expect(mockNavigate).toHaveBeenCalledWith("/energy");
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+  });
+
+  it("updates and deletes a response profile through the API hook", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
+    updateResponseProfileMock.mockResolvedValue({
+      ...testResponseProfiles[1],
+      name: "Site Alpha 750 kW",
+      targetSummary: "750 kW target",
+    });
+    deleteResponseProfileMock.mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByLabelText("Profile name")).toHaveValue("Site Alpha 500 kW");
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Fixed kW reduction");
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("500");
+    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
+    expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
+    expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
+    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(updateResponseProfileMock).toHaveBeenCalledWith(
+      "site-alpha-500-kw",
+      expect.objectContaining({
+        name: "Site Alpha 750 kW",
+        targetKw: "750",
+        curtailBatchSize: "75",
+        curtailBatchIntervalSec: "45",
+        restoreBatchSize: "50",
+        restoreIntervalSec: "120",
+        siteId: "102",
+      }),
+    );
+    expect(pushToast).toHaveBeenCalledWith({
+      message: "Response profile saved",
+      status: "success",
+    });
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    fireEvent.click(getEnabledButton("Delete"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(deleteResponseProfileMock).toHaveBeenCalledWith("site-alpha-500-kw");
+    expect(pushToast).toHaveBeenCalledWith({
+      message: "Response profile deleted",
+      status: "success",
+    });
+  });
+
+  it("keeps the response profile modal open and shows delete failures", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
+    deleteResponseProfileMock.mockRejectedValue(new Error("Delete failed"));
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+    fireEvent.click(getEnabledButton("Delete"));
+
+    await waitFor(() => expect(screen.getByTestId("curtailment-action-error")).toHaveTextContent("Delete failed"));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByTestId("full-screen-two-pane-modal")).toBeInTheDocument();
+  });
+
+  it("updates a response profile before running curtailment from edit mode", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
+    updateResponseProfileMock.mockResolvedValue({
+      ...testResponseProfiles[1],
+      name: "Site Alpha 750 kW",
+      targetSummary: "750 kW target",
+    });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
+    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.click(getEnabledButton("Run curtailment"));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will save the profile, then trigger curtailment for miners in Denver, CO. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    confirmCurtailmentAction();
+
+    await waitFor(() =>
+      expect(updateResponseProfileMock).toHaveBeenCalledWith(
+        "site-alpha-500-kw",
+        expect.objectContaining({
+          name: "Site Alpha 750 kW",
+          targetKw: "750",
+          curtailBatchSize: "75",
+          curtailBatchIntervalSec: "45",
+          restoreBatchSize: "50",
+          restoreIntervalSec: "120",
+          siteId: "102",
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(startCurtailmentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "Site Alpha 750 kW",
+          targetKw: "750",
+          curtailmentMode: "fixedKwReduction",
+          siteId: "102",
+          curtailBatchSize: "75",
+          curtailBatchIntervalSec: "45",
+          restoreBatchSize: "50",
+          restoreIntervalSec: "120",
+        }),
+      ),
+    );
+    expect(createResponseProfileMock).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith("/energy");
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+  });
+
+  it("renders provided response profiles as cards", () => {
+    render(<CurtailmentSettingsContent initialResponseProfiles={testResponseProfiles} />);
+
+    expect(screen.getByTestId("response-profile-card-grid")).toBeVisible();
+    expect(screen.getByText("Emergency full shed")).toBeVisible();
+    expect(screen.getByText("100% reduction")).toBeVisible();
+    expect(screen.getByText("Austin, TX")).toBeVisible();
+    expect(screen.getByText("Site Alpha 500 kW")).toBeVisible();
+    expect(screen.getByText("500 kW target")).toBeVisible();
+    expect(screen.getByText("Denver, CO")).toBeVisible();
+    expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
   it("renders provided sources with the current table styling", () => {
@@ -234,6 +718,81 @@ describe("CurtailmentSettingsPage", () => {
     const noSignalLabel = screen.getByText("No signal");
     expect(noSignalLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-critical-fill");
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
+  });
+
+  it("creates a response profile in local state", async () => {
+    render(<CurtailmentSettingsContent initialSources={testSources} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+
+    expect(screen.getByText("Create response profile")).toBeInTheDocument();
+    expect(screen.getByLabelText("Profile name")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Full shutdown");
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Include miners in maintenance" })).toBeChecked();
+    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
+    expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("");
+    expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("");
+    expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("");
+
+    const saveButtons = screen.getAllByRole("button", { name: "Save profile" });
+    expect(saveButtons.every((button) => button instanceof HTMLButtonElement && button.disabled)).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "25" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(screen.getByText("Emergency full shed")).toBeVisible();
+    expect(screen.getByText("100% reduction")).toBeVisible();
+    expect(screen.getByText("Whole fleet")).toBeVisible();
+    expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
+  });
+
+  it("edits and deletes a response profile in local state", async () => {
+    render(<CurtailmentSettingsContent initialResponseProfiles={testResponseProfiles} initialSources={testSources} />);
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByLabelText("Profile name")).toHaveValue("Site Alpha 500 kW");
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Fixed kW reduction");
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("500");
+    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
+    expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
+    expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
+    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
+    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
+    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
+    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(screen.getByText("Site Alpha 750 kW")).toBeVisible();
+    expect(screen.getByText("750 kW target")).toBeVisible();
+    expect(screen.queryByText("Site Alpha 500 kW")).not.toBeInTheDocument();
+
+    fireEvent.click(within(getResponseProfileCard("Site Alpha 750 kW")).getByRole("button", { name: "Edit" }));
+    fireEvent.click(getEnabledButton("Delete"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(screen.queryByText("Site Alpha 750 kW")).not.toBeInTheDocument();
   });
 
   it("opens the source dialog and closes it from Save without API props", async () => {
@@ -564,6 +1123,7 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
+    expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();
   });

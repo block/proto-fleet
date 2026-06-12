@@ -8,12 +8,14 @@ import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/Curta
 import CurtailmentManagementPanel from "@/protoFleet/features/energy/CurtailmentManagementPanel";
 import type {
   CurtailmentPlanPreview,
+  CurtailmentResponseProfileOption,
   CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
   dismissTerminalCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
+  navigate: vi.fn(),
   refreshCurtailment: vi.fn(),
   setHistoryStatusFilter: vi.fn(),
   setHistoryStatusFilters: vi.fn(),
@@ -22,10 +24,19 @@ const mocks = vi.hoisted(() => ({
   submitValues: { reason: "Grid peak" },
   updateCurtailment: vi.fn(),
   useCurtailmentApi: vi.fn(),
+  useCurtailmentResponseProfiles: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
   useCurtailmentApi: () => mocks.useCurtailmentApi(),
+}));
+
+vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
+  default: () => mocks.useCurtailmentResponseProfiles(),
+}));
+
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => mocks.navigate,
 }));
 
 vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
@@ -122,15 +133,19 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     onStopCurtailment,
     onSubmit,
     preview,
+    responseProfiles,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
     onStopCurtailment?: () => void;
     onSubmit: (values: CurtailmentSubmitValues) => void;
     preview?: CurtailmentPlanPreview;
+    responseProfiles?: CurtailmentResponseProfileOption[];
   }) => (
-    <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "Plan curtailment"}>
+    <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
+      <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
+      <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
       <div data-testid="modal-preview">
         {preview
           ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
@@ -179,6 +194,8 @@ const activeEventFormValues = {
   priority: "normal",
   minDurationSec: "60",
   maxDurationSec: "300",
+  curtailBatchSize: "",
+  curtailBatchIntervalSec: "",
   restoreBatchSize: "1",
   restoreIntervalSec: "60",
   includeMaintenance: true,
@@ -235,6 +252,18 @@ describe("CurtailmentManagementPanel", () => {
     mocks.stopCurtailment.mockResolvedValue({});
     mocks.updateCurtailment.mockResolvedValue({});
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
+    mocks.useCurtailmentResponseProfiles.mockReturnValue({
+      responseProfiles: [],
+      isLoading: false,
+      isCreating: false,
+      updatingProfileIds: new Set(),
+      loadError: null,
+      createError: null,
+      listResponseProfiles: vi.fn(),
+      createResponseProfile: vi.fn(),
+      updateResponseProfile: vi.fn(),
+      deleteResponseProfile: vi.fn(),
+    });
   });
 
   it("submits planned curtailments, closes the modal, and passes refreshed history props through", async () => {
@@ -251,11 +280,11 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.getByTestId("history-page")).toHaveTextContent("1");
 
-    await user.click(screen.getByRole("button", { name: "Plan curtailment" }));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     await user.click(screen.getByRole("button", { name: "Submit plan" }));
 
     await waitFor(() => expect(mocks.startCurtailment).toHaveBeenCalledWith(mocks.submitValues));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Plan curtailment" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New curtailment" })).not.toBeInTheDocument());
 
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
@@ -269,6 +298,97 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("history-page")).toHaveTextContent("0");
     expect(screen.getByTestId("history-has-next")).toHaveTextContent("true");
     expect(screen.getByTestId("history-events")).toHaveTextContent("curt-2");
+  });
+
+  it("navigates to curtailment settings from the secondary CTA", async () => {
+    const user = userEvent.setup();
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Edit settings" }));
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/curtailment");
+    expect(screen.queryByRole("dialog", { name: "New curtailment" })).not.toBeInTheDocument();
+  });
+
+  it("passes response profiles to the plan modal", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentResponseProfiles.mockReturnValue({
+      responseProfiles: [
+        {
+          id: "profile-1",
+          name: "Standard shed",
+          targetSummary: "50 kW target",
+          siteId: "101",
+          scope: "Austin, TX",
+          selectionStrategy: "Least efficient first",
+          restoreBehavior: "Restore in batches",
+          deadlineSummary: "Within 15 min",
+          formValues: {
+            name: "Standard shed",
+            actionType: "fixedKwReduction",
+            targetKw: "50",
+            deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+            siteId: "101",
+            siteName: "Austin, TX",
+            selectionStrategy: "leastEfficientFirst",
+            restoreBehavior: "automaticBatchRestore",
+            minDurationSec: "300",
+            maxDurationSec: "900",
+            curtailBatchSize: "20",
+            curtailBatchIntervalSec: "60",
+            restoreBatchSize: "10",
+            restoreIntervalSec: "120",
+            responseDeadlineMinutes: "15",
+            includeMaintenance: true,
+          },
+        },
+      ],
+      isLoading: false,
+      isCreating: false,
+      updatingProfileIds: new Set(),
+      loadError: null,
+      createError: null,
+      listResponseProfiles: vi.fn(),
+      createResponseProfile: vi.fn(),
+      updateResponseProfile: vi.fn(),
+      deleteResponseProfile: vi.fn(),
+    });
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent(
+      '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
+    );
+  });
+
+  it("shows an active curtailment limit dialog instead of opening a new plan", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("active-curtailment-limit-dialog")).toBeInTheDocument();
+    expect(screen.getByText("Curtailment already active")).toBeInTheDocument();
+    expect(screen.getByText("You can only have one active curtailment at a time.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "New curtailment" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+
+    await waitFor(() => expect(screen.queryByTestId("active-curtailment-limit-dialog")).not.toBeInTheDocument());
+    expect(mocks.startCurtailment).not.toHaveBeenCalled();
   });
 
   it("calls stop curtailment from restore, stop, and history requests", async () => {
@@ -472,7 +592,8 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop history event" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Plan curtailment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run curtailment" })).not.toBeInTheDocument();
   });
 
   it("keeps the edit baseline stable after active event refreshes", async () => {
