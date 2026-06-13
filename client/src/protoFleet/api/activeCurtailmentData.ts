@@ -275,6 +275,18 @@ async function requestActiveCurtailmentDetail(
   return response.event;
 }
 
+async function requestActiveCurtailmentDetails(
+  events: ProtoCurtailmentEvent[],
+  signal: AbortSignal,
+): Promise<ProtoCurtailmentEvent[]> {
+  return Promise.all(
+    events.map(async (event) => {
+      const detailedEvent = await requestActiveCurtailmentDetail(event.eventUuid, signal);
+      return detailedEvent ?? event;
+    }),
+  );
+}
+
 async function requestActiveCurtailmentResponseSnapshot(
   signal: AbortSignal,
 ): Promise<ActiveCurtailmentResponseSnapshot> {
@@ -289,8 +301,10 @@ async function requestActiveCurtailmentResponseSnapshot(
     return getActiveCurtailmentSnapshotFromResponse(undefined, response.events);
   }
 
-  const detailedEvent = await requestActiveCurtailmentDetail(selectedEvent.eventUuid, signal);
-  return getActiveCurtailmentSnapshotFromResponse(detailedEvent ?? selectedEvent, response.events);
+  const detailedEvents = await requestActiveCurtailmentDetails(response.events, signal);
+  const detailedSelectedEvent =
+    detailedEvents.find((event) => event.eventUuid === selectedEvent.eventUuid) ?? selectedEvent;
+  return getActiveCurtailmentSnapshotFromResponse(detailedSelectedEvent, detailedEvents);
 }
 
 function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest {

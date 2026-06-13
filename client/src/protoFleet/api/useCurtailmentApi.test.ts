@@ -26,6 +26,7 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 
 const {
   mockGetActiveCurtailment,
+  mockGetCurtailmentEvent,
   mockHandleAuthErrors,
   mockListCurtailmentEvents,
   mockStartCurtailment,
@@ -33,6 +34,7 @@ const {
   mockUpdateCurtailment,
 } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
+  mockGetCurtailmentEvent: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
   mockListCurtailmentEvents: vi.fn(),
   mockStartCurtailment: vi.fn(),
@@ -54,9 +56,10 @@ vi.mock("@/protoFleet/api/clients", () => ({
         activeEvents = response.events ?? (response.event ? [response.event] : []);
         return { events: activeEvents };
       },
-      getCurtailmentEvent: async (request: { eventUuid: string }) => ({
-        event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
-      }),
+      getCurtailmentEvent: async (request: { eventUuid: string }, ...args: unknown[]) =>
+        (await mockGetCurtailmentEvent(request, ...args)) ?? {
+          event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
+        },
       listCurtailmentEvents: mockListCurtailmentEvents,
       startCurtailment: mockStartCurtailment,
       stopCurtailment: mockStopCurtailment,
@@ -151,6 +154,7 @@ describe("useCurtailmentApi", () => {
   beforeEach(() => {
     resetActiveCurtailmentData();
     vi.clearAllMocks();
+    mockGetCurtailmentEvent.mockReset();
     mockHandleAuthErrors.mockImplementation(({ onError }: { error: unknown; onError?: (error: unknown) => void }) =>
       onError?.(new Error("auth error")),
     );
@@ -211,21 +215,35 @@ describe("useCurtailmentApi", () => {
     );
   });
 
-  it("lists multiple active curtailments while hydrating the selected detail", async () => {
+  it("lists multiple active curtailments while hydrating each detail", async () => {
     const firstActiveEvent = curtailmentEvent({
       eventUuid: "curt-site-a",
       reason: "Site A event",
     });
-    const secondActiveEvent = curtailmentEvent({
+    const secondActiveSummary = curtailmentEvent({
       eventUuid: "curt-site-b",
       reason: "Site B event",
+      decisionSnapshot: undefined,
+      targetRollup: undefined,
+      targets: [],
+    });
+    const secondActiveDetail = curtailmentEvent({
+      eventUuid: "curt-site-b",
+      reason: "Site B event",
+      decisionSnapshot: {
+        estimated_reduction_kw: 9.5,
+        selected_count: 3,
+      },
       targetRollup: create(CurtailmentTargetRollupSchema, {
         pending: 3,
         total: 3,
       }),
       targets: [],
     });
-    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [firstActiveEvent, secondActiveEvent] });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [firstActiveEvent, secondActiveSummary] });
+    mockGetCurtailmentEvent.mockImplementation(async ({ eventUuid }: { eventUuid: string }) => ({
+      event: eventUuid === "curt-site-b" ? secondActiveDetail : firstActiveEvent,
+    }));
     mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
 
     const { result } = renderHook(() => useCurtailmentApi());
@@ -237,6 +255,12 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEventId).toBe("curt-site-a");
     expect(result.current.activeEvents.map((event) => event.id)).toEqual(["curt-site-a", "curt-site-b"]);
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-site-a", "curt-site-b"]);
+    expect(result.current.activeEvents[1]).toEqual(
+      expect.objectContaining({
+        selectedMiners: 3,
+        estimatedReductionKw: 9.5,
+      }),
+    );
   });
 
   it("maps full-fleet active events to full-fleet form values", async () => {
@@ -615,6 +639,45 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent?.state).toBe("completed");
     expect(result.current.historyStatusFilters).toEqual(["restoring"]);
     expect(result.current.historyEvents).toEqual([]);
+  });
+
+  it("preserves other active curtailments when the selected restoring event reconciles terminal", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-restoring",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const otherActiveEvent = curtailmentEvent({
+      eventUuid: "curt-other-active",
+      reason: "Other active event",
+      state: CurtailmentEventState.ACTIVE,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-restoring",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [restoringEvent, otherActiveEvent] });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-restoring");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.activeEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-restoring",
+        state: "completed",
+      }),
+      expect.objectContaining({
+        id: "curt-other-active",
+        state: "active",
+        reason: "Other active event",
+      }),
+    ]);
   });
 
   it("reconciles restoring state from terminal history without resetting the current page", async () => {

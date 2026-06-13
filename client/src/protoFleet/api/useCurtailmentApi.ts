@@ -661,7 +661,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             reconciliationEvents,
           );
           if (activeEvent !== activeSnapshot.event) {
-            applyActiveCurtailmentEvent(activeEvent);
+            applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
           }
           const nextSnapshot =
             activeEvent === previewActiveEvent

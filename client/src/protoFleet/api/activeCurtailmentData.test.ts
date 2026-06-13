@@ -16,8 +16,9 @@ import {
   CurtailmentEventState,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
-const { mockGetActiveCurtailment } = vi.hoisted(() => ({
+const { mockGetActiveCurtailment, mockGetCurtailmentEvent } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
+  mockGetCurtailmentEvent: vi.fn(),
 }));
 vi.mock("@/protoFleet/api/clients", () => {
   let activeEvents: CurtailmentEvent[] = [];
@@ -33,9 +34,10 @@ vi.mock("@/protoFleet/api/clients", () => {
         activeEvents = response.events ?? (response.event ? [response.event] : []);
         return { events: activeEvents };
       },
-      getCurtailmentEvent: async (request: { eventUuid: string }) => ({
-        event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
-      }),
+      getCurtailmentEvent: async (request: { eventUuid: string }, ...args: unknown[]) =>
+        (await mockGetCurtailmentEvent(request, ...args)) ?? {
+          event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
+        },
     },
   };
 });
@@ -52,6 +54,7 @@ describe("activeCurtailmentData", () => {
   beforeEach(() => {
     resetActiveCurtailmentData();
     vi.clearAllMocks();
+    mockGetCurtailmentEvent.mockReset();
   });
 
   it("keeps dismissed events suppressed when an older refresh is discarded", async () => {
@@ -150,6 +153,24 @@ describe("activeCurtailmentData", () => {
     await refreshActiveCurtailmentData();
 
     expect(getActiveCurtailmentSnapshot().event?.reason).toBe("Updated");
+  });
+
+  it("hydrates every listed active curtailment before committing the active list", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
+    const activeDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Detail A" });
+    const otherDetail = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Detail B" });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
+    mockGetCurtailmentEvent.mockImplementation(async ({ eventUuid }: { eventUuid: string }) => ({
+      event: eventUuid === "active-a" ? activeDetail : otherDetail,
+    }));
+
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.reason).toBe("Detail A");
+    expect(snapshot.events.map((event) => event.reason)).toEqual(["Detail A", "Detail B"]);
+    expect(mockGetCurtailmentEvent).toHaveBeenCalledTimes(2);
   });
 
   it("rejects a reset-aborted shared request as an AbortError", async () => {
