@@ -7,6 +7,7 @@ import {
   fetchActiveCurtailmentData,
   getActiveCurtailmentSnapshot,
   useActiveCurtailmentEvent,
+  useActiveCurtailmentEvents,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import { emitCurtailmentChanged } from "@/protoFleet/api/curtailmentEvents";
@@ -47,6 +48,7 @@ export interface RefreshCurtailmentOptions {
 
 interface CurtailmentSnapshot {
   activeEvent: ActiveCurtailmentEvent | null;
+  activeEvents: CurtailmentHistoryEvent[];
   activeEventId: string | null;
   activeEventFormValues: CurtailmentSubmitValues | null;
   historyEvents: CurtailmentHistoryEvent[];
@@ -109,6 +111,7 @@ const initialHistoryPagination: CurtailmentHistoryPaginationState = {
 };
 const initialCurtailmentSnapshot: CurtailmentSnapshot = {
   activeEvent: null,
+  activeEvents: [],
   activeEventId: null,
   activeEventFormValues: null,
   historyEvents: [],
@@ -182,7 +185,7 @@ function getActiveSnapshotEvent(activeEvent: ProtoCurtailmentEvent | undefined):
 
 function getActiveSnapshotFields(
   activeEvent: ProtoCurtailmentEvent | undefined,
-): Omit<CurtailmentSnapshot, "historyEvents"> {
+): Omit<CurtailmentSnapshot, "activeEvents" | "historyEvents"> {
   const nextActiveEvent = getActiveSnapshotEvent(activeEvent);
 
   return {
@@ -220,23 +223,64 @@ function getActiveHistoryEvent(
   };
 }
 
+function getActiveEventInputs(
+  activeEvents: ProtoCurtailmentEvent[],
+  selectedActiveEvent: ProtoCurtailmentEvent | undefined,
+): ProtoCurtailmentEvent[] {
+  if (!selectedActiveEvent) {
+    return activeEvents;
+  }
+
+  const selectedEventIndex = activeEvents.findIndex((event) => event.eventUuid === selectedActiveEvent.eventUuid);
+  if (selectedEventIndex === -1) {
+    return [selectedActiveEvent, ...activeEvents];
+  }
+
+  return activeEvents.map((event, index) => (index === selectedEventIndex ? selectedActiveEvent : event));
+}
+
+function getActiveHistoryEvents(
+  activeEvents: ProtoCurtailmentEvent[],
+  selectedActiveEvent: ProtoCurtailmentEvent | undefined,
+  historyEvents: CurtailmentHistoryEvent[],
+  stateFilters: readonly CurtailmentEventState[] = [],
+): CurtailmentHistoryEvent[] {
+  return getActiveEventInputs(activeEvents, selectedActiveEvent)
+    .filter((event) => shouldIncludeActiveEventInHistory(event, stateFilters))
+    .map((event) => getActiveHistoryEvent(event, historyEvents));
+}
+
 function createSnapshot(
   activeEvent: ProtoCurtailmentEvent | undefined,
+  activeEvents: ProtoCurtailmentEvent[],
   historyEvents: ProtoCurtailmentEvent[],
+  stateFilters: readonly CurtailmentEventState[] = [],
   includeActiveInHistory = true,
 ): CurtailmentSnapshot {
   const nextHistoryEvents = historyEvents.map(mapCurtailmentHistoryEvent);
+  const activeHistoryEvents = getActiveHistoryEvents(activeEvents, activeEvent, nextHistoryEvents);
 
-  if (includeActiveInHistory && activeEvent) {
-    const activeHistoryEvent = getActiveHistoryEvent(activeEvent, nextHistoryEvents);
+  if (includeActiveInHistory && activeHistoryEvents.length > 0) {
+    const filteredActiveHistoryEvents = getActiveHistoryEvents(
+      activeEvents,
+      activeEvent,
+      nextHistoryEvents,
+      stateFilters,
+    );
+    const filteredActiveEventIds = new Set(filteredActiveHistoryEvents.map((event) => event.id));
     return {
       ...getActiveSnapshotFields(activeEvent),
-      historyEvents: [activeHistoryEvent, ...nextHistoryEvents.filter((event) => event.id !== activeHistoryEvent.id)],
+      activeEvents: activeHistoryEvents,
+      historyEvents: [
+        ...filteredActiveHistoryEvents,
+        ...nextHistoryEvents.filter((event) => !filteredActiveEventIds.has(event.id)),
+      ],
     };
   }
 
   return {
     ...getActiveSnapshotFields(activeEvent),
+    activeEvents: activeHistoryEvents,
     historyEvents: nextHistoryEvents,
   };
 }
@@ -340,7 +384,8 @@ function removeInjectedActiveHistoryEvent(events: CurtailmentHistoryEvent[]): Cu
 
 function getHistoryEventsWithActiveEvent(
   events: CurtailmentHistoryEvent[],
-  activeEvent: ProtoCurtailmentEvent | undefined,
+  activeEvents: ProtoCurtailmentEvent[],
+  selectedActiveEvent: ProtoCurtailmentEvent | undefined,
   stateFilters: readonly CurtailmentEventState[],
   currentPage: number,
 ): CurtailmentHistoryEvent[] {
@@ -348,12 +393,16 @@ function getHistoryEventsWithActiveEvent(
     return events;
   }
 
-  if (!activeEvent || !shouldIncludeActiveEventInHistory(activeEvent, stateFilters)) {
+  const activeHistoryEvents = getActiveHistoryEvents(activeEvents, selectedActiveEvent, events, stateFilters);
+  if (activeHistoryEvents.length === 0) {
     return removeInjectedActiveHistoryEvent(events);
   }
 
-  const activeHistoryEvent = getActiveHistoryEvent(activeEvent, events);
-  return [activeHistoryEvent, ...events.filter((event) => event.id !== activeHistoryEvent.id && !event.injectedActive)];
+  const activeHistoryEventIds = new Set(activeHistoryEvents.map((event) => event.id));
+  return [
+    ...activeHistoryEvents,
+    ...events.filter((event) => !activeHistoryEventIds.has(event.id) && !event.injectedActive),
+  ];
 }
 
 function upsertHistoryEvent(
@@ -387,6 +436,7 @@ function getSafeNextPageToken(
 export function useCurtailmentApi(): UseCurtailmentApiResult {
   const { handleAuthErrors } = useAuthErrors();
   const activeCurtailmentEvent = useActiveCurtailmentEvent();
+  const activeCurtailmentEvents = useActiveCurtailmentEvents();
   const [snapshot, setSnapshot] = useState<CurtailmentSnapshot>(initialCurtailmentSnapshot);
   const [isLoading, setIsLoading] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -440,7 +490,8 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     (event: ProtoCurtailmentEvent) => {
       const state = mapCurtailmentEventState(event.state);
       const shouldShowActiveEvent = visibleActiveCurtailmentEventStates.has(state);
-      applyActiveCurtailmentEvent(shouldShowActiveEvent ? event : undefined, {
+      const activeSnapshot = applyActiveCurtailmentEvent(shouldShowActiveEvent ? event : undefined, {
+        mergeActiveEvents: true,
         preserveAgainstStaleRefresh: true,
       });
       const nextActiveEvent = shouldShowActiveEvent ? mapActiveCurtailmentEvent(event) : null;
@@ -451,6 +502,12 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       updateSnapshot((current) => ({
         activeEvent: nextActiveEvent,
+        activeEvents: getActiveHistoryEvents(
+          activeSnapshot.events,
+          activeSnapshot.event,
+          current.historyEvents,
+          activeStatusFilters,
+        ),
         activeEventId: nextActiveEvent ? event.eventUuid : null,
         activeEventFormValues: nextActiveEvent ? mapCurtailmentEventToFormValues(event) : null,
         historyEvents: shouldUpdateHistoryPage
@@ -569,6 +626,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           assertNotAborted(signal);
           const currentActiveEvent = getActiveCurtailmentSnapshot().event ?? fallbackActiveEvent;
           const previewActiveSnapshot = activeRefresh ?? getActiveCurtailmentSnapshot();
+          const previewActiveEvents = previewActiveSnapshot.events;
           const reconciliationBaseEvent = getRestoringEventForTerminalReconciliation(
             previewActiveSnapshot.event,
             currentActiveEvent,
@@ -586,7 +644,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           );
           const previewSnapshot = createSnapshot(
             previewActiveEvent,
+            previewActiveEvents,
             historyPageResponse.events,
+            stateFilters,
             historyPage === 0 && shouldIncludeActiveEventInHistory(previewActiveEvent, stateFilters),
           );
           if (requestId !== latestRefreshRequestIdRef.current) {
@@ -594,6 +654,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           }
 
           const activeSnapshot = activeRefresh ? activeRefresh.commit() : previewActiveSnapshot;
+          const activeEvents = activeSnapshot.events;
           const activeEvent = reconcileActiveEventWithTerminalFallback(
             activeSnapshot.event,
             currentActiveEvent,
@@ -607,7 +668,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
               ? previewSnapshot
               : createSnapshot(
                   activeEvent,
+                  activeEvents,
                   historyPageResponse.events,
+                  stateFilters,
                   historyPage === 0 && shouldIncludeActiveEventInHistory(activeEvent, stateFilters),
                 );
 
@@ -784,22 +847,34 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   }, [activeCurtailmentEvent]);
 
   const activeSnapshotFields = useMemo(() => getActiveSnapshotFields(activeCurtailmentEvent), [activeCurtailmentEvent]);
+  const activeHistoryEvents = useMemo(
+    () => getActiveHistoryEvents(activeCurtailmentEvents, activeCurtailmentEvent, snapshot.historyEvents),
+    [activeCurtailmentEvent, activeCurtailmentEvents, snapshot.historyEvents],
+  );
   const historyStatusFilter = historyStatusFilters[0];
   const historyEvents = useMemo(
     () =>
       getHistoryEventsWithActiveEvent(
         snapshot.historyEvents,
+        activeCurtailmentEvents,
         activeCurtailmentEvent,
         historyStatusFilters,
         historyPagination.currentPage,
       ),
-    [activeCurtailmentEvent, historyPagination.currentPage, historyStatusFilters, snapshot.historyEvents],
+    [
+      activeCurtailmentEvent,
+      activeCurtailmentEvents,
+      historyPagination.currentPage,
+      historyStatusFilters,
+      snapshot.historyEvents,
+    ],
   );
 
   return useMemo(
     () => ({
       ...snapshot,
       ...activeSnapshotFields,
+      activeEvents: activeHistoryEvents,
       historyEvents,
       isLoading,
       isStarting,
@@ -826,6 +901,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     }),
     [
       activeSnapshotFields,
+      activeHistoryEvents,
       goToHistoryPage,
       historyEvents,
       historyPagination.currentPage,

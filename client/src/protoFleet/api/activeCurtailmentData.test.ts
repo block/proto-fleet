@@ -19,7 +19,26 @@ import {
 const { mockGetActiveCurtailment } = vi.hoisted(() => ({
   mockGetActiveCurtailment: vi.fn(),
 }));
-vi.mock("@/protoFleet/api/clients", () => ({ curtailmentClient: { getActiveCurtailment: mockGetActiveCurtailment } }));
+vi.mock("@/protoFleet/api/clients", () => {
+  let activeEvents: CurtailmentEvent[] = [];
+
+  return {
+    curtailmentClient: {
+      getActiveCurtailment: mockGetActiveCurtailment,
+      listActiveCurtailments: async (...args: unknown[]) => {
+        const response = (await mockGetActiveCurtailment(...args)) as {
+          event?: CurtailmentEvent;
+          events?: CurtailmentEvent[];
+        };
+        activeEvents = response.events ?? (response.event ? [response.event] : []);
+        return { events: activeEvents };
+      },
+      getCurtailmentEvent: async (request: { eventUuid: string }) => ({
+        event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
+      }),
+    },
+  };
+});
 
 function curtailmentEvent(
   eventUuid: string,

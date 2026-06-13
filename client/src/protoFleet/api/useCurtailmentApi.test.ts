@@ -41,13 +41,28 @@ const {
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  curtailmentClient: {
-    getActiveCurtailment: mockGetActiveCurtailment,
-    listCurtailmentEvents: mockListCurtailmentEvents,
-    startCurtailment: mockStartCurtailment,
-    stopCurtailment: mockStopCurtailment,
-    updateCurtailmentEvent: mockUpdateCurtailment,
-  },
+  curtailmentClient: (() => {
+    let activeEvents: CurtailmentEvent[] = [];
+
+    return {
+      getActiveCurtailment: mockGetActiveCurtailment,
+      listActiveCurtailments: async (...args: unknown[]) => {
+        const response = (await mockGetActiveCurtailment(...args)) as {
+          event?: CurtailmentEvent;
+          events?: CurtailmentEvent[];
+        };
+        activeEvents = response.events ?? (response.event ? [response.event] : []);
+        return { events: activeEvents };
+      },
+      getCurtailmentEvent: async (request: { eventUuid: string }) => ({
+        event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
+      }),
+      listCurtailmentEvents: mockListCurtailmentEvents,
+      startCurtailment: mockStartCurtailment,
+      stopCurtailment: mockStopCurtailment,
+      updateCurtailmentEvent: mockUpdateCurtailment,
+    };
+  })(),
 }));
 
 vi.mock("@/protoFleet/store", () => ({
@@ -194,6 +209,34 @@ describe("useCurtailmentApi", () => {
         startedAt: "2026-05-01T12:00:00.000Z",
       }),
     );
+  });
+
+  it("lists multiple active curtailments while hydrating the selected detail", async () => {
+    const firstActiveEvent = curtailmentEvent({
+      eventUuid: "curt-site-a",
+      reason: "Site A event",
+    });
+    const secondActiveEvent = curtailmentEvent({
+      eventUuid: "curt-site-b",
+      reason: "Site B event",
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        pending: 3,
+        total: 3,
+      }),
+      targets: [],
+    });
+    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [firstActiveEvent, secondActiveEvent] });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-site-a");
+    expect(result.current.activeEvents.map((event) => event.id)).toEqual(["curt-site-a", "curt-site-b"]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-site-a", "curt-site-b"]);
   });
 
   it("maps full-fleet active events to full-fleet form values", async () => {

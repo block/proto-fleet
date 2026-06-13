@@ -25,7 +25,6 @@ import type {
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -150,6 +149,7 @@ function CurtailmentManagementPanel({
   const navigate = useNavigate();
   const {
     activeEvent,
+    activeEvents,
     activeEventId,
     activeEventFormValues,
     historyEvents,
@@ -179,10 +179,10 @@ function CurtailmentManagementPanel({
     () => responseProfiles.map(createCurtailmentResponseProfileOption),
     [responseProfiles],
   );
+  const activeEventIds = useMemo(() => activeEvents.map((event) => event.id), [activeEvents]);
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
-  const [showActiveCurtailmentDialog, setShowActiveCurtailmentDialog] = useState(false);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const foregroundRefreshInFlightRef = useRef(false);
@@ -192,8 +192,7 @@ function CurtailmentManagementPanel({
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
-  const activeEventState = activeEvent?.state;
-  const hasOngoingCurtailment = activeEventState ? nonTerminalActiveEventStates.has(activeEventState) : false;
+  const hasOngoingCurtailment = activeEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -260,14 +259,9 @@ function CurtailmentManagementPanel({
   }, []);
 
   const openCreateModal = useCallback(() => {
-    if (hasOngoingCurtailment) {
-      setShowActiveCurtailmentDialog(true);
-      return;
-    }
-
     setEditSession(null);
     setModalMode("create");
-  }, [hasOngoingCurtailment]);
+  }, []);
 
   const openEditModal = useCallback(() => {
     if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {
@@ -412,6 +406,7 @@ function CurtailmentManagementPanel({
 
           <CurtailmentHistory
             activeEventId={activeEventId ?? undefined}
+            activeEventIds={activeEventIds}
             events={historyEvents}
             pageSize={historyPageSize}
             currentPage={historyCurrentPage}
@@ -447,29 +442,6 @@ function CurtailmentManagementPanel({
           onCancel={() => setPendingStopConfirmation(null)}
           onConfirm={handleConfirmStop}
         />
-      ) : null}
-
-      {showActiveCurtailmentDialog ? (
-        <Dialog
-          open
-          title="Curtailment already active"
-          testId="active-curtailment-limit-dialog"
-          onDismiss={() => setShowActiveCurtailmentDialog(false)}
-          icon={
-            <DialogIcon intent="warning">
-              <Alert />
-            </DialogIcon>
-          }
-          buttons={[
-            {
-              text: "Got it",
-              variant: variants.primary,
-              onClick: () => setShowActiveCurtailmentDialog(false),
-            },
-          ]}
-        >
-          <div className="text-300 text-text-primary-70">You can only have one active curtailment at a time.</div>
-        </Dialog>
       ) : null}
     </section>
   );

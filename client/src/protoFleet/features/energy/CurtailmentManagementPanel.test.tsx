@@ -204,6 +204,7 @@ const historyEvent = { id: "curt-1" } as CurtailmentHistoryEvent;
 
 const emptySnapshot = {
   activeEvent: null,
+  activeEvents: [],
   activeEventId: null,
   activeEventFormValues: null,
   historyEvents: [],
@@ -212,6 +213,7 @@ const emptySnapshot = {
 function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseCurtailmentApiResult {
   return {
     activeEvent: null,
+    activeEvents: [],
     activeEventId: null,
     historyEvents: [],
     activeEventFormValues: null,
@@ -364,7 +366,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
   });
 
-  it("shows an active curtailment limit dialog instead of opening a new plan", async () => {
+  it("opens a new plan while a curtailment is already active", async () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
@@ -378,14 +380,8 @@ describe("CurtailmentManagementPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
-    expect(screen.getByTestId("active-curtailment-limit-dialog")).toBeInTheDocument();
-    expect(screen.getByText("Curtailment already active")).toBeInTheDocument();
-    expect(screen.getByText("You can only have one active curtailment at a time.")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "New curtailment" })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Got it" }));
-
-    await waitFor(() => expect(screen.queryByTestId("active-curtailment-limit-dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "New curtailment" })).toBeInTheDocument();
+    expect(screen.queryByTestId("active-curtailment-limit-dialog")).not.toBeInTheDocument();
     expect(mocks.startCurtailment).not.toHaveBeenCalled();
   });
 
@@ -449,6 +445,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
         activeEventId: "curt-1",
       }),
     );
@@ -498,6 +495,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
         activeEventId: "curt-1",
       }),
     );

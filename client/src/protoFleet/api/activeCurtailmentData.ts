@@ -5,13 +5,15 @@ import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
   CurtailmentEventSchema,
   CurtailmentEventState,
-  GetActiveCurtailmentRequestSchema,
+  GetCurtailmentEventRequestSchema,
+  ListActiveCurtailmentsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError } from "@/protoFleet/api/requestErrors";
 
 export interface ActiveCurtailmentSnapshot {
   event: ProtoCurtailmentEvent | undefined;
+  events: ProtoCurtailmentEvent[];
 }
 
 export interface RefreshActiveCurtailmentOptions {
@@ -19,6 +21,7 @@ export interface RefreshActiveCurtailmentOptions {
 }
 
 export interface ApplyActiveCurtailmentEventOptions {
+  mergeActiveEvents?: boolean;
   preserveAgainstStaleRefresh?: boolean;
 }
 
@@ -48,7 +51,9 @@ interface SetActiveCurtailmentSnapshotOptions {
   preserveAgainstStaleRefresh?: boolean;
 }
 
-const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined };
+const activeCurtailmentDetailTargetPageSize = 1000;
+
+const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined, events: [] };
 
 const useActiveCurtailmentDataStore = createStore<ActiveCurtailmentSnapshot>(() => initialSnapshot);
 
@@ -70,11 +75,50 @@ function areActiveCurtailmentSnapshotsEqual(
   current: ActiveCurtailmentSnapshot,
   next: ActiveCurtailmentSnapshot,
 ): boolean {
+  if (current.events.length !== next.events.length) {
+    return false;
+  }
+
+  if (!current.events.every((event, index) => equals(CurtailmentEventSchema, event, next.events[index]))) {
+    return false;
+  }
+
   if (!current.event || !next.event) {
     return current.event === next.event;
   }
 
   return equals(CurtailmentEventSchema, current.event, next.event);
+}
+
+function isListedActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+  return (
+    event.state === CurtailmentEventState.PENDING ||
+    event.state === CurtailmentEventState.ACTIVE ||
+    event.state === CurtailmentEventState.RESTORING
+  );
+}
+
+function mergeActiveCurtailmentEventList(
+  events: ProtoCurtailmentEvent[],
+  event: ProtoCurtailmentEvent,
+): ProtoCurtailmentEvent[] {
+  if (!isListedActiveCurtailmentEvent(event)) {
+    return events.filter((currentEvent) => currentEvent.eventUuid !== event.eventUuid);
+  }
+
+  const eventIndex = events.findIndex((currentEvent) => currentEvent.eventUuid === event.eventUuid);
+  if (eventIndex === -1) {
+    return [event, ...events];
+  }
+
+  return events.map((currentEvent, index) => (index === eventIndex ? event : currentEvent));
+}
+
+function removeActiveCurtailmentEventFromList(
+  events: ProtoCurtailmentEvent[],
+  eventUuid: string,
+): ProtoCurtailmentEvent[] {
+  return events.filter((event) => event.eventUuid !== eventUuid);
 }
 
 function shouldPreserveMutationBackedSnapshot(
@@ -112,8 +156,14 @@ function setActiveCurtailmentSnapshot(
     return getActiveCurtailmentSnapshot();
   }
 
-  if (snapshot.event?.eventUuid && snapshot.event.eventUuid === dismissedEventUuid) {
-    snapshot = initialSnapshot;
+  if (dismissedEventUuid) {
+    snapshot = {
+      event: snapshot.event?.eventUuid && snapshot.event.eventUuid === dismissedEventUuid ? undefined : snapshot.event,
+      events: removeActiveCurtailmentEventFromList(snapshot.events, dismissedEventUuid),
+    };
+    if (snapshot.event?.eventUuid) {
+      dismissedEventUuid = null;
+    }
   } else if (snapshot.event?.eventUuid) {
     dismissedEventUuid = null;
   }
@@ -141,19 +191,37 @@ function setActiveCurtailmentSnapshot(
 }
 
 export function getActiveCurtailmentSnapshot(): ActiveCurtailmentSnapshot {
-  const { event } = useActiveCurtailmentDataStore.getState();
-  return { event };
+  const { event, events } = useActiveCurtailmentDataStore.getState();
+  return { event, events };
 }
 
 export function useActiveCurtailmentEvent(): ProtoCurtailmentEvent | undefined {
   return useActiveCurtailmentDataStore((state) => state.event);
 }
 
+export function useActiveCurtailmentEvents(): ProtoCurtailmentEvent[] {
+  return useActiveCurtailmentDataStore((state) => state.events);
+}
+
 export function applyActiveCurtailmentEvent(
   event?: ProtoCurtailmentEvent,
   options: ApplyActiveCurtailmentEventOptions = {},
 ): ActiveCurtailmentSnapshot {
-  return setActiveCurtailmentSnapshot({ event }, undefined, options);
+  if (!event) {
+    return setActiveCurtailmentSnapshot(initialSnapshot, undefined, options);
+  }
+
+  return setActiveCurtailmentSnapshot(
+    {
+      event,
+      events: mergeActiveCurtailmentEventList(
+        options.mergeActiveEvents ? getActiveCurtailmentSnapshot().events : [],
+        event,
+      ),
+    },
+    undefined,
+    options,
+  );
 }
 
 export function dismissActiveCurtailmentEvent(eventUuid?: string | null): ActiveCurtailmentSnapshot {
@@ -167,17 +235,62 @@ function shouldPreserveTerminalActiveCurtailmentEvent(event: ProtoCurtailmentEve
   );
 }
 
-function getActiveCurtailmentSnapshotFromResponse(event?: ProtoCurtailmentEvent): ActiveCurtailmentResponseSnapshot {
+function getActiveCurtailmentSnapshotFromResponse(
+  event: ProtoCurtailmentEvent | undefined,
+  events: ProtoCurtailmentEvent[],
+): ActiveCurtailmentResponseSnapshot {
   if (event) {
-    return { snapshot: { event } };
+    return { snapshot: { event, events: mergeActiveCurtailmentEventList(events, event) } };
   }
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
   if (currentSnapshot.event && shouldPreserveTerminalActiveCurtailmentEvent(currentSnapshot.event)) {
-    return { snapshot: currentSnapshot };
+    return { snapshot: { event: currentSnapshot.event, events } };
   }
 
-  return { snapshot: initialSnapshot };
+  return { snapshot: { event: undefined, events } };
+}
+
+function getSelectedActiveCurtailmentSummary(events: ProtoCurtailmentEvent[]): ProtoCurtailmentEvent | undefined {
+  const currentEventUuid = getActiveCurtailmentSnapshot().event?.eventUuid;
+  if (!currentEventUuid) {
+    return events[0];
+  }
+
+  return events.find((event) => event.eventUuid === currentEventUuid) ?? events[0];
+}
+
+async function requestActiveCurtailmentDetail(
+  eventUuid: string,
+  signal: AbortSignal,
+): Promise<ProtoCurtailmentEvent | undefined> {
+  const response = await curtailmentClient.getCurtailmentEvent(
+    createMessage(GetCurtailmentEventRequestSchema, {
+      eventUuid,
+      targetPageSize: activeCurtailmentDetailTargetPageSize,
+    }),
+    { signal },
+  );
+  assertNotAborted(signal);
+  return response.event;
+}
+
+async function requestActiveCurtailmentResponseSnapshot(
+  signal: AbortSignal,
+): Promise<ActiveCurtailmentResponseSnapshot> {
+  const response = await curtailmentClient.listActiveCurtailments(
+    createMessage(ListActiveCurtailmentsRequestSchema, {}),
+    { signal },
+  );
+  assertNotAborted(signal);
+
+  const selectedEvent = getSelectedActiveCurtailmentSummary(response.events);
+  if (!selectedEvent) {
+    return getActiveCurtailmentSnapshotFromResponse(undefined, response.events);
+  }
+
+  const detailedEvent = await requestActiveCurtailmentDetail(selectedEvent.eventUuid, signal);
+  return getActiveCurtailmentSnapshotFromResponse(detailedEvent ?? selectedEvent, response.events);
 }
 
 function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest {
@@ -191,9 +304,7 @@ function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest
     settled: false,
     subscribers: 0,
     writeVersion: getNextWriteVersion(),
-    promise: curtailmentClient
-      .getActiveCurtailment(createMessage(GetActiveCurtailmentRequestSchema, {}), { signal: abortController.signal })
-      .then((response) => getActiveCurtailmentSnapshotFromResponse(response.event))
+    promise: requestActiveCurtailmentResponseSnapshot(abortController.signal)
       .catch((error) => {
         if (isAbortError(error, abortController.signal)) {
           throw new DOMException("The operation was aborted.", "AbortError");

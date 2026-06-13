@@ -19,9 +19,24 @@ const { mockGetActiveCurtailment, mockHandleAuthErrors, mockUseHasPermission } =
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  curtailmentClient: {
-    getActiveCurtailment: mockGetActiveCurtailment,
-  },
+  curtailmentClient: (() => {
+    let activeEvents: CurtailmentEvent[] = [];
+
+    return {
+      getActiveCurtailment: mockGetActiveCurtailment,
+      listActiveCurtailments: async (...args: unknown[]) => {
+        const response = (await mockGetActiveCurtailment(...args)) as {
+          event?: CurtailmentEvent;
+          events?: CurtailmentEvent[];
+        };
+        activeEvents = response.events ?? (response.event ? [response.event] : []);
+        return { events: activeEvents };
+      },
+      getCurtailmentEvent: async (request: { eventUuid: string }) => ({
+        event: activeEvents.find((event) => event.eventUuid === request.eventUuid),
+      }),
+    };
+  })(),
 }));
 
 vi.mock("@/protoFleet/store", () => ({
