@@ -77,6 +77,26 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
+  it("dismisses a terminal selected event without clearing other active curtailments", async () => {
+    const activeEvent = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE);
+    const restoredEvent = curtailmentEvent("restored-event", CurtailmentEventState.COMPLETED);
+
+    applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(restoredEvent, { mergeActiveEvents: true });
+
+    let snapshot = dismissActiveCurtailmentEvent(restoredEvent.eventUuid);
+
+    expect(snapshot.event?.eventUuid).toBe(activeEvent.eventUuid);
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
+
+    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [restoredEvent, activeEvent] });
+    await refreshActiveCurtailmentData();
+    snapshot = getActiveCurtailmentSnapshot();
+
+    expect(snapshot.event?.eventUuid).toBe(activeEvent.eventUuid);
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
+  });
+
   it("starts a fresh request after all shared request subscribers abort", async () => {
     mockGetActiveCurtailment
       .mockImplementationOnce(

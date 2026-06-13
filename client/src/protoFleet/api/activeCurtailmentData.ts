@@ -121,6 +121,41 @@ function removeActiveCurtailmentEventFromList(
   return events.filter((event) => event.eventUuid !== eventUuid);
 }
 
+function getNextSelectedActiveCurtailmentEvent(
+  event: ProtoCurtailmentEvent | undefined,
+  events: ProtoCurtailmentEvent[],
+  excludedEventUuid: string,
+): ProtoCurtailmentEvent | undefined {
+  if (event && event.eventUuid !== excludedEventUuid) {
+    return event;
+  }
+
+  return events[0];
+}
+
+function filterDismissedActiveCurtailmentEvent(
+  snapshot: ActiveCurtailmentSnapshot,
+  fromActiveRefresh: boolean,
+): ActiveCurtailmentSnapshot {
+  if (!dismissedEventUuid) {
+    return snapshot;
+  }
+
+  const filteredEventUuid = dismissedEventUuid;
+  const eventWasDismissed = snapshot.event?.eventUuid === filteredEventUuid;
+  const eventsHadDismissedEvent = snapshot.events.some((event) => event.eventUuid === filteredEventUuid);
+  const events = removeActiveCurtailmentEventFromList(snapshot.events, filteredEventUuid);
+
+  if (fromActiveRefresh && !eventWasDismissed && !eventsHadDismissedEvent) {
+    dismissedEventUuid = null;
+  }
+
+  return {
+    event: getNextSelectedActiveCurtailmentEvent(snapshot.event, events, filteredEventUuid),
+    events,
+  };
+}
+
 function shouldPreserveMutationBackedSnapshot(
   current: ActiveCurtailmentSnapshot,
   next: ActiveCurtailmentSnapshot,
@@ -156,17 +191,7 @@ function setActiveCurtailmentSnapshot(
     return getActiveCurtailmentSnapshot();
   }
 
-  if (dismissedEventUuid) {
-    snapshot = {
-      event: snapshot.event?.eventUuid && snapshot.event.eventUuid === dismissedEventUuid ? undefined : snapshot.event,
-      events: removeActiveCurtailmentEventFromList(snapshot.events, dismissedEventUuid),
-    };
-    if (snapshot.event?.eventUuid) {
-      dismissedEventUuid = null;
-    }
-  } else if (snapshot.event?.eventUuid) {
-    dismissedEventUuid = null;
-  }
+  snapshot = filterDismissedActiveCurtailmentEvent(snapshot, fromActiveRefresh);
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
   if (fromActiveRefresh && shouldPreserveMutationBackedSnapshot(currentSnapshot, snapshot, writeVersion)) {
@@ -225,8 +250,18 @@ export function applyActiveCurtailmentEvent(
 }
 
 export function dismissActiveCurtailmentEvent(eventUuid?: string | null): ActiveCurtailmentSnapshot {
-  dismissedEventUuid = eventUuid ?? getActiveCurtailmentSnapshot().event?.eventUuid ?? null;
-  return setActiveCurtailmentSnapshot(initialSnapshot);
+  const currentSnapshot = getActiveCurtailmentSnapshot();
+  const dismissedUuid = eventUuid ?? currentSnapshot.event?.eventUuid ?? null;
+  if (!dismissedUuid) {
+    return currentSnapshot;
+  }
+
+  dismissedEventUuid = dismissedUuid;
+  const events = removeActiveCurtailmentEventFromList(currentSnapshot.events, dismissedUuid);
+  return setActiveCurtailmentSnapshot({
+    event: getNextSelectedActiveCurtailmentEvent(currentSnapshot.event, events, dismissedUuid),
+    events,
+  });
 }
 
 function shouldPreserveTerminalActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
