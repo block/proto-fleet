@@ -44,6 +44,12 @@ export const primaryNavItems: NavItem[] = [
     requiredPermission: "curtailment:read",
   },
   {
+    path: "/firmware-rollouts",
+    label: "Firmware",
+    icon: Activity,
+    requiredPermission: "firmware:rollout_read",
+  },
+  {
     path: "/activity",
     label: "Activity",
     icon: Activity,
