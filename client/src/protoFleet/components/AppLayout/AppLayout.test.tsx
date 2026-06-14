@@ -12,6 +12,7 @@ import { useHasPermission } from "@/protoFleet/store";
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
+const mockUseFirmwareRolloutPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
@@ -40,6 +41,10 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useFirmwareRolloutPillData", () => ({
+  useFirmwareRolloutPillData: () => mockUseFirmwareRolloutPillData(),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -98,6 +103,7 @@ describe("AppLayout", () => {
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
+    mockUseFirmwareRolloutPillData.mockReturnValue({ activeRollouts: [] });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
     vi.mocked(useHasPermission).mockReturnValue(true);
   });
@@ -240,6 +246,22 @@ describe("AppLayout", () => {
   it("does not offset the phone content for active curtailment without read permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
+  });
+
+  it("keeps the base phone content offset when the only firmware rollout widget fits inline", () => {
+    mockUseFirmwareRolloutPillData.mockReturnValue({
+      activeRollouts: [{ rolloutId: "r1", name: "June update" }],
+    });
 
     render(
       <MemoryRouter>

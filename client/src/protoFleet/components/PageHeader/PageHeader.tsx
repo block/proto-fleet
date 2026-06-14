@@ -4,6 +4,7 @@ import clsx from "clsx";
 
 import CurtailmentPill from "./CurtailmentPill";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
+import FirmwareRolloutPill from "./FirmwareRolloutPill";
 import {
   getPhoneHeaderWidgetRowCount,
   getPhoneHeaderWidgetRowHeightClass,
@@ -14,6 +15,7 @@ import {
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import type { FirmwareRollout } from "@/protoFleet/api/generated/firmwarerollout/v1/firmwarerollout_pb";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
@@ -26,6 +28,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
   activeCurtailmentEvent?: CurtailmentPillEvent | null;
+  activeFirmwareRollouts?: FirmwareRollout[];
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
@@ -34,6 +37,7 @@ interface PageHeaderProps {
 interface HeaderWidgetsProps {
   activeCurtailmentEvent: CurtailmentPillEvent | null;
   align?: "start" | "end";
+  activeFirmwareRollouts: FirmwareRollout[];
   canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
@@ -45,11 +49,12 @@ interface HeaderWidgetsProps {
 }
 
 const headerWidgetEnabled = true;
-type HeaderWidgetKind = "curtailment" | "schedule" | "setup";
+type HeaderWidgetKind = "curtailment" | "firmware" | "schedule" | "setup";
 
 function HeaderWidgets({
   activeCurtailmentEvent,
   align = "start",
+  activeFirmwareRollouts,
   canReadCurtailment,
   className,
   dismissedSetup,
@@ -82,6 +87,10 @@ function HeaderWidgets({
             return activeCurtailmentEvent && canReadCurtailment ? (
               <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath={energyPath} />
             ) : null;
+          case "firmware":
+            return activeFirmwareRollouts.length > 0 ? (
+              <FirmwareRolloutPill key={widget} rollouts={activeFirmwareRollouts} />
+            ) : null;
           case "schedule":
             return pillSchedule ? (
               <SchedulePill
@@ -112,6 +121,7 @@ function HeaderWidgets({
 
 function PageHeader({
   activeCurtailmentEvent = null,
+  activeFirmwareRollouts = [],
   isMenuOpen,
   openMenu,
   schedulePillData,
@@ -142,20 +152,24 @@ function PageHeader({
 
   const headerWidgetsProps = {
     activeCurtailmentEvent,
+    activeFirmwareRollouts,
     canReadCurtailment,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     schedulePillData,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const hasVisibleFirmwareRolloutPill = activeFirmwareRollouts.length > 0;
   const headerWidgetKinds: HeaderWidgetKind[] = [
     ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
+    ...(hasVisibleFirmwareRolloutPill ? (["firmware"] as const) : []),
     ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
     ...(hasDismissedSetup ? (["setup"] as const) : []),
   ];
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
     hasVisibleCurtailmentPill,
+    hasVisibleFirmwareRolloutPill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
   });
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);

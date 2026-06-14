@@ -14,6 +14,7 @@ import {
   shouldStackPhoneHeaderWidgets,
 } from "@/protoFleet/components/PageHeader/headerWidgetLayout";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
+import { useFirmwareRolloutPillData } from "@/protoFleet/components/PageHeader/useFirmwareRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
@@ -34,12 +35,15 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
+  const { activeRollouts: activeFirmwareRollouts } = useFirmwareRolloutPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const hasVisibleFirmwareRolloutPill = activeFirmwareRollouts.length > 0;
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
     hasVisibleCurtailmentPill,
+    hasVisibleFirmwareRolloutPill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
   });
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
@@ -91,6 +95,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
         >
           <PageHeader
             activeCurtailmentEvent={activeCurtailmentEvent}
+            activeFirmwareRollouts={activeFirmwareRollouts}
             isMenuOpen={isMenuOpen}
             openMenu={() => setIsMenuOpen(true)}
             schedulePillData={schedulePillData}

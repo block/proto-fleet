@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import PageHeader from "./PageHeader";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import { FirmwareRolloutSchema } from "@/protoFleet/api/generated/firmwarerollout/v1/firmwarerollout_pb";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
@@ -21,6 +22,10 @@ vi.mock("./CurtailmentPill", () => ({
     mockCurtailmentPill(props);
     return <div>Curtailment pill</div>;
   },
+}));
+
+vi.mock("./FirmwareRolloutPill", () => ({
+  default: () => <div>Firmware rollout pill</div>,
 }));
 
 vi.mock("./SchedulePill", () => ({
@@ -141,6 +146,25 @@ describe("PageHeader", () => {
     );
 
     expect(screen.getByText("Night reboot")).toBeVisible();
+  });
+
+  it("shows an active firmware rollout as an inline phone widget", () => {
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          activeFirmwareRollouts={[
+            create(FirmwareRolloutSchema, {
+              rolloutId: "r1",
+              name: "June update",
+            }),
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(within(screen.getByTestId("page-header-inline-widgets")).getByText("Firmware rollout pill")).toBeVisible();
+    expect(screen.queryByTestId("phone-header-widget-row")).not.toBeInTheDocument();
   });
 
   it("places the first phone widget in the top row and stacks the remaining widgets", () => {
