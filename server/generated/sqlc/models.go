@@ -850,6 +850,7 @@ type FirmwareRollout struct {
 	LastBatchAt      sql.NullTime
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	MinerModel       string
 }
 
 type FirmwareRolloutAttempt struct {

@@ -564,6 +564,18 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	return result, err
 }
 
+func (q *retryingQuerier) CountActiveFirmwareRolloutsForModel(ctx context.Context, arg CountActiveFirmwareRolloutsForModelParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveFirmwareRolloutsForModel", func() error {
+		callResult, callErr := q.next.CountActiveFirmwareRolloutsForModel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveUnpairedDiscoveredDevices", func() error {

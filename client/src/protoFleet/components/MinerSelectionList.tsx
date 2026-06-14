@@ -119,6 +119,13 @@ export interface MinerSelectionListProps {
   eligibility?: MinerEligibility;
   // Label of the target rack, shown in the assignment-conflict dialog.
   targetRackLabel?: string;
+  /**
+   * Pins the list to a single miner model. The model filter is hidden and the
+   * server query always constrains to this model, so callers that require a
+   * single-model selection (e.g. firmware rollouts) cannot mix models. Remount
+   * the component (via `key`) when this value changes to reset selection.
+   */
+  lockedModel?: string;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -264,12 +271,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       scope,
       eligibility,
       targetRackLabel,
+      lockedModel,
       onSelectionChange,
     },
     ref,
   ) => {
     const {
-      showTypeFilter = true,
+      showTypeFilter: showTypeFilterProp = true,
       showRackFilter: showRackFilterProp = true,
       showGroupFilter = true,
       showSubnetFilter = false,
@@ -320,6 +328,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // toggle states — a facet that conflicts with the target rack's placement is
     // handled by the assignable-only empty state below, not by hiding.
     const showRackFilter = showRackFilterProp;
+    const showTypeFilter = showTypeFilterProp && !lockedModel;
     const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
     const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
 
@@ -329,7 +338,9 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // The user's facet selections (model / subnet / site / building / rack /
     // group). Site scope and eligibility are layered on top in the derived
     // `filter` below so applying a facet never drops those constraints.
-    const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [userFilter, setUserFilter] = useState(() =>
+      create(MinerListFilterSchema, lockedModel ? { models: [lockedModel] } : {}),
+    );
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -798,9 +809,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       async (activeFilters: ActiveFilters) => {
         const next = create(MinerListFilterSchema, { errorComponentTypes: [] });
 
-        const typeFilters = activeFilters.dropdownFilters.model;
-        if (typeFilters && typeFilters.length > 0) {
-          next.models.push(...typeFilters);
+        if (lockedModel) {
+          // The model filter is hidden when locked; always constrain to it.
+          next.models.push(lockedModel);
+        } else {
+          const typeFilters = activeFilters.dropdownFilters.model;
+          if (typeFilters && typeFilters.length > 0) {
+            next.models.push(...typeFilters);
+          }
         }
 
         if (showRackFilter) {
@@ -850,7 +866,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
         setUserFilter(next);
       },
-      [showRackFilter, showGroupFilter, showSiteFilter, showBuildingFilter, showSubnetFilter],
+      [lockedModel, showRackFilter, showGroupFilter, showSiteFilter, showBuildingFilter, showSubnetFilter],
     );
 
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;

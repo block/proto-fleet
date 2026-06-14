@@ -171,6 +171,7 @@ func rolloutProto(detail *domain.RolloutDetail) *pb.FirmwareRollout {
 		RolloutId:            row.RolloutUuid.String(),
 		Name:                 row.Name,
 		FirmwareFileId:       row.FirmwareFileID,
+		MinerModel:           row.MinerModel,
 		State:                rolloutStateProto(row.State),
 		TargetCount:          row.TargetCount,
 		BatchSize:            row.BatchSize,

@@ -36,7 +36,7 @@ SET state = 'canceled',
 WHERE rollout_uuid = $1
   AND org_id = $2
   AND state IN ('draft', 'running', 'paused')
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type CancelFirmwareRolloutParams struct {
@@ -65,6 +65,7 @@ func (q *Queries) CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareR
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -133,12 +134,38 @@ func (q *Queries) ClaimFirmwareRolloutTargetsForDispatch(ctx context.Context, ar
 	return items, nil
 }
 
+const countActiveFirmwareRolloutsForModel = `-- name: CountActiveFirmwareRolloutsForModel :one
+SELECT COUNT(*)
+FROM firmware_rollout
+WHERE org_id = $1
+  AND miner_model = $2
+  AND state IN ('draft', 'running', 'paused')
+  AND rollout_uuid <> $3
+`
+
+type CountActiveFirmwareRolloutsForModelParams struct {
+	OrgID       int64
+	MinerModel  string
+	ExcludeUuid uuid.UUID
+}
+
+// CountActiveFirmwareRolloutsForModel returns how many non-terminal
+// (draft/running/paused) rollouts target the given model, excluding one rollout
+// by UUID. Pass the nil UUID to count all of them (e.g. on create).
+func (q *Queries) CountActiveFirmwareRolloutsForModel(ctx context.Context, arg CountActiveFirmwareRolloutsForModelParams) (int64, error) {
+	row := q.queryRow(ctx, q.countActiveFirmwareRolloutsForModelStmt, countActiveFirmwareRolloutsForModel, arg.OrgID, arg.MinerModel, arg.ExcludeUuid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 INSERT INTO firmware_rollout (
     rollout_uuid,
     org_id,
     name,
     firmware_file_id,
+    miner_model,
     state,
     batch_size,
     batch_interval_sec,
@@ -150,14 +177,15 @@ INSERT INTO firmware_rollout (
     $2,
     $3,
     $4,
-    'draft',
     $5,
+    'draft',
     $6,
     $7,
     $8,
-    $9
+    $9,
+    $10
 )
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type CreateFirmwareRolloutParams struct {
@@ -165,6 +193,7 @@ type CreateFirmwareRolloutParams struct {
 	OrgID            int64
 	Name             string
 	FirmwareFileID   string
+	MinerModel       string
 	BatchSize        int32
 	BatchIntervalSec int32
 	ScopeType        string
@@ -178,6 +207,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		arg.OrgID,
 		arg.Name,
 		arg.FirmwareFileID,
+		arg.MinerModel,
 		arg.BatchSize,
 		arg.BatchIntervalSec,
 		arg.ScopeType,
@@ -203,6 +233,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -240,7 +271,7 @@ func (q *Queries) FirmwareRolloutHasPendingOrInProgressTargets(ctx context.Conte
 }
 
 const getFirmwareRolloutByUUID = `-- name: GetFirmwareRolloutByUUID :one
-SELECT id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+SELECT id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 FROM firmware_rollout
 WHERE rollout_uuid = $1
   AND org_id = $2
@@ -272,6 +303,7 @@ func (q *Queries) GetFirmwareRolloutByUUID(ctx context.Context, arg GetFirmwareR
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -587,7 +619,7 @@ func (q *Queries) ListFirmwareRolloutTargets(ctx context.Context, arg ListFirmwa
 }
 
 const listFirmwareRolloutsByOrg = `-- name: ListFirmwareRolloutsByOrg :many
-SELECT id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+SELECT id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 FROM firmware_rollout
 WHERE org_id = $1
   AND (
@@ -637,6 +669,7 @@ func (q *Queries) ListFirmwareRolloutsByOrg(ctx context.Context, arg ListFirmwar
 			&i.LastBatchAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.MinerModel,
 		); err != nil {
 			return nil, err
 		}
@@ -652,7 +685,7 @@ func (q *Queries) ListFirmwareRolloutsByOrg(ctx context.Context, arg ListFirmwar
 }
 
 const listRunnableFirmwareRollouts = `-- name: ListRunnableFirmwareRollouts :many
-SELECT id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+SELECT id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 FROM firmware_rollout
 WHERE state = 'running'
 ORDER BY started_at, id
@@ -686,6 +719,7 @@ func (q *Queries) ListRunnableFirmwareRollouts(ctx context.Context, limit int32)
 			&i.LastBatchAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.MinerModel,
 		); err != nil {
 			return nil, err
 		}
@@ -864,7 +898,7 @@ SET state = $3,
 WHERE id = $1
   AND org_id = $2
   AND state = 'running'
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type MarkFirmwareRolloutTerminalParams struct {
@@ -894,6 +928,7 @@ func (q *Queries) MarkFirmwareRolloutTerminal(ctx context.Context, arg MarkFirmw
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -904,7 +939,7 @@ SET state = 'paused'
 WHERE rollout_uuid = $1
   AND org_id = $2
   AND state = 'running'
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type PauseFirmwareRolloutParams struct {
@@ -933,6 +968,7 @@ func (q *Queries) PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRol
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -944,7 +980,7 @@ SET state = 'running',
 WHERE id = $1
   AND org_id = $2
   AND state IN ('paused', 'completed_with_failures')
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type ReopenFirmwareRolloutForRetryParams struct {
@@ -973,6 +1009,7 @@ func (q *Queries) ReopenFirmwareRolloutForRetry(ctx context.Context, arg ReopenF
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -999,7 +1036,7 @@ SET state = 'running'
 WHERE rollout_uuid = $1
   AND org_id = $2
   AND state = 'paused'
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type ResumeFirmwareRolloutParams struct {
@@ -1028,6 +1065,7 @@ func (q *Queries) ResumeFirmwareRollout(ctx context.Context, arg ResumeFirmwareR
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }
@@ -1040,7 +1078,7 @@ SET state = 'running',
 WHERE id = $1
   AND org_id = $2
   AND state = 'draft'
-RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at
+RETURNING id, rollout_uuid, org_id, name, firmware_file_id, state, target_count, batch_size, batch_interval_sec, scope_type, scope_jsonb, created_by, started_at, ended_at, last_batch_at, created_at, updated_at, miner_model
 `
 
 type StartFirmwareRolloutParams struct {
@@ -1070,6 +1108,7 @@ func (q *Queries) StartFirmwareRollout(ctx context.Context, arg StartFirmwareRol
 		&i.LastBatchAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MinerModel,
 	)
 	return i, err
 }

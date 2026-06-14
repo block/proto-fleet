@@ -171,6 +171,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
 	}
+	if q.countActiveFirmwareRolloutsForModelStmt, err = db.PrepareContext(ctx, countActiveFirmwareRolloutsForModel); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveFirmwareRolloutsForModel: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -1865,6 +1868,11 @@ func (q *Queries) Close() error {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
 		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActiveFirmwareRolloutsForModelStmt != nil {
+		if cerr := q.countActiveFirmwareRolloutsForModelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveFirmwareRolloutsForModelStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -4365,6 +4373,7 @@ type Queries struct {
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
+	countActiveFirmwareRolloutsForModelStmt                      *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	countActivityLogsStmt                                        *sql.Stmt
 	countBuildingsBySiteStmt                                     *sql.Stmt
@@ -4902,6 +4911,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveFirmwareRolloutsForModelStmt:                      q.countActiveFirmwareRolloutsForModelStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                        q.countActivityLogsStmt,
 		countBuildingsBySiteStmt:                                     q.countBuildingsBySiteStmt,

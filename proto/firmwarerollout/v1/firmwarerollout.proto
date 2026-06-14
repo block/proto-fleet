@@ -63,6 +63,8 @@ message FirmwareRollout {
   google.protobuf.Timestamp started_at = 11;
   google.protobuf.Timestamp ended_at = 12;
   FirmwareRolloutCounts counts = 13;
+  // All targeted miners share this model; mixed-model rollouts are rejected.
+  string miner_model = 14;
 }
 
 message FirmwareRolloutTarget {
@@ -92,6 +94,9 @@ message CreateFirmwareRolloutRequest {
   common.v1.DeviceSelector device_selector = 3 [(buf.validate.field).required = true];
   int32 batch_size = 4 [(buf.validate.field).int32 = {gte: 1, lte: 5000}];
   int32 batch_interval_seconds = 5 [(buf.validate.field).int32 = {gte: 0, lte: 86400}];
+  // Required: every targeted miner must be this model. The server rejects
+  // any selected device whose model differs.
+  string miner_model = 6 [(buf.validate.field).string.min_len = 1];
 }
 
 message CreateFirmwareRolloutResponse {

@@ -16,6 +16,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/firmwarerollout/v1"
+	fmpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -45,6 +46,16 @@ const (
 	defaultBatchSize       = int32(25)
 	defaultIntervalSeconds = int32(300)
 )
+
+// errActiveRolloutExists is a sentinel used inside transactions to signal that
+// the model already has a non-terminal rollout, so only one rollout per model
+// can be active at a time.
+var errActiveRolloutExists = errors.New("active firmware rollout already exists for model")
+
+func newActiveRolloutError(minerModel string) error {
+	return fleeterror.NewFailedPreconditionErrorf(
+		"an active firmware rollout already exists for model %q; finish or abort it before starting another", minerModel)
+}
 
 type Service struct {
 	conn        *sql.DB
@@ -81,6 +92,10 @@ func (s *Service) Create(ctx context.Context, req *pb.CreateFirmwareRolloutReque
 	if name == "" {
 		return nil, fleeterror.NewInvalidArgumentError("name is required")
 	}
+	minerModel := strings.TrimSpace(req.GetMinerModel())
+	if minerModel == "" {
+		return nil, fleeterror.NewInvalidArgumentError("miner_model is required")
+	}
 	if _, err := s.files.GetFirmwareFilePath(req.GetFirmwareFileId()); err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid firmware_file_id: %v", err)
 	}
@@ -102,11 +117,23 @@ func (s *Service) Create(ctx context.Context, req *pb.CreateFirmwareRolloutReque
 	}
 
 	row, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.FirmwareRollout, error) {
+		active, err := q.CountActiveFirmwareRolloutsForModel(ctx, sqlc.CountActiveFirmwareRolloutsForModelParams{
+			OrgID:       info.OrganizationID,
+			MinerModel:  minerModel,
+			ExcludeUuid: uuid.Nil,
+		})
+		if err != nil {
+			return sqlc.FirmwareRollout{}, err
+		}
+		if active > 0 {
+			return sqlc.FirmwareRollout{}, errActiveRolloutExists
+		}
 		return q.CreateFirmwareRollout(ctx, sqlc.CreateFirmwareRolloutParams{
 			RolloutUuid:      uuid.New(),
 			OrgID:            info.OrganizationID,
 			Name:             name,
 			FirmwareFileID:   req.GetFirmwareFileId(),
+			MinerModel:       minerModel,
 			BatchSize:        batchSize,
 			BatchIntervalSec: intervalSec,
 			ScopeType:        scopeType,
@@ -115,6 +142,9 @@ func (s *Service) Create(ctx context.Context, req *pb.CreateFirmwareRolloutReque
 		})
 	})
 	if err != nil {
+		if errors.Is(err, errActiveRolloutExists) {
+			return nil, newActiveRolloutError(minerModel)
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to create firmware rollout: %v", err)
 	}
 	s.logEvent(ctx, row.ID, "created", "Created firmware rollout", map[string]any{
@@ -136,7 +166,7 @@ func (s *Service) Start(ctx context.Context, rolloutID string) (*RolloutDetail, 
 	if rollout.State != StateDraft {
 		return nil, fleeterror.NewFailedPreconditionError("firmware rollout must be draft to start")
 	}
-	targets, err := s.resolveTargets(ctx, info.OrganizationID, rollout.ScopeJsonb)
+	targets, err := s.resolveTargets(ctx, info.OrganizationID, rollout.MinerModel, rollout.ScopeJsonb)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +174,17 @@ func (s *Service) Start(ctx context.Context, rolloutID string) (*RolloutDetail, 
 		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 	}
 	row, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.FirmwareRollout, error) {
+		active, err := q.CountActiveFirmwareRolloutsForModel(ctx, sqlc.CountActiveFirmwareRolloutsForModelParams{
+			OrgID:       info.OrganizationID,
+			MinerModel:  rollout.MinerModel,
+			ExcludeUuid: rollout.RolloutUuid,
+		})
+		if err != nil {
+			return sqlc.FirmwareRollout{}, err
+		}
+		if active > 0 {
+			return sqlc.FirmwareRollout{}, errActiveRolloutExists
+		}
 		started, err := q.StartFirmwareRollout(ctx, sqlc.StartFirmwareRolloutParams{
 			ID:          rollout.ID,
 			OrgID:       info.OrganizationID,
@@ -163,6 +204,9 @@ func (s *Service) Start(ctx context.Context, rolloutID string) (*RolloutDetail, 
 		return started, nil
 	})
 	if err != nil {
+		if errors.Is(err, errActiveRolloutExists) {
+			return nil, newActiveRolloutError(rollout.MinerModel)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewFailedPreconditionError("firmware rollout must be draft to start")
 		}
@@ -235,6 +279,18 @@ func (s *Service) RetryFailed(ctx context.Context, rolloutID string) (*RolloutDe
 	}
 	var retried int64
 	updated, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.FirmwareRollout, error) {
+		// Retrying a terminal rollout reactivates it, so honor the one-active-per-model rule.
+		active, err := q.CountActiveFirmwareRolloutsForModel(ctx, sqlc.CountActiveFirmwareRolloutsForModelParams{
+			OrgID:       info.OrganizationID,
+			MinerModel:  row.MinerModel,
+			ExcludeUuid: row.RolloutUuid,
+		})
+		if err != nil {
+			return sqlc.FirmwareRollout{}, err
+		}
+		if active > 0 {
+			return sqlc.FirmwareRollout{}, errActiveRolloutExists
+		}
 		count, err := q.ResetFailedFirmwareRolloutTargetsForRetry(ctx, row.ID)
 		if err != nil {
 			return sqlc.FirmwareRollout{}, err
@@ -246,6 +302,9 @@ func (s *Service) RetryFailed(ctx context.Context, rolloutID string) (*RolloutDe
 		return q.ReopenFirmwareRolloutForRetry(ctx, sqlc.ReopenFirmwareRolloutForRetryParams{ID: row.ID, OrgID: row.OrgID})
 	})
 	if err != nil {
+		if errors.Is(err, errActiveRolloutExists) {
+			return nil, 0, newActiveRolloutError(row.MinerModel)
+		}
 		return nil, 0, err
 	}
 	s.logEvent(ctx, row.ID, "retry_started", "Retried failed firmware rollout targets", map[string]any{"retried_count": retried})
@@ -407,27 +466,41 @@ func (s *Service) transitionByUUID(ctx context.Context, rolloutID, verb string, 
 	return row, nil
 }
 
-func (s *Service) resolveTargets(ctx context.Context, orgID int64, scopeJSON json.RawMessage) ([]string, error) {
+// resolveTargets scopes selection to a single miner model. The allowed set is
+// the org's paired devices of that model; a device_list selector must be a
+// subset of it (mixed-model selections are rejected) and an all_devices
+// selector resolves to the full model set.
+func (s *Service) resolveTargets(ctx context.Context, orgID int64, minerModel string, scopeJSON json.RawMessage) ([]string, error) {
 	var selector commonpb.DeviceSelector
 	if err := protojson.Unmarshal(scopeJSON, &selector); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to decode firmware rollout scope: %v", err)
+	}
+	allowed, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &stores.MinerFilter{
+		ModelNames:      []string{minerModel},
+		PairingStatuses: []fmpb.PairingStatus{fmpb.PairingStatus_PAIRING_STATUS_PAIRED},
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to resolve miners for model %q: %v", minerModel, err)
+	}
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, id := range allowed {
+		allowedSet[id] = struct{}{}
 	}
 	if list := selector.GetDeviceList(); list != nil {
 		ids := dedupeStrings(list.DeviceIdentifiers)
 		if len(ids) == 0 {
 			return nil, nil
 		}
-		ok, err := s.deviceStore.AllDevicesBelongToOrg(ctx, ids, orgID)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, fleeterror.NewForbiddenErrorf("one or more selected devices do not belong to this organization")
+		for _, id := range ids {
+			if _, ok := allowedSet[id]; !ok {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"all selected miners must be model %q", minerModel)
+			}
 		}
 		return ids, nil
 	}
 	if selector.GetAllDevices() {
-		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, nil)
+		return allowed, nil
 	}
 	return nil, fleeterror.NewInvalidArgumentError("unsupported device selector")
 }
