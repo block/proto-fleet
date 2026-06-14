@@ -10,11 +10,9 @@ import {
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore } from "@/protoOS/store";
-import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 
 const useHardware = () => {
   const { api } = useMinerHosting();
-  const authRetry = useAuthRetry();
   const [data, setData] = useState<HardwareInfoHardwareinfo>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -27,9 +25,9 @@ const useHardware = () => {
     if (!api) return;
 
     setPending(true);
-    authRetry({
-      request: (params) => api.getHardware(params),
-      onSuccess: (res) => {
+    api
+      .getHardware()
+      .then((res) => {
         const responseData = res?.data["hardware-info"];
         setData(responseData);
         setControlBoardInfo(responseData?.["cb-info"]);
@@ -75,12 +73,12 @@ const useHardware = () => {
           return fansBySlot.get(slot) || null;
         });
         setFansInfo(allFans);
-      },
-      onError: (err) => setError(err?.error?.message ?? "An error occurred"),
-    }).finally(() => {
-      setPending(false);
-    });
-  }, [api, authRetry]);
+      })
+      .catch((err) => setError(err?.error?.message ?? "An error occurred"))
+      .finally(() => {
+        setPending(false);
+      });
+  }, [api]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern

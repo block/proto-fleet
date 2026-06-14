@@ -13,7 +13,7 @@ This simulator allows the fleet management system to be tested without physical 
 
 - Stateful simulation of mining state, pools, and configuration
 - Realistic telemetry data with random variation
-- Authentication: protected REST endpoints require a Bearer token (access token from `/api/v1/auth/login` or a paired EdDSA JWT), with a small public surface for login, password setup, system status, network info, and pairing discovery
+- Authentication: protected REST endpoints require a Bearer token (access token from `/api/v1/auth/login` or a paired EdDSA JWT), with a small public surface for login, password setup, system status, network info, hardware discovery, and pairing discovery
 - Error injection via environment variables
 - REST API for both ProtoFleet plugin and ProtoOS dashboard
 
@@ -86,6 +86,12 @@ curl http://localhost:8080/api/v1/system/status
 # Network info
 curl http://localhost:8080/api/v1/network
 
+# Hardware discovery
+curl http://localhost:8080/api/v1/hardware
+curl http://localhost:8080/api/v1/hashboards
+curl http://localhost:8080/api/v1/hardware/psus
+curl http://localhost:8080/api/v1/power-supplies
+
 # Pairing info
 curl http://localhost:8080/api/v1/pairing/info
 ```
@@ -106,12 +112,24 @@ curl http://localhost:8080/api/v1/mining \
 curl http://localhost:8080/api/v1/pools \
   -H "Authorization: Bearer ${TOKEN}"
 
-# Hardware info
-curl http://localhost:8080/api/v1/hardware \
-  -H "Authorization: Bearer ${TOKEN}"
-
 # Telemetry data
 curl "http://localhost:8080/api/v1/telemetry?level=miner" \
+  -H "Authorization: Bearer ${TOKEN}"
+```
+
+Locator LED requests require bearer auth:
+
+```bash
+# Blink for 30 seconds
+curl -X POST "http://localhost:8080/api/v1/system/locate?led_on_time=30" \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Keep locating until disabled
+curl -X POST "http://localhost:8080/api/v1/system/locate?led_on_time=0" \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Disable locate mode
+curl -X POST "http://localhost:8080/api/v1/system/locate?enable=false" \
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
@@ -122,8 +140,11 @@ curl "http://localhost:8080/api/v1/telemetry?level=miner" \
 - `/api/v1/mining/target` - Power target (GET, PUT)
 - `/api/v1/mining/start`, `/api/v1/mining/stop` - Mining control (POST)
 - `/api/v1/system` - System information (GET)
-- `/api/v1/hardware` - Hardware info (GET)
-- `/api/v1/hashboards` - Hashboard stats (GET)
+- `/api/v1/hardware` - Hardware info (GET, public)
+- `/api/v1/hardware/psus` - PSU hardware info (GET, public)
+- `/api/v1/hashboards` - Hashboard hardware info (GET, public)
+- `/api/v1/power-supplies` - PSU telemetry/status (GET, public)
+- `/api/v1/system/locate` - Locator LED control (POST; `led_on_time=0` or negative values persist until `enable=false`)
 - `/api/v1/cooling` - Cooling status and control (GET, PUT)
 - `/api/v1/network` - Network configuration (GET, PUT)
 - `/api/v1/telemetry` - Telemetry data (GET)

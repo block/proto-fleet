@@ -1491,16 +1491,25 @@ func (h *RESTApiHandler) handleLocate(w http.ResponseWriter, r *http.Request) {
 		enable = parsedEnable
 	}
 
-	// `led_on_time` is part of the MDK contract. The simulator does not model the
-	// duration, but it accepts and validates the query parameter for compatibility.
+	ledOnTimeSeconds := 0
 	if ledOnTime := query.Get("led_on_time"); enable && ledOnTime != "" {
-		if _, err := strconv.Atoi(ledOnTime); err != nil {
+		parsedLedOnTime, err := strconv.Atoi(ledOnTime)
+		if err != nil {
 			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "led_on_time must be an integer")
 			return
 		}
+		if parsedLedOnTime > 0 {
+			ledOnTimeSeconds = parsedLedOnTime
+		}
 	}
 
-	h.state.SetLocateActive(enable)
+	sequence := h.state.SetLocateActive(enable)
+	if enable && ledOnTimeSeconds > 0 {
+		go func() {
+			time.Sleep(time.Duration(ledOnTimeSeconds) * time.Second)
+			h.state.ClearLocateActiveIfSequence(sequence)
+		}()
+	}
 
 	message := "Locate sequence activated"
 	if !enable {

@@ -1571,7 +1571,7 @@ func TestHandleLocate_EmptyBodyIsIdempotent(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
 	}
-	if !state.LocateActive {
+	if !state.IsLocateActive() {
 		t.Fatal("expected locate mode to remain active")
 	}
 }
@@ -1587,7 +1587,7 @@ func TestHandleLocate_InvalidLedOnTime_Returns400(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
 	}
-	if state.LocateActive {
+	if state.IsLocateActive() {
 		t.Fatal("expected locate mode to remain inactive on invalid input")
 	}
 }
@@ -1604,7 +1604,7 @@ func TestHandleLocate_EnableFalseClearsLocateMode(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
 	}
-	if state.LocateActive {
+	if state.IsLocateActive() {
 		t.Fatal("expected locate mode to be inactive")
 	}
 }
@@ -1620,9 +1620,83 @@ func TestHandleLocate_InvalidEnable_Returns400(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
 	}
-	if state.LocateActive {
+	if state.IsLocateActive() {
 		t.Fatal("expected locate mode to remain inactive on invalid input")
 	}
+}
+
+func TestHandleLocate_TimedLedOnTimeClearsLocateMode(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	if !state.IsLocateActive() {
+		t.Fatal("expected locate mode to become active")
+	}
+	waitForLocateState(t, state, false, 1500*time.Millisecond)
+}
+
+func TestHandleLocate_ZeroOrNegativeLedOnTimePersists(t *testing.T) {
+	for _, ledOnTime := range []string{"0", "-5"} {
+		t.Run("led_on_time="+ledOnTime, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			h := NewRESTApiHandler(state)
+
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time="+ledOnTime, nil)
+			h.handleLocate(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+			}
+			time.Sleep(50 * time.Millisecond)
+			if !state.IsLocateActive() {
+				t.Fatal("expected locate mode to persist")
+			}
+		})
+	}
+}
+
+func TestHandleLocate_TimedRequestDoesNotClearLaterPersistentMode(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	timedRR := httptest.NewRecorder()
+	timedReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
+	h.handleLocate(timedRR, timedReq)
+	if timedRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, timedRR.Code, timedRR.Body.String())
+	}
+
+	persistentRR := httptest.NewRecorder()
+	persistentReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=0", nil)
+	h.handleLocate(persistentRR, persistentReq)
+	if persistentRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, persistentRR.Code, persistentRR.Body.String())
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	if !state.IsLocateActive() {
+		t.Fatal("expected later persistent locate mode to remain active")
+	}
+}
+
+func waitForLocateState(t *testing.T, state *MinerState, want bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if state.IsLocateActive() == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for locate active=%v", want)
 }
 
 func TestHandleMining_UsesCanonicalStateStrings(t *testing.T) {

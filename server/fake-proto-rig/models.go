@@ -175,7 +175,8 @@ type MinerState struct {
 	StartTime time.Time
 
 	// Locate sequence active
-	LocateActive bool
+	LocateActive   bool
+	LocateSequence uint64
 
 	// Telemetry-service running state (toggled via PUT /api/v1/system/telemetry)
 	TelemetryEnabled bool
@@ -565,11 +566,34 @@ func (s *MinerState) SetTuningAlgorithm(algo TuningAlgorithm) {
 	s.TuningAlgorithmVal = algo
 }
 
-// SetLocateActive sets the locate sequence active state.
-func (s *MinerState) SetLocateActive(active bool) {
+// SetLocateActive sets the locate sequence active state and returns the new
+// sequence number. Timed locate requests use this to keep stale timers from
+// clearing newer locate requests.
+func (s *MinerState) SetLocateActive(active bool) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.LocateActive = active
+	s.LocateSequence++
+	return s.LocateSequence
+}
+
+// ClearLocateActiveIfSequence clears the locate sequence if no newer locate
+// request has superseded the timer that is firing.
+func (s *MinerState) ClearLocateActiveIfSequence(sequence uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.LocateSequence != sequence {
+		return
+	}
+	s.LocateActive = false
+	s.LocateSequence++
+}
+
+// IsLocateActive reports whether the locate sequence is currently active.
+func (s *MinerState) IsLocateActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.LocateActive
 }
 
 // IsTelemetryEnabled reports whether the telemetry-service is running.
