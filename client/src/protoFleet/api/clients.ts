@@ -14,6 +14,7 @@ import { BuildingService } from "@/protoFleet/api/generated/buildings/v1/buildin
 import { CurtailmentService } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { FirmwareRolloutService } from "@/protoFleet/api/generated/firmwarerollout/v1/firmwarerollout_pb";
 import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { FleetNodeAdminService } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
@@ -35,6 +36,7 @@ const authClient = createClient(AuthService, transport);
 const authzClient = createClient(AuthzService, transport);
 const curtailmentClient = createClient(CurtailmentService, transport);
 const errorQueryClient = createClient(ErrorQueryService, transport);
+const firmwareRolloutClient = createClient(FirmwareRolloutService, transport);
 const networkInfoClient = createClient(NetworkInfoService, transport);
 const pairingClient = createClient(PairingService, transport);
 const fleetManagementClient = createClient(FleetManagementService, transport);
@@ -69,6 +71,7 @@ export {
   curtailmentClient,
   deviceSetClient,
   errorQueryClient,
+  firmwareRolloutClient,
   networkInfoClient,
   pairingClient,
   fleetManagementClient,

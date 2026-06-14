@@ -10,6 +10,7 @@ import {
   importBuildingPage,
   importDashboard,
   importEnergyPage,
+  importFirmwareRolloutsPage,
   importFleetBuildingsPage,
   importFleetDown,
   importFleetInfraPage,
@@ -67,6 +68,7 @@ const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
 const ActivityPage = lazy(importActivityPage);
 const EnergyPage = lazy(importEnergyPage);
+const FirmwareRolloutsPage = lazy(importFirmwareRolloutsPage);
 const ServerLogsPage = lazy(importServerLogsPage);
 const GroupsPage = lazy(importGroupsPage);
 const GroupOverviewPage = lazy(importGroupOverviewPage);
@@ -251,6 +253,9 @@ const router = createBrowserRouter([
   { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
+
+  // Firmware rollouts
+  createRoute("/firmware-rollouts", <FirmwareRolloutsPage />),
 
   // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
   // wraps the parent Outlet so it stays mounted across tab navigations — the

@@ -18,6 +18,8 @@ export const importDashboard = () => import("@/protoFleet/features/dashboard/pag
 export const importMiners = () => import("./features/fleetManagement/components/Fleet");
 export const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
 export const importEnergyPage = () => import("@/protoFleet/features/energy/pages/EnergyPage");
+export const importFirmwareRolloutsPage = () =>
+  import("@/protoFleet/features/firmwareRollouts/pages/FirmwareRolloutsPage");
 export const importServerLogsPage = () => import("@/protoFleet/features/serverLogs/pages/ServerLogsPage");
 export const importGroupsPage = () => import("@/protoFleet/features/groupManagement/pages/GroupsPage");
 export const importGroupOverviewPage = () => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage");
@@ -62,6 +64,7 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importFleetInfraPage,
   importGroupsPage,
   importEnergyPage,
+  importFirmwareRolloutsPage,
   importActivityPage,
   importSettingsLayout,
   importSettingsNetwork,

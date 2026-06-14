@@ -832,6 +832,70 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FirmwareRollout struct {
+	ID               int64
+	RolloutUuid      uuid.UUID
+	OrgID            int64
+	Name             string
+	FirmwareFileID   string
+	State            string
+	TargetCount      int32
+	BatchSize        int32
+	BatchIntervalSec int32
+	ScopeType        string
+	ScopeJsonb       json.RawMessage
+	CreatedBy        int64
+	StartedAt        sql.NullTime
+	EndedAt          sql.NullTime
+	LastBatchAt      sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type FirmwareRolloutAttempt struct {
+	RolloutID        int64
+	DeviceIdentifier string
+	AttemptNumber    int32
+	CommandBatchUuid sql.NullString
+	Status           string
+	ErrorInfo        sql.NullString
+	StartedAt        time.Time
+	FinishedAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type FirmwareRolloutEvent struct {
+	ID        int64
+	RolloutID int64
+	EventType string
+	ActorType string
+	UserID    sql.NullString
+	Username  sql.NullString
+	Message   string
+	Metadata  json.RawMessage
+	CreatedAt time.Time
+}
+
+type FirmwareRolloutReconcilerHeartbeat struct {
+	ID                 int16
+	LastTickAt         time.Time
+	LastTickUuid       uuid.UUID
+	LastTickDurationMs sql.NullInt32
+	ActiveRolloutCount int32
+}
+
+type FirmwareRolloutTarget struct {
+	RolloutID            int64
+	DeviceIdentifier     string
+	State                string
+	CurrentAttemptNumber int32
+	LastCommandBatchUuid sql.NullString
+	LastError            sql.NullString
+	AddedAt              time.Time
+	UpdatedAt            time.Time
+}
+
 type FleetActiveOrganization struct {
 	OrganizationID string
 }

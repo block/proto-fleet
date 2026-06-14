@@ -95,6 +95,12 @@ export const primaryNavItems: NavItem[] = [
     scopable: true,
   },
   {
+    path: "/firmware-rollouts",
+    label: "Firmware",
+    icon: Activity,
+    requiredPermission: "firmware:rollout_read",
+  },
+  {
     path: "/activity",
     label: "Activity",
     icon: Activity,

@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/firmwarerollout/v1/firmwarerolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
@@ -74,6 +75,7 @@ var registeredServices = []struct {
 	{curtailmentv1connect.CurtailmentServiceName, reflect.TypeOf((*curtailmentv1connect.CurtailmentServiceHandler)(nil)).Elem()},
 	{device_setv1connect.DeviceSetServiceName, reflect.TypeOf((*device_setv1connect.DeviceSetServiceHandler)(nil)).Elem()},
 	{errorsv1connect.ErrorQueryServiceName, reflect.TypeOf((*errorsv1connect.ErrorQueryServiceHandler)(nil)).Elem()},
+	{firmwarerolloutv1connect.FirmwareRolloutServiceName, reflect.TypeOf((*firmwarerolloutv1connect.FirmwareRolloutServiceHandler)(nil)).Elem()},
 	{fleetmanagementv1connect.FleetManagementServiceName, reflect.TypeOf((*fleetmanagementv1connect.FleetManagementServiceHandler)(nil)).Elem()},
 	{fleetnodeadminv1connect.FleetNodeAdminServiceName, reflect.TypeOf((*fleetnodeadminv1connect.FleetNodeAdminServiceHandler)(nil)).Elem()},
 	{fleetnodegatewayv1connect.FleetNodeGatewayServiceName, reflect.TypeOf((*fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler)(nil)).Elem()},

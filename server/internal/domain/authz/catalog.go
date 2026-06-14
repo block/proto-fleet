@@ -56,6 +56,10 @@ const (
 	PermCurtailmentManage = "curtailment:manage"
 	PermCurtailmentIngest = "curtailment:ingest"
 
+	// firmware — uploaded payloads and controlled firmware rollout operations.
+	PermFirmwareRolloutRead   = "firmware:rollout_read"
+	PermFirmwareRolloutManage = "firmware:rollout_manage"
+
 	// pool — org-level mining pool definitions applied to miners. Not
 	// site-scoped: pools are a global org resource.
 	PermPoolRead   = "pool:read"
@@ -101,6 +105,7 @@ const (
 	ResourceActivity    = "activity"
 	ResourceServerLog   = "serverlog"
 	ResourceCurtailment = "curtailment"
+	ResourceFirmware    = "firmware"
 	ResourcePool        = "pool"
 	ResourceSchedule    = "schedule"
 	ResourceFleetNode   = "fleetnode"
@@ -157,6 +162,9 @@ var catalog = []CatalogEntry{
 	{PermCurtailmentRead, "View curtailment events and active status.", ResourceCurtailment},
 	{PermCurtailmentManage, "Preview, start, stop, and override curtailment events, and manage profiles, automation rules, and dispatch sources.", ResourceCurtailment},
 	{PermCurtailmentIngest, "Accept external curtailment dispatch signals. Not yet implemented.", ResourceCurtailment},
+
+	{PermFirmwareRolloutRead, "View firmware rollout history, progress, and per-miner results.", ResourceFirmware},
+	{PermFirmwareRolloutManage, "Create, start, pause, resume, cancel, and retry firmware rollouts.", ResourceFirmware},
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
 	{PermPoolManage, "Create, edit, delete, and validate saved mining pool configurations. Validation makes the server connect to a supplied address.", ResourcePool},

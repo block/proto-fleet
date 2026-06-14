@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/firmwarerollout/v1/firmwarerolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
@@ -243,6 +244,18 @@ var ProcedurePermissions = map[string]string{
 	// Foreman import is "pair N miners we found out-of-band."
 	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure: authz.PermMinerPair,
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:    authz.PermMinerPair,
+
+	// FirmwareRolloutService — read for history/detail, manage for lifecycle.
+	firmwarerolloutv1connect.FirmwareRolloutServiceListFirmwareRolloutsProcedure:              authz.PermFirmwareRolloutRead,
+	firmwarerolloutv1connect.FirmwareRolloutServiceGetFirmwareRolloutProcedure:                authz.PermFirmwareRolloutRead,
+	firmwarerolloutv1connect.FirmwareRolloutServiceListFirmwareRolloutTargetsProcedure:        authz.PermFirmwareRolloutRead,
+	firmwarerolloutv1connect.FirmwareRolloutServiceListFirmwareRolloutEventsProcedure:         authz.PermFirmwareRolloutRead,
+	firmwarerolloutv1connect.FirmwareRolloutServiceCreateFirmwareRolloutProcedure:             authz.PermFirmwareRolloutManage,
+	firmwarerolloutv1connect.FirmwareRolloutServiceStartFirmwareRolloutProcedure:              authz.PermFirmwareRolloutManage,
+	firmwarerolloutv1connect.FirmwareRolloutServicePauseFirmwareRolloutProcedure:              authz.PermFirmwareRolloutManage,
+	firmwarerolloutv1connect.FirmwareRolloutServiceResumeFirmwareRolloutProcedure:             authz.PermFirmwareRolloutManage,
+	firmwarerolloutv1connect.FirmwareRolloutServiceCancelFirmwareRolloutProcedure:             authz.PermFirmwareRolloutManage,
+	firmwarerolloutv1connect.FirmwareRolloutServiceRetryFailedFirmwareRolloutTargetsProcedure: authz.PermFirmwareRolloutManage,
 
 	// MinerCommandService — each action gates on its matching catalog
 	// key. Stream/batch endpoints gate on fleet:read since they're

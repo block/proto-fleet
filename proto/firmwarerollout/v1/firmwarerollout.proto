@@ -1,0 +1,178 @@
+syntax = "proto3";
+
+package firmwarerollout.v1;
+
+import "buf/validate/validate.proto";
+import "common/v1/device_selector.proto";
+import "google/protobuf/timestamp.proto";
+
+service FirmwareRolloutService {
+  rpc CreateFirmwareRollout(CreateFirmwareRolloutRequest) returns (CreateFirmwareRolloutResponse);
+  rpc StartFirmwareRollout(StartFirmwareRolloutRequest) returns (StartFirmwareRolloutResponse);
+  rpc PauseFirmwareRollout(PauseFirmwareRolloutRequest) returns (PauseFirmwareRolloutResponse);
+  rpc ResumeFirmwareRollout(ResumeFirmwareRolloutRequest) returns (ResumeFirmwareRolloutResponse);
+  rpc CancelFirmwareRollout(CancelFirmwareRolloutRequest) returns (CancelFirmwareRolloutResponse);
+  rpc RetryFailedFirmwareRolloutTargets(RetryFailedFirmwareRolloutTargetsRequest) returns (RetryFailedFirmwareRolloutTargetsResponse);
+  rpc ListFirmwareRollouts(ListFirmwareRolloutsRequest) returns (ListFirmwareRolloutsResponse);
+  rpc GetFirmwareRollout(GetFirmwareRolloutRequest) returns (GetFirmwareRolloutResponse);
+  rpc ListFirmwareRolloutTargets(ListFirmwareRolloutTargetsRequest) returns (ListFirmwareRolloutTargetsResponse);
+  rpc ListFirmwareRolloutEvents(ListFirmwareRolloutEventsRequest) returns (ListFirmwareRolloutEventsResponse);
+}
+
+enum FirmwareRolloutState {
+  FIRMWARE_ROLLOUT_STATE_UNSPECIFIED = 0;
+  FIRMWARE_ROLLOUT_STATE_DRAFT = 1;
+  FIRMWARE_ROLLOUT_STATE_RUNNING = 2;
+  FIRMWARE_ROLLOUT_STATE_PAUSED = 3;
+  FIRMWARE_ROLLOUT_STATE_COMPLETED = 4;
+  FIRMWARE_ROLLOUT_STATE_COMPLETED_WITH_FAILURES = 5;
+  FIRMWARE_ROLLOUT_STATE_CANCELED = 6;
+}
+
+enum FirmwareRolloutTargetState {
+  FIRMWARE_ROLLOUT_TARGET_STATE_UNSPECIFIED = 0;
+  FIRMWARE_ROLLOUT_TARGET_STATE_PENDING = 1;
+  FIRMWARE_ROLLOUT_TARGET_STATE_DISPATCHING = 2;
+  FIRMWARE_ROLLOUT_TARGET_STATE_DISPATCHED = 3;
+  FIRMWARE_ROLLOUT_TARGET_STATE_SUCCEEDED = 4;
+  FIRMWARE_ROLLOUT_TARGET_STATE_FAILED = 5;
+  FIRMWARE_ROLLOUT_TARGET_STATE_CANCELED = 6;
+}
+
+message FirmwareRolloutCounts {
+  int32 total_count = 1;
+  int32 pending_count = 2;
+  int32 in_progress_count = 3;
+  int32 success_count = 4;
+  int32 failure_count = 5;
+  int32 canceled_count = 6;
+  int32 retried_count = 7;
+}
+
+message FirmwareRollout {
+  string rollout_id = 1;
+  string name = 2;
+  string firmware_file_id = 3;
+  FirmwareRolloutState state = 4;
+  int32 target_count = 5;
+  int32 batch_size = 6;
+  int32 batch_interval_seconds = 7;
+  string scope_type = 8;
+  string created_by_username = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp ended_at = 12;
+  FirmwareRolloutCounts counts = 13;
+}
+
+message FirmwareRolloutTarget {
+  string device_identifier = 1;
+  string device_name = 2;
+  string ip_address = 3;
+  string mac_address = 4;
+  FirmwareRolloutTargetState state = 5;
+  int32 current_attempt_number = 6;
+  string last_error = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  string last_command_batch_id = 9;
+}
+
+message FirmwareRolloutEvent {
+  string event_type = 1;
+  string actor_type = 2;
+  string user_id = 3;
+  string username = 4;
+  string message = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CreateFirmwareRolloutRequest {
+  string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 120}];
+  string firmware_file_id = 2 [(buf.validate.field).string.min_len = 1];
+  common.v1.DeviceSelector device_selector = 3 [(buf.validate.field).required = true];
+  int32 batch_size = 4 [(buf.validate.field).int32 = {gte: 1, lte: 5000}];
+  int32 batch_interval_seconds = 5 [(buf.validate.field).int32 = {gte: 0, lte: 86400}];
+}
+
+message CreateFirmwareRolloutResponse {
+  FirmwareRollout rollout = 1;
+}
+
+message StartFirmwareRolloutRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message StartFirmwareRolloutResponse {
+  FirmwareRollout rollout = 1;
+}
+
+message PauseFirmwareRolloutRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message PauseFirmwareRolloutResponse {
+  FirmwareRollout rollout = 1;
+}
+
+message ResumeFirmwareRolloutRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message ResumeFirmwareRolloutResponse {
+  FirmwareRollout rollout = 1;
+}
+
+message CancelFirmwareRolloutRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message CancelFirmwareRolloutResponse {
+  FirmwareRollout rollout = 1;
+}
+
+message RetryFailedFirmwareRolloutTargetsRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message RetryFailedFirmwareRolloutTargetsResponse {
+  FirmwareRollout rollout = 1;
+  int32 retried_count = 2;
+}
+
+message ListFirmwareRolloutsRequest {
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 1, lte: 100}];
+  string page_token = 2;
+}
+
+message ListFirmwareRolloutsResponse {
+  repeated FirmwareRollout rollouts = 1;
+  string next_page_token = 2;
+}
+
+message GetFirmwareRolloutRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message GetFirmwareRolloutResponse {
+  FirmwareRollout rollout = 1;
+}
+
+message ListFirmwareRolloutTargetsRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 1, lte: 500}];
+  string page_token = 3;
+  FirmwareRolloutTargetState state_filter = 4;
+}
+
+message ListFirmwareRolloutTargetsResponse {
+  repeated FirmwareRolloutTarget targets = 1;
+  string next_page_token = 2;
+}
+
+message ListFirmwareRolloutEventsRequest {
+  string rollout_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message ListFirmwareRolloutEventsResponse {
+  repeated FirmwareRolloutEvent events = 1;
+}

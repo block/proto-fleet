@@ -173,6 +173,8 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
+	case session.ActorFirmwareRollout:
+		return activitymodels.ActorSystem
 	}
 	return ""
 }

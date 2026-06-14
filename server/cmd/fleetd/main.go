@@ -49,6 +49,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/firmwarerollout/v1/firmwarerolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
@@ -76,6 +77,8 @@ import (
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	firmwareRolloutDomain "github.com/block/proto-fleet/server/internal/domain/firmwarerollout"
+	firmwareRolloutReconciler "github.com/block/proto-fleet/server/internal/domain/firmwarerollout/reconciler"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	fleetnodeauth "github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -108,6 +111,7 @@ import (
 	devicesetHandler "github.com/block/proto-fleet/server/internal/handlers/deviceset"
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
+	firmwareRolloutHandler "github.com/block/proto-fleet/server/internal/handlers/firmwarerollout"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
@@ -170,6 +174,7 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	firmwarerolloutv1connect.FirmwareRolloutServiceName,
 }
 
 func start(config *Config) error {
@@ -491,6 +496,7 @@ func start(config *Config) error {
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	commandSvc.SetPluginCapabilitiesProvider(pluginService)
+	firmwareRolloutSvc := firmwareRolloutDomain.NewService(conn, filesService, deviceStore, activitySvc)
 	// buildingStore is constructed below alongside siteStore; both are
 	// needed for the parseFilter cross-org check on building_ids and
 	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.
@@ -566,6 +572,16 @@ func start(config *Config) error {
 	defer func() {
 		if err := curtailmentRec.Stop(); err != nil {
 			slog.Error("failed to stop curtailment reconciler", "error", err)
+		}
+	}()
+
+	firmwareRolloutRec := firmwareRolloutReconciler.New(firmwareRolloutReconciler.Config{}, conn, commandSvc)
+	if err := firmwareRolloutRec.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start firmware rollout reconciler: %w", err)
+	}
+	defer func() {
+		if err := firmwareRolloutRec.Stop(); err != nil {
+			slog.Error("failed to stop firmware rollout reconciler", "error", err)
 		}
 	}()
 
@@ -709,6 +725,7 @@ func start(config *Config) error {
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	mux.Handle(firmwarerolloutv1connect.NewFirmwareRolloutServiceHandler(firmwareRolloutHandler.NewHandler(firmwareRolloutSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

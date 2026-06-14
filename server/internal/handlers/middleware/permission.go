@@ -96,7 +96,7 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	// access.
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorFirmwareRollout:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -282,7 +282,7 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 	// Same allowlisted internal-actor short-circuit as RequirePermission.
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorFirmwareRollout:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
