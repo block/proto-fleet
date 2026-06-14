@@ -114,6 +114,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveAssignmentsForRoleStmt, err = db.PrepareContext(ctx, countActiveAssignmentsForRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveAssignmentsForRole: %w", err)
 	}
+	if q.countActiveFirmwareRolloutsForModelStmt, err = db.PrepareContext(ctx, countActiveFirmwareRolloutsForModel); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveFirmwareRolloutsForModel: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -1425,6 +1428,11 @@ func (q *Queries) Close() error {
 	if q.countActiveAssignmentsForRoleStmt != nil {
 		if cerr := q.countActiveAssignmentsForRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveAssignmentsForRoleStmt: %w", cerr)
+		}
+	}
+	if q.countActiveFirmwareRolloutsForModelStmt != nil {
+		if cerr := q.countActiveFirmwareRolloutsForModelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveFirmwareRolloutsForModelStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -3426,6 +3434,7 @@ type Queries struct {
 	confirmEnrollmentStmt                                 *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                     *sql.Stmt
 	countActiveAssignmentsForRoleStmt                     *sql.Stmt
+	countActiveFirmwareRolloutsForModelStmt               *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	countActivityLogsStmt                                 *sql.Stmt
 	countComponentsWithErrorsStmt                         *sql.Stmt
@@ -3848,6 +3857,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		confirmEnrollmentStmt:                                 q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                     q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                     q.countActiveAssignmentsForRoleStmt,
+		countActiveFirmwareRolloutsForModelStmt:               q.countActiveFirmwareRolloutsForModelStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:              q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                 q.countActivityLogsStmt,
 		countComponentsWithErrorsStmt:                         q.countComponentsWithErrorsStmt,

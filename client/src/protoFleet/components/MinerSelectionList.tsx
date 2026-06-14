@@ -59,6 +59,13 @@ export interface MinerSelectionListProps {
   /** When true, renders radio buttons for single-item selection instead of checkboxes. */
   singleSelect?: boolean;
   showSelectAllFooter?: boolean;
+  /**
+   * Pins the list to a single miner model. The model filter is hidden and the
+   * server query always constrains to this model, so callers that require a
+   * single-model selection (e.g. firmware rollouts) cannot mix models. Remount
+   * the component (via `key`) when this value changes to reset selection.
+   */
+  lockedModel?: string;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -151,14 +158,20 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       isRowDisabled,
       singleSelect = false,
       showSelectAllFooter = true,
+      lockedModel,
       onSelectionChange,
     },
     ref,
   ) => {
-    const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
+    const { showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
+    // A locked model both seeds the server filter and hides the model picker so
+    // the selection can never span models.
+    const showTypeFilter = (filterConfig?.showTypeFilter ?? true) && !lockedModel;
 
     const { listGroups, listRacks } = useDeviceSets();
-    const [filter, setFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [filter, setFilter] = useState(() =>
+      create(MinerListFilterSchema, lockedModel ? { models: [lockedModel] } : {}),
+    );
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(false);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -316,9 +329,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           errorComponentTypes: [],
         });
 
-        const typeFilters = activeFilters.dropdownFilters.type;
-        if (typeFilters && typeFilters.length > 0) {
-          minerFilter.models.push(...typeFilters);
+        if (lockedModel) {
+          // The model filter is hidden when locked; always constrain to it.
+          minerFilter.models.push(lockedModel);
+        } else {
+          const typeFilters = activeFilters.dropdownFilters.type;
+          if (typeFilters && typeFilters.length > 0) {
+            minerFilter.models.push(...typeFilters);
+          }
         }
 
         if (showRackFilter) {
@@ -337,7 +355,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
         setFilter(minerFilter);
       },
-      [showRackFilter, showGroupFilter],
+      [showRackFilter, showGroupFilter, lockedModel],
     );
 
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;

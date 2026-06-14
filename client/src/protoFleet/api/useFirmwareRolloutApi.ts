@@ -15,6 +15,7 @@ import { useAuthErrors } from "@/protoFleet/store";
 interface CreateRolloutInput {
   name: string;
   firmwareFileId: string;
+  minerModel: string;
   deviceSelector: DeviceSelector;
   batchSize: number;
   batchIntervalSeconds: number;
@@ -52,6 +53,7 @@ export function useFirmwareRolloutApi() {
       const request = create(CreateFirmwareRolloutRequestSchema, {
         name: input.name,
         firmwareFileId: input.firmwareFileId,
+        minerModel: input.minerModel,
         deviceSelector: input.deviceSelector,
         batchSize: input.batchSize,
         batchIntervalSeconds: input.batchIntervalSeconds,

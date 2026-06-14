@@ -4,6 +4,7 @@ INSERT INTO firmware_rollout (
     org_id,
     name,
     firmware_file_id,
+    miner_model,
     state,
     batch_size,
     batch_interval_sec,
@@ -15,12 +16,13 @@ INSERT INTO firmware_rollout (
     $2,
     $3,
     $4,
-    'draft',
     $5,
+    'draft',
     $6,
     $7,
     $8,
-    $9
+    $9,
+    $10
 )
 RETURNING *;
 
@@ -29,6 +31,17 @@ SELECT *
 FROM firmware_rollout
 WHERE rollout_uuid = $1
   AND org_id = $2;
+
+-- CountActiveFirmwareRolloutsForModel returns how many non-terminal
+-- (draft/running/paused) rollouts target the given model, excluding one rollout
+-- by UUID. Pass the nil UUID to count all of them (e.g. on create).
+-- name: CountActiveFirmwareRolloutsForModel :one
+SELECT COUNT(*)
+FROM firmware_rollout
+WHERE org_id = $1
+  AND miner_model = $2
+  AND state IN ('draft', 'running', 'paused')
+  AND rollout_uuid <> sqlc.arg('exclude_uuid');
 
 -- name: ListFirmwareRolloutsByOrg :many
 SELECT *
