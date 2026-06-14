@@ -10,6 +10,7 @@ import type { UseSchedulePillDataResult } from "@/protoFleet/components/PageHead
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
+const mockUseFirmwareRolloutPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
@@ -32,6 +33,10 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useFirmwareRolloutPillData", () => ({
+  useFirmwareRolloutPillData: () => mockUseFirmwareRolloutPillData(),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -66,6 +71,7 @@ describe("AppLayout", () => {
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
+    mockUseFirmwareRolloutPillData.mockReturnValue({ activeRollouts: [] });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
   });
 
@@ -89,6 +95,22 @@ describe("AppLayout", () => {
 
   it("offsets the phone content when an active curtailment makes the header widgets visible", () => {
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+57px)]");
+  });
+
+  it("offsets the phone content when an active firmware rollout makes the header widgets visible", () => {
+    mockUseFirmwareRolloutPillData.mockReturnValue({
+      activeRollouts: [{ rolloutId: "r1", name: "June update" }],
+    });
 
     render(
       <MemoryRouter>

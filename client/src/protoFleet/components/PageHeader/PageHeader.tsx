@@ -3,10 +3,12 @@ import clsx from "clsx";
 
 import CurtailmentPill from "./CurtailmentPill";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
+import FirmwareRolloutPill from "./FirmwareRolloutPill";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import { type FirmwareRollout } from "@/protoFleet/api/generated/firmwarerollout/v1/firmwarerollout_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
@@ -19,6 +21,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
   activeCurtailmentEvent?: CurtailmentPillEvent | null;
+  activeFirmwareRollouts?: FirmwareRollout[];
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
@@ -26,6 +29,7 @@ interface PageHeaderProps {
 
 interface HeaderWidgetsProps {
   activeCurtailmentEvent: CurtailmentPillEvent | null;
+  activeFirmwareRollouts: FirmwareRollout[];
   canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
@@ -37,6 +41,7 @@ const headerWidgetEnabled = true;
 
 function HeaderWidgets({
   activeCurtailmentEvent,
+  activeFirmwareRollouts,
   canReadCurtailment,
   className,
   dismissedSetup,
@@ -50,6 +55,7 @@ function HeaderWidgets({
       {activeCurtailmentEvent && canReadCurtailment ? (
         <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" />
       ) : null}
+      {activeFirmwareRollouts.length > 0 ? <FirmwareRolloutPill rollouts={activeFirmwareRollouts} /> : null}
       {pillSchedule ? (
         <SchedulePill
           pillSchedule={pillSchedule}
@@ -67,6 +73,7 @@ function HeaderWidgets({
 
 function PageHeader({
   activeCurtailmentEvent = null,
+  activeFirmwareRollouts = [],
   isMenuOpen,
   openMenu,
   schedulePillData,
@@ -114,14 +121,20 @@ function PageHeader({
 
   const headerWidgetsProps = {
     activeCurtailmentEvent,
+    activeFirmwareRollouts,
     canReadCurtailment,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     schedulePillData,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const hasVisibleFirmwareRolloutPill = activeFirmwareRollouts.length > 0;
   const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasVisibleCurtailmentPill);
+    isPhone &&
+    (hasDismissedSetup ||
+      schedulePillData.hasVisibleSchedules ||
+      hasVisibleCurtailmentPill ||
+      hasVisibleFirmwareRolloutPill);
 
   return (
     <>

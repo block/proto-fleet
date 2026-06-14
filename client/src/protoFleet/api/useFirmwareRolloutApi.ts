@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { create } from "@bufbuild/protobuf";
 import { firmwareRolloutClient } from "@/protoFleet/api/clients";
+import { emitFirmwareRolloutChanged } from "@/protoFleet/api/firmwareRolloutEvents";
 import type { DeviceSelector } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
   CreateFirmwareRolloutRequestSchema,
@@ -60,6 +61,7 @@ export function useFirmwareRolloutApi() {
       });
       const response = await handle(firmwareRolloutClient.createFirmwareRollout(request), "Failed to create rollout");
       if (!response.rollout) throw new Error("Rollout response was empty");
+      emitFirmwareRolloutChanged();
       return response.rollout;
     },
     [handle],
@@ -72,6 +74,7 @@ export function useFirmwareRolloutApi() {
         "Failed to start rollout",
       );
       if (!response.rollout) throw new Error("Rollout response was empty");
+      emitFirmwareRolloutChanged();
       return response.rollout;
     },
     [handle],
@@ -84,6 +87,7 @@ export function useFirmwareRolloutApi() {
         "Failed to pause rollout",
       );
       if (!response.rollout) throw new Error("Rollout response was empty");
+      emitFirmwareRolloutChanged();
       return response.rollout;
     },
     [handle],
@@ -96,6 +100,7 @@ export function useFirmwareRolloutApi() {
         "Failed to resume rollout",
       );
       if (!response.rollout) throw new Error("Rollout response was empty");
+      emitFirmwareRolloutChanged();
       return response.rollout;
     },
     [handle],
@@ -108,6 +113,7 @@ export function useFirmwareRolloutApi() {
         "Failed to cancel rollout",
       );
       if (!response.rollout) throw new Error("Rollout response was empty");
+      emitFirmwareRolloutChanged();
       return response.rollout;
     },
     [handle],
@@ -120,6 +126,7 @@ export function useFirmwareRolloutApi() {
         "Failed to retry failed miners",
       );
       if (!response.rollout) throw new Error("Rollout response was empty");
+      emitFirmwareRolloutChanged();
       return response.rollout;
     },
     [handle],

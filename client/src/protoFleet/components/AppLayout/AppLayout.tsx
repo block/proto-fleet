@@ -5,6 +5,7 @@ import NavigationMenu from "../NavigationMenu";
 import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
+import { useFirmwareRolloutPillData } from "@/protoFleet/components/PageHeader/useFirmwareRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
@@ -22,11 +23,17 @@ const AppLayoutContent = ({ children }: Props) => {
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
+  const { activeRollouts: activeFirmwareRollouts } = useFirmwareRolloutPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
   const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
+  const hasActiveFirmwareRollout = activeFirmwareRollouts.length > 0;
 
   const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
+    isPhone &&
+    (hasDismissedSetup ||
+      schedulePillData.hasVisibleSchedules ||
+      hasActiveCurtailmentEvent ||
+      hasActiveFirmwareRollout);
 
   return (
     <div className={clsx("absolute top-0 right-0 bottom-0 left-0", bgClass)}>
@@ -39,6 +46,7 @@ const AppLayoutContent = ({ children }: Props) => {
       >
         <PageHeader
           activeCurtailmentEvent={activeCurtailmentEvent}
+          activeFirmwareRollouts={activeFirmwareRollouts}
           isMenuOpen={isMenuOpen}
           openMenu={() => setIsMenuOpen(true)}
           schedulePillData={schedulePillData}
