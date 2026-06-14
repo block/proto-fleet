@@ -555,7 +555,8 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 //   - PUBLIC_ROUTES (no auth): PUT /auth/password, POST /auth/login,
 //     POST /auth/refresh, GET /system, /system/status, /system/ssh,
 //     /system/secure, /system/unlock, /system/tag, /system/telemetry,
-//     /network, /pairing/info, POST /pairing/auth-key.
+//     /network, /hardware, /hardware/psus, /hashboards, /power-supplies,
+//     /pairing/info, POST /pairing/auth-key.
 //   - DEFAULT_PASSWORD_EXEMPT_PREFIXES (auth required but not password-gated):
 //     /auth/change-password and /pools (all verbs, all sub-paths).
 //   - Everything else: auth required AND blocked while default_password_active.
@@ -612,10 +613,11 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStart)))
 	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStop)))
 
-	// Hardware — firmware requires auth on /hardware (not in PUBLIC_ROUTES).
-	mux.HandleFunc("/api/v1/hardware", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardware)))
-	mux.HandleFunc("/api/v1/hardware/psus", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardwarePSUs)))
-	mux.HandleFunc("/api/v1/hashboards", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboards)))
+	// Hardware discovery endpoints are public; detailed hashboard stats remain
+	// authenticated under /hashboards/{hb_sn}.
+	mux.HandleFunc("/api/v1/hardware", h.handleHardware)
+	mux.HandleFunc("/api/v1/hardware/psus", h.handleHardwarePSUs)
+	mux.HandleFunc("/api/v1/hashboards", h.handleHashboards)
 	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboardByID)))
 
 	// Telemetry data
@@ -629,7 +631,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiencyByID)))
 
 	// PSUs
-	mux.HandleFunc("/api/v1/power-supplies", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSupplies)))
+	mux.HandleFunc("/api/v1/power-supplies", h.handlePowerSupplies)
 	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSuppliesUpdate)))
 
 	// Cooling
@@ -1478,18 +1480,33 @@ func (h *RESTApiHandler) handleLocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	query := r.URL.Query()
+	enable := true
+	if enableParam := query.Get("enable"); enableParam != "" {
+		parsedEnable, err := strconv.ParseBool(enableParam)
+		if err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "enable must be a boolean")
+			return
+		}
+		enable = parsedEnable
+	}
+
 	// `led_on_time` is part of the MDK contract. The simulator does not model the
 	// duration, but it accepts and validates the query parameter for compatibility.
-	if ledOnTime := r.URL.Query().Get("led_on_time"); ledOnTime != "" {
+	if ledOnTime := query.Get("led_on_time"); enable && ledOnTime != "" {
 		if _, err := strconv.Atoi(ledOnTime); err != nil {
 			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "led_on_time must be an integer")
 			return
 		}
 	}
 
-	h.state.SetLocateActive(true)
+	h.state.SetLocateActive(enable)
 
-	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Locate sequence activated"})
+	message := "Locate sequence activated"
+	if !enable {
+		message = "Locate sequence deactivated"
+	}
+	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: message})
 }
 
 func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {

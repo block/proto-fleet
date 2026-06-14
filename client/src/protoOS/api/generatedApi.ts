@@ -812,8 +812,13 @@ export interface HashrateWindow {
 
 export interface LocateSystemParams {
   /**
-   * The duration in seconds for which to turn on the LED, with a max value of 300 seconds. If not specified, a default value of 30 seconds will be used. Requests made while the LED is on will be ignored.
-   * @default 30
+   * Whether to enable (true) or disable (false) the locate LED pattern. Defaults to true. When false, the LED pattern is cleared immediately and `led_on_time` is ignored.
+   * @default true
+   */
+  enable?: boolean;
+  /**
+   * The duration in seconds for which to turn on the LED. A value of 0 (the default, also used for negative values) enables the LED persistently until an `enable=false` request is made. Ignored when `enable=false`.
+   * @default 0
    */
   led_on_time?: number;
 }
@@ -2783,13 +2788,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashboards
      * @name GetAllHashboards
      * @request GET:/api/v1/hashboards
-     * @secure
      */
     getAllHashboards: (params: RequestParams = {}) =>
       this.request<HashboardsInfo, MessageResponse>({
         path: `/api/v1/hashboards`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -2960,13 +2963,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hardware, PSUs, Hashboards, Fans
      * @name GetHardware
      * @request GET:/api/v1/hardware
-     * @secure
      */
     getHardware: (params: RequestParams = {}) =>
       this.request<HardwareInfo, MessageResponse>({
         path: `/api/v1/hardware`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -2977,13 +2978,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags PSUs
      * @name ListPowerSupplies
      * @request GET:/api/v1/hardware/psus
-     * @secure
      */
     listPowerSupplies: (params: RequestParams = {}) =>
       this.request<PsusInfo, MessageResponse>({
         path: `/api/v1/hardware/psus`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -2994,13 +2993,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags PSUs
      * @name GetPowerSupplies
      * @request GET:/api/v1/power-supplies
-     * @secure
      */
     getPowerSupplies: (params: RequestParams = {}) =>
       this.request<PowerSuppliesResponse, MessageResponse>({
         path: `/api/v1/power-supplies`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),

@@ -37,6 +37,11 @@ const (
 
 	// Firmware upload can transfer hundreds of megabytes over slow links.
 	firmwareUploadTimeout = 30 * time.Minute
+
+	// The MDK locate endpoint defaults to a persistent LED pattern. The plugin
+	// SDK command is a blink action with no separate disable call, so keep it
+	// bounded.
+	locateLEDOnTimeSeconds = 30
 )
 
 var (
@@ -1091,7 +1096,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 
 // BlinkLED triggers LED identification.
 func (c *Client) BlinkLED(ctx context.Context) error {
-	return c.doPost(ctx, "/api/v1/system/locate")
+	return c.doPost(ctx, fmt.Sprintf("/api/v1/system/locate?led_on_time=%d", locateLEDOnTimeSeconds))
 }
 
 // GetLogs retrieves log data from the miner.

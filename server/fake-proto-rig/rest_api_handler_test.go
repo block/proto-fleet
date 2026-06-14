@@ -684,8 +684,32 @@ func TestSystemRoute_DoesNotRequireBearerAuth(t *testing.T) {
 	}
 }
 
-func TestHardwareRoute_RequiresBearerAuth(t *testing.T) {
-	// /api/v1/hardware is NOT in firmware PUBLIC_ROUTES — it requires auth.
+func TestHardwareDiscoveryRoutes_DoNotRequireBearerAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, path := range []string{
+		"/api/v1/hardware",
+		"/api/v1/hardware/psus",
+		"/api/v1/hashboards",
+		"/api/v1/power-supplies",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestHashboardDetailRoute_RequiresBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
 
@@ -693,7 +717,7 @@ func TestHardwareRoute_RequiresBearerAuth(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/hardware", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hashboards/HB-SN12345678-0", nil)
 	mux.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
@@ -1558,6 +1582,39 @@ func TestHandleLocate_InvalidLedOnTime_Returns400(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=abc", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	if state.LocateActive {
+		t.Fatal("expected locate mode to remain inactive on invalid input")
+	}
+}
+
+func TestHandleLocate_EnableFalseClearsLocateMode(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetLocateActive(true)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?enable=false&led_on_time=abc", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	if state.LocateActive {
+		t.Fatal("expected locate mode to be inactive")
+	}
+}
+
+func TestHandleLocate_InvalidEnable_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?enable=eventually", nil)
 	h.handleLocate(rr, req)
 
 	if rr.Code != http.StatusBadRequest {

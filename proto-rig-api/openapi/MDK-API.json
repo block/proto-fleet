@@ -978,19 +978,31 @@
           {
             "name": "led_on_time",
             "in": "query",
-            "description": "The duration in seconds for which to turn on the LED, with a max value of 300 seconds. If not specified, a default value of 30 seconds will be used. Requests made while the LED is on will be ignored.",
+            "description": "The duration in seconds for which to turn on the LED. A value of 0 (the default, also used for negative values) enables the LED persistently until an `enable=false` request is made. Ignored when `enable=false`.",
             "required": false,
             "style": "form",
             "explode": true,
             "schema": {
               "type": "integer",
-              "default": 30
+              "default": 0
+            }
+          },
+          {
+            "name": "enable",
+            "in": "query",
+            "description": "Whether to enable (true) or disable (false) the locate LED pattern. Defaults to true. When false, the LED pattern is cleared immediately and `led_on_time` is ignored.",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "boolean",
+              "default": true
             }
           }
         ],
         "responses": {
           "202": {
-            "description": "The mining device's LED has started flashing for the specified duration",
+            "description": "The locate request was accepted. Depending on the parameters this either enables the LED for the given duration, enables it persistently (led_on_time=0), or disables it (enable=false).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1002,11 +1014,14 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
-          "422": {
-            "$ref": "#/components/responses/UnprocessableEntity"
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
           }
         },
         "security": [
@@ -1413,19 +1428,8 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/hashboards/{hb_sn}": {
@@ -1898,19 +1902,8 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/hardware/psus": {
@@ -1933,19 +1926,8 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/power-supplies": {
@@ -1968,19 +1950,8 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/power-supplies/update": {
