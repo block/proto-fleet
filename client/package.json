@@ -89,6 +89,7 @@
   },
   "overrides": {
     "eslint": "10.5.0",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "esbuild": "0.28.1"
   }
 }
