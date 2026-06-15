@@ -337,24 +337,20 @@ const ManageBuildingModal = ({
   );
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
-  // fire AssignRacksToBuilding in two phases:
+  // fire AssignRacksToBuilding once per target building bucket.
   //
-  //   Phase 1 (vacate): every rack whose placement is changing AND that was
-  //   previously placed sends a "clear position" write first (same building,
-  //   no aisle/position). Removed-from-building racks unassign in a
-  //   separate call (different target_building_id). This frees every
-  //   (building, aisle, position) tuple that will be re-used in phase 2
-  //   BEFORE any placement write runs.
+  // All racks staying in this building (placements, unplacements,
+  // swaps, "move into occupied cell") ship as a single mixed batch.
+  // The server's AssignRacksToBuilding transaction now runs a two-pass
+  // write internally — pass 1 clears every requested rack's cell, then
+  // pass 2 writes the new (aisle, position) values — so the partial
+  // unique index uk_device_set_rack_building_position can't collide
+  // mid-batch. That removes the old client-side vacate-then-place
+  // split (and its "retry to finish saving" partial-failure path).
   //
-  //   Phase 2 (place): every rack with a new placement target writes its
-  //   final (aisle, position). Because phase 1 already cleared every cell
-  //   that's about to be re-used, swaps and "move into occupied cell" cases
-  //   no longer collide on the uk_device_set_rack_building_position partial
-  //   unique index.
-  //
-  // Each phase issues at most two bulk calls (one per target building_id
-  // bucket: this building, or unassigned). Layout writes live in
-  // BuildingSettingsModal.
+  // Racks removed from this building go in a second call with
+  // targetBuildingId=undefined since they need a different building
+  // bucket. Layout writes live in BuildingSettingsModal.
   const handleSave = useCallback(async () => {
     if (savingRef.current) return;
     savingRef.current = true;
@@ -364,8 +360,7 @@ const ManageBuildingModal = ({
       const initial = initialPlacementRef.current;
       const currentIds = new Set(entries.map((e) => e.rackId.toString()));
 
-      const vacateInBuilding: RackPlacementInput[] = [];
-      const placeInBuilding: RackPlacementInput[] = [];
+      const inBuilding: RackPlacementInput[] = [];
       const unassign: RackPlacementInput[] = [];
 
       for (const entry of entries) {
@@ -380,38 +375,34 @@ const ManageBuildingModal = ({
         const prior = initial.get(idStr) ?? "missing";
         if (prior === next) continue;
 
-        // If the rack was previously placed, vacate its old cell first.
-        // Sending the same building with no aisle/position clears position
-        // without touching membership.
-        if (prior !== "unplaced" && prior !== "missing") {
-          vacateInBuilding.push({ rackId: entry.rackId });
-        }
-
-        // Phase 2: write the new state.
+        // Single mixed batch.
         //   - placedKey present → place at the new (aisle, position).
+        //     Covers both first-time placement and moves; the server's
+        //     pass-1 clear handles any prior occupant inside the batch.
+        //   - placedKey absent + prior previously placed → send a
+        //     member-only entry. The server NULLs the rack's cell in
+        //     pass 1 (no pass-2 write because no position is supplied).
         //   - placedKey absent + prior === "missing" → rack is new to
         //     the working set with no chosen cell yet. Send a member-
         //     only assign so the BE links the rack to this building
         //     even without a position. Without this branch, racks
         //     added via Manage racks but never dragged to a cell
         //     silently drop on save.
-        //   - placedKey absent + prior was placed → already handled
-        //     by the phase-1 vacate above, which clears the cell.
         if (placedKey) {
           const { aisle, position } = parseCellKey(placedKey);
-          placeInBuilding.push({
+          inBuilding.push({
             rackId: entry.rackId,
             aisleIndex: aisle,
             positionInAisle: position,
           });
-        } else if (prior === "missing") {
-          placeInBuilding.push({ rackId: entry.rackId });
+        } else {
+          inBuilding.push({ rackId: entry.rackId });
         }
       }
 
-      // Racks removed from this building (in snapshot, not in entries) need
-      // an explicit unassign. Land them in phase 1 so their cells free up
-      // before any phase-2 placement targets them.
+      // Racks removed from this building (in snapshot, not in entries)
+      // need an explicit unassign — different target building bucket so
+      // they can't ride the in-building batch.
       for (const idStr of initial.keys()) {
         if (currentIds.has(idStr)) continue;
         unassign.push({ rackId: BigInt(idStr) });
@@ -441,23 +432,18 @@ const ManageBuildingModal = ({
       };
 
       try {
-        await Promise.all([dispatch(vacateInBuilding, building.id), dispatch(unassign, undefined)]);
+        // Serialize: unassign (vacate) before in-building (claim).
+        // Each AssignRacksToBuilding call has internal clear-before-
+        // place ordering inside its tx, but that doesn't protect
+        // across two separate calls. If rack A is being removed and
+        // rack B is being placed at A's former cell, the in-building
+        // call can hit the partial unique index before the unassign
+        // commits. dispatch short-circuits when the list is empty.
+        await dispatch(unassign, undefined);
+        await dispatch(inBuilding, building.id);
       } catch (err) {
         setErrorMsg(
-          err instanceof Error
-            ? `Failed to clear previous rack positions: ${err.message}. No new positions were written — retry to apply your changes.`
-            : "Failed to clear previous rack positions.",
-        );
-        return;
-      }
-
-      try {
-        await dispatch(placeInBuilding, building.id);
-      } catch (err) {
-        setErrorMsg(
-          err instanceof Error
-            ? `Failed to apply new rack positions: ${err.message}. Some cells may now be empty — retry to finish saving.`
-            : "Failed to apply new rack positions.",
+          err instanceof Error ? `Failed to save rack positions: ${err.message}.` : "Failed to save rack positions.",
         );
         return;
       }
