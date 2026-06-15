@@ -16,7 +16,7 @@ import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import ActiveNotificationsCard from "@/protoFleet/features/notifications/components/ActiveNotificationsCard";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useStickyState } from "@/shared/hooks/useStickyState";
@@ -36,6 +36,10 @@ const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
   const duration = useDuration();
   const setDuration = useSetDuration();
+  // The notifications card fetches notification history on mount, which the
+  // server gates on notification:read. Don't render it for users without
+  // that permission, or the main dashboard hits a guaranteed 403.
+  const canViewNotifications = useHasPermission("notification:read");
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
@@ -109,7 +113,7 @@ const Dashboard = () => {
                 hashboardErrors={hashboardErrors}
                 psuErrors={psuErrors}
               />
-              <ActiveNotificationsCard />
+              {canViewNotifications ? <ActiveNotificationsCard /> : null}
             </div>
           </section>
 

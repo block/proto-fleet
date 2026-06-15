@@ -126,6 +126,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/notifications",
     label: "Notifications",
     parent: "/settings",
+    requiredPermission: "notification:read",
   },
   {
     path: "/settings/server-logs",
