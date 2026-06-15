@@ -1730,15 +1730,51 @@ func TestHandleLocate_TimedRequestDoesNotClearLaterPersistentMode(t *testing.T) 
 	}
 
 	fakeTimer.requireScheduled(t, 0, time.Second)
+	fakeTimer.requireCanceled(t, 0)
 	fakeTimer.fire(t, 0)
 	if !state.IsLocateActive() {
 		t.Fatal("expected later persistent locate mode to remain active")
 	}
 }
 
+func TestHandleLocate_TimedRequestCancelsEarlierTimedRequest(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
+
+	firstRR := httptest.NewRecorder()
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=30", nil)
+	h.handleLocate(firstRR, firstReq)
+	if firstRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, firstRR.Code, firstRR.Body.String())
+	}
+
+	secondRR := httptest.NewRecorder()
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
+	h.handleLocate(secondRR, secondReq)
+	if secondRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, secondRR.Code, secondRR.Body.String())
+	}
+
+	fakeTimer.requireScheduled(t, 0, 30*time.Second)
+	fakeTimer.requireScheduled(t, 1, time.Second)
+	fakeTimer.requireCanceled(t, 0)
+	fakeTimer.requireActive(t, 1)
+
+	fakeTimer.fire(t, 0)
+	if !state.IsLocateActive() {
+		t.Fatal("expected canceled earlier timer not to clear locate mode")
+	}
+	fakeTimer.fire(t, 1)
+	if state.IsLocateActive() {
+		t.Fatal("expected active later timer to clear locate mode")
+	}
+}
+
 type scheduledLocateClear struct {
 	duration time.Duration
 	callback func()
+	canceled bool
 }
 
 type fakeLocateTimer struct {
@@ -1747,11 +1783,15 @@ type fakeLocateTimer struct {
 
 func installFakeLocateTimer(h *RESTApiHandler) *fakeLocateTimer {
 	timer := &fakeLocateTimer{}
-	h.scheduleLocateClear = func(duration time.Duration, callback func()) {
+	h.scheduleLocateClear = func(duration time.Duration, callback func()) func() {
+		index := len(timer.scheduled)
 		timer.scheduled = append(timer.scheduled, scheduledLocateClear{
 			duration: duration,
 			callback: callback,
 		})
+		return func() {
+			timer.scheduled[index].canceled = true
+		}
 	}
 	return timer
 }
@@ -1771,7 +1811,30 @@ func (f *fakeLocateTimer) fire(t *testing.T, index int) {
 	if len(f.scheduled) <= index {
 		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
 	}
+	if f.scheduled[index].canceled {
+		return
+	}
 	f.scheduled[index].callback()
+}
+
+func (f *fakeLocateTimer) requireCanceled(t *testing.T, index int) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if !f.scheduled[index].canceled {
+		t.Fatalf("expected timer %d to be canceled", index)
+	}
+}
+
+func (f *fakeLocateTimer) requireActive(t *testing.T, index int) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if f.scheduled[index].canceled {
+		t.Fatalf("expected timer %d to remain active", index)
+	}
 }
 
 func TestHandleMining_UsesCanonicalStateStrings(t *testing.T) {

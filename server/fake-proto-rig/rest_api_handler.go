@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -547,15 +548,20 @@ type PSUTelemetry struct {
 // RESTApiHandler handles REST API requests
 type RESTApiHandler struct {
 	state               *MinerState
-	scheduleLocateClear func(time.Duration, func())
+	locateTimerMu       sync.Mutex
+	cancelLocateTimer   func()
+	scheduleLocateClear func(time.Duration, func()) func()
 }
 
 // NewRESTApiHandler creates a new REST API handler
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{
 		state: state,
-		scheduleLocateClear: func(duration time.Duration, callback func()) {
-			time.AfterFunc(duration, callback)
+		scheduleLocateClear: func(duration time.Duration, callback func()) func() {
+			timer := time.AfterFunc(duration, callback)
+			return func() {
+				timer.Stop()
+			}
 		},
 	}
 }
@@ -1539,9 +1545,11 @@ func (h *RESTApiHandler) handleLocate(w http.ResponseWriter, r *http.Request) {
 
 	sequence := h.state.SetLocateActive(enable)
 	if enable && ledOnTimeSeconds > 0 {
-		h.scheduleLocateClear(time.Duration(ledOnTimeSeconds)*time.Second, func() {
+		h.replaceLocateTimer(time.Duration(ledOnTimeSeconds)*time.Second, func() {
 			h.state.ClearLocateActiveIfSequence(sequence)
 		})
+	} else {
+		h.stopLocateTimer()
 	}
 
 	message := "Locate sequence activated"
@@ -1549,6 +1557,26 @@ func (h *RESTApiHandler) handleLocate(w http.ResponseWriter, r *http.Request) {
 		message = "Locate sequence deactivated"
 	}
 	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: message})
+}
+
+func (h *RESTApiHandler) replaceLocateTimer(duration time.Duration, callback func()) {
+	h.locateTimerMu.Lock()
+	defer h.locateTimerMu.Unlock()
+
+	if h.cancelLocateTimer != nil {
+		h.cancelLocateTimer()
+	}
+	h.cancelLocateTimer = h.scheduleLocateClear(duration, callback)
+}
+
+func (h *RESTApiHandler) stopLocateTimer() {
+	h.locateTimerMu.Lock()
+	defer h.locateTimerMu.Unlock()
+
+	if h.cancelLocateTimer != nil {
+		h.cancelLocateTimer()
+		h.cancelLocateTimer = nil
+	}
 }
 
 func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
