@@ -268,17 +268,23 @@ function CurtailmentManagementPanel({
     [],
   );
 
-  const closeModal = useCallback(() => {
+  const cancelManageSelection = useCallback(() => {
     manageSelectionAbortControllerRef.current?.abort();
     manageSelectionAbortControllerRef.current = null;
-    setModalMode(null);
-    setEditSession(null);
+    manageSelectionRequestIdRef.current += 1;
   }, []);
 
+  const closeModal = useCallback(() => {
+    cancelManageSelection();
+    setModalMode(null);
+    setEditSession(null);
+  }, [cancelManageSelection]);
+
   const openCreateModal = useCallback(() => {
+    cancelManageSelection();
     setEditSession(null);
     setModalMode("create");
-  }, []);
+  }, [cancelManageSelection]);
 
   const openEditModal = useCallback(() => {
     if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {

@@ -734,6 +734,59 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-preview")).toHaveTextContent("4 miners, 8 kW target, 9.1 kW estimated");
   });
 
+  it("keeps create flow open when a stale manage selection resolves", async () => {
+    const user = userEvent.setup();
+    const secondaryFormValues = {
+      ...activeEventFormValues,
+      reason: "Secondary grid peak",
+      targetKw: "8",
+    } satisfies CurtailmentSubmitValues;
+    const secondaryActiveEvent = {
+      ...activeEvent,
+      reason: "Secondary grid peak",
+      selectedMiners: 4,
+      targetKw: 8,
+      estimatedReductionKw: 9.1,
+    } as ActiveCurtailmentEvent;
+    let resolveSelection: (
+      value: Awaited<ReturnType<UseCurtailmentApiResult["selectActiveCurtailment"]>>,
+    ) => void = () => undefined;
+    const secondaryHistoryEvent = { ...historyEvent, id: "curt-2" } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSelection = resolve;
+        }),
+    );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+        activeEvents: [historyEvent, secondaryHistoryEvent],
+        historyEvents: [secondaryHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Manage history event" }));
+    const selectionSignal = mocks.selectActiveCurtailment.mock.calls[0][1].signal as AbortSignal;
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(selectionSignal.aborted).toBe(true);
+    expect(screen.getByRole("dialog", { name: "New curtailment" })).toBeInTheDocument();
+
+    resolveSelection({
+      activeEvent: secondaryActiveEvent,
+      activeEventId: "curt-2",
+      activeEventFormValues: secondaryFormValues,
+    });
+
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "New curtailment" })).toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument();
+  });
+
   it("uses estimated reduction as the edit preview target for full-fleet curtailments", async () => {
     const user = userEvent.setup();
     const { targetKw: _targetKw, ...activeEventWithoutTarget } = activeEvent;
