@@ -44,6 +44,13 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
+	// RunInTxWithResult fake: same inline behavior for the per-attempt
+	// counter pattern used by AssignBuildingsToSite / AssignRacksToSite.
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
 	// GetSiteStats isn't exercised by these tests; pass nil for the
 	// stats-only dependencies and rely on the service's nil-guard.
 	svc := sites.NewService(siteStore, nil, collectionStore, nil, nil, tx, nil)

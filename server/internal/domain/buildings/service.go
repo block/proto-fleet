@@ -260,6 +260,19 @@ func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64
 	return s.store.ListBuildingRacks(ctx, orgID, buildingID, pageSize, pageToken)
 }
 
+// assignRacksToBuildingTx carries the per-attempt counters, resolved
+// site ids, and cascaded/positioned rack-id slices out of the
+// RunInTxWithResult closure. Declared at package scope so a tx retry
+// (SQLTransactor serialization / deadlock failure) starts each attempt
+// from zero — the closure constructs a fresh struct on every call.
+type assignRacksToBuildingTx struct {
+	siteReassignedDeviceCount int64
+	targetSiteID              *int64
+	cascadeRackIDs            []int64
+	positionedRackIDs         []int64
+	fallbackSiteID            *int64
+}
+
 // AssignRacksToBuilding sets the building_id (and optional grid
 // placement) of every rack in the batch. Runs in a single transaction:
 //
@@ -324,18 +337,23 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 	copy(racks, params.Racks)
 	sort.Slice(racks, func(i, j int) bool { return racks[i].RackID < racks[j].RackID })
 
-	var (
-		out               models.AssignRacksToBuildingResult
-		targetSiteID      *int64
-		cascadeRackIDs    []int64
-		positionedRackIDs []int64
-		// For a building-only unassign (TargetBuildingID == nil) of a
-		// single rack, capture the rack's current SiteID so the activity
-		// log preserves "the site this rack lives in" instead of nil
-		// (which would make the event look site-less).
-		fallbackSiteID *int64
-	)
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+	// Counters, cascaded/positioned id slices, and the resolved
+	// target/fallback SiteID all live inside the RunInTxWithResult
+	// closure so a SQLTransactor retry (serialization / deadlock
+	// failure on the first attempt) starts from zero on every attempt.
+	// The returned struct reflects only the COMMITTED attempt.
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		var (
+			siteReassignedDeviceCount int64
+			targetSiteID              *int64
+			cascadeRackIDs            []int64
+			positionedRackIDs         []int64
+			// For a building-only unassign (TargetBuildingID == nil) of a
+			// single rack, capture the rack's current SiteID so the activity
+			// log preserves "the site this rack lives in" instead of nil
+			// (which would make the event look site-less).
+			fallbackSiteID *int64
+		)
 		// Lock the target building first (canonical lock order:
 		// building -> rack). Skip when unassigning — there is no
 		// building row to lock — but each rack still gets row-locked
@@ -343,11 +361,11 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		var targetBuilding *models.Building
 		if params.TargetBuildingID != nil {
 			if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, *params.TargetBuildingID); err != nil {
-				return err
+				return nil, err
 			}
 			b, err := s.store.GetBuilding(txCtx, params.OrgID, *params.TargetBuildingID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			targetBuilding = b
 			targetSiteID = b.SiteID
@@ -361,10 +379,10 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 					continue
 				}
 				if targetBuilding.Aisles <= 0 || *rp.AisleIndex >= targetBuilding.Aisles {
-					return fleeterror.NewInvalidArgumentErrorf("aisle_index %d is out of bounds (building has %d aisles)", *rp.AisleIndex, targetBuilding.Aisles)
+					return nil, fleeterror.NewInvalidArgumentErrorf("aisle_index %d is out of bounds (building has %d aisles)", *rp.AisleIndex, targetBuilding.Aisles)
 				}
 				if targetBuilding.RacksPerAisle <= 0 || *rp.PositionInAisle >= targetBuilding.RacksPerAisle {
-					return fleeterror.NewInvalidArgumentErrorf("position_in_aisle %d is out of bounds (building allows %d racks per aisle)", *rp.PositionInAisle, targetBuilding.RacksPerAisle)
+					return nil, fleeterror.NewInvalidArgumentErrorf("position_in_aisle %d is out of bounds (building allows %d racks per aisle)", *rp.PositionInAisle, targetBuilding.RacksPerAisle)
 				}
 			}
 		}
@@ -375,7 +393,7 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// value to persist.
 			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rp.RackID, params.OrgID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			// Capture the source SiteID for a single-rack building-only
@@ -417,7 +435,7 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// (aisle_index, position_in_aisle) never outlives its
 			// parent building.
 			if err := s.collectionStore.UpdateRackPlacement(txCtx, rp.RackID, params.OrgID, newSiteID, params.TargetBuildingID, finalZone); err != nil {
-				return err
+				return nil, err
 			}
 
 			// Cascade descendant device.site_id when the rack's site
@@ -426,9 +444,9 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			if siteChanged {
 				count, err := s.collectionStore.CascadeRackDeviceSites(txCtx, rp.RackID, params.OrgID, newSiteID)
 				if err != nil {
-					return err
+					return nil, err
 				}
-				out.SiteReassignedDeviceCount += count
+				siteReassignedDeviceCount += count
 				cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 			}
 
@@ -446,7 +464,7 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// the position via the building-id-changed branch.
 			if params.TargetBuildingID != nil {
 				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, nil, nil); err != nil {
-					return err
+					return nil, err
 				}
 				positionedRackIDs = append(positionedRackIDs, rp.RackID)
 			}
@@ -462,15 +480,32 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 					continue
 				}
 				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, rp.AisleIndex, rp.PositionInAisle); err != nil {
-					return err
+					return nil, err
 				}
 			}
 		}
-		return nil
+		return assignRacksToBuildingTx{
+			siteReassignedDeviceCount: siteReassignedDeviceCount,
+			targetSiteID:              targetSiteID,
+			cascadeRackIDs:            cascadeRackIDs,
+			positionedRackIDs:         positionedRackIDs,
+			fallbackSiteID:            fallbackSiteID,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	txResult, ok := result.(assignRacksToBuildingTx)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+	out := models.AssignRacksToBuildingResult{
+		SiteReassignedDeviceCount: txResult.siteReassignedDeviceCount,
+	}
+	targetSiteID := txResult.targetSiteID
+	cascadeRackIDs := txResult.cascadeRackIDs
+	positionedRackIDs := txResult.positionedRackIDs
+	fallbackSiteID := txResult.fallbackSiteID
 
 	// Activity log fires AFTER tx commits.
 	orgIDVal := params.OrgID

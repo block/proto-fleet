@@ -42,6 +42,13 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
+	// RunInTxWithResult fake: same inline behavior for the per-attempt
+	// counter pattern used by AssignRacksToBuilding.
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
 	// GetBuildingStats isn't exercised here; pass nil for stats-only deps.
 	svc := buildings.NewService(buildingStore, siteStore, collectionStore, nil, nil, tx, nil)
 	return &testHarness{

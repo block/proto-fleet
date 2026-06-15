@@ -369,6 +369,15 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 	return rowsAffected, nil, nil
 }
 
+// assignBuildingsTx carries the per-attempt counters out of the
+// RunInTxWithResult closure. Declared at package scope so a tx retry
+// (SQLTransactor serialization / deadlock failure) starts each attempt
+// from zero — the closure constructs a fresh struct on every call.
+type assignBuildingsTx struct {
+	rackCount   int64
+	deviceCount int64
+}
+
 // AssignBuildingsToSite moves one or more buildings to a target site
 // (or to "Unassigned" when TargetSiteID is nil) and cascades site_id
 // down to each building's racks and their devices. Everything runs in
@@ -389,11 +398,15 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 	// AssignBuildingsToSite touching an overlapping building set.
 	sort.Slice(buildingIDs, func(i, j int) bool { return buildingIDs[i] < buildingIDs[j] })
 
-	var (
-		rackCount   int64
-		deviceCount int64
-	)
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+	// Counters live inside the RunInTxWithResult closure so a
+	// SQLTransactor retry (serialization / deadlock failure on the
+	// first attempt) starts from zero on every attempt. The returned
+	// struct reflects only the COMMITTED attempt's totals.
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		var (
+			rackCount   int64
+			deviceCount int64
+		)
 		// Lock target site (if any) inside the tx so a concurrent
 		// DeleteSite can't soft-delete it between the check and the
 		// cascade writes. target=nil/0 (Unassigned) needs no lock.
@@ -401,7 +414,7 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		// avoid deadlock.
 		if params.TargetSiteID != nil && *params.TargetSiteID > 0 {
 			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *params.TargetSiteID); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		for _, buildingID := range buildingIDs {
@@ -409,31 +422,37 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 			// source site can't clear this building's racks while we
 			// reassign them. Same site→building lock order DeleteSite uses.
 			if err := s.store.LockBuildingForWrite(txCtx, params.OrgID, buildingID); err != nil {
-				return err
+				return nil, err
 			}
 			rowsAffected, err := s.store.AssignBuildingToSite(txCtx, params.OrgID, buildingID, params.TargetSiteID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if rowsAffected == 0 {
-				return fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+				return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 			}
 			racks, err := s.store.ReassignRacksUnderBuilding(txCtx, params.OrgID, buildingID, params.TargetSiteID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			rackCount += racks
 			devices, err := s.store.ReassignDevicesUnderBuilding(txCtx, params.OrgID, buildingID, params.TargetSiteID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			deviceCount += devices
 		}
-		return nil
+		return assignBuildingsTx{rackCount: rackCount, deviceCount: deviceCount}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	txResult, ok := result.(assignBuildingsTx)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+	rackCount := txResult.rackCount
+	deviceCount := txResult.deviceCount
 
 	orgIDVal := params.OrgID
 	event := activitymodels.Event{
@@ -459,6 +478,16 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		ReassignedRackCount:   rackCount,
 		ReassignedDeviceCount: deviceCount,
 	}, nil
+}
+
+// assignRacksToSiteTx carries the per-attempt counters and cascaded
+// rack ids out of the RunInTxWithResult closure. Declared at package
+// scope so a tx retry starts each attempt from zero — the closure
+// constructs a fresh struct on every call.
+type assignRacksToSiteTx struct {
+	deviceCount     int64
+	clearedCount    int64
+	cascadedRackIDs []int64
 }
 
 // AssignRacksToSite moves one or more racks to a target site (or to
@@ -489,24 +518,28 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 	}
 	sort.Slice(rackIDs, func(i, j int) bool { return rackIDs[i] < rackIDs[j] })
 
-	var (
-		deviceCount     int64
-		clearedCount    int64
-		cascadedRackIDs []int64
-	)
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+	// Counters + cascaded-id slice live inside the RunInTxWithResult
+	// closure so a SQLTransactor retry (serialization / deadlock
+	// failure on the first attempt) starts from zero on every attempt.
+	// The returned struct reflects only the COMMITTED attempt.
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		var (
+			deviceCount     int64
+			clearedCount    int64
+			cascadedRackIDs []int64
+		)
 		// Lock target site first if assigning so a concurrent
 		// DeleteSite can't soft-delete it between the check and the
 		// cascade writes. target=nil/0 (Unassigned) needs no lock.
 		if params.TargetSiteID != nil && *params.TargetSiteID > 0 {
 			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *params.TargetSiteID); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		for _, rackID := range rackIDs {
 			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rackID, params.OrgID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			siteChanged := !int64PtrEqual(current.SiteID, params.TargetSiteID)
 			// building_id is bound to a single site, so any site
@@ -522,22 +555,33 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 				clearedCount++
 			}
 			if err := s.collectionStore.UpdateRackPlacement(txCtx, rackID, params.OrgID, params.TargetSiteID, newBuildingID, finalZone); err != nil {
-				return err
+				return nil, err
 			}
 			if siteChanged {
 				n, err := s.collectionStore.CascadeRackDeviceSites(txCtx, rackID, params.OrgID, params.TargetSiteID)
 				if err != nil {
-					return err
+					return nil, err
 				}
 				deviceCount += n
 				cascadedRackIDs = append(cascadedRackIDs, rackID)
 			}
 		}
-		return nil
+		return assignRacksToSiteTx{
+			deviceCount:     deviceCount,
+			clearedCount:    clearedCount,
+			cascadedRackIDs: cascadedRackIDs,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	txResult, ok := result.(assignRacksToSiteTx)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+	deviceCount := txResult.deviceCount
+	clearedCount := txResult.clearedCount
+	cascadedRackIDs := txResult.cascadedRackIDs
 
 	orgIDVal := params.OrgID
 	event := activitymodels.Event{
