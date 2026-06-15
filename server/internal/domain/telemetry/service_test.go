@@ -2147,6 +2147,43 @@ func TestRefreshDevice_ReturnsContextErrorWhileWaitingForInFlightCollection(t *t
 	assert.Contains(t, err.Error(), "context cancelled waiting for in-flight refresh")
 }
 
+func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceID := models.DeviceIdentifier("test-device-1")
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1},
+		mock.NewMockTelemetryDataStore(ctrl),
+		mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl),
+		storesMocks.NewMockDeviceStore(ctrl),
+		mock.NewMockErrorPoller(ctrl),
+	)
+	service.inFlight.Store(deviceID, inFlightKindStatusOnly)
+
+	done := make(chan bool, 1)
+	go func() {
+		claimed, err := service.claimDeviceForRefresh(t.Context(), deviceID)
+		require.NoError(t, err)
+		done <- claimed
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	service.inFlight.Delete(deviceID)
+
+	select {
+	case claimed := <-done:
+		assert.True(t, claimed)
+	case <-time.After(time.Second):
+		t.Fatal("claimDeviceForRefresh did not claim after status-only in-flight collection cleared")
+	}
+
+	value, ok := service.inFlight.Load(deviceID)
+	require.True(t, ok)
+	assert.Equal(t, inFlightKindFullTelemetry, value)
+}
+
 // Tests for processStatusOnly failed device recovery
 
 func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {

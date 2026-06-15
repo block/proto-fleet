@@ -62,7 +62,6 @@ const (
 	fleetOptionsFetchTimeout = 60 * time.Second
 
 	refreshMinersMaxDevices       = 50
-	refreshMinersRequestTimeout   = 8 * time.Second
 	refreshMinersPerDeviceTimeout = 5 * time.Second
 	refreshMinersSnapshotTimeout  = 2 * time.Second
 	refreshMinersConcurrencyLimit = 10
@@ -274,7 +273,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 		return nil, err
 	}
 
-	refreshCtx, cancel := context.WithTimeout(ctx, refreshMinersRequestTimeout)
+	refreshCtx, cancel := context.WithTimeout(ctx, refreshMinersRequestTimeout(len(deviceIDs)))
 	defer cancel()
 
 	resp := &pb.RefreshMinersResponse{
@@ -356,6 +355,14 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 	}
 
 	return resp, nil
+}
+
+func refreshMinersRequestTimeout(deviceCount int) time.Duration {
+	if deviceCount <= 0 {
+		return refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout
+	}
+	waves := (deviceCount + refreshMinersConcurrencyLimit - 1) / refreshMinersConcurrencyLimit
+	return time.Duration(waves) * (refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout)
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data

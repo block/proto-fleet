@@ -203,6 +203,13 @@ type metricsFlushRequest struct {
 	done chan error
 }
 
+type inFlightKind string
+
+const (
+	inFlightKindFullTelemetry inFlightKind = "full_telemetry"
+	inFlightKindStatusOnly    inFlightKind = "status_only"
+)
+
 // metricsResult holds device metrics queued by a worker for batch DB writes.
 type metricsResult struct {
 	deviceID   models.DeviceIdentifier
@@ -325,16 +332,36 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 }
 
 func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier) (bool, error) {
-	if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); !alreadyClaimed {
+	if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
 		return true, nil
 	}
 
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
+	waitedForStatusOnly := false
 
 	for {
-		if _, stillInFlight := s.inFlight.Load(deviceID); !stillInFlight {
+		inFlightValue, stillInFlight := s.inFlight.Load(deviceID)
+		if !stillInFlight {
+			if waitedForStatusOnly {
+				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
+					return true, nil
+				}
+				continue
+			}
 			return false, nil
+		}
+		if inFlightValue == inFlightKindStatusOnly {
+			waitedForStatusOnly = true
+			select {
+			case <-ctx.Done():
+				return false, fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
+			case <-ticker.C:
+			}
+			if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
+				return true, nil
+			}
+			continue
 		}
 
 		select {
@@ -560,7 +587,7 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 				}
 
 				// Atomically claim the device; skip if already queued or processing.
-				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); alreadyClaimed {
+				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindStatusOnly); alreadyClaimed {
 					return true
 				}
 
@@ -617,7 +644,7 @@ func (s *TelemetryService) worker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, struct{}{}); alreadyClaimed {
+			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, inFlightKindFullTelemetry); alreadyClaimed {
 				continue
 			}
 			_ = s.processDevice(ctx, device)
