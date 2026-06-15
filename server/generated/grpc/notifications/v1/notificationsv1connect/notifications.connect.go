@@ -49,6 +49,8 @@ const (
 	RuleServiceName = "notifications.v1.RuleService"
 	// SilenceServiceName is the fully-qualified name of the SilenceService service.
 	SilenceServiceName = "notifications.v1.SilenceService"
+	// HistoryServiceName is the fully-qualified name of the HistoryService service.
+	HistoryServiceName = "notifications.v1.HistoryService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -92,6 +94,9 @@ const (
 	// SilenceServiceDeleteSilenceProcedure is the fully-qualified name of the SilenceService's
 	// DeleteSilence RPC.
 	SilenceServiceDeleteSilenceProcedure = "/notifications.v1.SilenceService/DeleteSilence"
+	// HistoryServiceListNotificationsProcedure is the fully-qualified name of the HistoryService's
+	// ListNotifications RPC.
+	HistoryServiceListNotificationsProcedure = "/notifications.v1.HistoryService/ListNotifications"
 )
 
 // ChannelServiceClient is a client for the notifications.v1.ChannelService service.
@@ -544,4 +549,74 @@ func (UnimplementedSilenceServiceHandler) UpdateSilence(context.Context, *connec
 
 func (UnimplementedSilenceServiceHandler) DeleteSilence(context.Context, *connect.Request[v1.DeleteSilenceRequest]) (*connect.Response[v1.DeleteSilenceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("notifications.v1.SilenceService.DeleteSilence is not implemented"))
+}
+
+// HistoryServiceClient is a client for the notifications.v1.HistoryService service.
+type HistoryServiceClient interface {
+	// ListNotifications returns one page of history entries, newest
+	// first, using keyset pagination on the entry id.
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
+}
+
+// NewHistoryServiceClient constructs a client for the notifications.v1.HistoryService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewHistoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HistoryServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &historyServiceClient{
+		listNotifications: connect.NewClient[v1.ListNotificationsRequest, v1.ListNotificationsResponse](
+			httpClient,
+			baseURL+HistoryServiceListNotificationsProcedure,
+			opts...,
+		),
+	}
+}
+
+// historyServiceClient implements HistoryServiceClient.
+type historyServiceClient struct {
+	listNotifications *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
+}
+
+// ListNotifications calls notifications.v1.HistoryService.ListNotifications.
+func (c *historyServiceClient) ListNotifications(ctx context.Context, req *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return c.listNotifications.CallUnary(ctx, req)
+}
+
+// HistoryServiceHandler is an implementation of the notifications.v1.HistoryService service.
+type HistoryServiceHandler interface {
+	// ListNotifications returns one page of history entries, newest
+	// first, using keyset pagination on the entry id.
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
+}
+
+// NewHistoryServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewHistoryServiceHandler(svc HistoryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	historyServiceListNotificationsHandler := connect.NewUnaryHandler(
+		HistoryServiceListNotificationsProcedure,
+		svc.ListNotifications,
+		opts...,
+	)
+	return "/notifications.v1.HistoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case HistoryServiceListNotificationsProcedure:
+			historyServiceListNotificationsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedHistoryServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedHistoryServiceHandler struct{}
+
+func (UnimplementedHistoryServiceHandler) ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("notifications.v1.HistoryService.ListNotifications is not implemented"))
 }

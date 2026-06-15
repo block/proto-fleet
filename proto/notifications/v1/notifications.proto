@@ -79,6 +79,16 @@ service SilenceService {
     rpc DeleteSilence(DeleteSilenceRequest) returns (DeleteSilenceResponse);
 }
 
+// HistoryService is read-only access to the delivered-notification
+// log. Entries are persisted by fleet-api's Alertmanager webhook
+// receiver (a separate ingest path); this service only reads them
+// back, scoped to the caller's organization.
+service HistoryService {
+    // ListNotifications returns one page of history entries, newest
+    // first, using keyset pagination on the entry id.
+    rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+}
+
 // === Channel ============================================================
 
 enum ChannelKind {
@@ -316,3 +326,40 @@ message DeleteSilenceRequest {
     string id = 1 [(buf.validate.field).string.min_len = 1];
 }
 message DeleteSilenceResponse {}
+
+// === History ============================================================
+
+// NotificationHistoryEntry is one delivered alert, recorded by the
+// Alertmanager webhook receiver. All fields are denormalized from the
+// inbound alert at ingest time; status/severity/template are free-form
+// strings rather than enums because they originate from Grafana.
+message NotificationHistoryEntry {
+    string id = 1;
+    google.protobuf.Timestamp received_at = 2;
+    string alert_name = 3;
+    string status = 4;
+    string severity = 5;
+    string rule_group = 6;
+    string fingerprint = 7;
+    string device_id = 8;
+    string device_name = 9;
+    string device_mac = 10;
+    string template = 11;
+    string summary = 12;
+    google.protobuf.Timestamp starts_at = 13;
+    google.protobuf.Timestamp ends_at = 14;
+}
+
+message ListNotificationsRequest {
+    // before_id is the keyset cursor: return entries with id strictly
+    // less than before_id (entries are ordered newest-first by id).
+    // Empty for the first page.
+    string before_id = 1;
+    // page_size is clamped server-side to a sane default and maximum;
+    // 0 means "use the default".
+    int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
+}
+message ListNotificationsResponse {
+    repeated NotificationHistoryEntry notifications = 1;
+    bool has_more = 2;
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 )
@@ -36,6 +37,11 @@ var RedactedRequestProcedures = []string{
 	// PairDiscoveredDevicesOnFleetNode carries miner credentials (username/password)
 	// in the request body.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
+	// Notification channel mutations carry destination secrets (webhook
+	// bearer headers, SMTP passwords, Slack webhook URLs) in the request.
+	notificationsv1connect.ChannelServiceCreateChannelProcedure,
+	notificationsv1connect.ChannelServiceUpdateChannelProcedure,
+	notificationsv1connect.ChannelServiceTestChannelProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -110,6 +116,23 @@ var SessionOnlyProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
+	// Notifications are a Settings-screen surface. Keeping the whole
+	// service session-only preserves the prior hand-written handler's
+	// behaviour (it accepted session cookies only) and keeps a leaked
+	// API key from reconfiguring alert delivery or muting alerts.
+	notificationsv1connect.ChannelServiceListChannelsProcedure,
+	notificationsv1connect.ChannelServiceCreateChannelProcedure,
+	notificationsv1connect.ChannelServiceUpdateChannelProcedure,
+	notificationsv1connect.ChannelServiceDeleteChannelProcedure,
+	notificationsv1connect.ChannelServiceTestChannelProcedure,
+	notificationsv1connect.RuleServiceListRulesProcedure,
+	notificationsv1connect.RuleServicePauseRuleProcedure,
+	notificationsv1connect.RuleServiceResumeRuleProcedure,
+	notificationsv1connect.SilenceServiceListSilencesProcedure,
+	notificationsv1connect.SilenceServiceCreateSilenceProcedure,
+	notificationsv1connect.SilenceServiceUpdateSilenceProcedure,
+	notificationsv1connect.SilenceServiceDeleteSilenceProcedure,
+	notificationsv1connect.HistoryServiceListNotificationsProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

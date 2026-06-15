@@ -52,6 +52,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -621,16 +622,17 @@ func start(config *Config) error {
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
-	// Notifications uses plain HTTP routes (matching the Connect wire
-	// shape but without the typed bindings) until buf generate produces
-	// the notificationsv1connect package; the handler enforces
-	// session-cookie auth plus a RequirePermission RBAC gate
-	// (notification:read / notification:manage) on each route
-	// internally so it doesn't depend on the Connect interceptor chain.
-	notifHandler := notificationsHandler.NewHandler(notificationsSvc, sessionSvc, userStore, permissionResolver, notificationHistoryStore)
-	for pattern, h := range notifHandler.Routes() {
-		mux.Handle(pattern, h)
-	}
+	// Notifications run through the generated Connect handlers and the
+	// shared interceptor chain (li): authentication, buf.validate
+	// request validation, error mapping, and request-log redaction.
+	// Each method additionally calls RequirePermission
+	// (notification:read / notification:manage); the procedures are
+	// registered session-only in interceptors.SessionOnlyProcedures.
+	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
+	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewSilenceServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewHistoryServiceHandler(notifHandler, li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)

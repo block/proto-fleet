@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -246,6 +247,24 @@ var ProcedurePermissions = map[string]string{
 	// site's network identity and stays on site:manage.
 	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure:        authz.PermFleetRead,
 	networkinfov1connect.NetworkInfoServiceUpdateNetworkNicknameProcedure: authz.PermSiteManage,
+
+	// NotificationsServices — ChannelService / RuleService /
+	// SilenceService / HistoryService. Reads on notification:read; every
+	// mutation on notification:manage, including TestChannel (triggers
+	// an outbound delivery) and the rule pause/resume side-channel.
+	notificationsv1connect.ChannelServiceListChannelsProcedure:      authz.PermNotificationRead,
+	notificationsv1connect.ChannelServiceCreateChannelProcedure:     authz.PermNotificationManage,
+	notificationsv1connect.ChannelServiceUpdateChannelProcedure:     authz.PermNotificationManage,
+	notificationsv1connect.ChannelServiceDeleteChannelProcedure:     authz.PermNotificationManage,
+	notificationsv1connect.ChannelServiceTestChannelProcedure:       authz.PermNotificationManage,
+	notificationsv1connect.RuleServiceListRulesProcedure:            authz.PermNotificationRead,
+	notificationsv1connect.RuleServicePauseRuleProcedure:            authz.PermNotificationManage,
+	notificationsv1connect.RuleServiceResumeRuleProcedure:           authz.PermNotificationManage,
+	notificationsv1connect.SilenceServiceListSilencesProcedure:      authz.PermNotificationRead,
+	notificationsv1connect.SilenceServiceCreateSilenceProcedure:     authz.PermNotificationManage,
+	notificationsv1connect.SilenceServiceUpdateSilenceProcedure:     authz.PermNotificationManage,
+	notificationsv1connect.SilenceServiceDeleteSilenceProcedure:     authz.PermNotificationManage,
+	notificationsv1connect.HistoryServiceListNotificationsProcedure: authz.PermNotificationRead,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).
