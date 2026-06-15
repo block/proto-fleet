@@ -113,13 +113,28 @@ type SiteStore interface {
 	// number of rows affected (0 == not found).
 	AssignBuildingToSite(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error)
 
+	// AssignBuildingsToSiteBulk is the multi-building variant of
+	// AssignBuildingToSite. Updates building.site_id for every building
+	// in buildingIDs in one statement. Returns the row count actually
+	// moved (skips soft-deleted rows).
+	AssignBuildingsToSiteBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error)
+
 	// ReassignRacksUnderBuilding cascades site_id down to every rack
 	// under the given building. Caller wraps it in the same tx as the
 	// building UPDATE.
 	ReassignRacksUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error)
 
+	// ReassignRacksUnderBuildingsBulk cascades site_id down to every
+	// rack under any building in buildingIDs, in one statement.
+	ReassignRacksUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error)
+
 	// ReassignDevicesUnderBuilding cascades site_id down to every
 	// device in any rack of the given building. Caller wraps it in
 	// the same tx as the building UPDATE.
 	ReassignDevicesUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error)
+
+	// ReassignDevicesUnderBuildingsBulk cascades site_id down to every
+	// device in any rack under any building in buildingIDs, in one
+	// statement.
+	ReassignDevicesUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error)
 }

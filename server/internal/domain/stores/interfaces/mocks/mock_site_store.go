@@ -56,6 +56,21 @@ func (mr *MockSiteStoreMockRecorder) AssignBuildingToSite(ctx, orgID, buildingID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignBuildingToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignBuildingToSite), ctx, orgID, buildingID, targetSiteID)
 }
 
+// AssignBuildingsToSiteBulk mocks base method.
+func (m *MockSiteStore) AssignBuildingsToSiteBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignBuildingsToSiteBulk", ctx, orgID, buildingIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AssignBuildingsToSiteBulk indicates an expected call of AssignBuildingsToSiteBulk.
+func (mr *MockSiteStoreMockRecorder) AssignBuildingsToSiteBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignBuildingsToSiteBulk", reflect.TypeOf((*MockSiteStore)(nil).AssignBuildingsToSiteBulk), ctx, orgID, buildingIDs, targetSiteID)
+}
+
 // AssignDevicesToSite mocks base method.
 func (m *MockSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -247,6 +262,21 @@ func (mr *MockSiteStoreMockRecorder) ReassignDevicesUnderBuilding(ctx, orgID, bu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignDevicesUnderBuilding", reflect.TypeOf((*MockSiteStore)(nil).ReassignDevicesUnderBuilding), ctx, orgID, buildingID, targetSiteID)
 }
 
+// ReassignDevicesUnderBuildingsBulk mocks base method.
+func (m *MockSiteStore) ReassignDevicesUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignDevicesUnderBuildingsBulk", ctx, orgID, buildingIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReassignDevicesUnderBuildingsBulk indicates an expected call of ReassignDevicesUnderBuildingsBulk.
+func (mr *MockSiteStoreMockRecorder) ReassignDevicesUnderBuildingsBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignDevicesUnderBuildingsBulk", reflect.TypeOf((*MockSiteStore)(nil).ReassignDevicesUnderBuildingsBulk), ctx, orgID, buildingIDs, targetSiteID)
+}
+
 // ReassignRacksUnderBuilding mocks base method.
 func (m *MockSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -260,6 +290,21 @@ func (m *MockSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, b
 func (mr *MockSiteStoreMockRecorder) ReassignRacksUnderBuilding(ctx, orgID, buildingID, targetSiteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignRacksUnderBuilding", reflect.TypeOf((*MockSiteStore)(nil).ReassignRacksUnderBuilding), ctx, orgID, buildingID, targetSiteID)
+}
+
+// ReassignRacksUnderBuildingsBulk mocks base method.
+func (m *MockSiteStore) ReassignRacksUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReassignRacksUnderBuildingsBulk", ctx, orgID, buildingIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReassignRacksUnderBuildingsBulk indicates an expected call of ReassignRacksUnderBuildingsBulk.
+func (mr *MockSiteStoreMockRecorder) ReassignRacksUnderBuildingsBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignRacksUnderBuildingsBulk", reflect.TypeOf((*MockSiteStore)(nil).ReassignRacksUnderBuildingsBulk), ctx, orgID, buildingIDs, targetSiteID)
 }
 
 // SiteBelongsToOrg mocks base method.

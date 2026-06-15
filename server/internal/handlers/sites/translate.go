@@ -48,9 +48,10 @@ func toAssignDevicesParams(req *pb.AssignDevicesToSiteRequest, orgID int64) mode
 		targetSiteID = &v
 	}
 	return models.AssignDevicesToSiteParams{
-		OrgID:             orgID,
-		TargetSiteID:      targetSiteID,
-		DeviceIdentifiers: req.GetDeviceIdentifiers(),
+		OrgID:                               orgID,
+		TargetSiteID:                        targetSiteID,
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 
@@ -63,6 +64,19 @@ func toAssignBuildingsParams(req *pb.AssignBuildingsToSiteRequest, orgID int64) 
 	return models.AssignBuildingsToSiteParams{
 		OrgID:        orgID,
 		BuildingIDs:  req.GetBuildingIds(),
+		TargetSiteID: targetSiteID,
+	}
+}
+
+func toAssignRacksToSiteParams(req *pb.AssignRacksToSiteRequest, orgID int64) models.AssignRacksToSiteParams {
+	var targetSiteID *int64
+	if req.TargetSiteId != nil {
+		v := req.GetTargetSiteId()
+		targetSiteID = &v
+	}
+	return models.AssignRacksToSiteParams{
+		OrgID:        orgID,
+		RackIDs:      req.GetRackIds(),
 		TargetSiteID: targetSiteID,
 	}
 }

@@ -267,7 +267,8 @@ func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64
 //     order is building -> rack(s).
 //  2. Validate every entry up-front (paired position fields, in-bounds
 //     aisle/position). The whole batch rejects on any invalid entry.
-//  3. For each rack (sorted by id for deadlock-safe lock order):
+//  3. Pass 1 — for each rack (sorted by id for deadlock-safe lock
+//     order):
 //     a. Lock the rack row and read current placement.
 //     b. Resolve the new site_id from the target building (or preserve
 //     current.SiteID on building-only unassign).
@@ -275,13 +276,34 @@ func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64
 //     d. Persist site_id + building_id + zone via UpdateRackPlacement.
 //     e. Cascade descendant device.site_id when the site changes; sum
 //     the per-rack counts into the aggregate result.
-//     f. Write the grid cell via SetRackBuildingPosition when the rack
-//     is assigned to a building (placed or explicitly cleared).
+//     f. When assigning (TargetBuildingID != nil), clear the rack's
+//     grid cell to (NULL, NULL) via SetRackBuildingPosition.
+//  4. Pass 2 — for each rack that carries an explicit (aisle, position),
+//     write the final cell via SetRackBuildingPosition.
+//
+// The two-pass split is what lets a single batch contain heterogeneous
+// position changes (swaps, "move into occupied cell", clear + reuse)
+// without tripping uk_device_set_rack_building_position. By the time
+// any rack tries to claim a cell in pass 2, every rack in the batch is
+// guaranteed to hold NULL position — so no partial-unique-index
+// collision can fire mid-batch.
 //
 // If any rack fails, the whole tx rolls back and no row is touched.
 func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.AssignRacksToBuildingParams) (*models.AssignRacksToBuildingResult, error) {
 	if len(params.Racks) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("racks must not be empty")
+	}
+
+	// Reject duplicate rack_ids up front. The handler / proto layers
+	// don't enforce uniqueness, and the per-entry grid-cell write would
+	// silently clobber an earlier same-rack entry inside the tx —
+	// surface the inconsistency to the caller instead.
+	seenRackIDs := make(map[int64]struct{}, len(params.Racks))
+	for _, rp := range params.Racks {
+		if _, dup := seenRackIDs[rp.RackID]; dup {
+			return nil, fleeterror.NewInvalidArgumentErrorf("duplicate rack_id %d in racks", rp.RackID)
+		}
+		seenRackIDs[rp.RackID] = struct{}{}
 	}
 
 	// Per-entry validation runs before any I/O so a bad request fails
@@ -317,6 +339,11 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		targetSiteID      *int64
 		cascadeRackIDs    []int64
 		positionedRackIDs []int64
+		// For a building-only unassign (TargetBuildingID == nil) of a
+		// single rack, capture the rack's current SiteID so the activity
+		// log preserves "the site this rack lives in" instead of nil
+		// (which would make the event look site-less).
+		fallbackSiteID *int64
 	)
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		// Lock the target building first (canonical lock order:
@@ -352,80 +379,110 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			}
 		}
 
+		// Phase A: sequential per-rack lock acquisition in sorted order.
+		// Locks must be acquired one-by-one to avoid the deadlock that
+		// would happen if two concurrent calls grabbed an overlapping
+		// rack set in different orders. Only locks + snapshot reads
+		// run here — every write happens in Phase B as a bulk
+		// statement once every row lock is held.
+		allRackIDs := make([]int64, 0, len(racks))
+		// cascadeRackIDs is populated in this phase so the bulk
+		// CascadeRackDeviceSites call in Phase B knows which racks
+		// actually transitioned sites. It's still appended in
+		// sorted-rack order to keep the activity-log metadata stable.
 		for _, rp := range racks {
 			// Lock the rack row and read its current placement so we
-			// can decide whether the cascade needs to run + what zone
-			// value to persist.
+			// can decide whether the cascade needs to run later and
+			// capture per-rack state for the activity-log fallback.
 			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rp.RackID, params.OrgID)
 			if err != nil {
 				return err
 			}
+			allRackIDs = append(allRackIDs, rp.RackID)
+
+			// Capture the source SiteID for a single-rack building-only
+			// unassign so the activity log carries the rack's site
+			// instead of nil. Only meaningful when the batch is exactly
+			// one rack — multi-rack batches may straddle sites and
+			// surfacing the first rack's site would be misleading.
+			if params.TargetBuildingID == nil && len(racks) == 1 {
+				fallbackSiteID = current.SiteID
+			}
 
 			// Building-only unassign must NOT cascade-clear the rack's
 			// site (and, transitively, every descendant device.site_id).
-			// Removing a rack from a building is a building-membership
-			// change; the rack and its devices stay in their current
-			// site until an explicit site-level unassign happens
-			// elsewhere. Preserve current.SiteID in that branch so the
-			// siteChanged check below reads false and the cascade stays
-			// inert.
+			// Preserve current.SiteID in that branch so siteChanged
+			// reads false and the cascade stays inert.
 			newSiteID := targetSiteID
 			if params.TargetBuildingID == nil {
 				newSiteID = current.SiteID
 			}
-
-			// Mirror SaveRack's zone-clear cascade: clear zone when the
-			// rack leaves a building or crosses to a different one.
-			// Preserve the current zone on a no-op building transition
-			// so legacy callers don't strip zone unintentionally.
-			finalZone := current.Zone
-			leavingBuilding := current.BuildingID != nil && params.TargetBuildingID == nil
-			crossingBuildings := current.BuildingID != nil && params.TargetBuildingID != nil && *current.BuildingID != *params.TargetBuildingID
-			if leavingBuilding || crossingBuildings {
-				finalZone = ""
-			}
-
-			// Persist site_id + building_id + zone in one write. The
-			// query also clears the grid position on building
-			// transition via a CASE expression, so a stale
-			// (aisle_index, position_in_aisle) never outlives its
-			// parent building.
-			if err := s.collectionStore.UpdateRackPlacement(txCtx, rp.RackID, params.OrgID, newSiteID, params.TargetBuildingID, finalZone); err != nil {
-				return err
-			}
-
-			// Cascade descendant device.site_id when the rack's site
-			// changed. CascadeRackDeviceSites returns the row count.
-			siteChanged := !int64PtrEqual(current.SiteID, newSiteID)
-			if siteChanged {
-				count, err := s.collectionStore.CascadeRackDeviceSites(txCtx, rp.RackID, params.OrgID, newSiteID)
-				if err != nil {
-					return err
-				}
-				out.SiteReassignedDeviceCount += count
+			if !int64PtrEqual(current.SiteID, newSiteID) {
 				cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 			}
+		}
 
-			// Grid-cell write. Two cases land here:
-			//
-			//   - Both fields set → write the explicit (aisle, position).
-			//   - Both fields nil + target_building_id is set → operator
-			//     is unplacing the rack within the same building (or
-			//     moving it across with no chosen cell yet). Write
-			//     NULL/NULL so the cell on the rack row matches the
-			//     operator's intent. UpdateRackPlacement's CASE only
-			//     clears when building_id changes, so without this
-			//     explicit write a same-building unplace would silently
-			//     no-op and the old position would survive.
-			//
-			// When TargetBuildingID is nil (full unassign) we skip this
-			// call — UpdateRackPlacement's CASE already nulls the
-			// position via the building-id-changed branch.
-			if params.TargetBuildingID != nil {
-				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, rp.AisleIndex, rp.PositionInAisle); err != nil {
+		// Phase B1: single bulk write for site_id + building_id + zone
+		// + grid-position-on-building-change across every rack. The
+		// SQL CASE expressions mirror the per-row UpdateRackPlacement +
+		// service-layer zone rules so the swap/mixed-clear-and-place
+		// cases still behave like the F5 two-pass shape.
+		if err := s.collectionStore.UpdateRackPlacementBulkForBuilding(
+			txCtx, params.OrgID, allRackIDs, targetSiteID, params.TargetBuildingID,
+		); err != nil {
+			return err
+		}
+
+		// Phase B2: single bulk cascade for the subset of racks whose
+		// site actually changed. CascadeRackDeviceSitesBulk no-ops on
+		// an empty rack set, but skip the call to keep the wire log
+		// clean.
+		if len(cascadeRackIDs) > 0 {
+			count, err := s.collectionStore.CascadeRackDeviceSitesBulk(
+				txCtx, params.OrgID, cascadeRackIDs, targetSiteID,
+			)
+			if err != nil {
+				return err
+			}
+			out.SiteReassignedDeviceCount += count
+		}
+
+		// Phase B3: single bulk pass-1 vacate. Force (aisle, position)
+		// to (NULL, NULL) for every rack in the batch so pass-2 below
+		// can reclaim any cell without colliding mid-batch on the
+		// partial unique index uk_device_set_rack_building_position.
+		// When TargetBuildingID is nil the UpdateRackPlacement bulk
+		// already nulled positions via its CASE — skip here.
+		if params.TargetBuildingID != nil {
+			if err := s.store.SetRackBuildingPositionBulkClear(txCtx, params.OrgID, allRackIDs); err != nil {
+				return err
+			}
+			positionedRackIDs = append(positionedRackIDs, allRackIDs...)
+		}
+
+		// Phase B4: single bulk pass-2 place for racks carrying a
+		// (aisle, position). Pass-1 vacated every cell touched by the
+		// batch so no two writes can collide.
+		if params.TargetBuildingID != nil {
+			var (
+				placeRackIDs []int64
+				placeAisles  []int32
+				placePos     []int32
+			)
+			for _, rp := range racks {
+				if rp.AisleIndex == nil || rp.PositionInAisle == nil {
+					continue
+				}
+				placeRackIDs = append(placeRackIDs, rp.RackID)
+				placeAisles = append(placeAisles, *rp.AisleIndex)
+				placePos = append(placePos, *rp.PositionInAisle)
+			}
+			if len(placeRackIDs) > 0 {
+				if err := s.store.SetRackBuildingPositionBulkPlace(
+					txCtx, params.OrgID, placeRackIDs, placeAisles, placePos,
+				); err != nil {
 					return err
 				}
-				positionedRackIDs = append(positionedRackIDs, rp.RackID)
 			}
 		}
 		return nil
@@ -444,11 +501,18 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 	for i, rp := range racks {
 		rackIDs[i] = rp.RackID
 	}
+	// For a single-rack building-only unassign, fall back to the rack's
+	// own SiteID captured during the lock so the event still records
+	// which site the operator was working in.
+	eventSiteID := targetSiteID
+	if eventSiteID == nil && fallbackSiteID != nil {
+		eventSiteID = fallbackSiteID
+	}
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventRackAssignedBuilding,
 		OrganizationID: &orgIDVal,
-		SiteID:         targetSiteID,
+		SiteID:         eventSiteID,
 		Description: fmt.Sprintf(
 			"Assigned %d rack(s) to building %v",
 			len(racks), derefInt64(params.TargetBuildingID),

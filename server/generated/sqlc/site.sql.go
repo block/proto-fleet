@@ -590,6 +590,42 @@ func (q *Queries) ReassignDevicesUnderBuilding(ctx context.Context, arg Reassign
 	return result.RowsAffected()
 }
 
+const reassignDevicesUnderBuildingsBulk = `-- name: ReassignDevicesUnderBuildingsBulk :execrows
+UPDATE device d
+SET site_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = dsm.org_id
+WHERE d.id = dsm.device_id
+  AND d.org_id = dsm.org_id
+  AND dsm.device_set_type = 'rack'
+  AND d.org_id = $2
+  AND dsr.building_id = ANY($3::bigint[])
+  AND d.deleted_at IS NULL
+`
+
+type ReassignDevicesUnderBuildingsBulkParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingIds  []int64
+}
+
+// Bulk variant of ReassignDevicesUnderBuilding. Sets device.site_id =
+// $target for every device in any live rack of any building in
+// @building_ids. Caller wraps in the same tx as the building UPDATE.
+func (q *Queries) ReassignDevicesUnderBuildingsBulk(ctx context.Context, arg ReassignDevicesUnderBuildingsBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignDevicesUnderBuildingsBulkStmt, reassignDevicesUnderBuildingsBulk, arg.TargetSiteID, arg.OrgID, pq.Array(arg.BuildingIds))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const reassignRacksUnderBuilding = `-- name: ReassignRacksUnderBuilding :execrows
 UPDATE device_set_rack dsr
 SET site_id = $1
@@ -615,6 +651,36 @@ type ReassignRacksUnderBuildingParams struct {
 // matching the list/cascade filters elsewhere.
 func (q *Queries) ReassignRacksUnderBuilding(ctx context.Context, arg ReassignRacksUnderBuildingParams) (int64, error) {
 	result, err := q.exec(ctx, q.reassignRacksUnderBuildingStmt, reassignRacksUnderBuilding, arg.TargetSiteID, arg.OrgID, arg.BuildingID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const reassignRacksUnderBuildingsBulk = `-- name: ReassignRacksUnderBuildingsBulk :execrows
+UPDATE device_set_rack dsr
+SET site_id = $1
+WHERE dsr.org_id = $2
+  AND dsr.building_id = ANY($3::bigint[])
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  )
+`
+
+type ReassignRacksUnderBuildingsBulkParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingIds  []int64
+}
+
+// Bulk variant of ReassignRacksUnderBuilding. Sets rack.site_id =
+// $target for every live rack pointing at any of @building_ids in one
+// statement. Caller wraps in the same tx as the building UPDATE so
+// the building/rack/device site_ids stay in lockstep.
+func (q *Queries) ReassignRacksUnderBuildingsBulk(ctx context.Context, arg ReassignRacksUnderBuildingsBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignRacksUnderBuildingsBulkStmt, reassignRacksUnderBuildingsBulk, arg.TargetSiteID, arg.OrgID, pq.Array(arg.BuildingIds))
 	if err != nil {
 		return 0, err
 	}

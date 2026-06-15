@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { fleetManagementClient } from "@/protoFleet/api/clients";
@@ -62,17 +62,21 @@ const rackOverflowMessage = (rack: DeviceSet, currentMembers: Set<string>, ids: 
 // Paginate listMinerStateSnapshots filtered to the target rack so the
 // capacity guard can discount ids that are already members. Capped at
 // MAX_MINERS for the same reason as resolveAllModeIds.
-const resolveRackMembers = async (rackId: bigint): Promise<Set<string>> => {
+const resolveRackMembers = async (rackId: bigint, signal?: AbortSignal): Promise<Set<string>> => {
   const filter = create(MinerListFilterSchema, { rackIds: [rackId] });
   const members = new Set<string>();
   let cursor = "";
   let exhausted = false;
   for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
-    const response = await fleetManagementClient.listMinerStateSnapshots({
-      pageSize: SNAPSHOT_PAGE_SIZE,
-      cursor,
-      filter,
-    });
+    const response = await fleetManagementClient.listMinerStateSnapshots(
+      {
+        pageSize: SNAPSHOT_PAGE_SIZE,
+        cursor,
+        filter,
+      },
+      { signal },
+    );
+    if (signal?.aborted) return members;
     for (const miner of response.miners) members.add(miner.deviceIdentifier);
     if (!response.cursor) {
       exhausted = true;
@@ -116,17 +120,22 @@ const groupRackSiteConflicts = (
 
 const resolveAllModeIds = async (
   filter: MinerListFilter,
+  signal?: AbortSignal,
 ): Promise<{ ids: string[]; snapshots: Record<string, MinerStateSnapshot> }> => {
   const ids: string[] = [];
   const snapshots: Record<string, MinerStateSnapshot> = {};
   let cursor = "";
   let exhausted = false;
   for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
-    const response = await fleetManagementClient.listMinerStateSnapshots({
-      pageSize: SNAPSHOT_PAGE_SIZE,
-      cursor,
-      filter,
-    });
+    const response = await fleetManagementClient.listMinerStateSnapshots(
+      {
+        pageSize: SNAPSHOT_PAGE_SIZE,
+        cursor,
+        filter,
+      },
+      { signal },
+    );
+    if (signal?.aborted) return { ids, snapshots };
     for (const miner of response.miners) {
       ids.push(miner.deviceIdentifier);
       snapshots[miner.deviceIdentifier] = miner;
@@ -163,7 +172,7 @@ const MinerReparentPicker = ({
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
   const { assignDevicesToSite } = useSites();
-  const { assignDevicesToRack, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
+  const { assignDevicesToRack, getDeviceSet, listRacks } = useDeviceSets();
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
   // Resolver for the onConfirm promise during the cross-site confirm
@@ -172,20 +181,23 @@ const MinerReparentPicker = ({
   // → onClose) after the operator picks Continue or Cancel.
   const dialogResolveRef = useRef<(() => void) | null>(null);
 
+  // Abort in-flight snapshot pagination and bulk RPCs on unmount so a
+  // long-running resolveAllModeIds / resolveRackMembers / dispatch
+  // loop doesn't keep firing after the operator dismisses the picker.
+  const abortRef = useRef<AbortController | null>(null);
+  if (abortRef.current === null) {
+    abortRef.current = new AbortController();
+  }
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const fetchAllRacks = () =>
     new Promise<DeviceSet[]>((resolve, reject) => {
       void listRacks({
         onSuccess: (racks) => resolve(racks),
-        onError: (msg) => reject(new Error(msg)),
-      });
-    });
-
-  const removeFromRack = (rackId: bigint, ids: string[]) =>
-    new Promise<void>((resolve, reject) => {
-      void removeDevicesFromDeviceSet({
-        deviceSetId: rackId,
-        deviceIdentifiers: ids,
-        onSuccess: () => resolve(),
         onError: (msg) => reject(new Error(msg)),
       });
     });
@@ -200,40 +212,39 @@ const MinerReparentPicker = ({
       });
     });
 
-  const dispatchSiteReassign = (targetSiteId: bigint, ids: string[]) => {
-    void assignDevicesToSite({
-      targetSiteId,
-      deviceIdentifiers: ids,
-      onSuccess: (count) => {
-        pushToast({ message: successMessage(count, "site"), status: STATUSES.success });
-        onRefetchMiners?.();
-      },
-      onError: (msg) => pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error }),
+  const dispatchSiteReassign = (targetSiteId: bigint, ids: string[], forceClearConflictingRackMembership = false) =>
+    new Promise<void>((resolve) => {
+      void assignDevicesToSite({
+        targetSiteId,
+        deviceIdentifiers: ids,
+        forceClearConflictingRackMembership,
+        onSuccess: (count) => {
+          pushToast({ message: successMessage(count, "site"), status: STATUSES.success });
+          onRefetchMiners?.();
+          resolve();
+        },
+        onError: (msg) => {
+          pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error });
+          resolve();
+        },
+      });
     });
-  };
 
+  // Cross-site move with conflicting rack memberships: a single
+  // server-side transaction strips the prior rack rows and applies
+  // the site write. Previously this was a client-side loop of
+  // removeDevicesFromDeviceSet calls followed by assignDevicesToSite,
+  // which left a window where a transport failure between the two
+  // RPCs would orphan miners (rack-less but still on the old site).
   const dispatchSiteMoveWithUnassign = async (confirmation: SiteMoveConfirmation) => {
     setSiteMoveInFlight(true);
     const movingToast = pushToast({
-      message: `Unassigning miners from ${confirmation.conflictsByLabel.size} rack${confirmation.conflictsByLabel.size === 1 ? "" : "s"}…`,
+      message: "Moving miners to the new site…",
       status: STATUSES.loading,
       longRunning: true,
     });
-    try {
-      for (const [sourceLabel, sourceIds] of confirmation.conflictsByLabel) {
-        const sourceRackId = confirmation.labelToRackId.get(sourceLabel);
-        if (sourceRackId === undefined) continue;
-        await removeFromRack(sourceRackId, sourceIds);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
-      updateToast(movingToast, { message, status: STATUSES.error });
-      setSiteMoveInFlight(false);
-      setSiteMoveConfirmation(null);
-      return;
-    }
+    await dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids, true);
     removeToast(movingToast);
-    dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids);
     setSiteMoveInFlight(false);
     setSiteMoveConfirmation(null);
   };
@@ -272,7 +283,7 @@ const MinerReparentPicker = ({
 
     const conflictsByLabel = groupRackSiteConflicts(ids, minerSnapshots, labelToSiteId, targetSiteId);
     if (conflictsByLabel.size === 0) {
-      dispatchSiteReassign(targetSiteId, ids);
+      await dispatchSiteReassign(targetSiteId, ids);
       return;
     }
 
@@ -289,12 +300,16 @@ const MinerReparentPicker = ({
     let rack: DeviceSet;
     let currentMembers: Set<string>;
     try {
-      [rack, currentMembers] = await Promise.all([fetchRack(targetRackId), resolveRackMembers(targetRackId)]);
+      [rack, currentMembers] = await Promise.all([
+        fetchRack(targetRackId),
+        resolveRackMembers(targetRackId, abortRef.current?.signal),
+      ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't load rack.";
       pushToast({ message, status: STATUSES.error });
       return;
     }
+    if (abortRef.current?.signal.aborted) return;
     const overflow = rackOverflowMessage(rack, currentMembers, ids);
     if (overflow) {
       pushToast({ message: overflow, status: STATUSES.error });
@@ -307,14 +322,21 @@ const MinerReparentPicker = ({
     // racks via listRacks and could (a) orphan miners on a transport
     // failure between the two calls, and (b) skip a rack whose label
     // got renamed mid-confirm. The atomic RPC closes both holes.
-    void assignDevicesToRack({
-      targetRackId,
-      deviceIdentifiers: ids,
-      onSuccess: (count) => {
-        pushToast({ message: successMessage(count, "rack"), status: STATUSES.success });
-        onRefetchMiners?.();
-      },
-      onError: (msg) => pushToast({ message: `Couldn't move miners to rack: ${msg}`, status: STATUSES.error }),
+    await new Promise<void>((resolve) => {
+      void assignDevicesToRack({
+        targetRackId,
+        deviceIdentifiers: ids,
+        signal: abortRef.current?.signal,
+        onSuccess: (count) => {
+          pushToast({ message: successMessage(count, "rack"), status: STATUSES.success });
+          onRefetchMiners?.();
+          resolve();
+        },
+        onError: (msg) => {
+          pushToast({ message: `Couldn't move miners to rack: ${msg}`, status: STATUSES.error });
+          resolve();
+        },
+      });
     });
   };
 
@@ -380,7 +402,11 @@ const MinerReparentPicker = ({
               longRunning: true,
             });
             try {
-              const resolved = await resolveAllModeIds(effectiveFilter);
+              const resolved = await resolveAllModeIds(effectiveFilter, abortRef.current?.signal);
+              if (abortRef.current?.signal.aborted) {
+                removeToast(loadingToast);
+                return;
+              }
               ids = resolved.ids;
               snapshots = resolved.snapshots;
             } catch (err) {

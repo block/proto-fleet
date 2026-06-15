@@ -63,11 +63,12 @@ interface ListDeviceSetsProps {
   onFinally?: () => void;
 }
 
-interface AddDevicesToDeviceSetProps {
-  deviceSetId: bigint;
+interface AddDevicesToGroupProps {
+  targetGroupId: bigint;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
-  onSuccess?: (addedCount: number) => void;
+  signal?: AbortSignal;
+  onSuccess?: (addedCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -119,11 +120,12 @@ interface ListGroupMembersProps {
   onFinally?: () => void;
 }
 
-interface RemoveDevicesFromDeviceSetProps {
-  deviceSetId: bigint;
+interface RemoveDevicesFromGroupProps {
+  targetGroupId: bigint;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
-  onSuccess?: (removedCount: number) => void;
+  signal?: AbortSignal;
+  onSuccess?: (removedCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -170,6 +172,7 @@ interface AssignDevicesToRackProps {
   // stay intact).
   targetRackId?: bigint;
   deviceIdentifiers: string[];
+  signal?: AbortSignal;
   onSuccess?: (assignedCount: bigint, siteReassignedCount: bigint, removedCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -497,28 +500,37 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
-  const addDevicesToDeviceSet = useCallback(
+  // addDevicesToGroup adds devices to a group (many-to-many). The
+  // server rejects non-group targets with InvalidArgument; for rack
+  // adds use assignDevicesToRack, which atomically clears any prior
+  // rack membership and cascades the rack's site onto the device.
+  const addDevicesToGroup = useCallback(
     async ({
-      deviceSetId,
+      targetGroupId,
       deviceIdentifiers,
       allDevices,
+      signal,
       onSuccess,
       onError,
       onFinally,
-    }: AddDevicesToDeviceSetProps) => {
+    }: AddDevicesToGroupProps) => {
       try {
-        const deviceSelector =
-          allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
-            ? buildDeviceSelector(deviceIdentifiers, allDevices)
-            : undefined;
+        const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
-        const response = await deviceSetClient.addDevicesToDeviceSet({
-          deviceSetId,
-          deviceSelector,
-        });
+        const response = await deviceSetClient.addDevicesToGroup(
+          {
+            targetGroupId,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         onSuccess?.(response.addedCount);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: () => {
@@ -617,14 +629,34 @@ const useDeviceSets = () => {
   // miners from rack assignment (issue #420). Pass targetRackId
   // unset to clear rack membership without re-assigning.
   const assignDevicesToRack = useCallback(
-    async ({ targetRackId, deviceIdentifiers, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
+    async ({ targetRackId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
       try {
-        const response = await deviceSetClient.assignDevicesToRack({
-          targetRackId,
-          deviceIdentifiers,
+        // Server requires the device_list variant; the all_devices
+        // variant is rejected with InvalidArgument upstream. Always
+        // build the device_list selector explicitly so callers can't
+        // accidentally trigger that error by passing an empty array.
+        const deviceSelector = create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "deviceList",
+            value: create(DeviceIdentifierListSchema, {
+              deviceIdentifiers,
+            }),
+          },
         });
+
+        const response = await deviceSetClient.assignDevicesToRack(
+          {
+            targetRackId,
+            deviceSelector,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
         onSuccess?.(response.assignedCount, response.siteReassignedCount, response.removedCount);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: () => {
@@ -638,28 +670,37 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
-  const removeDevicesFromDeviceSet = useCallback(
+  // removeDevicesFromGroup drops devices from a group. The server
+  // rejects non-group targets with InvalidArgument; for rack removal
+  // use assignDevicesToRack with targetRackId unset, which clears rack
+  // membership in a single transaction (site/building stay intact).
+  const removeDevicesFromGroup = useCallback(
     async ({
-      deviceSetId,
+      targetGroupId,
       deviceIdentifiers,
       allDevices,
+      signal,
       onSuccess,
       onError,
       onFinally,
-    }: RemoveDevicesFromDeviceSetProps) => {
+    }: RemoveDevicesFromGroupProps) => {
       try {
-        const deviceSelector =
-          allDevices || (deviceIdentifiers && deviceIdentifiers.length > 0)
-            ? buildDeviceSelector(deviceIdentifiers, allDevices)
-            : undefined;
+        const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
-        const response = await deviceSetClient.removeDevicesFromDeviceSet({
-          deviceSetId,
-          deviceSelector,
-        });
+        const response = await deviceSetClient.removeDevicesFromGroup(
+          {
+            targetGroupId,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         onSuccess?.(response.removedCount);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: () => {
@@ -884,9 +925,9 @@ const useDeviceSets = () => {
     listRackTypes,
     listGroupMembers,
     getDeviceSetStats,
-    addDevicesToDeviceSet,
+    addDevicesToGroup,
     assignDevicesToRack,
-    removeDevicesFromDeviceSet,
+    removeDevicesFromGroup,
     getRackSlots,
     setRackSlotPosition,
     clearRackSlotPosition,

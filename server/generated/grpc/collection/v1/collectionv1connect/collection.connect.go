@@ -49,12 +49,6 @@ const (
 	// DeviceCollectionServiceListCollectionsProcedure is the fully-qualified name of the
 	// DeviceCollectionService's ListCollections RPC.
 	DeviceCollectionServiceListCollectionsProcedure = "/collection.v1.DeviceCollectionService/ListCollections"
-	// DeviceCollectionServiceAddDevicesToCollectionProcedure is the fully-qualified name of the
-	// DeviceCollectionService's AddDevicesToCollection RPC.
-	DeviceCollectionServiceAddDevicesToCollectionProcedure = "/collection.v1.DeviceCollectionService/AddDevicesToCollection"
-	// DeviceCollectionServiceRemoveDevicesFromCollectionProcedure is the fully-qualified name of the
-	// DeviceCollectionService's RemoveDevicesFromCollection RPC.
-	DeviceCollectionServiceRemoveDevicesFromCollectionProcedure = "/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection"
 	// DeviceCollectionServiceListCollectionMembersProcedure is the fully-qualified name of the
 	// DeviceCollectionService's ListCollectionMembers RPC.
 	DeviceCollectionServiceListCollectionMembersProcedure = "/collection.v1.DeviceCollectionService/ListCollectionMembers"
@@ -96,10 +90,6 @@ type DeviceCollectionServiceClient interface {
 	DeleteCollection(context.Context, *connect.Request[v1.DeleteCollectionRequest]) (*connect.Response[v1.DeleteCollectionResponse], error)
 	// Lists all collections for the organization
 	ListCollections(context.Context, *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error)
-	// Adds devices to a collection
-	AddDevicesToCollection(context.Context, *connect.Request[v1.AddDevicesToCollectionRequest]) (*connect.Response[v1.AddDevicesToCollectionResponse], error)
-	// Removes devices from a collection
-	RemoveDevicesFromCollection(context.Context, *connect.Request[v1.RemoveDevicesFromCollectionRequest]) (*connect.Response[v1.RemoveDevicesFromCollectionResponse], error)
 	// Lists members of a collection
 	ListCollectionMembers(context.Context, *connect.Request[v1.ListCollectionMembersRequest]) (*connect.Response[v1.ListCollectionMembersResponse], error)
 	// Gets collections that a device belongs to
@@ -156,16 +146,6 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+DeviceCollectionServiceListCollectionsProcedure,
 			opts...,
 		),
-		addDevicesToCollection: connect.NewClient[v1.AddDevicesToCollectionRequest, v1.AddDevicesToCollectionResponse](
-			httpClient,
-			baseURL+DeviceCollectionServiceAddDevicesToCollectionProcedure,
-			opts...,
-		),
-		removeDevicesFromCollection: connect.NewClient[v1.RemoveDevicesFromCollectionRequest, v1.RemoveDevicesFromCollectionResponse](
-			httpClient,
-			baseURL+DeviceCollectionServiceRemoveDevicesFromCollectionProcedure,
-			opts...,
-		),
 		listCollectionMembers: connect.NewClient[v1.ListCollectionMembersRequest, v1.ListCollectionMembersResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceListCollectionMembersProcedure,
@@ -216,22 +196,20 @@ func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL str
 
 // deviceCollectionServiceClient implements DeviceCollectionServiceClient.
 type deviceCollectionServiceClient struct {
-	createCollection            *connect.Client[v1.CreateCollectionRequest, v1.CreateCollectionResponse]
-	getCollection               *connect.Client[v1.GetCollectionRequest, v1.GetCollectionResponse]
-	updateCollection            *connect.Client[v1.UpdateCollectionRequest, v1.UpdateCollectionResponse]
-	deleteCollection            *connect.Client[v1.DeleteCollectionRequest, v1.DeleteCollectionResponse]
-	listCollections             *connect.Client[v1.ListCollectionsRequest, v1.ListCollectionsResponse]
-	addDevicesToCollection      *connect.Client[v1.AddDevicesToCollectionRequest, v1.AddDevicesToCollectionResponse]
-	removeDevicesFromCollection *connect.Client[v1.RemoveDevicesFromCollectionRequest, v1.RemoveDevicesFromCollectionResponse]
-	listCollectionMembers       *connect.Client[v1.ListCollectionMembersRequest, v1.ListCollectionMembersResponse]
-	getDeviceCollections        *connect.Client[v1.GetDeviceCollectionsRequest, v1.GetDeviceCollectionsResponse]
-	setRackSlotPosition         *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
-	clearRackSlotPosition       *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
-	getRackSlots                *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
-	getCollectionStats          *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
-	listRackZones               *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
-	listRackTypes               *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
-	saveRack                    *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
+	createCollection      *connect.Client[v1.CreateCollectionRequest, v1.CreateCollectionResponse]
+	getCollection         *connect.Client[v1.GetCollectionRequest, v1.GetCollectionResponse]
+	updateCollection      *connect.Client[v1.UpdateCollectionRequest, v1.UpdateCollectionResponse]
+	deleteCollection      *connect.Client[v1.DeleteCollectionRequest, v1.DeleteCollectionResponse]
+	listCollections       *connect.Client[v1.ListCollectionsRequest, v1.ListCollectionsResponse]
+	listCollectionMembers *connect.Client[v1.ListCollectionMembersRequest, v1.ListCollectionMembersResponse]
+	getDeviceCollections  *connect.Client[v1.GetDeviceCollectionsRequest, v1.GetDeviceCollectionsResponse]
+	setRackSlotPosition   *connect.Client[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse]
+	clearRackSlotPosition *connect.Client[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse]
+	getRackSlots          *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
+	getCollectionStats    *connect.Client[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse]
+	listRackZones         *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
+	listRackTypes         *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
+	saveRack              *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
 }
 
 // CreateCollection calls collection.v1.DeviceCollectionService.CreateCollection.
@@ -257,17 +235,6 @@ func (c *deviceCollectionServiceClient) DeleteCollection(ctx context.Context, re
 // ListCollections calls collection.v1.DeviceCollectionService.ListCollections.
 func (c *deviceCollectionServiceClient) ListCollections(ctx context.Context, req *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error) {
 	return c.listCollections.CallUnary(ctx, req)
-}
-
-// AddDevicesToCollection calls collection.v1.DeviceCollectionService.AddDevicesToCollection.
-func (c *deviceCollectionServiceClient) AddDevicesToCollection(ctx context.Context, req *connect.Request[v1.AddDevicesToCollectionRequest]) (*connect.Response[v1.AddDevicesToCollectionResponse], error) {
-	return c.addDevicesToCollection.CallUnary(ctx, req)
-}
-
-// RemoveDevicesFromCollection calls
-// collection.v1.DeviceCollectionService.RemoveDevicesFromCollection.
-func (c *deviceCollectionServiceClient) RemoveDevicesFromCollection(ctx context.Context, req *connect.Request[v1.RemoveDevicesFromCollectionRequest]) (*connect.Response[v1.RemoveDevicesFromCollectionResponse], error) {
-	return c.removeDevicesFromCollection.CallUnary(ctx, req)
 }
 
 // ListCollectionMembers calls collection.v1.DeviceCollectionService.ListCollectionMembers.
@@ -328,10 +295,6 @@ type DeviceCollectionServiceHandler interface {
 	DeleteCollection(context.Context, *connect.Request[v1.DeleteCollectionRequest]) (*connect.Response[v1.DeleteCollectionResponse], error)
 	// Lists all collections for the organization
 	ListCollections(context.Context, *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error)
-	// Adds devices to a collection
-	AddDevicesToCollection(context.Context, *connect.Request[v1.AddDevicesToCollectionRequest]) (*connect.Response[v1.AddDevicesToCollectionResponse], error)
-	// Removes devices from a collection
-	RemoveDevicesFromCollection(context.Context, *connect.Request[v1.RemoveDevicesFromCollectionRequest]) (*connect.Response[v1.RemoveDevicesFromCollectionResponse], error)
 	// Lists members of a collection
 	ListCollectionMembers(context.Context, *connect.Request[v1.ListCollectionMembersRequest]) (*connect.Response[v1.ListCollectionMembersResponse], error)
 	// Gets collections that a device belongs to
@@ -382,16 +345,6 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 	deviceCollectionServiceListCollectionsHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceListCollectionsProcedure,
 		svc.ListCollections,
-		opts...,
-	)
-	deviceCollectionServiceAddDevicesToCollectionHandler := connect.NewUnaryHandler(
-		DeviceCollectionServiceAddDevicesToCollectionProcedure,
-		svc.AddDevicesToCollection,
-		opts...,
-	)
-	deviceCollectionServiceRemoveDevicesFromCollectionHandler := connect.NewUnaryHandler(
-		DeviceCollectionServiceRemoveDevicesFromCollectionProcedure,
-		svc.RemoveDevicesFromCollection,
 		opts...,
 	)
 	deviceCollectionServiceListCollectionMembersHandler := connect.NewUnaryHandler(
@@ -451,10 +404,6 @@ func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts 
 			deviceCollectionServiceDeleteCollectionHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceListCollectionsProcedure:
 			deviceCollectionServiceListCollectionsHandler.ServeHTTP(w, r)
-		case DeviceCollectionServiceAddDevicesToCollectionProcedure:
-			deviceCollectionServiceAddDevicesToCollectionHandler.ServeHTTP(w, r)
-		case DeviceCollectionServiceRemoveDevicesFromCollectionProcedure:
-			deviceCollectionServiceRemoveDevicesFromCollectionHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceListCollectionMembersProcedure:
 			deviceCollectionServiceListCollectionMembersHandler.ServeHTTP(w, r)
 		case DeviceCollectionServiceGetDeviceCollectionsProcedure:
@@ -500,14 +449,6 @@ func (UnimplementedDeviceCollectionServiceHandler) DeleteCollection(context.Cont
 
 func (UnimplementedDeviceCollectionServiceHandler) ListCollections(context.Context, *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.ListCollections is not implemented"))
-}
-
-func (UnimplementedDeviceCollectionServiceHandler) AddDevicesToCollection(context.Context, *connect.Request[v1.AddDevicesToCollectionRequest]) (*connect.Response[v1.AddDevicesToCollectionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.AddDevicesToCollection is not implemented"))
-}
-
-func (UnimplementedDeviceCollectionServiceHandler) RemoveDevicesFromCollection(context.Context, *connect.Request[v1.RemoveDevicesFromCollectionRequest]) (*connect.Response[v1.RemoveDevicesFromCollectionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("collection.v1.DeviceCollectionService.RemoveDevicesFromCollection is not implemented"))
 }
 
 func (UnimplementedDeviceCollectionServiceHandler) ListCollectionMembers(context.Context, *connect.Request[v1.ListCollectionMembersRequest]) (*connect.Response[v1.ListCollectionMembersResponse], error) {

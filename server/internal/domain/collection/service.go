@@ -695,194 +695,150 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
 }
 
-type membershipChangeResult struct {
-	collection   *pb.DeviceCollection
-	count        int64
-	conflicts    []interfaces.AddedDeviceSiteConflict
-	finalSiteID  *int64
-	cascadeCount int64
+// AddDevicesToGroupParams is the domain-layer input shape for adding
+// devices to a group device set. TargetGroupID must point at a group;
+// rack adds must go through AssignDevicesToRack to get atomic prior-rack
+// removal + site cascade.
+type AddDevicesToGroupParams struct {
+	TargetGroupID  int64
+	DeviceSelector *commonpb.DeviceSelector
 }
 
-// AddDevicesToCollection adds devices to a collection.
-func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevicesToCollectionRequest) (*pb.AddDevicesToCollectionResponse, error) {
+// AddDevicesToGroupResult carries the added-row count for the activity
+// log + handler response surface.
+type AddDevicesToGroupResult struct {
+	AddedCount int64
+}
+
+// AddDevicesToGroup adds devices to a group device set. Groups are
+// org-scoped (devices may span sites) so this skips the rack site
+// cascade entirely. Rack targets are rejected with InvalidArgument.
+func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGroupParams) (*AddDevicesToGroupResult, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, params.DeviceSelector, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
+	type txOut struct {
+		added int64
+		label string
+	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, params.TargetGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if coll.Type != pb.CollectionType_COLLECTION_TYPE_GROUP {
+			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
+		}
+
+		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		// Lock rack FOR UPDATE so the cascade reads rack.site_id under a
-		// write lock that serializes against SiteService writers. Skip the
-		// site lock — that would invert canonical lock order and deadlock
-		// against concurrent site moves. Groups skip lock and cascade.
-		var (
-			conflicts    []interfaces.AddedDeviceSiteConflict
-			finalSiteID  *int64
-			cascadeCount int64
-		)
-		if coll.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-			finalSiteID = placement.SiteID
-			if placement.SiteID != nil {
-				conflicts, err = s.collectionStore.GetAddedDeviceSiteConflicts(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-
-		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-		if err != nil {
-			return nil, err
-		}
-
-		if coll.Type == pb.CollectionType_COLLECTION_TYPE_RACK && finalSiteID != nil {
-			n, err := s.collectionStore.CascadeAddedDeviceSites(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-			if err != nil {
-				return nil, err
-			}
-			cascadeCount = n
-		}
-
-		return &membershipChangeResult{
-			collection:   coll,
-			count:        addedCount,
-			conflicts:    conflicts,
-			finalSiteID:  finalSiteID,
-			cascadeCount: cascadeCount,
-		}, nil
+		return &txOut{added: addedCount, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	txResult, ok := result.(*membershipChangeResult)
+	out, ok := result.(*txOut)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	addedCountInt := int(txResult.count)
-	scopeType := collectionScopeType(txResult.collection.Type)
-	label := txResult.collection.Label
-	addEvent := activitymodels.Event{
+	addedCountInt := int(out.added)
+	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
+	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "add_devices",
-		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, label),
+		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, out.label),
 		ScopeType:      &scopeType,
-		ScopeLabel:     &label,
+		ScopeLabel:     &out.label,
 		ScopeCount:     &addedCountInt,
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-		SiteID:         txResult.finalSiteID,
-	}
-	if len(txResult.conflicts) > 0 {
-		total := len(txResult.conflicts)
-		capacity := total
-		if capacity > maxCascadeAuditEntries {
-			capacity = maxCascadeAuditEntries
-		}
-		priors := make([]map[string]any, 0, capacity)
-		for i, c := range txResult.conflicts {
-			if i >= maxCascadeAuditEntries {
-				break
-			}
-			row := map[string]any{
-				"device_identifier": c.DeviceIdentifier,
-				"target_site_id":    c.TargetSiteID,
-			}
-			if c.PriorSiteID != nil {
-				row["prior_site_id"] = *c.PriorSiteID
-			}
-			priors = append(priors, row)
-		}
-		meta := map[string]any{
-			"site_cascade":          true,
-			"final_site_id":         txResult.finalSiteID,
-			"site_reassigned_count": txResult.cascadeCount,
-			"device_site_changes":   priors,
-			"total_affected":        total,
-		}
-		if total > maxCascadeAuditEntries {
-			meta["truncated"] = true
-		}
-		addEvent.Metadata = meta
-	}
-	s.logActivity(ctx, addEvent)
+	})
 
-	// #nosec G115 -- addedCount is bounded by request size which is limited by gRPC message size
-	return &pb.AddDevicesToCollectionResponse{
-		CollectionId: req.CollectionId,
-		AddedCount:   int32(txResult.count),
-		// #nosec G115 -- cascadeCount bounded by added member count
-		SiteReassignedCount: int32(txResult.cascadeCount),
-	}, nil
+	return &AddDevicesToGroupResult{AddedCount: out.added}, nil
 }
 
-// RemoveDevicesFromCollection removes devices from a collection.
-func (s *Service) RemoveDevicesFromCollection(ctx context.Context, req *pb.RemoveDevicesFromCollectionRequest) (*pb.RemoveDevicesFromCollectionResponse, error) {
+// RemoveDevicesFromGroupParams is the domain-layer input shape for
+// removing devices from a group device set. Rack targets are rejected
+// with InvalidArgument; use AssignDevicesToRack (target_rack_id unset)
+// to clear rack membership.
+type RemoveDevicesFromGroupParams struct {
+	TargetGroupID  int64
+	DeviceSelector *commonpb.DeviceSelector
+}
+
+// RemoveDevicesFromGroupResult carries the removed-row count for the
+// activity log + handler response surface.
+type RemoveDevicesFromGroupResult struct {
+	RemovedCount int64
+}
+
+// RemoveDevicesFromGroup removes devices from a group device set.
+func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevicesFromGroupParams) (*RemoveDevicesFromGroupResult, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, params.DeviceSelector, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
+	type txOut struct {
+		removed int64
+		label   string
+	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, params.TargetGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if coll.Type != pb.CollectionType_COLLECTION_TYPE_GROUP {
+			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
+		}
+
+		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-		if err != nil {
-			return nil, err
-		}
-
-		return &membershipChangeResult{collection: coll, count: removedCount}, nil
+		return &txOut{removed: removedCount, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	txResult, ok := result.(*membershipChangeResult)
+	out, ok := result.(*txOut)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	removedCountInt := int(txResult.count)
-	scopeType := collectionScopeType(txResult.collection.Type)
-	label := txResult.collection.Label
+	removedCountInt := int(out.removed)
+	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
 	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "remove_devices",
-		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, label),
+		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, out.label),
 		ScopeType:      &scopeType,
-		ScopeLabel:     &label,
+		ScopeLabel:     &out.label,
 		ScopeCount:     &removedCountInt,
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 	})
 
-	// #nosec G115 -- removedCount is bounded by request size which is limited by gRPC message size
-	return &pb.RemoveDevicesFromCollectionResponse{RemovedCount: int32(txResult.count)}, nil
+	return &RemoveDevicesFromGroupResult{RemovedCount: out.removed}, nil
 }
 
 // AssignDevicesToRackParams is the domain-layer input shape for the
@@ -929,11 +885,39 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetSiteID *int64
 			targetLabel  string
 		)
-		// Lock + verify target rack first so concurrent SaveRack /
-		// DeleteCollection on the target can't race us. Canonical lock
-		// order is rack-only here — site/building locks would invert
-		// against AddDevicesToCollection.
+		// Canonical lock order: source racks (ascending id) → target
+		// rack. LockSourceRacksForDevices takes FOR UPDATE on every
+		// rack currently holding any of the requested devices, in
+		// sorted order. Without this pre-pass, two concurrent
+		// AssignDevicesToRack calls touching overlapping device sets
+		// race the device_set_membership unique constraint: the loser
+		// trips uk_device_set_membership during the INSERT and the
+		// whole tx aborts. Locking the source rows first serializes
+		// the calls on the source rack and lets both succeed in turn.
+		// The query excludes excludeRackID so we don't double-lock the
+		// target (taken below via LockRackPlacementForWrite). Pass 0
+		// in the clear-rack path where there is no target.
+		var excludeRackID int64
 		if params.TargetRackID != nil {
+			excludeRackID = *params.TargetRackID
+		}
+		if _, err := s.collectionStore.LockSourceRacksForDevices(ctx, params.OrgID, params.DeviceIdentifiers, excludeRackID); err != nil {
+			return nil, err
+		}
+
+		// Lock + verify target rack so concurrent SaveRack /
+		// DeleteCollection on the target can't race us. Site/building
+		// locks would invert against AddDevicesToCollection's cascade,
+		// so we stay rack-only here.
+		//
+		// Order: take the row lock BEFORE the label/type read so a
+		// concurrent rename can't slip a stale label into the activity
+		// log we emit downstream.
+		if params.TargetRackID != nil {
+			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, *params.TargetRackID, params.OrgID)
+			if err != nil {
+				return nil, err
+			}
 			coll, err := s.collectionStore.GetCollection(ctx, params.OrgID, *params.TargetRackID)
 			if err != nil {
 				return nil, err
@@ -941,20 +925,19 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
 				return nil, fleeterror.NewInvalidArgumentErrorf("target_rack_id %d is not a rack", *params.TargetRackID)
 			}
-			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, *params.TargetRackID, params.OrgID)
-			if err != nil {
-				return nil, err
-			}
 			targetSiteID = placement.SiteID
 			targetLabel = coll.Label
 		}
 
 		// Clear existing rack membership for the given devices regardless
-		// of which rack they sit in. This is the half of the operation
-		// that previously lived in the client-side
-		// RemoveDevicesFromDeviceSet call; bundling it into the tx is
-		// what closes the orphan window described in #420.
-		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers)
+		// of which rack they sit in EXCEPT the target rack. Excluding
+		// the target preserves the membership row + rack_slot child for
+		// devices that are already in the target rack (a same-rack
+		// re-add would otherwise cascade-drop the rack_slot row). This
+		// is the half of the operation that previously lived in the
+		// client-side RemoveDevicesFromDeviceSet call; bundling it into
+		// the tx is what closes the orphan window described in #420.
+		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers, excludeRackID)
 		if err != nil {
 			return nil, err
 		}
@@ -1010,7 +993,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	} else {
 		eventDescription = "Cleared devices from rack"
 	}
-	assignedInt := int(out.assigned + out.removed)
+	// ScopeCount is the number of devices the caller asked to touch,
+	// not the sum of per-step row counts (assigned + removed can
+	// double-count devices that were both removed from a prior rack
+	// and added to a new one).
+	assignedInt := len(params.DeviceIdentifiers)
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "assign_devices_to_rack",

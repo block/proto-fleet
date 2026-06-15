@@ -237,6 +237,37 @@ func (s *SQLBuildingStore) SetRackBuildingPosition(ctx context.Context, orgID, r
 	return nil
 }
 
+func (s *SQLBuildingStore) SetRackBuildingPositionBulkClear(ctx context.Context, orgID int64, rackIDs []int64) error {
+	if len(rackIDs) == 0 {
+		return nil
+	}
+	if err := s.GetQueries(ctx).SetRackBuildingPositionBulkClear(ctx, sqlc.SetRackBuildingPositionBulkClearParams{
+		RackIds: rackIDs,
+		OrgID:   orgID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to bulk-clear rack building positions: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLBuildingStore) SetRackBuildingPositionBulkPlace(ctx context.Context, orgID int64, rackIDs []int64, aisleIndexes, positionInAisles []int32) error {
+	if len(rackIDs) == 0 {
+		return nil
+	}
+	if len(rackIDs) != len(aisleIndexes) || len(rackIDs) != len(positionInAisles) {
+		return fleeterror.NewInternalErrorf("SetRackBuildingPositionBulkPlace: array length mismatch (rackIDs=%d aisles=%d positions=%d)", len(rackIDs), len(aisleIndexes), len(positionInAisles))
+	}
+	if err := s.GetQueries(ctx).SetRackBuildingPositionBulkPlace(ctx, sqlc.SetRackBuildingPositionBulkPlaceParams{
+		OrgID:            orgID,
+		RackIds:          rackIDs,
+		AisleIndexes:     aisleIndexes,
+		PositionInAisles: positionInAisles,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to bulk-place rack building positions: %v", err)
+	}
+	return nil
+}
+
 func buildingFromRow(row sqlc.Building) models.Building {
 	return models.Building{
 		ID:                    row.ID,

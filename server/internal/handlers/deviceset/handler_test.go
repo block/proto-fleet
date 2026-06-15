@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,10 +15,13 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -347,3 +351,327 @@ func TestListRackZoneRefs_StoreError(t *testing.T) {
 	_, err := h.handler.ListRackZoneRefs(testCtx(t), connect.NewRequest(&dspb.ListRackZoneRefsRequest{}))
 	require.Error(t, err)
 }
+
+// ctxWithPerms builds an auth context with an explicit permission set
+// so we can assert AssignDevicesToRack's PermRackManage gate.
+func ctxWithPerms(perms ...string) context.Context {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: testOrgID,
+		UserID:         testUserID,
+	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}}))
+}
+
+// deviceListSelector builds a DeviceSelector that selects the given
+// identifiers (the device_list variant), the only variant accepted by
+// AssignDevicesToRack and the only variant the noopResolver-backed
+// group endpoint tests exercise.
+func deviceListSelector(ids ...string) *commonpb.DeviceSelector {
+	return &commonpb.DeviceSelector{
+		SelectionType: &commonpb.DeviceSelector_DeviceList{
+			DeviceList: &commonpb.DeviceIdentifierList{
+				DeviceIdentifiers: ids,
+			},
+		},
+	}
+}
+
+// allDevicesSelector builds the all_devices DeviceSelector variant.
+// AssignDevicesToRack must reject it with InvalidArgument.
+func allDevicesSelector() *commonpb.DeviceSelector {
+	return &commonpb.DeviceSelector{
+		SelectionType: &commonpb.DeviceSelector_AllDevices{AllDevices: true},
+	}
+}
+
+// TestAssignDevicesToRack_PermissionRequired confirms the
+// PermRackManage gate rejects callers without rack:manage. No store
+// calls should fire.
+func TestAssignDevicesToRack_PermissionRequired(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Caller has *some* permission but not PermRackManage.
+	ctx := ctxWithPerms(authz.PermSiteRead)
+	req := connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: deviceListSelector("d1"),
+	})
+
+	_, err := h.handler.AssignDevicesToRack(ctx, req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestAssignDevicesToRack_RejectsAllDevicesSelector confirms that the
+// all_devices selector variant is rejected with InvalidArgument at the
+// handler boundary, before any store call fires. Moving every paired
+// device into a single rack is never the intended operation and the
+// filter-based variants are reserved for a future expansion.
+func TestAssignDevicesToRack_RejectsAllDevicesSelector(t *testing.T) {
+	h := newTestHandler(t)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: allDevicesSelector(),
+	}))
+	require.Error(t, err)
+	require.Nil(t, resp)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
+}
+
+// TestAssignDevicesToRack_HappyPathAssigns covers the assign branch:
+// target_rack_id set, devices flow through the lock → label-read →
+// remove → add → cascade chain, and the handler round-trips the
+// per-step counts onto the wire response.
+func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
+	h := newTestHandler(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(7)
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			LockSourceRacksForDevices(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{11, 23}, nil),
+		h.collectionStore.EXPECT().
+			LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
+		h.collectionStore.EXPECT().
+			GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&collectionpb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		h.collectionStore.EXPECT().
+			RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return(int64(2), nil),
+		h.collectionStore.EXPECT().
+			AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+			Return(int64(2), nil),
+		h.collectionStore.EXPECT().
+			CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+			Return(int64(1), nil),
+	)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   &targetRackID,
+		DeviceSelector: deviceListSelector(deviceIDs...),
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.Msg.AssignedCount)
+	assert.Equal(t, int64(2), resp.Msg.RemovedCount)
+	assert.Equal(t, int64(1), resp.Msg.SiteReassignedCount)
+}
+
+// TestAssignDevicesToRack_UnassignBranch covers target_rack_id unset:
+// clears prior rack membership, no Get/Lock/Add/Cascade.
+// RemoveDevicesFromAnyRack is called with targetRackID = 0 (sentinel
+// meaning "don't exclude any rack").
+func TestAssignDevicesToRack_UnassignBranch(t *testing.T) {
+	h := newTestHandler(t)
+
+	deviceIDs := []string{"d1"}
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			LockSourceRacksForDevices(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return([]int64{17}, nil),
+		h.collectionStore.EXPECT().
+			RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return(int64(1), nil),
+	)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   nil,
+		DeviceSelector: deviceListSelector(deviceIDs...),
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), resp.Msg.AssignedCount)
+	assert.Equal(t, int64(1), resp.Msg.RemovedCount)
+	assert.Equal(t, int64(0), resp.Msg.SiteReassignedCount)
+}
+
+// TestAddDevicesToGroup_HappyPath asserts that the handler verifies the
+// target is a group, calls the underlying AddDevicesToGroup path, and
+// round-trips the added_count onto the wire response.
+//
+// The default test harness uses a noopResolver that returns nil for
+// every selector; this test wires a resolver that returns the supplied
+// identifiers so the call threads through to the store mock.
+func TestAddDevicesToGroup_HappyPath(t *testing.T) {
+	targetGroupID := int64(11)
+	deviceIDs := []string{"d1", "d2"}
+
+	h := newGroupHandlerWithResolver(t, deviceIDs)
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			GetCollection(gomock.Any(), testOrgID, targetGroupID).
+			Return(&collectionpb.DeviceCollection{Id: targetGroupID, Label: "Group A", Type: collectionpb.CollectionType_COLLECTION_TYPE_GROUP}, nil),
+		h.collectionStore.EXPECT().
+			AddDevicesToCollection(gomock.Any(), testOrgID, targetGroupID, deviceIDs).
+			Return(int64(2), nil),
+	)
+
+	resp, err := h.handler.AddDevicesToGroup(testCtx(t), connect.NewRequest(&dspb.AddDevicesToGroupRequest{
+		TargetGroupId:  targetGroupID,
+		DeviceSelector: deviceListSelector(deviceIDs...),
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.Msg.AddedCount)
+}
+
+// TestAddDevicesToGroup_RejectsRackTarget asserts the handler returns
+// InvalidArgument when target_group_id points at a rack, so callers
+// can't smuggle a rack mutation through the group endpoint and bypass
+// AssignDevicesToRack's atomic prior-rack removal + site cascade.
+func TestAddDevicesToGroup_RejectsRackTarget(t *testing.T) {
+	h := newTestHandler(t)
+
+	targetID := int64(11)
+	h.collectionStore.EXPECT().
+		GetCollection(gomock.Any(), testOrgID, targetID).
+		Return(&collectionpb.DeviceCollection{Id: targetID, Label: "Rack-X", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	_, err := h.handler.AddDevicesToGroup(testCtx(t), connect.NewRequest(&dspb.AddDevicesToGroupRequest{
+		TargetGroupId:  targetID,
+		DeviceSelector: deviceListSelector("d1"),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
+}
+
+// TestAddDevicesToGroup_PermissionRequired confirms the PermRackManage
+// gate. No store calls fire when the caller lacks the permission.
+func TestAddDevicesToGroup_PermissionRequired(t *testing.T) {
+	h := newTestHandler(t)
+
+	ctx := ctxWithPerms(authz.PermSiteRead)
+	_, err := h.handler.AddDevicesToGroup(ctx, connect.NewRequest(&dspb.AddDevicesToGroupRequest{
+		TargetGroupId:  42,
+		DeviceSelector: deviceListSelector("d1"),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestRemoveDevicesFromGroup_HappyPath asserts the handler verifies the
+// target is a group and forwards to the group remove path.
+func TestRemoveDevicesFromGroup_HappyPath(t *testing.T) {
+	targetGroupID := int64(11)
+	deviceIDs := []string{"d1"}
+
+	h := newGroupHandlerWithResolver(t, deviceIDs)
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			GetCollection(gomock.Any(), testOrgID, targetGroupID).
+			Return(&collectionpb.DeviceCollection{Id: targetGroupID, Label: "Group A", Type: collectionpb.CollectionType_COLLECTION_TYPE_GROUP}, nil),
+		h.collectionStore.EXPECT().
+			RemoveDevicesFromCollection(gomock.Any(), testOrgID, targetGroupID, deviceIDs).
+			Return(int64(1), nil),
+	)
+
+	resp, err := h.handler.RemoveDevicesFromGroup(testCtx(t), connect.NewRequest(&dspb.RemoveDevicesFromGroupRequest{
+		TargetGroupId:  targetGroupID,
+		DeviceSelector: deviceListSelector(deviceIDs...),
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Msg.RemovedCount)
+}
+
+// TestRemoveDevicesFromGroup_RejectsRackTarget asserts a rack target
+// returns InvalidArgument with no follow-up store mutation.
+func TestRemoveDevicesFromGroup_RejectsRackTarget(t *testing.T) {
+	h := newTestHandler(t)
+
+	targetID := int64(11)
+	h.collectionStore.EXPECT().
+		GetCollection(gomock.Any(), testOrgID, targetID).
+		Return(&collectionpb.DeviceCollection{Id: targetID, Label: "Rack-X", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	_, err := h.handler.RemoveDevicesFromGroup(testCtx(t), connect.NewRequest(&dspb.RemoveDevicesFromGroupRequest{
+		TargetGroupId:  targetID,
+		DeviceSelector: deviceListSelector("d1"),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
+}
+
+// TestRemoveDevicesFromGroup_PermissionRequired confirms the
+// PermRackManage gate.
+func TestRemoveDevicesFromGroup_PermissionRequired(t *testing.T) {
+	h := newTestHandler(t)
+
+	ctx := ctxWithPerms(authz.PermSiteRead)
+	_, err := h.handler.RemoveDevicesFromGroup(ctx, connect.NewRequest(&dspb.RemoveDevicesFromGroupRequest{
+		TargetGroupId:  42,
+		DeviceSelector: deviceListSelector("d1"),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// newGroupHandlerWithResolver builds a harness like newTestHandler but
+// wires a resolver that returns the supplied identifiers for any
+// selector. The default harness uses a noopResolver that returns nil,
+// which is fine for handler-level rejection tests but not for the
+// group happy-path tests that need to thread a non-empty identifier
+// list through to AddDevicesToGroup / RemoveDevicesFromGroup.
+func newGroupHandlerWithResolver(t *testing.T, ids []string) *testHarness {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(ctx)
+		},
+	)
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
+
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	activitySvc := activity.NewService(activityStore)
+
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return ids, nil
+	}
+
+	svc := collection.NewService(
+		collectionStore,
+		nil,
+		nil,
+		buildingStore,
+		tx,
+		resolver,
+		nil,
+		activitySvc,
+	)
+	return &testHarness{
+		handler:         NewHandler(svc),
+		collectionStore: collectionStore,
+		buildingStore:   buildingStore,
+		ctrl:            ctrl,
+	}
+}
+
+func ptrInt64Local(v int64) *int64 { return &v }

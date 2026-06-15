@@ -100,6 +100,24 @@ type CollectionStore interface {
 	// atomically.
 	UpdateRackPlacement(ctx context.Context, collectionID, orgID int64, siteID, buildingID *int64, zone string) error
 
+	// UpdateRackPlacementBulkForBuilding writes site_id, building_id,
+	// and zone in one statement for every rack in rackIDs. Semantics
+	// mirror the per-row UpdateRackPlacement with the
+	// AssignRacksToBuilding-specific rules in SQL:
+	//   * targetBuildingID == nil keeps each rack's current site_id.
+	//   * Zone clears to '' for racks transitioning to a different (or
+	//     NULL) building; preserved otherwise.
+	//   * Grid position clears when building_id changes.
+	// Caller is expected to have locked every rack via
+	// LockRackPlacementForWrite before invoking.
+	UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error
+
+	// UpdateRackPlacementBulkForSite stamps every rack in rackIDs with
+	// the target site, clears building_id + zone + grid placement.
+	// Caller is expected to pass only racks whose site is actually
+	// changing.
+	UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error
+
 	// UnassignDeviceSitesByRack nulls device.site_id for paired rack
 	// members that match the rack's stamped site. No-op when the rack
 	// has no site or no members.
@@ -108,6 +126,11 @@ type CollectionStore interface {
 	// CascadeRackDeviceSites rewrites device.site_id to targetSiteID for
 	// rack members where the value differs. Returns the affected count.
 	CascadeRackDeviceSites(ctx context.Context, collectionID, orgID int64, targetSiteID *int64) (int64, error)
+
+	// CascadeRackDeviceSitesBulk is the multi-rack variant: rewrites
+	// device.site_id to targetSiteID for every paired member of every
+	// rack in rackIDs where the current value differs.
+	CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error)
 
 	// GetDeviceSiteIDsByMembership returns device_identifier + current
 	// site_id for every rack member.
@@ -170,13 +193,28 @@ type CollectionStore interface {
 	RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
 
 	// RemoveDevicesFromAnyRack deletes the given devices' rack
-	// membership rows regardless of which rack they currently sit in.
-	// Used by AssignDevicesToRack to clear prior rack membership inside
-	// the same transaction as the new-rack insert, closing the orphan
-	// window the client-side RemoveDevicesFromDeviceSet +
-	// AddDevicesToDeviceSet orchestration had. No-op for devices
-	// without a rack membership.
-	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error)
+	// membership rows regardless of which rack they currently sit in,
+	// EXCEPT the target rack (targetRackID). Used by AssignDevicesToRack
+	// to clear prior rack membership inside the same transaction as the
+	// new-rack insert, closing the orphan window the client-side
+	// RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet orchestration
+	// had. Excluding targetRackID preserves the membership row (and its
+	// rack_slot child) for devices already in the target rack -- a
+	// re-add inside the same transaction would silently drop the
+	// rack_slot via the FK cascade. Pass 0 to clear unconditionally
+	// (caller intends to unassign).
+	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
+
+	// LockSourceRacksForDevices takes FOR UPDATE locks on every source
+	// rack currently holding any of the given devices, in ascending
+	// device_set_id order, and returns the locked ids. AssignDevicesToRack
+	// calls this BEFORE RemoveDevicesFromAnyRack so concurrent reparent
+	// calls touching overlapping device sets serialize on the source
+	// rack rows instead of racing the device_set_membership unique
+	// constraint. excludeRackID is the target rack the caller will lock
+	// separately via LockRackPlacementForWrite (avoids double-locking);
+	// pass 0 in the clear-rack path where there is no target.
+	LockSourceRacksForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string, excludeRackID int64) ([]int64, error)
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).

@@ -237,6 +237,35 @@ func (s *SQLCollectionStore) UpdateRackPlacement(ctx context.Context, collection
 	return nil
 }
 
+func (s *SQLCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error {
+	if len(rackIDs) == 0 {
+		return nil
+	}
+	if err := s.GetQueries(ctx).UpdateRackPlacementBulkForBuilding(ctx, sqlc.UpdateRackPlacementBulkForBuildingParams{
+		TargetBuildingID: ptrToNullInt64(targetBuildingID),
+		TargetSiteID:     ptrToNullInt64(targetSiteID),
+		RackIds:          rackIDs,
+		OrgID:            orgID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to bulk-update rack placement: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCollectionStore) UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error {
+	if len(rackIDs) == 0 {
+		return nil
+	}
+	if err := s.GetQueries(ctx).UpdateRackPlacementBulkForSite(ctx, sqlc.UpdateRackPlacementBulkForSiteParams{
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+		RackIds:      rackIDs,
+		OrgID:        orgID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to bulk-update rack placement (site): %v", err)
+	}
+	return nil
+}
+
 func (s *SQLCollectionStore) UnassignDeviceSitesByRack(ctx context.Context, collectionID, orgID int64) (int64, error) {
 	n, err := s.GetQueries(ctx).UnassignDeviceSitesByRack(ctx, sqlc.UnassignDeviceSitesByRackParams{
 		DeviceSetID: collectionID,
@@ -256,6 +285,21 @@ func (s *SQLCollectionStore) CascadeRackDeviceSites(ctx context.Context, collect
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to cascade rack device sites: %v", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(rackIDs) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeRackDeviceSitesBulk(ctx, sqlc.CascadeRackDeviceSitesBulkParams{
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+		RackIds:      rackIDs,
+		OrgID:        orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-cascade rack device sites: %v", err)
 	}
 	return n, nil
 }
@@ -523,15 +567,28 @@ func (s *SQLCollectionStore) RemoveDevicesFromCollection(ctx context.Context, or
 	return count, nil
 }
 
-func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error) {
 	count, err := s.GetQueries(ctx).RemoveDevicesFromAnyRack(ctx, sqlc.RemoveDevicesFromAnyRackParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
+		TargetRackID:      targetRackID,
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to remove devices from rack: %v", err)
 	}
 	return count, nil
+}
+
+func (s *SQLCollectionStore) LockSourceRacksForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string, excludeRackID int64) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).LockSourceRacksForDevices(ctx, sqlc.LockSourceRacksForDevicesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+		ExcludeRackID:     excludeRackID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock source racks for devices: %v", err)
+	}
+	return ids, nil
 }
 
 func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error) {

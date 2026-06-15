@@ -107,36 +107,42 @@ func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.Li
 	}), nil
 }
 
-func (h *Handler) AddDevicesToDeviceSet(ctx context.Context, r *connect.Request[dspb.AddDevicesToDeviceSetRequest]) (*connect.Response[dspb.AddDevicesToDeviceSetResponse], error) {
+// AddDevicesToGroup adds devices to a group device set. The target
+// must be a group; racks are rejected with InvalidArgument so callers
+// can't smuggle rack mutations through the group endpoint (rack adds
+// must go through AssignDevicesToRack to get the atomic prior-rack
+// removal + site cascade).
+func (h *Handler) AddDevicesToGroup(ctx context.Context, r *connect.Request[dspb.AddDevicesToGroupRequest]) (*connect.Response[dspb.AddDevicesToGroupResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-		CollectionId:   r.Msg.DeviceSetId,
+	result, err := h.svc.AddDevicesToGroup(ctx, collection.AddDevicesToGroupParams{
+		TargetGroupID:  r.Msg.TargetGroupId,
 		DeviceSelector: r.Msg.DeviceSelector,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&dspb.AddDevicesToDeviceSetResponse{
-		DeviceSetId:         result.CollectionId,
-		AddedCount:          result.AddedCount,
-		SiteReassignedCount: result.SiteReassignedCount,
+	return connect.NewResponse(&dspb.AddDevicesToGroupResponse{
+		AddedCount: result.AddedCount,
 	}), nil
 }
 
-func (h *Handler) RemoveDevicesFromDeviceSet(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[dspb.RemoveDevicesFromDeviceSetResponse], error) {
+// RemoveDevicesFromGroup removes devices from a group device set.
+// Racks are rejected with InvalidArgument; use AssignDevicesToRack
+// (target_rack_id unset) to clear rack membership.
+func (h *Handler) RemoveDevicesFromGroup(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromGroupRequest]) (*connect.Response[dspb.RemoveDevicesFromGroupResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.RemoveDevicesFromCollection(ctx, &collectionpb.RemoveDevicesFromCollectionRequest{
-		CollectionId:   r.Msg.DeviceSetId,
+	result, err := h.svc.RemoveDevicesFromGroup(ctx, collection.RemoveDevicesFromGroupParams{
+		TargetGroupID:  r.Msg.TargetGroupId,
 		DeviceSelector: r.Msg.DeviceSelector,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&dspb.RemoveDevicesFromDeviceSetResponse{
+	return connect.NewResponse(&dspb.RemoveDevicesFromGroupResponse{
 		RemovedCount: result.RemovedCount,
 	}), nil
 }
@@ -331,16 +337,11 @@ func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[ds
 	if err != nil {
 		return nil, err
 	}
-	var targetRackID *int64
-	if r.Msg.TargetRackId != nil {
-		v := r.Msg.GetTargetRackId()
-		targetRackID = &v
+	params, err := toAssignDevicesToRackParams(r.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
 	}
-	result, err := h.svc.AssignDevicesToRack(ctx, collection.AssignDevicesToRackParams{
-		OrgID:             info.OrganizationID,
-		TargetRackID:      targetRackID,
-		DeviceIdentifiers: r.Msg.GetDeviceIdentifiers(),
-	})
+	result, err := h.svc.AssignDevicesToRack(ctx, params)
 	if err != nil {
 		return nil, err
 	}

@@ -27,12 +27,6 @@ service DeviceCollectionService {
     // Lists all collections for the organization
     rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
 
-    // Adds devices to a collection
-    rpc AddDevicesToCollection(AddDevicesToCollectionRequest) returns (AddDevicesToCollectionResponse);
-
-    // Removes devices from a collection
-    rpc RemoveDevicesFromCollection(RemoveDevicesFromCollectionRequest) returns (RemoveDevicesFromCollectionResponse);
-
     // Lists members of a collection
     rpc ListCollectionMembers(ListCollectionMembersRequest) returns (ListCollectionMembersResponse);
 
@@ -306,47 +300,6 @@ message ListCollectionsResponse {
 
     // Total number of collections matching the request filters
     int32 total_count = 3;
-}
-
-// Request to add devices to a collection.
-//
-// When the target is a site-stamped rack, the server rewrites
-// device.site_id to match the rack for every added device. The affected
-// count is returned in site_reassigned_count. Groups are exempt.
-message AddDevicesToCollectionRequest {
-    // ID of the collection to add devices to
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
-
-    // Devices to add: specific list or all paired devices
-    common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
-}
-
-// Response after adding devices to a collection
-message AddDevicesToCollectionResponse {
-    // ID of the collection devices were added to
-    int64 collection_id = 1;
-
-    // Number of devices successfully added
-    // May be less than requested if some devices were already members
-    int32 added_count = 2;
-
-    // Number of devices whose site_id was rewritten by the cascade.
-    int32 site_reassigned_count = 3;
-}
-
-// Request to remove devices from a collection
-message RemoveDevicesFromCollectionRequest {
-    // ID of the collection to remove devices from
-    int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
-
-    // Devices to remove: specific list or all paired devices
-    common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
-}
-
-// Response after removing devices from a collection
-message RemoveDevicesFromCollectionResponse {
-    // Number of devices successfully removed
-    int32 removed_count = 1;
 }
 
 // Request to list members of a collection

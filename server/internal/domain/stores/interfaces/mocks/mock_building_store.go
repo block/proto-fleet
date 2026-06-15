@@ -161,6 +161,34 @@ func (mr *MockBuildingStoreMockRecorder) SetRackBuildingPosition(ctx, orgID, rac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRackBuildingPosition", reflect.TypeOf((*MockBuildingStore)(nil).SetRackBuildingPosition), ctx, orgID, rackID, aisleIndex, positionInAisle)
 }
 
+// SetRackBuildingPositionBulkClear mocks base method.
+func (m *MockBuildingStore) SetRackBuildingPositionBulkClear(ctx context.Context, orgID int64, rackIDs []int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRackBuildingPositionBulkClear", ctx, orgID, rackIDs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRackBuildingPositionBulkClear indicates an expected call of SetRackBuildingPositionBulkClear.
+func (mr *MockBuildingStoreMockRecorder) SetRackBuildingPositionBulkClear(ctx, orgID, rackIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRackBuildingPositionBulkClear", reflect.TypeOf((*MockBuildingStore)(nil).SetRackBuildingPositionBulkClear), ctx, orgID, rackIDs)
+}
+
+// SetRackBuildingPositionBulkPlace mocks base method.
+func (m *MockBuildingStore) SetRackBuildingPositionBulkPlace(ctx context.Context, orgID int64, rackIDs []int64, aisleIndexes, positionInAisles []int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetRackBuildingPositionBulkPlace", ctx, orgID, rackIDs, aisleIndexes, positionInAisles)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetRackBuildingPositionBulkPlace indicates an expected call of SetRackBuildingPositionBulkPlace.
+func (mr *MockBuildingStoreMockRecorder) SetRackBuildingPositionBulkPlace(ctx, orgID, rackIDs, aisleIndexes, positionInAisles any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRackBuildingPositionBulkPlace", reflect.TypeOf((*MockBuildingStore)(nil).SetRackBuildingPositionBulkPlace), ctx, orgID, rackIDs, aisleIndexes, positionInAisles)
+}
+
 // SoftDeleteBuilding mocks base method.
 func (m *MockBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (int64, error) {
 	m.ctrl.T.Helper()

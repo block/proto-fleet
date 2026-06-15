@@ -292,7 +292,7 @@ func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
-func TestService_AddDevicesToCollection_NotFoundWhenNotOwnedByOrg(t *testing.T) {
+func TestService_AddDevicesToGroup_NotFoundWhenNotOwnedByOrg(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := mocks.NewMockCollectionStore(ctrl)
 	mockTransactor := mocks.NewMockTransactor(ctrl)
@@ -313,8 +313,8 @@ func TestService_AddDevicesToCollection_NotFoundWhenNotOwnedByOrg(t *testing.T) 
 		Return(nil, fleeterror.NewNotFoundErrorf("collection not found"))
 
 	// Act
-	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
-		CollectionId: testCollectionID,
+	_, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
+		TargetGroupID: testCollectionID,
 		DeviceSelector: &commonpb.DeviceSelector{
 			SelectionType: &commonpb.DeviceSelector_DeviceList{
 				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1"}},
@@ -400,7 +400,7 @@ func TestService_GetRackSlots_RejectsGroupCollection(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
+func TestService_AddDevicesToGroup_ResolverError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := mocks.NewMockCollectionStore(ctrl)
 	mockTransactor := mocks.NewMockTransactor(ctrl)
@@ -413,8 +413,8 @@ func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
 	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
-	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
-		CollectionId: testCollectionID,
+	_, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
+		TargetGroupID: testCollectionID,
 		DeviceSelector: &commonpb.DeviceSelector{
 			SelectionType: &commonpb.DeviceSelector_DeviceList{
 				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1"}},
@@ -1785,67 +1785,11 @@ func TestService_SaveRack_OmittedPlacementPreservesZone(t *testing.T) {
 	_ = mockSiteStore
 }
 
-// TestService_AddDevicesToCollection_CascadesRackSite covers the
-// AddDevicesToDeviceSet cascade flow (issue #220): when devices are
-// added to a rack that has a site stamped, every paired device whose
-// current site_id differs is rewritten to the rack's site_id in the
-// same transaction. Group targets remain org-scoped.
-func TestService_AddDevicesToCollection_CascadesRackSite(t *testing.T) {
-	deviceIDs := []string{"device-1", "device-2"}
-	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
-		return deviceIDs, nil
-	}
-	svc, mockStore, _, captured := newTestServiceWithSitesRecordingActivity(t, resolver)
-	ctx := testCtx(t)
-
-	collectionID := int64(42)
-	rackSite := int64(7)
-	priorSite := int64(11)
-
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
-		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
-		Return(interfaces.RackPlacement{SiteID: &rackSite}, nil)
-	mockStore.EXPECT().GetAddedDeviceSiteConflicts(gomock.Any(), testOrgID, collectionID, deviceIDs).
-		Return([]interfaces.AddedDeviceSiteConflict{
-			{DeviceIdentifier: "device-1", PriorSiteID: &priorSite, TargetSiteID: rackSite},
-		}, nil)
-	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(2), nil)
-	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
-
-	resp, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
-		CollectionId: collectionID,
-		DeviceSelector: &commonpb.DeviceSelector{
-			SelectionType: &commonpb.DeviceSelector_DeviceList{
-				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
-			},
-		},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, int32(2), resp.AddedCount)
-	assert.Equal(t, int32(1), resp.SiteReassignedCount, "response carries the cascade row count")
-
-	// Assert cascade metadata on the activity event.
-	require.Len(t, *captured, 1)
-	event := (*captured)[0]
-	assert.Equal(t, "add_devices", event.Type)
-	require.NotNil(t, event.SiteID)
-	assert.Equal(t, rackSite, *event.SiteID)
-	require.NotNil(t, event.Metadata)
-	assert.Equal(t, true, event.Metadata["site_cascade"])
-	assert.Equal(t, int64(1), event.Metadata["site_reassigned_count"])
-	priors, ok := event.Metadata["device_site_changes"].([]map[string]any)
-	require.True(t, ok)
-	require.Len(t, priors, 1)
-	assert.Equal(t, "device-1", priors[0]["device_identifier"])
-	assert.Equal(t, priorSite, priors[0]["prior_site_id"])
-	assert.Equal(t, rackSite, priors[0]["target_site_id"])
-}
-
-// TestService_AddDevicesToCollection_GroupTargetSkipsCascade asserts
-// the cascade exemption for groups: plan §"Cross-collection consistency
-// rule" — groups are org-scoped and may span sites by design.
-func TestService_AddDevicesToCollection_GroupTargetSkipsCascade(t *testing.T) {
+// TestService_AddDevicesToGroup_HappyPath covers the group add flow:
+// groups are org-scoped (cross-site allowed) so there is no rack lock,
+// no LockSiteForWrite, and no cascade — just the membership insert
+// plus an activity event.
+func TestService_AddDevicesToGroup_HappyPath(t *testing.T) {
 	deviceIDs := []string{"device-1"}
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
@@ -1856,12 +1800,10 @@ func TestService_AddDevicesToCollection_GroupTargetSkipsCascade(t *testing.T) {
 	collectionID := int64(43)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
-	// No LockRackPlacementForWrite, no LockSiteForWrite, no cascade
-	// expectations — groups skip the rack-site invariant entirely.
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
 
-	resp, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
-		CollectionId: collectionID,
+	resp, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
+		TargetGroupID: collectionID,
 		DeviceSelector: &commonpb.DeviceSelector{
 			SelectionType: &commonpb.DeviceSelector_DeviceList{
 				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
@@ -1869,13 +1811,14 @@ func TestService_AddDevicesToCollection_GroupTargetSkipsCascade(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), resp.AddedCount)
+	assert.Equal(t, int64(1), resp.AddedCount)
 }
 
-// TestService_AddDevicesToCollection_RackWithoutSiteSkipsCascade asserts
-// that adding devices to a rack whose site_id is NULL still inserts the
-// membership but does not run the cascade — there is no site to enforce.
-func TestService_AddDevicesToCollection_RackWithoutSiteSkipsCascade(t *testing.T) {
+// TestService_AddDevicesToGroup_RejectsRackTarget covers the type
+// guard: rack targets must go through AssignDevicesToRack to get the
+// atomic prior-rack removal + site cascade. The group endpoint rejects
+// rack targets with InvalidArgument before any store mutation.
+func TestService_AddDevicesToGroup_RejectsRackTarget(t *testing.T) {
 	deviceIDs := []string{"device-1"}
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
@@ -1885,22 +1828,18 @@ func TestService_AddDevicesToCollection_RackWithoutSiteSkipsCascade(t *testing.T
 
 	collectionID := int64(44)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
-		Return(&pb.DeviceCollection{Id: collectionID, Label: "Site-less Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
-		Return(interfaces.RackPlacement{}, nil) // no site stamped
-	// No GetAddedDeviceSiteConflicts, no CascadeAddedDeviceSites.
-	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack-X", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
 
-	resp, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
-		CollectionId: collectionID,
+	_, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
+		TargetGroupID: collectionID,
 		DeviceSelector: &commonpb.DeviceSelector{
 			SelectionType: &commonpb.DeviceSelector_DeviceList{
 				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
 			},
 		},
 	})
-	require.NoError(t, err)
-	assert.Equal(t, int32(1), resp.AddedCount)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 // TestService_AssignDevicesToRack_atomicReassign covers the issue
@@ -1916,11 +1855,13 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 	deviceIDs := []string{"d1", "d2"}
 
 	gomock.InOrder(
-		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
-			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().LockSourceRacksForDevices(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{11, 23}, nil),
 		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
-		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
 	)
@@ -1944,7 +1885,11 @@ func TestService_AssignDevicesToRack_unassignClearsWithoutAdd(t *testing.T) {
 	ctx := testCtx(t)
 
 	deviceIDs := []string{"d1"}
-	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs).Return(int64(1), nil)
+	gomock.InOrder(
+		mockStore.EXPECT().LockSourceRacksForDevices(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return([]int64{17}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(int64(1), nil),
+	)
 
 	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -1964,6 +1909,10 @@ func TestService_AssignDevicesToRack_targetMustBeRack(t *testing.T) {
 	ctx := testCtx(t)
 
 	targetID := int64(99)
+	mockStore.EXPECT().LockSourceRacksForDevices(gomock.Any(), testOrgID, []string{"d1"}, targetID).
+		Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetID).
 		Return(&pb.DeviceCollection{Id: targetID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
 
@@ -1973,6 +1922,63 @@ func TestService_AssignDevicesToRack_targetMustBeRack(t *testing.T) {
 		DeviceIdentifiers: []string{"d1"},
 	})
 	require.Error(t, err)
+}
+
+// TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites
+// pins F9's lock-order invariant: LockSourceRacksForDevices must run
+// BEFORE LockRackPlacementForWrite and BEFORE RemoveDevicesFromAnyRack.
+// Reversing this risks deadlock against a concurrent call that takes
+// the locks in the opposite order, and skipping it altogether is what
+// lets concurrent overlapping reparent calls race the
+// device_set_membership unique constraint.
+func TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockSourceRacksForDevices(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{11, 23}, nil),
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_unassignPathLocksSourceRacks pins
+// that the source-rack lock pre-pass ALSO fires on the clear-rack
+// path. excludeRackID is 0 so every source rack holding any of the
+// requested devices is locked.
+func TestService_AssignDevicesToRack_unassignPathLocksSourceRacks(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockSourceRacksForDevices(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return([]int64{5, 12}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(int64(2), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      nil,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
 }
 
 // TestService_AssignDevicesToRack_emptyDevicesRejected guards the
