@@ -1,6 +1,6 @@
 ---
 description: Write or update a PR description that lets reviewers judge the architecture and technical decisions without reading low-level code — high-level mechanism, mermaid diagrams, and a code-area map.
-argument-hint: (no arguments; run on the current branch, or pass a PR number/URL to describe an existing PR)
+argument-hint: (optional: PR number/URL; defaults to current branch PR or draft body)
 ---
 
 Write (or update) the description for this PR so a reviewer can understand what
