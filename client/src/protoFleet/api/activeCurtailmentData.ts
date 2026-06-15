@@ -52,6 +52,7 @@ interface SetActiveCurtailmentSnapshotOptions {
 }
 
 const activeCurtailmentDetailTargetPageSize = 1000;
+const activeCurtailmentDetailMaxTargetPages = 25;
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined, events: [] };
 
@@ -327,15 +328,17 @@ function getSelectedActiveCurtailmentEventToPreserve(
 
 async function requestActiveCurtailmentDetail(
   eventUuid: string,
-  signal?: AbortSignal,
+  { hydrateAllTargetPages = false, signal }: RefreshActiveCurtailmentOptions & { hydrateAllTargetPages?: boolean } = {},
 ): Promise<ProtoCurtailmentEvent | undefined> {
   let pageToken = "";
   let detailedEvent: ProtoCurtailmentEvent | undefined;
   const targets: ProtoCurtailmentEvent["targets"] = [];
   const seenPageTokens = new Set<string>();
+  let pageCount = 0;
 
   while (true) {
     seenPageTokens.add(pageToken);
+    pageCount += 1;
     const response = await curtailmentClient.getCurtailmentEvent(
       createMessage(GetCurtailmentEventRequestSchema, {
         eventUuid,
@@ -355,6 +358,16 @@ async function requestActiveCurtailmentDetail(
       break;
     }
 
+    if (!hydrateAllTargetPages) {
+      // Polling only needs event-level detail. Drop the partial target page so
+      // target-derived metrics do not look complete.
+      return detailedEvent ? createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }) : undefined;
+    }
+
+    if (pageCount >= activeCurtailmentDetailMaxTargetPages) {
+      throw new Error("Curtailment detail exceeded the target pagination limit.");
+    }
+
     pageToken = response.nextTargetPageToken;
   }
 
@@ -368,7 +381,7 @@ export async function selectActiveCurtailmentEvent(
   assertNotAborted(signal);
   const currentSnapshot = getActiveCurtailmentSnapshot();
   const summaryEvent = currentSnapshot.events.find((event) => event.eventUuid === eventUuid);
-  const detailedEvent = await requestActiveCurtailmentDetail(eventUuid, signal);
+  const detailedEvent = await requestActiveCurtailmentDetail(eventUuid, { hydrateAllTargetPages: true, signal });
   assertNotAborted(signal);
 
   if (!detailedEvent && !summaryEvent) {
@@ -399,7 +412,7 @@ async function requestActiveCurtailmentResponseSnapshot(
 
   let detailedSelectedEvent: ProtoCurtailmentEvent | undefined;
   try {
-    detailedSelectedEvent = await requestActiveCurtailmentDetail(selectedEvent.eventUuid, signal);
+    detailedSelectedEvent = await requestActiveCurtailmentDetail(selectedEvent.eventUuid, { signal });
   } catch (error) {
     if (isAbortError(error, signal)) {
       throw error;

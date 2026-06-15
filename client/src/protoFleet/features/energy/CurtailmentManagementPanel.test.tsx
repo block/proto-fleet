@@ -113,17 +113,24 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
         Filter completed and failed
       </button>
       {onManageActiveEvent ? (
-        <button
-          type="button"
-          disabled={events.length === 0}
-          onClick={() => {
-            if (events[0]) {
-              onManageActiveEvent(events[0]);
-            }
-          }}
-        >
-          Manage history event
-        </button>
+        <>
+          <button
+            type="button"
+            disabled={events.length === 0}
+            onClick={() => {
+              if (events[0]) {
+                onManageActiveEvent(events[0]);
+              }
+            }}
+          >
+            Manage history event
+          </button>
+          {events[1] ? (
+            <button type="button" onClick={() => onManageActiveEvent(events[1])}>
+              Manage second history event
+            </button>
+          ) : null}
+        </>
       ) : null}
       {onStopActiveEvent ? (
         <button
@@ -602,9 +609,92 @@ describe("CurtailmentManagementPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Manage history event" }));
 
-    await waitFor(() => expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-2"));
+    await waitFor(() =>
+      expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-2", { signal: expect.any(AbortSignal) }),
+    );
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Secondary grid peak");
+    expect(screen.getByTestId("modal-preview")).toHaveTextContent("4 miners, 8 kW target, 9.1 kW estimated");
+  });
+
+  it("ignores stale secondary active row detail responses", async () => {
+    const user = userEvent.setup();
+    const firstFormValues = {
+      ...activeEventFormValues,
+      reason: "First selected event",
+      targetKw: "6",
+    } satisfies CurtailmentSubmitValues;
+    const secondFormValues = {
+      ...activeEventFormValues,
+      reason: "Second selected event",
+      targetKw: "8",
+    } satisfies CurtailmentSubmitValues;
+    const firstActiveEvent = {
+      ...activeEvent,
+      reason: "First selected event",
+      targetKw: 6,
+      estimatedReductionKw: 6.5,
+    } as ActiveCurtailmentEvent;
+    const secondActiveEvent = {
+      ...activeEvent,
+      reason: "Second selected event",
+      selectedMiners: 4,
+      targetKw: 8,
+      estimatedReductionKw: 9.1,
+    } as ActiveCurtailmentEvent;
+    let resolveFirstSelection: (
+      value: Awaited<ReturnType<UseCurtailmentApiResult["selectActiveCurtailment"]>>,
+    ) => void = () => undefined;
+    let resolveSecondSelection: (
+      value: Awaited<ReturnType<UseCurtailmentApiResult["selectActiveCurtailment"]>>,
+    ) => void = () => undefined;
+    const firstHistoryEvent = { ...historyEvent, id: "curt-2" } as CurtailmentHistoryEvent;
+    const secondHistoryEvent = { ...historyEvent, id: "curt-3" } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstSelection = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecondSelection = resolve;
+          }),
+      );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+        activeEvents: [historyEvent, firstHistoryEvent, secondHistoryEvent],
+        historyEvents: [firstHistoryEvent, secondHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Manage history event" }));
+    const firstSignal = mocks.selectActiveCurtailment.mock.calls[0][1].signal as AbortSignal;
+    await user.click(screen.getByRole("button", { name: "Manage second history event" }));
+
+    expect(firstSignal.aborted).toBe(true);
+
+    resolveSecondSelection({
+      activeEvent: secondActiveEvent,
+      activeEventId: "curt-3",
+      activeEventFormValues: secondFormValues,
+    });
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument());
+
+    resolveFirstSelection({
+      activeEvent: firstActiveEvent,
+      activeEventId: "curt-2",
+      activeEventFormValues: firstFormValues,
+    });
+
+    await waitFor(() => expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Second selected event"));
     expect(screen.getByTestId("modal-preview")).toHaveTextContent("4 miners, 8 kW target, 9.1 kW estimated");
   });
 

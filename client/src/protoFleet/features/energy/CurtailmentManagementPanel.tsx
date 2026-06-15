@@ -186,6 +186,8 @@ function CurtailmentManagementPanel({
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
+  const manageSelectionAbortControllerRef = useRef<AbortController | null>(null);
+  const manageSelectionRequestIdRef = useRef(0);
   const foregroundRefreshInFlightRef = useRef(false);
   const errorMessage = startError ?? updateError ?? stopError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
@@ -254,7 +256,16 @@ function CurtailmentManagementPanel({
     };
   }, [hasOngoingCurtailment, refreshCurtailment]);
 
+  useEffect(
+    () => () => {
+      manageSelectionAbortControllerRef.current?.abort();
+    },
+    [],
+  );
+
   const closeModal = useCallback(() => {
+    manageSelectionAbortControllerRef.current?.abort();
+    manageSelectionAbortControllerRef.current = null;
     setModalMode(null);
     setEditSession(null);
   }, []);
@@ -293,8 +304,22 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      void selectActiveCurtailment(event.id)
+      manageSelectionAbortControllerRef.current?.abort();
+      const requestId = manageSelectionRequestIdRef.current + 1;
+      manageSelectionRequestIdRef.current = requestId;
+      const abortController = new AbortController();
+      manageSelectionAbortControllerRef.current = abortController;
+
+      void selectActiveCurtailment(event.id, { signal: abortController.signal })
         .then(({ activeEvent: selectedActiveEvent, activeEventId: selectedActiveEventId, activeEventFormValues }) => {
+          if (
+            abortController.signal.aborted ||
+            manageSelectionRequestIdRef.current !== requestId ||
+            selectedActiveEventId !== event.id
+          ) {
+            return;
+          }
+
           if (!selectedActiveEvent || !selectedActiveEventId || !activeEventFormValues) {
             return;
           }
@@ -306,7 +331,12 @@ function CurtailmentManagementPanel({
           });
           setModalMode("edit");
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          if (manageSelectionAbortControllerRef.current === abortController) {
+            manageSelectionAbortControllerRef.current = null;
+          }
+        });
     },
     [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment, selectActiveCurtailment],
   );

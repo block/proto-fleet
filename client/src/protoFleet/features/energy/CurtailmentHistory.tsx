@@ -31,6 +31,7 @@ export interface CurtailmentHistoryEvent {
   scopeLabel: string;
   selectedMiners: number;
   estimatedReductionKw: number;
+  targetMetricsAvailable: boolean;
   targetKw?: number;
   sourceLabel: string;
   startedAt?: string;
@@ -107,6 +108,7 @@ const stoppableEventStates = new Set<CurtailmentEventState>(["pending", "active"
 const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
+const unavailableTargetMetricsLabel = "Target details unavailable";
 
 const priorityLabels: Record<CurtailmentPriority, string> = {
   normal: "Normal",
@@ -159,6 +161,14 @@ function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
       </div>
     </div>
   );
+}
+
+function formatHistoryMinerCount(event: CurtailmentHistoryEvent): string {
+  return event.targetMetricsAvailable ? formatMinerCount(event.selectedMiners) : unavailableTargetMetricsLabel;
+}
+
+function formatHistoryTargetVsActual(event: CurtailmentHistoryEvent): string {
+  return event.targetMetricsAvailable ? formatTargetVsActual(event) : unavailableTargetMetricsLabel;
 }
 
 function getDateTime(value?: string): Date | undefined {
@@ -322,8 +332,8 @@ function CurtailmentSummaryModal({
         <div className="rounded-xl border border-border-5 px-4">
           <DetailRow label="Event" value={event.reason} />
           <DetailRow label="ID" value={event.id} />
-          <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatMinerCount(event.selectedMiners)} />
-          <DetailRow label="Power target vs actual" value={formatTargetVsActual(event)} />
+          <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatHistoryMinerCount(event)} />
+          <DetailRow label="Power target vs actual" value={formatHistoryTargetVsActual(event)} />
           <DetailRow label="Status" value={eventStateConfig.label} />
           <DetailRow label="Started" value={startedAt ?? "Not started yet"} />
           {scheduledAt ? <DetailRow label="Scheduled" value={scheduledAt} /> : null}
@@ -396,9 +406,9 @@ function CurtailmentHistoryRow({
         <div className="truncate text-text-primary" title={event.scopeLabel}>
           {event.scopeLabel}
         </div>
-        <div className="text-200 text-text-primary-50">{formatMinerCount(event.selectedMiners)}</div>
+        <div className="text-200 text-text-primary-50">{formatHistoryMinerCount(event)}</div>
       </td>
-      <td className="py-4 pr-6 align-top text-text-primary">{formatTargetVsActual(event)}</td>
+      <td className="py-4 pr-6 align-top text-text-primary">{formatHistoryTargetVsActual(event)}</td>
       <td className="py-4 pr-6 align-top">
         <div className="flex items-center gap-2 text-emphasis-300 text-text-primary">
           <Dot className={eventStateConfig.dotClassName} />

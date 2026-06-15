@@ -20,6 +20,8 @@ import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/
 import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const wattsPerKilowatt = 1000;
+const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
+const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 
 interface ObservedPowerSummary {
   observedReductionKw: number;
@@ -135,6 +137,19 @@ function getSourceLabel(event: ProtoCurtailmentEvent): string {
   return event.externalSource.trim() || "Manual";
 }
 
+function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
+  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
+}
+
+function hasTargetMetrics(event: ProtoCurtailmentEvent): boolean {
+  return (
+    Boolean(event.targetRollup) ||
+    event.targets.length > 0 ||
+    hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
+    hasSnapshotNumber(event, selectedCountSnapshotKeys)
+  );
+}
+
 function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductionKw: number): ObservedPowerSummary {
   let observedPowerTotalW = 0;
   let hasObservedPower = false;
@@ -181,6 +196,7 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
     scopeLabel: getCurtailmentEventScopeLabel(event),
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
     estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
+    targetMetricsAvailable: hasTargetMetrics(event),
     targetKw: getFixedKwTarget(event),
     sourceLabel: getSourceLabel(event),
     startedAt: timestampToIsoString(event.startedAt),

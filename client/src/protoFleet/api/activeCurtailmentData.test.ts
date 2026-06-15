@@ -9,6 +9,7 @@ import {
   getActiveCurtailmentSnapshot,
   refreshActiveCurtailmentData,
   resetActiveCurtailmentData,
+  selectActiveCurtailmentEvent,
 } from "@/protoFleet/api/activeCurtailmentData";
 import {
   type CurtailmentEvent,
@@ -208,7 +209,23 @@ describe("activeCurtailmentData", () => {
     expect(snapshot.events.map((event) => event.reason)).toEqual(["Summary A", "Summary B"]);
   });
 
-  it("loads every selected active detail target page before committing detail", async () => {
+  it("does not keep partial selected targets during active polling detail hydration", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Detail A",
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1" })],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: firstPageDetail, nextTargetPageToken: "page-2" });
+
+    await refreshActiveCurtailmentData();
+
+    expect(getActiveCurtailmentSnapshot().event?.targets).toEqual([]);
+    expect(mockGetCurtailmentEvent).toHaveBeenCalledOnce();
+    expect(mockGetCurtailmentEvent.mock.calls.map(([request]) => request.targetPageToken)).toEqual([""]);
+  });
+
+  it("loads every selected active detail target page for explicit event selection", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
       reason: "Detail A",
@@ -218,18 +235,31 @@ describe("activeCurtailmentData", () => {
       reason: "Detail A",
       targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-2" })],
     });
-    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary] });
+    applyActiveCurtailmentEvent(activeSummary, { mergeActiveEvents: true });
     mockGetCurtailmentEvent
       .mockResolvedValueOnce({ event: firstPageDetail, nextTargetPageToken: "page-2" })
       .mockResolvedValueOnce({ event: secondPageDetail, nextTargetPageToken: "" });
 
-    await refreshActiveCurtailmentData();
+    await selectActiveCurtailmentEvent(activeSummary.eventUuid);
 
     expect(getActiveCurtailmentSnapshot().event?.targets.map((target) => target.deviceIdentifier)).toEqual([
       "miner-1",
       "miner-2",
     ]);
     expect(mockGetCurtailmentEvent.mock.calls.map(([request]) => request.targetPageToken)).toEqual(["", "page-2"]);
+  });
+
+  it("rejects explicit detail hydration when target pagination exceeds the safety cap", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    applyActiveCurtailmentEvent(activeSummary, { mergeActiveEvents: true });
+    mockGetCurtailmentEvent.mockImplementation(async ({ targetPageToken }: { targetPageToken: string }) => ({
+      event: activeSummary,
+      nextTargetPageToken: targetPageToken ? `${targetPageToken}-next` : "page-2",
+    }));
+
+    await expect(selectActiveCurtailmentEvent(activeSummary.eventUuid)).rejects.toThrow(
+      "Curtailment detail exceeded the target pagination limit.",
+    );
   });
 
   it("preserves a selected restored curtailment while another active curtailment remains listed", async () => {

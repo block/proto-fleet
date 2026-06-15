@@ -243,6 +243,13 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         selectedMiners: 2,
         estimatedReductionKw: 6.2,
+        targetMetricsAvailable: true,
+      }),
+    );
+    expect(result.current.activeEvents[1]).toEqual(
+      expect.objectContaining({
+        id: "curt-site-b",
+        targetMetricsAvailable: false,
       }),
     );
     expect(mockGetCurtailmentEvent).toHaveBeenCalledOnce();

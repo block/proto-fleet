@@ -222,6 +222,17 @@ function getActiveHistoryEvent(
     return matchingHistoryEvent;
   }
 
+  if (!mappedActiveEvent.targetMetricsAvailable && matchingHistoryEvent.targetMetricsAvailable) {
+    return {
+      ...mappedActiveEvent,
+      selectedMiners: matchingHistoryEvent.selectedMiners,
+      estimatedReductionKw: matchingHistoryEvent.estimatedReductionKw,
+      targetKw: matchingHistoryEvent.targetKw,
+      targetMetricsAvailable: true,
+      sourceLabel: matchingHistoryEvent.sourceLabel,
+    };
+  }
+
   return {
     ...mappedActiveEvent,
     sourceLabel: matchingHistoryEvent.sourceLabel,

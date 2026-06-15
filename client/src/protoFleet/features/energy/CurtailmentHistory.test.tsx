@@ -145,6 +145,30 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("High")).toBeInTheDocument();
   });
 
+  it("renders unavailable target metrics without misleading zero values", async () => {
+    const user = userEvent.setup();
+    const summaryOnlyEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-summary-only",
+      selectedMiners: 0,
+      estimatedReductionKw: 0,
+      targetKw: undefined,
+      targetMetricsAvailable: false,
+    };
+
+    render(<CurtailmentHistory events={[summaryOnlyEvent]} />);
+
+    const row = screen.getByTestId("curtailment-history-row-curt-summary-only");
+    expect(within(row).getAllByText("Target details unavailable")).toHaveLength(2);
+    expect(within(row).queryByText("0 miners")).not.toBeInTheDocument();
+    expect(within(row).queryByText("0.0 kW / 0.0 kW")).not.toBeInTheDocument();
+
+    await user.click(row);
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getAllByText("Target details unavailable")).toHaveLength(2);
+  });
+
   it("renders pending events without a start time", async () => {
     const user = userEvent.setup();
     const onStopActiveEvent = vi.fn();
