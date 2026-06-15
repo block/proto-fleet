@@ -105,7 +105,7 @@ interface CurtailmentSummaryModalButton {
 
 const defaultPageSize = 50;
 const stoppableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
-const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
+const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
 const unavailableTargetMetricsLabel = "Target details unavailable";

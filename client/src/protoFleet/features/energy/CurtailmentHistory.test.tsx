@@ -499,6 +499,32 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
   });
 
+  it("does not show manage actions for restoring active row summaries", async () => {
+    const user = userEvent.setup();
+    const onManageActiveEvent = vi.fn();
+    const restoringEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-restoring",
+      reason: "Restoring event",
+      state: "restoring" as const,
+    };
+
+    render(
+      <CurtailmentHistory
+        events={[restoringEvent]}
+        activeEventId="curt-restoring"
+        onManageActiveEvent={onManageActiveEvent}
+      />,
+    );
+
+    await user.click(screen.getByTestId("curtailment-history-row-curt-restoring"));
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Restoring event")).toBeInTheDocument();
+    expect(within(modal).queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+    expect(onManageActiveEvent).not.toHaveBeenCalled();
+  });
+
   it("routes secondary active row actions from activeEventIds", async () => {
     const user = userEvent.setup();
     const onManageActiveEvent = vi.fn();
