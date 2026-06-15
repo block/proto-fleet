@@ -424,6 +424,9 @@ func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
 
 	gomock.InOrder(
 		h.collectionStore.EXPECT().
+			LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{targetRackID}, nil),
+		h.collectionStore.EXPECT().
 			LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
 		h.collectionStore.EXPECT().
@@ -461,9 +464,14 @@ func TestAssignDevicesToRack_UnassignBranch(t *testing.T) {
 	h := newTestHandler(t)
 
 	deviceIDs := []string{"d1"}
-	h.collectionStore.EXPECT().
-		RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).
-		Return(int64(1), nil)
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return([]int64{}, nil),
+		h.collectionStore.EXPECT().
+			RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return(int64(1), nil),
+	)
 
 	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
 		TargetRackId:   nil,

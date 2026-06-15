@@ -913,17 +913,39 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetSiteID *int64
 			targetLabel  string
 		)
-		// Lock + verify target rack first so concurrent SaveRack /
-		// DeleteCollection on the target can't race us. Canonical lock
-		// order is rack-only here — site/building locks would invert
-		// against AddDevicesToCollection.
+		// Canonical lock order: lock every rack involved in the
+		// reparent -- sources + target -- together in ascending
+		// device_set.id order via LockRacksForReparent. Locking source
+		// and target as one globally sorted set is what keeps two
+		// concurrent AssignDevicesToRack calls moving devices in
+		// opposite directions between the same rack pair from
+		// deadlocking: each tx acquires {rack1, rack2} in the same
+		// {1, 2} order regardless of which side is source vs target.
+		// Without the pre-pass, the calls race the
+		// device_set_membership unique constraint and the loser trips
+		// uk_device_set_membership during the INSERT. The subsequent
+		// LockRackPlacementForWrite call below still fires for its
+		// device_set_rack row + placement read; the parent device_set
+		// row it locks is already held by this tx from the pre-pass.
+		// Pass 0 in the clear-rack path so the UNION contributes no
+		// target row.
+		var targetRackID int64
+		if params.TargetRackID != nil {
+			targetRackID = *params.TargetRackID
+		}
+		if _, err := s.collectionStore.LockRacksForReparent(ctx, params.OrgID, params.DeviceIdentifiers, targetRackID); err != nil {
+			return nil, err
+		}
+
+		// Lock + verify target rack so concurrent SaveRack /
+		// DeleteCollection on the target can't race us. Site/building
+		// locks would invert against AddDevicesToCollection's cascade,
+		// so we stay rack-only here.
 		//
 		// Order: take the row lock BEFORE the label/type read so a
 		// concurrent rename can't slip a stale label into the activity
 		// log we emit downstream.
-		var targetRackID int64
 		if params.TargetRackID != nil {
-			targetRackID = *params.TargetRackID
 			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, *params.TargetRackID, params.OrgID)
 			if err != nil {
 				return nil, err

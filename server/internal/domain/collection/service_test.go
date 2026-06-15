@@ -1909,6 +1909,8 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 	deviceIDs := []string{"d1", "d2"}
 
 	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{11, 23}, nil),
 		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
@@ -1939,7 +1941,11 @@ func TestService_AssignDevicesToRack_unassignClearsWithoutAdd(t *testing.T) {
 	ctx := testCtx(t)
 
 	deviceIDs := []string{"d1"}
-	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(int64(1), nil)
+	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return([]int64{17}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(int64(1), nil),
+	)
 
 	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -1959,12 +1965,12 @@ func TestService_AssignDevicesToRack_targetMustBeRack(t *testing.T) {
 	ctx := testCtx(t)
 
 	targetID := int64(99)
-	gomock.InOrder(
-		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetID, testOrgID).
-			Return(interfaces.RackPlacement{}, nil),
-		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetID).
-			Return(&pb.DeviceCollection{Id: targetID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil),
-	)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, []string{"d1"}, targetID).
+		Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetID).
+		Return(&pb.DeviceCollection{Id: targetID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -1972,6 +1978,98 @@ func TestService_AssignDevicesToRack_targetMustBeRack(t *testing.T) {
 		DeviceIdentifiers: []string{"d1"},
 	})
 	require.Error(t, err)
+}
+
+// TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites
+// pins F9's lock-order invariant: LockRacksForReparent must run
+// BEFORE LockRackPlacementForWrite and BEFORE RemoveDevicesFromAnyRack.
+// Reversing this risks deadlock against a concurrent call that takes
+// the locks in the opposite order, and skipping it altogether is what
+// lets concurrent overlapping reparent calls race the
+// device_set_membership unique constraint.
+func TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{11, 23}, nil),
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_unassignPathLocksSourceRacks pins
+// that the rack-lock pre-pass ALSO fires on the clear-rack path.
+// targetRackID is 0 so the UNION arm contributes no target row and
+// only the source racks holding any of the requested devices are
+// locked.
+func TestService_AssignDevicesToRack_unassignPathLocksSourceRacks(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+			Return([]int64{5, 12}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(int64(2), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      nil,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_locksIncludeTargetRack pins the
+// deadlock-prevention contract: when a target rack is supplied, the
+// pre-pass lock call MUST receive the target rack id (not 0) so the
+// SQL UNION includes the target in the same globally sorted FOR
+// UPDATE acquisition as the source racks. Two concurrent reparents
+// moving devices in opposite directions between rack A and rack B
+// would otherwise lock {sourceA} then {B} in one tx and {sourceB}
+// then {A} in the other, producing the classic A→B / B→A deadlock.
+func TestService_AssignDevicesToRack_locksIncludeTargetRack(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(77)
+	deviceIDs := []string{"d1"}
+
+	// Assert by argument: LockRacksForReparent receives targetRackID,
+	// not 0. The mock matcher rejects any other value.
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+		Return([]int64{77}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+		Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
 }
 
 // TestService_AssignDevicesToRack_emptyDevicesRejected guards the
