@@ -344,7 +344,7 @@ function getRestoringEventForTerminalReconciliation(
     return activeEvent;
   }
 
-  return !activeEvent && fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;
+  return fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;
 }
 
 function reconcileTerminalRestoringEventWithHistory(
@@ -371,14 +371,14 @@ function reconcileActiveEventWithTerminalFallback(
   fallbackEvent: ProtoCurtailmentEvent | undefined,
   historyEvents: ProtoCurtailmentEvent[],
 ): ProtoCurtailmentEvent | undefined {
-  const reconciledActiveEvent = reconcileActiveEventWithHistory(activeEvent, historyEvents);
-  if (reconciledActiveEvent || activeEvent) {
-    return reconciledActiveEvent;
-  }
-
   const terminalFallbackEvent = reconcileTerminalRestoringEventWithHistory(fallbackEvent, historyEvents);
   if (terminalFallbackEvent) {
     return terminalFallbackEvent;
+  }
+
+  const reconciledActiveEvent = reconcileActiveEventWithHistory(activeEvent, historyEvents);
+  if (reconciledActiveEvent || activeEvent) {
+    return reconciledActiveEvent;
   }
 
   return fallbackEvent?.state === ProtoCurtailmentEventState.RESTORING ? fallbackEvent : undefined;

@@ -319,10 +319,6 @@ function getSelectedActiveCurtailmentEventToPreserve(
     return undefined;
   }
 
-  if (currentEvent.state === CurtailmentEventState.RESTORING) {
-    return events.length > 0 ? currentEvent : undefined;
-  }
-
   return shouldPreserveTerminalActiveCurtailmentEvent(currentEvent) ? currentEvent : undefined;
 }
 

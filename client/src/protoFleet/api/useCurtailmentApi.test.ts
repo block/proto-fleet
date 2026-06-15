@@ -707,6 +707,46 @@ describe("useCurtailmentApi", () => {
     ]);
   });
 
+  it("reconciles a vanished selected restoring event terminal while other active curtailments remain", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-restoring",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const otherActiveEvent = curtailmentEvent({
+      eventUuid: "curt-other-active",
+      reason: "Other active event",
+      state: CurtailmentEventState.ACTIVE,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-restoring",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [otherActiveEvent] });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-restoring");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.activeEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-restoring",
+        state: "completed",
+      }),
+      expect.objectContaining({
+        id: "curt-other-active",
+        state: "active",
+        reason: "Other active event",
+      }),
+    ]);
+  });
+
   it("reconciles restoring state from terminal history without resetting the current page", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-page-terminal",

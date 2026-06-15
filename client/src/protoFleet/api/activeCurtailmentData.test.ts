@@ -277,6 +277,20 @@ describe("activeCurtailmentData", () => {
     expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
   });
 
+  it("drops a selected restoring curtailment from active-only refresh when it is no longer listed", async () => {
+    const restoringEvent = curtailmentEvent("restoring-event", CurtailmentEventState.RESTORING);
+    const activeEvent = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE);
+
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeEvent] });
+
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.eventUuid).toBe(activeEvent.eventUuid);
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
+  });
+
   it("rejects a reset-aborted shared request as an AbortError", async () => {
     mockListActiveCurtailments.mockImplementationOnce(
       (_request: unknown, options?: { signal?: AbortSignal }) =>
