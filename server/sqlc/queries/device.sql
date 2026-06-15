@@ -123,6 +123,18 @@ WHERE device_identifier = $1
   AND deleted_at IS NULL
     LIMIT 1;
 
+-- name: IsDeviceOwnedByFleetNode :one
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN fleet_node_device fnd
+      ON fnd.device_id = d.id
+     AND fnd.org_id = d.org_id
+    WHERE d.device_identifier = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+);
+
 -- name: UpdateDeviceInfo :exec
 UPDATE device
 SET

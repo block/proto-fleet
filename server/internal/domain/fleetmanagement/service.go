@@ -318,6 +318,16 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 				return
 			}
 
+			ownedByFleetNode, err := s.deviceStore.IsDeviceOwnedByFleetNode(refreshCtx, deviceID, info.OrganizationID)
+			if err != nil {
+				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				return
+			}
+			if ownedByFleetNode {
+				results <- refreshResult{id: deviceID, errMsg: "fleet-node-owned miners are not supported by row refresh yet"}
+				return
+			}
+
 			deviceCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersPerDeviceTimeout)
 			defer cancel()
 

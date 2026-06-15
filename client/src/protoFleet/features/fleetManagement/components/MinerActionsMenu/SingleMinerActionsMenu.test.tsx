@@ -708,6 +708,7 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
       expect(screen.queryByText("View miner")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
     it("shows Unpair and View miner when needsAuthentication is true and minerUrl is set", () => {
@@ -720,6 +721,7 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
     it("does not disable the menu button when needsAuthentication is true", () => {

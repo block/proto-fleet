@@ -135,6 +135,20 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 	return result, nil
 }
 
+func (s *SQLDeviceStore) IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error) {
+	isOwned, err := s.getQueries(ctx).IsDeviceOwnedByFleetNode(ctx, sqlc.IsDeviceOwnedByFleetNodeParams{
+		DeviceIdentifier: identifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return false, handleQueryError(err,
+			fmt.Sprintf("device not found with identifier=%s org_id=%d", identifier, orgID),
+			fmt.Sprintf("failed to query fleet node ownership for device identifier=%s org_id=%d", identifier, orgID))
+	}
+
+	return isOwned, nil
+}
+
 func (s *SQLDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error {
 	err := s.getQueries(ctx).UpdateDeviceInfo(ctx, sqlc.UpdateDeviceInfoParams{
 		MacAddress:       networking.NormalizeMAC(device.MacAddress),

@@ -26,6 +26,7 @@ import (
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsv2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -252,6 +253,47 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collector := &recordingRefreshTelemetryCollector{}
+
+	const (
+		deviceID = "node-owned-device"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetDeviceByDeviceIdentifier(gomock.Any(), deviceID, orgID).
+		Return(&pairingpb.Device{DeviceIdentifier: deviceID}, nil)
+	deviceStore.EXPECT().
+		IsDeviceOwnedByFleetNode(gomock.Any(), deviceID, orgID).
+		Return(true, nil)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		nil,
+		collector,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{deviceID}})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.Snapshots)
+	require.Contains(t, resp.Errors, deviceID)
+	assert.Contains(t, resp.Errors[deviceID], "fleet-node-owned miners are not supported")
+	assert.Empty(t, collector.Refreshed())
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.T) {

@@ -394,6 +394,21 @@ func (mr *MockDeviceStoreMockRecorder) InsertDevice(ctx, device, orgID, discover
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertDevice", reflect.TypeOf((*MockDeviceStore)(nil).InsertDevice), ctx, device, orgID, discoveredDeviceIdentifier)
 }
 
+// IsDeviceOwnedByFleetNode mocks base method.
+func (m *MockDeviceStore) IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsDeviceOwnedByFleetNode", ctx, identifier, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsDeviceOwnedByFleetNode indicates an expected call of IsDeviceOwnedByFleetNode.
+func (mr *MockDeviceStoreMockRecorder) IsDeviceOwnedByFleetNode(ctx, identifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsDeviceOwnedByFleetNode", reflect.TypeOf((*MockDeviceStore)(nil).IsDeviceOwnedByFleetNode), ctx, identifier, orgID)
+}
+
 // ListMinerStateSnapshots mocks base method.
 func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *interfaces.MinerFilter, sortConfig *interfaces.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
 	m.ctrl.T.Helper()

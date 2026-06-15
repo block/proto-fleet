@@ -154,6 +154,7 @@ type DeviceStore interface {
 	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
+	IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error)
 	UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)

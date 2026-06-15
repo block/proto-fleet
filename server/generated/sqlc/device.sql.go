@@ -1719,6 +1719,31 @@ func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) (int
 	return id, err
 }
 
+const isDeviceOwnedByFleetNode = `-- name: IsDeviceOwnedByFleetNode :one
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN fleet_node_device fnd
+      ON fnd.device_id = d.id
+     AND fnd.org_id = d.org_id
+    WHERE d.device_identifier = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+)
+`
+
+type IsDeviceOwnedByFleetNodeParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+func (q *Queries) IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error) {
+	row := q.queryRow(ctx, q.isDeviceOwnedByFleetNodeStmt, isDeviceOwnedByFleetNode, arg.DeviceIdentifier, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listMinerStateSnapshots = `-- name: ListMinerStateSnapshots :many
 SELECT
     dd.device_identifier,

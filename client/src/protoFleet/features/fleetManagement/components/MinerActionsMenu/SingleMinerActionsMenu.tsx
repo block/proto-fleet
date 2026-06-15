@@ -29,7 +29,7 @@ import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from 
 
 type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";
 
-const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner", "refreshStatus"]);
+const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner"]);
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
