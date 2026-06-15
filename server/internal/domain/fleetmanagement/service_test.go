@@ -137,7 +137,7 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	assert.Empty(t, resp.Cursor) // No more pages
 }
 
-func TestService_RefreshMiners_ShouldReturnSnapshotWhenRefreshTimesOut(t *testing.T) {
+func TestService_RefreshMiners_ShouldReturnErrorWithoutSnapshotWhenRefreshTimesOut(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
@@ -166,8 +166,7 @@ func TestService_RefreshMiners_ShouldReturnSnapshotWhenRefreshTimesOut(t *testin
 	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: deviceIDs})
 
 	require.NoError(t, err)
-	require.Len(t, resp.Snapshots, 1)
-	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	assert.Empty(t, resp.Snapshots)
 	require.Contains(t, resp.Errors, deviceIDs[0])
 	assert.Contains(t, resp.Errors[deviceIDs[0]], "context deadline exceeded")
 }

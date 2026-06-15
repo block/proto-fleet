@@ -319,11 +319,11 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 			deviceCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersPerDeviceTimeout)
 			defer cancel()
 
-			var refreshErrMsg string
 			if err := s.telemetry.RefreshDevice(deviceCtx, telemetryModels.Device{
 				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
 			}); err != nil {
-				refreshErrMsg = err.Error()
+				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				return
 			}
 
 			snapshotCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersSnapshotTimeout)
@@ -331,23 +331,15 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 
 			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID})
 			if err != nil {
-				if refreshErrMsg != "" {
-					results <- refreshResult{id: deviceID, errMsg: refreshErrMsg}
-					return
-				}
 				results <- refreshResult{id: deviceID, errMsg: err.Error()}
 				return
 			}
 			if len(snapshots) == 0 {
-				if refreshErrMsg != "" {
-					results <- refreshResult{id: deviceID, errMsg: refreshErrMsg}
-					return
-				}
 				results <- refreshResult{id: deviceID, errMsg: "not found"}
 				return
 			}
 
-			results <- refreshResult{id: deviceID, snapshot: snapshots[0], errMsg: refreshErrMsg}
+			results <- refreshResult{id: deviceID, snapshot: snapshots[0]}
 		}()
 	}
 
