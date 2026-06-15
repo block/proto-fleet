@@ -55,6 +55,10 @@ func (deadlineRefreshTelemetryCollector) RefreshDevice(ctx context.Context, _ te
 	return ctx.Err() //nolint:wrapcheck
 }
 
+func (deadlineRefreshTelemetryCollector) RefreshDeviceTimeout() time.Duration {
+	return 10 * time.Millisecond
+}
+
 type failingRefreshTelemetryCollector struct {
 	err error
 }
@@ -72,6 +76,10 @@ func (f failingRefreshTelemetryCollector) GetLatestDeviceMetrics(
 
 func (f failingRefreshTelemetryCollector) RefreshDevice(_ context.Context, _ telemetrymodels.Device) error {
 	return f.err
+}
+
+func (f failingRefreshTelemetryCollector) RefreshDeviceTimeout() time.Duration {
+	return 10 * time.Second
 }
 
 type recordingRefreshTelemetryCollector struct {
@@ -95,6 +103,10 @@ func (r *recordingRefreshTelemetryCollector) RefreshDevice(_ context.Context, de
 	defer r.mu.Unlock()
 	r.refreshed = append(r.refreshed, string(device.ID))
 	return nil
+}
+
+func (r *recordingRefreshTelemetryCollector) RefreshDeviceTimeout() time.Duration {
+	return 10 * time.Second
 }
 
 func (r *recordingRefreshTelemetryCollector) Refreshed() []string {
@@ -361,7 +373,7 @@ func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T)
 	assert.NotContains(t, resp.Errors[deviceID], "secret")
 }
 
-func TestService_RefreshMinerResourceContexts_ShouldFallbackToOrgScopeForMissingIDs(t *testing.T) {
+func TestService_RefreshMinerResourceContexts_ShouldResolveHiddenDeviceSites(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -369,13 +381,15 @@ func TestService_RefreshMinerResourceContexts_ShouldFallbackToOrgScopeForMissing
 
 	const (
 		visibleID = "visible-device"
+		hiddenID  = "hidden-device"
 		missingID = "missing-device"
 		orgID     = int64(123)
 		siteID    = int64(456)
 	)
+	hiddenSiteID := int64(789)
 
 	deviceStore.EXPECT().
-		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(2), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(3), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
 		DoAndReturn(func(
 			_ context.Context,
 			_ int64,
@@ -384,13 +398,19 @@ func TestService_RefreshMinerResourceContexts_ShouldFallbackToOrgScopeForMissing
 			filter *interfaces.MinerFilter,
 			_ *interfaces.SortConfig,
 		) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
-			assert.ElementsMatch(t, []string{visibleID, missingID}, filter.DeviceIdentifiers)
+			assert.ElementsMatch(t, []string{visibleID, hiddenID, missingID}, filter.DeviceIdentifiers)
 			return []sqlc.ListMinerStateSnapshotsRow{{
 				DeviceIdentifier: visibleID,
 				PairingStatus:    "UNPAIRED",
 				SiteID:           sql.NullInt64{Int64: siteID, Valid: true},
 			}}, "", 1, nil
 		})
+	deviceStore.EXPECT().
+		GetDeviceSiteID(gomock.Any(), hiddenID, orgID).
+		Return(&hiddenSiteID, nil)
+	deviceStore.EXPECT().
+		GetDeviceSiteID(gomock.Any(), missingID, orgID).
+		Return(nil, fleeterror.NewNotFoundErrorf("device not found with identifier=%s org_id=%d", missingID, orgID))
 
 	service := fleetmanagement.NewService(
 		deviceStore,
@@ -408,13 +428,15 @@ func TestService_RefreshMinerResourceContexts_ShouldFallbackToOrgScopeForMissing
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	contexts, err := service.RefreshMinerResourceContexts(ctx, &pb.RefreshMinersRequest{
-		DeviceIds: []string{visibleID, missingID},
+		DeviceIds: []string{visibleID, hiddenID, missingID},
 	})
 
 	require.NoError(t, err)
-	require.Len(t, contexts, 2)
+	require.Len(t, contexts, 3)
 	require.NotNil(t, contexts[visibleID].SiteID)
 	assert.Equal(t, siteID, *contexts[visibleID].SiteID)
+	require.NotNil(t, contexts[hiddenID].SiteID)
+	assert.Equal(t, hiddenSiteID, *contexts[hiddenID].SiteID)
 	assert.Equal(t, authz.ResourceContext{}, contexts[missingID])
 }
 

@@ -170,6 +170,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDevicePropertiesForRename(ctx, orgID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicePropertiesForRename", reflect.TypeOf((*MockDeviceStore)(nil).GetDevicePropertiesForRename), ctx, orgID, deviceIdentifiers, includeTelemetry)
 }
 
+// GetDeviceSiteID mocks base method.
+func (m *MockDeviceStore) GetDeviceSiteID(ctx context.Context, identifier string, orgID int64) (*int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceSiteID", ctx, identifier, orgID)
+	ret0, _ := ret[0].(*int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceSiteID indicates an expected call of GetDeviceSiteID.
+func (mr *MockDeviceStoreMockRecorder) GetDeviceSiteID(ctx, identifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceSiteID", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceSiteID), ctx, identifier, orgID)
+}
+
 // GetDeviceStatusForDeviceIdentifiers mocks base method.
 func (m *MockDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models1.DeviceIdentifier) (map[models1.DeviceIdentifier]models.MinerStatus, error) {
 	m.ctrl.T.Helper()

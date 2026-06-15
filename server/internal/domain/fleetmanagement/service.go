@@ -64,9 +64,8 @@ const (
 	fleetOptionsFetchTimeout = 60 * time.Second
 
 	refreshMinersMaxDevices = 50
-	// The device refresh budget intentionally exceeds telemetry.MetricTimeout's
-	// default 5s so a timed-out metrics read still leaves room for status fallback
-	// and synchronous writer flushes.
+	// Default fallback used only if a telemetry collector returns an invalid
+	// timeout. Production collectors derive this from telemetry configuration.
 	refreshMinersPerDeviceTimeout = 10 * time.Second
 	refreshMinersSnapshotTimeout  = 2 * time.Second
 	refreshMinersConcurrencyLimit = 10
@@ -272,7 +271,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 		return nil, err
 	}
 
-	refreshCtx, cancel := context.WithTimeout(ctx, refreshMinersRequestTimeout(len(deviceIDs)))
+	refreshCtx, cancel := context.WithTimeout(ctx, refreshMinersRequestTimeout(len(deviceIDs), s.telemetry.RefreshDeviceTimeout()))
 	defer cancel()
 
 	resp := &pb.RefreshMinersResponse{
@@ -379,11 +378,9 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 	}
 
 	contexts := make(map[string]authz.ResourceContext, len(deviceIDs))
-	for _, deviceID := range deviceIDs {
-		contexts[deviceID] = authz.ResourceContext{}
-	}
-
+	snapshotDeviceIDs := make(map[string]struct{}, len(snapshots))
 	for _, snapshot := range snapshots {
+		snapshotDeviceIDs[snapshot.DeviceIdentifier] = struct{}{}
 		if snapshot.SiteId == nil {
 			contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{}
 			continue
@@ -391,6 +388,28 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 
 		siteID := *snapshot.SiteId
 		contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{SiteID: &siteID}
+	}
+
+	for _, deviceID := range deviceIDs {
+		if _, ok := snapshotDeviceIDs[deviceID]; ok {
+			continue
+		}
+
+		siteID, err := s.deviceStore.GetDeviceSiteID(ctx, deviceID, info.OrganizationID)
+		if err != nil {
+			if fleeterror.IsNotFoundError(err) {
+				contexts[deviceID] = authz.ResourceContext{}
+				continue
+			}
+			return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
+		}
+		if siteID == nil {
+			contexts[deviceID] = authz.ResourceContext{}
+			continue
+		}
+
+		resolvedSiteID := *siteID
+		contexts[deviceID] = authz.ResourceContext{SiteID: &resolvedSiteID}
 	}
 
 	return contexts, nil
@@ -435,12 +454,16 @@ func sanitizeRefreshMinerError(err error) string {
 	}
 }
 
-func refreshMinersRequestTimeout(deviceCount int) time.Duration {
+func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Duration) time.Duration {
+	if refreshDeviceTimeout <= 0 {
+		refreshDeviceTimeout = refreshMinersPerDeviceTimeout
+	}
+	perWaveTimeout := 2*refreshDeviceTimeout + refreshMinersSnapshotTimeout
 	if deviceCount <= 0 {
-		return 2*refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout
+		return perWaveTimeout
 	}
 	waves := (deviceCount + refreshMinersConcurrencyLimit - 1) / refreshMinersConcurrencyLimit
-	return time.Duration(waves) * (2*refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout)
+	return time.Duration(waves) * perWaveTimeout
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data

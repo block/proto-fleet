@@ -135,6 +135,24 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 	return result, nil
 }
 
+func (s *SQLDeviceStore) GetDeviceSiteID(ctx context.Context, identifier string, orgID int64) (*int64, error) {
+	device, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: identifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return nil, handleQueryError(err,
+			fmt.Sprintf("device not found with identifier=%s org_id=%d", identifier, orgID),
+			fmt.Sprintf("failed to query device with identifier=%s org_id=%d", identifier, orgID))
+	}
+	if !device.SiteID.Valid {
+		return nil, nil
+	}
+
+	siteID := device.SiteID.Int64
+	return &siteID, nil
+}
+
 func (s *SQLDeviceStore) IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error) {
 	isOwned, err := s.getQueries(ctx).IsDeviceOwnedByFleetNode(ctx, sqlc.IsDeviceOwnedByFleetNodeParams{
 		DeviceIdentifier: identifier,

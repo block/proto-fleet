@@ -393,6 +393,10 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 	return errors.Join(processErr, flushErr, metricsFlushErr)
 }
 
+func (s *TelemetryService) RefreshDeviceTimeout() time.Duration {
+	return s.refreshDeviceOperationTimeout()
+}
+
 func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
 	metricTimeout := s.config.MetricTimeout
 	if metricTimeout <= 0 {
