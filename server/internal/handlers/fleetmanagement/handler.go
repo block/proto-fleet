@@ -7,18 +7,31 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
-	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
+type fleetManagementService interface {
+	ListMinerStateSnapshots(context.Context, *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error)
+	RefreshMinerResourceContexts(context.Context, *pb.RefreshMinersRequest) (map[string]authz.ResourceContext, error)
+	RefreshMiners(context.Context, *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error)
+	ExportMinerListCsv(context.Context, *pb.ExportMinerListCsvRequest, func(*pb.ExportMinerListCsvResponse) error) error
+	GetMinerStateCounts(context.Context, *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error)
+	GetMinerPoolAssignments(context.Context, *pb.GetMinerPoolAssignmentsRequest) (*pb.GetMinerPoolAssignmentsResponse, error)
+	GetMinerCoolingMode(context.Context, *pb.GetMinerCoolingModeRequest) (*pb.GetMinerCoolingModeResponse, error)
+	DeleteMiners(context.Context, *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error)
+	GetMinerModelGroups(context.Context, *pb.GetMinerModelGroupsRequest) (*pb.GetMinerModelGroupsResponse, error)
+	RenameMiners(context.Context, *pb.RenameMinersRequest) (*pb.RenameMinersResponse, error)
+	UpdateWorkerNames(context.Context, *pb.UpdateWorkerNamesRequest) (*pb.UpdateWorkerNamesResponse, error)
+}
+
 // Handler handles the Connect-RPC endpoints
 type Handler struct {
-	fleetMgmtSvc *fleetmanagement.Service
+	fleetMgmtSvc fleetManagementService
 }
 
 var _ fleetmanagementv1connect.FleetManagementServiceHandler = &Handler{}
 
-func NewHandler(fleetMgmtSvc *fleetmanagement.Service) *Handler {
+func NewHandler(fleetMgmtSvc fleetManagementService) *Handler {
 	return &Handler{
 		fleetMgmtSvc: fleetMgmtSvc,
 	}

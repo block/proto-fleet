@@ -2,15 +2,16 @@ package fleetmanagement_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	fleetmanagementsvc "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
-	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	handlerpkg "github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -42,6 +43,22 @@ func siteAssignment(siteID int64, permissions ...string) authz.Assignment {
 		SiteID:       &siteID,
 		Permissions:  permissions,
 	}
+}
+
+type refreshHandlerTestService struct {
+	*fleetmanagementsvc.Service
+
+	contexts      map[string]authz.ResourceContext
+	refreshCalled bool
+}
+
+func (s *refreshHandlerTestService) RefreshMinerResourceContexts(_ context.Context, _ *pb.RefreshMinersRequest) (map[string]authz.ResourceContext, error) {
+	return s.contexts, nil
+}
+
+func (s *refreshHandlerTestService) RefreshMiners(_ context.Context, _ *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error) {
+	s.refreshCalled = true
+	return &pb.RefreshMinersResponse{}, nil
 }
 
 func TestHandler_ListMinerStateSnapshots(t *testing.T) {
@@ -126,37 +143,37 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 }
 
 func TestHandler_RefreshMiners_UsesSiteScopedMinerRead(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
-	require.Len(t, deviceIDs, 1)
-
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	site, err := siteStore.CreateSite(t.Context(), sitesmodels.CreateSiteParams{
-		OrgID: testUser.OrganizationID,
-		Name:  "Austin",
-	})
-	require.NoError(t, err)
-
-	_, err = siteStore.ReassignDevicesToSite(t.Context(), testUser.OrganizationID, &site.ID, deviceIDs)
-	require.NoError(t, err)
-
-	handler := handlerpkg.NewHandler(testContext.ServiceProvider.FleetManagementService)
-	ctx := refreshAuthContext(
-		t.Context(),
-		testUser.DatabaseID,
-		testUser.OrganizationID,
-		orgAssignment(authz.PermMinerRead),
-		siteAssignment(site.ID),
+	const (
+		userID   = int64(1)
+		orgID    = int64(2)
+		siteID   = int64(3)
+		deviceID = "site-scoped-device"
 	)
 
-	resp, err := handler.RefreshMiners(ctx, connect.NewRequest(&pb.RefreshMinersRequest{DeviceIds: deviceIDs}))
+	service := &refreshHandlerTestService{
+		contexts: map[string]authz.ResourceContext{
+			deviceID: {SiteID: ptr(siteID)},
+		},
+	}
+	handler := handlerpkg.NewHandler(service)
+	ctx := refreshAuthContext(
+		t.Context(),
+		userID,
+		orgID,
+		orgAssignment(authz.PermMinerRead),
+		siteAssignment(siteID),
+	)
+
+	resp, err := handler.RefreshMiners(ctx, connect.NewRequest(&pb.RefreshMinersRequest{DeviceIds: []string{deviceID}}))
 
 	require.Error(t, err)
 	assert.Nil(t, resp)
-	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr))
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.False(t, service.refreshCalled)
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }
