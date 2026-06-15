@@ -89,7 +89,7 @@ code does, not the decisions made getting there. Structure it as:
 2. **How it works** — the end-to-end mechanism in plain language. Walk the
    primary flow(s): who triggers it, what crosses each boundary, where state
    is persisted, what comes back. Explain workflows, not language syntax.
-3. **Diagrams** — mermaid in ```mermaid fenced blocks so they render on
+3. **Diagrams** — mermaid in fenced code blocks labeled `mermaid` so they render on
    GitHub. At least a component/flow diagram of the main path; add a state or
    sequence diagram where lifecycle or ordering matters. Keep syntax
    GitHub-safe: quote labels with special characters, avoid fragile edge styles.
