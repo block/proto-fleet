@@ -1644,6 +1644,69 @@ func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
 	require.False(t, devB.online, "MinerStatusOffline should map to online=false")
 }
 
+func TestStatusWriterRoutine_FlushRequestChunksDrainedStatuses(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	statuses := make([]statusResult, maxStatusBatchSize+1)
+	for i := range statuses {
+		statuses[i] = statusResult{
+			deviceIdentifier: models.DeviceIdentifier(fmt.Sprintf("test-device-%d", i)),
+			status:           mm.MinerStatusActive,
+		}
+	}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
+
+	statusLookupSizes := make(chan int, 2)
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, deviceIDs []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error) {
+			statusLookupSizes <- len(deviceIDs)
+			return map[models.DeviceIdentifier]mm.MinerStatus{}, nil
+		}).
+		Times(2)
+
+	upsertSizes := make(chan int, 2)
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []stores.DeviceStatusUpdate) error {
+			upsertSizes <- len(updates)
+			return nil
+		}).
+		Times(2)
+
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1, StatusFlushInterval: 10 * time.Second},
+		mockDataStore,
+		mockMinerGetter,
+		mockScheduler,
+		mockDeviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	for _, status := range statuses {
+		service.statusResults <- status
+	}
+
+	go service.statusWriterRoutine(ctx)
+
+	require.NoError(t, service.FlushStatusNow(ctx))
+	assert.ElementsMatch(t, []int{maxStatusBatchSize, 1}, []int{<-statusLookupSizes, <-statusLookupSizes})
+	assert.ElementsMatch(t, []int{maxStatusBatchSize, 1}, []int{<-upsertSizes, <-upsertSizes})
+}
+
 // When the current DB status is UPDATING / REBOOT_REQUIRED, the writer must
 // still call onDeviceStatus for the pending sample so that an unreachable
 // miner keeps emitting fleet_device_online=0 through a stuck firmware update

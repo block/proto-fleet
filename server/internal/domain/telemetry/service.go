@@ -841,21 +841,26 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		}
 	}
 
-	drainReadyStatusResults := func() {
+	var flush func(flushCtx context.Context) error
+	drainReadyStatusResults := func(flushCtx context.Context) error {
+		var drainErr error
 		for {
 			select {
 			case result, ok := <-s.statusResults:
 				if !ok {
-					return
+					return drainErr
 				}
 				addPendingUpdate(result)
+				if len(pendingUpdates) >= maxStatusBatchSize {
+					drainErr = errors.Join(drainErr, flush(flushCtx))
+				}
 			default:
-				return
+				return drainErr
 			}
 		}
 	}
 
-	flush := func(flushCtx context.Context) error {
+	flush = func(flushCtx context.Context) error {
 		if len(pendingUpdates) == 0 {
 			return nil
 		}
@@ -959,8 +964,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			_ = flush(ctx)
 
 		case req := <-s.statusFlushRequests:
-			drainReadyStatusResults()
-			req.done <- flush(ctx)
+			req.done <- errors.Join(drainReadyStatusResults(ctx), flush(ctx))
 		}
 	}
 }
