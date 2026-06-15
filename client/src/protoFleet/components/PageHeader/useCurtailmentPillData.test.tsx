@@ -44,11 +44,15 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission: mockUseHasPermission,
 }));
 
-function curtailmentEvent(): CurtailmentEvent {
+function curtailmentEvent(
+  eventUuid = "curt-1",
+  state = CurtailmentEventState.ACTIVE,
+  reason = "Grid peak call",
+): CurtailmentEvent {
   return create(CurtailmentEventSchema, {
-    eventUuid: "curt-1",
-    reason: "Grid peak call",
-    state: CurtailmentEventState.ACTIVE,
+    eventUuid,
+    reason,
+    state,
   });
 }
 
@@ -134,6 +138,40 @@ describe("useCurtailmentPillData", () => {
     });
 
     expect(mockListActiveCurtailments).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses listed active events when the selected event is terminal", async () => {
+    const listedActiveEvent = curtailmentEvent("curt-active", CurtailmentEventState.ACTIVE, "Active grid call");
+    const restoredSelectedEvent = curtailmentEvent(
+      "curt-restored",
+      CurtailmentEventState.COMPLETED,
+      "Restored grid call",
+    );
+    act(() => {
+      applyActiveCurtailmentEvent(listedActiveEvent, { mergeActiveEvents: true });
+      applyActiveCurtailmentEvent(restoredSelectedEvent, { mergeActiveEvents: true });
+    });
+
+    const { result } = renderHook(() => useCurtailmentPillData());
+
+    expect(result.current.activeEvent?.reason).toBe("Active grid call");
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {});
+    expect(mockListActiveCurtailments).toHaveBeenCalledOnce();
+    mockListActiveCurtailments.mockClear();
+
+    act(() => {
+      vi.advanceTimersByTime(2_999);
+    });
+    expect(mockListActiveCurtailments).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(mockListActiveCurtailments).toHaveBeenCalledOnce();
   });
 
   it("aborts the active request when the hook unmounts", () => {
