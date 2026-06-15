@@ -2184,6 +2184,46 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 	assert.Equal(t, inFlightKindFullTelemetry, value)
 }
 
+func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	device := models.Device{ID: "test-device-1", LastUpdatedAt: time.Now().Add(-time.Minute)}
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), device).
+		Return(nil).
+		Times(1)
+
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1},
+		mockDataStore,
+		mockMinerGetter,
+		mockScheduler,
+		mockDeviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+	service.inFlight.Store(device.ID, inFlightKindStatusOnly)
+	service.tasks <- device
+	close(service.tasks)
+
+	done := make(chan struct{})
+	go func() {
+		service.worker(t.Context())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not exit after tasks channel closed")
+	}
+}
+
 // Tests for processStatusOnly failed device recovery
 
 func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {

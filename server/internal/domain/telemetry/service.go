@@ -645,6 +645,9 @@ func (s *TelemetryService) worker(ctx context.Context) {
 				return
 			}
 			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, inFlightKindFullTelemetry); alreadyClaimed {
+				if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
+					slog.Warn("failed to requeue skipped in-flight telemetry task", "deviceID", device.ID, "error", err)
+				}
 				continue
 			}
 			_ = s.processDevice(ctx, device)
