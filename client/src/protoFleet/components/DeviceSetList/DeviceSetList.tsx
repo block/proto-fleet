@@ -7,7 +7,7 @@ import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/devic
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import List from "@/shared/components/List";
+import List, { type SelectionMode } from "@/shared/components/List";
 import { type SortDirection } from "@/shared/components/List/types";
 
 export type DeviceSetListItem = {
@@ -48,6 +48,8 @@ type DeviceSetListProps = {
   onPrevPage?: () => void;
   onRowClick?: (item: DeviceSetListItem, index: number) => void;
   emptyStateRow?: ReactNode;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
 };
 
 const DeviceSetList = ({
@@ -71,6 +73,8 @@ const DeviceSetList = ({
   onPrevPage,
   onRowClick,
   emptyStateRow,
+  selectedIds,
+  onSelectedIdsChange,
 }: DeviceSetListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
   const temperatureUnit = useTemperatureUnit();
@@ -98,6 +102,64 @@ const DeviceSetList = ({
   const firstItemIndex = currentPage * pageSize + 1;
   const lastItemIndex = currentPage * pageSize + deviceSets.length;
   const shouldRenderPagination = !loading && total !== undefined && total > 0;
+  const selectionMode: SelectionMode = selectedIds && selectedIds.length > 0 ? "subset" : "none";
+  const handleSelectionModeChange = useCallback(() => undefined, []);
+  const isRowSelectable = useCallback((item: DeviceSetListItem) => item.deviceSet.id !== 0n, []);
+
+  if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
+    return (
+      <>
+        <div ref={topRef} />
+        <List<DeviceSetListItem, string, DeviceSetColumn>
+          activeCols={columns}
+          colTitles={deviceSetColTitles}
+          colConfig={colConfig}
+          items={items}
+          itemKey="id"
+          itemSelectable
+          customSelectedItems={selectedIds}
+          customSetSelectedItems={onSelectedIdsChange}
+          customSelectionMode={selectionMode}
+          onSelectionModeChange={handleSelectionModeChange}
+          pageScopedSelection
+          isRowSelectable={isRowSelectable}
+          hideTotal
+          sortableColumns={SORTABLE_COLUMNS}
+          currentSort={currentSort}
+          onSort={onSort}
+          getDefaultSortDirection={getDefaultSortDirection}
+          onRowClick={onRowClick}
+          emptyStateRow={emptyStateRow}
+        />
+
+        {shouldRenderPagination ? (
+          <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
+            <span className="text-300 text-text-primary">
+              Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
+            </span>
+            <div className="flex gap-3">
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                ariaLabel="Previous page"
+                prefixIcon={<ChevronDown className="rotate-90" />}
+                onClick={handlePrevPage}
+                disabled={!hasPreviousPage}
+              />
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                ariaLabel="Next page"
+                prefixIcon={<ChevronDown className="rotate-270" />}
+                onClick={handleNextPage}
+                disabled={!hasNextPage}
+              />
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <>

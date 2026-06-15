@@ -17,6 +17,7 @@ import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
+import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
@@ -86,6 +87,7 @@ const RacksPage = () => {
   // for the empty-filter sentinel below.
   const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
+  const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
 
   // listDeviceSets has no native siteIds filter, so we resolve
   // site → buildings client-side and pipe through buildingIds.
@@ -290,6 +292,23 @@ const RacksPage = () => {
     selectedZones.length > 0 ||
     selectedIssues.length > 0 ||
     urlSiteIds.size > 0;
+  const visibleRackScopes = useMemo(
+    () =>
+      racks.flatMap((rack) => {
+        if (rack.id === 0n) return [];
+        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)" }];
+      }),
+    [racks],
+  );
+  const selectedRackScopes = useMemo(() => {
+    const selected = new Set(selectedRackIds);
+    return visibleRackScopes.filter((rack) => selected.has(rack.id.toString()));
+  }, [selectedRackIds, visibleRackScopes]);
+  const handleSelectAllVisibleRacks = useCallback(
+    () => setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString())),
+    [visibleRackScopes],
+  );
+  const handleClearRackSelection = useCallback(() => setSelectedRackIds([]), []);
 
   const handleClearFilters = useCallback(() => {
     // Snapshot before state changes — these flags drive the "ride the
@@ -429,7 +448,7 @@ const RacksPage = () => {
           </button>
           {rack.id !== undefined && rack.id !== 0n ? (
             <FleetGroupActionsMenu
-              scope={{ kind: "rack", id: rack.id, name: label }}
+              scopes={[{ kind: "rack", id: rack.id, name: label }]}
               ariaLabel={`Actions for ${label}`}
               testIdPrefix={`rack-list-row-${rack.id.toString()}-actions`}
               extraActions={buildRackExtraActions(rack)}
@@ -655,6 +674,8 @@ const RacksPage = () => {
             onNextPage={handleNextPage}
             onPrevPage={handlePrevPage}
             emptyStateRow={emptyStateRow}
+            selectedIds={selectedRackIds}
+            onSelectedIdsChange={setSelectedRackIds}
           />
         </div>
       ) : (
@@ -720,6 +741,14 @@ const RacksPage = () => {
           ) : null}
         </div>
       )}
+      {selectedRackScopes.length > 0 ? (
+        <FleetGroupListActionBar
+          selectedScopes={selectedRackScopes}
+          kind="rack"
+          onClearSelection={handleClearRackSelection}
+          onSelectAllVisible={handleSelectAllVisibleRacks}
+        />
+      ) : null}
       {showRackSettingsModal ? (
         <RackSettingsModal
           show={showRackSettingsModal}

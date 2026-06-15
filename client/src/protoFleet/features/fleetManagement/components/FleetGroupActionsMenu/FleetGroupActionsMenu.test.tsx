@@ -22,6 +22,9 @@ const {
   mockHandleFleetAuthenticated,
   mockHandleMiningPoolError,
   mockHandleMiningPoolWarning,
+  mockPushToast,
+  mockRemoveToast,
+  mockUpdateToast,
 } = vi.hoisted(() => ({
   mockListMinerStateSnapshots: vi.fn(),
   mockUseMinerActions: vi.fn(),
@@ -38,6 +41,9 @@ const {
   mockHandleFleetAuthenticated: vi.fn(),
   mockHandleMiningPoolError: vi.fn(),
   mockHandleMiningPoolWarning: vi.fn(),
+  mockPushToast: vi.fn(),
+  mockRemoveToast: vi.fn(),
+  mockUpdateToast: vi.fn(),
 }));
 
 vi.mock("@/shared/components/Popover", () => ({
@@ -75,6 +81,16 @@ vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => 
     removeDevicesFromBatch: vi.fn(),
   }),
 }));
+
+vi.mock(import("@/shared/features/toaster"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    pushToast: mockPushToast,
+    removeToast: mockRemoveToast,
+    updateToast: mockUpdateToast,
+  };
+});
 
 // Grant every permission the menu consults so the wired entries
 // render in tests. Production filtering is verified by the live
@@ -254,6 +270,7 @@ const makeMinerActions = () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPushToast.mockReturnValue(1);
   mockListMinerStateSnapshots.mockResolvedValue({
     miners: [{ deviceIdentifier: "miner-a" }, { deviceIdentifier: "miner-b" }, { deviceIdentifier: "miner-c" }],
     cursor: "",
@@ -265,7 +282,7 @@ describe("FleetGroupActionsMenu", () => {
   it("renders the wired bulk actions plus extras", () => {
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "building", id: 42n, name: "Alpha" }}
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
         extraActions={[{ label: "View racks", onClick: vi.fn() }]}
@@ -291,7 +308,7 @@ describe("FleetGroupActionsMenu", () => {
   it("fires the hook's Sleep handler after the device IDs land", async () => {
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "building", id: 42n, name: "Alpha" }}
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
       />,
@@ -320,7 +337,7 @@ describe("FleetGroupActionsMenu", () => {
   it("Site scope filters listMinerStateSnapshots by siteIds", async () => {
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "site", id: 7n, name: "North" }}
+        scopes={[{ kind: "site", id: 7n, name: "North" }]}
         ariaLabel="Actions for North"
         testIdPrefix="north"
       />,
@@ -337,11 +354,11 @@ describe("FleetGroupActionsMenu", () => {
     });
   });
 
-  it("toasts when the scope has no miners and skips the dispatch", async () => {
+  it("warns when the scope has no miners and skips the dispatch", async () => {
     mockListMinerStateSnapshots.mockResolvedValueOnce({ miners: [], cursor: "" });
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "building", id: 42n, name: "Alpha" }}
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
       />,
@@ -356,6 +373,63 @@ describe("FleetGroupActionsMenu", () => {
         .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
         .find((entry) => entry.action === deviceActions.shutdown);
       expect(fired?.actionHandler).not.toHaveBeenCalled();
+    });
+    expect(mockPushToast).toHaveBeenLastCalledWith({
+      message: "Building Alpha contains no miners.",
+      status: "error",
+    });
+  });
+
+  it("combines same-kind scopes into one snapshot filter and hides row-only extras", async () => {
+    render(
+      <FleetGroupActionsMenu
+        scopes={[
+          { kind: "site", id: 7n, name: "North" },
+          { kind: "site", id: 8n, name: "South" },
+        ]}
+        ariaLabel="Bulk actions for selected sites"
+        testIdPrefix="sites"
+        extraActions={[{ label: "View site", onClick: vi.fn() }]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("sites-trigger"));
+    expect(screen.queryByText("View site")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Reboot miners"));
+
+    await waitFor(() => {
+      expect(mockListMinerStateSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ siteIds: [7n, 8n] }),
+        }),
+      );
+    });
+  });
+
+  it("renders Reboot and More controls in bulk presentation", async () => {
+    render(
+      <FleetGroupActionsMenu
+        scopes={[
+          { kind: "rack", id: 11n, name: "Rack A" },
+          { kind: "rack", id: 12n, name: "Rack B" },
+        ]}
+        ariaLabel="Bulk actions for selected racks"
+        testIdPrefix="racks"
+        presentation="bulk"
+      />,
+    );
+
+    expect(screen.getByTestId(`racks-quick-${deviceActions.reboot}`)).toHaveTextContent("Reboot");
+    expect(screen.getByTestId("racks-trigger")).toHaveTextContent("More");
+
+    fireEvent.click(screen.getByTestId(`racks-quick-${deviceActions.reboot}`));
+
+    await waitFor(() => {
+      expect(mockListMinerStateSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ rackIds: [11n, 12n] }),
+        }),
+      );
     });
   });
 });

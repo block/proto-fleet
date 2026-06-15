@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
+import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -28,6 +29,7 @@ const FleetBuildingsPage = () => {
   const { listAllBuildings } = useBuildings();
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
+  const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
 
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
@@ -85,6 +87,29 @@ const FleetBuildingsPage = () => {
     }
     return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
   }, [buildings, activeSite, urlSiteIds]);
+  const visibleBuildingScopes = useMemo(
+    () =>
+      visibleBuildings.flatMap((building) => {
+        if (!building.building || building.building.id === 0n) return [];
+        return [
+          {
+            kind: "building" as const,
+            id: building.building.id,
+            name: building.building.name,
+          },
+        ];
+      }),
+    [visibleBuildings],
+  );
+  const selectedBuildingScopes = useMemo(() => {
+    const selected = new Set(selectedBuildingIds);
+    return visibleBuildingScopes.filter((building) => selected.has(building.id.toString()));
+  }, [selectedBuildingIds, visibleBuildingScopes]);
+  const handleSelectAllVisibleBuildings = useCallback(
+    () => setSelectedBuildingIds(visibleBuildingScopes.map((building) => building.id.toString())),
+    [visibleBuildingScopes],
+  );
+  const handleClearBuildingSelection = useCallback(() => setSelectedBuildingIds([]), []);
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
 
@@ -231,8 +256,18 @@ const FleetBuildingsPage = () => {
           sites={sites}
           onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
           onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
+          selectedIds={selectedBuildingIds}
+          onSelectedIdsChange={setSelectedBuildingIds}
         />
       </div>
+      {selectedBuildingScopes.length > 0 ? (
+        <FleetGroupListActionBar
+          selectedScopes={selectedBuildingScopes}
+          kind="building"
+          onClearSelection={handleClearBuildingSelection}
+          onSelectAllVisible={handleSelectAllVisibleBuildings}
+        />
+      ) : null}
       <BuildingModals modals={buildingModals} sites={sites} />
       {reparentTarget?.building ? (
         <ParentPickerModal

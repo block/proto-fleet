@@ -1,6 +1,7 @@
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import FilterRow from "../components/FilterRow";
+import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import SiteList from "../components/SiteList";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
@@ -18,6 +19,7 @@ const LIST_WRAPPER = "pt-6";
 
 const FleetSitesPage = () => {
   const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
@@ -25,6 +27,23 @@ const FleetSitesPage = () => {
   const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites });
+  const visibleSiteScopes = useMemo(
+    () =>
+      sites?.flatMap((site) => {
+        if (!site.site || site.site.id === 0n) return [];
+        return [{ kind: "site" as const, id: site.site.id, name: site.site.name }];
+      }) ?? [],
+    [sites],
+  );
+  const selectedSiteScopes = useMemo(() => {
+    const selected = new Set(selectedSiteIds);
+    return visibleSiteScopes.filter((site) => selected.has(site.id.toString()));
+  }, [selectedSiteIds, visibleSiteScopes]);
+  const handleSelectAllVisibleSites = useCallback(
+    () => setSelectedSiteIds(visibleSiteScopes.map((site) => site.id.toString())),
+    [visibleSiteScopes],
+  );
+  const handleClearSiteSelection = useCallback(() => setSelectedSiteIds([]), []);
 
   if (sites === undefined) {
     return (
@@ -133,8 +152,21 @@ const FleetSitesPage = () => {
         {addSiteButton}
       </FilterRow>
       <div className={LIST_WRAPPER}>
-        <SiteList sites={sites} onEditSite={canManageSites ? modals.openManageEdit : undefined} />
+        <SiteList
+          sites={sites}
+          onEditSite={canManageSites ? modals.openManageEdit : undefined}
+          selectedIds={selectedSiteIds}
+          onSelectedIdsChange={setSelectedSiteIds}
+        />
       </div>
+      {selectedSiteScopes.length > 0 ? (
+        <FleetGroupListActionBar
+          selectedScopes={selectedSiteScopes}
+          kind="site"
+          onClearSelection={handleClearSiteSelection}
+          onSelectAllVisible={handleSelectAllVisibleSites}
+        />
+      ) : null}
       <SiteModals modals={modals} sites={sites} />
     </>
   );
