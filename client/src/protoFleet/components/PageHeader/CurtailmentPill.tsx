@@ -13,6 +13,8 @@ import {
 
 export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 
+const unavailableTargetMetricsLabel = "Target details unavailable";
+
 function getLegacyCurtailmentPillHeaderState(state: CurtailmentPillState): CurtailmentEventState {
   switch (state) {
     case "curtailing":
@@ -27,9 +29,11 @@ function getLegacyCurtailmentPillHeaderState(state: CurtailmentPillState): Curta
 function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps): ReactElement {
   const stateConfig = activeCurtailmentDisplayStateConfigs[event.state];
   const headerStateConfig = curtailmentEventStateConfigs[getLegacyCurtailmentPillHeaderState(event.state)];
-  const plannedReductionDetail = `${formatCurtailmentSelectedMinerCount(event.selectedMiners)} - ${formatCurtailmentKw(
-    event.estimatedReductionKw,
-  )} planned`;
+  const plannedReductionDetail = event.targetMetricsAvailable
+    ? `${formatCurtailmentSelectedMinerCount(event.selectedMiners)} - ${formatCurtailmentKw(
+        event.estimatedReductionKw,
+      )} planned`
+    : unavailableTargetMetricsLabel;
   const detailRows = [
     { id: "state", value: stateConfig.label },
     { id: "scope", value: event.scopeLabel },

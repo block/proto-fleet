@@ -155,6 +155,7 @@ describe("useCurtailmentPillData", () => {
     const { result } = renderHook(() => useCurtailmentPillData());
 
     expect(result.current.activeEvent?.reason).toBe("Active grid call");
+    expect(result.current.activeEvent?.targetMetricsAvailable).toBe(false);
 
     act(() => {
       vi.advanceTimersByTime(0);

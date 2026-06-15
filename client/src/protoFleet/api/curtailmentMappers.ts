@@ -141,7 +141,7 @@ function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]
   return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
 
-function hasTargetMetrics(event: ProtoCurtailmentEvent): boolean {
+export function hasCurtailmentTargetMetrics(event: ProtoCurtailmentEvent): boolean {
   return (
     Boolean(event.targetRollup) ||
     event.targets.length > 0 ||
@@ -196,7 +196,7 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
     scopeLabel: getCurtailmentEventScopeLabel(event),
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
     estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
-    targetMetricsAvailable: hasTargetMetrics(event),
+    targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
     targetKw: getFixedKwTarget(event),
     sourceLabel: getSourceLabel(event),
     startedAt: timestampToIsoString(event.startedAt),

@@ -12,6 +12,7 @@ const activeCurtailmentEvent: CurtailmentPillEvent = {
   scopeLabel: "Whole org",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,
+  targetMetricsAvailable: true,
 };
 
 function renderCurtailmentPill({
@@ -81,6 +82,22 @@ describe("CurtailmentPill", () => {
     openCurtailmentPopover();
 
     expect(screen.getByText(getPlannedReductionText(1, 4))).toBeInTheDocument();
+  });
+
+  it("shows unavailable target metrics without zero values", () => {
+    renderCurtailmentPill({
+      event: {
+        ...activeCurtailmentEvent,
+        selectedMiners: 0,
+        estimatedReductionKw: 0,
+        targetMetricsAvailable: false,
+      },
+    });
+
+    openCurtailmentPopover();
+
+    expect(screen.getByText("Target details unavailable")).toBeInTheDocument();
+    expect(screen.queryByText(getPlannedReductionText(0, 0))).not.toBeInTheDocument();
   });
 
   it("does not render the details link without a details path", () => {

@@ -47,6 +47,24 @@ describe("mapCurtailmentPillEvent", () => {
     expect(mapCurtailmentPillEvent(curtailmentEvent(overrides))).toEqual(
       expect.objectContaining({
         state,
+        targetMetricsAvailable: true,
+      }),
+    );
+  });
+
+  it("marks summary-only active rows as missing target metrics", () => {
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          decisionSnapshot: {},
+          targetRollup: undefined,
+          targets: [],
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        state: "pending",
+        targetMetricsAvailable: false,
       }),
     );
   });

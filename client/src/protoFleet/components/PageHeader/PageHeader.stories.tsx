@@ -193,6 +193,7 @@ const storyCurtailmentEvent: CurtailmentPillEvent = {
   scopeLabel: "Racks A1-A4",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,
+  targetMetricsAvailable: true,
 };
 
 const StoryFrame = ({ children }: { children: ReactNode }) => (

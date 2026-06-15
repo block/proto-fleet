@@ -1,5 +1,5 @@
 import { type CurtailmentPillEvent, isCurtailmentPillState } from "./curtailmentPillTypes";
-import { getFixedKwTarget } from "@/protoFleet/api/curtailmentMappers";
+import { getFixedKwTarget, hasCurtailmentTargetMetrics } from "@/protoFleet/api/curtailmentMappers";
 import type { CurtailmentEvent as ProtoCurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   getActiveCurtailmentDisplayState,
@@ -46,5 +46,6 @@ export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): Curtailm
     scopeLabel: getCurtailmentEventScopeLabel(event),
     selectedMiners,
     estimatedReductionKw,
+    targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
   };
 }

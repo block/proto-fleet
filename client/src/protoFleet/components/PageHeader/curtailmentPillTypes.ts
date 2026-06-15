@@ -21,6 +21,7 @@ export interface CurtailmentPillEvent {
   scopeLabel: string;
   selectedMiners: number;
   estimatedReductionKw: number;
+  targetMetricsAvailable: boolean;
 }
 
 export interface CurtailmentPillProps {

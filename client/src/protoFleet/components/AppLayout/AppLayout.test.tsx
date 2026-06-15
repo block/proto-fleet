@@ -57,6 +57,7 @@ const activeCurtailmentEvent: CurtailmentPillEvent = {
   scopeLabel: "Whole fleet",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,
+  targetMetricsAvailable: true,
 };
 
 describe("AppLayout", () => {
