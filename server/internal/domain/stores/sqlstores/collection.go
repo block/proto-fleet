@@ -579,14 +579,14 @@ func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID
 	return count, nil
 }
 
-func (s *SQLCollectionStore) LockSourceRacksForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string, excludeRackID int64) ([]int64, error) {
-	ids, err := s.GetQueries(ctx).LockSourceRacksForDevices(ctx, sqlc.LockSourceRacksForDevicesParams{
+func (s *SQLCollectionStore) LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).LockRacksForReparent(ctx, sqlc.LockRacksForReparentParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
-		ExcludeRackID:     excludeRackID,
+		TargetRackID:      targetRackID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to lock source racks for devices: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to lock racks for reparent: %v", err)
 	}
 	return ids, nil
 }

@@ -819,14 +819,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
 	}
+	if q.lockRacksForReparentStmt, err = db.PrepareContext(ctx, lockRacksForReparent); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRacksForReparent: %w", err)
+	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
 	}
 	if q.lockSiteForWriteStmt, err = db.PrepareContext(ctx, lockSiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSiteForWrite: %w", err)
-	}
-	if q.lockSourceRacksForDevicesStmt, err = db.PrepareContext(ctx, lockSourceRacksForDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query LockSourceRacksForDevices: %w", err)
 	}
 	if q.markCommandBatchFinishedStmt, err = db.PrepareContext(ctx, markCommandBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchFinished: %w", err)
@@ -2542,6 +2542,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockRackPlacementForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockRacksForReparentStmt != nil {
+		if cerr := q.lockRacksForReparentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRacksForReparentStmt: %w", cerr)
+		}
+	}
 	if q.lockSchedulePriorityStmt != nil {
 		if cerr := q.lockSchedulePriorityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockSchedulePriorityStmt: %w", cerr)
@@ -2550,11 +2555,6 @@ func (q *Queries) Close() error {
 	if q.lockSiteForWriteStmt != nil {
 		if cerr := q.lockSiteForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockSiteForWriteStmt: %w", cerr)
-		}
-	}
-	if q.lockSourceRacksForDevicesStmt != nil {
-		if cerr := q.lockSourceRacksForDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockSourceRacksForDevicesStmt: %w", cerr)
 		}
 	}
 	if q.markCommandBatchFinishedStmt != nil {
@@ -3501,9 +3501,9 @@ type Queries struct {
 	lockDevicesForReassignStmt                            *sql.Stmt
 	lockFleetNodeByIDStmt                                 *sql.Stmt
 	lockRackPlacementForWriteStmt                         *sql.Stmt
+	lockRacksForReparentStmt                              *sql.Stmt
 	lockSchedulePriorityStmt                              *sql.Stmt
 	lockSiteForWriteStmt                                  *sql.Stmt
-	lockSourceRacksForDevicesStmt                         *sql.Stmt
 	markCommandBatchFinishedStmt                          *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt             *sql.Stmt
 	markCommandBatchProcessingStmt                        *sql.Stmt
@@ -3903,9 +3903,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockDevicesForReassignStmt:                            q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                 q.lockFleetNodeByIDStmt,
 		lockRackPlacementForWriteStmt:                         q.lockRackPlacementForWriteStmt,
+		lockRacksForReparentStmt:                              q.lockRacksForReparentStmt,
 		lockSchedulePriorityStmt:                              q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                  q.lockSiteForWriteStmt,
-		lockSourceRacksForDevicesStmt:                         q.lockSourceRacksForDevicesStmt,
 		markCommandBatchFinishedStmt:                          q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:             q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                        q.markCommandBatchProcessingStmt,

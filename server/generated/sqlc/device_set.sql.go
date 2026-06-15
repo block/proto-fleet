@@ -1176,7 +1176,7 @@ func (q *Queries) LockRackPlacementForWrite(ctx context.Context, arg LockRackPla
 	return i, err
 }
 
-const lockSourceRacksForDevices = `-- name: LockSourceRacksForDevices :many
+const lockRacksForReparent = `-- name: LockRacksForReparent :many
 SELECT ds.id AS device_set_id
 FROM device_set ds
 WHERE ds.id IN (
@@ -1185,7 +1185,9 @@ WHERE ds.id IN (
     WHERE dsm.org_id = $1
       AND dsm.device_set_type = 'rack'
       AND dsm.device_identifier = ANY($2::text[])
-      AND dsm.device_set_id != $3::bigint
+  UNION
+    SELECT $3::bigint
+    WHERE $3::bigint > 0
   )
   AND ds.org_id = $1
   AND ds.type = 'rack'
@@ -1194,23 +1196,28 @@ ORDER BY ds.id ASC
 FOR UPDATE
 `
 
-type LockSourceRacksForDevicesParams struct {
+type LockRacksForReparentParams struct {
 	OrgID             int64
 	DeviceIdentifiers []string
-	ExcludeRackID     int64
+	TargetRackID      int64
 }
 
-// Returns the source rack ids currently holding any of the provided
-// device identifiers, locked FOR UPDATE in ascending id order. Used
-// by AssignDevicesToRack to serialize concurrent reparent calls that
-// touch overlapping device sets. Excludes the target rack so the
-// caller can take the target lock once via LockRackPlacementForWrite
-// without re-locking here. Pass 0 for @exclude_rack_id to lock every
-// source rack (clear-rack path where there is no target). Distinct
-// ids are derived in a subquery so the outer locking SELECT can use
+// Locks every rack involved in a reparent (sources + target) FOR UPDATE
+// in ascending id order. Used by AssignDevicesToRack as the FIRST tx
+// operation. Sorting source and target together in a single lock
+// acquisition is what prevents the deadlock two concurrent
+// AssignDevicesToRack calls moving devices in opposite directions
+// between the same pair of racks would otherwise hit: each tx locks
+// {sourceA, sourceB, ..., target} in id order, so any two txs touching
+// the same rack pair always agree on the global lock order regardless
+// of which side is source vs target. Pass 0 for @target_rack_id on the
+// unassign path (clear-rack -- no target to include). The membership
+// DELETE in RemoveDevicesFromAnyRack still excludes the target via its
+// own predicate; this query is purely about lock order. Distinct ids
+// are derived in a subquery so the outer locking SELECT can use
 // FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
-func (q *Queries) LockSourceRacksForDevices(ctx context.Context, arg LockSourceRacksForDevicesParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.lockSourceRacksForDevicesStmt, lockSourceRacksForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.ExcludeRackID)
+func (q *Queries) LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockRacksForReparentStmt, lockRacksForReparent, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.TargetRackID)
 	if err != nil {
 		return nil, err
 	}

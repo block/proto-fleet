@@ -462,19 +462,19 @@ func (mr *MockCollectionStoreMockRecorder) LockRackPlacementForWrite(ctx, collec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockRackPlacementForWrite", reflect.TypeOf((*MockCollectionStore)(nil).LockRackPlacementForWrite), ctx, collectionID, orgID)
 }
 
-// LockSourceRacksForDevices mocks base method.
-func (m *MockCollectionStore) LockSourceRacksForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string, excludeRackID int64) ([]int64, error) {
+// LockRacksForReparent mocks base method.
+func (m *MockCollectionStore) LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LockSourceRacksForDevices", ctx, orgID, deviceIdentifiers, excludeRackID)
+	ret := m.ctrl.Call(m, "LockRacksForReparent", ctx, orgID, deviceIdentifiers, targetRackID)
 	ret0, _ := ret[0].([]int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// LockSourceRacksForDevices indicates an expected call of LockSourceRacksForDevices.
-func (mr *MockCollectionStoreMockRecorder) LockSourceRacksForDevices(ctx, orgID, deviceIdentifiers, excludeRackID any) *gomock.Call {
+// LockRacksForReparent indicates an expected call of LockRacksForReparent.
+func (mr *MockCollectionStoreMockRecorder) LockRacksForReparent(ctx, orgID, deviceIdentifiers, targetRackID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSourceRacksForDevices", reflect.TypeOf((*MockCollectionStore)(nil).LockSourceRacksForDevices), ctx, orgID, deviceIdentifiers, excludeRackID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockRacksForReparent", reflect.TypeOf((*MockCollectionStore)(nil).LockRacksForReparent), ctx, orgID, deviceIdentifiers, targetRackID)
 }
 
 // RemoveAllDevicesFromCollection mocks base method.

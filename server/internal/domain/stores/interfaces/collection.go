@@ -205,16 +205,20 @@ type CollectionStore interface {
 	// (caller intends to unassign).
 	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
 
-	// LockSourceRacksForDevices takes FOR UPDATE locks on every source
-	// rack currently holding any of the given devices, in ascending
-	// device_set_id order, and returns the locked ids. AssignDevicesToRack
-	// calls this BEFORE RemoveDevicesFromAnyRack so concurrent reparent
-	// calls touching overlapping device sets serialize on the source
-	// rack rows instead of racing the device_set_membership unique
-	// constraint. excludeRackID is the target rack the caller will lock
-	// separately via LockRackPlacementForWrite (avoids double-locking);
-	// pass 0 in the clear-rack path where there is no target.
-	LockSourceRacksForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string, excludeRackID int64) ([]int64, error)
+	// LockRacksForReparent takes FOR UPDATE locks on every rack involved
+	// in a reparent -- every source rack currently holding any of the
+	// given devices PLUS targetRackID (when non-zero) -- in ascending
+	// device_set_id order, and returns the locked ids.
+	// AssignDevicesToRack calls this as the FIRST tx operation. Locking
+	// source and target together in one globally sorted acquisition is
+	// what prevents two concurrent reparent calls moving devices in
+	// opposite directions between the same rack pair from deadlocking
+	// (tx A locking source 1 then target 2 while tx B locks source 2
+	// then target 1). Pass 0 for targetRackID in the clear-rack path
+	// where there is no target. The subsequent
+	// LockRackPlacementForWrite call on the target still happens for
+	// its placement read; this query handles the rack-id locks.
+	LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error)
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).

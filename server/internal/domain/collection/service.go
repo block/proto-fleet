@@ -885,23 +885,27 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetSiteID *int64
 			targetLabel  string
 		)
-		// Canonical lock order: source racks (ascending id) → target
-		// rack. LockSourceRacksForDevices takes FOR UPDATE on every
-		// rack currently holding any of the requested devices, in
-		// sorted order. Without this pre-pass, two concurrent
-		// AssignDevicesToRack calls touching overlapping device sets
-		// race the device_set_membership unique constraint: the loser
-		// trips uk_device_set_membership during the INSERT and the
-		// whole tx aborts. Locking the source rows first serializes
-		// the calls on the source rack and lets both succeed in turn.
-		// The query excludes excludeRackID so we don't double-lock the
-		// target (taken below via LockRackPlacementForWrite). Pass 0
-		// in the clear-rack path where there is no target.
-		var excludeRackID int64
+		// Canonical lock order: lock every rack involved in the
+		// reparent -- sources + target -- together in ascending
+		// device_set.id order via LockRacksForReparent. Locking source
+		// and target as one globally sorted set is what keeps two
+		// concurrent AssignDevicesToRack calls moving devices in
+		// opposite directions between the same rack pair from
+		// deadlocking: each tx acquires {rack1, rack2} in the same
+		// {1, 2} order regardless of which side is source vs target.
+		// Without the pre-pass, the calls race the
+		// device_set_membership unique constraint and the loser trips
+		// uk_device_set_membership during the INSERT. The subsequent
+		// LockRackPlacementForWrite call below still fires for its
+		// device_set_rack row + placement read; the parent device_set
+		// row it locks is already held by this tx from the pre-pass.
+		// Pass 0 in the clear-rack path so the UNION contributes no
+		// target row.
+		var targetRackID int64
 		if params.TargetRackID != nil {
-			excludeRackID = *params.TargetRackID
+			targetRackID = *params.TargetRackID
 		}
-		if _, err := s.collectionStore.LockSourceRacksForDevices(ctx, params.OrgID, params.DeviceIdentifiers, excludeRackID); err != nil {
+		if _, err := s.collectionStore.LockRacksForReparent(ctx, params.OrgID, params.DeviceIdentifiers, targetRackID); err != nil {
 			return nil, err
 		}
 
@@ -937,7 +941,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		// is the half of the operation that previously lived in the
 		// client-side RemoveDevicesFromDeviceSet call; bundling it into
 		// the tx is what closes the orphan window described in #420.
-		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers, excludeRackID)
+		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers, targetRackID)
 		if err != nil {
 			return nil, err
 		}
