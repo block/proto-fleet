@@ -401,6 +401,12 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 			Return(nil),
 		h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(99), int64(7), &siteID).
 			Return(int64(3), nil),
+		// Pass-1 NULL vacate + pass-2 real place — splitting the
+		// position write into two passes lets swaps and move-into-
+		// occupied-cell requests commit without tripping the partial
+		// unique index mid-loop.
+		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), gomock.Nil(), gomock.Nil()).
+			Return(nil),
 		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), ptrInt32t(1), ptrInt32t(2)).
 			Return(nil),
 	)

@@ -417,19 +417,28 @@ const ManageBuildingModal = ({
         unassign.push({ rackId: BigInt(idStr) });
       }
 
-      const dispatch = (racks: RackPlacementInput[], targetBuildingId?: bigint) =>
-        new Promise<void>((resolve, reject) => {
-          if (racks.length === 0) {
-            resolve();
-            return;
-          }
-          void assignRacksToBuilding({
-            racks,
-            targetBuildingId,
-            onSuccess: () => resolve(),
-            onError: (msg) => reject(new Error(msg)),
+      // Proto caps `racks` at 1000 per AssignRacksToBuildingRequest.
+      // Buildings can be 100×100 = 10,000 cells, and this modal loads
+      // every page, so a large floor-plan save with >1000 changed/
+      // removed racks would otherwise hit request validation. Chunk
+      // each phase into RPC-sized batches, dispatched sequentially
+      // so a mid-chain failure stops the chain (handled by the catch
+      // blocks below).
+      const RACKS_PER_RPC = 1000;
+      const dispatch = async (racks: RackPlacementInput[], targetBuildingId?: bigint) => {
+        if (racks.length === 0) return;
+        for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
+          const chunk = racks.slice(i, i + RACKS_PER_RPC);
+          await new Promise<void>((resolve, reject) => {
+            void assignRacksToBuilding({
+              racks: chunk,
+              targetBuildingId,
+              onSuccess: () => resolve(),
+              onError: (msg) => reject(new Error(msg)),
+            });
           });
-        });
+        }
+      };
 
       try {
         await Promise.all([dispatch(vacateInBuilding, building.id), dispatch(unassign, undefined)]);

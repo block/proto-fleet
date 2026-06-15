@@ -432,26 +432,38 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 				cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 			}
 
-			// Grid-cell write. Two cases land here:
+			// Pass-1 grid-cell vacate: write (NULL, NULL) for every
+			// rack in the batch when TargetBuildingID is set. Pass-2
+			// below writes the real (aisle, position) for racks that
+			// have one. Splitting the writes into two passes lets a
+			// swap or move-into-occupied-cell request commit without
+			// tripping the partial unique index uk_device_set_rack
+			// _building_position mid-loop — every cell touched by the
+			// batch is NULL before any real position is written.
 			//
-			//   - Both fields set → write the explicit (aisle, position).
-			//   - Both fields nil + target_building_id is set → operator
-			//     is unplacing the rack within the same building (or
-			//     moving it across with no chosen cell yet). Write
-			//     NULL/NULL so the cell on the rack row matches the
-			//     operator's intent. UpdateRackPlacement's CASE only
-			//     clears when building_id changes, so without this
-			//     explicit write a same-building unplace would silently
-			//     no-op and the old position would survive.
-			//
-			// When TargetBuildingID is nil (full unassign) we skip this
-			// call — UpdateRackPlacement's CASE already nulls the
-			// position via the building-id-changed branch.
+			// When TargetBuildingID is nil (full unassign) we skip
+			// this call — UpdateRackPlacement's CASE already nulls
+			// the position via the building-id-changed branch.
 			if params.TargetBuildingID != nil {
-				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, rp.AisleIndex, rp.PositionInAisle); err != nil {
+				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, nil, nil); err != nil {
 					return err
 				}
 				positionedRackIDs = append(positionedRackIDs, rp.RackID)
+			}
+		}
+
+		// Pass-2 grid-cell place: write the real (aisle, position) for
+		// racks that supplied one. By this point every cell touched by
+		// the batch is NULL (pass-1) so no two writes can collide on
+		// the partial unique index.
+		if params.TargetBuildingID != nil {
+			for _, rp := range racks {
+				if rp.AisleIndex == nil || rp.PositionInAisle == nil {
+					continue
+				}
+				if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, rp.RackID, rp.AisleIndex, rp.PositionInAisle); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

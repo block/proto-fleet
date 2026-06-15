@@ -228,6 +228,11 @@ func TestAssignRacksToBuilding_placesRackWithGridCell(t *testing.T) {
 		h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &siteID, &buildingID, "").Return(nil),
 		// siteChanged is true (nil -> &siteID); cascade fires.
 		h.collectionStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &siteID).Return(int64(2), nil),
+		// Pass-1 vacate (NULL, NULL) — fires for every rack in the
+		// batch so pass-2 can claim cells without colliding on the
+		// partial unique index.
+		h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, gomock.Nil(), gomock.Nil()).Return(nil),
+		// Pass-2 place — real (aisle, position) for racks that supplied one.
 		h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, ptrInt32(1), ptrInt32(2)).Return(nil),
 	)
 
