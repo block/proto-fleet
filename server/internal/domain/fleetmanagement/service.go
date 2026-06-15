@@ -61,8 +61,11 @@ const (
 	// so a slow-but-valid query is not artificially capped.
 	fleetOptionsFetchTimeout = 60 * time.Second
 
-	refreshMinersMaxDevices       = 50
-	refreshMinersPerDeviceTimeout = 5 * time.Second
+	refreshMinersMaxDevices = 50
+	// The device refresh budget intentionally exceeds telemetry.MetricTimeout's
+	// default 5s so a timed-out metrics read still leaves room for status fallback
+	// and synchronous writer flushes.
+	refreshMinersPerDeviceTimeout = 10 * time.Second
 	refreshMinersSnapshotTimeout  = 2 * time.Second
 	refreshMinersConcurrencyLimit = 10
 )

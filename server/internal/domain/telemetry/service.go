@@ -338,26 +338,10 @@ func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID m
 
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	waitedForStatusOnly := false
 
 	for {
-		inFlightValue, stillInFlight := s.inFlight.Load(deviceID)
+		_, stillInFlight := s.inFlight.Load(deviceID)
 		if !stillInFlight {
-			if waitedForStatusOnly {
-				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
-					return true, nil
-				}
-				continue
-			}
-			return false, nil
-		}
-		if inFlightValue == inFlightKindStatusOnly {
-			waitedForStatusOnly = true
-			select {
-			case <-ctx.Done():
-				return false, fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
-			case <-ticker.C:
-			}
 			if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
 				return true, nil
 			}

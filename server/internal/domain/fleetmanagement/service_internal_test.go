@@ -14,5 +14,5 @@ func TestRefreshMinersRequestTimeoutScalesByConcurrencyWaves(t *testing.T) {
 	assert.Equal(t, perWaveTimeout, refreshMinersRequestTimeout(refreshMinersConcurrencyLimit))
 	assert.Equal(t, 2*perWaveTimeout, refreshMinersRequestTimeout(refreshMinersConcurrencyLimit+1))
 	assert.Equal(t, 5*perWaveTimeout, refreshMinersRequestTimeout(refreshMinersMaxDevices))
-	assert.Equal(t, 35*time.Second, refreshMinersRequestTimeout(refreshMinersMaxDevices))
+	assert.Equal(t, time.Minute, refreshMinersRequestTimeout(refreshMinersMaxDevices))
 }
