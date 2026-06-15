@@ -254,7 +254,7 @@ function withSelectedResponseProfileValues(
           : "wholeOrg");
 
   if (scopeType === "site" || scopeType === "deviceSet") {
-    return nextValues;
+    return withWholeFleetScope(nextValues);
   }
 
   if (scopeType === "explicitMiners") {

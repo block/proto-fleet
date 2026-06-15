@@ -364,6 +364,10 @@ describe("CurtailmentStartModal", () => {
       responseProfiles: siteResponseProfiles,
     });
 
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "Profile" }));
     await user.click(screen.getByText("Austin site shed"));
 
