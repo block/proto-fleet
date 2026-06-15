@@ -150,6 +150,33 @@ func TestRequireRefreshMinerRead_UsesSiteScopedMinerRead(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestRequireRefreshMinerRead_RequiresOrgReadForMissingContextFallback(t *testing.T) {
+	const (
+		userID        = int64(1)
+		orgID         = int64(2)
+		siteID        = int64(3)
+		visibleID     = "visible-device"
+		orgFallbackID = "missing-device"
+	)
+
+	ctx := refreshAuthContext(
+		t.Context(),
+		userID,
+		orgID,
+		siteAssignment(siteID, authz.PermMinerRead),
+	)
+
+	err := requireRefreshMinerRead(ctx, map[string]authz.ResourceContext{
+		visibleID:     {SiteID: ptr(siteID)},
+		orgFallbackID: {},
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr))
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
 func ptr[T any](value T) *T {
 	return &value
 }

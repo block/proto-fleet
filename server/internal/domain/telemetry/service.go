@@ -315,20 +315,54 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 // RefreshDevice runs the same collection path used by scheduled telemetry for
 // one device, then asks the writers to flush pending status and metrics updates.
 func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Device) error {
-	claimed, err := s.claimDeviceForRefresh(ctx, device.ID)
+	waitCtx, cancelWait := context.WithTimeout(ctx, s.refreshDeviceOperationTimeout())
+	claimed, err := s.claimDeviceForRefresh(waitCtx, device.ID)
+	cancelWait()
 	if err != nil {
 		return err
 	}
 
+	operationCtx, cancelOperation := context.WithTimeout(ctx, s.refreshDeviceOperationTimeout())
+	defer cancelOperation()
+
 	var processErr error
 	if claimed {
 		defer s.inFlight.Delete(device.ID)
-		processErr = s.processDevice(ctx, device)
+		processErr = s.processDevice(operationCtx, device)
 	}
 
-	flushErr := s.FlushStatusNow(ctx)
-	metricsFlushErr := s.FlushMetricsNow(ctx)
-	return errors.Join(processErr, flushErr, metricsFlushErr)
+	flushErr := s.FlushStatusNow(operationCtx)
+	metricsFlushErr := s.FlushMetricsNow(operationCtx)
+	if writerErr := errors.Join(flushErr, metricsFlushErr); writerErr != nil && !isContextError(writerErr) {
+		slog.Warn("ignoring non-context writer flush error during row refresh",
+			"deviceID", device.ID,
+			"error", writerErr,
+		)
+	}
+	return errors.Join(processErr, contextOnlyError(flushErr), contextOnlyError(metricsFlushErr))
+}
+
+func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
+	metricTimeout := s.config.MetricTimeout
+	if metricTimeout <= 0 {
+		metricTimeout = 5 * time.Second
+	}
+	return metricTimeout + 5*time.Second
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func contextOnlyError(err error) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	default:
+		return nil
+	}
 }
 
 func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier) (bool, error) {

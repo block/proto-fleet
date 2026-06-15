@@ -323,10 +323,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 				return
 			}
 
-			deviceCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersPerDeviceTimeout)
-			defer cancel()
-
-			if err := s.telemetry.RefreshDevice(deviceCtx, telemetryModels.Device{
+			if err := s.telemetry.RefreshDevice(refreshCtx, telemetryModels.Device{
 				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
 			}); err != nil {
 				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
@@ -381,7 +378,11 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 		return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
 	}
 
-	contexts := make(map[string]authz.ResourceContext, len(snapshots))
+	contexts := make(map[string]authz.ResourceContext, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		contexts[deviceID] = authz.ResourceContext{}
+	}
+
 	for _, snapshot := range snapshots {
 		if snapshot.SiteId == nil {
 			contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{}
@@ -436,10 +437,10 @@ func sanitizeRefreshMinerError(err error) string {
 
 func refreshMinersRequestTimeout(deviceCount int) time.Duration {
 	if deviceCount <= 0 {
-		return refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout
+		return 2*refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout
 	}
 	waves := (deviceCount + refreshMinersConcurrencyLimit - 1) / refreshMinersConcurrencyLimit
-	return time.Duration(waves) * (refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout)
+	return time.Duration(waves) * (2*refreshMinersPerDeviceTimeout + refreshMinersSnapshotTimeout)
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data

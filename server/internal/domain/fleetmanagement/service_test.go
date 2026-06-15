@@ -2,6 +2,7 @@ package fleetmanagement_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,13 +20,16 @@ import (
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -355,6 +359,63 @@ func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T)
 	require.Contains(t, resp.Errors, deviceID)
 	assert.Equal(t, "refresh failed", resp.Errors[deviceID])
 	assert.NotContains(t, resp.Errors[deviceID], "secret")
+}
+
+func TestService_RefreshMinerResourceContexts_ShouldFallbackToOrgScopeForMissingIDs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		visibleID = "visible-device"
+		missingID = "missing-device"
+		orgID     = int64(123)
+		siteID    = int64(456)
+	)
+
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(2), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		DoAndReturn(func(
+			_ context.Context,
+			_ int64,
+			_ string,
+			_ int32,
+			filter *interfaces.MinerFilter,
+			_ *interfaces.SortConfig,
+		) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+			assert.ElementsMatch(t, []string{visibleID, missingID}, filter.DeviceIdentifiers)
+			return []sqlc.ListMinerStateSnapshotsRow{{
+				DeviceIdentifier: visibleID,
+				PairingStatus:    "UNPAIRED",
+				SiteID:           sql.NullInt64{Int64: siteID, Valid: true},
+			}}, "", 1, nil
+		})
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		nil,
+		fleetmanagement.NewMockTelemetryCollector(),
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	contexts, err := service.RefreshMinerResourceContexts(ctx, &pb.RefreshMinersRequest{
+		DeviceIds: []string{visibleID, missingID},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, contexts, 2)
+	require.NotNil(t, contexts[visibleID].SiteID)
+	assert.Equal(t, siteID, *contexts[visibleID].SiteID)
+	assert.Equal(t, authz.ResourceContext{}, contexts[missingID])
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.T) {
