@@ -132,6 +132,35 @@ func generatedMinerSelectorFlags() []cli.Flag {
 	}
 }
 
+func generatedCommonSelectorFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.BoolFlag{Name: "all-devices", Usage: "Select all devices"},
+		&cli.StringSliceFlag{Name: "device", Usage: "Select one or more device identifiers"},
+	}
+}
+
+func generatedBuildCommonSelector(cmd *cli.Command) (*commonv1.DeviceSelector, error) {
+	allDevices := cmd.Bool("all-devices")
+	deviceIDs := dedupeStrings(cmd.StringSlice("device"))
+
+	if allDevices && len(deviceIDs) > 0 {
+		return nil, fmt.Errorf("use either --all-devices or --device, not both")
+	}
+	if allDevices {
+		return &commonv1.DeviceSelector{
+			SelectionType: &commonv1.DeviceSelector_AllDevices{AllDevices: true},
+		}, nil
+	}
+	if len(deviceIDs) == 0 {
+		return nil, fmt.Errorf("one of --all-devices or --device is required")
+	}
+	return &commonv1.DeviceSelector{
+		SelectionType: &commonv1.DeviceSelector_DeviceList{
+			DeviceList: &commonv1.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+		},
+	}, nil
+}
+
 func generatedBuildMinerSelector(ctx context.Context, cmd *cli.Command, client *Client) (*minercommandv1.DeviceSelector, error) {
 	allDevices := cmd.Bool("all-devices")
 	deviceIDs := append([]string{}, cmd.StringSlice("device")...)

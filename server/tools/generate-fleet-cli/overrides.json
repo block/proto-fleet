@@ -94,6 +94,18 @@
       "ignore_fields": ["type"]
     },
     {
+      "method": "/collection.v1.DeviceCollectionService/AddDevicesToCollection",
+      "group": "groups",
+      "command": "add-devices",
+      "usage": "Add devices to a group"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection",
+      "group": "groups",
+      "command": "remove-devices",
+      "usage": "Remove devices from a group"
+    },
+    {
       "method": "/collection.v1.DeviceCollectionService/UpdateCollection",
       "group": "groups",
       "command": "update",
@@ -148,6 +160,18 @@
       "group": "racks",
       "command": "save",
       "usage": "Create or update a rack"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/AddDevicesToCollection",
+      "group": "racks",
+      "command": "add-devices",
+      "usage": "Add devices to a rack"
+    },
+    {
+      "method": "/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection",
+      "group": "racks",
+      "command": "remove-devices",
+      "usage": "Remove devices from a rack"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/DeleteCollection",

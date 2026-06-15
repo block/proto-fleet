@@ -107,9 +107,21 @@ func TestFleetCLISubcommands(t *testing.T) {
 
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "get", "--collection-id", groupID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "list", "--page-size", "25"))
+		added := runFleetCLIJSON(t, ctx, env,
+			"groups", "add-devices",
+			"--collection-id", groupID,
+			"--device", deviceIdentifier,
+		)
+		assert.Equal(t, 1, jsonInt(t, added, "added_count"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "members", "--collection-id", groupID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "stats", "--collection-ids", groupID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "device", "--device-identifier", deviceIdentifier))
+		removed := runFleetCLIJSON(t, ctx, env,
+			"groups", "remove-devices",
+			"--collection-id", groupID,
+			"--device", deviceIdentifier,
+		)
+		assert.Equal(t, 1, jsonInt(t, removed, "removed_count"))
 
 		updated := runFleetCLIJSON(t, ctx, env,
 			"groups", "update",
@@ -146,23 +158,34 @@ func TestFleetCLISubcommands(t *testing.T) {
 
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "get", "--collection-id", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "list", "--page-size", "25"))
+		added := runFleetCLIJSON(t, ctx, env,
+			"racks", "add-devices",
+			"--collection-id", rackID,
+			"--device", deviceIdentifier,
+		)
+		assert.Equal(t, 1, jsonInt(t, added, "added_count"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "members", "--collection-id", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "slots", "--collection-id", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "stats", "--collection-ids", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "device", "--device-identifier", deviceIdentifier))
+		removed := runFleetCLIJSON(t, ctx, env,
+			"racks", "remove-devices",
+			"--collection-id", rackID,
+			"--device", deviceIdentifier,
+		)
+		assert.Equal(t, 1, jsonInt(t, removed, "removed_count"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "types"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "zones"))
 	})
 
 	t.Run("Pools", func(t *testing.T) {
-		poolPath := writeFleetCLITestJSON(t, t.TempDir(), "pool.json", map[string]any{
-			"poolConfig": map[string]any{
-				"url":      "stratum+tcp://pool.example.com:3333",
-				"username": unique,
-				"poolName": unique + "-pool",
-			},
-		})
-		created := runFleetCLIJSON(t, ctx, env, "pools", "create", "--json", poolPath)
+		created := runFleetCLIJSON(t, ctx, env,
+			"pools", "create",
+			"--pool-name", unique+"-pool",
+			"--url", "stratum+tcp://pool.example.com:3333",
+			"--username", unique,
+			"--password", "x",
+		)
 		poolID := jsonString(t, created, "pool", "pool_id")
 		require.NotEmpty(t, poolID, "pools create should return pool.pool_id")
 		t.Cleanup(func() {
@@ -226,7 +249,7 @@ func TestFleetCLISubcommands(t *testing.T) {
 		assert.Equal(t, unique+"-schedule-updated", jsonString(t, updated, "schedule", "name"))
 	})
 
-	t.Run("LowImpactMinerCommands", func(t *testing.T) {
+	t.Run("MinerCommands", func(t *testing.T) {
 		require.NotEmpty(t, deviceIdentifier, "deviceIdentifier must be set")
 
 		capabilities := runFleetCLIJSON(t, ctx, env,
@@ -262,7 +285,6 @@ func TestFleetCLISubcommands(t *testing.T) {
 				waitFleetCLICommandBatchSuccess(t, ctx, env, batchID)
 			})
 		}
-
 		poolsPath := writeFleetCLITestJSON(t, t.TempDir(), "miner-pools.json", map[string]any{
 			"deviceSelector": map[string]any{
 				"includeDevices": map[string]any{
@@ -358,12 +380,14 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		"firmware list",
 		"firmware delete",
 		"firmware delete-all",
+		"groups add-devices",
 		"groups create",
 		"groups delete",
 		"groups device",
 		"groups get",
 		"groups list",
 		"groups members",
+		"groups remove-devices",
 		"groups stats",
 		"groups update",
 		"minercommand blink-led",
@@ -388,11 +412,13 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		"pools list",
 		"pools update",
 		"pools validate",
+		"racks add-devices",
 		"racks delete",
 		"racks device",
 		"racks get",
 		"racks list",
 		"racks members",
+		"racks remove-devices",
 		"racks save",
 		"racks slots",
 		"racks stats",
@@ -420,27 +446,29 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		"firmware list":                   "live: TestFleetCLIFirmwareWorkflow",
 		"firmware delete":                 "live: TestFleetCLIFirmwareWorkflow",
 		"firmware delete-all":             "live: TestFleetCLIFirmwareWorkflow",
+		"groups add-devices":              "live: TestFleetCLISubcommands/Groups",
 		"groups create":                   "live: TestFleetCLISubcommands/Groups",
 		"groups delete":                   "live cleanup: TestFleetCLISubcommands/Groups",
 		"groups device":                   "live: TestFleetCLISubcommands/Groups",
 		"groups get":                      "live: TestFleetCLISubcommands/Groups",
 		"groups list":                     "live: TestFleetCLISubcommands/Groups",
 		"groups members":                  "live: TestFleetCLISubcommands/Groups",
+		"groups remove-devices":           "live: TestFleetCLISubcommands/Groups",
 		"groups stats":                    "live: TestFleetCLISubcommands/Groups",
 		"groups update":                   "live: TestFleetCLISubcommands/Groups",
-		"minercommand blink-led":          "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand check-capabilities": "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand download-logs":      "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand firmware-update":    "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand get-command-batch-device-results": "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand reboot":                           "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand set-cooling-mode":                 "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand set-power-target":                 "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand start":                            "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand stop":                             "live: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand unpair":                           "live with re-pair: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand update-password":                  "live with known password restore: TestFleetCLISubcommands/LowImpactMinerCommands",
-		"minercommand update-pools":                     "live: TestFleetCLISubcommands/LowImpactMinerCommands",
+		"minercommand blink-led":          "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand check-capabilities": "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand download-logs":      "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand firmware-update":    "live destructive: TestFleetCLISubcommands/MinerCommands",
+		"minercommand get-command-batch-device-results": "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand reboot":                           "live destructive: TestFleetCLISubcommands/MinerCommands",
+		"minercommand set-cooling-mode":                 "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand set-power-target":                 "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand start":                            "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand stop":                             "live: TestFleetCLISubcommands/MinerCommands",
+		"minercommand unpair":                           "live destructive with re-pair: TestFleetCLISubcommands/MinerCommands",
+		"minercommand update-password":                  "live destructive with known password restore: TestFleetCLISubcommands/MinerCommands",
+		"minercommand update-pools":                     "live destructive: TestFleetCLISubcommands/MinerCommands",
 		"miners list":                                   "live: TestFleetCLISubcommands/PairingAndMiners",
 		"networkinfo get":                               "live: TestFleetCLISubcommands/PerformanceAndNetworkInfo",
 		"networkinfo set-nickname":                      "covered known API error: handler currently returns unimplemented",
@@ -450,11 +478,13 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		"pools list":                                    "live: TestFleetCLISubcommands/Pools",
 		"pools update":                                  "live: TestFleetCLISubcommands/Pools",
 		"pools validate":                                "live expected API error: unreachable test pool still confirms CLI request path",
+		"racks add-devices":                             "live: TestFleetCLISubcommands/Racks",
 		"racks delete":                                  "live cleanup: TestFleetCLISubcommands/Racks",
 		"racks device":                                  "live: TestFleetCLISubcommands/Racks",
 		"racks get":                                     "live: TestFleetCLISubcommands/Racks",
 		"racks list":                                    "live: TestFleetCLISubcommands/Racks",
 		"racks members":                                 "live: TestFleetCLISubcommands/Racks",
+		"racks remove-devices":                          "live: TestFleetCLISubcommands/Racks",
 		"racks save":                                    "live: TestFleetCLISubcommands/Racks",
 		"racks slots":                                   "live: TestFleetCLISubcommands/Racks",
 		"racks stats":                                   "live: TestFleetCLISubcommands/Racks",
