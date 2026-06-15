@@ -2,9 +2,9 @@
 
 ## Source
 - Repository: miner-firmware (private)
-- Commit SHA: c97ac9ed3402dca829c30be4bd38b4accc9cd3e2
-- Commit Date: 2026-06-01
-- Extraction Date: 2026-06-01
+- Commit SHA: 23df12824401403ec909dd9053e8d002f4c3d1e3
+- Commit Date: 2026-06-12
+- Extraction Date: 2026-06-14
 
 The hashboard proto files live in the `external/hashboard` submodule, pinned by
 the superproject commit above to:
@@ -23,6 +23,7 @@ the superproject commit above to:
 - miner_error_code.proto
 - miner_fan_api.proto
 - miner_hb_api.proto
+- miner_hb_test_api.proto
 - miner_psu_api.proto
 - miner_psu_test_api.proto
 - miner_system_api.proto

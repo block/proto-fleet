@@ -11,6 +11,17 @@ export class HeaderComponent extends BasePage {
     await popover.getByRole("button", { name: buttonText }).click();
   }
 
+  async validateWarnRebootDialog() {
+    const dialog = this.page.getByTestId("warn-reboot-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Reboot miner?");
+  }
+
+  async clickRebootMinerInDialog() {
+    const dialog = this.page.getByTestId("warn-reboot-dialog");
+    await dialog.getByRole("button", { name: "Reboot miner" }).click();
+  }
+
   async clickMinerStatusButton(status: string = "Sleeping") {
     const header = this.page.getByTestId("page-header");
     await header.getByRole("button", { name: status }).click();

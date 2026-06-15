@@ -684,8 +684,58 @@ func TestSystemRoute_DoesNotRequireBearerAuth(t *testing.T) {
 	}
 }
 
-func TestHardwareRoute_RequiresBearerAuth(t *testing.T) {
-	// /api/v1/hardware is NOT in firmware PUBLIC_ROUTES — it requires auth.
+func TestHardwareDiscoveryRoutes_DoNotRequireBearerAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, path := range []string{
+		"/api/v1/hardware",
+		"/api/v1/hardware/psus",
+		"/api/v1/hashboards",
+		"/api/v1/power-supplies",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestHardwareDiscoveryRoutes_DuringReboot_Returns503(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.Rebooting = true
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, path := range []string{
+		"/api/v1/hardware",
+		"/api/v1/hardware/psus",
+		"/api/v1/hashboards",
+		"/api/v1/power-supplies",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestHashboardDetailRoute_RequiresBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
 
@@ -693,7 +743,7 @@ func TestHardwareRoute_RequiresBearerAuth(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/hardware", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hashboards/HB-SN12345678-0", nil)
 	mux.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
@@ -1539,6 +1589,7 @@ func TestHandleLocate_EmptyBodyIsIdempotent(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetLocateActive(true)
 	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=30", nil)
@@ -1547,9 +1598,10 @@ func TestHandleLocate_EmptyBodyIsIdempotent(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
 	}
-	if !state.LocateActive {
+	if !state.IsLocateActive() {
 		t.Fatal("expected locate mode to remain active")
 	}
+	fakeTimer.requireScheduled(t, 0, 30*time.Second)
 }
 
 func TestHandleLocate_InvalidLedOnTime_Returns400(t *testing.T) {
@@ -1563,8 +1615,225 @@ func TestHandleLocate_InvalidLedOnTime_Returns400(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
 	}
-	if state.LocateActive {
+	if state.IsLocateActive() {
 		t.Fatal("expected locate mode to remain inactive on invalid input")
+	}
+}
+
+func TestHandleLocate_EnableFalseClearsLocateMode(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetLocateActive(true)
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?enable=false&led_on_time=abc", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	if state.IsLocateActive() {
+		t.Fatal("expected locate mode to be inactive")
+	}
+}
+
+func TestHandleLocate_InvalidEnable_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?enable=eventually", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	if state.IsLocateActive() {
+		t.Fatal("expected locate mode to remain inactive on invalid input")
+	}
+}
+
+func TestHandleLocate_TimedLedOnTimeClearsLocateMode(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	if !state.IsLocateActive() {
+		t.Fatal("expected locate mode to become active")
+	}
+	fakeTimer.requireScheduled(t, 0, time.Second)
+	fakeTimer.fire(t, 0)
+	if state.IsLocateActive() {
+		t.Fatal("expected locate mode to clear after timer fires")
+	}
+}
+
+func TestHandleLocate_CapsLargeLedOnTime(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=9223372036854775807", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	fakeTimer.requireScheduled(t, 0, maxLocateLEDOnTimeSecs*time.Second)
+}
+
+func TestHandleLocate_ZeroOrNegativeLedOnTimePersists(t *testing.T) {
+	for _, ledOnTime := range []string{"0", "-5"} {
+		t.Run("led_on_time="+ledOnTime, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			h := NewRESTApiHandler(state)
+
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time="+ledOnTime, nil)
+			h.handleLocate(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+			}
+			if !state.IsLocateActive() {
+				t.Fatal("expected locate mode to persist")
+			}
+		})
+	}
+}
+
+func TestHandleLocate_TimedRequestDoesNotClearLaterPersistentMode(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
+
+	timedRR := httptest.NewRecorder()
+	timedReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
+	h.handleLocate(timedRR, timedReq)
+	if timedRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, timedRR.Code, timedRR.Body.String())
+	}
+
+	persistentRR := httptest.NewRecorder()
+	persistentReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=0", nil)
+	h.handleLocate(persistentRR, persistentReq)
+	if persistentRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, persistentRR.Code, persistentRR.Body.String())
+	}
+
+	fakeTimer.requireScheduled(t, 0, time.Second)
+	fakeTimer.requireCanceled(t, 0)
+	fakeTimer.fire(t, 0)
+	if !state.IsLocateActive() {
+		t.Fatal("expected later persistent locate mode to remain active")
+	}
+}
+
+func TestHandleLocate_TimedRequestCancelsEarlierTimedRequest(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
+
+	firstRR := httptest.NewRecorder()
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=30", nil)
+	h.handleLocate(firstRR, firstReq)
+	if firstRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, firstRR.Code, firstRR.Body.String())
+	}
+
+	secondRR := httptest.NewRecorder()
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
+	h.handleLocate(secondRR, secondReq)
+	if secondRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, secondRR.Code, secondRR.Body.String())
+	}
+
+	fakeTimer.requireScheduled(t, 0, 30*time.Second)
+	fakeTimer.requireScheduled(t, 1, time.Second)
+	fakeTimer.requireCanceled(t, 0)
+	fakeTimer.requireActive(t, 1)
+
+	fakeTimer.fire(t, 0)
+	if !state.IsLocateActive() {
+		t.Fatal("expected canceled earlier timer not to clear locate mode")
+	}
+	fakeTimer.fire(t, 1)
+	if state.IsLocateActive() {
+		t.Fatal("expected active later timer to clear locate mode")
+	}
+}
+
+type scheduledLocateClear struct {
+	duration time.Duration
+	callback func()
+	canceled bool
+}
+
+type fakeLocateTimer struct {
+	scheduled []scheduledLocateClear
+}
+
+func installFakeLocateTimer(h *RESTApiHandler) *fakeLocateTimer {
+	timer := &fakeLocateTimer{}
+	h.scheduleLocateClear = func(duration time.Duration, callback func()) func() {
+		index := len(timer.scheduled)
+		timer.scheduled = append(timer.scheduled, scheduledLocateClear{
+			duration: duration,
+			callback: callback,
+		})
+		return func() {
+			timer.scheduled[index].canceled = true
+		}
+	}
+	return timer
+}
+
+func (f *fakeLocateTimer) requireScheduled(t *testing.T, index int, want time.Duration) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if got := f.scheduled[index].duration; got != want {
+		t.Fatalf("expected timer %d duration %s, got %s", index, want, got)
+	}
+}
+
+func (f *fakeLocateTimer) fire(t *testing.T, index int) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if f.scheduled[index].canceled {
+		return
+	}
+	f.scheduled[index].callback()
+}
+
+func (f *fakeLocateTimer) requireCanceled(t *testing.T, index int) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if !f.scheduled[index].canceled {
+		t.Fatalf("expected timer %d to be canceled", index)
+	}
+}
+
+func (f *fakeLocateTimer) requireActive(t *testing.T, index int) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if f.scheduled[index].canceled {
+		t.Fatalf("expected timer %d to remain active", index)
 	}
 }
 

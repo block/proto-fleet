@@ -12,10 +12,14 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-const minPasswordLength = 8
+const (
+	minPasswordLength      = 8
+	maxLocateLEDOnTimeSecs = 300
+)
 
 // REST API JSON types matching the OpenAPI spec (MDK-API.json)
 
@@ -543,19 +547,31 @@ type PSUTelemetry struct {
 
 // RESTApiHandler handles REST API requests
 type RESTApiHandler struct {
-	state *MinerState
+	state               *MinerState
+	locateTimerMu       sync.Mutex
+	cancelLocateTimer   func()
+	scheduleLocateClear func(time.Duration, func()) func()
 }
 
 // NewRESTApiHandler creates a new REST API handler
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
-	return &RESTApiHandler{state: state}
+	return &RESTApiHandler{
+		state: state,
+		scheduleLocateClear: func(duration time.Duration, callback func()) func() {
+			timer := time.AfterFunc(duration, callback)
+			return func() {
+				timer.Stop()
+			}
+		},
+	}
 }
 
 // RegisterRoutes mirrors the Proto firmware auth/default-password contract:
 //   - PUBLIC_ROUTES (no auth): PUT /auth/password, POST /auth/login,
 //     POST /auth/refresh, GET /system, /system/status, /system/ssh,
 //     /system/secure, /system/unlock, /system/tag, /system/telemetry,
-//     /network, /pairing/info, POST /pairing/auth-key.
+//     /network, /hardware, /hardware/psus, /hashboards, /power-supplies,
+//     /pairing/info, POST /pairing/auth-key.
 //   - DEFAULT_PASSWORD_EXEMPT_PREFIXES (auth required but not password-gated):
 //     /auth/change-password and /pools (all verbs, all sub-paths).
 //   - Everything else: auth required AND blocked while default_password_active.
@@ -612,10 +628,11 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStart)))
 	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStop)))
 
-	// Hardware — firmware requires auth on /hardware (not in PUBLIC_ROUTES).
-	mux.HandleFunc("/api/v1/hardware", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardware)))
-	mux.HandleFunc("/api/v1/hardware/psus", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardwarePSUs)))
-	mux.HandleFunc("/api/v1/hashboards", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboards)))
+	// Hardware discovery endpoints are public; detailed hashboard stats remain
+	// authenticated under /hashboards/{hb_sn}.
+	mux.HandleFunc("/api/v1/hardware", h.requireDeviceOnline(h.handleHardware))
+	mux.HandleFunc("/api/v1/hardware/psus", h.requireDeviceOnline(h.handleHardwarePSUs))
+	mux.HandleFunc("/api/v1/hashboards", h.requireDeviceOnline(h.handleHashboards))
 	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboardByID)))
 
 	// Telemetry data
@@ -629,7 +646,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiencyByID)))
 
 	// PSUs
-	mux.HandleFunc("/api/v1/power-supplies", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSupplies)))
+	mux.HandleFunc("/api/v1/power-supplies", h.requireDeviceOnline(h.handlePowerSupplies))
 	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSuppliesUpdate)))
 
 	// Cooling
@@ -694,6 +711,28 @@ func methodIsProtected(method string, protectedMethods map[string]struct{}) bool
 
 	_, ok := protectedMethods[method]
 	return ok
+}
+
+func (h *RESTApiHandler) requireDeviceOnline(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.state.mu.RLock()
+		rebooting := h.state.Rebooting
+		h.state.mu.RUnlock()
+		if rebooting {
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, err := hj.Hijack()
+				if err == nil {
+					conn.Close()
+					return
+				}
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 // requireBearerAuthMethods wraps a handler to require a valid bearer token on
@@ -1478,18 +1517,66 @@ func (h *RESTApiHandler) handleLocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// `led_on_time` is part of the MDK contract. The simulator does not model the
-	// duration, but it accepts and validates the query parameter for compatibility.
-	if ledOnTime := r.URL.Query().Get("led_on_time"); ledOnTime != "" {
-		if _, err := strconv.Atoi(ledOnTime); err != nil {
+	query := r.URL.Query()
+	enable := true
+	if enableParam := query.Get("enable"); enableParam != "" {
+		parsedEnable, err := strconv.ParseBool(enableParam)
+		if err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "enable must be a boolean")
+			return
+		}
+		enable = parsedEnable
+	}
+
+	ledOnTimeSeconds := 0
+	if ledOnTime := query.Get("led_on_time"); enable && ledOnTime != "" {
+		parsedLedOnTime, err := strconv.Atoi(ledOnTime)
+		if err != nil {
 			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "led_on_time must be an integer")
 			return
 		}
+		if parsedLedOnTime > 0 {
+			if parsedLedOnTime > maxLocateLEDOnTimeSecs {
+				parsedLedOnTime = maxLocateLEDOnTimeSecs
+			}
+			ledOnTimeSeconds = parsedLedOnTime
+		}
 	}
 
-	h.state.SetLocateActive(true)
+	sequence := h.state.SetLocateActive(enable)
+	if enable && ledOnTimeSeconds > 0 {
+		h.replaceLocateTimer(time.Duration(ledOnTimeSeconds)*time.Second, func() {
+			h.state.ClearLocateActiveIfSequence(sequence)
+		})
+	} else {
+		h.stopLocateTimer()
+	}
 
-	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Locate sequence activated"})
+	message := "Locate sequence activated"
+	if !enable {
+		message = "Locate sequence deactivated"
+	}
+	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: message})
+}
+
+func (h *RESTApiHandler) replaceLocateTimer(duration time.Duration, callback func()) {
+	h.locateTimerMu.Lock()
+	defer h.locateTimerMu.Unlock()
+
+	if h.cancelLocateTimer != nil {
+		h.cancelLocateTimer()
+	}
+	h.cancelLocateTimer = h.scheduleLocateClear(duration, callback)
+}
+
+func (h *RESTApiHandler) stopLocateTimer() {
+	h.locateTimerMu.Lock()
+	defer h.locateTimerMu.Unlock()
+
+	if h.cancelLocateTimer != nil {
+		h.cancelLocateTimer()
+		h.cancelLocateTimer = nil
+	}
 }
 
 func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {

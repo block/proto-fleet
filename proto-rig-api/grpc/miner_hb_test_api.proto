@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package miner_hb_test_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "hashboard_async.proto";
+
+// =============================================================================
+// Test / Simulation Control  (hb.<slot>.test)
+//
+// Simulator-only injection messages, kept separate from the production
+// hashboard API (mirrors miner_psu_test_api.proto). Published to hb.<slot>.test.
+// =============================================================================
+
+message InjectHashboardError {
+    // Firmware error causes to inject into simulated AsyncSystemHealth messages.
+    repeated fwpb.error_cause error_codes = 1;
+    // If false, errors are one-shot and consumed by the next health message.
+    // If true, errors persist until cleared with clear_injections.
+    bool persistent = 2;
+}
+
+message ClearHashboardInjections {}
+
+// Fan measurement values that can be overridden in simulated AsyncSystemHealth
+// messages. Modeled on PsuMeasurementType (miner_psu_api.proto).
+enum HashboardMeasurementType {
+    HASHBOARD_MEASUREMENT_TYPE_UNSPECIFIED = 0;
+    HASHBOARD_MEASUREMENT_TYPE_FAN_RPM = 1;      // revolutions per minute
+    HASHBOARD_MEASUREMENT_TYPE_FAN_CURRENT = 2;  // amps
+    HASHBOARD_MEASUREMENT_TYPE_FAN_POWER = 3;    // watts
+}
+
+message HashboardMeasurement {
+    HashboardMeasurementType measurement_type = 1;
+    // float covers integer RPM as well as fractional current/power.
+    float value = 2;
+}
+
+message InjectHashboardMeasurement {
+    HashboardMeasurement measurement = 1;
+    // If false, the override is one-shot and consumed by the next health message.
+    // If true, it persists until cleared with clear_injections.
+    bool persistent = 2;
+}
+
+message HashboardSimControl {
+    oneof cmd {
+        InjectHashboardError inject_error = 1;
+        ClearHashboardInjections clear_injections = 2;
+        InjectHashboardMeasurement inject_measurement = 3;
+    }
+}

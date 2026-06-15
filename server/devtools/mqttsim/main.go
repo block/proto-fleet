@@ -1,5 +1,5 @@
-// mqttsim provides a small web UI for driving MaestroOS-style MQTT
-// curtailment signals during local development.
+// mqttsim provides a small web UI for driving MaestroOS-compatible MQTT
+// curtailment targets during local development.
 package main
 
 import (
