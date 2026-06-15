@@ -289,9 +289,10 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, int32(15), h.curtailments.lastInsertEvent.CurtailBatchIntervalSec)
 	assert.Equal(t, int32(50), h.curtailments.lastInsertEvent.RestoreBatchSize)
 	assert.Equal(t, int32(5), h.curtailments.lastInsertEvent.RestoreBatchIntervalSec)
+	expectedReason := `Automation "MaestroOS curtailment" from MaestroOS source "` + h.source.SourceName + `"`
 	assert.Equal(
 		t,
-		`Automation "MaestroOS curtailment" from MaestroOS source "Dorothy 2 MaestroOS"`,
+		expectedReason,
 		h.curtailments.lastInsertEvent.Reason,
 	)
 	assert.Equal(t, models.SourceActorAutomation, h.curtailments.lastInsertEvent.SourceActorType)
