@@ -29,6 +29,16 @@ describe what the code does, not the decisions made getting there.
      whether a PR already exists; if none does, you will draft the body for the
      PR the user is about to open from this branch.
 
+   After resolving refs, check whether the target is **stacked**: if
+   `baseRefName` is not the repository's default branch (usually `main`), this
+   PR sits on another PR's branch, so its diff and review only make sense
+   relative to that base. Walk the stack upward by finding the parent PR whose
+   head is this PR's base (`gh pr list --head <baseRefName> --state all --json
+   number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
+   path), then repeating on the parent's base until you reach the default
+   branch. Record the chain (each ancestor's number, title, url) for steps 2
+   and 3.
+
 2. Read the change using the path chosen in step 1 — do not fall back to local
    `git` on the numbered-PR path, since local HEAD may be an unrelated branch:
 
@@ -38,17 +48,34 @@ describe what the code does, not the decisions made getting there.
      Pull the commit list from
      `gh pr view <number> -R <owner>/<repo> --json commits`. All of these read
      the PR head in its own repo, regardless of what is checked out locally.
-   - **Current-branch path:** `git diff <base>...HEAD` (full diff),
-     `git diff <base>...HEAD --stat`, and `git log <base>..HEAD --oneline`,
-     where `<base>` is the `baseRefName` from step 1 (default `main`).
+   - **Current-branch path:** fetch the base first (`git fetch origin <base>`)
+     and diff against `origin/<base>`, never the bare local ref, so a parent
+     branch that has moved (common in a stack) can't produce a stale diff:
+     `git diff origin/<base>...HEAD` (full diff),
+     `git diff origin/<base>...HEAD --stat`, and
+     `git log origin/<base>..HEAD --oneline`, where `<base>` is the
+     `baseRefName` from step 1 (default `main`).
 
    From the file list, identify which subsystems are touched (`server/`,
    `client/`, `plugin/`, `proto/`, `migrations/`, `packages/proto-python-gen/`).
+
+   If the target is stacked (step 1), also read each ancestor PR's description
+   (`gh pr view <number> --json title,body,url`, adding `-R` on the numbered-PR
+   path) and extract the load-bearing context this PR depends on: the contracts,
+   abstractions, schema, or decisions established upstream that a reviewer must
+   understand to judge this change.
 
 3. Draft the description in this structure:
 
    1. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
       Lead with the user- or operator-facing capability, not the implementation.
+      If the PR is stacked (step 1), follow the summary with a short **Stack**
+      note: the chain with PR numbers/links (this PR up to the default branch),
+      a line stating the diff is relative to the immediate base so the reviewer
+      should not re-review ancestors, and the required context from the stack,
+      meaning the upstream contracts, abstractions, or decisions this PR builds
+      on, distilled to what a reviewer needs here rather than a re-summary of
+      the parent PRs.
    2. **How it works** — the end-to-end mechanism in plain language. Walk the
       primary flow(s) step by step (who triggers it, what crosses each boundary,
       where state is persisted, what comes back). Assume the reader does not

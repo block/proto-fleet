@@ -85,7 +85,10 @@ Inspect the actual diff, commits, and changed files first; describe what the
 code does, not the decisions made getting there. Structure it as:
 
 1. **Summary** — 2-4 sentences: what this PR delivers and why. Lead with the
-   user- or operator-facing capability, not the implementation.
+   user- or operator-facing capability, not the implementation. For a stacked
+   PR (base is not the default branch), add a short *Stack* note: the chain with
+   PR links, that the diff is relative to the immediate base, and the
+   load-bearing context from upstream PRs a reviewer needs to judge this change.
 2. **How it works** — the end-to-end mechanism in plain language. Walk the
    primary flow(s): who triggers it, what crosses each boundary, where state
    is persisted, what comes back. Explain workflows, not language syntax.
