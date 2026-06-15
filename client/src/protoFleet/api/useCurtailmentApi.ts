@@ -664,7 +664,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             previewActiveEvents,
             historyPageResponse.events,
             stateFilters,
-            historyPage === 0 && shouldIncludeActiveEventInHistory(previewActiveEvent, stateFilters),
+            historyPage === 0,
           );
           if (requestId !== latestRefreshRequestIdRef.current) {
             return previewSnapshot;
@@ -683,13 +683,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           const nextSnapshot =
             activeEvent === previewActiveEvent
               ? previewSnapshot
-              : createSnapshot(
-                  activeEvent,
-                  activeEvents,
-                  historyPageResponse.events,
-                  stateFilters,
-                  historyPage === 0 && shouldIncludeActiveEventInHistory(activeEvent, stateFilters),
-                );
+              : createSnapshot(activeEvent, activeEvents, historyPageResponse.events, stateFilters, historyPage === 0);
 
           const nextPageTokens = currentPagination.pageTokens.slice(0, historyPage + 1);
           nextPageTokens[historyPage] = pageToken || undefined;

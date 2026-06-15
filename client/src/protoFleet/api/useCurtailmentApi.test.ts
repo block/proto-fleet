@@ -594,6 +594,37 @@ describe("useCurtailmentApi", () => {
     expect(mockListCurtailmentEvents).toHaveBeenCalledTimes(1);
   });
 
+  it("prepends matching non-selected active events to filtered history", async () => {
+    const selectedActiveEvent = curtailmentEvent({
+      eventUuid: "curt-selected-active",
+      state: CurtailmentEventState.ACTIVE,
+    });
+    const pendingActiveEvent = curtailmentEvent({
+      eventUuid: "curt-pending-active",
+      reason: "Pending active event",
+      state: CurtailmentEventState.PENDING,
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [selectedActiveEvent, pendingActiveEvent] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: selectedActiveEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["pending"]);
+    });
+
+    expect(result.current.activeEventId).toBe("curt-selected-active");
+    expect(result.current.historyStatusFilters).toEqual(["pending"]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-pending-active"]);
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        reason: "Pending active event",
+        state: "pending",
+      }),
+    );
+  });
+
   it("reconciles terminal active state when current history filters exclude terminal rows", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-filtered-terminal",
