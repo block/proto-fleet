@@ -374,16 +374,19 @@ func TestSettingsService_UpdatePreservesPasswordWhenOmittedAndReloadsRuntime(t *
 	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: cipher, Runtime: runtime})
 	require.NoError(t, err)
 
-	nextSourceName := "Kati MaestroOS"
+	nextSourceName := "Site Alpha MaestroOS"
+	nextTopic := "maestro/target/site-alpha"
 	view, err := svc.Update(t.Context(), UpdateSourceRequest{
 		OrganizationID: 42,
 		SourceID:       7,
 		SourceName:     &nextSourceName,
+		// Keep topic update coverage separate from the default production topic fixture.
+		Topic: &nextTopic,
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, nextSourceName, view.Config.SourceName)
-	assert.Equal(t, "maestro/target", view.Config.Topic)
+	assert.Equal(t, nextTopic, view.Config.Topic)
 	assert.Equal(t, "enc:old", view.Config.MQTTPasswordEncrypted)
 	assert.Zero(t, cipher.encryptCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)

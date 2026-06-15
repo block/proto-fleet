@@ -11,14 +11,14 @@ import type {
 const testSources: CurtailmentSource[] = [
   {
     id: "source-alpha",
-    name: "Kati MaestroOS",
+    name: "Site Alpha MaestroOS",
     triggerType: "MQTT",
     brokerHosts: ["maestro-primary.test", "maestro-backup.test"],
     port: 11883,
-    topic: "curtailment/kati/target",
+    topic: "curtailment/site-alpha/target",
     protocol: "MQTT",
     qos: 1,
-    username: "kati",
+    username: "site-alpha",
     lastTarget: "0",
     lastSeen: "38 seconds ago",
     health: "connected",
@@ -26,14 +26,14 @@ const testSources: CurtailmentSource[] = [
   },
   {
     id: "source-beta",
-    name: "Dorothy 2 MaestroOS",
+    name: "Site Beta MaestroOS",
     triggerType: "MQTT",
-    brokerHosts: ["dorothy-primary.test", "dorothy-backup.test"],
+    brokerHosts: ["site-beta-primary.test", "site-beta-backup.test"],
     port: 11884,
-    topic: "curtailment/dorothy/target",
+    topic: "curtailment/site-beta/target",
     protocol: "MQTT",
     qos: 1,
-    username: "dorothy",
+    username: "site-beta",
     lastTarget: "100",
     lastSeen: "24 seconds ago",
     health: "connected",
@@ -120,7 +120,7 @@ describe("CurtailmentAutomationsContent", () => {
     expect(screen.getByTestId("curtailment-automation-modal")).toHaveTextContent("Create automation");
     expect(screen.getByText("Conditions that automatically trigger a response profile.")).toBeInTheDocument();
     expect(screen.getByLabelText("Rule name")).toHaveValue("");
-    expect(screen.getByTestId("automation-trigger-source-select")).toHaveTextContent("Kati MaestroOS");
+    expect(screen.getByTestId("automation-trigger-source-select")).toHaveTextContent("Site Alpha MaestroOS");
     expect(screen.getByLabelText("Grid signal")).toHaveValue(0);
     expect(screen.getByLabelText("Grid signal")).toHaveAttribute("readonly");
     expect(
@@ -137,7 +137,7 @@ describe("CurtailmentAutomationsContent", () => {
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 
     const row = getAutomationRow("High LMP spike");
-    expect(within(row).getByText("Kati MaestroOS grid signal changes to 0")).toBeVisible();
+    expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
   });
 
@@ -154,7 +154,7 @@ describe("CurtailmentAutomationsContent", () => {
 
     expect(screen.getByTestId("curtailment-automation-modal")).toHaveTextContent("Edit automation");
     expect(screen.getByLabelText("Rule name")).toHaveValue("ERCOT ERS obligation");
-    expect(screen.getByTestId("automation-trigger-source-select")).toHaveTextContent("Kati MaestroOS");
+    expect(screen.getByTestId("automation-trigger-source-select")).toHaveTextContent("Site Alpha MaestroOS");
     expect(screen.getByTestId("automation-response-profile-select")).toHaveTextContent("Standard shed");
     const deleteButton = screen.getByRole("button", { name: "Delete" });
     const saveButton = screen.getByRole("button", { name: "Save" });

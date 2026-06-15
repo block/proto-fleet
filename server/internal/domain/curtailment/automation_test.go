@@ -449,7 +449,7 @@ func newAutomationHarness(t *testing.T) *automationHarness {
 		ID:             7001,
 		OrganizationID: orgID,
 		ServiceUserID:  501,
-		SourceName:     "Dorothy 2 MaestroOS",
+		SourceName:     "Site Alpha MaestroOS",
 		Topic:          "maestro/target",
 	}
 	profile := &models.ResponseProfile{
