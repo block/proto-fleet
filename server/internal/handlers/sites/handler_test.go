@@ -360,9 +360,9 @@ func TestHandler_AssignBuildingsToSite_surfacesCascadeCounts(t *testing.T) {
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
+	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
 
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
 		BuildingIds:  []int64{50},
@@ -378,12 +378,12 @@ func TestHandler_AssignBuildingsToSite_targetUnsetCascadesToUnassigned(t *testin
 	h := newTestHandler(t)
 
 	// target_site_id unset → service skips LockSiteForWrite (no target
-	// site to lock) but still locks the building before the cascade,
-	// then passes a nil targetSiteID through.
+	// site to lock) but still locks the building before the bulk cascade
+	// writes, then passes a nil targetSiteID through.
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
+	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(1), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
 		BuildingIds: []int64{50},
@@ -399,16 +399,14 @@ func TestHandler_AssignBuildingsToSite_bulkAggregatesCascadeCounts(t *testing.T)
 
 	target := int64(20)
 
-	// Two buildings, processed in sorted ID order.
+	// Phase A locks both buildings in sorted ID order; Phase B issues
+	// one bulk write per kind across both buildings.
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(10), nil)
 	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(51)).Return(nil)
-	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(4), nil)
-	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(51), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(20), nil)
+	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
+	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(6), nil)
+	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(30), nil)
 
 	// Pass IDs out of order to verify deterministic locking via sort.
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
@@ -432,9 +430,10 @@ func TestHandler_AssignRacksToSite_partialUpdateCascadesAndClearsBuilding(t *tes
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: &priorBuilding, Zone: "Z1"}, nil)
-	// site changes & rack has a building → building clears, zone clears.
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), &target, (*int64)(nil), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), rackID, int64(7), &target).Return(int64(8), nil)
+	// Bulk placement update clears building + zone in SQL; bulk cascade
+	// follows for the same rack set.
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, &target).Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, &target).Return(int64(8), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds:      []int64{rackID},
@@ -456,8 +455,8 @@ func TestHandler_AssignRacksToSite_targetUnsetUnassigns(t *testing.T) {
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building set
 	// site changes (priorSite → nil) but no building to clear.
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), gomock.Nil(), gomock.Nil(), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), rackID, int64(7), gomock.Nil()).Return(int64(3), nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(3), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds: []int64{rackID},
@@ -475,11 +474,10 @@ func TestHandler_AssignRacksToSite_sameSiteIsNoOp(t *testing.T) {
 	rackID := int64(50)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
-	// rack already at target site, has a building — no clear, no cascade.
+	// rack already at target site — filtered out of the bulk write set;
+	// no UpdateRackPlacementBulkForSite or CascadeRackDeviceSitesBulk call.
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &target, BuildingID: ptrInt64(11), Zone: "Z1"}, nil)
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), rackID, int64(7), &target, ptrInt64(11), "Z1").Return(nil)
-	// No CascadeRackDeviceSites — siteChanged is false.
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds:      []int64{rackID},
@@ -498,15 +496,14 @@ func TestHandler_AssignRacksToSite_bulkAggregates(t *testing.T) {
 	priorSite := int64(9)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
-	// Two racks, processed in sorted id order.
+	// Phase A locks both racks in sorted id order; Phase B issues one
+	// bulk placement update and one bulk cascade across both racks.
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(50), int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: ptrInt64(11)}, nil)
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(50), int64(7), &target, (*int64)(nil), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(50), int64(7), &target).Return(int64(4), nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(51), int64(7)).
 		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building
-	h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(51), int64(7), &target, gomock.Nil(), "").Return(nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(51), int64(7), &target).Return(int64(2), nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(int64(6), nil)
 
 	// IDs passed out-of-order to verify the sort happens.
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{

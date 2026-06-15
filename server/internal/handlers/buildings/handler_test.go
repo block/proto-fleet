@@ -402,19 +402,20 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), buildingID).Return(nil),
 		h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), buildingID).
 			Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil),
+		// Phase A: per-rack lock + read.
 		h.collectionStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), int64(99), int64(7)).
 			Return(interfaces.RackPlacement{SiteID: nil}, nil),
-		h.collectionStore.EXPECT().UpdateRackPlacement(gomock.Any(), int64(99), int64(7), &siteID, &buildingID, "").
+		// Phase B1: single bulk placement write.
+		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(gomock.Any(), int64(7), []int64{99}, &siteID, &buildingID).
 			Return(nil),
-		h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(99), int64(7), &siteID).
+		// Phase B2: single bulk cascade for site-changed rack.
+		h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{99}, &siteID).
 			Return(int64(3), nil),
-		// Pass-1 NULL vacate + pass-2 real place — splitting the
-		// position write into two passes lets swaps and move-into-
-		// occupied-cell requests commit without tripping the partial
-		// unique index mid-loop.
-		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), gomock.Nil(), gomock.Nil()).
+		// Phase B3: bulk pass-1 vacate.
+		h.buildingStore.EXPECT().SetRackBuildingPositionBulkClear(gomock.Any(), int64(7), []int64{99}).
 			Return(nil),
-		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), ptrInt32t(1), ptrInt32t(2)).
+		// Phase B4: bulk pass-2 place.
+		h.buildingStore.EXPECT().SetRackBuildingPositionBulkPlace(gomock.Any(), int64(7), []int64{99}, []int32{1}, []int32{2}).
 			Return(nil),
 	)
 

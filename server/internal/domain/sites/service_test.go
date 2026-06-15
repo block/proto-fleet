@@ -787,9 +787,9 @@ func TestAssignBuildingsToSite_cascadeOnSuccess(t *testing.T) {
 	// LockBuildingsBySiteForWrite for the source-site race.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(50)).Return(nil)
-	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	store.EXPECT().ReassignRacksUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
-	store.EXPECT().ReassignDevicesUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
+	store.EXPECT().AssignBuildingsToSiteBulk(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
+	store.EXPECT().ReassignRacksUnderBuildingsBulk(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
+	store.EXPECT().ReassignDevicesUnderBuildingsBulk(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
 
 	out, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
 		OrgID:        testOrgID,
@@ -838,11 +838,12 @@ func TestAssignBuildingsToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, tx, nil)
 
 	target := int64(20)
+	// All per-building locks run in Phase A in sorted order. The second
+	// building's lock errors so no bulk write fires (cleaner mock log
+	// than the pre-refactor per-building loop, where the first building
+	// went through update+cascade before the second's lock failed).
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(50)).Return(nil)
-	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
-	store.EXPECT().ReassignRacksUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
-	store.EXPECT().ReassignDevicesUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(10), nil)
 	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(51)).
 		Return(fleeterror.NewNotFoundErrorf("building %d not found", 51))
 
@@ -1035,21 +1036,6 @@ func TestAssignRacksToSite_emptyRejected(t *testing.T) {
 	}
 }
 
-func TestAssignRacksToSite_nilCollectionStoreRejected(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	store := mocks.NewMockSiteStore(ctrl)
-	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
-
-	_, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
-		OrgID:   testOrgID,
-		RackIDs: []int64{1},
-	})
-	if err == nil {
-		t.Fatal("expected internal error when collection store is unconfigured")
-	}
-}
-
 func TestAssignBuildingsToSite_emptyRejected(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
@@ -1062,6 +1048,21 @@ func TestAssignBuildingsToSite_emptyRejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected InvalidArgument for empty building_ids, got nil")
+	}
+}
+
+func TestAssignRacksToSite_nilCollectionStoreRejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	_, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:   testOrgID,
+		RackIDs: []int64{1},
+	})
+	if err == nil {
+		t.Fatal("expected internal error when collection store is unconfigured")
 	}
 }
 
@@ -1083,10 +1084,13 @@ func TestAssignRacksToSite_clearsBuildingOnSiteChange(t *testing.T) {
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
 	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &oldSite, BuildingID: &oldBuilding, Zone: "Z"}, nil)
-	// Site changed → newBuildingID nilled, zone cleared, then write
-	// + cascade fire for the rack.
-	collStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &newSite, (*int64)(nil), "").Return(nil)
-	collStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &newSite).Return(int64(4), nil)
+	// Bulk placement update writes site + clears building/zone in one
+	// statement. Bulk cascade follows for the same set.
+	collStore.EXPECT().
+		UpdateRackPlacementBulkForSite(inTxCtx, testOrgID, []int64{rackID}, &newSite).
+		Return(nil)
+	collStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &newSite).Return(int64(4), nil)
+	_ = oldBuilding
 
 	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
 		OrgID:        testOrgID,
@@ -1105,9 +1109,7 @@ func TestAssignRacksToSite_clearsBuildingOnSiteChange(t *testing.T) {
 }
 
 // TestAssignRacksToSite_sameSiteIsNoop covers the no-op branch: a rack
-// already on the target site stays intact — placement still rewrites
-// but the cascade does not fire and the building clear count stays at
-// zero.
+// already on the target site stays intact — no cascade, no clear.
 func TestAssignRacksToSite_sameSiteIsNoop(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
@@ -1122,8 +1124,10 @@ func TestAssignRacksToSite_sameSiteIsNoop(t *testing.T) {
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, site).Return(nil)
 	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &site, BuildingID: &building, Zone: "Z"}, nil)
-	// siteChanged == false: building stays, zone stays, no cascade.
-	collStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &site, &building, "Z").Return(nil)
+	// Site unchanged → rack is filtered out of the bulk write set; no
+	// UpdateRackPlacementBulkForSite or CascadeRackDeviceSitesBulk call
+	// fires.
+	_ = building
 
 	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
 		OrgID:        testOrgID,
@@ -1154,8 +1158,10 @@ func TestAssignRacksToSite_noPriorBuildingStaysIntact(t *testing.T) {
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
 	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &oldSite, BuildingID: nil, Zone: ""}, nil)
-	collStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &newSite, (*int64)(nil), "").Return(nil)
-	collStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &newSite).Return(int64(0), nil)
+	collStore.EXPECT().
+		UpdateRackPlacementBulkForSite(inTxCtx, testOrgID, []int64{rackID}, &newSite).
+		Return(nil)
+	collStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &newSite).Return(int64(0), nil)
 
 	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
 		OrgID:        testOrgID,
@@ -1170,9 +1176,10 @@ func TestAssignRacksToSite_noPriorBuildingStaysIntact(t *testing.T) {
 	}
 }
 
-// TestAssignRacksToSite_bulkRollsBackOnLaterFailure: first rack
-// succeeds locking, second rack fails on the lock; tx aborts and the
-// fake transactor records exactly one closure run.
+// TestAssignRacksToSite_bulkRollsBackOnLaterFailure mirrors the
+// building-batch rollback case: first rack succeeds, second fails on
+// the lock, the tx aborts, and the wrapping transactor records exactly
+// one closure run with the error propagating up.
 func TestAssignRacksToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
@@ -1184,14 +1191,10 @@ func TestAssignRacksToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
 	newSite := int64(2)
 
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
-	// First rack acquires its lock and is mid-flight when the second
-	// rack's lock errors out. Because the inner loop fails fast, no
-	// rack actually completes its write — the entire batch rolls
-	// back.
+	// Phase A locks both racks in sorted order. The second lock errors
+	// so the closure aborts before any bulk write fires.
 	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(100), testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &oldSite}, nil)
-	collStore.EXPECT().UpdateRackPlacement(inTxCtx, int64(100), testOrgID, &newSite, (*int64)(nil), "").Return(nil)
-	collStore.EXPECT().CascadeRackDeviceSites(inTxCtx, int64(100), testOrgID, &newSite).Return(int64(0), nil)
 	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(101), testOrgID).
 		Return(interfaces.RackPlacement{}, fleeterror.NewNotFoundErrorf("rack %d not found", 101))
 
@@ -1205,6 +1208,92 @@ func TestAssignRacksToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
 	}
 	if tx.calls != 1 {
 		t.Fatalf("expected exactly 1 tx closure run, got %d", tx.calls)
+	}
+}
+
+// TestAssignBuildingsToSite_largeBatchIssuesSingleBulkWrites guards
+// the F13 bulk refactor: a 100-building batch must produce exactly one
+// AssignBuildingsToSiteBulk + one ReassignRacksUnderBuildingsBulk +
+// one ReassignDevicesUnderBuildingsBulk call regardless of N. Per-
+// building lock acquisitions stay sequential for deadlock safety.
+func TestAssignBuildingsToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	const N = 100
+	target := int64(20)
+	buildingIDs := make([]int64, N)
+	for i := 0; i < N; i++ {
+		buildingIDs[i] = int64(1000 + i)
+	}
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	for _, bid := range buildingIDs {
+		store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, bid).Return(nil)
+	}
+	store.EXPECT().AssignBuildingsToSiteBulk(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(N), nil)
+	store.EXPECT().ReassignRacksUnderBuildingsBulk(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(300), nil)
+	store.EXPECT().ReassignDevicesUnderBuildingsBulk(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2000), nil)
+
+	out, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
+		OrgID:        testOrgID,
+		BuildingIDs:  buildingIDs,
+		TargetSiteID: &target,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ReassignedRackCount != 300 || out.ReassignedDeviceCount != 2000 {
+		t.Fatalf("unexpected cascade counts: %+v", out)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx closure run, got %d", tx.calls)
+	}
+}
+
+// TestAssignRacksToSite_largeBatchIssuesSingleBulkWrites guards the
+// F14 bulk refactor: a 100-rack site-move batch must produce at most
+// one UpdateRackPlacementBulkForSite + one CascadeRackDeviceSitesBulk
+// call regardless of N, after the per-rack sequential lock phase.
+func TestAssignRacksToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	const N = 100
+	oldSite := int64(9)
+	newSite := int64(20)
+	rackIDs := make([]int64, N)
+	for i := 0; i < N; i++ {
+		rackIDs[i] = int64(1000 + i)
+	}
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
+	for _, rid := range rackIDs {
+		collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rid, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &oldSite}, nil)
+	}
+	// Exactly one bulk placement update + one bulk cascade.
+	collStore.EXPECT().UpdateRackPlacementBulkForSite(inTxCtx, testOrgID, rackIDs, &newSite).Return(nil)
+	collStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, rackIDs, &newSite).Return(int64(500), nil)
+
+	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:        testOrgID,
+		RackIDs:      rackIDs,
+		TargetSiteID: &newSite,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ReassignedDeviceCount != 500 {
+		t.Fatalf("unexpected cascade count: %d", out.ReassignedDeviceCount)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx closure run, got %d", tx.calls)
 	}
 }
 

@@ -494,31 +494,45 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 				return nil, err
 			}
 		}
+		// Phase A: sequential per-building lock acquisition in sorted
+		// order so a concurrent DeleteSite owning the source site can't
+		// clear racks under any of these buildings between our reads
+		// and writes. Locks must be acquired one-by-one — bulk lock
+		// acquisition would risk a deadlock against another
+		// AssignBuildingsToSite touching an overlapping building set.
 		for _, buildingID := range buildingIDs {
-			// Lock the building so a concurrent DeleteSite that owns the
-			// source site can't clear this building's racks while we
-			// reassign them. Same site→building lock order DeleteSite uses.
 			if err := s.store.LockBuildingForWrite(txCtx, params.OrgID, buildingID); err != nil {
 				return nil, err
 			}
-			rowsAffected, err := s.store.AssignBuildingToSite(txCtx, params.OrgID, buildingID, params.TargetSiteID)
-			if err != nil {
-				return nil, err
-			}
-			if rowsAffected == 0 {
-				return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
-			}
-			racks, err := s.store.ReassignRacksUnderBuilding(txCtx, params.OrgID, buildingID, params.TargetSiteID)
-			if err != nil {
-				return nil, err
-			}
-			rackCount += racks
-			devices, err := s.store.ReassignDevicesUnderBuilding(txCtx, params.OrgID, buildingID, params.TargetSiteID)
-			if err != nil {
-				return nil, err
-			}
-			deviceCount += devices
 		}
+
+		// Phase B1: single bulk write moving every locked building to
+		// the target site. The row count tells us whether every
+		// requested building is live; mismatch surfaces as NotFound
+		// (matches the per-row check the old loop performed).
+		rowsAffected, err := s.store.AssignBuildingsToSiteBulk(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
+		if err != nil {
+			return nil, err
+		}
+		if rowsAffected != int64(len(buildingIDs)) {
+			return nil, fleeterror.NewNotFoundErrorf("one or more buildings not found (expected %d, updated %d)", len(buildingIDs), rowsAffected)
+		}
+
+		// Phase B2: single bulk rack cascade across every building in
+		// the batch.
+		racks, err := s.store.ReassignRacksUnderBuildingsBulk(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
+		if err != nil {
+			return nil, err
+		}
+		rackCount = racks
+
+		// Phase B3: single bulk device cascade across every building
+		// in the batch.
+		devices, err := s.store.ReassignDevicesUnderBuildingsBulk(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
+		if err != nil {
+			return nil, err
+		}
+		deviceCount = devices
 		return assignBuildingsTx{rackCount: rackCount, deviceCount: deviceCount}, nil
 	})
 	if err != nil {
@@ -613,35 +627,48 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 				return nil, err
 			}
 		}
+		// Phase A: sequential per-rack lock acquisition in sorted order
+		// (deadlock-safe). Per-rack reads classify each rack into the
+		// "site changed" bucket (which drives both the SQL write set
+		// and the activity-log metadata) or the same-site no-op
+		// bucket.
+		var changedRackIDs []int64
 		for _, rackID := range rackIDs {
 			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rackID, params.OrgID)
 			if err != nil {
 				return nil, err
 			}
 			siteChanged := !int64PtrEqual(current.SiteID, params.TargetSiteID)
-			// building_id is bound to a single site, so any site
-			// transition invalidates the rack's building membership.
-			// Even an unchanged building_id read can't survive a site
-			// move — the operator must re-pick a building in the new
-			// site.
-			newBuildingID := current.BuildingID
-			finalZone := current.Zone
-			if siteChanged && current.BuildingID != nil {
-				newBuildingID = nil
-				finalZone = ""
+			if !siteChanged {
+				continue
+			}
+			changedRackIDs = append(changedRackIDs, rackID)
+			cascadedRackIDs = append(cascadedRackIDs, rackID)
+			if current.BuildingID != nil {
 				clearedCount++
 			}
-			if err := s.collectionStore.UpdateRackPlacement(txCtx, rackID, params.OrgID, params.TargetSiteID, newBuildingID, finalZone); err != nil {
+		}
+
+		// Phase B1: single bulk update for every rack whose site
+		// actually changes. building_id, zone, and grid placement
+		// clear together because a building is bound to one site and
+		// the partial unique index would otherwise leave stale cells
+		// behind. Skip the round-trip when no rack changes site.
+		if len(changedRackIDs) > 0 {
+			if err := s.collectionStore.UpdateRackPlacementBulkForSite(
+				txCtx, params.OrgID, changedRackIDs, params.TargetSiteID,
+			); err != nil {
 				return nil, err
 			}
-			if siteChanged {
-				n, err := s.collectionStore.CascadeRackDeviceSites(txCtx, rackID, params.OrgID, params.TargetSiteID)
-				if err != nil {
-					return nil, err
-				}
-				deviceCount += n
-				cascadedRackIDs = append(cascadedRackIDs, rackID)
+
+			// Phase B2: single bulk cascade for the same set.
+			n, err := s.collectionStore.CascadeRackDeviceSitesBulk(
+				txCtx, params.OrgID, changedRackIDs, params.TargetSiteID,
+			)
+			if err != nil {
+				return nil, err
 			}
+			deviceCount += n
 		}
 		return assignRacksToSiteTx{
 			deviceCount:     deviceCount,
