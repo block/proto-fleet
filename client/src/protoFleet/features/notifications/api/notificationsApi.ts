@@ -225,6 +225,15 @@ const scopeToProto = (s: SilenceScope) => ({
   deviceIds: s.device_ids,
 });
 
+// channelDestinationFields builds the kind + destination request fields
+// shared by create / update / test (each adds its own id/name on top).
+const channelDestinationFields = (input: ChannelMutationInput) => ({
+  kind: channelKindToProto(input.kind),
+  webhook: webhookToProto(input.webhook),
+  smtp: smtpToProto(input.smtp),
+  slack: slackToProto(input.slack),
+});
+
 // === Channels ===========================================================
 
 export async function listChannels(): Promise<Channel[]> {
@@ -244,10 +253,7 @@ export interface ChannelMutationInput {
 export async function createChannel(input: ChannelMutationInput): Promise<Channel> {
   const res = await notificationChannelClient.createChannel({
     name: input.name,
-    kind: channelKindToProto(input.kind),
-    webhook: webhookToProto(input.webhook),
-    smtp: smtpToProto(input.smtp),
-    slack: slackToProto(input.slack),
+    ...channelDestinationFields(input),
   });
   return channelFromProto(required(res.channel, "channel"));
 }
@@ -256,10 +262,7 @@ export async function updateChannel(input: ChannelMutationInput & { id: string }
   const res = await notificationChannelClient.updateChannel({
     id: input.id,
     name: input.name,
-    kind: channelKindToProto(input.kind),
-    webhook: webhookToProto(input.webhook),
-    smtp: smtpToProto(input.smtp),
-    slack: slackToProto(input.slack),
+    ...channelDestinationFields(input),
   });
   return channelFromProto(required(res.channel, "channel"));
 }
@@ -277,10 +280,7 @@ export interface TestChannelResult {
 export async function testChannel(input: ChannelMutationInput): Promise<TestChannelResult> {
   const res = await notificationChannelClient.testChannel({
     id: input.id ?? "",
-    kind: channelKindToProto(input.kind),
-    webhook: webhookToProto(input.webhook),
-    smtp: smtpToProto(input.smtp),
-    slack: slackToProto(input.slack),
+    ...channelDestinationFields(input),
   });
   return { ok: res.ok, error: res.error, response_code: res.responseCode };
 }
