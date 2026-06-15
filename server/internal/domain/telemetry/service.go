@@ -196,11 +196,68 @@ type statusResult struct {
 }
 
 type statusFlushRequest struct {
-	done chan error
+	deviceID *models.DeviceIdentifier
+	done     chan error
 }
 
 type metricsFlushRequest struct {
-	done chan error
+	deviceID *models.DeviceIdentifier
+	done     chan error
+}
+
+type statusFlushResult struct {
+	err     error
+	devices map[models.DeviceIdentifier]bool
+}
+
+func (r statusFlushResult) errorForDevice(deviceID *models.DeviceIdentifier) error {
+	if deviceID == nil {
+		return r.err
+	}
+	if r.devices[*deviceID] {
+		return r.err
+	}
+	return nil
+}
+
+func mergeStatusFlushResults(results ...statusFlushResult) statusFlushResult {
+	merged := statusFlushResult{devices: make(map[models.DeviceIdentifier]bool)}
+	for _, result := range results {
+		merged.err = errors.Join(merged.err, result.err)
+		for deviceID := range result.devices {
+			merged.devices[deviceID] = true
+		}
+	}
+	if len(merged.devices) == 0 {
+		merged.devices = nil
+	}
+	return merged
+}
+
+type metricsFlushResult struct {
+	err          error
+	deviceErrors map[models.DeviceIdentifier]error
+}
+
+func (r metricsFlushResult) errorForDevice(deviceID *models.DeviceIdentifier) error {
+	if deviceID == nil {
+		return r.err
+	}
+	return r.deviceErrors[*deviceID]
+}
+
+func mergeMetricsFlushResults(results ...metricsFlushResult) metricsFlushResult {
+	merged := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+	for _, result := range results {
+		merged.err = errors.Join(merged.err, result.err)
+		for deviceID, err := range result.deviceErrors {
+			merged.deviceErrors[deviceID] = errors.Join(merged.deviceErrors[deviceID], err)
+		}
+	}
+	if len(merged.deviceErrors) == 0 {
+		merged.deviceErrors = nil
+	}
+	return merged
 }
 
 type inFlightKind string
@@ -331,15 +388,9 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 		processErr = s.processDevice(operationCtx, device)
 	}
 
-	flushErr := s.FlushStatusNow(operationCtx)
-	metricsFlushErr := s.FlushMetricsNow(operationCtx)
-	if writerErr := errors.Join(flushErr, metricsFlushErr); writerErr != nil && !isContextError(writerErr) {
-		slog.Warn("ignoring non-context writer flush error during row refresh",
-			"deviceID", device.ID,
-			"error", writerErr,
-		)
-	}
-	return errors.Join(processErr, contextOnlyError(flushErr), contextOnlyError(metricsFlushErr))
+	flushErr := s.FlushStatusForDevice(operationCtx, device.ID)
+	metricsFlushErr := s.FlushMetricsForDevice(operationCtx, device.ID)
+	return errors.Join(processErr, flushErr, metricsFlushErr)
 }
 
 func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
@@ -348,21 +399,6 @@ func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
 		metricTimeout = 5 * time.Second
 	}
 	return metricTimeout + 5*time.Second
-}
-
-func isContextError(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-}
-
-func contextOnlyError(err error) error {
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return context.DeadlineExceeded
-	case errors.Is(err, context.Canceled):
-		return context.Canceled
-	default:
-		return nil
-	}
 }
 
 func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier) (bool, error) {
@@ -391,7 +427,15 @@ func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID m
 }
 
 func (s *TelemetryService) FlushStatusNow(ctx context.Context) error {
-	req := statusFlushRequest{done: make(chan error, 1)}
+	return s.flushStatus(ctx, nil)
+}
+
+func (s *TelemetryService) FlushStatusForDevice(ctx context.Context, deviceID models.DeviceIdentifier) error {
+	return s.flushStatus(ctx, &deviceID)
+}
+
+func (s *TelemetryService) flushStatus(ctx context.Context, deviceID *models.DeviceIdentifier) error {
+	req := statusFlushRequest{deviceID: deviceID, done: make(chan error, 1)}
 
 	select {
 	case s.statusFlushRequests <- req:
@@ -408,7 +452,15 @@ func (s *TelemetryService) FlushStatusNow(ctx context.Context) error {
 }
 
 func (s *TelemetryService) FlushMetricsNow(ctx context.Context) error {
-	req := metricsFlushRequest{done: make(chan error, 1)}
+	return s.flushMetrics(ctx, nil)
+}
+
+func (s *TelemetryService) FlushMetricsForDevice(ctx context.Context, deviceID models.DeviceIdentifier) error {
+	return s.flushMetrics(ctx, &deviceID)
+}
+
+func (s *TelemetryService) flushMetrics(ctx context.Context, deviceID *models.DeviceIdentifier) error {
+	req := metricsFlushRequest{deviceID: deviceID, done: make(chan error, 1)}
 
 	select {
 	case s.metricsFlushRequests <- req:
@@ -878,29 +930,30 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		}
 	}
 
-	var flush func(flushCtx context.Context) error
-	drainReadyStatusResults := func(flushCtx context.Context) error {
-		var drainErr error
+	var flush func(flushCtx context.Context) statusFlushResult
+	drainReadyStatusResults := func(flushCtx context.Context) statusFlushResult {
+		var drainResult statusFlushResult
 		for {
 			select {
 			case result, ok := <-s.statusResults:
 				if !ok {
-					return drainErr
+					return drainResult
 				}
 				addPendingUpdate(result)
 				if len(pendingUpdates) >= maxStatusBatchSize {
-					drainErr = errors.Join(drainErr, flush(flushCtx))
+					drainResult = mergeStatusFlushResults(drainResult, flush(flushCtx))
 				}
 			default:
-				return drainErr
+				return drainResult
 			}
 		}
 	}
 
-	flush = func(flushCtx context.Context) error {
+	flush = func(flushCtx context.Context) statusFlushResult {
 		if len(pendingUpdates) == 0 {
-			return nil
+			return statusFlushResult{}
 		}
+		result := statusFlushResult{devices: make(map[models.DeviceIdentifier]bool)}
 
 		// Check current DB statuses to avoid overwriting firmware update states
 		// (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
@@ -908,14 +961,17 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		deviceIDs := make([]models.DeviceIdentifier, 0, len(pendingUpdates))
 		for deviceID := range pendingUpdates {
 			deviceIDs = append(deviceIDs, deviceID)
+			result.devices[deviceID] = true
 		}
 		currentStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(flushCtx, deviceIDs)
 		if err != nil {
 			slog.Warn("failed to check current device statuses for firmware update guard, skipping flush", "error", err)
-			return err
+			result.err = err
+			return result
 		}
 
 		statusUpdates := make([]stores.DeviceStatusUpdate, 0, len(pendingUpdates))
+		result.devices = make(map[models.DeviceIdentifier]bool)
 		for deviceID, pending := range pendingUpdates {
 			if currentStatuses != nil {
 				if currentStatus, ok := currentStatuses[deviceID]; ok {
@@ -928,17 +984,17 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 				DeviceIdentifier: deviceID,
 				Status:           pending.status,
 			})
+			result.devices[deviceID] = true
 		}
 
 		// Write new statuses to DB in a single bulk INSERT.
 		// Each row is ~100 bytes. With maxStatusBatchSize=500, batches are ~50KB.
 		upsertOK := true
-		var flushErr error
 		if len(statusUpdates) > 0 {
 			if err := s.deviceStore.UpsertDeviceStatuses(flushCtx, statusUpdates); err != nil {
 				slog.Error("status upsert failed", "count", len(statusUpdates), "error", err)
 				upsertOK = false
-				flushErr = err
+				result.err = err
 			}
 		}
 
@@ -975,7 +1031,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		}
 
 		clear(pendingUpdates)
-		return flushErr
+		return result
 	}
 
 	for {
@@ -1001,7 +1057,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			_ = flush(ctx)
 
 		case req := <-s.statusFlushRequests:
-			req.done <- errors.Join(drainReadyStatusResults(ctx), flush(ctx))
+			result := mergeStatusFlushResults(drainReadyStatusResults(ctx), flush(ctx))
+			req.done <- result.errorForDevice(req.deviceID)
 		}
 	}
 }
@@ -1229,11 +1286,11 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
-	flush := func(flushCtx context.Context) error {
+	flush := func(flushCtx context.Context) metricsFlushResult {
 		if len(pending) == 0 {
-			return nil
+			return metricsFlushResult{}
 		}
-		var flushErr error
+		result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
 		if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, pending...); err != nil {
 			// The store wraps the batch in a single transaction, so one bad row fails
 			// the whole batch. Retry individually so only the offending sample is dropped.
@@ -1241,12 +1298,14 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			for _, m := range pending {
 				if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, m); err != nil {
 					slog.Error("failed to store device metrics", "device_id", m.DeviceIdentifier, "error", err)
-					flushErr = err
+					deviceID := models.DeviceIdentifier(m.DeviceIdentifier)
+					result.err = errors.Join(result.err, err)
+					result.deviceErrors[deviceID] = errors.Join(result.deviceErrors[deviceID], err)
 				}
 			}
 		}
 		pending = pending[:0]
-		return flushErr
+		return result
 	}
 
 	forwardMetrics := func(result metricsResult) {
@@ -1261,20 +1320,20 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		)
 	}
 
-	drainReadyMetricsResults := func(flushCtx context.Context) error {
-		var drainErr error
+	drainReadyMetricsResults := func(flushCtx context.Context) metricsFlushResult {
+		var drainResult metricsFlushResult
 		for {
 			select {
 			case result, ok := <-s.metricsResults:
 				if !ok {
-					return drainErr
+					return drainResult
 				}
 				forwardMetrics(result)
 				if len(pending) >= maxMetricsBatchSize {
-					drainErr = errors.Join(drainErr, flush(flushCtx))
+					drainResult = mergeMetricsFlushResults(drainResult, flush(flushCtx))
 				}
 			default:
-				return drainErr
+				return drainResult
 			}
 		}
 	}
@@ -1296,7 +1355,8 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		case <-ticker.C:
 			_ = flush(ctx)
 		case req := <-s.metricsFlushRequests:
-			req.done <- errors.Join(drainReadyMetricsResults(ctx), flush(ctx))
+			result := mergeMetricsFlushResults(drainReadyMetricsResults(ctx), flush(ctx))
+			req.done <- result.errorForDevice(req.deviceID)
 		}
 	}
 }
