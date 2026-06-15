@@ -1850,6 +1850,50 @@ func TestMetricsWriterRoutine_FlushesOnRequest(t *testing.T) {
 	require.NoError(t, service.FlushMetricsNow(ctx))
 }
 
+func TestFlushStatusNow_ReturnsContextErrorWhenCanceledBeforeQueue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1},
+		mock.NewMockTelemetryDataStore(ctrl),
+		mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl),
+		storesMocks.NewMockDeviceStore(ctrl),
+		mock.NewMockErrorPoller(ctrl),
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := service.FlushStatusNow(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context cancelled before status flush request was queued")
+}
+
+func TestFlushMetricsNow_ReturnsContextErrorWhenCanceledBeforeQueue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1},
+		mock.NewMockTelemetryDataStore(ctrl),
+		mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl),
+		storesMocks.NewMockDeviceStore(ctrl),
+		mock.NewMockErrorPoller(ctrl),
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := service.FlushMetricsNow(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context cancelled before metrics flush request was queued")
+}
+
 func TestMetricsWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -2077,6 +2121,30 @@ func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *te
 	}()
 
 	require.NoError(t, service.RefreshDevice(ctx, models.Device{ID: deviceID}))
+}
+
+func TestRefreshDevice_ReturnsContextErrorWhileWaitingForInFlightCollection(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceID := models.DeviceIdentifier("test-device-1")
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1},
+		mock.NewMockTelemetryDataStore(ctrl),
+		mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl),
+		storesMocks.NewMockDeviceStore(ctrl),
+		mock.NewMockErrorPoller(ctrl),
+	)
+	service.inFlight.Store(deviceID, struct{}{})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := service.RefreshDevice(ctx, models.Device{ID: deviceID})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context cancelled waiting for in-flight refresh")
 }
 
 // Tests for processStatusOnly failed device recovery
