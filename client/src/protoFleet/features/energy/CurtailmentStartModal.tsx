@@ -202,16 +202,21 @@ function withResponseProfileScope(
   return withWholeFleetScope(values);
 }
 
-function withSelectedResponseProfileValues(
-  values: CurtailmentFormValues,
-  responseProfileValues: CurtailmentResponseProfileOption["values"],
-): CurtailmentFormValues {
-  const hasScopeValues =
+function hasResponseProfileScopeValues(responseProfileValues: CurtailmentResponseProfileOption["values"]): boolean {
+  return (
     "scopeType" in responseProfileValues ||
     "scopeId" in responseProfileValues ||
     "siteId" in responseProfileValues ||
     "deviceSetIds" in responseProfileValues ||
-    "deviceIdentifiers" in responseProfileValues;
+    "deviceIdentifiers" in responseProfileValues
+  );
+}
+
+function withSelectedResponseProfileValues(
+  values: CurtailmentFormValues,
+  responseProfileValues: CurtailmentResponseProfileOption["values"],
+): CurtailmentFormValues {
+  const hasScopeValues = hasResponseProfileScopeValues(responseProfileValues);
   const nextValues = {
     ...values,
     ...responseProfileValues,
@@ -616,10 +621,9 @@ function getCurtailmentConfirmationCopy(
 
 function getApplyToTarget(
   values: CurtailmentFormValues,
-  isEditMode: boolean,
-  selectedMinerCount?: number,
+  shouldUseFormScope: boolean,
 ): ApplyToTarget {
-  if (!isEditMode) {
+  if (!shouldUseFormScope) {
     return {
       label: "Miners",
       value: getTargetButtonLabel(getSelectedMinerIds(values).length, "miner"),
@@ -629,14 +633,7 @@ function getApplyToTarget(
   if (values.scopeType === "site") {
     return {
       label: "Site",
-      value: values.siteId ? `Site ${values.siteId}` : "Site",
-    };
-  }
-
-  if (selectedMinerCount !== undefined) {
-    return {
-      label: "Miners",
-      value: formatCountLabel(selectedMinerCount, "miner"),
+      value: values.scopeId ?? (values.siteId ? `Site ${values.siteId}` : "Site"),
     };
   }
 
@@ -787,7 +784,19 @@ function CurtailmentStartModalContent({
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingPreviewState || hasExternalFormError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
-  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode, previewState.preview?.selectedMinerCount);
+  const selectedResponseProfile =
+    values.responseProfileId === customResponseProfileId
+      ? undefined
+      : responseProfiles.find((profile) => profile.id === values.responseProfileId);
+  const shouldShowSelectedResponseProfileScope =
+    !isResponseProfileVariant &&
+    !isLiveCurtailmentEditMode &&
+    selectedResponseProfile !== undefined &&
+    hasResponseProfileScopeValues(selectedResponseProfile.values);
+  const applyToTarget = getApplyToTarget(
+    values,
+    isLiveCurtailmentEditMode || shouldShowSelectedResponseProfileScope,
+  );
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined

@@ -156,6 +156,22 @@ const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
   },
 ];
 
+const siteResponseProfiles: CurtailmentResponseProfileOption[] = [
+  {
+    id: "austin-shed",
+    label: "Austin site shed",
+    values: {
+      ...responseProfiles[0].values,
+      scopeType: "site",
+      scopeId: "Austin, TX",
+      siteId: "austin-tx",
+      deviceSetIds: [],
+      deviceIdentifiers: [],
+      includeMaintenance: false,
+    },
+  },
+];
+
 const scopeLessResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     ...responseProfiles[1],
@@ -318,7 +334,7 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByText("Standard shed"));
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Whole fleet/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
@@ -335,6 +351,40 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
+  it("shows the selected response profile site scope in create mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: siteResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Austin site shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Austin site shed");
+    expect(screen.getByRole("button", { name: /Site\s+Austin, TX/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail miners in Austin, TX immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "austin-shed",
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteId: "austin-tx",
         deviceSetIds: [],
         deviceIdentifiers: [],
       }),

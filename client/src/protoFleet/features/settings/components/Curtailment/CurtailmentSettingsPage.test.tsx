@@ -1232,6 +1232,29 @@ describe("CurtailmentSettingsPage", () => {
     expect(testConnectionMock).not.toHaveBeenCalled();
   });
 
+  it("clears the saved-password placeholder when saving an edited source requires a password", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockSourcesApi({ sources: apiSources });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
+
+    const passwordInput = screen.getByLabelText("Password");
+    expect(passwordInput).toHaveValue("......");
+
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "updated-alpha" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByText("Enter a password.")).toBeVisible());
+    expect(passwordInput).toHaveValue("");
+    expect(updateSourceMock).not.toHaveBeenCalled();
+  });
+
   it("updates a source through the API hook from the routed page", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     updateSourceMock.mockResolvedValue({ ...apiSources[0], name: "Site Alpha MQTT updated" });

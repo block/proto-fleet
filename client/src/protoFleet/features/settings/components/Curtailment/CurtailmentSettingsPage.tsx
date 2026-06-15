@@ -779,6 +779,9 @@ function SourceModal({
     }
 
     if (!canSave) {
+      if (showSavedPasswordPlaceholder && saveValidationErrors.password) {
+        setPasswordPlaceholderActive(false);
+      }
       setValidationIntent("save");
       return;
     }
@@ -790,7 +793,7 @@ function SourceModal({
     } catch (error) {
       setSaveError(getErrorMessage(error, "Failed to save source."));
     }
-  }, [canSave, isBusy, onDismiss, onSave, values]);
+  }, [canSave, isBusy, onDismiss, onSave, saveValidationErrors, showSavedPasswordPlaceholder, values]);
 
   const handleFormKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
