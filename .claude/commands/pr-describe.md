@@ -26,7 +26,7 @@ describe what the code does, not the decisions made getting there.
       primary flow(s) step by step (who triggers it, what crosses each boundary,
       where state is persisted, what comes back). Assume the reader does not
       know Go/TS idioms; explain workflows and mechanisms, not syntax.
-   3. **Diagrams** — include mermaid diagrams in ```mermaid fenced blocks so
+   3. **Diagrams** — include mermaid diagrams in fenced code blocks labeled `mermaid` so
       they render on GitHub. At minimum a component/flow diagram of the main
       path; add a state or sequence diagram where lifecycle or ordering matters.
       Keep syntax GitHub-safe: quote labels containing special characters, avoid
