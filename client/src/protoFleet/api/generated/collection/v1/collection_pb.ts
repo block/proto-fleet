@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_collection_v1_collection: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5jb2xsZWN0aW9uL3YxL2NvbGxlY3Rpb24ucHJvdG8SDWNvbGxlY3Rpb24udjEi0wIKEERldmljZUNvbGxlY3Rpb24SCgoCaWQYASABKAMSKwoEdHlwZRgCIAEoDjIdLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvblR5cGUSDQoFbGFiZWwYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSFAoMZGV2aWNlX2NvdW50GAUgASgFEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKCXJhY2tfaW5mbxgIIAEoCzIXLmNvbGxlY3Rpb24udjEuUmFja0luZm9IABIuCgpncm91cF9pbmZvGAkgASgLMhguY29sbGVjdGlvbi52MS5Hcm91cEluZm9IAEIOCgx0eXBlX2RldGFpbHMiiAIKCFJhY2tJbmZvEhUKBHJvd3MYASABKAVCB7pIBBoCIAASGAoHY29sdW1ucxgCIAEoBUIHukgEGgIgABIVCgR6b25lGAMgASgJQge6SARyAhhkEjIKC29yZGVyX2luZGV4GAQgASgOMh0uY29sbGVjdGlvbi52MS5SYWNrT3JkZXJJbmRleBI0Cgxjb29saW5nX3R5cGUYBSABKA4yHi5jb2xsZWN0aW9uLnYxLlJhY2tDb29saW5nVHlwZRIUCgdzaXRlX2lkGAYgASgDSACIAQESGAoLYnVpbGRpbmdfaWQYByABKANIAYgBAUIKCghfc2l0ZV9pZEIOCgxfYnVpbGRpbmdfaWQiCwoJR3JvdXBJbmZvIp8BChBDb2xsZWN0aW9uTWVtYmVyEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEiwKCGFkZGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgRyYWNrGAMgASgLMiAuY29sbGVjdGlvbi52MS5SYWNrTWVtYmVyRGV0YWlsc0gAQhAKDm1lbWJlcl9kZXRhaWxzIksKEVJhY2tNZW1iZXJEZXRhaWxzEjYKDXNsb3RfcG9zaXRpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90UG9zaXRpb24iQQoQUmFja1Nsb3RQb3NpdGlvbhIUCgNyb3cYASABKAVCB7pIBBoCKAASFwoGY29sdW1uGAIgASgFQge6SAQaAigAIskCChdDcmVhdGVDb2xsZWN0aW9uUmVxdWVzdBI3CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIKukgHggEEEAEgABIbCgVsYWJlbBgCIAEoCUIMukgJyAEBcgQQARhkEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxj0AxIsCglyYWNrX2luZm8YBCABKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgFIAEoCzIYLmNvbGxlY3Rpb24udjEuR3JvdXBJbmZvSAASNwoPZGV2aWNlX3NlbGVjdG9yGAYgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9ySAGIAQFCDgoMdHlwZV9kZXRhaWxzQhIKEF9kZXZpY2Vfc2VsZWN0b3IiZAoYQ3JlYXRlQ29sbGVjdGlvblJlc3BvbnNlEjMKCmNvbGxlY3Rpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLkRldmljZUNvbGxlY3Rpb24SEwoLYWRkZWRfY291bnQYAiABKAUiNgoUR2V0Q29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgACJMChVHZXRDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiK+AgoXVXBkYXRlQ29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgABIgCgVsYWJlbBgCIAEoCUIMukgJ2AEBcgQQARhkSAGIAQESJQoLZGVzY3JpcHRpb24YAyABKAlCC7pICNgBAXIDGPQDSAKIAQESLAoJcmFja19pbmZvGAQgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrSW5mb0gAEi4KCmdyb3VwX2luZm8YBSABKAsyGC5jb2xsZWN0aW9uLnYxLkdyb3VwSW5mb0gAEjIKD2RldmljZV9zZWxlY3RvchgGIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIOCgx0eXBlX2RldGFpbHNCCAoGX2xhYmVsQg4KDF9kZXNjcmlwdGlvbiJPChhVcGRhdGVDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiI5ChdEZWxldGVDb2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAIhoKGERlbGV0ZUNvbGxlY3Rpb25SZXNwb25zZSLsAQoWTGlzdENvbGxlY3Rpb25zUmVxdWVzdBI1CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIIukgFggECEAESGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkSIwoEc29ydBgEIAEoCzIVLmNvbW1vbi52MS5Tb3J0Q29uZmlnEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgFIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEg0KBXpvbmVzGAYgAygJIn0KF0xpc3RDb2xsZWN0aW9uc1Jlc3BvbnNlEjQKC2NvbGxlY3Rpb25zGAEgAygLMh8uY29sbGVjdGlvbi52MS5EZXZpY2VDb2xsZWN0aW9uEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRITCgt0b3RhbF9jb3VudBgDIAEoBSJ7Ch1BZGREZXZpY2VzVG9Db2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEjoKD2RldmljZV9zZWxlY3RvchgCIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBImsKHkFkZERldmljZXNUb0NvbGxlY3Rpb25SZXNwb25zZRIVCg1jb2xsZWN0aW9uX2lkGAEgASgDEhMKC2FkZGVkX2NvdW50GAIgASgFEh0KFXNpdGVfcmVhc3NpZ25lZF9jb3VudBgDIAEoBSKAAQoiUmVtb3ZlRGV2aWNlc0Zyb21Db2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEjoKD2RldmljZV9zZWxlY3RvchgCIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBIjwKI1JlbW92ZURldmljZXNGcm9tQ29sbGVjdGlvblJlc3BvbnNlEhUKDXJlbW92ZWRfY291bnQYASABKAUibgocTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEhoKCXBhZ2Vfc2l6ZRgCIAEoBUIHukgEGgIoABISCgpwYWdlX3Rva2VuGAMgASgJImoKHUxpc3RDb2xsZWN0aW9uTWVtYmVyc1Jlc3BvbnNlEjAKB21lbWJlcnMYASADKAsyHy5jb2xsZWN0aW9uLnYxLkNvbGxlY3Rpb25NZW1iZXISFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIm4KG0dldERldmljZUNvbGxlY3Rpb25zUmVxdWVzdBIiChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIHukgEcgIQARIrCgR0eXBlGAIgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZSJUChxHZXREZXZpY2VDb2xsZWN0aW9uc1Jlc3BvbnNlEjQKC2NvbGxlY3Rpb25zGAEgAygLMh8uY29sbGVjdGlvbi52MS5EZXZpY2VDb2xsZWN0aW9uIpsBChpTZXRSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABEjkKCHBvc2l0aW9uGAMgASgLMh8uY29sbGVjdGlvbi52MS5SYWNrU2xvdFBvc2l0aW9uQga6SAPIAQEiWwobU2V0UmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlEhUKDWNvbGxlY3Rpb25faWQYASABKAMSJQoEc2xvdBgCIAEoCzIXLmNvbGxlY3Rpb24udjEuUmFja1Nsb3QiYgocQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABIh8KHUNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlIjUKE0dldFJhY2tTbG90c1JlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgACJYCghSYWNrU2xvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCghwb3NpdGlvbhgCIAEoCzIfLmNvbGxlY3Rpb24udjEuUmFja1Nsb3RQb3NpdGlvbiI+ChRHZXRSYWNrU2xvdHNSZXNwb25zZRImCgVzbG90cxgBIAMoCzIXLmNvbGxlY3Rpb24udjEuUmFja1Nsb3Qi7gQKD0NvbGxlY3Rpb25TdGF0cxIVCg1jb2xsZWN0aW9uX2lkGAEgASgDEhQKDGRldmljZV9jb3VudBgCIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYAyABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAQgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgFIAEoARIWCg50b3RhbF9wb3dlcl9rdxgGIAEoARIZChFtaW5fdGVtcGVyYXR1cmVfYxgHIAEoARIZChFtYXhfdGVtcGVyYXR1cmVfYxgIIAEoARIVCg1oYXNoaW5nX2NvdW50GAkgASgFEhQKDGJyb2tlbl9jb3VudBgKIAEoBRIVCg1vZmZsaW5lX2NvdW50GAsgASgFEhYKDnNsZWVwaW5nX2NvdW50GAwgASgFEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgNIAEoBRIiChplZmZpY2llbmN5X3JlcG9ydGluZ19jb3VudBgOIAEoBRIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYDyABKAUSIwobdGVtcGVyYXR1cmVfcmVwb3J0aW5nX2NvdW50GBAgASgFEiEKGWNvbnRyb2xfYm9hcmRfaXNzdWVfY291bnQYESABKAUSFwoPZmFuX2lzc3VlX2NvdW50GBIgASgFEh4KFmhhc2hfYm9hcmRfaXNzdWVfY291bnQYEyABKAUSFwoPcHN1X2lzc3VlX2NvdW50GBQgASgFEjQKDXNsb3Rfc3RhdHVzZXMYFSADKAsyHS5jb2xsZWN0aW9uLnYxLlJhY2tTbG90U3RhdHVzIjMKGUdldENvbGxlY3Rpb25TdGF0c1JlcXVlc3QSFgoOY29sbGVjdGlvbl9pZHMYASADKAMiSwoaR2V0Q29sbGVjdGlvblN0YXRzUmVzcG9uc2USLQoFc3RhdHMYASADKAsyHi5jb2xsZWN0aW9uLnYxLkNvbGxlY3Rpb25TdGF0cyJeCg5SYWNrU2xvdFN0YXR1cxILCgNyb3cYASABKAUSDgoGY29sdW1uGAIgASgFEi8KBnN0YXR1cxgDIAEoDjIfLmNvbGxlY3Rpb24udjEuU2xvdERldmljZVN0YXR1cyIWChRMaXN0UmFja1pvbmVzUmVxdWVzdCImChVMaXN0UmFja1pvbmVzUmVzcG9uc2USDQoFem9uZXMYASADKAkiFgoUTGlzdFJhY2tUeXBlc1JlcXVlc3QiPQoIUmFja1R5cGUSDAoEcm93cxgBIAEoBRIPCgdjb2x1bW5zGAIgASgFEhIKCnJhY2tfY291bnQYAyABKAUiRAoVTGlzdFJhY2tUeXBlc1Jlc3BvbnNlEisKCnJhY2tfdHlwZXMYASADKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tUeXBlIosCCg9TYXZlUmFja1JlcXVlc3QSJgoNY29sbGVjdGlvbl9pZBgBIAEoA0IKukgH2AEBIgIgAEgAiAEBEhsKBWxhYmVsGAIgASgJQgy6SAnIAQFyBBABGGQSMgoJcmFja19pbmZvGAMgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrSW5mb0IGukgDyAEBEjoKD2RldmljZV9zZWxlY3RvchgEIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBEjEKEHNsb3RfYXNzaWdubWVudHMYBSADKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90QhAKDl9jb2xsZWN0aW9uX2lkIn4KEFNhdmVSYWNrUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbhIWCg5hc3NpZ25lZF9jb3VudBgCIAEoBRIdChVzaXRlX3JlYXNzaWduZWRfY291bnQYAyABKAUqZgoOQ29sbGVjdGlvblR5cGUSHwobQ09MTEVDVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASGQoVQ09MTEVDVElPTl9UWVBFX0dST1VQEAESGAoUQ09MTEVDVElPTl9UWVBFX1JBQ0sQAiq2AQoOUmFja09yZGVySW5kZXgSIAocUkFDS19PUkRFUl9JTkRFWF9VTlNQRUNJRklFRBAAEiAKHFJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX0xFRlQQARIdChlSQUNLX09SREVSX0lOREVYX1RPUF9MRUZUEAISIQodUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fUklHSFQQAxIeChpSQUNLX09SREVSX0lOREVYX1RPUF9SSUdIVBAEKnAKD1JhY2tDb29saW5nVHlwZRIhCh1SQUNLX0NPT0xJTkdfVFlQRV9VTlNQRUNJRklFRBAAEhkKFVJBQ0tfQ09PTElOR19UWVBFX0FJUhABEh8KG1JBQ0tfQ09PTElOR19UWVBFX0lNTUVSU0lPThACKt0BChBTbG90RGV2aWNlU3RhdHVzEiIKHlNMT1RfREVWSUNFX1NUQVRVU19VTlNQRUNJRklFRBAAEhwKGFNMT1RfREVWSUNFX1NUQVRVU19FTVBUWRABEh4KGlNMT1RfREVWSUNFX1NUQVRVU19IRUFMVEhZEAISJgoiU0xPVF9ERVZJQ0VfU1RBVFVTX05FRURTX0FUVEVOVElPThADEh4KGlNMT1RfREVWSUNFX1NUQVRVU19PRkZMSU5FEAQSHwobU0xPVF9ERVZJQ0VfU1RBVFVTX1NMRUVQSU5HEAUylA0KF0RldmljZUNvbGxlY3Rpb25TZXJ2aWNlEmMKEENyZWF0ZUNvbGxlY3Rpb24SJi5jb2xsZWN0aW9uLnYxLkNyZWF0ZUNvbGxlY3Rpb25SZXF1ZXN0GicuY29sbGVjdGlvbi52MS5DcmVhdGVDb2xsZWN0aW9uUmVzcG9uc2USWgoNR2V0Q29sbGVjdGlvbhIjLmNvbGxlY3Rpb24udjEuR2V0Q29sbGVjdGlvblJlcXVlc3QaJC5jb2xsZWN0aW9uLnYxLkdldENvbGxlY3Rpb25SZXNwb25zZRJjChBVcGRhdGVDb2xsZWN0aW9uEiYuY29sbGVjdGlvbi52MS5VcGRhdGVDb2xsZWN0aW9uUmVxdWVzdBonLmNvbGxlY3Rpb24udjEuVXBkYXRlQ29sbGVjdGlvblJlc3BvbnNlEmMKEERlbGV0ZUNvbGxlY3Rpb24SJi5jb2xsZWN0aW9uLnYxLkRlbGV0ZUNvbGxlY3Rpb25SZXF1ZXN0GicuY29sbGVjdGlvbi52MS5EZWxldGVDb2xsZWN0aW9uUmVzcG9uc2USYAoPTGlzdENvbGxlY3Rpb25zEiUuY29sbGVjdGlvbi52MS5MaXN0Q29sbGVjdGlvbnNSZXF1ZXN0GiYuY29sbGVjdGlvbi52MS5MaXN0Q29sbGVjdGlvbnNSZXNwb25zZRJ1ChZBZGREZXZpY2VzVG9Db2xsZWN0aW9uEiwuY29sbGVjdGlvbi52MS5BZGREZXZpY2VzVG9Db2xsZWN0aW9uUmVxdWVzdBotLmNvbGxlY3Rpb24udjEuQWRkRGV2aWNlc1RvQ29sbGVjdGlvblJlc3BvbnNlEoQBChtSZW1vdmVEZXZpY2VzRnJvbUNvbGxlY3Rpb24SMS5jb2xsZWN0aW9uLnYxLlJlbW92ZURldmljZXNGcm9tQ29sbGVjdGlvblJlcXVlc3QaMi5jb2xsZWN0aW9uLnYxLlJlbW92ZURldmljZXNGcm9tQ29sbGVjdGlvblJlc3BvbnNlEnIKFUxpc3RDb2xsZWN0aW9uTWVtYmVycxIrLmNvbGxlY3Rpb24udjEuTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVxdWVzdBosLmNvbGxlY3Rpb24udjEuTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVzcG9uc2USbwoUR2V0RGV2aWNlQ29sbGVjdGlvbnMSKi5jb2xsZWN0aW9uLnYxLkdldERldmljZUNvbGxlY3Rpb25zUmVxdWVzdBorLmNvbGxlY3Rpb24udjEuR2V0RGV2aWNlQ29sbGVjdGlvbnNSZXNwb25zZRJsChNTZXRSYWNrU2xvdFBvc2l0aW9uEikuY29sbGVjdGlvbi52MS5TZXRSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBoqLmNvbGxlY3Rpb24udjEuU2V0UmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlEnIKFUNsZWFyUmFja1Nsb3RQb3NpdGlvbhIrLmNvbGxlY3Rpb24udjEuQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBosLmNvbGxlY3Rpb24udjEuQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2USVwoMR2V0UmFja1Nsb3RzEiIuY29sbGVjdGlvbi52MS5HZXRSYWNrU2xvdHNSZXF1ZXN0GiMuY29sbGVjdGlvbi52MS5HZXRSYWNrU2xvdHNSZXNwb25zZRJpChJHZXRDb2xsZWN0aW9uU3RhdHMSKC5jb2xsZWN0aW9uLnYxLkdldENvbGxlY3Rpb25TdGF0c1JlcXVlc3QaKS5jb2xsZWN0aW9uLnYxLkdldENvbGxlY3Rpb25TdGF0c1Jlc3BvbnNlEloKDUxpc3RSYWNrWm9uZXMSIy5jb2xsZWN0aW9uLnYxLkxpc3RSYWNrWm9uZXNSZXF1ZXN0GiQuY29sbGVjdGlvbi52MS5MaXN0UmFja1pvbmVzUmVzcG9uc2USWgoNTGlzdFJhY2tUeXBlcxIjLmNvbGxlY3Rpb24udjEuTGlzdFJhY2tUeXBlc1JlcXVlc3QaJC5jb2xsZWN0aW9uLnYxLkxpc3RSYWNrVHlwZXNSZXNwb25zZRJLCghTYXZlUmFjaxIeLmNvbGxlY3Rpb24udjEuU2F2ZVJhY2tSZXF1ZXN0Gh8uY29sbGVjdGlvbi52MS5TYXZlUmFja1Jlc3BvbnNlQsgBChFjb20uY29sbGVjdGlvbi52MUIPQ29sbGVjdGlvblByb3RvUAFaTWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbGxlY3Rpb24vdjE7Y29sbGVjdGlvbnYxogIDQ1hYqgINQ29sbGVjdGlvbi5WMcoCDUNvbGxlY3Rpb25cVjHiAhlDb2xsZWN0aW9uXFYxXEdQQk1ldGFkYXRh6gIOQ29sbGVjdGlvbjo6VjFiBnByb3RvMw",
+    "Ch5jb2xsZWN0aW9uL3YxL2NvbGxlY3Rpb24ucHJvdG8SDWNvbGxlY3Rpb24udjEi0wIKEERldmljZUNvbGxlY3Rpb24SCgoCaWQYASABKAMSKwoEdHlwZRgCIAEoDjIdLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvblR5cGUSDQoFbGFiZWwYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSFAoMZGV2aWNlX2NvdW50GAUgASgFEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKCXJhY2tfaW5mbxgIIAEoCzIXLmNvbGxlY3Rpb24udjEuUmFja0luZm9IABIuCgpncm91cF9pbmZvGAkgASgLMhguY29sbGVjdGlvbi52MS5Hcm91cEluZm9IAEIOCgx0eXBlX2RldGFpbHMiiAIKCFJhY2tJbmZvEhUKBHJvd3MYASABKAVCB7pIBBoCIAASGAoHY29sdW1ucxgCIAEoBUIHukgEGgIgABIVCgR6b25lGAMgASgJQge6SARyAhhkEjIKC29yZGVyX2luZGV4GAQgASgOMh0uY29sbGVjdGlvbi52MS5SYWNrT3JkZXJJbmRleBI0Cgxjb29saW5nX3R5cGUYBSABKA4yHi5jb2xsZWN0aW9uLnYxLlJhY2tDb29saW5nVHlwZRIUCgdzaXRlX2lkGAYgASgDSACIAQESGAoLYnVpbGRpbmdfaWQYByABKANIAYgBAUIKCghfc2l0ZV9pZEIOCgxfYnVpbGRpbmdfaWQiCwoJR3JvdXBJbmZvIp8BChBDb2xsZWN0aW9uTWVtYmVyEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEiwKCGFkZGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgRyYWNrGAMgASgLMiAuY29sbGVjdGlvbi52MS5SYWNrTWVtYmVyRGV0YWlsc0gAQhAKDm1lbWJlcl9kZXRhaWxzIksKEVJhY2tNZW1iZXJEZXRhaWxzEjYKDXNsb3RfcG9zaXRpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90UG9zaXRpb24iQQoQUmFja1Nsb3RQb3NpdGlvbhIUCgNyb3cYASABKAVCB7pIBBoCKAASFwoGY29sdW1uGAIgASgFQge6SAQaAigAIskCChdDcmVhdGVDb2xsZWN0aW9uUmVxdWVzdBI3CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIKukgHggEEEAEgABIbCgVsYWJlbBgCIAEoCUIMukgJyAEBcgQQARhkEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxj0AxIsCglyYWNrX2luZm8YBCABKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgFIAEoCzIYLmNvbGxlY3Rpb24udjEuR3JvdXBJbmZvSAASNwoPZGV2aWNlX3NlbGVjdG9yGAYgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9ySAGIAQFCDgoMdHlwZV9kZXRhaWxzQhIKEF9kZXZpY2Vfc2VsZWN0b3IiZAoYQ3JlYXRlQ29sbGVjdGlvblJlc3BvbnNlEjMKCmNvbGxlY3Rpb24YASABKAsyHy5jb2xsZWN0aW9uLnYxLkRldmljZUNvbGxlY3Rpb24SEwoLYWRkZWRfY291bnQYAiABKAUiNgoUR2V0Q29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgACJMChVHZXRDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiK+AgoXVXBkYXRlQ29sbGVjdGlvblJlcXVlc3QSHgoNY29sbGVjdGlvbl9pZBgBIAEoA0IHukgEIgIgABIgCgVsYWJlbBgCIAEoCUIMukgJ2AEBcgQQARhkSAGIAQESJQoLZGVzY3JpcHRpb24YAyABKAlCC7pICNgBAXIDGPQDSAKIAQESLAoJcmFja19pbmZvGAQgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrSW5mb0gAEi4KCmdyb3VwX2luZm8YBSABKAsyGC5jb2xsZWN0aW9uLnYxLkdyb3VwSW5mb0gAEjIKD2RldmljZV9zZWxlY3RvchgGIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIOCgx0eXBlX2RldGFpbHNCCAoGX2xhYmVsQg4KDF9kZXNjcmlwdGlvbiJPChhVcGRhdGVDb2xsZWN0aW9uUmVzcG9uc2USMwoKY29sbGVjdGlvbhgBIAEoCzIfLmNvbGxlY3Rpb24udjEuRGV2aWNlQ29sbGVjdGlvbiI5ChdEZWxldGVDb2xsZWN0aW9uUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAIhoKGERlbGV0ZUNvbGxlY3Rpb25SZXNwb25zZSLsAQoWTGlzdENvbGxlY3Rpb25zUmVxdWVzdBI1CgR0eXBlGAEgASgOMh0uY29sbGVjdGlvbi52MS5Db2xsZWN0aW9uVHlwZUIIukgFggECEAESGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkSIwoEc29ydBgEIAEoCzIVLmNvbW1vbi52MS5Tb3J0Q29uZmlnEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgFIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEg0KBXpvbmVzGAYgAygJIn0KF0xpc3RDb2xsZWN0aW9uc1Jlc3BvbnNlEjQKC2NvbGxlY3Rpb25zGAEgAygLMh8uY29sbGVjdGlvbi52MS5EZXZpY2VDb2xsZWN0aW9uEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRITCgt0b3RhbF9jb3VudBgDIAEoBSJuChxMaXN0Q29sbGVjdGlvbk1lbWJlcnNSZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkiagodTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVzcG9uc2USMAoHbWVtYmVycxgBIAMoCzIfLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvbk1lbWJlchIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkibgobR2V0RGV2aWNlQ29sbGVjdGlvbnNSZXF1ZXN0EiIKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQge6SARyAhABEisKBHR5cGUYAiABKA4yHS5jb2xsZWN0aW9uLnYxLkNvbGxlY3Rpb25UeXBlIlQKHEdldERldmljZUNvbGxlY3Rpb25zUmVzcG9uc2USNAoLY29sbGVjdGlvbnMYASADKAsyHy5jb2xsZWN0aW9uLnYxLkRldmljZUNvbGxlY3Rpb24imwEKGlNldFJhY2tTbG90UG9zaXRpb25SZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASIgoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAlCB7pIBHICEAESOQoIcG9zaXRpb24YAyABKAsyHy5jb2xsZWN0aW9uLnYxLlJhY2tTbG90UG9zaXRpb25CBrpIA8gBASJbChtTZXRSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2USFQoNY29sbGVjdGlvbl9pZBgBIAEoAxIlCgRzbG90GAIgASgLMhcuY29sbGVjdGlvbi52MS5SYWNrU2xvdCJiChxDbGVhclJhY2tTbG90UG9zaXRpb25SZXF1ZXN0Eh4KDWNvbGxlY3Rpb25faWQYASABKANCB7pIBCICIAASIgoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAlCB7pIBHICEAEiHwodQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2UiNQoTR2V0UmFja1Nsb3RzUmVxdWVzdBIeCg1jb2xsZWN0aW9uX2lkGAEgASgDQge6SAQiAiAAIlgKCFJhY2tTbG90EhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEjEKCHBvc2l0aW9uGAIgASgLMh8uY29sbGVjdGlvbi52MS5SYWNrU2xvdFBvc2l0aW9uIj4KFEdldFJhY2tTbG90c1Jlc3BvbnNlEiYKBXNsb3RzGAEgAygLMhcuY29sbGVjdGlvbi52MS5SYWNrU2xvdCLuBAoPQ29sbGVjdGlvblN0YXRzEhUKDWNvbGxlY3Rpb25faWQYASABKAMSFAoMZGV2aWNlX2NvdW50GAIgASgFEhcKD3JlcG9ydGluZ19jb3VudBgDIAEoBRIaChJ0b3RhbF9oYXNocmF0ZV90aHMYBCABKAESGgoSYXZnX2VmZmljaWVuY3lfanRoGAUgASgBEhYKDnRvdGFsX3Bvd2VyX2t3GAYgASgBEhkKEW1pbl90ZW1wZXJhdHVyZV9jGAcgASgBEhkKEW1heF90ZW1wZXJhdHVyZV9jGAggASgBEhUKDWhhc2hpbmdfY291bnQYCSABKAUSFAoMYnJva2VuX2NvdW50GAogASgFEhUKDW9mZmxpbmVfY291bnQYCyABKAUSFgoOc2xlZXBpbmdfY291bnQYDCABKAUSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA0gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA4gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgPIAEoBRIjCht0ZW1wZXJhdHVyZV9yZXBvcnRpbmdfY291bnQYECABKAUSIQoZY29udHJvbF9ib2FyZF9pc3N1ZV9jb3VudBgRIAEoBRIXCg9mYW5faXNzdWVfY291bnQYEiABKAUSHgoWaGFzaF9ib2FyZF9pc3N1ZV9jb3VudBgTIAEoBRIXCg9wc3VfaXNzdWVfY291bnQYFCABKAUSNAoNc2xvdF9zdGF0dXNlcxgVIAMoCzIdLmNvbGxlY3Rpb24udjEuUmFja1Nsb3RTdGF0dXMiMwoZR2V0Q29sbGVjdGlvblN0YXRzUmVxdWVzdBIWCg5jb2xsZWN0aW9uX2lkcxgBIAMoAyJLChpHZXRDb2xsZWN0aW9uU3RhdHNSZXNwb25zZRItCgVzdGF0cxgBIAMoCzIeLmNvbGxlY3Rpb24udjEuQ29sbGVjdGlvblN0YXRzIl4KDlJhY2tTbG90U3RhdHVzEgsKA3JvdxgBIAEoBRIOCgZjb2x1bW4YAiABKAUSLwoGc3RhdHVzGAMgASgOMh8uY29sbGVjdGlvbi52MS5TbG90RGV2aWNlU3RhdHVzIhYKFExpc3RSYWNrWm9uZXNSZXF1ZXN0IiYKFUxpc3RSYWNrWm9uZXNSZXNwb25zZRINCgV6b25lcxgBIAMoCSIWChRMaXN0UmFja1R5cGVzUmVxdWVzdCI9CghSYWNrVHlwZRIMCgRyb3dzGAEgASgFEg8KB2NvbHVtbnMYAiABKAUSEgoKcmFja19jb3VudBgDIAEoBSJEChVMaXN0UmFja1R5cGVzUmVzcG9uc2USKwoKcmFja190eXBlcxgBIAMoCzIXLmNvbGxlY3Rpb24udjEuUmFja1R5cGUiiwIKD1NhdmVSYWNrUmVxdWVzdBImCg1jb2xsZWN0aW9uX2lkGAEgASgDQgq6SAfYAQEiAiAASACIAQESGwoFbGFiZWwYAiABKAlCDLpICcgBAXIEEAEYZBIyCglyYWNrX2luZm8YAyABKAsyFy5jb2xsZWN0aW9uLnYxLlJhY2tJbmZvQga6SAPIAQESOgoPZGV2aWNlX3NlbGVjdG9yGAQgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQESMQoQc2xvdF9hc3NpZ25tZW50cxgFIAMoCzIXLmNvbGxlY3Rpb24udjEuUmFja1Nsb3RCEAoOX2NvbGxlY3Rpb25faWQifgoQU2F2ZVJhY2tSZXNwb25zZRIzCgpjb2xsZWN0aW9uGAEgASgLMh8uY29sbGVjdGlvbi52MS5EZXZpY2VDb2xsZWN0aW9uEhYKDmFzc2lnbmVkX2NvdW50GAIgASgFEh0KFXNpdGVfcmVhc3NpZ25lZF9jb3VudBgDIAEoBSpmCg5Db2xsZWN0aW9uVHlwZRIfChtDT0xMRUNUSU9OX1RZUEVfVU5TUEVDSUZJRUQQABIZChVDT0xMRUNUSU9OX1RZUEVfR1JPVVAQARIYChRDT0xMRUNUSU9OX1RZUEVfUkFDSxACKrYBCg5SYWNrT3JkZXJJbmRleBIgChxSQUNLX09SREVSX0lOREVYX1VOU1BFQ0lGSUVEEAASIAocUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fTEVGVBABEh0KGVJBQ0tfT1JERVJfSU5ERVhfVE9QX0xFRlQQAhIhCh1SQUNLX09SREVSX0lOREVYX0JPVFRPTV9SSUdIVBADEh4KGlJBQ0tfT1JERVJfSU5ERVhfVE9QX1JJR0hUEAQqcAoPUmFja0Nvb2xpbmdUeXBlEiEKHVJBQ0tfQ09PTElOR19UWVBFX1VOU1BFQ0lGSUVEEAASGQoVUkFDS19DT09MSU5HX1RZUEVfQUlSEAESHwobUkFDS19DT09MSU5HX1RZUEVfSU1NRVJTSU9OEAIq3QEKEFNsb3REZXZpY2VTdGF0dXMSIgoeU0xPVF9ERVZJQ0VfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYU0xPVF9ERVZJQ0VfU1RBVFVTX0VNUFRZEAESHgoaU0xPVF9ERVZJQ0VfU1RBVFVTX0hFQUxUSFkQAhImCiJTTE9UX0RFVklDRV9TVEFUVVNfTkVFRFNfQVRURU5USU9OEAMSHgoaU0xPVF9ERVZJQ0VfU1RBVFVTX09GRkxJTkUQBBIfChtTTE9UX0RFVklDRV9TVEFUVVNfU0xFRVBJTkcQBTKWCwoXRGV2aWNlQ29sbGVjdGlvblNlcnZpY2USYwoQQ3JlYXRlQ29sbGVjdGlvbhImLmNvbGxlY3Rpb24udjEuQ3JlYXRlQ29sbGVjdGlvblJlcXVlc3QaJy5jb2xsZWN0aW9uLnYxLkNyZWF0ZUNvbGxlY3Rpb25SZXNwb25zZRJaCg1HZXRDb2xsZWN0aW9uEiMuY29sbGVjdGlvbi52MS5HZXRDb2xsZWN0aW9uUmVxdWVzdBokLmNvbGxlY3Rpb24udjEuR2V0Q29sbGVjdGlvblJlc3BvbnNlEmMKEFVwZGF0ZUNvbGxlY3Rpb24SJi5jb2xsZWN0aW9uLnYxLlVwZGF0ZUNvbGxlY3Rpb25SZXF1ZXN0GicuY29sbGVjdGlvbi52MS5VcGRhdGVDb2xsZWN0aW9uUmVzcG9uc2USYwoQRGVsZXRlQ29sbGVjdGlvbhImLmNvbGxlY3Rpb24udjEuRGVsZXRlQ29sbGVjdGlvblJlcXVlc3QaJy5jb2xsZWN0aW9uLnYxLkRlbGV0ZUNvbGxlY3Rpb25SZXNwb25zZRJgCg9MaXN0Q29sbGVjdGlvbnMSJS5jb2xsZWN0aW9uLnYxLkxpc3RDb2xsZWN0aW9uc1JlcXVlc3QaJi5jb2xsZWN0aW9uLnYxLkxpc3RDb2xsZWN0aW9uc1Jlc3BvbnNlEnIKFUxpc3RDb2xsZWN0aW9uTWVtYmVycxIrLmNvbGxlY3Rpb24udjEuTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVxdWVzdBosLmNvbGxlY3Rpb24udjEuTGlzdENvbGxlY3Rpb25NZW1iZXJzUmVzcG9uc2USbwoUR2V0RGV2aWNlQ29sbGVjdGlvbnMSKi5jb2xsZWN0aW9uLnYxLkdldERldmljZUNvbGxlY3Rpb25zUmVxdWVzdBorLmNvbGxlY3Rpb24udjEuR2V0RGV2aWNlQ29sbGVjdGlvbnNSZXNwb25zZRJsChNTZXRSYWNrU2xvdFBvc2l0aW9uEikuY29sbGVjdGlvbi52MS5TZXRSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBoqLmNvbGxlY3Rpb24udjEuU2V0UmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlEnIKFUNsZWFyUmFja1Nsb3RQb3NpdGlvbhIrLmNvbGxlY3Rpb24udjEuQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBosLmNvbGxlY3Rpb24udjEuQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVzcG9uc2USVwoMR2V0UmFja1Nsb3RzEiIuY29sbGVjdGlvbi52MS5HZXRSYWNrU2xvdHNSZXF1ZXN0GiMuY29sbGVjdGlvbi52MS5HZXRSYWNrU2xvdHNSZXNwb25zZRJpChJHZXRDb2xsZWN0aW9uU3RhdHMSKC5jb2xsZWN0aW9uLnYxLkdldENvbGxlY3Rpb25TdGF0c1JlcXVlc3QaKS5jb2xsZWN0aW9uLnYxLkdldENvbGxlY3Rpb25TdGF0c1Jlc3BvbnNlEloKDUxpc3RSYWNrWm9uZXMSIy5jb2xsZWN0aW9uLnYxLkxpc3RSYWNrWm9uZXNSZXF1ZXN0GiQuY29sbGVjdGlvbi52MS5MaXN0UmFja1pvbmVzUmVzcG9uc2USWgoNTGlzdFJhY2tUeXBlcxIjLmNvbGxlY3Rpb24udjEuTGlzdFJhY2tUeXBlc1JlcXVlc3QaJC5jb2xsZWN0aW9uLnYxLkxpc3RSYWNrVHlwZXNSZXNwb25zZRJLCghTYXZlUmFjaxIeLmNvbGxlY3Rpb24udjEuU2F2ZVJhY2tSZXF1ZXN0Gh8uY29sbGVjdGlvbi52MS5TYXZlUmFja1Jlc3BvbnNlQsgBChFjb20uY29sbGVjdGlvbi52MUIPQ29sbGVjdGlvblByb3RvUAFaTWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbGxlY3Rpb24vdjE7Y29sbGVjdGlvbnYxogIDQ1hYqgINQ29sbGVjdGlvbi5WMcoCDUNvbGxlY3Rpb25cVjHiAhlDb2xsZWN0aW9uXFYxXEdQQk1ldGFkYXRh6gIOQ29sbGVjdGlvbjo6VjFiBnByb3RvMw",
     [
       file_google_protobuf_timestamp,
       file_buf_validate_validate,
@@ -661,127 +661,6 @@ export const ListCollectionsResponseSchema: GenMessage<ListCollectionsResponse> 
   messageDesc(file_collection_v1_collection, 15);
 
 /**
- * Request to add devices to a collection.
- *
- * When the target is a site-stamped rack, the server rewrites
- * device.site_id to match the rack for every added device. The affected
- * count is returned in site_reassigned_count. Groups are exempt.
- *
- * @generated from message collection.v1.AddDevicesToCollectionRequest
- */
-export type AddDevicesToCollectionRequest = Message<"collection.v1.AddDevicesToCollectionRequest"> & {
-  /**
-   * ID of the collection to add devices to
-   *
-   * @generated from field: int64 collection_id = 1;
-   */
-  collectionId: bigint;
-
-  /**
-   * Devices to add: specific list or all paired devices
-   *
-   * @generated from field: common.v1.DeviceSelector device_selector = 2;
-   */
-  deviceSelector?: DeviceSelector | undefined;
-};
-
-/**
- * Describes the message collection.v1.AddDevicesToCollectionRequest.
- * Use `create(AddDevicesToCollectionRequestSchema)` to create a new message.
- */
-export const AddDevicesToCollectionRequestSchema: GenMessage<AddDevicesToCollectionRequest> =
-  /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 16);
-
-/**
- * Response after adding devices to a collection
- *
- * @generated from message collection.v1.AddDevicesToCollectionResponse
- */
-export type AddDevicesToCollectionResponse = Message<"collection.v1.AddDevicesToCollectionResponse"> & {
-  /**
-   * ID of the collection devices were added to
-   *
-   * @generated from field: int64 collection_id = 1;
-   */
-  collectionId: bigint;
-
-  /**
-   * Number of devices successfully added
-   * May be less than requested if some devices were already members
-   *
-   * @generated from field: int32 added_count = 2;
-   */
-  addedCount: number;
-
-  /**
-   * Number of devices whose site_id was rewritten by the cascade.
-   *
-   * @generated from field: int32 site_reassigned_count = 3;
-   */
-  siteReassignedCount: number;
-};
-
-/**
- * Describes the message collection.v1.AddDevicesToCollectionResponse.
- * Use `create(AddDevicesToCollectionResponseSchema)` to create a new message.
- */
-export const AddDevicesToCollectionResponseSchema: GenMessage<AddDevicesToCollectionResponse> =
-  /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 17);
-
-/**
- * Request to remove devices from a collection
- *
- * @generated from message collection.v1.RemoveDevicesFromCollectionRequest
- */
-export type RemoveDevicesFromCollectionRequest = Message<"collection.v1.RemoveDevicesFromCollectionRequest"> & {
-  /**
-   * ID of the collection to remove devices from
-   *
-   * @generated from field: int64 collection_id = 1;
-   */
-  collectionId: bigint;
-
-  /**
-   * Devices to remove: specific list or all paired devices
-   *
-   * @generated from field: common.v1.DeviceSelector device_selector = 2;
-   */
-  deviceSelector?: DeviceSelector | undefined;
-};
-
-/**
- * Describes the message collection.v1.RemoveDevicesFromCollectionRequest.
- * Use `create(RemoveDevicesFromCollectionRequestSchema)` to create a new message.
- */
-export const RemoveDevicesFromCollectionRequestSchema: GenMessage<RemoveDevicesFromCollectionRequest> =
-  /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 18);
-
-/**
- * Response after removing devices from a collection
- *
- * @generated from message collection.v1.RemoveDevicesFromCollectionResponse
- */
-export type RemoveDevicesFromCollectionResponse = Message<"collection.v1.RemoveDevicesFromCollectionResponse"> & {
-  /**
-   * Number of devices successfully removed
-   *
-   * @generated from field: int32 removed_count = 1;
-   */
-  removedCount: number;
-};
-
-/**
- * Describes the message collection.v1.RemoveDevicesFromCollectionResponse.
- * Use `create(RemoveDevicesFromCollectionResponseSchema)` to create a new message.
- */
-export const RemoveDevicesFromCollectionResponseSchema: GenMessage<RemoveDevicesFromCollectionResponse> =
-  /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 19);
-
-/**
  * Request to list members of a collection
  *
  * @generated from message collection.v1.ListCollectionMembersRequest
@@ -815,7 +694,7 @@ export type ListCollectionMembersRequest = Message<"collection.v1.ListCollection
  */
 export const ListCollectionMembersRequestSchema: GenMessage<ListCollectionMembersRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 20);
+  messageDesc(file_collection_v1_collection, 16);
 
 /**
  * Response containing collection members
@@ -844,7 +723,7 @@ export type ListCollectionMembersResponse = Message<"collection.v1.ListCollectio
  */
 export const ListCollectionMembersResponseSchema: GenMessage<ListCollectionMembersResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 21);
+  messageDesc(file_collection_v1_collection, 17);
 
 /**
  * Request to get collections for a device
@@ -873,7 +752,7 @@ export type GetDeviceCollectionsRequest = Message<"collection.v1.GetDeviceCollec
  */
 export const GetDeviceCollectionsRequestSchema: GenMessage<GetDeviceCollectionsRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 22);
+  messageDesc(file_collection_v1_collection, 18);
 
 /**
  * Response containing collections the device belongs to
@@ -895,7 +774,7 @@ export type GetDeviceCollectionsResponse = Message<"collection.v1.GetDeviceColle
  */
 export const GetDeviceCollectionsResponseSchema: GenMessage<GetDeviceCollectionsResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 23);
+  messageDesc(file_collection_v1_collection, 19);
 
 /**
  * Request to set a device's slot position within a rack
@@ -931,7 +810,7 @@ export type SetRackSlotPositionRequest = Message<"collection.v1.SetRackSlotPosit
  */
 export const SetRackSlotPositionRequestSchema: GenMessage<SetRackSlotPositionRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 24);
+  messageDesc(file_collection_v1_collection, 20);
 
 /**
  * Response after setting a rack slot position
@@ -960,7 +839,7 @@ export type SetRackSlotPositionResponse = Message<"collection.v1.SetRackSlotPosi
  */
 export const SetRackSlotPositionResponseSchema: GenMessage<SetRackSlotPositionResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 25);
+  messageDesc(file_collection_v1_collection, 21);
 
 /**
  * Request to clear a device's slot position within a rack
@@ -989,7 +868,7 @@ export type ClearRackSlotPositionRequest = Message<"collection.v1.ClearRackSlotP
  */
 export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositionRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 26);
+  messageDesc(file_collection_v1_collection, 22);
 
 /**
  * Response after clearing a rack slot position
@@ -1004,7 +883,7 @@ export type ClearRackSlotPositionResponse = Message<"collection.v1.ClearRackSlot
  */
 export const ClearRackSlotPositionResponseSchema: GenMessage<ClearRackSlotPositionResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 27);
+  messageDesc(file_collection_v1_collection, 23);
 
 /**
  * Request to list all occupied slots in a rack
@@ -1026,7 +905,7 @@ export type GetRackSlotsRequest = Message<"collection.v1.GetRackSlotsRequest"> &
  */
 export const GetRackSlotsRequestSchema: GenMessage<GetRackSlotsRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 28);
+  messageDesc(file_collection_v1_collection, 24);
 
 /**
  * Represents a device assigned to a specific slot in a rack
@@ -1053,7 +932,7 @@ export type RackSlot = Message<"collection.v1.RackSlot"> & {
  * Describes the message collection.v1.RackSlot.
  * Use `create(RackSlotSchema)` to create a new message.
  */
-export const RackSlotSchema: GenMessage<RackSlot> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 29);
+export const RackSlotSchema: GenMessage<RackSlot> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 25);
 
 /**
  * Response containing all occupied rack slots
@@ -1075,7 +954,7 @@ export type GetRackSlotsResponse = Message<"collection.v1.GetRackSlotsResponse">
  */
 export const GetRackSlotsResponseSchema: GenMessage<GetRackSlotsResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 30);
+  messageDesc(file_collection_v1_collection, 26);
 
 /**
  * Aggregated telemetry stats for a single collection
@@ -1220,7 +1099,7 @@ export type CollectionStats = Message<"collection.v1.CollectionStats"> & {
  */
 export const CollectionStatsSchema: GenMessage<CollectionStats> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 31);
+  messageDesc(file_collection_v1_collection, 27);
 
 /**
  * Request to get aggregated stats for collections
@@ -1242,7 +1121,7 @@ export type GetCollectionStatsRequest = Message<"collection.v1.GetCollectionStat
  */
 export const GetCollectionStatsRequestSchema: GenMessage<GetCollectionStatsRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 32);
+  messageDesc(file_collection_v1_collection, 28);
 
 /**
  * Response containing stats for each requested collection
@@ -1264,7 +1143,7 @@ export type GetCollectionStatsResponse = Message<"collection.v1.GetCollectionSta
  */
 export const GetCollectionStatsResponseSchema: GenMessage<GetCollectionStatsResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 33);
+  messageDesc(file_collection_v1_collection, 29);
 
 /**
  * Status of a single slot in a rack grid
@@ -1300,7 +1179,7 @@ export type RackSlotStatus = Message<"collection.v1.RackSlotStatus"> & {
  */
 export const RackSlotStatusSchema: GenMessage<RackSlotStatus> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 34);
+  messageDesc(file_collection_v1_collection, 30);
 
 /**
  * Request to list all distinct rack zones for the organization
@@ -1315,7 +1194,7 @@ export type ListRackZonesRequest = Message<"collection.v1.ListRackZonesRequest">
  */
 export const ListRackZonesRequestSchema: GenMessage<ListRackZonesRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 35);
+  messageDesc(file_collection_v1_collection, 31);
 
 /**
  * Response containing all distinct rack zones
@@ -1337,7 +1216,7 @@ export type ListRackZonesResponse = Message<"collection.v1.ListRackZonesResponse
  */
 export const ListRackZonesResponseSchema: GenMessage<ListRackZonesResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 36);
+  messageDesc(file_collection_v1_collection, 32);
 
 /**
  * Request to list all distinct rack types for the organization
@@ -1352,7 +1231,7 @@ export type ListRackTypesRequest = Message<"collection.v1.ListRackTypesRequest">
  */
 export const ListRackTypesRequestSchema: GenMessage<ListRackTypesRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 37);
+  messageDesc(file_collection_v1_collection, 33);
 
 /**
  * A rack type defined by its row/column dimensions and how many racks use it
@@ -1386,7 +1265,7 @@ export type RackType = Message<"collection.v1.RackType"> & {
  * Describes the message collection.v1.RackType.
  * Use `create(RackTypeSchema)` to create a new message.
  */
-export const RackTypeSchema: GenMessage<RackType> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 38);
+export const RackTypeSchema: GenMessage<RackType> = /*@__PURE__*/ messageDesc(file_collection_v1_collection, 34);
 
 /**
  * Response containing all distinct rack types
@@ -1408,7 +1287,7 @@ export type ListRackTypesResponse = Message<"collection.v1.ListRackTypesResponse
  */
 export const ListRackTypesResponseSchema: GenMessage<ListRackTypesResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 39);
+  messageDesc(file_collection_v1_collection, 35);
 
 /**
  * Request to atomically create or update a rack with membership and slot assignments.
@@ -1465,7 +1344,7 @@ export type SaveRackRequest = Message<"collection.v1.SaveRackRequest"> & {
  */
 export const SaveRackRequestSchema: GenMessage<SaveRackRequest> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 40);
+  messageDesc(file_collection_v1_collection, 36);
 
 /**
  * Response after saving a rack.
@@ -1501,7 +1380,7 @@ export type SaveRackResponse = Message<"collection.v1.SaveRackResponse"> & {
  */
 export const SaveRackResponseSchema: GenMessage<SaveRackResponse> =
   /*@__PURE__*/
-  messageDesc(file_collection_v1_collection, 41);
+  messageDesc(file_collection_v1_collection, 37);
 
 /**
  * Type of collection
@@ -1701,26 +1580,6 @@ export const DeviceCollectionService: GenService<{
     methodKind: "unary";
     input: typeof ListCollectionsRequestSchema;
     output: typeof ListCollectionsResponseSchema;
-  };
-  /**
-   * Adds devices to a collection
-   *
-   * @generated from rpc collection.v1.DeviceCollectionService.AddDevicesToCollection
-   */
-  addDevicesToCollection: {
-    methodKind: "unary";
-    input: typeof AddDevicesToCollectionRequestSchema;
-    output: typeof AddDevicesToCollectionResponseSchema;
-  };
-  /**
-   * Removes devices from a collection
-   *
-   * @generated from rpc collection.v1.DeviceCollectionService.RemoveDevicesFromCollection
-   */
-  removeDevicesFromCollection: {
-    methodKind: "unary";
-    input: typeof RemoveDevicesFromCollectionRequestSchema;
-    output: typeof RemoveDevicesFromCollectionResponseSchema;
   };
   /**
    * Lists members of a collection

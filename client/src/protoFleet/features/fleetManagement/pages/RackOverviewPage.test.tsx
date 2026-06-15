@@ -119,7 +119,7 @@ function mockResolvedRackPageData(deviceSet = rack): void {
   mockUseDeviceSets.mockReturnValue({
     getDeviceSet: ({ onSuccess }: { onSuccess: (resolvedDeviceSet: typeof rack) => void }) => onSuccess(deviceSet),
     listGroupMembers: ({ onSuccess }: { onSuccess: (deviceIds: string[]) => void }) => onSuccess([]),
-    addDevicesToDeviceSet: vi.fn(),
+    assignDevicesToRack: vi.fn(),
     setRackSlotPosition: vi.fn(),
     deleteGroup: vi.fn(),
   });

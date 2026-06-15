@@ -12,6 +12,7 @@ import (
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	models "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -42,7 +43,8 @@ type PoolCreator interface {
 // collection service (with validation, transactions, and activity logging).
 type CollectionManager interface {
 	CreateCollection(ctx context.Context, req *collectionpb.CreateCollectionRequest) (*collectionpb.CreateCollectionResponse, error)
-	AddDevicesToCollection(ctx context.Context, req *collectionpb.AddDevicesToCollectionRequest) (*collectionpb.AddDevicesToCollectionResponse, error)
+	AddDevicesToGroup(ctx context.Context, params collection.AddDevicesToGroupParams) (*collection.AddDevicesToGroupResult, error)
+	AssignDevicesToRack(ctx context.Context, params collection.AssignDevicesToRackParams) (*collection.AssignDevicesToRackResult, error)
 	ListCollections(ctx context.Context, req *collectionpb.ListCollectionsRequest) (*collectionpb.ListCollectionsResponse, error)
 }
 
@@ -77,7 +79,7 @@ func (imp *Importer) Import(ctx context.Context, orgID int64, data *ImportData) 
 	macToDevice := imp.resolveMACToDevice(ctx, orgID, data.Miners)
 
 	result.PoolsCreated = imp.createPools(ctx, data.Pools)
-	result.GroupsCreated, result.RacksCreated, result.DevicesAssigned = imp.createGroupsAndRacks(ctx, data, macToDevice)
+	result.GroupsCreated, result.RacksCreated, result.DevicesAssigned = imp.createGroupsAndRacks(ctx, orgID, data, macToDevice)
 	result.WorkerNamesSet = imp.setWorkerNames(ctx, data, macToDevice)
 	result.MinerNamesSet = imp.setMinerNames(ctx, orgID, data, macToDevice)
 	return result
@@ -232,7 +234,7 @@ func deviceSelector(deviceIDs []string) *commonpb.DeviceSelector {
 	}
 }
 
-func (imp *Importer) createGroupsAndRacks(ctx context.Context, data *ImportData, macToDevice map[string]*interfaces.PairedDeviceInfo) (int32, int32, int32) {
+func (imp *Importer) createGroupsAndRacks(ctx context.Context, orgID int64, data *ImportData, macToDevice map[string]*interfaces.PairedDeviceInfo) (int32, int32, int32) {
 	// Pre-fetch existing collections so we can reconcile duplicates
 	existingCollections := imp.buildExistingCollectionMap(ctx)
 
@@ -301,14 +303,14 @@ func (imp *Importer) createGroupsAndRacks(ctx context.Context, data *ImportData,
 		if existingID, ok := existingCollections[key]; ok {
 			// Existing group — just add devices
 			if len(deviceIDs) > 0 {
-				resp, err := imp.collectionManager.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-					CollectionId:   existingID,
+				resp, err := imp.collectionManager.AddDevicesToGroup(ctx, collection.AddDevicesToGroupParams{
+					TargetGroupID:  existingID,
 					DeviceSelector: deviceSelector(deviceIDs),
 				})
 				if err != nil {
 					slog.Warn("failed to add devices to group", "group", g.Name, "error", err)
 				} else {
-					devicesAssigned += resp.AddedCount
+					devicesAssigned += int32(resp.AddedCount) //nolint:gosec // bounded by device count
 				}
 			}
 		} else {
@@ -326,13 +328,13 @@ func (imp *Importer) createGroupsAndRacks(ctx context.Context, data *ImportData,
 				// Race: group was created after we built existingCollections — refresh and add devices.
 				existingCollections = imp.buildExistingCollectionMap(ctx)
 				if existingID, ok := existingCollections[key]; ok && len(deviceIDs) > 0 {
-					if addResp, addErr := imp.collectionManager.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-						CollectionId:   existingID,
+					if addResp, addErr := imp.collectionManager.AddDevicesToGroup(ctx, collection.AddDevicesToGroupParams{
+						TargetGroupID:  existingID,
 						DeviceSelector: deviceSelector(deviceIDs),
 					}); addErr != nil {
 						slog.Warn("failed to add devices to group after duplicate", "group", g.Name, "error", addErr)
 					} else {
-						devicesAssigned += addResp.AddedCount
+						devicesAssigned += int32(addResp.AddedCount) //nolint:gosec // bounded by device count
 					}
 				}
 				continue
@@ -374,16 +376,20 @@ func (imp *Importer) createGroupsAndRacks(ctx context.Context, data *ImportData,
 		}
 
 		if existingID, ok := existingCollections[key]; ok {
-			// Existing rack — just add devices
+			// Existing rack — assign devices atomically. Bulk import
+			// targets fresh devices with no prior rack, so the atomic
+			// prior-rack-clear in AssignDevicesToRack is a no-op.
 			if len(rackDeviceIDs) > 0 {
-				resp, err := imp.collectionManager.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-					CollectionId:   existingID,
-					DeviceSelector: deviceSelector(rackDeviceIDs),
+				rackID := existingID
+				resp, err := imp.collectionManager.AssignDevicesToRack(ctx, collection.AssignDevicesToRackParams{
+					OrgID:             orgID,
+					TargetRackID:      &rackID,
+					DeviceIdentifiers: rackDeviceIDs,
 				})
 				if err != nil {
-					slog.Warn("failed to add devices to rack", "rack", r.Name, "error", err)
+					slog.Warn("failed to assign devices to rack", "rack", r.Name, "error", err)
 				} else {
-					devicesAssigned += resp.AddedCount
+					devicesAssigned += int32(resp.AssignedCount) //nolint:gosec // bounded by device count
 				}
 			}
 		} else {
@@ -407,16 +413,18 @@ func (imp *Importer) createGroupsAndRacks(ctx context.Context, data *ImportData,
 					slog.Warn("failed to create rack", "name", r.Name, "error", err)
 					continue
 				}
-				// Race: rack was created after we built existingCollections — refresh and add devices.
+				// Race: rack was created after we built existingCollections — refresh and assign devices.
 				existingCollections = imp.buildExistingCollectionMap(ctx)
 				if existingID, ok := existingCollections[key]; ok && len(rackDeviceIDs) > 0 {
-					if addResp, addErr := imp.collectionManager.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-						CollectionId:   existingID,
-						DeviceSelector: deviceSelector(rackDeviceIDs),
+					rackID := existingID
+					if addResp, addErr := imp.collectionManager.AssignDevicesToRack(ctx, collection.AssignDevicesToRackParams{
+						OrgID:             orgID,
+						TargetRackID:      &rackID,
+						DeviceIdentifiers: rackDeviceIDs,
 					}); addErr != nil {
-						slog.Warn("failed to add devices to rack after duplicate", "rack", r.Name, "error", addErr)
+						slog.Warn("failed to assign devices to rack after duplicate", "rack", r.Name, "error", addErr)
 					} else {
-						devicesAssigned += addResp.AddedCount
+						devicesAssigned += int32(addResp.AssignedCount) //nolint:gosec // bounded by device count
 					}
 				}
 				continue

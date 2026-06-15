@@ -59,7 +59,7 @@ const RackOverviewPage = () => {
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
-  const { getDeviceSet, listGroupMembers, addDevicesToDeviceSet, setRackSlotPosition, deleteGroup } = useDeviceSets();
+  const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup } = useDeviceSets();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -449,11 +449,14 @@ const RackOverviewPage = () => {
             const slot = searchMinerSlot;
             setSearchMinerSlot(null);
 
-            // Two-step: add miner to rack membership, then assign to slot.
-            // No single API supports both atomically without resending the full rack state.
-            // On partial success (added but slot failed), we still refresh so the UI stays consistent.
-            addDevicesToDeviceSet({
-              deviceSetId: rack.id,
+            // Two-step: atomically move the miner into this rack
+            // (clearing any prior rack membership in one tx), then
+            // assign the slot. No single API supports both atomically
+            // without resending the full rack state. On partial
+            // success (assigned but slot failed), we still refresh so
+            // the UI stays consistent.
+            assignDevicesToRack({
+              targetRackId: rack.id,
               deviceIdentifiers: [minerId],
               onSuccess: () => {
                 setRackSlotPosition({

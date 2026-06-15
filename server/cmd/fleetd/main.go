@@ -158,6 +158,7 @@ var reflectEnabledServices = []string{
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
+	device_setv1connect.DeviceSetServiceName,
 }
 
 func start(config *Config) error {

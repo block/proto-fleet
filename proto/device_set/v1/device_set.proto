@@ -27,11 +27,14 @@ service DeviceSetService {
     // Lists all device sets for the organization
     rpc ListDeviceSets(ListDeviceSetsRequest) returns (ListDeviceSetsResponse);
 
-    // Adds devices to a device set
-    rpc AddDevicesToDeviceSet(AddDevicesToDeviceSetRequest) returns (AddDevicesToDeviceSetResponse);
+    // Adds devices to a group (many-to-many). Rejects non-group targets
+    // with InvalidArgument; use AssignDevicesToRack for racks.
+    rpc AddDevicesToGroup(AddDevicesToGroupRequest) returns (AddDevicesToGroupResponse);
 
-    // Removes devices from a device set
-    rpc RemoveDevicesFromDeviceSet(RemoveDevicesFromDeviceSetRequest) returns (RemoveDevicesFromDeviceSetResponse);
+    // Removes devices from a group. Rejects non-group targets with
+    // InvalidArgument; rack membership is cleared via
+    // AssignDevicesToRack with target_rack_id unset.
+    rpc RemoveDevicesFromGroup(RemoveDevicesFromGroupRequest) returns (RemoveDevicesFromGroupResponse);
 
     // Lists members of a device set
     rpc ListDeviceSetMembers(ListDeviceSetMembersRequest) returns (ListDeviceSetMembersResponse);
@@ -76,11 +79,15 @@ service DeviceSetService {
     // device's current site. target_rack_id unset clears rack
     // membership without re-assigning (site/building stay intact).
     //
-    // Closes the orphan window where a client-side
-    // RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
-    // leave devices without rack membership on transport failure between
-    // the two calls, and the cross-rack rename race where the source
-    // rack's id resolution drifts between the resolve and the remove.
+    // Closes the orphan window where a client-side remove + add pair
+    // could leave devices without rack membership on transport failure
+    // between the two calls, and the cross-rack rename race where the
+    // source rack's id resolution drifts between the resolve and the
+    // remove.
+    //
+    // device_selector accepts only the device_list variant. all_devices
+    // is rejected with InvalidArgument because moving every paired
+    // device into a single rack is never the intended operation.
     rpc AssignDevicesToRack(AssignDevicesToRackRequest) returns (AssignDevicesToRackResponse);
 }
 
@@ -356,45 +363,42 @@ message ListDeviceSetsResponse {
     int32 total_count = 3;
 }
 
-// Request to add devices to a device set.
-//
-// When the target is a site-stamped rack, the server rewrites
-// device.site_id to match the rack for every added device. The affected
-// count is returned in site_reassigned_count. Groups are exempt.
-message AddDevicesToDeviceSetRequest {
-    // ID of the device set to add devices to
-    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to add devices to a group. Groups have many-to-many device
+// membership: devices may already belong to other groups and to a rack,
+// none of which are touched. Server rejects with InvalidArgument when
+// target_group_id refers to a non-group device set.
+message AddDevicesToGroupRequest {
+    // ID of the group to add devices to. Must reference a device set of
+    // type GROUP; racks are rejected.
+    int64 target_group_id = 1 [(buf.validate.field).int64.gt = 0];
 
-    // Devices to add: specific list or all paired devices
+    // Devices to add: specific list or all paired devices.
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
-// Response after adding devices to a device set
-message AddDevicesToDeviceSetResponse {
-    // ID of the device set devices were added to
-    int64 device_set_id = 1;
-
-    // Number of devices successfully added
-    // May be less than requested if some devices were already members
-    int32 added_count = 2;
-
-    // Number of devices whose site_id was rewritten by the cascade.
-    int32 site_reassigned_count = 3;
+// Response after adding devices to a group.
+message AddDevicesToGroupResponse {
+    // Number of devices successfully added. May be less than requested
+    // if some devices were already members.
+    int64 added_count = 1;
 }
 
-// Request to remove devices from a device set
-message RemoveDevicesFromDeviceSetRequest {
-    // ID of the device set to remove devices from
-    int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
+// Request to remove devices from a group. Server rejects with
+// InvalidArgument when target_group_id refers to a non-group device set;
+// use AssignDevicesToRack to clear rack membership.
+message RemoveDevicesFromGroupRequest {
+    // ID of the group to remove devices from. Must reference a device
+    // set of type GROUP; racks are rejected.
+    int64 target_group_id = 1 [(buf.validate.field).int64.gt = 0];
 
-    // Devices to remove: specific list or all paired devices
+    // Devices to remove: specific list or all paired devices.
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
-// Response after removing devices from a device set
-message RemoveDevicesFromDeviceSetResponse {
-    // Number of devices successfully removed
-    int32 removed_count = 1;
+// Response after removing devices from a group.
+message RemoveDevicesFromGroupResponse {
+    // Number of devices successfully removed.
+    int64 removed_count = 1;
 }
 
 // Request to list members of a device set
@@ -650,11 +654,13 @@ message AssignDevicesToRackRequest {
     // Unset = clear rack membership without re-assigning. When
     // present, must be > 0.
     optional int64 target_rack_id = 1 [(buf.validate.field).int64.gt = 0];
-    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
-        min_items: 1
-        max_items: 10000
-        items: {string: {min_len: 1, max_len: 256}}
-    }];
+
+    // Devices to assign. Only the device_list variant is accepted; the
+    // all_devices variant is rejected with InvalidArgument because
+    // moving every paired device into a single rack is never the
+    // intended operation. Filter-based selectors are reserved for a
+    // future expansion.
+    common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
 }
 
 message AssignDevicesToRackResponse {

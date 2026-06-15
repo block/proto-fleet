@@ -107,36 +107,34 @@ func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.Li
 	}), nil
 }
 
-func (h *Handler) AddDevicesToDeviceSet(ctx context.Context, r *connect.Request[dspb.AddDevicesToDeviceSetRequest]) (*connect.Response[dspb.AddDevicesToDeviceSetResponse], error) {
+func (h *Handler) AddDevicesToGroup(ctx context.Context, r *connect.Request[dspb.AddDevicesToGroupRequest]) (*connect.Response[dspb.AddDevicesToGroupResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.AddDevicesToCollection(ctx, &collectionpb.AddDevicesToCollectionRequest{
-		CollectionId:   r.Msg.DeviceSetId,
-		DeviceSelector: r.Msg.DeviceSelector,
+	result, err := h.svc.AddDevicesToGroup(ctx, collection.AddDevicesToGroupParams{
+		TargetGroupID:  r.Msg.GetTargetGroupId(),
+		DeviceSelector: r.Msg.GetDeviceSelector(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&dspb.AddDevicesToDeviceSetResponse{
-		DeviceSetId:         result.CollectionId,
-		AddedCount:          result.AddedCount,
-		SiteReassignedCount: result.SiteReassignedCount,
+	return connect.NewResponse(&dspb.AddDevicesToGroupResponse{
+		AddedCount: result.AddedCount,
 	}), nil
 }
 
-func (h *Handler) RemoveDevicesFromDeviceSet(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromDeviceSetRequest]) (*connect.Response[dspb.RemoveDevicesFromDeviceSetResponse], error) {
+func (h *Handler) RemoveDevicesFromGroup(ctx context.Context, r *connect.Request[dspb.RemoveDevicesFromGroupRequest]) (*connect.Response[dspb.RemoveDevicesFromGroupResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.RemoveDevicesFromCollection(ctx, &collectionpb.RemoveDevicesFromCollectionRequest{
-		CollectionId:   r.Msg.DeviceSetId,
-		DeviceSelector: r.Msg.DeviceSelector,
+	result, err := h.svc.RemoveDevicesFromGroup(ctx, collection.RemoveDevicesFromGroupParams{
+		TargetGroupID:  r.Msg.GetTargetGroupId(),
+		DeviceSelector: r.Msg.GetDeviceSelector(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&dspb.RemoveDevicesFromDeviceSetResponse{
+	return connect.NewResponse(&dspb.RemoveDevicesFromGroupResponse{
 		RemovedCount: result.RemovedCount,
 	}), nil
 }
@@ -331,7 +329,11 @@ func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[ds
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.svc.AssignDevicesToRack(ctx, toAssignDevicesToRackParams(r.Msg, info.OrganizationID))
+	params, err := toAssignDevicesToRackParams(r.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AssignDevicesToRack(ctx, params)
 	if err != nil {
 		return nil, err
 	}
