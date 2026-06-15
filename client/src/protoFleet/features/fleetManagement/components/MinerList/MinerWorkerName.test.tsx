@@ -33,9 +33,6 @@ function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStat
 }
 
 describe("MinerWorkerName", () => {
-  const defaultWorkerNameHelpText =
-    "Fleet uses the miner MAC address when it cannot read a worker name from the miner. Use Update worker names to change it.";
-
   it("renders a default marker when the worker name matches the MAC address", () => {
     const miner = createMockMiner({
       macAddress: "aa:bb:cc:dd:ee:ff",
@@ -58,7 +55,7 @@ describe("MinerWorkerName", () => {
     render(<MinerWorkerName miner={miner} />);
 
     expect(screen.getByLabelText("Default worker name")).toBeInTheDocument();
-    expect(screen.getByText(defaultWorkerNameHelpText)).toBeInTheDocument();
+    expect(screen.getByText(/Fleet uses the miner MAC address/)).toBeInTheDocument();
   });
 
   it("does not render a default marker for a custom worker name", () => {

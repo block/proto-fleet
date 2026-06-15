@@ -22,20 +22,21 @@ const isDefaultWorkerName = (workerName: string, macAddress: string | undefined)
 };
 
 const MinerWorkerName = ({ miner }: MinerWorkerNameProps) => {
-  const normalizedWorkerName = miner.workerName?.trim() ?? "";
-  const isDefault = isDefaultWorkerName(normalizeWorkerName(miner.workerName), miner.macAddress);
+  const trimmedWorkerName = miner.workerName?.trim() ?? "";
+  const normalizedWorkerName = normalizeWorkerName(miner.workerName);
+  const isDefault = isDefaultWorkerName(normalizedWorkerName, miner.macAddress);
 
   if (miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED) {
-    return <span />;
+    return null;
   }
 
-  if (!normalizedWorkerName) {
+  if (!trimmedWorkerName) {
     return <span>{INACTIVE_PLACEHOLDER}</span>;
   }
 
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <span className="min-w-0 truncate">{normalizedWorkerName}</span>
+      <span className="min-w-0 truncate">{trimmedWorkerName}</span>
       {isDefault ? (
         <span className="shrink-0 text-text-primary-50" aria-label="Default worker name" data-no-row-click>
           <Tooltip
