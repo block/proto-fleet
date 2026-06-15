@@ -548,6 +548,9 @@ func renderMethodExpr(
 		request.GoImportPath:  request.GoAlias,
 		response.GoImportPath: response.GoAlias,
 	}
+	for path, alias := range analysis.imports {
+		imports[path] = alias
+	}
 	addRequestEnumImports(imports, request.Descriptor, enums, options)
 
 	var expr string
@@ -603,14 +606,16 @@ func addRequestEnumImports(
 }
 
 type requestAnalysis struct {
-	jsonOnly           bool
-	jsonFallback       bool
-	needsFmt           bool
-	flags              []string
-	flagHelpers        []string
-	lines              []string
-	Reason             string
-	minerSelectorField string
+	jsonOnly            bool
+	jsonFallback        bool
+	needsFmt            bool
+	flags               []string
+	flagHelpers         []string
+	lines               []string
+	Reason              string
+	minerSelectorField  string
+	commonSelectorField string
+	imports             map[string]string
 }
 
 func analyzeRequest(
@@ -648,6 +653,31 @@ func analyzeRequest(
 			analysis.minerSelectorField = toGoFieldName(field.Name())
 			continue
 		}
+		if isCommonSelectorField(field) {
+			analysis.flagHelpers = appendUniqueString(analysis.flagHelpers, "generatedCommonSelectorFlags()")
+			analysis.commonSelectorField = toGoFieldName(field.Name())
+			continue
+		}
+		if isStringValueField(field) {
+			flag, lines := buildStringValueFieldPlan(field)
+			analysis.flags = append(analysis.flags, flag)
+			analysis.lines = append(analysis.lines, lines...)
+			analysis.imports = addImport(analysis.imports, "google.golang.org/protobuf/types/known/wrapperspb", "wrapperspb")
+			analysis.jsonFallback = true
+			if analysis.Reason == "" {
+				analysis.Reason = "request includes wrapper fields, so the generated command exposes simple flags plus --json fallback"
+			}
+			continue
+		}
+		if isPoolConfigField(field) {
+			flags, lines := buildPoolConfigFieldPlan(field, messageInfo)
+			analysis.flags = append(analysis.flags, flags...)
+			analysis.lines = append(analysis.lines, lines...)
+			analysis.imports = addImport(analysis.imports, "google.golang.org/protobuf/types/known/wrapperspb", "wrapperspb")
+			analysis.jsonFallback = true
+			analysis.Reason = "request includes pool config, so the generated command exposes pool flags plus --json fallback"
+			continue
+		}
 		if field.IsMap() {
 			hasUnsupported = true
 			continue
@@ -674,7 +704,7 @@ func analyzeRequest(
 		analysis.Reason = "request uses only complex fields, so the generated command accepts --json input only"
 		return analysis, nil
 	}
-	analysis.jsonFallback = hasUnsupported
+	analysis.jsonFallback = analysis.jsonFallback || hasUnsupported
 	if hasUnsupported {
 		analysis.Reason = "request includes complex fields, so the generated command exposes simple flags plus --json fallback"
 	}
@@ -693,6 +723,14 @@ func analyzeRequest(
 	}
 
 	return analysis, nil
+}
+
+func addImport(imports map[string]string, path, alias string) map[string]string {
+	if imports == nil {
+		imports = map[string]string{}
+	}
+	imports[path] = alias
+	return imports
 }
 
 func renderFixedFieldAssignment(
@@ -879,6 +917,60 @@ func isMinerSelectorField(field protoreflect.FieldDescriptor) bool {
 	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "minercommand.v1.DeviceSelector"
 }
 
+func isCommonSelectorField(field protoreflect.FieldDescriptor) bool {
+	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "common.v1.DeviceSelector"
+}
+
+func isStringValueField(field protoreflect.FieldDescriptor) bool {
+	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "google.protobuf.StringValue"
+}
+
+func isPoolConfigField(field protoreflect.FieldDescriptor) bool {
+	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "pools.v1.PoolConfig"
+}
+
+func buildStringValueFieldPlan(field protoreflect.FieldDescriptor) (string, []string) {
+	flagName := strings.ReplaceAll(string(field.Name()), "_", "-")
+	usage := fieldUsage(field, nil)
+	goFieldName := toGoFieldName(field.Name())
+	flag := fmt.Sprintf("&cli.StringFlag{Name: %q, Usage: %q}", flagName, usage)
+	lines := []string{
+		fmt.Sprintf("if cmd.IsSet(%q) {", flagName),
+		fmt.Sprintf("\treq.%s = wrapperspb.String(cmd.String(%q))", goFieldName, flagName),
+		"}",
+	}
+	return flag, lines
+}
+
+func buildPoolConfigFieldPlan(field protoreflect.FieldDescriptor, messageInfo messageInfo) ([]string, []string) {
+	goFieldName := toGoFieldName(field.Name())
+	configType := fmt.Sprintf("%s.%s", messageInfo.GoAlias, toGoIdent(field.Message().Name()))
+	flags := []string{
+		`&cli.StringFlag{Name: "pool-name", Usage: "pool name"}`,
+		`&cli.StringFlag{Name: "url", Usage: "url"}`,
+		`&cli.StringFlag{Name: "username", Usage: "username"}`,
+		`&cli.StringFlag{Name: "password", Usage: "password"}`,
+	}
+	lines := []string{
+		`if cmd.IsSet("pool-name") || cmd.IsSet("url") || cmd.IsSet("username") || cmd.IsSet("password") {`,
+		fmt.Sprintf("\treq.%s = &%s{}", goFieldName, configType),
+		`	if cmd.IsSet("pool-name") {`,
+		fmt.Sprintf("\t\treq.%s.PoolName = cmd.String(\"pool-name\")", goFieldName),
+		`	}`,
+		`	if cmd.IsSet("url") {`,
+		fmt.Sprintf("\t\treq.%s.Url = cmd.String(\"url\")", goFieldName),
+		`	}`,
+		`	if cmd.IsSet("username") {`,
+		fmt.Sprintf("\t\treq.%s.Username = cmd.String(\"username\")", goFieldName),
+		`	}`,
+		`	if cmd.IsSet("password") {`,
+		fmt.Sprintf("\t\treq.%s.Password = wrapperspb.String(cmd.String(\"password\"))", goFieldName),
+		`	}`,
+		`}`,
+	}
+	return flags, lines
+}
+
 func conditionalAssignmentBlock(field protoreflect.FieldDescriptor, flagName, expr string) []string {
 	lines := []string{fmt.Sprintf("if cmd.IsSet(%q) {", flagName)}
 	for _, line := range scalarAssignmentLines(field, expr) {
@@ -1042,6 +1134,23 @@ func renderSimpleExpr(
 			buf.WriteString("\t\t\treturn nil, err\n")
 			buf.WriteString("\t\t}\n")
 			buf.WriteString(fmt.Sprintf("\t\treq.%s = selector\n", analysis.minerSelectorField))
+		}
+	}
+	if analysis.commonSelectorField != "" {
+		if analysis.jsonFallback {
+			buf.WriteString("\t\tif cmd.IsSet(\"all-devices\") || cmd.IsSet(\"device\") {\n")
+			buf.WriteString("\t\t\tselector, err := generatedBuildCommonSelector(cmd)\n")
+			buf.WriteString("\t\t\tif err != nil {\n")
+			buf.WriteString("\t\t\t\treturn nil, err\n")
+			buf.WriteString("\t\t\t}\n")
+			buf.WriteString(fmt.Sprintf("\t\t\treq.%s = selector\n", analysis.commonSelectorField))
+			buf.WriteString("\t\t}\n")
+		} else {
+			buf.WriteString("\t\tselector, err := generatedBuildCommonSelector(cmd)\n")
+			buf.WriteString("\t\tif err != nil {\n")
+			buf.WriteString("\t\t\treturn nil, err\n")
+			buf.WriteString("\t\t}\n")
+			buf.WriteString(fmt.Sprintf("\t\treq.%s = selector\n", analysis.commonSelectorField))
 		}
 	}
 	for _, line := range analysis.lines {

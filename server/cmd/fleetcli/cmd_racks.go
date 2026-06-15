@@ -15,6 +15,28 @@ func generatedRacksCommand() *cli.Command {
 		Usage: "Manage racks commands",
 		Commands: []*cli.Command{
 			generatedRequestCommand(
+				"add-devices",
+				"Add devices to a rack",
+				"/collection.v1.DeviceCollectionService/AddDevicesToCollection",
+				generatedAuthBearer,
+				append([]cli.Flag{
+					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+				}, generatedCommonSelectorFlags()...),
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &collectionv1.AddDevicesToCollectionRequest{}
+					selector, err := generatedBuildCommonSelector(cmd)
+					if err != nil {
+						return nil, err
+					}
+					req.DeviceSelector = selector
+					if cmd.IsSet("collection-id") {
+						req.CollectionId = cmd.Int64("collection-id")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &collectionv1.AddDevicesToCollectionResponse{} },
+			),
+			generatedRequestCommand(
 				"delete",
 				"Delete a rack",
 				"/collection.v1.DeviceCollectionService/DeleteCollection",
@@ -124,21 +146,50 @@ func generatedRacksCommand() *cli.Command {
 				func() proto.Message { return &collectionv1.ListCollectionMembersResponse{} },
 			),
 			generatedRequestCommand(
+				"remove-devices",
+				"Remove devices from a rack",
+				"/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection",
+				generatedAuthBearer,
+				append([]cli.Flag{
+					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+				}, generatedCommonSelectorFlags()...),
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &collectionv1.RemoveDevicesFromCollectionRequest{}
+					selector, err := generatedBuildCommonSelector(cmd)
+					if err != nil {
+						return nil, err
+					}
+					req.DeviceSelector = selector
+					if cmd.IsSet("collection-id") {
+						req.CollectionId = cmd.Int64("collection-id")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &collectionv1.RemoveDevicesFromCollectionResponse{} },
+			),
+			generatedRequestCommand(
 				"save",
 				"Create or update a rack",
 				"/collection.v1.DeviceCollectionService/SaveRack",
 				generatedAuthBearer,
-				[]cli.Flag{
+				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 					&cli.StringFlag{Name: "label", Usage: "label"},
-				},
+				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &collectionv1.SaveRackRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
+					}
+					if cmd.IsSet("all-devices") || cmd.IsSet("device") {
+						selector, err := generatedBuildCommonSelector(cmd)
+						if err != nil {
+							return nil, err
+						}
+						req.DeviceSelector = selector
 					}
 					if cmd.IsSet("collection-id") {
 						value := cmd.Int64("collection-id")

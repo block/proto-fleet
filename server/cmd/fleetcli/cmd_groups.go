@@ -15,21 +15,50 @@ func generatedGroupsCommand() *cli.Command {
 		Usage: "Manage groups commands",
 		Commands: []*cli.Command{
 			generatedRequestCommand(
+				"add-devices",
+				"Add devices to a group",
+				"/collection.v1.DeviceCollectionService/AddDevicesToCollection",
+				generatedAuthBearer,
+				append([]cli.Flag{
+					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+				}, generatedCommonSelectorFlags()...),
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &collectionv1.AddDevicesToCollectionRequest{}
+					selector, err := generatedBuildCommonSelector(cmd)
+					if err != nil {
+						return nil, err
+					}
+					req.DeviceSelector = selector
+					if cmd.IsSet("collection-id") {
+						req.CollectionId = cmd.Int64("collection-id")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &collectionv1.AddDevicesToCollectionResponse{} },
+			),
+			generatedRequestCommand(
 				"create",
 				"Create a group",
 				"/collection.v1.DeviceCollectionService/CreateCollection",
 				generatedAuthBearer,
-				[]cli.Flag{
+				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.StringFlag{Name: "label", Usage: "label"},
 					&cli.StringFlag{Name: "description", Usage: "description"},
-				},
+				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &collectionv1.CreateCollectionRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
+					}
+					if cmd.IsSet("all-devices") || cmd.IsSet("device") {
+						selector, err := generatedBuildCommonSelector(cmd)
+						if err != nil {
+							return nil, err
+						}
+						req.DeviceSelector = selector
 					}
 					req.Type = collectionv1.CollectionType_COLLECTION_TYPE_GROUP
 					if cmd.IsSet("label") {
@@ -148,6 +177,28 @@ func generatedGroupsCommand() *cli.Command {
 				func() proto.Message { return &collectionv1.ListCollectionMembersResponse{} },
 			),
 			generatedRequestCommand(
+				"remove-devices",
+				"Remove devices from a group",
+				"/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection",
+				generatedAuthBearer,
+				append([]cli.Flag{
+					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+				}, generatedCommonSelectorFlags()...),
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &collectionv1.RemoveDevicesFromCollectionRequest{}
+					selector, err := generatedBuildCommonSelector(cmd)
+					if err != nil {
+						return nil, err
+					}
+					req.DeviceSelector = selector
+					if cmd.IsSet("collection-id") {
+						req.CollectionId = cmd.Int64("collection-id")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &collectionv1.RemoveDevicesFromCollectionResponse{} },
+			),
+			generatedRequestCommand(
 				"stats",
 				"Get aggregated stats for one or more groups",
 				"/collection.v1.DeviceCollectionService/GetCollectionStats",
@@ -173,18 +224,25 @@ func generatedGroupsCommand() *cli.Command {
 				"Update a group",
 				"/collection.v1.DeviceCollectionService/UpdateCollection",
 				generatedAuthBearer,
-				[]cli.Flag{
+				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 					&cli.StringFlag{Name: "label", Usage: "label"},
 					&cli.StringFlag{Name: "description", Usage: "description"},
-				},
+				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &collectionv1.UpdateCollectionRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
+					}
+					if cmd.IsSet("all-devices") || cmd.IsSet("device") {
+						selector, err := generatedBuildCommonSelector(cmd)
+						if err != nil {
+							return nil, err
+						}
+						req.DeviceSelector = selector
 					}
 					if cmd.IsSet("collection-id") {
 						req.CollectionId = cmd.Int64("collection-id")

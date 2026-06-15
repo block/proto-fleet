@@ -7,6 +7,7 @@ import (
 	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func generatedPoolsCommand() *cli.Command {
@@ -14,12 +15,42 @@ func generatedPoolsCommand() *cli.Command {
 		Name:  "pools",
 		Usage: "Manage pools commands",
 		Commands: []*cli.Command{
-			generatedJSONRequestCommand(
+			generatedRequestCommand(
 				"create",
 				"Create pool",
 				"/pools.v1.PoolsService/CreatePool",
 				generatedAuthBearer,
-				func() proto.Message { return &poolsv1.CreatePoolRequest{} },
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
+					&cli.StringFlag{Name: "url", Usage: "url"},
+					&cli.StringFlag{Name: "username", Usage: "username"},
+					&cli.StringFlag{Name: "password", Usage: "password"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolsv1.CreatePoolRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("pool-name") || cmd.IsSet("url") || cmd.IsSet("username") || cmd.IsSet("password") {
+						req.PoolConfig = &poolsv1.PoolConfig{}
+						if cmd.IsSet("pool-name") {
+							req.PoolConfig.PoolName = cmd.String("pool-name")
+						}
+						if cmd.IsSet("url") {
+							req.PoolConfig.Url = cmd.String("url")
+						}
+						if cmd.IsSet("username") {
+							req.PoolConfig.Username = cmd.String("username")
+						}
+						if cmd.IsSet("password") {
+							req.PoolConfig.Password = wrapperspb.String(cmd.String("password"))
+						}
+					}
+					return req, nil
+				},
 				func() proto.Message { return &poolsv1.CreatePoolResponse{} },
 			),
 			generatedRequestCommand(
@@ -63,6 +94,7 @@ func generatedPoolsCommand() *cli.Command {
 					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
 					&cli.StringFlag{Name: "url", Usage: "url"},
 					&cli.StringFlag{Name: "username", Usage: "username"},
+					&cli.StringFlag{Name: "password", Usage: "password"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.UpdatePoolRequest{}
@@ -86,6 +118,9 @@ func generatedPoolsCommand() *cli.Command {
 						value := cmd.String("username")
 						req.Username = &value
 					}
+					if cmd.IsSet("password") {
+						req.Password = wrapperspb.String(cmd.String("password"))
+					}
 					return req, nil
 				},
 				func() proto.Message { return &poolsv1.UpdatePoolResponse{} },
@@ -99,6 +134,7 @@ func generatedPoolsCommand() *cli.Command {
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.StringFlag{Name: "url", Usage: "url"},
 					&cli.StringFlag{Name: "username", Usage: "username"},
+					&cli.StringFlag{Name: "password", Usage: "password"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.ValidatePoolRequest{}
@@ -112,6 +148,9 @@ func generatedPoolsCommand() *cli.Command {
 					}
 					if cmd.IsSet("username") {
 						req.Username = cmd.String("username")
+					}
+					if cmd.IsSet("password") {
+						req.Password = wrapperspb.String(cmd.String("password"))
 					}
 					return req, nil
 				},
