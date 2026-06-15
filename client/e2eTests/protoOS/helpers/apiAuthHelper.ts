@@ -7,6 +7,24 @@ type WaitForAuthenticatedApiRecoveryParams = {
   timeoutMs: number;
 };
 
+async function getAuthenticatedApiStatus({
+  accessToken,
+  path,
+  request,
+}: Omit<WaitForAuthenticatedApiRecoveryParams, "timeoutMs">) {
+  try {
+    const response = await request.get(path, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    return response.status();
+  } catch {
+    return 0;
+  }
+}
+
 export async function getAuthAccessToken(page: Page) {
   return page.evaluate(() => {
     const authData = window.localStorage.getItem("proto-os-auth");
@@ -39,22 +57,16 @@ export async function waitForAuthenticatedApiRecovery({
   request,
   timeoutMs,
 }: WaitForAuthenticatedApiRecoveryParams) {
-  await expect
-    .poll(
-      async () => {
-        try {
-          const response = await request.get(path, {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          });
+  await expect.poll(() => getAuthenticatedApiStatus({ accessToken, path, request }), { timeout: timeoutMs }).toBe(200);
+}
 
-          return response.status();
-        } catch {
-          return 0;
-        }
-      },
-      { timeout: timeoutMs },
-    )
-    .toBe(200);
+export async function waitForAuthenticatedApiOutage({
+  accessToken,
+  path,
+  request,
+  timeoutMs,
+}: WaitForAuthenticatedApiRecoveryParams) {
+  await expect
+    .poll(() => getAuthenticatedApiStatus({ accessToken, path, request }), { timeout: timeoutMs })
+    .not.toBe(200);
 }

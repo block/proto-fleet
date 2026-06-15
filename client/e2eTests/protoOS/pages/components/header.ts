@@ -22,12 +22,6 @@ export class HeaderComponent extends BasePage {
     await dialog.getByRole("button", { name: "Reboot miner" }).click();
   }
 
-  async validateRebootingDialogVisible() {
-    const dialog = this.page.getByTestId("rebooting-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("Rebooting miner");
-  }
-
   async clickMinerStatusButton(status: string = "Sleeping") {
     const header = this.page.getByTestId("page-header");
     await header.getByRole("button", { name: status }).click();
