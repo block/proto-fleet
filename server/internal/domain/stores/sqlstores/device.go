@@ -1510,7 +1510,8 @@ WHERE d.site_id = ANY($2::bigint[]) AND d.org_id = $1 AND d.deleted_at IS NULL`
 	case stores.ComponentErrorScopeBuildings:
 		sourceSQL = `SELECT dsr.building_id AS scope_id, d.id AS device_id, d.discovered_device_id
 FROM device_set_membership dcm
-JOIN device_set_rack dsr ON dcm.device_set_id = dsr.device_set_id AND dsr.building_id = ANY($2::bigint[])
+JOIN device_set ds ON dcm.device_set_id = ds.id AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr ON dcm.device_set_id = dsr.device_set_id AND dsr.org_id = $1 AND dsr.building_id = ANY($2::bigint[])
 JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
 WHERE dcm.org_id = $1`
 	default:

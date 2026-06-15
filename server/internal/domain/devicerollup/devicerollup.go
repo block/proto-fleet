@@ -105,10 +105,12 @@ func AggregateComponentIssueCounts(counts []interfaces.ComponentErrorCount, scop
 // AggregateLatestMetrics sums hashrate + power and averages efficiency
 // across the supplied device set. Devices missing from `metrics` are
 // skipped silently — they simply don't contribute. Per-field values are
-// validated to be finite (not NaN / ±Inf) and non-negative before they
-// count; an invalid value behaves the same as "field absent" — it
-// doesn't increment that field's reporting count and doesn't poison the
-// aggregate. A device with all three fields invalid still increments
+// validated before they count; hashrate, power, and efficiency must be
+// finite and non-negative, while temperature only needs to be finite
+// because negative Celsius readings are valid. An invalid value behaves
+// the same as "field absent" — it doesn't increment that field's
+// reporting count and doesn't poison the aggregate. A device with all
+// fields invalid still increments
 // ReportingCount (the latest-metrics record itself is present) but
 // contributes nothing to any rollup. Empty input returns the zero
 // value with ReportingCount = 0.
@@ -138,6 +140,9 @@ func AggregateLatestMetrics(
 		// also rejects -0 silently (rounds to 0 in the sum, harmless).
 		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0
 	}
+	finite := func(v float64) bool {
+		return !math.IsNaN(v) && !math.IsInf(v, 0)
+	}
 	for _, devID := range deviceIDs {
 		m, ok := metrics[devID]
 		if !ok {
@@ -156,7 +161,7 @@ func AggregateLatestMetrics(
 			efficiencySum += m.EfficiencyJH.Value
 			efficiencyN++
 		}
-		if m.TempC != nil && finiteNonNegative(m.TempC.Value) {
+		if m.TempC != nil && finite(m.TempC.Value) {
 			minTemperature = math.Min(minTemperature, m.TempC.Value)
 			maxTemperature = math.Max(maxTemperature, m.TempC.Value)
 			temperatureN++

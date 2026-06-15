@@ -15,7 +15,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
-	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -102,10 +101,7 @@ func TestHandler_GetSiteStats_plumbsResponse(t *testing.T) {
 	h := newStatsHandler(t)
 
 	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), int64(1)).Return(true, nil)
-	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return(
-		[]sitemodels.SiteWithCounts{{Site: sitemodels.Site{ID: 1}, RackCount: 2}},
-		nil,
-	)
+	h.siteStore.EXPECT().CountRacksBySite(gomock.Any(), int64(7), int64(1)).Return(int64(2), nil)
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 	h.deviceQueryer.deviceIDs = nil // empty short-circuit; telemetry never called
 

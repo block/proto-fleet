@@ -135,6 +135,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countOrgScopeSuperAdminsExcludingUserStmt, err = db.PrepareContext(ctx, countOrgScopeSuperAdminsExcludingUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CountOrgScopeSuperAdminsExcludingUser: %w", err)
 	}
+	if q.countRacksBySiteStmt, err = db.PrepareContext(ctx, countRacksBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRacksBySite: %w", err)
+	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -1382,6 +1385,11 @@ func (q *Queries) Close() error {
 	if q.countOrgScopeSuperAdminsExcludingUserStmt != nil {
 		if cerr := q.countOrgScopeSuperAdminsExcludingUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countOrgScopeSuperAdminsExcludingUserStmt: %w", cerr)
+		}
+	}
+	if q.countRacksBySiteStmt != nil {
+		if cerr := q.countRacksBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRacksBySiteStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -3225,6 +3233,7 @@ type Queries struct {
 	countErrorsStmt                                       *sql.Stmt
 	countMinersByStateStmt                                *sql.Stmt
 	countOrgScopeSuperAdminsExcludingUserStmt             *sql.Stmt
+	countRacksBySiteStmt                                  *sql.Stmt
 	createApiKeyStmt                                      *sql.Stmt
 	createBuildingStmt                                    *sql.Stmt
 	createCommandBatchLogStmt                             *sql.Stmt
@@ -3621,6 +3630,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countErrorsStmt:                                       q.countErrorsStmt,
 		countMinersByStateStmt:                                q.countMinersByStateStmt,
 		countOrgScopeSuperAdminsExcludingUserStmt:             q.countOrgScopeSuperAdminsExcludingUserStmt,
+		countRacksBySiteStmt:                                  q.countRacksBySiteStmt,
 		createApiKeyStmt:                                      q.createApiKeyStmt,
 		createBuildingStmt:                                    q.createBuildingStmt,
 		createCommandBatchLogStmt:                             q.createCommandBatchLogStmt,

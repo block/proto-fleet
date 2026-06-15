@@ -839,16 +839,9 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	if err != nil {
 		return nil, err
 	}
-	sites, err := s.store.ListSites(ctx, orgID)
+	rackCount, err := s.store.CountRacksBySite(ctx, orgID, siteID)
 	if err != nil {
 		return nil, err
-	}
-	var rackCount int32
-	for _, siteWithCounts := range sites {
-		if siteWithCounts.Site.ID == siteID {
-			rackCount = int32(siteWithCounts.RackCount) //nolint:gosec // rack count bounded by org config
-			break
-		}
 	}
 
 	// Device identifiers scoped to the site via the existing MinerFilter.
@@ -879,8 +872,8 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 
 	stats := &models.SiteStats{
 		SiteID:        siteID,
-		BuildingCount: int32(len(bldgs)), //nolint:gosec // building count bounded by org config
-		RackCount:     rackCount,
+		BuildingCount: int32(len(bldgs)),     //nolint:gosec // building count bounded by org config
+		RackCount:     int32(rackCount),      //nolint:gosec // rack count bounded by org config
 		DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
 	}
 

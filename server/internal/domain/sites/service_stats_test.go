@@ -12,7 +12,6 @@ import (
 	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
-	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -83,10 +82,7 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
-	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(
-		[]sitemodels.SiteWithCounts{{Site: sitemodels.Site{ID: 1}, RackCount: 2}},
-		nil,
-	)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(2), nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(
@@ -159,7 +155,7 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
-	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(nil, nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
@@ -199,7 +195,7 @@ func TestGetSiteStats_failsFastOverCap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
-	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(nil, nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
@@ -222,7 +218,7 @@ func TestGetSiteStats_emptyDevicesShortCircuits(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
-	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(nil, nil)
+	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
