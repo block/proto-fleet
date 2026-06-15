@@ -72,18 +72,6 @@ describe("MinerWorkerName", () => {
     expect(screen.queryByLabelText("Default worker name")).not.toBeInTheDocument();
   });
 
-  it("renders a default marker for a MAC-shaped worker name when the MAC field is unavailable", () => {
-    const miner = createMockMiner({
-      macAddress: "",
-      workerName: "02:00:00:4E:FC:D5",
-    });
-
-    render(<MinerWorkerName miner={miner} />);
-
-    expect(screen.getByText("02:00:00:4E:FC:D5")).toBeInTheDocument();
-    expect(screen.getByLabelText("Default worker name")).toBeInTheDocument();
-  });
-
   it("renders the inactive placeholder without a default marker when the worker name is empty", () => {
     const miner = createMockMiner({
       macAddress: "aa:bb:cc:dd:ee:ff",
@@ -96,7 +84,7 @@ describe("MinerWorkerName", () => {
     expect(screen.queryByLabelText("Default worker name")).not.toBeInTheDocument();
   });
 
-  it("hides a MAC-derived worker name when authentication is required", () => {
+  it("renders an empty cell when authentication is required", () => {
     const miner = createMockMiner({
       macAddress: "",
       workerName: "02:00:00:4E:FC:D5",
@@ -111,16 +99,17 @@ describe("MinerWorkerName", () => {
     expect(screen.queryByLabelText("Default worker name")).not.toBeInTheDocument();
   });
 
-  it("keeps a non-default stored worker name visible when authentication is required", () => {
+  it("hides a non-default stored worker name when authentication is required", () => {
     const miner = createMockMiner({
       macAddress: "aa:bb:cc:dd:ee:ff",
       workerName: "worker-01",
       pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
     });
 
-    render(<MinerWorkerName miner={miner} />);
+    const { container } = render(<MinerWorkerName miner={miner} />);
 
-    expect(screen.getByText("worker-01")).toBeInTheDocument();
+    expect(container.textContent).toBe("");
+    expect(screen.queryByText("worker-01")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Default worker name")).not.toBeInTheDocument();
   });
 });

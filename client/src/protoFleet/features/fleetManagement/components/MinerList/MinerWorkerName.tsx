@@ -12,26 +12,20 @@ type MinerWorkerNameProps = {
 
 const DEFAULT_WORKER_NAME_HELP_TEXT =
   "Fleet uses the miner MAC address when it cannot read a worker name from the miner. Use Update worker names to change it.";
-const MAC_ADDRESS_WORKER_NAME_PATTERN = /^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
 
 const normalizeWorkerName = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
 
 const isDefaultWorkerName = (workerName: string, macAddress: string | undefined) => {
   const normalizedMacAddress = normalizeWorkerName(macAddress);
 
-  return (
-    workerName !== "" &&
-    ((normalizedMacAddress !== "" && workerName === normalizedMacAddress) ||
-      MAC_ADDRESS_WORKER_NAME_PATTERN.test(workerName))
-  );
+  return workerName !== "" && normalizedMacAddress !== "" && workerName === normalizedMacAddress;
 };
 
 const MinerWorkerName = ({ miner }: MinerWorkerNameProps) => {
   const normalizedWorkerName = miner.workerName?.trim() ?? "";
   const isDefault = isDefaultWorkerName(normalizeWorkerName(miner.workerName), miner.macAddress);
-  const shouldHideWorkerName = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED && isDefault;
 
-  if (shouldHideWorkerName) {
+  if (miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED) {
     return <span />;
   }
 
