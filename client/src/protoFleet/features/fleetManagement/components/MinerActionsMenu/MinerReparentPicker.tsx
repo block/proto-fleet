@@ -194,7 +194,7 @@ const MinerReparentPicker = ({
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
   const { assignDevicesToSite } = useSites();
-  const { assignDevicesToRack, getDeviceSet, listRacks, removeDevicesFromDeviceSet } = useDeviceSets();
+  const { assignDevicesToRack, getDeviceSet, listRacks } = useDeviceSets();
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
   // Resolver for the onConfirm promise during the cross-site confirm
@@ -224,16 +224,6 @@ const MinerReparentPicker = ({
       });
     });
 
-  const removeFromRack = (rackId: bigint, ids: string[]) =>
-    new Promise<void>((resolve, reject) => {
-      void removeDevicesFromDeviceSet({
-        deviceSetId: rackId,
-        deviceIdentifiers: ids,
-        onSuccess: () => resolve(),
-        onError: (msg) => reject(new Error(msg)),
-      });
-    });
-
   const fetchRack = (rackId: bigint) =>
     new Promise<DeviceSet>((resolve, reject) => {
       void getDeviceSet({
@@ -244,12 +234,13 @@ const MinerReparentPicker = ({
       });
     });
 
-  const dispatchSiteReassign = (targetSiteId: bigint, ids: string[]) =>
+  const dispatchSiteReassign = (targetSiteId: bigint, ids: string[], forceClearConflictingRackMembership = false) =>
     new Promise<void>((resolve) => {
       void assignDevicesToSite({
         targetSiteId,
         deviceIdentifiers: ids,
         signal: abortRef.current?.signal,
+        forceClearConflictingRackMembership,
         onSuccess: (count) => {
           // Gate UI side-effects on unmount: the abort signal fires in
           // the picker's cleanup effect, so a late RPC resolution
@@ -274,29 +265,21 @@ const MinerReparentPicker = ({
       });
     });
 
+  // Cross-site move with conflicting rack memberships: a single
+  // server-side transaction strips the prior rack rows and applies
+  // the site write. Previously this was a client-side loop of
+  // removeDevicesFromDeviceSet calls followed by assignDevicesToSite,
+  // which left a window where a transport failure between the two
+  // RPCs would orphan miners (rack-less but still on the old site).
   const dispatchSiteMoveWithUnassign = async (confirmation: SiteMoveConfirmation) => {
     setSiteMoveInFlight(true);
     const movingToast = pushToast({
-      message: `Unassigning miners from ${confirmation.conflictsByLabel.size} rack${confirmation.conflictsByLabel.size === 1 ? "" : "s"}…`,
+      message: "Moving miners to the new site…",
       status: STATUSES.loading,
       longRunning: true,
     });
-    try {
-      for (const [sourceLabel, sourceIds] of confirmation.conflictsByLabel) {
-        if (abortRef.current?.signal.aborted) return;
-        const sourceRackId = confirmation.labelToRackId.get(sourceLabel);
-        if (sourceRackId === undefined) continue;
-        await removeFromRack(sourceRackId, sourceIds);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to remove miners from current rack.";
-      updateToast(movingToast, { message, status: STATUSES.error });
-      setSiteMoveInFlight(false);
-      setSiteMoveConfirmation(null);
-      return;
-    }
+    await dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids, true);
     removeToast(movingToast);
-    await dispatchSiteReassign(confirmation.targetSiteId, confirmation.ids);
     setSiteMoveInFlight(false);
     setSiteMoveConfirmation(null);
   };
