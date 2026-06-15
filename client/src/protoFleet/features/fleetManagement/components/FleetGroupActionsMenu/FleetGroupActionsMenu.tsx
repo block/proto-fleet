@@ -183,6 +183,10 @@ const FleetGroupActionsMenu = ({
   }, [permissions]);
 
   const fetchDeviceIds = useCallback(async (): Promise<string[]> => {
+    if (scopeIds.length === 0) {
+      throw new Error("No fleet groups selected.");
+    }
+
     const collected: string[] = [];
     const snapshotMap: Record<string, MinerStateSnapshot> = {};
     const filterInit =
@@ -224,15 +228,20 @@ const FleetGroupActionsMenu = ({
     if (ids.length === 0) return;
     if (firedTickRef.current === pendingAction.tick) return;
     const entry = minerActions.popoverActions.find((action) => action.action === pendingAction.key);
-    if (!entry) return;
+    if (!entry) {
+      firedTickRef.current = pendingAction.tick;
+      onActionComplete?.();
+      return;
+    }
     firedTickRef.current = pendingAction.tick;
     void entry.actionHandler();
-  }, [pendingAction, ids, minerActions.popoverActions]);
+  }, [pendingAction, ids, minerActions.popoverActions, onActionComplete]);
 
   const handleTrigger = useCallback(
     async (key: WiredActionKey) => {
       if (isBusy) return;
       setIsBusy(true);
+      onActionStart?.();
       const loadingToast = pushToast({
         message: `Loading miners in ${scopeLabel}…`,
         status: STATUSES.loading,
@@ -245,18 +254,20 @@ const FleetGroupActionsMenu = ({
         const message = err instanceof Error && err.message ? err.message : `Couldn't load miners for ${scopeLabel}.`;
         updateToast(loadingToast, { message, status: STATUSES.error });
         setIsBusy(false);
+        onActionComplete?.();
         return;
       }
       removeToast(loadingToast);
       setIsBusy(false);
       if (deviceIdentifiers.length === 0) {
         pushToast({ message: emptyScopeMessage, status: STATUSES.error });
+        onActionComplete?.();
         return;
       }
       tickRef.current += 1;
       setPendingAction({ key, tick: tickRef.current });
     },
-    [emptyScopeMessage, fetchDeviceIds, isBusy, scopeLabel],
+    [emptyScopeMessage, fetchDeviceIds, isBusy, onActionComplete, onActionStart, scopeLabel],
   );
 
   const clearPendingAction = useCallback(() => {

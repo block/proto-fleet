@@ -356,11 +356,13 @@ describe("FleetGroupActionsMenu", () => {
 
   it("warns when the scope has no miners and skips the dispatch", async () => {
     mockListMinerStateSnapshots.mockResolvedValueOnce({ miners: [], cursor: "" });
+    const onActionComplete = vi.fn();
     render(
       <FleetGroupActionsMenu
         scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
+        onActionComplete={onActionComplete}
       />,
     );
     fireEvent.click(screen.getByTestId("alpha-trigger"));
@@ -378,6 +380,62 @@ describe("FleetGroupActionsMenu", () => {
       message: "Building Alpha contains no miners.",
       status: "error",
     });
+    expect(onActionComplete).toHaveBeenCalledOnce();
+  });
+
+  it("starts the action boundary before loading scoped miners", async () => {
+    let resolveLookup: (value: { miners: { deviceIdentifier: string }[]; cursor: string }) => void = () => {};
+    mockListMinerStateSnapshots.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLookup = resolve;
+      }),
+    );
+    const onActionStart = vi.fn();
+    const onActionComplete = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        onActionStart={onActionStart}
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Sleep miners"));
+
+    expect(onActionStart).toHaveBeenCalledOnce();
+    expect(onActionComplete).not.toHaveBeenCalled();
+
+    resolveLookup({ miners: [], cursor: "" });
+
+    await waitFor(() => {
+      expect(onActionComplete).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("fails fast when no scopes are selected", async () => {
+    const onActionStart = vi.fn();
+    const onActionComplete = vi.fn();
+    render(
+      <FleetGroupActionsMenu
+        scopes={[]}
+        ariaLabel="Bulk actions for selected sites"
+        testIdPrefix="empty"
+        onActionStart={onActionStart}
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("empty-trigger"));
+    fireEvent.click(screen.getByText("Sleep miners"));
+
+    await waitFor(() => {
+      expect(mockUpdateToast).toHaveBeenCalledWith(1, { message: "No fleet groups selected.", status: "error" });
+    });
+    expect(mockListMinerStateSnapshots).not.toHaveBeenCalled();
+    expect(onActionStart).toHaveBeenCalledOnce();
+    expect(onActionComplete).toHaveBeenCalledOnce();
   });
 
   it("combines same-kind scopes into one snapshot filter and hides row-only extras", async () => {

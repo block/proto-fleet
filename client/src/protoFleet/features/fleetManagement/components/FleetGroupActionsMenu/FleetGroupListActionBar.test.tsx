@@ -1,8 +1,9 @@
+import { type ComponentProps } from "react";
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
-import FleetGroupListActionBar from "./FleetGroupListActionBar";
 import { type GroupScope } from "./FleetGroupActionsMenu";
+import FleetGroupListActionBar from "./FleetGroupListActionBar";
 
 const { mockSetActionBarVisible } = vi.hoisted(() => ({ mockSetActionBarVisible: vi.fn() }));
 
@@ -29,10 +30,7 @@ vi.mock("./FleetGroupActionsMenu", async (importOriginal) => {
   };
 });
 
-const renderBar = (
-  scopes: GroupScope[],
-  overrides: Partial<React.ComponentProps<typeof FleetGroupListActionBar>> = {},
-) =>
+const renderBar = (scopes: GroupScope[], overrides: Partial<ComponentProps<typeof FleetGroupListActionBar>> = {}) =>
   render(
     <FleetGroupListActionBar
       selectedScopes={scopes}
