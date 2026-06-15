@@ -15,11 +15,15 @@ describe what the code does, not the decisions made getting there.
    checkout.
 
    - **Numbered-PR path** — `$ARGUMENTS` is a PR number or URL. The target is
-     that PR, which may be on a branch you do not have checked out. Resolve its
-     refs from metadata, not from local HEAD:
-     `gh pr view "$ARGUMENTS" --json number,url,headRefName,baseRefName,headRepositoryOwner,title`.
-     Capture `number` (use this, not `$ARGUMENTS`, for the `gh pr edit` in
-     step 4).
+     that PR, which may live in a different repository and on a branch you do
+     not have checked out. Resolve its refs from metadata, not from local HEAD:
+     `gh pr view "$ARGUMENTS" --json number,url,headRefName,baseRefName,title`.
+     Capture `number` and parse `owner`/`repo` from the `url` field (which is
+     `https://github.com/<owner>/<repo>/pull/<number>`). The `url` is gh's
+     output, so it is safe to parse. You need `owner`/`repo` because a bare
+     `number` resolves in the *current* repo — a `$ARGUMENTS` URL pointing at
+     another repo would otherwise read one PR and edit a same-numbered PR here.
+     Pass `-R <owner>/<repo> <number>` to every `gh pr` call on this path.
    - **Current-branch path** — no `$ARGUMENTS`. The target is the current
      branch. `gh pr view --json number,url,headRefName,baseRefName` tells you
      whether a PR already exists; if none does, you will draft the body for the
@@ -28,10 +32,12 @@ describe what the code does, not the decisions made getting there.
 2. Read the change using the path chosen in step 1 — do not fall back to local
    `git` on the numbered-PR path, since local HEAD may be an unrelated branch:
 
-   - **Numbered-PR path:** `gh pr diff "$ARGUMENTS"` for the full diff and
-     `gh pr diff "$ARGUMENTS" --name-only` for the file list. Pull the commit
-     list from `gh pr view "$ARGUMENTS" --json commits`. All of these read the
-     PR head as it exists on the remote, regardless of what is checked out.
+   - **Numbered-PR path:** using the `owner`/`repo`/`number` from step 1,
+     `gh pr diff <number> -R <owner>/<repo>` for the full diff and
+     `gh pr diff <number> -R <owner>/<repo> --name-only` for the file list.
+     Pull the commit list from
+     `gh pr view <number> -R <owner>/<repo> --json commits`. All of these read
+     the PR head in its own repo, regardless of what is checked out locally.
    - **Current-branch path:** `git diff <base>...HEAD` (full diff),
      `git diff <base>...HEAD --stat`, and `git log <base>..HEAD --oneline`,
      where `<base>` is the `baseRefName` from step 1 (default `main`).
@@ -64,10 +70,11 @@ describe what the code does, not the decisions made getting there.
       manual checks, migrations run) and what is explicitly NOT covered.
 
 4. Apply the result against the target resolved in step 1:
-   - If a PR exists, update **that** PR by its `number`:
-     `gh pr edit <number> --body-file <tmp>` (write the body to a temp file to
-     preserve mermaid fences and tables). Use the `number` from step 1, never
-     `$ARGUMENTS` raw and never the current branch's PR on the numbered-PR path.
+   - If a PR exists, update **that** PR by its `number`, scoped to its repo:
+     `gh pr edit <number> -R <owner>/<repo> --body-file <tmp>` (write the body
+     to a temp file to preserve mermaid fences and tables). The `-R` is what
+     keeps a cross-repo URL target from editing a same-numbered PR in the local
+     repo. On the current-branch path `-R` is unnecessary (the PR is local).
    - If no PR exists yet (current-branch path only), output the body for the
      user to use when opening it.
 
