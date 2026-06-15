@@ -48,9 +48,10 @@ func toAssignDevicesParams(req *pb.AssignDevicesToSiteRequest, orgID int64) mode
 		targetSiteID = &v
 	}
 	return models.AssignDevicesToSiteParams{
-		OrgID:             orgID,
-		TargetSiteID:      targetSiteID,
-		DeviceIdentifiers: req.GetDeviceIdentifiers(),
+		OrgID:                               orgID,
+		TargetSiteID:                        targetSiteID,
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 
