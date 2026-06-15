@@ -36,8 +36,11 @@ describe what the code does, not the decisions made getting there.
    head is this PR's base (`gh pr list --head <baseRefName> --state all --json
    number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
    path), then repeating on the parent's base until you reach the default
-   branch. Record the chain (each ancestor's number, title, url) for steps 2
-   and 3.
+   branch. Also walk downward to find what is stacked on top: child PRs whose
+   base is this PR's head (`gh pr list --base <headRefName> --state open --json
+   number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
+   path), repeating on each child's head. Record both ancestors and descendants
+   (each one's number, title, url) for steps 2 and 3.
 
 2. Read the change using the path chosen in step 1 — do not fall back to local
    `git` on the numbered-PR path, since local HEAD may be an unrelated branch:
@@ -63,19 +66,23 @@ describe what the code does, not the decisions made getting there.
    (`gh pr view <number> --json title,body,url`, adding `-R` on the numbered-PR
    path) and extract the load-bearing context this PR depends on: the contracts,
    abstractions, schema, or decisions established upstream that a reviewer must
-   understand to judge this change.
+   understand to judge this change. For each descendant, capture a one-line
+   scope from its title (skim its body only if the title is opaque) so you can
+   tell the reviewer what is deferred to later PRs and where it lands.
 
 3. Draft the description in this structure:
 
    1. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
       Lead with the user- or operator-facing capability, not the implementation.
       If the PR is stacked (step 1), follow the summary with a short **Stack**
-      note: the chain with PR numbers/links (this PR up to the default branch),
-      a line stating the diff is relative to the immediate base so the reviewer
-      should not re-review ancestors, and the required context from the stack,
-      meaning the upstream contracts, abstractions, or decisions this PR builds
-      on, distilled to what a reviewer needs here rather than a re-summary of
-      the parent PRs.
+      note: the full chain with PR numbers/links (ancestors down to the default
+      branch, this PR, and any PRs stacked on top), with this PR marked; a line
+      stating the diff is relative to the immediate base so the reviewer should
+      not re-review ancestors; the required context from upstream, meaning the
+      contracts, abstractions, or decisions this PR builds on, distilled to what
+      a reviewer needs here rather than a re-summary of the parent PRs; and
+      what is deferred to descendant PRs, so the reviewer knows what is
+      intentionally out of scope here and where the remaining work lands.
    2. **How it works** — the end-to-end mechanism in plain language. Walk the
       primary flow(s) step by step (who triggers it, what crosses each boundary,
       where state is persisted, what comes back). Assume the reader does not

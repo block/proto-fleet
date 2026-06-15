@@ -86,9 +86,11 @@ code does, not the decisions made getting there. Structure it as:
 
 1. **Summary** — 2-4 sentences: what this PR delivers and why. Lead with the
    user- or operator-facing capability, not the implementation. For a stacked
-   PR (base is not the default branch), add a short *Stack* note: the chain with
-   PR links, that the diff is relative to the immediate base, and the
-   load-bearing context from upstream PRs a reviewer needs to judge this change.
+   PR (base is not the default branch), add a short *Stack* note: the full chain
+   with PR links (ancestors, this PR, and any PRs stacked on top), that the diff
+   is relative to the immediate base, the load-bearing context from upstream PRs
+   a reviewer needs to judge this change, and what is deferred to descendant PRs
+   so the reviewer knows what is intentionally out of scope here.
 2. **How it works** — the end-to-end mechanism in plain language. Walk the
    primary flow(s): who triggers it, what crosses each boundary, where state
    is persisted, what comes back. Explain workflows, not language syntax.
