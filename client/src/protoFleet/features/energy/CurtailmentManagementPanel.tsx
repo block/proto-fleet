@@ -50,6 +50,7 @@ interface CurtailmentMessageProps {
 
 const activeCurtailmentRefreshIntervalMs = 3_000;
 const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
+const updateableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const defaultResponseDeadlineMinutes = "15";
 const defaultMaxDurationSec = "900";
 const immediateRestoreBatchSize = "10000";
@@ -140,6 +141,10 @@ function createActiveCurtailmentPreview(
     targetKw: event.targetKw,
     estimatedReductionKw: event.estimatedReductionKw,
   });
+}
+
+function canUpdateCurtailmentEvent(event: ActiveCurtailmentEvent): boolean {
+  return updateableCurtailmentEventStates.has(event.state);
 }
 
 function CurtailmentManagementPanel({
@@ -294,7 +299,12 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      if (event.id === activeEventId && activeEvent && activeEventFormValues) {
+      if (
+        event.id === activeEventId &&
+        activeEvent &&
+        activeEventFormValues &&
+        canUpdateCurtailmentEvent(activeEvent)
+      ) {
         setEditSession({
           eventId: activeEventId,
           initialValues: activeEventFormValues,
@@ -320,7 +330,12 @@ function CurtailmentManagementPanel({
             return;
           }
 
-          if (!selectedActiveEvent || !selectedActiveEventId || !activeEventFormValues) {
+          if (
+            !selectedActiveEvent ||
+            !selectedActiveEventId ||
+            !activeEventFormValues ||
+            !canUpdateCurtailmentEvent(selectedActiveEvent)
+          ) {
             return;
           }
 

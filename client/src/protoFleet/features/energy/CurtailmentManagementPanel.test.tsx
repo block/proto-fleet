@@ -617,6 +617,42 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-preview")).toHaveTextContent("4 miners, 8 kW target, 9.1 kW estimated");
   });
 
+  it("does not open management when hydrated row detail is no longer updateable", async () => {
+    const user = userEvent.setup();
+    const restoringActiveEvent = {
+      ...activeEvent,
+      state: "restoring",
+      reason: "Restoring grid peak",
+    } as ActiveCurtailmentEvent;
+    const secondaryHistoryEvent = { ...historyEvent, id: "curt-2" } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment.mockResolvedValueOnce({
+      activeEvent: restoringActiveEvent,
+      activeEventId: "curt-2",
+      activeEventFormValues: {
+        ...activeEventFormValues,
+        reason: "Restoring grid peak",
+      },
+    });
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+        activeEvents: [historyEvent, secondaryHistoryEvent],
+        historyEvents: [secondaryHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Manage history event" }));
+
+    await waitFor(() =>
+      expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-2", { signal: expect.any(AbortSignal) }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
+  });
+
   it("ignores stale secondary active row detail responses", async () => {
     const user = userEvent.setup();
     const firstFormValues = {
