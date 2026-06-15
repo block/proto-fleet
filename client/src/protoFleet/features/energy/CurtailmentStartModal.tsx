@@ -619,10 +619,7 @@ function getCurtailmentConfirmationCopy(
   };
 }
 
-function getApplyToTarget(
-  values: CurtailmentFormValues,
-  shouldUseFormScope: boolean,
-): ApplyToTarget {
+function getApplyToTarget(values: CurtailmentFormValues, shouldUseFormScope: boolean): ApplyToTarget {
   if (!shouldUseFormScope) {
     return {
       label: "Miners",
@@ -793,10 +790,7 @@ function CurtailmentStartModalContent({
     !isLiveCurtailmentEditMode &&
     selectedResponseProfile !== undefined &&
     hasResponseProfileScopeValues(selectedResponseProfile.values);
-  const applyToTarget = getApplyToTarget(
-    values,
-    isLiveCurtailmentEditMode || shouldShowSelectedResponseProfileScope,
-  );
+  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode || shouldShowSelectedResponseProfileScope);
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
