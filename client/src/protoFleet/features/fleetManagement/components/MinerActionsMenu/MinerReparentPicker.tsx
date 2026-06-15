@@ -68,14 +68,25 @@ const resolveRackMembers = async (rackId: bigint, signal?: AbortSignal): Promise
   let cursor = "";
   let exhausted = false;
   for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
-    const response = await fleetManagementClient.listMinerStateSnapshots(
-      {
-        pageSize: SNAPSHOT_PAGE_SIZE,
-        cursor,
-        filter,
-      },
-      { signal },
-    );
+    let response;
+    try {
+      response = await fleetManagementClient.listMinerStateSnapshots(
+        {
+          pageSize: SNAPSHOT_PAGE_SIZE,
+          cursor,
+          filter,
+        },
+        { signal },
+      );
+    } catch (err) {
+      // listMinerStateSnapshots rejects on abort; treat as a quiet
+      // unmount, returning whatever members we accumulated so far so
+      // the caller's abort check can short-circuit without a toast.
+      if (signal?.aborted || (err as Error)?.name === "AbortError") {
+        return members;
+      }
+      throw err;
+    }
     if (signal?.aborted) return members;
     for (const miner of response.miners) members.add(miner.deviceIdentifier);
     if (!response.cursor) {
@@ -127,14 +138,25 @@ const resolveAllModeIds = async (
   let cursor = "";
   let exhausted = false;
   for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
-    const response = await fleetManagementClient.listMinerStateSnapshots(
-      {
-        pageSize: SNAPSHOT_PAGE_SIZE,
-        cursor,
-        filter,
-      },
-      { signal },
-    );
+    let response;
+    try {
+      response = await fleetManagementClient.listMinerStateSnapshots(
+        {
+          pageSize: SNAPSHOT_PAGE_SIZE,
+          cursor,
+          filter,
+        },
+        { signal },
+      );
+    } catch (err) {
+      // Same abort-on-unmount story as resolveRackMembers: return the
+      // partial accumulators so the caller's signal.aborted gate can
+      // swallow the early-exit quietly instead of routing to a toast.
+      if (signal?.aborted || (err as Error)?.name === "AbortError") {
+        return { ids, snapshots };
+      }
+      throw err;
+    }
     if (signal?.aborted) return { ids, snapshots };
     for (const miner of response.miners) {
       ids.push(miner.deviceIdentifier);
@@ -227,12 +249,25 @@ const MinerReparentPicker = ({
       void assignDevicesToSite({
         targetSiteId,
         deviceIdentifiers: ids,
+        signal: abortRef.current?.signal,
         onSuccess: (count) => {
+          // Gate UI side-effects on unmount: the abort signal fires in
+          // the picker's cleanup effect, so a late RPC resolution
+          // would otherwise push a toast / refetch after the operator
+          // dismissed the modal.
+          if (abortRef.current?.signal.aborted) {
+            resolve();
+            return;
+          }
           pushToast({ message: successMessage(count, "site"), status: STATUSES.success });
           onRefetchMiners?.();
           resolve();
         },
         onError: (msg) => {
+          if (abortRef.current?.signal.aborted) {
+            resolve();
+            return;
+          }
           pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error });
           resolve();
         },
