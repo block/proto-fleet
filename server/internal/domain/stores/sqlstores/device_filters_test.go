@@ -107,6 +107,21 @@ func TestAppendFilterSQL_PairingStatusFilter(t *testing.T) {
 	assert.Equal(t, 3, resultArgNum)
 }
 
+func TestAppendFilterSQL_DeviceIdentifiersFilter(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	fp := minerFilterParams{
+		deviceIdentifiersFilter: validNullString(),
+		deviceIdentifierValues:  []string{"miner-1", "miner-2"},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	assert.Contains(t, sb.String(), "device.device_identifier = ANY($2::text[])")
+	assert.Len(t, resultArgs, 2)
+	assert.Equal(t, 3, resultArgNum)
+}
+
 func TestAppendFilterSQL_StatusFilter(t *testing.T) {
 	var sb strings.Builder
 	args := []any{"initial"}
