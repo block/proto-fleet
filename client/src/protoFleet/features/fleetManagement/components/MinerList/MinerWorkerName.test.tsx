@@ -46,6 +46,7 @@ describe("MinerWorkerName", () => {
 
     expect(screen.getByText("aa:bb:cc:dd:ee:ff")).toBeInTheDocument();
     expect(screen.getByLabelText("Default worker name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default worker name")).toHaveAttribute("data-no-row-click");
   });
 
   it("renders explanatory tooltip content for the default worker name icon", () => {

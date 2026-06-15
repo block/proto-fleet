@@ -37,7 +37,7 @@ const MinerWorkerName = ({ miner }: MinerWorkerNameProps) => {
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="min-w-0 truncate">{normalizedWorkerName}</span>
       {isDefault ? (
-        <span className="shrink-0 text-text-primary-50" aria-label="Default worker name">
+        <span className="shrink-0 text-text-primary-50" aria-label="Default worker name" data-no-row-click>
           <Tooltip
             body={DEFAULT_WORKER_NAME_HELP_TEXT}
             position={positions["bottom left"]}
