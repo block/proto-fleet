@@ -47,7 +47,8 @@ function curtailmentEvent(
   state = CurtailmentEventState.ACTIVE,
   overrides: Partial<CurtailmentEvent> = {},
 ): CurtailmentEvent {
-  return create(CurtailmentEventSchema, { eventUuid, state, ...overrides });
+  const event = create(CurtailmentEventSchema, { eventUuid, state });
+  return Object.assign(event, overrides);
 }
 
 describe("activeCurtailmentData", () => {
