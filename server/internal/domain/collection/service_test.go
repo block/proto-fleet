@@ -1916,11 +1916,11 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 	deviceIDs := []string{"d1", "d2"}
 
 	gomock.InOrder(
-		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
-			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
 		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
-		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
 	)
@@ -1944,7 +1944,7 @@ func TestService_AssignDevicesToRack_unassignClearsWithoutAdd(t *testing.T) {
 	ctx := testCtx(t)
 
 	deviceIDs := []string{"d1"}
-	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(int64(1), nil)
 
 	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -1964,8 +1964,12 @@ func TestService_AssignDevicesToRack_targetMustBeRack(t *testing.T) {
 	ctx := testCtx(t)
 
 	targetID := int64(99)
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetID).
-		Return(&pb.DeviceCollection{Id: targetID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	gomock.InOrder(
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetID, testOrgID).
+			Return(interfaces.RackPlacement{}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetID).
+			Return(&pb.DeviceCollection{Id: targetID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil),
+	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,

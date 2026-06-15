@@ -379,6 +379,12 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 	if len(buildingIDs) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("building_ids must not be empty")
 	}
+	// Reject an explicit target_site_id == 0 so callers don't confuse
+	// "Unassigned" (TargetSiteID == nil) with a zero-valued site row
+	// they forgot to populate. nil stays the sentinel for unassign.
+	if params.TargetSiteID != nil && *params.TargetSiteID == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("target_site_id must be > 0 (use nil for Unassigned)")
+	}
 	// Sort for stable lock order: deadlock-safe against concurrent
 	// AssignBuildingsToSite touching an overlapping building set.
 	sort.Slice(buildingIDs, func(i, j int) bool { return buildingIDs[i] < buildingIDs[j] })
@@ -474,6 +480,12 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 	rackIDs := dedupeInt64s(params.RackIDs)
 	if len(rackIDs) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("rack_ids must not be empty")
+	}
+	// Reject an explicit target_site_id == 0 so callers don't confuse
+	// "Unassigned" (TargetSiteID == nil) with a zero-valued site row
+	// they forgot to populate. nil stays the sentinel for unassign.
+	if params.TargetSiteID != nil && *params.TargetSiteID == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("target_site_id must be > 0 (use nil for Unassigned)")
 	}
 	sort.Slice(rackIDs, func(i, j int) bool { return rackIDs[i] < rackIDs[j] })
 

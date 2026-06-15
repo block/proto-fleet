@@ -1169,19 +1169,26 @@ DELETE FROM device_set_membership
 WHERE org_id = $1
   AND device_identifier = ANY($2::text[])
   AND device_set_type = 'rack'
+  AND device_set_id != $3::bigint
 `
 
 type RemoveDevicesFromAnyRackParams struct {
 	OrgID             int64
 	DeviceIdentifiers []string
+	TargetRackID      int64
 }
 
-// Removes the given devices from whatever rack they're currently in.
-// AssignDevicesToRack uses this to clear prior rack membership inside
-// the same transaction as the new-rack insert, closing the orphan
-// window the client-side remove + add orchestration had.
+// Removes the given devices from whatever rack they're currently in,
+// EXCEPT the target rack (@target_rack_id). AssignDevicesToRack uses
+// this to clear prior rack membership inside the same transaction as
+// the new-rack insert, closing the orphan window the client-side
+// remove + add orchestration had. Skipping the target rack preserves
+// the existing membership row (and its rack_slot child) when a device
+// is reassigned to the same rack it's already in -- otherwise the
+// DELETE would cascade rack_slot rows that we'd silently lose. Pass
+// 0 for an unconditional clear (caller intends to unassign).
 func (q *Queries) RemoveDevicesFromAnyRack(ctx context.Context, arg RemoveDevicesFromAnyRackParams) (int64, error) {
-	result, err := q.exec(ctx, q.removeDevicesFromAnyRackStmt, removeDevicesFromAnyRack, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	result, err := q.exec(ctx, q.removeDevicesFromAnyRackStmt, removeDevicesFromAnyRack, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.TargetRackID)
 	if err != nil {
 		return 0, err
 	}

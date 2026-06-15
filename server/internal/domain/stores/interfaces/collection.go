@@ -170,13 +170,17 @@ type CollectionStore interface {
 	RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
 
 	// RemoveDevicesFromAnyRack deletes the given devices' rack
-	// membership rows regardless of which rack they currently sit in.
-	// Used by AssignDevicesToRack to clear prior rack membership inside
-	// the same transaction as the new-rack insert, closing the orphan
-	// window the client-side RemoveDevicesFromDeviceSet +
-	// AddDevicesToDeviceSet orchestration had. No-op for devices
-	// without a rack membership.
-	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error)
+	// membership rows regardless of which rack they currently sit in,
+	// EXCEPT the target rack (targetRackID). Used by AssignDevicesToRack
+	// to clear prior rack membership inside the same transaction as the
+	// new-rack insert, closing the orphan window the client-side
+	// RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet orchestration
+	// had. Excluding targetRackID preserves the membership row (and its
+	// rack_slot child) for devices already in the target rack -- a
+	// re-add inside the same transaction would silently drop the
+	// rack_slot via the FK cascade. Pass 0 to clear unconditionally
+	// (caller intends to unassign).
+	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).

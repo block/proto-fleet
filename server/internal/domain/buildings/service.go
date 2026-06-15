@@ -284,6 +284,18 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		return nil, fleeterror.NewInvalidArgumentError("racks must not be empty")
 	}
 
+	// Reject duplicate rack_ids up front. The handler / proto layers
+	// don't enforce uniqueness, and the per-entry grid-cell write would
+	// silently clobber an earlier same-rack entry inside the tx —
+	// surface the inconsistency to the caller instead.
+	seenRackIDs := make(map[int64]struct{}, len(params.Racks))
+	for _, rp := range params.Racks {
+		if _, dup := seenRackIDs[rp.RackID]; dup {
+			return nil, fleeterror.NewInvalidArgumentErrorf("duplicate rack_id %d in racks", rp.RackID)
+		}
+		seenRackIDs[rp.RackID] = struct{}{}
+	}
+
 	// Per-entry validation runs before any I/O so a bad request fails
 	// fast without partial work. Defense-in-depth — the proto CEL rule
 	// also enforces position pairing.
@@ -317,6 +329,11 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		targetSiteID      *int64
 		cascadeRackIDs    []int64
 		positionedRackIDs []int64
+		// For a building-only unassign (TargetBuildingID == nil) of a
+		// single rack, capture the rack's current SiteID so the activity
+		// log preserves "the site this rack lives in" instead of nil
+		// (which would make the event look site-less).
+		fallbackSiteID *int64
 	)
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		// Lock the target building first (canonical lock order:
@@ -359,6 +376,15 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, rp.RackID, params.OrgID)
 			if err != nil {
 				return err
+			}
+
+			// Capture the source SiteID for a single-rack building-only
+			// unassign so the activity log carries the rack's site
+			// instead of nil. Only meaningful when the batch is exactly
+			// one rack — multi-rack batches may straddle sites and
+			// surfacing the first rack's site would be misleading.
+			if params.TargetBuildingID == nil && len(racks) == 1 {
+				fallbackSiteID = current.SiteID
 			}
 
 			// Building-only unassign must NOT cascade-clear the rack's
@@ -444,11 +470,18 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 	for i, rp := range racks {
 		rackIDs[i] = rp.RackID
 	}
+	// For a single-rack building-only unassign, fall back to the rack's
+	// own SiteID captured during the lock so the event still records
+	// which site the operator was working in.
+	eventSiteID := targetSiteID
+	if eventSiteID == nil && fallbackSiteID != nil {
+		eventSiteID = fallbackSiteID
+	}
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventRackAssignedBuilding,
 		OrganizationID: &orgIDVal,
-		SiteID:         targetSiteID,
+		SiteID:         eventSiteID,
 		Description: fmt.Sprintf(
 			"Assigned %d rack(s) to building %v",
 			len(racks), derefInt64(params.TargetBuildingID),

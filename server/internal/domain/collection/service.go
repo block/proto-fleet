@@ -933,7 +933,17 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		// DeleteCollection on the target can't race us. Canonical lock
 		// order is rack-only here — site/building locks would invert
 		// against AddDevicesToCollection.
+		//
+		// Order: take the row lock BEFORE the label/type read so a
+		// concurrent rename can't slip a stale label into the activity
+		// log we emit downstream.
+		var targetRackID int64
 		if params.TargetRackID != nil {
+			targetRackID = *params.TargetRackID
+			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, *params.TargetRackID, params.OrgID)
+			if err != nil {
+				return nil, err
+			}
 			coll, err := s.collectionStore.GetCollection(ctx, params.OrgID, *params.TargetRackID)
 			if err != nil {
 				return nil, err
@@ -941,20 +951,19 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
 				return nil, fleeterror.NewInvalidArgumentErrorf("target_rack_id %d is not a rack", *params.TargetRackID)
 			}
-			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, *params.TargetRackID, params.OrgID)
-			if err != nil {
-				return nil, err
-			}
 			targetSiteID = placement.SiteID
 			targetLabel = coll.Label
 		}
 
 		// Clear existing rack membership for the given devices regardless
-		// of which rack they sit in. This is the half of the operation
-		// that previously lived in the client-side
-		// RemoveDevicesFromDeviceSet call; bundling it into the tx is
-		// what closes the orphan window described in #420.
-		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers)
+		// of which rack they sit in EXCEPT the target rack. Excluding
+		// the target preserves the membership row + rack_slot child for
+		// devices that are already in the target rack (a same-rack
+		// re-add would otherwise cascade-drop the rack_slot row). This
+		// is the half of the operation that previously lived in the
+		// client-side RemoveDevicesFromDeviceSet call; bundling it into
+		// the tx is what closes the orphan window described in #420.
+		removed, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, params.OrgID, params.DeviceIdentifiers, targetRackID)
 		if err != nil {
 			return nil, err
 		}
@@ -1010,7 +1019,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	} else {
 		eventDescription = "Cleared devices from rack"
 	}
-	assignedInt := int(out.assigned + out.removed)
+	// ScopeCount is the number of devices the caller asked to touch,
+	// not the sum of per-step row counts (assigned + removed can
+	// double-count devices that were both removed from a prior rack
+	// and added to a new one).
+	assignedInt := len(params.DeviceIdentifiers)
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "assign_devices_to_rack",
