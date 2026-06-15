@@ -124,49 +124,40 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
   );
 
   const handleRowClick = useCallback((item: SiteListItem) => navigate(`/sites/${item.id}`), [navigate]);
-  const selectableSelectionMode: SelectionMode = selectedIds && selectedIds.length > 0 ? "subset" : "none";
-  const handleSelectionModeChange = useCallback(() => undefined, []);
   const isSelectableSite = useCallback((item: SiteListItem) => {
     const siteId = item.site.site?.id;
     return siteId !== undefined && siteId !== 0n;
   }, []);
+  const handleSelectionModeChange = useCallback(() => undefined, []);
+  const commonProps = {
+    activeCols: ACTIVE_COLS,
+    colTitles: COL_TITLES,
+    colConfig,
+    items,
+    itemKey: "id" as const,
+    hideTotal: true,
+    onRowClick: handleRowClick,
+    emptyStateRow,
+    paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+  };
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
+    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
     return (
       <List<SiteListItem, string, SiteColumn>
-        activeCols={ACTIVE_COLS}
-        colTitles={COL_TITLES}
-        colConfig={colConfig}
-        items={items}
-        itemKey="id"
+        {...commonProps}
         itemSelectable
         customSelectedItems={selectedIds}
         customSetSelectedItems={onSelectedIdsChange}
-        customSelectionMode={selectableSelectionMode}
+        customSelectionMode={selectionMode}
         onSelectionModeChange={handleSelectionModeChange}
         pageScopedSelection
         isRowSelectable={isSelectableSite}
-        hideTotal
-        onRowClick={handleRowClick}
-        emptyStateRow={emptyStateRow}
-        paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
       />
     );
   }
 
-  return (
-    <List<SiteListItem, string, SiteColumn>
-      activeCols={ACTIVE_COLS}
-      colTitles={COL_TITLES}
-      colConfig={colConfig}
-      items={items}
-      itemKey="id"
-      hideTotal
-      onRowClick={handleRowClick}
-      emptyStateRow={emptyStateRow}
-      paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
-    />
-  );
+  return <List<SiteListItem, string, SiteColumn> {...commonProps} />;
 };
 
 export default SiteList;

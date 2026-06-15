@@ -102,20 +102,56 @@ const DeviceSetList = ({
   const firstItemIndex = currentPage * pageSize + 1;
   const lastItemIndex = currentPage * pageSize + deviceSets.length;
   const shouldRenderPagination = !loading && total !== undefined && total > 0;
-  const selectionMode: SelectionMode = selectedIds && selectedIds.length > 0 ? "subset" : "none";
   const handleSelectionModeChange = useCallback(() => undefined, []);
   const isRowSelectable = useCallback((item: DeviceSetListItem) => item.deviceSet.id !== 0n, []);
 
+  const commonListProps = {
+    activeCols: columns,
+    colTitles: deviceSetColTitles,
+    colConfig,
+    items,
+    itemKey: "id" as const,
+    hideTotal: true,
+    sortableColumns: SORTABLE_COLUMNS,
+    currentSort,
+    onSort,
+    getDefaultSortDirection,
+    onRowClick,
+    emptyStateRow,
+  };
+  const pagination = shouldRenderPagination ? (
+    <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
+      <span className="text-300 text-text-primary">
+        Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
+      </span>
+      <div className="flex gap-3">
+        <Button
+          variant={variants.secondary}
+          size={sizes.compact}
+          ariaLabel="Previous page"
+          prefixIcon={<ChevronDown className="rotate-90" />}
+          onClick={handlePrevPage}
+          disabled={!hasPreviousPage}
+        />
+        <Button
+          variant={variants.secondary}
+          size={sizes.compact}
+          ariaLabel="Next page"
+          prefixIcon={<ChevronDown className="rotate-270" />}
+          onClick={handleNextPage}
+          disabled={!hasNextPage}
+        />
+      </div>
+    </div>
+  ) : null;
+
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
+    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
     return (
       <>
         <div ref={topRef} />
         <List<DeviceSetListItem, string, DeviceSetColumn>
-          activeCols={columns}
-          colTitles={deviceSetColTitles}
-          colConfig={colConfig}
-          items={items}
-          itemKey="id"
+          {...commonListProps}
           itemSelectable
           customSelectedItems={selectedIds}
           customSetSelectedItems={onSelectedIdsChange}
@@ -123,40 +159,8 @@ const DeviceSetList = ({
           onSelectionModeChange={handleSelectionModeChange}
           pageScopedSelection
           isRowSelectable={isRowSelectable}
-          hideTotal
-          sortableColumns={SORTABLE_COLUMNS}
-          currentSort={currentSort}
-          onSort={onSort}
-          getDefaultSortDirection={getDefaultSortDirection}
-          onRowClick={onRowClick}
-          emptyStateRow={emptyStateRow}
         />
-
-        {shouldRenderPagination ? (
-          <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
-            <span className="text-300 text-text-primary">
-              Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
-            </span>
-            <div className="flex gap-3">
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                ariaLabel="Previous page"
-                prefixIcon={<ChevronDown className="rotate-90" />}
-                onClick={handlePrevPage}
-                disabled={!hasPreviousPage}
-              />
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                ariaLabel="Next page"
-                prefixIcon={<ChevronDown className="rotate-270" />}
-                onClick={handleNextPage}
-                disabled={!hasNextPage}
-              />
-            </div>
-          </div>
-        ) : null}
+        {pagination}
       </>
     );
   }
@@ -164,46 +168,8 @@ const DeviceSetList = ({
   return (
     <>
       <div ref={topRef} />
-      <List<DeviceSetListItem, string, DeviceSetColumn>
-        activeCols={columns}
-        colTitles={deviceSetColTitles}
-        colConfig={colConfig}
-        items={items}
-        itemKey="id"
-        hideTotal
-        sortableColumns={SORTABLE_COLUMNS}
-        currentSort={currentSort}
-        onSort={onSort}
-        getDefaultSortDirection={getDefaultSortDirection}
-        onRowClick={onRowClick}
-        emptyStateRow={emptyStateRow}
-      />
-
-      {shouldRenderPagination ? (
-        <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
-          <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
-          </span>
-          <div className="flex gap-3">
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Previous page"
-              prefixIcon={<ChevronDown className="rotate-90" />}
-              onClick={handlePrevPage}
-              disabled={!hasPreviousPage}
-            />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Next page"
-              prefixIcon={<ChevronDown className="rotate-270" />}
-              onClick={handleNextPage}
-              disabled={!hasNextPage}
-            />
-          </div>
-        </div>
-      ) : null}
+      <List<DeviceSetListItem, string, DeviceSetColumn> {...commonListProps} />
+      {pagination}
     </>
   );
 };

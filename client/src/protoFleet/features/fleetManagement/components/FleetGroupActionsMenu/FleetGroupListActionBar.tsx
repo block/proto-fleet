@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
@@ -26,17 +26,34 @@ const FleetGroupListActionBar = ({
 }: FleetGroupListActionBarProps) => {
   const setActionBarVisible = useSetActionBarVisible();
   const selectedIds = useMemo(() => selectedScopes.map((scope) => scope.id.toString()), [selectedScopes]);
-  const selectedCountRef = useRef(selectedIds.length);
   const pluralKind = PLURAL_KIND[kind];
+  // Tracks whether the bar is still mounted so a late-arriving onActionComplete
+  // can't resurrect the global toaster push-up after the user navigated away.
+  const mountedRef = useRef(true);
+  // Tracks current selection length so onActionComplete reflects the latest
+  // count, not a value captured when the action was dispatched.
+  const selectedCountRef = useRef(selectedIds.length);
+  selectedCountRef.current = selectedIds.length;
 
   useEffect(() => {
-    selectedCountRef.current = selectedIds.length;
     setActionBarVisible(selectedIds.length > 0);
   }, [selectedIds.length, setActionBarVisible]);
 
   useEffect(() => {
-    return () => setActionBarVisible(false);
+    return () => {
+      mountedRef.current = false;
+      setActionBarVisible(false);
+    };
   }, [setActionBarVisible]);
+
+  const handleActionComplete = useCallback(
+    (setHidden: (hidden: boolean) => void) => {
+      setHidden(false);
+      if (!mountedRef.current) return;
+      setActionBarVisible(selectedCountRef.current > 0);
+    },
+    [setActionBarVisible],
+  );
 
   return (
     <ActionBar
@@ -81,10 +98,7 @@ const FleetGroupListActionBar = ({
             setHidden(true);
             setActionBarVisible(false);
           }}
-          onActionComplete={() => {
-            setHidden(false);
-            setActionBarVisible(selectedCountRef.current > 0);
-          }}
+          onActionComplete={() => handleActionComplete(setHidden)}
         />
       )}
     />

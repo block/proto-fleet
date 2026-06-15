@@ -163,49 +163,40 @@ const BuildingList = ({
   );
 
   const handleRowClick = useCallback((item: BuildingListItem) => navigate(`/buildings/${item.id}`), [navigate]);
-  const selectableSelectionMode: SelectionMode = selectedIds && selectedIds.length > 0 ? "subset" : "none";
-  const handleSelectionModeChange = useCallback(() => undefined, []);
   const isSelectableBuilding = useCallback((item: BuildingListItem) => {
     const buildingId = item.building.building?.id;
     return buildingId !== undefined && buildingId !== 0n;
   }, []);
+  const handleSelectionModeChange = useCallback(() => undefined, []);
+  const commonProps = {
+    activeCols: ACTIVE_COLS,
+    colTitles: COL_TITLES,
+    colConfig,
+    items,
+    itemKey: "id" as const,
+    hideTotal: true,
+    onRowClick: handleRowClick,
+    emptyStateRow,
+    paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+  };
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
+    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
     return (
       <List<BuildingListItem, string, BuildingColumn>
-        activeCols={ACTIVE_COLS}
-        colTitles={COL_TITLES}
-        colConfig={colConfig}
-        items={items}
-        itemKey="id"
+        {...commonProps}
         itemSelectable
         customSelectedItems={selectedIds}
         customSetSelectedItems={onSelectedIdsChange}
-        customSelectionMode={selectableSelectionMode}
+        customSelectionMode={selectionMode}
         onSelectionModeChange={handleSelectionModeChange}
         pageScopedSelection
         isRowSelectable={isSelectableBuilding}
-        hideTotal
-        onRowClick={handleRowClick}
-        emptyStateRow={emptyStateRow}
-        paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
       />
     );
   }
 
-  return (
-    <List<BuildingListItem, string, BuildingColumn>
-      activeCols={ACTIVE_COLS}
-      colTitles={COL_TITLES}
-      colConfig={colConfig}
-      items={items}
-      itemKey="id"
-      hideTotal
-      onRowClick={handleRowClick}
-      emptyStateRow={emptyStateRow}
-      paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
-    />
-  );
+  return <List<BuildingListItem, string, BuildingColumn> {...commonProps} />;
 };
 
 export default BuildingList;
