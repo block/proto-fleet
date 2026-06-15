@@ -285,6 +285,24 @@ func (s *SQLSiteStore) AssignBuildingToSite(ctx context.Context, orgID, building
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) AssignBuildingsToSiteBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).AssignBuildingsToSiteBulk(ctx, sqlc.AssignBuildingsToSiteBulkParams{
+		SiteID:      ptrToNullInt64(targetSiteID),
+		BuildingIds: buildingIDs,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return 0, fleeterror.NewPlainError("a building with this name already exists in the target site", connect.CodeAlreadyExists).WithCallerStackTrace()
+		}
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-assign buildings to site: %v", err)
+	}
+	return rowsAffected, nil
+}
+
 func (s *SQLSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).ReassignRacksUnderBuilding(ctx, sqlc.ReassignRacksUnderBuildingParams{
 		TargetSiteID: ptrToNullInt64(targetSiteID),
@@ -297,6 +315,21 @@ func (s *SQLSiteStore) ReassignRacksUnderBuilding(ctx context.Context, orgID, bu
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) ReassignRacksUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).ReassignRacksUnderBuildingsBulk(ctx, sqlc.ReassignRacksUnderBuildingsBulkParams{
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+		OrgID:        orgID,
+		BuildingIds:  buildingIDs,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign racks under buildings: %v", err)
+	}
+	return rowsAffected, nil
+}
+
 func (s *SQLSiteStore) ReassignDevicesUnderBuilding(ctx context.Context, orgID, buildingID int64, targetSiteID *int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).ReassignDevicesUnderBuilding(ctx, sqlc.ReassignDevicesUnderBuildingParams{
 		TargetSiteID: ptrToNullInt64(targetSiteID),
@@ -305,6 +338,21 @@ func (s *SQLSiteStore) ReassignDevicesUnderBuilding(ctx context.Context, orgID, 
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to reassign devices under building: %v", err)
+	}
+	return rowsAffected, nil
+}
+
+func (s *SQLSiteStore) ReassignDevicesUnderBuildingsBulk(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	rowsAffected, err := s.GetQueries(ctx).ReassignDevicesUnderBuildingsBulk(ctx, sqlc.ReassignDevicesUnderBuildingsBulkParams{
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+		OrgID:        orgID,
+		BuildingIds:  buildingIDs,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign devices under buildings: %v", err)
 	}
 	return rowsAffected, nil
 }

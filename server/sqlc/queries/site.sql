@@ -295,6 +295,42 @@ WHERE dsr.org_id = sqlc.arg('org_id')
         AND ds.deleted_at IS NULL
   );
 
+-- name: ReassignRacksUnderBuildingsBulk :execrows
+-- Bulk variant of ReassignRacksUnderBuilding. Sets rack.site_id =
+-- $target for every live rack pointing at any of @building_ids in one
+-- statement. Caller wraps in the same tx as the building UPDATE so
+-- the building/rack/device site_ids stay in lockstep.
+UPDATE device_set_rack dsr
+SET site_id = sqlc.narg('target_site_id')
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = ANY(sqlc.arg('building_ids')::bigint[])
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  );
+
+-- name: ReassignDevicesUnderBuildingsBulk :execrows
+-- Bulk variant of ReassignDevicesUnderBuilding. Sets device.site_id =
+-- $target for every device in any live rack of any building in
+-- @building_ids. Caller wraps in the same tx as the building UPDATE.
+UPDATE device d
+SET site_id = sqlc.narg('target_site_id'),
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = dsm.org_id
+WHERE d.id = dsm.device_id
+  AND d.org_id = dsm.org_id
+  AND dsm.device_set_type = 'rack'
+  AND d.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = ANY(sqlc.arg('building_ids')::bigint[])
+  AND d.deleted_at IS NULL;
+
 -- name: ReassignDevicesUnderBuilding :execrows
 -- Sets device.site_id = $target for every device in any live rack of
 -- the given building. Caller wraps this in the same tx as the building

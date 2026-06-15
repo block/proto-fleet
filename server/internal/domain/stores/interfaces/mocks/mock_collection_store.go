@@ -87,6 +87,21 @@ func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceSites(ctx, collectio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceSites", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceSites), ctx, collectionID, orgID, targetSiteID)
 }
 
+// CascadeRackDeviceSitesBulk mocks base method.
+func (m *MockCollectionStore) CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CascadeRackDeviceSitesBulk", ctx, orgID, rackIDs, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CascadeRackDeviceSitesBulk indicates an expected call of CascadeRackDeviceSitesBulk.
+func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceSitesBulk(ctx, orgID, rackIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceSitesBulk", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceSitesBulk), ctx, orgID, rackIDs, targetSiteID)
+}
+
 // ClearRackPlacementForSoftDelete mocks base method.
 func (m *MockCollectionStore) ClearRackPlacementForSoftDelete(ctx context.Context, orgID, collectionID int64) error {
 	m.ctrl.T.Helper()
@@ -447,6 +462,21 @@ func (mr *MockCollectionStoreMockRecorder) LockRackPlacementForWrite(ctx, collec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockRackPlacementForWrite", reflect.TypeOf((*MockCollectionStore)(nil).LockRackPlacementForWrite), ctx, collectionID, orgID)
 }
 
+// LockRacksForReparent mocks base method.
+func (m *MockCollectionStore) LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockRacksForReparent", ctx, orgID, deviceIdentifiers, targetRackID)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockRacksForReparent indicates an expected call of LockRacksForReparent.
+func (mr *MockCollectionStoreMockRecorder) LockRacksForReparent(ctx, orgID, deviceIdentifiers, targetRackID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockRacksForReparent", reflect.TypeOf((*MockCollectionStore)(nil).LockRacksForReparent), ctx, orgID, deviceIdentifiers, targetRackID)
+}
+
 // RemoveAllDevicesFromCollection mocks base method.
 func (m *MockCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context, orgID, collectionID int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -576,4 +606,32 @@ func (m *MockCollectionStore) UpdateRackPlacement(ctx context.Context, collectio
 func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacement(ctx, collectionID, orgID, siteID, buildingID, zone any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackPlacement", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackPlacement), ctx, collectionID, orgID, siteID, buildingID, zone)
+}
+
+// UpdateRackPlacementBulkForBuilding mocks base method.
+func (m *MockCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRackPlacementBulkForBuilding", ctx, orgID, rackIDs, targetSiteID, targetBuildingID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateRackPlacementBulkForBuilding indicates an expected call of UpdateRackPlacementBulkForBuilding.
+func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacementBulkForBuilding(ctx, orgID, rackIDs, targetSiteID, targetBuildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackPlacementBulkForBuilding", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackPlacementBulkForBuilding), ctx, orgID, rackIDs, targetSiteID, targetBuildingID)
+}
+
+// UpdateRackPlacementBulkForSite mocks base method.
+func (m *MockCollectionStore) UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRackPlacementBulkForSite", ctx, orgID, rackIDs, targetSiteID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateRackPlacementBulkForSite indicates an expected call of UpdateRackPlacementBulkForSite.
+func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacementBulkForSite(ctx, orgID, rackIDs, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRackPlacementBulkForSite", reflect.TypeOf((*MockCollectionStore)(nil).UpdateRackPlacementBulkForSite), ctx, orgID, rackIDs, targetSiteID)
 }

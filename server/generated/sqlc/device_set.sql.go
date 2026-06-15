@@ -102,6 +102,37 @@ func (q *Queries) CascadeRackDeviceSites(ctx context.Context, arg CascadeRackDev
 	return result.RowsAffected()
 }
 
+const cascadeRackDeviceSitesBulk = `-- name: CascadeRackDeviceSitesBulk :execrows
+UPDATE device d
+SET site_id = $1::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = ANY($2::bigint[])
+  AND dsm.org_id = $3
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.site_id IS DISTINCT FROM $1::bigint
+`
+
+type CascadeRackDeviceSitesBulkParams struct {
+	TargetSiteID sql.NullInt64
+	RackIds      []int64
+	OrgID        int64
+}
+
+// Bulk variant of CascadeRackDeviceSites. Rewrites device.site_id to
+// target_site_id for every paired member of every rack in @rack_ids.
+// NULL target unassigns. IS DISTINCT FROM skips no-op rows. Returns
+// the total affected row count across all racks.
+func (q *Queries) CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeRackDeviceSitesBulkStmt, cascadeRackDeviceSitesBulk, arg.TargetSiteID, pq.Array(arg.RackIds), arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearRackPlacementForSoftDelete = `-- name: ClearRackPlacementForSoftDelete :exec
 UPDATE device_set_rack
 SET aisle_index = NULL,
@@ -1145,6 +1176,69 @@ func (q *Queries) LockRackPlacementForWrite(ctx context.Context, arg LockRackPla
 	return i, err
 }
 
+const lockRacksForReparent = `-- name: LockRacksForReparent :many
+SELECT ds.id AS device_set_id
+FROM device_set ds
+WHERE ds.id IN (
+    SELECT dsm.device_set_id
+    FROM device_set_membership dsm
+    WHERE dsm.org_id = $1
+      AND dsm.device_set_type = 'rack'
+      AND dsm.device_identifier = ANY($2::text[])
+  UNION
+    SELECT $3::bigint
+    WHERE $3::bigint > 0
+  )
+  AND ds.org_id = $1
+  AND ds.type = 'rack'
+  AND ds.deleted_at IS NULL
+ORDER BY ds.id ASC
+FOR UPDATE
+`
+
+type LockRacksForReparentParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+	TargetRackID      int64
+}
+
+// Locks every rack involved in a reparent (sources + target) FOR UPDATE
+// in ascending id order. Used by AssignDevicesToRack as the FIRST tx
+// operation. Sorting source and target together in a single lock
+// acquisition is what prevents the deadlock two concurrent
+// AssignDevicesToRack calls moving devices in opposite directions
+// between the same pair of racks would otherwise hit: each tx locks
+// {sourceA, sourceB, ..., target} in id order, so any two txs touching
+// the same rack pair always agree on the global lock order regardless
+// of which side is source vs target. Pass 0 for @target_rack_id on the
+// unassign path (clear-rack -- no target to include). The membership
+// DELETE in RemoveDevicesFromAnyRack still excludes the target via its
+// own predicate; this query is purely about lock order. Distinct ids
+// are derived in a subquery so the outer locking SELECT can use
+// FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
+func (q *Queries) LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockRacksForReparentStmt, lockRacksForReparent, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.TargetRackID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_set_id int64
+		if err := rows.Scan(&device_set_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_set_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeAllDevicesFromDeviceSet = `-- name: RemoveAllDevicesFromDeviceSet :execrows
 DELETE FROM device_set_membership
 WHERE device_set_id = $1
@@ -1431,5 +1525,103 @@ func (q *Queries) UpdateRackPlacement(ctx context.Context, arg UpdateRackPlaceme
 		arg.DeviceSetID,
 		arg.OrgID,
 	)
+	return err
+}
+
+const updateRackPlacementBulkForBuilding = `-- name: UpdateRackPlacementBulkForBuilding :exec
+UPDATE device_set_rack dsr
+SET site_id = CASE
+        WHEN $1::bigint IS NULL THEN dsr.site_id
+        ELSE $2::bigint
+    END,
+    building_id = $1::bigint,
+    zone = CASE
+        WHEN dsr.building_id IS NOT NULL
+             AND dsr.building_id IS DISTINCT FROM $1::bigint
+        THEN ''
+        ELSE dsr.zone
+    END,
+    aisle_index = CASE
+        WHEN $1::bigint IS DISTINCT FROM dsr.building_id THEN NULL
+        ELSE dsr.aisle_index
+    END,
+    position_in_aisle = CASE
+        WHEN $1::bigint IS DISTINCT FROM dsr.building_id THEN NULL
+        ELSE dsr.position_in_aisle
+    END
+WHERE dsr.device_set_id = ANY($3::bigint[])
+  AND dsr.org_id = $4
+  AND EXISTS (
+    SELECT 1 FROM device_set ds
+    WHERE ds.id = dsr.device_set_id
+      AND ds.org_id = $4
+      AND ds.deleted_at IS NULL
+  )
+`
+
+type UpdateRackPlacementBulkForBuildingParams struct {
+	TargetBuildingID sql.NullInt64
+	TargetSiteID     sql.NullInt64
+	RackIds          []int64
+	OrgID            int64
+}
+
+// Bulk variant of UpdateRackPlacement scoped to AssignRacksToBuilding.
+// Sets site_id, building_id, and zone for every rack in @rack_ids in a
+// single update.
+//
+// Semantics match the per-row UpdateRackPlacement + service-layer
+// zone/site rules:
+//
+//   - When @target_building_id IS NULL (unassign branch), each rack
+//     keeps its current site_id (no cascade fires later). Otherwise
+//     every rack is stamped with @target_site_id.
+//   - Zone clears to ” for any rack that had a building and is
+//     transitioning to a different (or NULL) building. Racks staying in
+//     the same building preserve their zone.
+//   - aisle_index / position_in_aisle clear when building_id changes,
+//     matching the single-row CASE.
+func (q *Queries) UpdateRackPlacementBulkForBuilding(ctx context.Context, arg UpdateRackPlacementBulkForBuildingParams) error {
+	_, err := q.exec(ctx, q.updateRackPlacementBulkForBuildingStmt, updateRackPlacementBulkForBuilding,
+		arg.TargetBuildingID,
+		arg.TargetSiteID,
+		pq.Array(arg.RackIds),
+		arg.OrgID,
+	)
+	return err
+}
+
+const updateRackPlacementBulkForSite = `-- name: UpdateRackPlacementBulkForSite :exec
+UPDATE device_set_rack dsr
+SET site_id           = $1::bigint,
+    building_id       = NULL,
+    zone              = '',
+    aisle_index       = NULL,
+    position_in_aisle = NULL
+WHERE dsr.device_set_id = ANY($2::bigint[])
+  AND dsr.org_id = $3
+  AND EXISTS (
+    SELECT 1 FROM device_set ds
+    WHERE ds.id = dsr.device_set_id
+      AND ds.org_id = $3
+      AND ds.deleted_at IS NULL
+  )
+`
+
+type UpdateRackPlacementBulkForSiteParams struct {
+	TargetSiteID sql.NullInt64
+	RackIds      []int64
+	OrgID        int64
+}
+
+// Bulk variant used by AssignRacksToSite. Stamps every rack in
+// @rack_ids with the target site, clears building_id and zone (because
+// a building belongs to one site, the rack's building membership is
+// invalidated by any site transition), and clears the grid placement
+// as a downstream effect of building_id changing. Caller is expected
+// to only pass racks whose current site differs from the target so the
+// response counts stay accurate.
+func (q *Queries) UpdateRackPlacementBulkForSite(ctx context.Context, arg UpdateRackPlacementBulkForSiteParams) error {
+	_, err := q.exec(ctx, q.updateRackPlacementBulkForSiteStmt, updateRackPlacementBulkForSite, arg.TargetSiteID, pq.Array(arg.RackIds), arg.OrgID)
 	return err
 }

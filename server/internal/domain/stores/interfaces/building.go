@@ -72,4 +72,15 @@ type BuildingStore interface {
 	// building_id via the collection store's UpdateRackPlacement in
 	// the same transaction.
 	SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error
+
+	// SetRackBuildingPositionBulkClear nulls (aisle_index,
+	// position_in_aisle) for every rack in rackIDs in one statement.
+	// Used by AssignRacksToBuilding's pass-1 vacate.
+	SetRackBuildingPositionBulkClear(ctx context.Context, orgID int64, rackIDs []int64) error
+
+	// SetRackBuildingPositionBulkPlace writes per-rack
+	// (aisleIndexes[i], positionInAisles[i]) for every rack in
+	// rackIDs (parallel-aligned arrays). Used by
+	// AssignRacksToBuilding's pass-2 after pass-1 cleared cells.
+	SetRackBuildingPositionBulkPlace(ctx context.Context, orgID int64, rackIDs []int64, aisleIndexes, positionInAisles []int32) error
 }

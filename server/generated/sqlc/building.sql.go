@@ -40,6 +40,34 @@ func (q *Queries) AssignBuildingToSite(ctx context.Context, arg AssignBuildingTo
 	return result.RowsAffected()
 }
 
+const assignBuildingsToSiteBulk = `-- name: AssignBuildingsToSiteBulk :execrows
+UPDATE building
+SET site_id    = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ANY($2::bigint[])
+  AND org_id = $3
+  AND deleted_at IS NULL
+`
+
+type AssignBuildingsToSiteBulkParams struct {
+	SiteID      sql.NullInt64
+	BuildingIds []int64
+	OrgID       int64
+}
+
+// Bulk variant of AssignBuildingToSite. Updates building.site_id for
+// every building in @building_ids in one statement. Caller is
+// expected to have row-locked each building first (canonical lock
+// order: site → buildings). Returns the row count of buildings
+// actually moved (skips soft-deleted rows).
+func (q *Queries) AssignBuildingsToSiteBulk(ctx context.Context, arg AssignBuildingsToSiteBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.assignBuildingsToSiteBulkStmt, assignBuildingsToSiteBulk, arg.SiteID, pq.Array(arg.BuildingIds), arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const buildingBelongsToOrg = `-- name: BuildingBelongsToOrg :one
 SELECT EXISTS(
     SELECT 1 FROM building
@@ -498,6 +526,74 @@ func (q *Queries) SetRackBuildingPosition(ctx context.Context, arg SetRackBuildi
 		arg.PositionInAisle,
 		arg.RackID,
 		arg.OrgID,
+	)
+	return err
+}
+
+const setRackBuildingPositionBulkClear = `-- name: SetRackBuildingPositionBulkClear :exec
+UPDATE device_set_rack
+SET aisle_index = NULL,
+    position_in_aisle = NULL
+WHERE device_set_id = ANY($1::bigint[])
+  AND org_id = $2
+`
+
+type SetRackBuildingPositionBulkClearParams struct {
+	RackIds []int64
+	OrgID   int64
+}
+
+// Bulk variant of SetRackBuildingPosition that nulls (aisle_index,
+// position_in_aisle) for every rack in @rack_ids. Used by
+// AssignRacksToBuilding's pass-1 vacate so every rack in the batch
+// holds NULL position before pass-2 reclaims cells. Mirrors the
+// single-row query's intentional no-touch on building_id —
+// UpdateRackPlacement already settled that.
+func (q *Queries) SetRackBuildingPositionBulkClear(ctx context.Context, arg SetRackBuildingPositionBulkClearParams) error {
+	_, err := q.exec(ctx, q.setRackBuildingPositionBulkClearStmt, setRackBuildingPositionBulkClear, pq.Array(arg.RackIds), arg.OrgID)
+	return err
+}
+
+const setRackBuildingPositionBulkPlace = `-- name: SetRackBuildingPositionBulkPlace :exec
+UPDATE device_set_rack dsr
+SET aisle_index = u.aisle_index,
+    position_in_aisle = u.position_in_aisle
+FROM (
+    SELECT
+        rack_ids[i]            AS rack_id,
+        aisle_indexes[i]       AS aisle_index,
+        position_in_aisles[i]  AS position_in_aisle
+    FROM (
+        SELECT
+            $2::bigint[]          AS rack_ids,
+            $3::int[]        AS aisle_indexes,
+            $4::int[]   AS position_in_aisles
+    ) arrs
+    CROSS JOIN generate_subscripts(arrs.rack_ids, 1) AS i
+) AS u
+WHERE dsr.device_set_id = u.rack_id
+  AND dsr.org_id = $1
+`
+
+type SetRackBuildingPositionBulkPlaceParams struct {
+	OrgID            int64
+	RackIds          []int64
+	AisleIndexes     []int32
+	PositionInAisles []int32
+}
+
+// Bulk variant of SetRackBuildingPosition that writes per-rack
+// (aisle_index, position_in_aisle) via parallel arrays joined on
+// ordinal position. Used by AssignRacksToBuilding's pass-2 after
+// pass-1 has vacated every cell touched by the batch. Arrays must be
+// the same length and parallel-aligned with @rack_ids; callers that
+// have a "place nothing" pass-2 should skip the query entirely.
+func (q *Queries) SetRackBuildingPositionBulkPlace(ctx context.Context, arg SetRackBuildingPositionBulkPlaceParams) error {
+	_, err := q.exec(ctx, q.setRackBuildingPositionBulkPlaceStmt, setRackBuildingPositionBulkPlace,
+		arg.OrgID,
+		pq.Array(arg.RackIds),
+		pq.Array(arg.AisleIndexes),
+		pq.Array(arg.PositionInAisles),
 	)
 	return err
 }

@@ -100,6 +100,24 @@ type CollectionStore interface {
 	// atomically.
 	UpdateRackPlacement(ctx context.Context, collectionID, orgID int64, siteID, buildingID *int64, zone string) error
 
+	// UpdateRackPlacementBulkForBuilding writes site_id, building_id,
+	// and zone in one statement for every rack in rackIDs. Semantics
+	// mirror the per-row UpdateRackPlacement with the
+	// AssignRacksToBuilding-specific rules in SQL:
+	//   * targetBuildingID == nil keeps each rack's current site_id.
+	//   * Zone clears to '' for racks transitioning to a different (or
+	//     NULL) building; preserved otherwise.
+	//   * Grid position clears when building_id changes.
+	// Caller is expected to have locked every rack via
+	// LockRackPlacementForWrite before invoking.
+	UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error
+
+	// UpdateRackPlacementBulkForSite stamps every rack in rackIDs with
+	// the target site, clears building_id + zone + grid placement.
+	// Caller is expected to pass only racks whose site is actually
+	// changing.
+	UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error
+
 	// UnassignDeviceSitesByRack nulls device.site_id for paired rack
 	// members that match the rack's stamped site. No-op when the rack
 	// has no site or no members.
@@ -108,6 +126,11 @@ type CollectionStore interface {
 	// CascadeRackDeviceSites rewrites device.site_id to targetSiteID for
 	// rack members where the value differs. Returns the affected count.
 	CascadeRackDeviceSites(ctx context.Context, collectionID, orgID int64, targetSiteID *int64) (int64, error)
+
+	// CascadeRackDeviceSitesBulk is the multi-rack variant: rewrites
+	// device.site_id to targetSiteID for every paired member of every
+	// rack in rackIDs where the current value differs.
+	CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error)
 
 	// GetDeviceSiteIDsByMembership returns device_identifier + current
 	// site_id for every rack member.
@@ -181,6 +204,21 @@ type CollectionStore interface {
 	// rack_slot via the FK cascade. Pass 0 to clear unconditionally
 	// (caller intends to unassign).
 	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
+
+	// LockRacksForReparent takes FOR UPDATE locks on every rack involved
+	// in a reparent -- every source rack currently holding any of the
+	// given devices PLUS targetRackID (when non-zero) -- in ascending
+	// device_set_id order, and returns the locked ids.
+	// AssignDevicesToRack calls this as the FIRST tx operation. Locking
+	// source and target together in one globally sorted acquisition is
+	// what prevents two concurrent reparent calls moving devices in
+	// opposite directions between the same rack pair from deadlocking
+	// (tx A locking source 1 then target 2 while tx B locks source 2
+	// then target 1). Pass 0 for targetRackID in the clear-rack path
+	// where there is no target. The subsequent
+	// LockRackPlacementForWrite call on the target still happens for
+	// its placement read; this query handles the rack-id locks.
+	LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error)
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).

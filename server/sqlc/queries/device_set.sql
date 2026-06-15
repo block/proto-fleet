@@ -133,6 +133,90 @@ WHERE device_set_id = sqlc.arg('device_set_id')
       AND ds.deleted_at IS NULL
   );
 
+-- name: UpdateRackPlacementBulkForBuilding :exec
+-- Bulk variant of UpdateRackPlacement scoped to AssignRacksToBuilding.
+-- Sets site_id, building_id, and zone for every rack in @rack_ids in a
+-- single update.
+--
+-- Semantics match the per-row UpdateRackPlacement + service-layer
+-- zone/site rules:
+--
+--   * When @target_building_id IS NULL (unassign branch), each rack
+--     keeps its current site_id (no cascade fires later). Otherwise
+--     every rack is stamped with @target_site_id.
+--   * Zone clears to '' for any rack that had a building and is
+--     transitioning to a different (or NULL) building. Racks staying in
+--     the same building preserve their zone.
+--   * aisle_index / position_in_aisle clear when building_id changes,
+--     matching the single-row CASE.
+UPDATE device_set_rack dsr
+SET site_id = CASE
+        WHEN sqlc.narg('target_building_id')::bigint IS NULL THEN dsr.site_id
+        ELSE sqlc.narg('target_site_id')::bigint
+    END,
+    building_id = sqlc.narg('target_building_id')::bigint,
+    zone = CASE
+        WHEN dsr.building_id IS NOT NULL
+             AND dsr.building_id IS DISTINCT FROM sqlc.narg('target_building_id')::bigint
+        THEN ''
+        ELSE dsr.zone
+    END,
+    aisle_index = CASE
+        WHEN sqlc.narg('target_building_id')::bigint IS DISTINCT FROM dsr.building_id THEN NULL
+        ELSE dsr.aisle_index
+    END,
+    position_in_aisle = CASE
+        WHEN sqlc.narg('target_building_id')::bigint IS DISTINCT FROM dsr.building_id THEN NULL
+        ELSE dsr.position_in_aisle
+    END
+WHERE dsr.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
+  AND dsr.org_id = sqlc.arg('org_id')
+  AND EXISTS (
+    SELECT 1 FROM device_set ds
+    WHERE ds.id = dsr.device_set_id
+      AND ds.org_id = sqlc.arg('org_id')
+      AND ds.deleted_at IS NULL
+  );
+
+-- name: UpdateRackPlacementBulkForSite :exec
+-- Bulk variant used by AssignRacksToSite. Stamps every rack in
+-- @rack_ids with the target site, clears building_id and zone (because
+-- a building belongs to one site, the rack's building membership is
+-- invalidated by any site transition), and clears the grid placement
+-- as a downstream effect of building_id changing. Caller is expected
+-- to only pass racks whose current site differs from the target so the
+-- response counts stay accurate.
+UPDATE device_set_rack dsr
+SET site_id           = sqlc.narg('target_site_id')::bigint,
+    building_id       = NULL,
+    zone              = '',
+    aisle_index       = NULL,
+    position_in_aisle = NULL
+WHERE dsr.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
+  AND dsr.org_id = sqlc.arg('org_id')
+  AND EXISTS (
+    SELECT 1 FROM device_set ds
+    WHERE ds.id = dsr.device_set_id
+      AND ds.org_id = sqlc.arg('org_id')
+      AND ds.deleted_at IS NULL
+  );
+
+-- name: CascadeRackDeviceSitesBulk :execrows
+-- Bulk variant of CascadeRackDeviceSites. Rewrites device.site_id to
+-- target_site_id for every paired member of every rack in @rack_ids.
+-- NULL target unassigns. IS DISTINCT FROM skips no-op rows. Returns
+-- the total affected row count across all racks.
+UPDATE device d
+SET site_id = sqlc.narg('target_site_id')::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
+  AND dsm.org_id = sqlc.arg('org_id')
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.site_id IS DISTINCT FROM sqlc.narg('target_site_id')::bigint;
+
 -- name: SoftDeleteDeviceSet :execrows
 UPDATE device_set
 SET deleted_at = CURRENT_TIMESTAMP
@@ -210,6 +294,39 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
 DELETE FROM device_set_membership
 WHERE device_set_id = $1
   AND org_id = $2;
+
+-- name: LockRacksForReparent :many
+-- Locks every rack involved in a reparent (sources + target) FOR UPDATE
+-- in ascending id order. Used by AssignDevicesToRack as the FIRST tx
+-- operation. Sorting source and target together in a single lock
+-- acquisition is what prevents the deadlock two concurrent
+-- AssignDevicesToRack calls moving devices in opposite directions
+-- between the same pair of racks would otherwise hit: each tx locks
+-- {sourceA, sourceB, ..., target} in id order, so any two txs touching
+-- the same rack pair always agree on the global lock order regardless
+-- of which side is source vs target. Pass 0 for @target_rack_id on the
+-- unassign path (clear-rack -- no target to include). The membership
+-- DELETE in RemoveDevicesFromAnyRack still excludes the target via its
+-- own predicate; this query is purely about lock order. Distinct ids
+-- are derived in a subquery so the outer locking SELECT can use
+-- FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
+SELECT ds.id AS device_set_id
+FROM device_set ds
+WHERE ds.id IN (
+    SELECT dsm.device_set_id
+    FROM device_set_membership dsm
+    WHERE dsm.org_id = @org_id
+      AND dsm.device_set_type = 'rack'
+      AND dsm.device_identifier = ANY(@device_identifiers::text[])
+  UNION
+    SELECT @target_rack_id::bigint
+    WHERE @target_rack_id::bigint > 0
+  )
+  AND ds.org_id = @org_id
+  AND ds.type = 'rack'
+  AND ds.deleted_at IS NULL
+ORDER BY ds.id ASC
+FOR UPDATE;
 
 -- name: RemoveDevicesFromAnyRack :execrows
 -- Removes the given devices from whatever rack they're currently in,

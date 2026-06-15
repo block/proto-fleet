@@ -195,6 +195,58 @@ SET aisle_index = sqlc.narg('aisle_index')::int,
 WHERE device_set_id = sqlc.arg('rack_id')
   AND org_id = sqlc.arg('org_id');
 
+-- name: SetRackBuildingPositionBulkClear :exec
+-- Bulk variant of SetRackBuildingPosition that nulls (aisle_index,
+-- position_in_aisle) for every rack in @rack_ids. Used by
+-- AssignRacksToBuilding's pass-1 vacate so every rack in the batch
+-- holds NULL position before pass-2 reclaims cells. Mirrors the
+-- single-row query's intentional no-touch on building_id —
+-- UpdateRackPlacement already settled that.
+UPDATE device_set_rack
+SET aisle_index = NULL,
+    position_in_aisle = NULL
+WHERE device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
+  AND org_id = sqlc.arg('org_id');
+
+-- name: SetRackBuildingPositionBulkPlace :exec
+-- Bulk variant of SetRackBuildingPosition that writes per-rack
+-- (aisle_index, position_in_aisle) via parallel arrays joined on
+-- ordinal position. Used by AssignRacksToBuilding's pass-2 after
+-- pass-1 has vacated every cell touched by the batch. Arrays must be
+-- the same length and parallel-aligned with @rack_ids; callers that
+-- have a "place nothing" pass-2 should skip the query entirely.
+UPDATE device_set_rack dsr
+SET aisle_index = u.aisle_index,
+    position_in_aisle = u.position_in_aisle
+FROM (
+    SELECT
+        rack_ids[i]            AS rack_id,
+        aisle_indexes[i]       AS aisle_index,
+        position_in_aisles[i]  AS position_in_aisle
+    FROM (
+        SELECT
+            sqlc.arg('rack_ids')::bigint[]          AS rack_ids,
+            sqlc.arg('aisle_indexes')::int[]        AS aisle_indexes,
+            sqlc.arg('position_in_aisles')::int[]   AS position_in_aisles
+    ) arrs
+    CROSS JOIN generate_subscripts(arrs.rack_ids, 1) AS i
+) AS u
+WHERE dsr.device_set_id = u.rack_id
+  AND dsr.org_id = sqlc.arg('org_id');
+
+-- name: AssignBuildingsToSiteBulk :execrows
+-- Bulk variant of AssignBuildingToSite. Updates building.site_id for
+-- every building in @building_ids in one statement. Caller is
+-- expected to have row-locked each building first (canonical lock
+-- order: site → buildings). Returns the row count of buildings
+-- actually moved (skips soft-deleted rows).
+UPDATE building
+SET site_id    = sqlc.narg('site_id'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ANY(sqlc.arg('building_ids')::bigint[])
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
 -- name: BuildingBelongsToOrg :one
 SELECT EXISTS(
     SELECT 1 FROM building
