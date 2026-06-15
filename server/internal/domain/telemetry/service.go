@@ -1154,7 +1154,8 @@ func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, 
 // cache limits writes to actual transitions.
 func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, deviceID models.DeviceIdentifier, active bool) {
 	prev, seen := s.lastDefaultPwActive.Load(deviceID)
-	if seen && prev.(bool) == active {
+	prevActive, _ := prev.(bool)
+	if seen && prevActive == active {
 		return
 	}
 

@@ -580,9 +580,15 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 
 		// Persist the new password so reconnects authenticate with it. All
 		// credential-auth drivers (now including Proto) store a password in the DB.
+		// Surface a persistence failure as a command error: the on-device password
+		// has already changed, so a silent success would leave Fleet with stale
+		// credentials that fail once the cached handle is evicted.
 		if dbErr := es.persistMinerPassword(ctx, message.DeviceID, minerInfo.GetDriverName(), p.NewPassword); dbErr != nil {
 			slog.Error("device password updated but database sync failed",
 				"device_id", message.DeviceID, "error", dbErr)
+			err = fleeterror.NewInternalErrorf(
+				"device %d password changed on-device but credential persistence failed: %v",
+				message.DeviceID, dbErr)
 			break
 		}
 

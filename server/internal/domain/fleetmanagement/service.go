@@ -710,7 +710,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
 		}
 
-		isPaired := row.PairingStatus == "PAIRED"
+		// DEFAULT_PASSWORD devices are paired and report telemetry; treat them like
+		// PAIRED for snapshot metadata and device status rather than forcing INACTIVE.
+		isPaired := row.PairingStatus == "PAIRED" || row.PairingStatus == "DEFAULT_PASSWORD"
 
 		snapshot.Name = ComposeDeviceName(row.CustomName.String, snapshot.Manufacturer, snapshot.Model)
 
@@ -754,7 +756,9 @@ const (
 func collectPairedDeviceIdentifiers(snapshots []*pb.MinerStateSnapshot) []string {
 	var ids []string
 	for _, s := range snapshots {
-		if s.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED {
+		// DEFAULT_PASSWORD devices report telemetry, so enrich them like paired devices.
+		if s.PairingStatus == pb.PairingStatus_PAIRING_STATUS_PAIRED ||
+			s.PairingStatus == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
 			ids = append(ids, s.DeviceIdentifier)
 		}
 	}

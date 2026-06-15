@@ -70,8 +70,10 @@ func TestUpdateMinerPassword_PayloadExtraction(t *testing.T) {
 	}
 }
 
-// TestUpdateMinerPassword_DeviceTypeHandling tests that the code correctly
-// handles different device types (Antminer vs Proto)
+// TestUpdateMinerPassword_DeviceTypeHandling documents that all credential-auth
+// drivers persist the new password to the DB after a successful on-device change.
+// Proto used to rely on key-based auth and stored nothing; it now uses
+// username/password credentials like Antminer and persists them too.
 func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -86,27 +88,18 @@ func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
 			userProvidedPasswd: "currentpass",
 		},
 		{
-			name:               "Proto devices do not store credentials in DB",
+			name:               "Proto devices store credentials in DB after update",
 			deviceType:         "proto",
-			shouldStoreInDB:    false,
+			shouldStoreInDB:    true,
 			userProvidedPasswd: "protocurrent",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// This test documents the expected behavior:
-			// - Antminer: credentials stored in DB after successful update (shouldStoreInDB = true)
-			// - Proto: credentials NOT stored (shouldStoreInDB = false, uses JWT)
-			// - All device types require user to provide current password
-
-			if tt.deviceType == "antminer" {
-				assert.True(t, tt.shouldStoreInDB, "Antminer credentials should be stored after update")
-			} else if tt.deviceType == "proto" {
-				assert.False(t, tt.shouldStoreInDB, "Proto credentials should not be stored")
-			}
-
-			// All device types require current password from user
+			// Both Antminer and Proto persist credentials after a successful update,
+			// and all device types require the user to provide the current password.
+			assert.True(t, tt.shouldStoreInDB, "credentials should be persisted after update")
 			assert.NotEmpty(t, tt.userProvidedPasswd, "User must always provide current password")
 		})
 	}
