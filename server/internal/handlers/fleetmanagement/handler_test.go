@@ -1,4 +1,4 @@
-package fleetmanagement_test
+package fleetmanagement
 
 import (
 	"context"
@@ -10,9 +10,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	fleetmanagementsvc "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	handlerpkg "github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -43,22 +41,6 @@ func siteAssignment(siteID int64, permissions ...string) authz.Assignment {
 		SiteID:       &siteID,
 		Permissions:  permissions,
 	}
-}
-
-type refreshHandlerTestService struct {
-	*fleetmanagementsvc.Service
-
-	contexts      map[string]authz.ResourceContext
-	refreshCalled bool
-}
-
-func (s *refreshHandlerTestService) RefreshMinerResourceContexts(_ context.Context, _ *pb.RefreshMinersRequest) (map[string]authz.ResourceContext, error) {
-	return s.contexts, nil
-}
-
-func (s *refreshHandlerTestService) RefreshMiners(_ context.Context, _ *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error) {
-	s.refreshCalled = true
-	return &pb.RefreshMinersResponse{}, nil
 }
 
 func TestHandler_ListMinerStateSnapshots(t *testing.T) {
@@ -142,7 +124,7 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 	}
 }
 
-func TestHandler_RefreshMiners_UsesSiteScopedMinerRead(t *testing.T) {
+func TestRequireRefreshMinerRead_UsesSiteScopedMinerRead(t *testing.T) {
 	const (
 		userID   = int64(1)
 		orgID    = int64(2)
@@ -150,12 +132,6 @@ func TestHandler_RefreshMiners_UsesSiteScopedMinerRead(t *testing.T) {
 		deviceID = "site-scoped-device"
 	)
 
-	service := &refreshHandlerTestService{
-		contexts: map[string]authz.ResourceContext{
-			deviceID: {SiteID: ptr(siteID)},
-		},
-	}
-	handler := handlerpkg.NewHandler(service)
 	ctx := refreshAuthContext(
 		t.Context(),
 		userID,
@@ -164,14 +140,14 @@ func TestHandler_RefreshMiners_UsesSiteScopedMinerRead(t *testing.T) {
 		siteAssignment(siteID),
 	)
 
-	resp, err := handler.RefreshMiners(ctx, connect.NewRequest(&pb.RefreshMinersRequest{DeviceIds: []string{deviceID}}))
+	err := requireRefreshMinerRead(ctx, map[string]authz.ResourceContext{
+		deviceID: {SiteID: ptr(siteID)},
+	})
 
 	require.Error(t, err)
-	assert.Nil(t, resp)
 	var fleetErr fleeterror.FleetError
 	require.True(t, errors.As(err, &fleetErr))
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-	assert.False(t, service.refreshCalled)
 }
 
 func ptr[T any](value T) *T {

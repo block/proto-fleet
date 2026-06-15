@@ -7,31 +7,18 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-type fleetManagementService interface {
-	ListMinerStateSnapshots(context.Context, *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error)
-	RefreshMinerResourceContexts(context.Context, *pb.RefreshMinersRequest) (map[string]authz.ResourceContext, error)
-	RefreshMiners(context.Context, *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error)
-	ExportMinerListCsv(context.Context, *pb.ExportMinerListCsvRequest, func(*pb.ExportMinerListCsvResponse) error) error
-	GetMinerStateCounts(context.Context, *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error)
-	GetMinerPoolAssignments(context.Context, *pb.GetMinerPoolAssignmentsRequest) (*pb.GetMinerPoolAssignmentsResponse, error)
-	GetMinerCoolingMode(context.Context, *pb.GetMinerCoolingModeRequest) (*pb.GetMinerCoolingModeResponse, error)
-	DeleteMiners(context.Context, *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error)
-	GetMinerModelGroups(context.Context, *pb.GetMinerModelGroupsRequest) (*pb.GetMinerModelGroupsResponse, error)
-	RenameMiners(context.Context, *pb.RenameMinersRequest) (*pb.RenameMinersResponse, error)
-	UpdateWorkerNames(context.Context, *pb.UpdateWorkerNamesRequest) (*pb.UpdateWorkerNamesResponse, error)
-}
-
 // Handler handles the Connect-RPC endpoints
 type Handler struct {
-	fleetMgmtSvc fleetManagementService
+	fleetMgmtSvc *fleetmanagement.Service
 }
 
 var _ fleetmanagementv1connect.FleetManagementServiceHandler = &Handler{}
 
-func NewHandler(fleetMgmtSvc fleetManagementService) *Handler {
+func NewHandler(fleetMgmtSvc *fleetmanagement.Service) *Handler {
 	return &Handler{
 		fleetMgmtSvc: fleetMgmtSvc,
 	}
@@ -55,15 +42,8 @@ func (h *Handler) RefreshMiners(ctx context.Context, r *connect.Request[pb.Refre
 		return nil, err
 	}
 
-	if len(resourceContexts) == 0 {
-		if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
-			return nil, err
-		}
-	}
-	for _, resourceContext := range resourceContexts {
-		if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, resourceContext); err != nil {
-			return nil, err
-		}
+	if err := requireRefreshMinerRead(ctx, resourceContexts); err != nil {
+		return nil, err
 	}
 
 	result, err := h.fleetMgmtSvc.RefreshMiners(ctx, r.Msg)
@@ -72,6 +52,19 @@ func (h *Handler) RefreshMiners(ctx context.Context, r *connect.Request[pb.Refre
 	}
 
 	return connect.NewResponse(result), nil
+}
+
+func requireRefreshMinerRead(ctx context.Context, resourceContexts map[string]authz.ResourceContext) error {
+	if len(resourceContexts) == 0 {
+		_, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{})
+		return err
+	}
+	for _, resourceContext := range resourceContexts {
+		if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, resourceContext); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.ExportMinerListCsvRequest], stream *connect.ServerStream[pb.ExportMinerListCsvResponse]) error {
