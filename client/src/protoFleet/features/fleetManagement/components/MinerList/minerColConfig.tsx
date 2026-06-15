@@ -59,7 +59,8 @@ const createMinerColConfig = ({
   },
   [minerCols.workerName]: {
     component: (device: DeviceListItem) => <MinerWorkerName miner={device.miner} />,
-    width: "w-[120px]",
+    width: "w-[176px]",
+    allowOverflow: true,
   },
   [minerCols.model]: {
     component: (device: DeviceListItem) => <MinerModel miner={device.miner} />,
