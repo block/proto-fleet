@@ -67,6 +67,19 @@ func toAssignBuildingsParams(req *pb.AssignBuildingsToSiteRequest, orgID int64) 
 	}
 }
 
+func toAssignRacksToSiteParams(req *pb.AssignRacksToSiteRequest, orgID int64) models.AssignRacksToSiteParams {
+	var targetSiteID *int64
+	if req.TargetSiteId != nil {
+		v := req.GetTargetSiteId()
+		targetSiteID = &v
+	}
+	return models.AssignRacksToSiteParams{
+		OrgID:        orgID,
+		RackIDs:      req.GetRackIds(),
+		TargetSiteID: targetSiteID,
+	}
+}
+
 // resolveTimezone returns the operator-stored timezone when set,
 // falling back to (country, location_state) inference. The override
 // lets operators correct sub-state edge cases (N Idaho, El Paso TX,

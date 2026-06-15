@@ -331,16 +331,7 @@ func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[ds
 	if err != nil {
 		return nil, err
 	}
-	var targetRackID *int64
-	if r.Msg.TargetRackId != nil {
-		v := r.Msg.GetTargetRackId()
-		targetRackID = &v
-	}
-	result, err := h.svc.AssignDevicesToRack(ctx, collection.AssignDevicesToRackParams{
-		OrgID:             info.OrganizationID,
-		TargetRackID:      targetRackID,
-		DeviceIdentifiers: r.Msg.GetDeviceIdentifiers(),
-	})
+	result, err := h.svc.AssignDevicesToRack(ctx, toAssignDevicesToRackParams(r.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}

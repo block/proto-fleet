@@ -12,7 +12,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
-	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -122,16 +121,7 @@ func (h *Handler) AssignRacksToSite(ctx context.Context, req *connect.Request[pb
 	if err != nil {
 		return nil, err
 	}
-	var targetSiteID *int64
-	if req.Msg.TargetSiteId != nil {
-		v := req.Msg.GetTargetSiteId()
-		targetSiteID = &v
-	}
-	out, err := h.service.AssignRacksToSite(ctx, models.AssignRacksToSiteParams{
-		OrgID:        info.OrganizationID,
-		RackIDs:      req.Msg.GetRackIds(),
-		TargetSiteID: targetSiteID,
-	})
+	out, err := h.service.AssignRacksToSite(ctx, toAssignRacksToSiteParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
