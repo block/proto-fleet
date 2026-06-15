@@ -450,7 +450,7 @@ func newAutomationHarness(t *testing.T) *automationHarness {
 		OrganizationID: orgID,
 		ServiceUserID:  501,
 		SourceName:     "Dorothy 2 MaestroOS",
-		Topic:          "maestroos/grid-signal",
+		Topic:          "maestro/target",
 	}
 	profile := &models.ResponseProfile{
 		ID:                      3001,

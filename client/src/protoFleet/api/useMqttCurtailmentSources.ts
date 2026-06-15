@@ -302,10 +302,10 @@ export default function useMqttCurtailmentSources(enabled = true): UseMqttCurtai
           buildTestConnectionRequest(values),
         );
         if (!response.ok) {
-          throw new Error("Failed to connect to the MaestroOS source.");
+          throw new Error("Failed to connect to the MaestroOS MQTT broker.");
         }
       } catch (error) {
-        throw handleFailure(error, "Failed to connect to the MaestroOS source.");
+        throw handleFailure(error, "Failed to connect to the MaestroOS MQTT broker.");
       } finally {
         setIsTestingConnection(false);
       }

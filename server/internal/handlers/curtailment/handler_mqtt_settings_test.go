@@ -46,7 +46,7 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{
 			SourceName:            "maestro",
-			Topic:                 "maestro/curtailment",
+			Topic:                 "maestro/target",
 			BrokerPrimaryHost:     "10.0.0.1",
 			BrokerSecondaryHost:   "10.0.0.2",
 			MqttUsername:          "operator",
@@ -177,7 +177,7 @@ func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *test
 	resp, err := h.TestMqttCurtailmentSourceConnection(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.TestMqttCurtailmentSourceConnectionRequest{
-			Topic:               "maestro/curtailment",
+			Topic:               "maestro/target",
 			BrokerPrimaryHost:   "10.0.0.1",
 			BrokerSecondaryHost: "10.0.0.2",
 			MqttUsername:        "operator",

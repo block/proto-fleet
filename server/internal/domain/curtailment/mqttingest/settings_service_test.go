@@ -207,7 +207,7 @@ func validSettingsSource() SourceConfig {
 		OrganizationID:      42,
 		ServiceUserID:       99,
 		SourceName:          "maestro",
-		Topic:               "maestro/curtailment",
+		Topic:               "maestro/target",
 		BrokerPrimaryHost:   "10.0.0.1",
 		BrokerSecondaryHost: "10.0.0.2",
 		BrokerPort:          1883,
@@ -374,15 +374,16 @@ func TestSettingsService_UpdatePreservesPasswordWhenOmittedAndReloadsRuntime(t *
 	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: cipher, Runtime: runtime})
 	require.NoError(t, err)
 
-	nextTopic := "maestro/target"
+	nextSourceName := "Kati MaestroOS"
 	view, err := svc.Update(t.Context(), UpdateSourceRequest{
 		OrganizationID: 42,
 		SourceID:       7,
-		Topic:          &nextTopic,
+		SourceName:     &nextSourceName,
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, nextTopic, view.Config.Topic)
+	assert.Equal(t, nextSourceName, view.Config.SourceName)
+	assert.Equal(t, "maestro/target", view.Config.Topic)
 	assert.Equal(t, "enc:old", view.Config.MQTTPasswordEncrypted)
 	assert.Zero(t, cipher.encryptCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)

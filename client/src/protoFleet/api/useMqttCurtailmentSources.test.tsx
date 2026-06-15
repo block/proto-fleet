@@ -207,7 +207,7 @@ describe("useMqttCurtailmentSources", () => {
     const { result } = renderHook(() => useMqttCurtailmentSources(false));
 
     await expect(result.current.testConnection(testSourceFormValues)).rejects.toThrow(
-      "Failed to connect to the MaestroOS source.",
+      "Failed to connect to the MaestroOS MQTT broker.",
     );
     expect(mockHandleAuthErrors).toHaveBeenCalled();
     expect(result.current.isTestingConnection).toBe(false);

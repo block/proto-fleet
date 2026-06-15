@@ -59,7 +59,7 @@ type PayloadDecoder interface {
 	Decode(body []byte, now time.Time) (Payload, error)
 }
 
-// payloadFormatTargetTimestamp is the default MaestroOS-style feed.
+// payloadFormatTargetTimestamp decodes the MaestroOS target/timestamp payload.
 const payloadFormatTargetTimestamp = "target_timestamp"
 
 var payloadDecoders = map[string]PayloadDecoder{

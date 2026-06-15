@@ -91,7 +91,7 @@ func testSourceConfig() SourceConfig {
 		OrganizationID:        7,
 		ServiceUserID:         99,
 		SourceName:            "maestro",
-		Topic:                 "maestro/curtailment",
+		Topic:                 "maestro/target",
 		BrokerPrimaryHost:     "10.0.0.1",
 		BrokerSecondaryHost:   "10.0.0.2",
 		BrokerPort:            1883,
