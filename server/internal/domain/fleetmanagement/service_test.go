@@ -51,6 +51,25 @@ func (deadlineRefreshTelemetryCollector) RefreshDevice(ctx context.Context, _ te
 	return ctx.Err() //nolint:wrapcheck
 }
 
+type failingRefreshTelemetryCollector struct {
+	err error
+}
+
+func (f failingRefreshTelemetryCollector) RemoveDevices(_ context.Context, _ ...minermodels.DeviceIdentifier) error {
+	return nil
+}
+
+func (f failingRefreshTelemetryCollector) GetLatestDeviceMetrics(
+	_ context.Context,
+	_ []minermodels.DeviceIdentifier,
+) (map[minermodels.DeviceIdentifier]modelsv2.DeviceMetrics, error) {
+	return nil, nil
+}
+
+func (f failingRefreshTelemetryCollector) RefreshDevice(_ context.Context, _ telemetrymodels.Device) error {
+	return f.err
+}
+
 type recordingRefreshTelemetryCollector struct {
 	mu        sync.Mutex
 	refreshed []string
@@ -169,7 +188,7 @@ func TestService_RefreshMiners_ShouldReturnErrorWithoutSnapshotWhenRefreshTimesO
 	require.NoError(t, err)
 	assert.Empty(t, resp.Snapshots)
 	require.Contains(t, resp.Errors, deviceIDs[0])
-	assert.Contains(t, resp.Errors[deviceIDs[0]], "context deadline exceeded")
+	assert.Equal(t, "refresh timed out", resp.Errors[deviceIDs[0]])
 }
 
 func TestService_RefreshMiners_ShouldTrimDeviceIDs(t *testing.T) {
@@ -294,6 +313,48 @@ func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *
 	require.Contains(t, resp.Errors, deviceID)
 	assert.Contains(t, resp.Errors[deviceID], "fleet-node-owned miners are not supported")
 	assert.Empty(t, collector.Refreshed())
+}
+
+func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		deviceID = "refresh-error-device"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetDeviceByDeviceIdentifier(gomock.Any(), deviceID, orgID).
+		Return(&pairingpb.Device{DeviceIdentifier: deviceID}, nil)
+	deviceStore.EXPECT().
+		IsDeviceOwnedByFleetNode(gomock.Any(), deviceID, orgID).
+		Return(false, nil)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		nil,
+		failingRefreshTelemetryCollector{err: errors.New("secret database host: db.internal")},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{deviceID}})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.Snapshots)
+	require.Contains(t, resp.Errors, deviceID)
+	assert.Equal(t, "refresh failed", resp.Errors[deviceID])
+	assert.NotContains(t, resp.Errors[deviceID], "secret")
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.T) {

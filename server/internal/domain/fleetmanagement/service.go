@@ -2,6 +2,7 @@ package fleetmanagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -142,6 +144,9 @@ type Service struct {
 	// across all delete operations. Shared at the service level so that multiple
 	// concurrent DeleteMiners calls don't exceed the limit.
 	clearAuthKeySem chan struct{}
+
+	// refreshMinerSem bounds row refresh network fanout across all callers.
+	refreshMinerSem chan struct{}
 }
 
 func NewService(
@@ -172,6 +177,7 @@ func NewService(
 		deviceResolver:        deviceresolver.New(deviceStore),
 		optionsCache:          fleetoptions.NewCache(fleetoptions.DefaultTTL, 1024),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
+		refreshMinerSem:       make(chan struct{}, refreshMinersConcurrencyLimit),
 	}
 }
 
@@ -256,19 +262,9 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 }
 
 func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error) {
-	if len(req.DeviceIds) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError("device_ids must contain at least one device identifier")
-	}
-	if len(req.DeviceIds) > refreshMinersMaxDevices {
-		return nil, fleeterror.NewInvalidArgumentErrorf("device_ids must contain at most %d device identifiers", refreshMinersMaxDevices)
-	}
-	deviceIDs := make([]string, 0, len(req.DeviceIds))
-	for _, id := range req.DeviceIds {
-		trimmedID := strings.TrimSpace(id)
-		if trimmedID == "" {
-			return nil, fleeterror.NewInvalidArgumentError("device_ids cannot contain empty device identifiers")
-		}
-		deviceIDs = append(deviceIDs, trimmedID)
+	deviceIDs, err := normalizeRefreshMinerIDs(req)
+	if err != nil {
+		return nil, err
 	}
 
 	info, err := session.GetInfo(ctx)
@@ -291,7 +287,6 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 	}
 
 	results := make(chan refreshResult, len(deviceIDs))
-	sem := make(chan struct{}, refreshMinersConcurrencyLimit)
 	var wg sync.WaitGroup
 
 	for _, id := range deviceIDs {
@@ -301,10 +296,10 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 			defer wg.Done()
 
 			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
+			case s.refreshMinerSem <- struct{}{}:
+				defer func() { <-s.refreshMinerSem }()
 			case <-refreshCtx.Done():
-				results <- refreshResult{id: deviceID, errMsg: refreshCtx.Err().Error()}
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(refreshCtx.Err())}
 				return
 			}
 
@@ -314,13 +309,13 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 					results <- refreshResult{id: deviceID, errMsg: "not found"}
 					return
 				}
-				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
 				return
 			}
 
 			ownedByFleetNode, err := s.deviceStore.IsDeviceOwnedByFleetNode(refreshCtx, deviceID, info.OrganizationID)
 			if err != nil {
-				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
 				return
 			}
 			if ownedByFleetNode {
@@ -334,7 +329,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 			if err := s.telemetry.RefreshDevice(deviceCtx, telemetryModels.Device{
 				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
 			}); err != nil {
-				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
 				return
 			}
 
@@ -343,7 +338,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 
 			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID})
 			if err != nil {
-				results <- refreshResult{id: deviceID, errMsg: err.Error()}
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
 				return
 			}
 			if len(snapshots) == 0 {
@@ -368,6 +363,75 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 	}
 
 	return resp, nil
+}
+
+func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.RefreshMinersRequest) (map[string]authz.ResourceContext, error) {
+	deviceIDs, err := normalizeRefreshMinerIDs(req)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, deviceIDs)
+	if err != nil {
+		return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
+	}
+
+	contexts := make(map[string]authz.ResourceContext, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot.SiteId == nil {
+			contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{}
+			continue
+		}
+
+		siteID := *snapshot.SiteId
+		contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{SiteID: &siteID}
+	}
+
+	return contexts, nil
+}
+
+func normalizeRefreshMinerIDs(req *pb.RefreshMinersRequest) ([]string, error) {
+	if len(req.DeviceIds) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("device_ids must contain at least one device identifier")
+	}
+	if len(req.DeviceIds) > refreshMinersMaxDevices {
+		return nil, fleeterror.NewInvalidArgumentErrorf("device_ids must contain at most %d device identifiers", refreshMinersMaxDevices)
+	}
+
+	deviceIDs := make([]string, 0, len(req.DeviceIds))
+	for _, id := range req.DeviceIds {
+		trimmedID := strings.TrimSpace(id)
+		if trimmedID == "" {
+			return nil, fleeterror.NewInvalidArgumentError("device_ids cannot contain empty device identifiers")
+		}
+		deviceIDs = append(deviceIDs, trimmedID)
+	}
+
+	return deviceIDs, nil
+}
+
+func sanitizeRefreshMinerError(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, context.DeadlineExceeded):
+		return "refresh timed out"
+	case errors.Is(err, context.Canceled):
+		return "refresh cancelled"
+	case fleeterror.IsNotFoundError(err):
+		return "not found"
+	case fleeterror.IsAuthenticationError(err):
+		return "authentication required"
+	case fleeterror.IsConnectionError(err):
+		return "miner is offline"
+	default:
+		return "refresh failed"
+	}
 }
 
 func refreshMinersRequestTimeout(deviceCount int) time.Duration {

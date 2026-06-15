@@ -37,9 +37,22 @@ func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Reques
 }
 
 func (h *Handler) RefreshMiners(ctx context.Context, r *connect.Request[pb.RefreshMinersRequest]) (*connect.Response[pb.RefreshMinersResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
+	resourceContexts, err := h.fleetMgmtSvc.RefreshMinerResourceContexts(ctx, r.Msg)
+	if err != nil {
 		return nil, err
 	}
+
+	if len(resourceContexts) == 0 {
+		if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	for _, resourceContext := range resourceContexts {
+		if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, resourceContext); err != nil {
+			return nil, err
+		}
+	}
+
 	result, err := h.fleetMgmtSvc.RefreshMiners(ctx, r.Msg)
 	if err != nil {
 		return nil, err

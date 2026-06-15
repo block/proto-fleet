@@ -741,6 +741,9 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 	}
 
 	s.pollErrorsForDevice(ctx, device)
+	if status == mm.MinerStatusOffline && fleeterror.IsConnectionError(collectionErr) {
+		return nil
+	}
 	return collectionErr
 }
 
