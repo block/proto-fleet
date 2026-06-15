@@ -212,14 +212,31 @@ function hasResponseProfileScopeValues(responseProfileValues: CurtailmentRespons
   );
 }
 
+function removeResponseProfileScopeValues(
+  values: CurtailmentResponseProfileOption["values"],
+): CurtailmentResponseProfileOption["values"] {
+  const behaviorValues = { ...values };
+
+  delete behaviorValues.scopeType;
+  delete behaviorValues.scopeId;
+  delete behaviorValues.siteId;
+  delete behaviorValues.deviceSetIds;
+  delete behaviorValues.deviceIdentifiers;
+
+  return behaviorValues;
+}
+
 function withSelectedResponseProfileValues(
   values: CurtailmentFormValues,
   responseProfileValues: CurtailmentResponseProfileOption["values"],
 ): CurtailmentFormValues {
   const hasScopeValues = hasResponseProfileScopeValues(responseProfileValues);
+  const behaviorValues = hasScopeValues
+    ? removeResponseProfileScopeValues(responseProfileValues)
+    : responseProfileValues;
   const nextValues = {
     ...values,
-    ...responseProfileValues,
+    ...behaviorValues,
   };
 
   if (!hasScopeValues) {
@@ -236,33 +253,14 @@ function withSelectedResponseProfileValues(
           ? "explicitMiners"
           : "wholeOrg");
 
-  nextValues.scopeType = scopeType;
-
-  if (nextValues.scopeType === "site") {
-    const siteId = responseProfileValues.siteId ?? "";
-
-    return {
-      ...nextValues,
-      siteId,
-      scopeId: responseProfileValues.scopeId ?? (siteId ? `Site ${siteId}` : undefined),
-      deviceSetIds: [],
-      deviceIdentifiers: [],
-    };
+  if (scopeType === "site" || scopeType === "deviceSet") {
+    return nextValues;
   }
 
-  if (nextValues.scopeType === "deviceSet") {
+  if (scopeType === "explicitMiners") {
     return {
       ...nextValues,
-      scopeId: undefined,
-      siteId: "",
-      deviceSetIds: responseProfileValues.deviceSetIds ?? [],
-      deviceIdentifiers: [],
-    };
-  }
-
-  if (nextValues.scopeType === "explicitMiners") {
-    return {
-      ...nextValues,
+      scopeType,
       scopeId: undefined,
       siteId: "",
       deviceSetIds: [],
@@ -644,7 +642,7 @@ function getApplyToTarget(values: CurtailmentFormValues, shouldUseFormScope: boo
   if (values.scopeType === "wholeOrg") {
     return {
       label: "Miners",
-      value: "Whole fleet",
+      value: getTargetButtonLabel(0, "miner"),
     };
   }
 
@@ -781,16 +779,7 @@ function CurtailmentStartModalContent({
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingPreviewState || hasExternalFormError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
-  const selectedResponseProfile =
-    values.responseProfileId === customResponseProfileId
-      ? undefined
-      : responseProfiles.find((profile) => profile.id === values.responseProfileId);
-  const shouldShowSelectedResponseProfileScope =
-    !isResponseProfileVariant &&
-    !isLiveCurtailmentEditMode &&
-    selectedResponseProfile !== undefined &&
-    hasResponseProfileScopeValues(selectedResponseProfile.values);
-  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode || shouldShowSelectedResponseProfileScope);
+  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode);
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined

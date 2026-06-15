@@ -334,7 +334,7 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByText("Standard shed"));
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
-    expect(screen.getByRole("button", { name: /Miners\s+Whole fleet/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
@@ -357,7 +357,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("shows the selected response profile site scope in create mode", async () => {
+  it("ignores unsupported site scope from response profiles in create mode", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: { ...configuredValues, includeMaintenance: false },
@@ -368,23 +368,29 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByText("Austin site shed"));
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Austin site shed");
-    expect(screen.getByRole("button", { name: /Site\s+Austin, TX/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Fixed target reduction (kW)"));
+    await user.type(screen.getByLabelText("Fixed target reduction (kW)"), "75");
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will curtail miners in Austin, TX immediately. Schedules stay suppressed until miners are restored.",
+        "This will curtail miners across the fleet immediately. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        responseProfileId: "austin-shed",
-        scopeType: "site",
-        scopeId: "Austin, TX",
-        siteId: "austin-tx",
+        responseProfileId: "customPlan",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
       }),
@@ -698,7 +704,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeDisabled();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Miners\s+Whole fleet/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
     expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
 
     const saveButton = screen.getByRole("button", { name: "Save" });
