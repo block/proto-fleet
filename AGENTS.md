@@ -85,10 +85,11 @@ Inspect the actual diff, commits, and changed files first; describe what the
 code does, not the decisions made getting there. Structure it as:
 
 1. **Summary** — 2-4 sentences: what this PR delivers and why. Lead with the
-   user- or operator-facing capability, not the implementation. For a stacked
-   PR (base is not the default branch), add a short *Stack* note: the full chain
-   with PR links (ancestors, this PR, and any PRs stacked on top), that the diff
-   is relative to the immediate base, the load-bearing context from upstream PRs
+   user- or operator-facing capability, not the implementation. For a PR in a
+   series (stacked on a parent, has descendant PRs, or marked `N/M`), add a
+   short *Stack* note: the full chain with PR links (ancestors, this PR, and any
+   PRs stacked on top), that the diff is relative to the immediate base when it
+   has ancestors, the load-bearing context from upstream PRs
    a reviewer needs to judge this change, and what is intentionally out of scope
    here and where the remaining work lands (from descendant PRs, the plan docs,
    or tracking issues, since later phases may not be open as PRs yet).

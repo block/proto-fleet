@@ -29,18 +29,20 @@ describe what the code does, not the decisions made getting there.
      whether a PR already exists; if none does, you will draft the body for the
      PR the user is about to open from this branch.
 
-   After resolving refs, check whether the target is **stacked**: if
-   `baseRefName` is not the repository's default branch (usually `main`), this
-   PR sits on another PR's branch, so its diff and review only make sense
-   relative to that base. Walk the stack upward by finding the parent PR whose
-   head is this PR's base (`gh pr list --head <baseRefName> --state all --json
+   After resolving refs, check whether the target is part of a **series**
+   (stacked or multi-part). Any one of these signals counts: `baseRefName` is
+   not the repository's default branch (it is stacked on a parent PR); it has
+   descendant PRs (others are stacked on it); or its title carries an `N/M` or
+   `part N` marker. A foundation PR that targets the default branch but has
+   descendants still counts, so do not gate on the base ref alone. Walk the
+   chain both ways. Upward: find the parent PR whose head is this PR's base
+   (`gh pr list --head <baseRefName> --state all --json
    number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
-   path), then repeating on the parent's base until you reach the default
-   branch. Also walk downward to find what is stacked on top: child PRs whose
-   base is this PR's head (`gh pr list --base <headRefName> --state open --json
-   number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
-   path), repeating on each child's head. Record both ancestors and descendants
-   (each one's number, title, url) for steps 2 and 3.
+   path), repeating on the parent's base until you reach the default branch.
+   Downward: find child PRs whose base is this PR's head (`gh pr list --base
+   <headRefName> --state open --json number,title,url,baseRefName`, adding `-R`),
+   repeating on each child's head. Record both ancestors and descendants (each
+   one's number, title, url) for steps 2 and 3.
 
 2. Read the change using the path chosen in step 1 — do not fall back to local
    `git` on the numbered-PR path, since local HEAD may be an unrelated branch:
@@ -62,7 +64,7 @@ describe what the code does, not the decisions made getting there.
    From the file list, identify which subsystems are touched (`server/`,
    `client/`, `plugin/`, `proto/`, `migrations/`, `packages/proto-python-gen/`).
 
-   If the target is stacked (step 1), also read each ancestor PR's description
+   If the target is part of a series (step 1), also read each ancestor PR's description
    (`gh pr view <number> --json title,body,url`, adding `-R` on the numbered-PR
    path) and extract the load-bearing context this PR depends on: the contracts,
    abstractions, schema, or decisions established upstream that a reviewer must
@@ -82,11 +84,12 @@ describe what the code does, not the decisions made getting there.
 
    1. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
       Lead with the user- or operator-facing capability, not the implementation.
-      If the PR is stacked (step 1), follow the summary with a short **Stack**
-      note: the full chain with PR numbers/links (ancestors down to the default
-      branch, this PR, and any PRs stacked on top), with this PR marked; a line
-      stating the diff is relative to the immediate base so the reviewer should
-      not re-review ancestors; the required context from upstream, meaning the
+      If the PR is part of a series (step 1), follow the summary with a short
+      **Stack** note: the full chain with PR numbers/links (ancestors down to
+      the default branch, this PR, and any PRs stacked on top), with this PR
+      marked; if it has ancestors, a line stating the diff is relative to its
+      immediate base so the reviewer does not re-review them; the required
+      context from upstream, meaning the
       contracts, abstractions, or decisions this PR builds on, distilled to what
       a reviewer needs here rather than a re-summary of the parent PRs; and
       what is intentionally out of scope here and where the remaining work
