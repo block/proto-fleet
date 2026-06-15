@@ -9,24 +9,39 @@ const {
   mockAddFan,
   mockAddHashboard,
   mockAddPsu,
+  mockAuthRetry,
   mockGetHashboard,
   mockGetMiner,
   mockSetControlBoard,
   mockSetMiner,
+  mockUseAuthRetry,
   mockUpdateFanTelemetry,
 } = vi.hoisted(() => ({
   mockAddFan: vi.fn(),
   mockAddHashboard: vi.fn(),
   mockAddPsu: vi.fn(),
+  mockAuthRetry: vi.fn(),
   mockGetHashboard: vi.fn(),
   mockGetMiner: vi.fn(),
   mockSetControlBoard: vi.fn(),
   mockSetMiner: vi.fn(),
+  mockUseAuthRetry: vi.fn(),
   mockUpdateFanTelemetry: vi.fn(),
 }));
 
+const mockAuthParams = {
+  headers: {
+    Authorization: "Bearer old-firmware-token",
+  },
+  secure: false,
+};
+
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
+}));
+
+vi.mock("@/protoOS/store/hooks/useAuthRetry", () => ({
+  useAuthRetry: mockUseAuthRetry,
 }));
 
 vi.mock("@/protoOS/store", () => ({
@@ -70,19 +85,26 @@ describe("useHardware", () => {
         getHardware: mockGetHardware,
       },
     });
+    mockUseAuthRetry.mockReturnValue(mockAuthRetry);
+    mockAuthRetry.mockImplementation(({ request, onSuccess }) =>
+      request(mockAuthParams).then((result: unknown) => onSuccess?.(result)),
+    );
   });
 
-  test("fetches public hardware info without auth params", async () => {
+  test("fetches hardware info with auth-compatible params for old firmware", async () => {
     renderHook(() => useHardware());
 
     await waitFor(() => {
       expect(mockGetHardware).toHaveBeenCalledTimes(1);
     });
-    expect(mockGetHardware).toHaveBeenCalledWith();
+    expect(mockGetHardware).toHaveBeenCalledWith(mockAuthParams);
   });
 
   test("surfaces hardware API error message", async () => {
-    mockGetHardware.mockRejectedValueOnce({ error: { message: "Hardware unavailable" } });
+    mockAuthRetry.mockImplementationOnce(({ onError }) => {
+      onError?.({ error: { message: "Hardware unavailable" } });
+      return Promise.resolve();
+    });
 
     const { result } = renderHook(() => useHardware());
 
@@ -93,7 +115,10 @@ describe("useHardware", () => {
   });
 
   test("falls back when hardware API error has no message", async () => {
-    mockGetHardware.mockRejectedValueOnce(new Error("network failed"));
+    mockAuthRetry.mockImplementationOnce(({ onError }) => {
+      onError?.({});
+      return Promise.resolve();
+    });
 
     const { result } = renderHook(() => useHardware());
 
