@@ -615,3 +615,206 @@ func TestAssignRacksToSite_nilCollectionStoreRejected(t *testing.T) {
 		t.Fatal("expected internal error when collection store is unconfigured")
 	}
 }
+
+func TestAssignBuildingsToSite_emptyRejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, mocks.NewMockCollectionStore(ctrl), nil, nil, tx, nil)
+
+	_, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
+		OrgID:       testOrgID,
+		BuildingIDs: nil,
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for empty building_ids, got nil")
+	}
+}
+
+// TestAssignRacksToSite_clearsBuildingOnSiteChange covers the cascade
+// happy path: a rack moves to a new site, so building_id + zone must
+// clear, clearedCount increments, and CascadeRackDeviceSites fires.
+func TestAssignRacksToSite_clearsBuildingOnSiteChange(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	rackID := int64(100)
+	oldSite := int64(1)
+	oldBuilding := int64(50)
+	newSite := int64(2)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
+	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &oldSite, BuildingID: &oldBuilding, Zone: "Z"}, nil)
+	// Site changed → newBuildingID nilled, zone cleared, then write
+	// + cascade fire for the rack.
+	collStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &newSite, (*int64)(nil), "").Return(nil)
+	collStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &newSite).Return(int64(4), nil)
+
+	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:        testOrgID,
+		RackIDs:      []int64{rackID},
+		TargetSiteID: &newSite,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ReassignedDeviceCount != 4 {
+		t.Fatalf("expected ReassignedDeviceCount=4, got %d", out.ReassignedDeviceCount)
+	}
+	if out.ClearedBuildingCount != 1 {
+		t.Fatalf("expected ClearedBuildingCount=1, got %d", out.ClearedBuildingCount)
+	}
+}
+
+// TestAssignRacksToSite_sameSiteIsNoop covers the no-op branch: a rack
+// already on the target site stays intact — placement still rewrites
+// but the cascade does not fire and the building clear count stays at
+// zero.
+func TestAssignRacksToSite_sameSiteIsNoop(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	rackID := int64(100)
+	site := int64(7)
+	building := int64(50)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, site).Return(nil)
+	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site, BuildingID: &building, Zone: "Z"}, nil)
+	// siteChanged == false: building stays, zone stays, no cascade.
+	collStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &site, &building, "Z").Return(nil)
+
+	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:        testOrgID,
+		RackIDs:      []int64{rackID},
+		TargetSiteID: &site,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ReassignedDeviceCount != 0 || out.ClearedBuildingCount != 0 {
+		t.Fatalf("expected zero cascade counts, got %+v", out)
+	}
+}
+
+// TestAssignRacksToSite_noPriorBuildingStaysIntact ensures the
+// clearedCount only ticks when there *was* a building to clear.
+func TestAssignRacksToSite_noPriorBuildingStaysIntact(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	rackID := int64(100)
+	oldSite := int64(1)
+	newSite := int64(2)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
+	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &oldSite, BuildingID: nil, Zone: ""}, nil)
+	collStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &newSite, (*int64)(nil), "").Return(nil)
+	collStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &newSite).Return(int64(0), nil)
+
+	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:        testOrgID,
+		RackIDs:      []int64{rackID},
+		TargetSiteID: &newSite,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ClearedBuildingCount != 0 {
+		t.Fatalf("expected ClearedBuildingCount=0 (no prior building), got %d", out.ClearedBuildingCount)
+	}
+}
+
+// TestAssignRacksToSite_bulkRollsBackOnLaterFailure: first rack
+// succeeds locking, second rack fails on the lock; tx aborts and the
+// fake transactor records exactly one closure run.
+func TestAssignRacksToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	oldSite := int64(1)
+	newSite := int64(2)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, newSite).Return(nil)
+	// First rack acquires its lock and is mid-flight when the second
+	// rack's lock errors out. Because the inner loop fails fast, no
+	// rack actually completes its write — the entire batch rolls
+	// back.
+	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(100), testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &oldSite}, nil)
+	collStore.EXPECT().UpdateRackPlacement(inTxCtx, int64(100), testOrgID, &newSite, (*int64)(nil), "").Return(nil)
+	collStore.EXPECT().CascadeRackDeviceSites(inTxCtx, int64(100), testOrgID, &newSite).Return(int64(0), nil)
+	collStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(101), testOrgID).
+		Return(interfaces.RackPlacement{}, fleeterror.NewNotFoundErrorf("rack %d not found", 101))
+
+	_, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:        testOrgID,
+		RackIDs:      []int64{100, 101},
+		TargetSiteID: &newSite,
+	})
+	if !fleeterror.IsNotFoundError(err) {
+		t.Fatalf("expected NotFound, got %v", err)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected exactly 1 tx closure run, got %d", tx.calls)
+	}
+}
+
+// TestAssignBuildingsToSite_rejectsZeroTargetSite guards F12: an
+// explicit *TargetSiteID == 0 must return InvalidArgument so callers
+// can't confuse "Unassigned" (nil) with a zero-valued site.
+func TestAssignBuildingsToSite_rejectsZeroTargetSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, mocks.NewMockCollectionStore(ctrl), nil, nil, tx, nil)
+
+	zero := int64(0)
+	_, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
+		OrgID:        testOrgID,
+		BuildingIDs:  []int64{1},
+		TargetSiteID: &zero,
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for target_site_id=0, got nil")
+	}
+	if tx.calls != 0 {
+		t.Fatalf("guard must reject before opening tx, got %d", tx.calls)
+	}
+}
+
+// TestAssignRacksToSite_rejectsZeroTargetSite covers the matching F12
+// guard on the rack-batch RPC.
+func TestAssignRacksToSite_rejectsZeroTargetSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, mocks.NewMockCollectionStore(ctrl), nil, nil, tx, nil)
+
+	zero := int64(0)
+	_, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
+		OrgID:        testOrgID,
+		RackIDs:      []int64{1},
+		TargetSiteID: &zero,
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for target_site_id=0, got nil")
+	}
+	if tx.calls != 0 {
+		t.Fatalf("guard must reject before opening tx, got %d", tx.calls)
+	}
+}

@@ -431,6 +431,85 @@ func TestAssignRacksToBuilding_rejectsPositionWithoutBuilding(t *testing.T) {
 	}
 }
 
+// TestAssignRacksToBuilding_emptyRejected guards the len(Racks) == 0
+// pre-check so callers learn up front instead of getting a 0-row
+// response.
+func TestAssignRacksToBuilding_emptyRejected(t *testing.T) {
+	h := newAssignHarness(t)
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: ptrInt64(11),
+		Racks:            nil,
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for empty racks, got nil")
+	}
+	if h.tx.calls != 0 {
+		t.Fatalf("guard must reject before opening tx, got %d", h.tx.calls)
+	}
+}
+
+// TestAssignRacksToBuilding_rejectsDuplicateRackIDs covers F19: bulk
+// requests with the same rack id repeated must fail up-front so the
+// per-entry grid-cell write doesn't silently clobber an earlier entry.
+func TestAssignRacksToBuilding_rejectsDuplicateRackIDs(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks: []models.RackPlacementParam{
+			{RackID: 1, AisleIndex: ptrInt32(0), PositionInAisle: ptrInt32(0)},
+			{RackID: 1, AisleIndex: ptrInt32(0), PositionInAisle: ptrInt32(1)},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for duplicate rack_ids, got nil")
+	}
+	if h.tx.calls != 0 {
+		t.Fatalf("guard must reject before opening tx, got %d", h.tx.calls)
+	}
+}
+
+// TestAssignRacksToBuilding_bulkRollsBackOnLaterFailure pins the
+// rollback contract for the per-rack loop: the first rack's
+// placement + cascade writes happen, then the second rack's lock
+// errors and the whole tx aborts. The closure ran exactly once.
+func TestAssignRacksToBuilding_bulkRollsBackOnLaterFailure(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+	siteID := int64(3)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
+		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	// First rack: lock + placement update + cascade + position write.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(100), testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, int64(100), testOrgID, &siteID, &buildingID, "").Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSites(inTxCtx, int64(100), testOrgID, &siteID).Return(int64(0), nil)
+	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, int64(100), (*int32)(nil), (*int32)(nil)).Return(nil)
+	// Second rack: lock errors → tx aborts.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(101), testOrgID).
+		Return(interfaces.RackPlacement{}, fleeterror.NewNotFoundErrorf("rack %d not found", 101))
+
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks: []models.RackPlacementParam{
+			{RackID: 100},
+			{RackID: 101},
+		},
+	})
+	if !fleeterror.IsNotFoundError(err) {
+		t.Fatalf("expected NotFound, got %v", err)
+	}
+	if h.tx.calls != 1 {
+		t.Fatalf("expected exactly 1 tx closure run, got %d", h.tx.calls)
+	}
+}
+
 // ListBuildingRacks just delegates to the store after an org-scoped
 // building existence check.
 func TestListBuildingRacks_returnsStoreResult(t *testing.T) {
