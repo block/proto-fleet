@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues, siteFormValuesFromSite, useSites } from "@/protoFleet/api/sites";
@@ -74,6 +74,15 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   // the `saving` prop driving the button's `disabled` lags one render behind
   // the click — a double-click would otherwise reach the dispatch path twice.
   const savingRef = useRef(false);
+  // Mirror of the modal state for synchronous reads inside async
+  // handlers. setState updaters can't be used as "reads" — React
+  // treats them as pure functions and may defer or replay them, so a
+  // ref synced after each commit is the right shape for guards that
+  // need to check the *current* state at dispatch time.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const { createSite, updateSite, deleteSite } = useSites();
   const setActiveSite = useFleetStore((store) => store.ui.setActiveSite);
@@ -144,19 +153,15 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   const detailsSaveEdit = useCallback(
     async (values: SiteFormValues) => {
       if (savingRef.current) return;
-      // Functional setState reads the current state synchronously so a
-      // mid-flight dismiss (state transition back to manageEdit or none)
-      // can't drive a save against a stale captured `state` value.
-      // Matches the onSuccess setState pattern below.
-      let resolvedId: bigint | null = null;
-      setState((prev) => {
-        if (prev.kind === "manageEditEditingDetails") {
-          resolvedId = prev.site.id;
-        }
-        return prev;
-      });
-      if (resolvedId === null) return;
-      const id: bigint = resolvedId;
+      // Read the current modal state synchronously via the ref. A
+      // captured `state` from the click-time render can be stale by
+      // dispatch time if a concurrent dismiss transitions the modal.
+      // Functional setState updaters are not a substitute for a
+      // synchronous read — React treats them as pure and may defer
+      // or replay them.
+      const current = stateRef.current;
+      if (current.kind !== "manageEditEditingDetails") return;
+      const id = current.site.id;
       savingRef.current = true;
       setSaving(true);
       await new Promise<void>((resolve) => {
