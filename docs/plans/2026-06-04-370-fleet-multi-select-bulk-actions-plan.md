@@ -242,8 +242,7 @@ Modified:
 - `features/fleetManagement/components/BuildingList/BuildingList.tsx`
   — same.
 - `features/rackManagement/pages/RacksPage.tsx`
-  (and rack row consumers) — update existing single-scope call site
-  to `scopes={[scope]}`. **No bulk on Racks in this PR.**
+  (and rack row consumers) — update existing single-scope call site to `scopes={[scope]}` and add rack multi-select + bulk actions via `FleetGroupListActionBar`.
 - `features/fleetManagement/pages/FleetSitesPage.tsx`
   — selection state; mount `FleetGroupListActionBar` when count > 0.
 - `features/fleetManagement/pages/FleetBuildingsPage.tsx`
