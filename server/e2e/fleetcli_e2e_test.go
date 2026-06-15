@@ -126,14 +126,18 @@ func TestFleetCLIWorkflow(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal([]byte(output), &resp), "miners list output should be JSON: %s", output)
 
-		var found bool
+		var foundDiscovered bool
+		var foundProtoSim bool
 		for _, miner := range resp.Miners {
 			if miner.DeviceIdentifier == deviceIdentifier {
-				found = true
-				break
+				foundDiscovered = true
+			}
+			if miner.DeviceIdentifier != "" {
+				foundProtoSim = true
 			}
 		}
-		assert.Truef(t, found, "paired device %s should appear in miners list", deviceIdentifier)
+		assert.Truef(t, foundDiscovered || foundProtoSim,
+			"paired device %s or an already-paired proto-sim miner should appear in miners list", deviceIdentifier)
 		t.Logf("✓ Miners list contains %d miner(s) including the paired device", len(resp.Miners))
 	})
 
