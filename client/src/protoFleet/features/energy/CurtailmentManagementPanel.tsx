@@ -169,6 +169,7 @@ function CurtailmentManagementPanel({
     refreshCurtailment,
     goToHistoryPage,
     setHistoryStatusFilters,
+    selectActiveCurtailment,
     startCurtailment,
     dismissTerminalCurtailment,
     updateCurtailment,
@@ -275,6 +276,40 @@ function CurtailmentManagementPanel({
     });
     setModalMode("edit");
   }, [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment]);
+
+  const openHistoryManageModal = useCallback(
+    (event: CurtailmentHistoryEvent) => {
+      if (!canManageCurtailment) {
+        return;
+      }
+
+      if (event.id === activeEventId && activeEvent && activeEventFormValues) {
+        setEditSession({
+          eventId: activeEventId,
+          initialValues: activeEventFormValues,
+          preview: createActiveCurtailmentPreview(activeEvent, activeEventFormValues),
+        });
+        setModalMode("edit");
+        return;
+      }
+
+      void selectActiveCurtailment(event.id)
+        .then(({ activeEvent: selectedActiveEvent, activeEventId: selectedActiveEventId, activeEventFormValues }) => {
+          if (!selectedActiveEvent || !selectedActiveEventId || !activeEventFormValues) {
+            return;
+          }
+
+          setEditSession({
+            eventId: selectedActiveEventId,
+            initialValues: activeEventFormValues,
+            preview: createActiveCurtailmentPreview(selectedActiveEvent, activeEventFormValues),
+          });
+          setModalMode("edit");
+        })
+        .catch(() => {});
+    },
+    [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment, selectActiveCurtailment],
+  );
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
@@ -415,6 +450,7 @@ function CurtailmentManagementPanel({
             selectedStatusFilters={historyStatusFilters}
             onPageChange={handleHistoryPageChange}
             onStatusFiltersChange={handleHistoryStatusFiltersChange}
+            onManageActiveEvent={canManageCurtailment ? openHistoryManageModal : undefined}
             onStopActiveEvent={canManageCurtailment ? handleHistoryStop : undefined}
           />
         </>

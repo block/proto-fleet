@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
-import {
-  applyActiveCurtailmentEvent,
-  refreshActiveCurtailmentData,
-  useActiveCurtailmentEvent,
-} from "@/protoFleet/api/activeCurtailmentData";
+import { refreshActiveCurtailmentData, useActiveCurtailmentEvent } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
@@ -61,7 +57,7 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
             return;
           }
 
-          handleAuthErrors({ error, onError: () => applyActiveCurtailmentEvent(undefined) });
+          handleAuthErrors({ error });
         } finally {
           inFlightRefreshRef.current = null;
         }

@@ -446,7 +446,7 @@ function CurtailmentHistory({
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedDetailEventId, setSelectedDetailEventId] = useState<string>();
   const [selectedStopEventId, setSelectedStopEventId] = useState<string>();
-  const [pendingStopEventId, setPendingStopEventId] = useState<string>();
+  const [pendingStopEventIds, setPendingStopEventIds] = useState<Set<string>>(() => new Set());
   const activeEventIds = useMemo(
     () => getActiveEventIdSet(activeEventId, activeEventIdList),
     [activeEventId, activeEventIdList],
@@ -463,14 +463,6 @@ function CurtailmentHistory({
   const selectedStopEventIsStoppable = Boolean(
     selectedStopEvent && isActiveStoppableEvent(selectedStopEvent, activeEventIds),
   );
-  const pendingStopEvent = useMemo(
-    () => events.find((event) => event.id === pendingStopEventId),
-    [events, pendingStopEventId],
-  );
-  const pendingStopEventIsStoppable = Boolean(
-    pendingStopEvent && isActiveStoppableEvent(pendingStopEvent, activeEventIds),
-  );
-  const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
   const usesControlledPagination = Boolean(onPageChange);
   const usesServerStatusFilter = Boolean(onStatusFiltersChange || onStatusFilterChange);
   const selectedStatusFilters = useMemo(
@@ -558,7 +550,7 @@ function CurtailmentHistory({
   const handleDismissSummary = () => setSelectedDetailEventId(undefined);
 
   const handleOpenStopConfirmation = (event: CurtailmentHistoryEvent) => {
-    if (!onStopActiveEvent || !isActiveStoppableEvent(event, activeEventIds) || pendingStoppableEventId === event.id) {
+    if (!onStopActiveEvent || !isActiveStoppableEvent(event, activeEventIds) || pendingStopEventIds.has(event.id)) {
       return;
     }
 
@@ -573,14 +565,23 @@ function CurtailmentHistory({
     }
 
     const event = selectedStopEvent;
+    if (pendingStopEventIds.has(event.id)) {
+      setSelectedStopEventId(undefined);
+      return;
+    }
+
     setSelectedStopEventId(undefined);
-    setPendingStopEventId(event.id);
+    setPendingStopEventIds((currentEventIds) => new Set(currentEventIds).add(event.id));
 
     let stopRequest: void | PromiseLike<unknown>;
     try {
       stopRequest = onStopActiveEvent(event);
     } catch {
-      setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
+      setPendingStopEventIds((currentEventIds) => {
+        const nextEventIds = new Set(currentEventIds);
+        nextEventIds.delete(event.id);
+        return nextEventIds;
+      });
       return;
     }
 
@@ -589,7 +590,11 @@ function CurtailmentHistory({
     }
 
     void Promise.resolve(stopRequest).catch(() => {
-      setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
+      setPendingStopEventIds((currentEventIds) => {
+        const nextEventIds = new Set(currentEventIds);
+        nextEventIds.delete(event.id);
+        return nextEventIds;
+      });
     });
   };
 
@@ -597,7 +602,7 @@ function CurtailmentHistory({
     selectedDetailEvent &&
     onManageActiveEvent &&
     isActiveManageableEvent(selectedDetailEvent, activeEventIds) &&
-    selectedDetailEvent.id !== pendingStoppableEventId
+    !pendingStopEventIds.has(selectedDetailEvent.id)
       ? () => {
           setSelectedDetailEventId(undefined);
           onManageActiveEvent(selectedDetailEvent);
@@ -655,7 +660,7 @@ function CurtailmentHistory({
                 activeEventIds={activeEventIds}
                 onOpenSummary={handleOpenSummary}
                 onRequestStop={onStopActiveEvent ? handleOpenStopConfirmation : undefined}
-                stopDisabled={event.id === pendingStoppableEventId}
+                stopDisabled={pendingStopEventIds.has(event.id)}
               />
             ))}
             {visibleEvents.length === 0 ? (
@@ -713,7 +718,7 @@ function CurtailmentHistory({
           onDismiss={handleDismissSummary}
           onManage={handleManageSelectedDetailEvent}
           onStop={handleStopSelectedDetailEvent}
-          stopDisabled={selectedDetailEvent.id === pendingStoppableEventId}
+          stopDisabled={pendingStopEventIds.has(selectedDetailEvent.id)}
         />
       ) : null}
 

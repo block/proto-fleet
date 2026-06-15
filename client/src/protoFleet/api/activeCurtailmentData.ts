@@ -327,7 +327,7 @@ function getSelectedActiveCurtailmentEventToPreserve(
 
 async function requestActiveCurtailmentDetail(
   eventUuid: string,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<ProtoCurtailmentEvent | undefined> {
   let pageToken = "";
   let detailedEvent: ProtoCurtailmentEvent | undefined;
@@ -342,7 +342,7 @@ async function requestActiveCurtailmentDetail(
         targetPageSize: activeCurtailmentDetailTargetPageSize,
         targetPageToken: pageToken,
       }),
-      { signal },
+      signal ? { signal } : undefined,
     );
     assertNotAborted(signal);
 
@@ -359,6 +359,23 @@ async function requestActiveCurtailmentDetail(
   }
 
   return detailedEvent ? createMessage(CurtailmentEventSchema, { ...detailedEvent, targets }) : undefined;
+}
+
+export async function selectActiveCurtailmentEvent(
+  eventUuid: string,
+  { signal }: RefreshActiveCurtailmentOptions = {},
+): Promise<ActiveCurtailmentSnapshot> {
+  assertNotAborted(signal);
+  const currentSnapshot = getActiveCurtailmentSnapshot();
+  const summaryEvent = currentSnapshot.events.find((event) => event.eventUuid === eventUuid);
+  const detailedEvent = await requestActiveCurtailmentDetail(eventUuid, signal);
+  assertNotAborted(signal);
+
+  if (!detailedEvent && !summaryEvent) {
+    return currentSnapshot;
+  }
+
+  return applyActiveCurtailmentEvent(detailedEvent ?? summaryEvent, { mergeActiveEvents: true });
 }
 
 async function requestActiveCurtailmentResponseSnapshot(

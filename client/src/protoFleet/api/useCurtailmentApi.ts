@@ -6,6 +6,7 @@ import {
   dismissActiveCurtailmentEvent,
   fetchActiveCurtailmentData,
   getActiveCurtailmentSnapshot,
+  selectActiveCurtailmentEvent,
   useActiveCurtailmentEvent,
   useActiveCurtailmentEvents,
 } from "@/protoFleet/api/activeCurtailmentData";
@@ -93,6 +94,10 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
     stateFilters?: CurtailmentEventState[],
     options?: Pick<RefreshCurtailmentOptions, "signal">,
   ) => Promise<CurtailmentSnapshot>;
+  selectActiveCurtailment: (
+    eventUuid: string,
+    options?: Pick<RefreshCurtailmentOptions, "signal">,
+  ) => Promise<Omit<CurtailmentSnapshot, "activeEvents" | "historyEvents">>;
   startCurtailment: (values: CurtailmentSubmitValues) => Promise<ProtoCurtailmentEvent>;
   dismissTerminalCurtailment: () => void;
   updateCurtailment: (
@@ -764,6 +769,43 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     }
   }, [refreshCurtailment]);
 
+  const selectActiveCurtailment = useCallback(
+    async (eventUuid: string, { signal }: Pick<RefreshCurtailmentOptions, "signal"> = {}) => {
+      try {
+        const activeSnapshot = await selectActiveCurtailmentEvent(eventUuid, { signal });
+        const activeSnapshotFields = getActiveSnapshotFields(activeSnapshot.event);
+        const activeStatusFilters = historyStatusFiltersRef.current;
+        updateSnapshot((current) => ({
+          ...current,
+          ...activeSnapshotFields,
+          activeEvents: getActiveHistoryEvents(
+            activeSnapshot.events,
+            activeSnapshot.event,
+            current.historyEvents,
+            activeStatusFilters,
+          ),
+          historyEvents: getHistoryEventsWithActiveEvent(
+            current.historyEvents,
+            activeSnapshot.events,
+            activeSnapshot.event,
+            activeStatusFilters,
+            historyPaginationRef.current.currentPage,
+          ),
+        }));
+        return activeSnapshotFields;
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+
+        const resolvedError = handleFailure(error, "Failed to load curtailment detail.");
+        setLoadError(resolvedError.message);
+        throw resolvedError;
+      }
+    },
+    [handleFailure, updateSnapshot],
+  );
+
   const startCurtailment = useCallback(
     async (values: CurtailmentSubmitValues) => {
       setIsStarting(true);
@@ -895,6 +937,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       goToHistoryPage,
       setHistoryStatusFilter,
       setHistoryStatusFilters,
+      selectActiveCurtailment,
       startCurtailment,
       dismissTerminalCurtailment,
       updateCurtailment,
@@ -916,6 +959,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       refreshCurtailment,
       setHistoryStatusFilter,
       setHistoryStatusFilters,
+      selectActiveCurtailment,
       snapshot,
       startCurtailment,
       dismissTerminalCurtailment,

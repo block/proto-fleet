@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   goToHistoryPage: vi.fn(),
   navigate: vi.fn(),
   refreshCurtailment: vi.fn(),
+  selectActiveCurtailment: vi.fn(),
   setHistoryStatusFilter: vi.fn(),
   setHistoryStatusFilters: vi.fn(),
   startCurtailment: vi.fn(),
@@ -83,6 +84,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     pageSize,
     selectedStatusFilters,
     onPageChange,
+    onManageActiveEvent,
     onStatusFiltersChange,
     onStopActiveEvent,
   }: {
@@ -93,6 +95,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     pageSize?: number;
     selectedStatusFilters?: string[];
     onPageChange?: (page: number) => void;
+    onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
     onStatusFiltersChange?: (filters: string[]) => void;
     onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
   }) => (
@@ -109,6 +112,19 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
       <button type="button" onClick={() => onStatusFiltersChange?.(["completed", "failed"])}>
         Filter completed and failed
       </button>
+      {onManageActiveEvent ? (
+        <button
+          type="button"
+          disabled={events.length === 0}
+          onClick={() => {
+            if (events[0]) {
+              onManageActiveEvent(events[0]);
+            }
+          }}
+        >
+          Manage history event
+        </button>
+      ) : null}
       {onStopActiveEvent ? (
         <button
           type="button"
@@ -234,6 +250,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     goToHistoryPage: mocks.goToHistoryPage as UseCurtailmentApiResult["goToHistoryPage"],
     setHistoryStatusFilter: mocks.setHistoryStatusFilter as UseCurtailmentApiResult["setHistoryStatusFilter"],
     setHistoryStatusFilters: mocks.setHistoryStatusFilters as UseCurtailmentApiResult["setHistoryStatusFilters"],
+    selectActiveCurtailment: mocks.selectActiveCurtailment as UseCurtailmentApiResult["selectActiveCurtailment"],
     startCurtailment: mocks.startCurtailment as UseCurtailmentApiResult["startCurtailment"],
     dismissTerminalCurtailment:
       mocks.dismissTerminalCurtailment as UseCurtailmentApiResult["dismissTerminalCurtailment"],
@@ -248,6 +265,11 @@ describe("CurtailmentManagementPanel", () => {
     vi.clearAllMocks();
     mocks.refreshCurtailment.mockResolvedValue(emptySnapshot);
     mocks.goToHistoryPage.mockResolvedValue(emptySnapshot);
+    mocks.selectActiveCurtailment.mockResolvedValue({
+      activeEvent: null,
+      activeEventId: null,
+      activeEventFormValues: null,
+    });
     mocks.setHistoryStatusFilter.mockResolvedValue(emptySnapshot);
     mocks.setHistoryStatusFilters.mockResolvedValue(emptySnapshot);
     mocks.startCurtailment.mockResolvedValue({});
@@ -544,6 +566,46 @@ describe("CurtailmentManagementPanel", () => {
       expect(mocks.updateCurtailment).toHaveBeenCalledWith("curt-1", mocks.submitValues, activeEventFormValues),
     );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument());
+  });
+
+  it("loads secondary active row detail before opening management", async () => {
+    const user = userEvent.setup();
+    const secondaryFormValues = {
+      ...activeEventFormValues,
+      reason: "Secondary grid peak",
+      targetKw: "8",
+    } satisfies CurtailmentSubmitValues;
+    const secondaryActiveEvent = {
+      ...activeEvent,
+      reason: "Secondary grid peak",
+      selectedMiners: 4,
+      targetKw: 8,
+      estimatedReductionKw: 9.1,
+    } as ActiveCurtailmentEvent;
+    const secondaryHistoryEvent = { ...historyEvent, id: "curt-2" } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment.mockResolvedValueOnce({
+      activeEvent: secondaryActiveEvent,
+      activeEventId: "curt-2",
+      activeEventFormValues: secondaryFormValues,
+    });
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+        activeEvents: [historyEvent, secondaryHistoryEvent],
+        historyEvents: [secondaryHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Manage history event" }));
+
+    await waitFor(() => expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-2"));
+    expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
+    expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Secondary grid peak");
+    expect(screen.getByTestId("modal-preview")).toHaveTextContent("4 miners, 8 kW target, 9.1 kW estimated");
   });
 
   it("uses estimated reduction as the edit preview target for full-fleet curtailments", async () => {
