@@ -1220,16 +1220,20 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		)
 	}
 
-	drainReadyMetricsResults := func() {
+	drainReadyMetricsResults := func(flushCtx context.Context) error {
+		var drainErr error
 		for {
 			select {
 			case result, ok := <-s.metricsResults:
 				if !ok {
-					return
+					return drainErr
 				}
 				forwardMetrics(result)
+				if len(pending) >= maxMetricsBatchSize {
+					drainErr = errors.Join(drainErr, flush(flushCtx))
+				}
 			default:
-				return
+				return drainErr
 			}
 		}
 	}
@@ -1238,8 +1242,8 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			// Drain already-queued metrics into pending before the final flush.
-			drainReadyMetricsResults()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
+			_ = drainReadyMetricsResults(shutdownCtx)
 			_ = flush(shutdownCtx)
 			cancel()
 			return
@@ -1251,8 +1255,7 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		case <-ticker.C:
 			_ = flush(ctx)
 		case req := <-s.metricsFlushRequests:
-			drainReadyMetricsResults()
-			req.done <- flush(ctx)
+			req.done <- errors.Join(drainReadyMetricsResults(ctx), flush(ctx))
 		}
 	}
 }

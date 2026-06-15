@@ -1850,6 +1850,60 @@ func TestMetricsWriterRoutine_FlushesOnRequest(t *testing.T) {
 	require.NoError(t, service.FlushMetricsNow(ctx))
 }
 
+func TestMetricsWriterRoutine_FlushRequestChunksDrainedMetrics(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	metrics := make([]modelsV2.DeviceMetrics, maxMetricsBatchSize+1)
+	for i := range metrics {
+		metrics[i] = modelsV2.DeviceMetrics{DeviceIdentifier: fmt.Sprintf("test-device-%d", i)}
+	}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
+
+	firstBatchArgs := make([]any, 0, maxMetricsBatchSize)
+	for _, metric := range metrics[:maxMetricsBatchSize] {
+		firstBatchArgs = append(firstBatchArgs, metric)
+	}
+
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), firstBatchArgs...).
+		Return(nil).
+		Times(1)
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metrics[maxMetricsBatchSize]).
+		Return(nil).
+		Times(1)
+
+	service := NewTelemetryService(
+		Config{StalenessThreshold: time.Minute, FetchInterval: 10 * time.Second, ConcurrencyLimit: 1, StatusFlushInterval: 10 * time.Second},
+		mockDataStore,
+		mockMinerGetter,
+		mockScheduler,
+		mockDeviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	for _, metric := range metrics {
+		service.metricsResults <- metricsResult{metrics: metric}
+	}
+
+	go service.metricsWriterRoutine(ctx)
+
+	require.NoError(t, service.FlushMetricsNow(ctx))
+}
+
 func TestFlushStatusNow_ReturnsContextErrorWhenCanceledBeforeQueue(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
