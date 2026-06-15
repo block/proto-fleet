@@ -885,6 +885,19 @@ func (s *Service) RemoveDevicesFromCollection(ctx context.Context, req *pb.Remov
 	return &pb.RemoveDevicesFromCollectionResponse{RemovedCount: int32(txResult.count)}, nil
 }
 
+// uniqueIdentifiers returns the unique entries of ids, preserving no
+// particular order. Used to dedupe AssignDevicesToRack response counts
+// and the activity-log scope count: the store ops fold duplicates via
+// ANY()/ON CONFLICT DO NOTHING, so reporting len(ids) inflates when
+// the caller hands us repeats.
+func uniqueIdentifiers(ids []string) map[string]struct{} {
+	unique := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		unique[id] = struct{}{}
+	}
+	return unique
+}
+
 // AssignDevicesToRackParams is the domain-layer input shape for the
 // atomic rack reassignment flow. TargetRackID == nil means "clear
 // rack membership without re-assigning" (site/building stay intact).
@@ -973,11 +986,20 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			siteReassigned int64
 		)
 		if params.TargetRackID != nil {
-			n, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
-			if err != nil {
+			// AddDevicesToCollection uses ON CONFLICT DO NOTHING, so its
+			// return is only newly-inserted rows. The documented
+			// AssignedCount contract is "devices whose membership now
+			// points at target_rack_id" — which includes devices that
+			// were already in the target before this call (target-rack
+			// rows are preserved by RemoveDevicesFromAnyRack's
+			// excludeRackID predicate). Missing devices (not present in
+			// our DB at all) are silently skipped by the store layer,
+			// matching pre-PR behavior; we count the unique requested
+			// identifiers as the defensible approximation.
+			if _, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers); err != nil {
 				return nil, err
 			}
-			assigned = n
+			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
 			if targetSiteID != nil {
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
 				if err != nil {
@@ -1019,11 +1041,13 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	} else {
 		eventDescription = "Cleared devices from rack"
 	}
-	// ScopeCount is the number of devices the caller asked to touch,
-	// not the sum of per-step row counts (assigned + removed can
-	// double-count devices that were both removed from a prior rack
-	// and added to a new one).
-	assignedInt := len(params.DeviceIdentifiers)
+	// ScopeCount is the number of unique devices the caller asked to
+	// touch, not the sum of per-step row counts (assigned + removed
+	// can double-count devices that were both removed from a prior
+	// rack and added to a new one). Dedupe identifiers because the
+	// store ops collapse duplicates via ANY()/ON CONFLICT but the
+	// activity scope count would otherwise inflate.
+	assignedInt := len(uniqueIdentifiers(params.DeviceIdentifiers))
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "assign_devices_to_rack",
