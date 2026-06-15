@@ -80,6 +80,12 @@ const ManageBuildingModal = ({
   // by rackId → "aisle:position" (or "unplaced") so we can string-compare.
   const initialPlacementRef = useRef<Map<string, string>>(new Map());
 
+  // Synchronous in-flight guard for Save dispatches. setState batching
+  // means the `isSaving` prop driving the button's `disabled` lags one
+  // render behind the click — a double-click would otherwise reach the
+  // dispatch path twice. Mirrors useSiteModals' savingRef pattern.
+  const savingRef = useRef(false);
+
   // (Re)load assignments when the modal opens.
   useEffect(() => {
     if (!open) return;
@@ -350,6 +356,8 @@ const ManageBuildingModal = ({
   // bucket: this building, or unassigned). Layout writes live in
   // BuildingSettingsModal.
   const handleSave = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setErrorMsg("");
     setIsSaving(true);
     try {
@@ -449,6 +457,7 @@ const ManageBuildingModal = ({
       onSaved?.(building);
       onDismiss();
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   }, [building, rackToCell, entries, assignRacksToBuilding, onSaved, onDismiss]);

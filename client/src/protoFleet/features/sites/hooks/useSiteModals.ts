@@ -144,8 +144,19 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   const detailsSaveEdit = useCallback(
     async (values: SiteFormValues) => {
       if (savingRef.current) return;
-      if (state.kind !== "manageEditEditingDetails") return;
-      const id = state.site.id;
+      // Functional setState reads the current state synchronously so a
+      // mid-flight dismiss (state transition back to manageEdit or none)
+      // can't drive a save against a stale captured `state` value.
+      // Matches the onSuccess setState pattern below.
+      let resolvedId: bigint | null = null;
+      setState((prev) => {
+        if (prev.kind === "manageEditEditingDetails") {
+          resolvedId = prev.site.id;
+        }
+        return prev;
+      });
+      if (resolvedId === null) return;
+      const id: bigint = resolvedId;
       savingRef.current = true;
       setSaving(true);
       await new Promise<void>((resolve) => {
@@ -180,7 +191,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
         });
       });
     },
-    [state, updateSite, refetchSites],
+    [updateSite, refetchSites],
   );
 
   const manageEditDetails = useCallback(() => {
