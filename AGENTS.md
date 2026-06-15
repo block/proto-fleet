@@ -89,8 +89,9 @@ code does, not the decisions made getting there. Structure it as:
    PR (base is not the default branch), add a short *Stack* note: the full chain
    with PR links (ancestors, this PR, and any PRs stacked on top), that the diff
    is relative to the immediate base, the load-bearing context from upstream PRs
-   a reviewer needs to judge this change, and what is deferred to descendant PRs
-   so the reviewer knows what is intentionally out of scope here.
+   a reviewer needs to judge this change, and what is intentionally out of scope
+   here and where the remaining work lands (from descendant PRs, the plan docs,
+   or tracking issues, since later phases may not be open as PRs yet).
 2. **How it works** — the end-to-end mechanism in plain language. Walk the
    primary flow(s): who triggers it, what crosses each boundary, where state
    is persisted, what comes back. Explain workflows, not language syntax.

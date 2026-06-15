@@ -70,6 +70,14 @@ describe what the code does, not the decisions made getting there.
    scope from its title (skim its body only if the title is opaque) so you can
    tell the reviewer what is deferred to later PRs and where it lands.
 
+   Remaining work is often not open as a PR yet, so do not stop at descendant
+   PRs. Also draw on the effort's plan documents (e.g. `docs/plans/`) for the
+   phasing and explicit out-of-scope items, and, when running interactively, on
+   this conversation, which may already name the deferred scope and the tracking
+   issues/PRs it lands in. Record those deferred items with their tracking
+   references even when no PR exists for them yet (state facts about scope, not
+   the back-and-forth of how the work was planned).
+
 3. Draft the description in this structure:
 
    1. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
@@ -81,8 +89,9 @@ describe what the code does, not the decisions made getting there.
       not re-review ancestors; the required context from upstream, meaning the
       contracts, abstractions, or decisions this PR builds on, distilled to what
       a reviewer needs here rather than a re-summary of the parent PRs; and
-      what is deferred to descendant PRs, so the reviewer knows what is
-      intentionally out of scope here and where the remaining work lands.
+      what is intentionally out of scope here and where the remaining work
+      lands, drawn from descendant PRs, the plan docs, this conversation, and
+      any tracking issues (later phases may not be open as PRs yet).
    2. **How it works** — the end-to-end mechanism in plain language. Walk the
       primary flow(s) step by step (who triggers it, what crosses each boundary,
       where state is persisted, what comes back). Assume the reader does not
