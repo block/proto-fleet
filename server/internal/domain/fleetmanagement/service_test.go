@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,6 +48,35 @@ func (deadlineRefreshTelemetryCollector) GetLatestDeviceMetrics(
 func (deadlineRefreshTelemetryCollector) RefreshDevice(ctx context.Context, _ telemetrymodels.Device) error {
 	<-ctx.Done()
 	return ctx.Err() //nolint:wrapcheck
+}
+
+type recordingRefreshTelemetryCollector struct {
+	mu        sync.Mutex
+	refreshed []string
+}
+
+func (r *recordingRefreshTelemetryCollector) RemoveDevices(_ context.Context, _ ...minermodels.DeviceIdentifier) error {
+	return nil
+}
+
+func (r *recordingRefreshTelemetryCollector) GetLatestDeviceMetrics(
+	_ context.Context,
+	_ []minermodels.DeviceIdentifier,
+) (map[minermodels.DeviceIdentifier]modelsv2.DeviceMetrics, error) {
+	return nil, nil
+}
+
+func (r *recordingRefreshTelemetryCollector) RefreshDevice(_ context.Context, device telemetrymodels.Device) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.refreshed = append(r.refreshed, string(device.ID))
+	return nil
+}
+
+func (r *recordingRefreshTelemetryCollector) Refreshed() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.refreshed...)
 }
 
 func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
@@ -140,6 +170,89 @@ func TestService_RefreshMiners_ShouldReturnSnapshotWhenRefreshTimesOut(t *testin
 	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
 	require.Contains(t, resp.Errors, deviceIDs[0])
 	assert.Contains(t, resp.Errors[deviceIDs[0]], "context deadline exceeded")
+}
+
+func TestService_RefreshMiners_ShouldTrimDeviceIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+
+	collector := &recordingRefreshTelemetryCollector{}
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB),
+		collector,
+		testContext.ServiceProvider.MinerService,
+		testContext.ServiceProvider.PluginService,
+		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
+		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
+		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
+		testContext.ServiceProvider.CommandService,
+		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{"  " + deviceIDs[0] + "  "}})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	assert.Empty(t, resp.Errors)
+	assert.Equal(t, []string{deviceIDs[0]}, collector.Refreshed())
+}
+
+func TestService_RefreshMiners_ShouldReturnMixedSuccessAndNotFoundErrors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := testContext.ServiceProvider.FleetManagementService.RefreshMiners(ctx, &pb.RefreshMinersRequest{
+		DeviceIds: []string{deviceIDs[0], "missing-device"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	require.Contains(t, resp.Errors, "missing-device")
+	assert.Equal(t, "not found", resp.Errors["missing-device"])
+}
+
+func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) {
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
+	service := fleetmanagement.NewService(
+		nil,
+		nil,
+		fleetmanagement.NewMockTelemetryCollector(),
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{
+		DeviceIds: []string{"   "},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.T) {

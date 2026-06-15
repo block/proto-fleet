@@ -260,10 +260,13 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 	if len(req.DeviceIds) > refreshMinersMaxDevices {
 		return nil, fleeterror.NewInvalidArgumentErrorf("device_ids must contain at most %d device identifiers", refreshMinersMaxDevices)
 	}
+	deviceIDs := make([]string, 0, len(req.DeviceIds))
 	for _, id := range req.DeviceIds {
-		if strings.TrimSpace(id) == "" {
+		trimmedID := strings.TrimSpace(id)
+		if trimmedID == "" {
 			return nil, fleeterror.NewInvalidArgumentError("device_ids cannot contain empty device identifiers")
 		}
+		deviceIDs = append(deviceIDs, trimmedID)
 	}
 
 	info, err := session.GetInfo(ctx)
@@ -285,11 +288,11 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 		errMsg   string
 	}
 
-	results := make(chan refreshResult, len(req.DeviceIds))
+	results := make(chan refreshResult, len(deviceIDs))
 	sem := make(chan struct{}, refreshMinersConcurrencyLimit)
 	var wg sync.WaitGroup
 
-	for _, id := range req.DeviceIds {
+	for _, id := range deviceIDs {
 		deviceID := id
 		wg.Add(1)
 		go func() {

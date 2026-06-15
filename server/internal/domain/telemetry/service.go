@@ -73,6 +73,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -198,6 +199,10 @@ type statusFlushRequest struct {
 	done chan error
 }
 
+type metricsFlushRequest struct {
+	done chan error
+}
+
 // metricsResult holds device metrics queued by a worker for batch DB writes.
 type metricsResult struct {
 	deviceID   models.DeviceIdentifier
@@ -230,9 +235,12 @@ type TelemetryService struct {
 	// metricsResults receives device metrics from workers for batch DB writes.
 	// Uses a blocking send so metrics are never dropped; backpressure slows workers
 	// if the DB falls behind rather than losing data.
-	metricsResults   chan metricsResult
-	cancelFunc       context.CancelFunc
-	lookBackDuration time.Duration
+	metricsResults chan metricsResult
+	// metricsFlushRequests asks metricsWriterRoutine to flush pending metrics
+	// immediately and report the result to the caller.
+	metricsFlushRequests chan metricsFlushRequest
+	cancelFunc           context.CancelFunc
+	lookBackDuration     time.Duration
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
@@ -251,19 +259,20 @@ type TelemetryService struct {
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
 	return &TelemetryService{
-		config:              config,
-		telemetryDataStore:  telemetryDataStore,
-		minerManager:        minerManager,
-		updateScheduler:     scheduler,
-		deviceStore:         deviceStore,
-		errorPoller:         errorPoller,
-		tasks:               make(chan models.Device, config.ConcurrencyLimit),
-		statusTasks:         make(chan models.Device, config.ConcurrencyLimit),
-		statusResults:       make(chan statusResult, resultsChannelBuffer),
-		statusFlushRequests: make(chan statusFlushRequest),
-		metricsResults:      make(chan metricsResult, resultsChannelBuffer),
-		lookBackDuration:    -1 * (config.StalenessThreshold - config.FetchInterval),
-		metricsObserver:     newMetricsObserver(NoMetrics()),
+		config:               config,
+		telemetryDataStore:   telemetryDataStore,
+		minerManager:         minerManager,
+		updateScheduler:      scheduler,
+		deviceStore:          deviceStore,
+		errorPoller:          errorPoller,
+		tasks:                make(chan models.Device, config.ConcurrencyLimit),
+		statusTasks:          make(chan models.Device, config.ConcurrencyLimit),
+		statusResults:        make(chan statusResult, resultsChannelBuffer),
+		statusFlushRequests:  make(chan statusFlushRequest),
+		metricsResults:       make(chan metricsResult, resultsChannelBuffer),
+		metricsFlushRequests: make(chan metricsFlushRequest),
+		lookBackDuration:     -1 * (config.StalenessThreshold - config.FetchInterval),
+		metricsObserver:      newMetricsObserver(NoMetrics()),
 	}
 }
 
@@ -297,14 +306,43 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 }
 
 // RefreshDevice runs the same collection path used by scheduled telemetry for
-// one device, then asks the status writer to flush pending status updates.
+// one device, then asks the writers to flush pending status and metrics updates.
 func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Device) error {
-	processErr := s.processDevice(ctx, device)
-	flushErr := s.FlushStatusNow(ctx)
-	if processErr != nil {
-		return processErr
+	claimed, err := s.claimDeviceForRefresh(ctx, device.ID)
+	if err != nil {
+		return err
 	}
-	return flushErr
+
+	var processErr error
+	if claimed {
+		defer s.inFlight.Delete(device.ID)
+		processErr = s.processDevice(ctx, device)
+	}
+
+	flushErr := s.FlushStatusNow(ctx)
+	metricsFlushErr := s.FlushMetricsNow(ctx)
+	return errors.Join(processErr, flushErr, metricsFlushErr)
+}
+
+func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier) (bool, error) {
+	if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); !alreadyClaimed {
+		return true, nil
+	}
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if _, stillInFlight := s.inFlight.Load(deviceID); !stillInFlight {
+			return false, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return false, fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *TelemetryService) FlushStatusNow(ctx context.Context) error {
@@ -321,6 +359,23 @@ func (s *TelemetryService) FlushStatusNow(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled waiting for status flush: %w", ctx.Err())
+	}
+}
+
+func (s *TelemetryService) FlushMetricsNow(ctx context.Context) error {
+	req := metricsFlushRequest{done: make(chan error, 1)}
+
+	select {
+	case s.metricsFlushRequests <- req:
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled before metrics flush request was queued: %w", ctx.Err())
+	}
+
+	select {
+	case err := <-req.done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled waiting for metrics flush: %w", ctx.Err())
 	}
 }
 
@@ -1119,10 +1174,11 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
-	flush := func(flushCtx context.Context) {
+	flush := func(flushCtx context.Context) error {
 		if len(pending) == 0 {
-			return
+			return nil
 		}
+		var flushErr error
 		if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, pending...); err != nil {
 			// The store wraps the batch in a single transaction, so one bad row fails
 			// the whole batch. Retry individually so only the offending sample is dropped.
@@ -1130,10 +1186,12 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			for _, m := range pending {
 				if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, m); err != nil {
 					slog.Error("failed to store device metrics", "device_id", m.DeviceIdentifier, "error", err)
+					flushErr = err
 				}
 			}
 		}
 		pending = pending[:0]
+		return flushErr
 	}
 
 	forwardMetrics := func(result metricsResult) {
@@ -1148,30 +1206,39 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		)
 	}
 
+	drainReadyMetricsResults := func() {
+		for {
+			select {
+			case result, ok := <-s.metricsResults:
+				if !ok {
+					return
+				}
+				forwardMetrics(result)
+			default:
+				return
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			// Drain already-queued metrics into pending before the final flush.
-			for {
-				select {
-				case result := <-s.metricsResults:
-					forwardMetrics(result)
-				default:
-					goto done
-				}
-			}
-		done:
+			drainReadyMetricsResults()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
-			flush(shutdownCtx)
+			_ = flush(shutdownCtx)
 			cancel()
 			return
 		case result := <-s.metricsResults:
 			forwardMetrics(result)
 			if len(pending) >= maxMetricsBatchSize {
-				flush(ctx)
+				_ = flush(ctx)
 			}
 		case <-ticker.C:
-			flush(ctx)
+			_ = flush(ctx)
+		case req := <-s.metricsFlushRequests:
+			drainReadyMetricsResults()
+			req.done <- flush(ctx)
 		}
 	}
 }
