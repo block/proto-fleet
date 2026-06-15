@@ -80,4 +80,26 @@ describe("useHardware", () => {
     });
     expect(mockGetHardware).toHaveBeenCalledWith();
   });
+
+  test("surfaces hardware API error message", async () => {
+    mockGetHardware.mockRejectedValueOnce({ error: { message: "Hardware unavailable" } });
+
+    const { result } = renderHook(() => useHardware());
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Hardware unavailable");
+      expect(result.current.pending).toBe(false);
+    });
+  });
+
+  test("falls back when hardware API error has no message", async () => {
+    mockGetHardware.mockRejectedValueOnce(new Error("network failed"));
+
+    const { result } = renderHook(() => useHardware());
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("An error occurred");
+      expect(result.current.pending).toBe(false);
+    });
+  });
 });

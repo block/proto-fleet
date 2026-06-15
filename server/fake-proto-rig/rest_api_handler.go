@@ -15,7 +15,10 @@ import (
 	"time"
 )
 
-const minPasswordLength = 8
+const (
+	minPasswordLength      = 8
+	maxLocateLEDOnTimeSecs = 300
+)
 
 // REST API JSON types matching the OpenAPI spec (MDK-API.json)
 
@@ -543,12 +546,18 @@ type PSUTelemetry struct {
 
 // RESTApiHandler handles REST API requests
 type RESTApiHandler struct {
-	state *MinerState
+	state               *MinerState
+	scheduleLocateClear func(time.Duration, func())
 }
 
 // NewRESTApiHandler creates a new REST API handler
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
-	return &RESTApiHandler{state: state}
+	return &RESTApiHandler{
+		state: state,
+		scheduleLocateClear: func(duration time.Duration, callback func()) {
+			time.AfterFunc(duration, callback)
+		},
+	}
 }
 
 // RegisterRoutes mirrors the Proto firmware auth/default-password contract:
@@ -615,9 +624,9 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Hardware discovery endpoints are public; detailed hashboard stats remain
 	// authenticated under /hashboards/{hb_sn}.
-	mux.HandleFunc("/api/v1/hardware", h.handleHardware)
-	mux.HandleFunc("/api/v1/hardware/psus", h.handleHardwarePSUs)
-	mux.HandleFunc("/api/v1/hashboards", h.handleHashboards)
+	mux.HandleFunc("/api/v1/hardware", h.requireDeviceOnline(h.handleHardware))
+	mux.HandleFunc("/api/v1/hardware/psus", h.requireDeviceOnline(h.handleHardwarePSUs))
+	mux.HandleFunc("/api/v1/hashboards", h.requireDeviceOnline(h.handleHashboards))
 	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboardByID)))
 
 	// Telemetry data
@@ -631,7 +640,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiencyByID)))
 
 	// PSUs
-	mux.HandleFunc("/api/v1/power-supplies", h.handlePowerSupplies)
+	mux.HandleFunc("/api/v1/power-supplies", h.requireDeviceOnline(h.handlePowerSupplies))
 	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSuppliesUpdate)))
 
 	// Cooling
@@ -696,6 +705,28 @@ func methodIsProtected(method string, protectedMethods map[string]struct{}) bool
 
 	_, ok := protectedMethods[method]
 	return ok
+}
+
+func (h *RESTApiHandler) requireDeviceOnline(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.state.mu.RLock()
+		rebooting := h.state.Rebooting
+		h.state.mu.RUnlock()
+		if rebooting {
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, err := hj.Hijack()
+				if err == nil {
+					conn.Close()
+					return
+				}
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 // requireBearerAuthMethods wraps a handler to require a valid bearer token on
@@ -1499,16 +1530,18 @@ func (h *RESTApiHandler) handleLocate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if parsedLedOnTime > 0 {
+			if parsedLedOnTime > maxLocateLEDOnTimeSecs {
+				parsedLedOnTime = maxLocateLEDOnTimeSecs
+			}
 			ledOnTimeSeconds = parsedLedOnTime
 		}
 	}
 
 	sequence := h.state.SetLocateActive(enable)
 	if enable && ledOnTimeSeconds > 0 {
-		go func() {
-			time.Sleep(time.Duration(ledOnTimeSeconds) * time.Second)
+		h.scheduleLocateClear(time.Duration(ledOnTimeSeconds)*time.Second, func() {
 			h.state.ClearLocateActiveIfSequence(sequence)
-		}()
+		})
 	}
 
 	message := "Locate sequence activated"

@@ -709,6 +709,32 @@ func TestHardwareDiscoveryRoutes_DoNotRequireBearerAuth(t *testing.T) {
 	}
 }
 
+func TestHardwareDiscoveryRoutes_DuringReboot_Returns503(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.Rebooting = true
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, path := range []string{
+		"/api/v1/hardware",
+		"/api/v1/hardware/psus",
+		"/api/v1/hashboards",
+		"/api/v1/power-supplies",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
 func TestHashboardDetailRoute_RequiresBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -1563,6 +1589,7 @@ func TestHandleLocate_EmptyBodyIsIdempotent(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetLocateActive(true)
 	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=30", nil)
@@ -1574,6 +1601,7 @@ func TestHandleLocate_EmptyBodyIsIdempotent(t *testing.T) {
 	if !state.IsLocateActive() {
 		t.Fatal("expected locate mode to remain active")
 	}
+	fakeTimer.requireScheduled(t, 0, 30*time.Second)
 }
 
 func TestHandleLocate_InvalidLedOnTime_Returns400(t *testing.T) {
@@ -1628,6 +1656,7 @@ func TestHandleLocate_InvalidEnable_Returns400(t *testing.T) {
 func TestHandleLocate_TimedLedOnTimeClearsLocateMode(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
@@ -1639,7 +1668,26 @@ func TestHandleLocate_TimedLedOnTimeClearsLocateMode(t *testing.T) {
 	if !state.IsLocateActive() {
 		t.Fatal("expected locate mode to become active")
 	}
-	waitForLocateState(t, state, false, 1500*time.Millisecond)
+	fakeTimer.requireScheduled(t, 0, time.Second)
+	fakeTimer.fire(t, 0)
+	if state.IsLocateActive() {
+		t.Fatal("expected locate mode to clear after timer fires")
+	}
+}
+
+func TestHandleLocate_CapsLargeLedOnTime(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=9223372036854775807", nil)
+	h.handleLocate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+	fakeTimer.requireScheduled(t, 0, maxLocateLEDOnTimeSecs*time.Second)
 }
 
 func TestHandleLocate_ZeroOrNegativeLedOnTimePersists(t *testing.T) {
@@ -1655,7 +1703,6 @@ func TestHandleLocate_ZeroOrNegativeLedOnTimePersists(t *testing.T) {
 			if rr.Code != http.StatusAccepted {
 				t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
 			}
-			time.Sleep(50 * time.Millisecond)
 			if !state.IsLocateActive() {
 				t.Fatal("expected locate mode to persist")
 			}
@@ -1666,6 +1713,7 @@ func TestHandleLocate_ZeroOrNegativeLedOnTimePersists(t *testing.T) {
 func TestHandleLocate_TimedRequestDoesNotClearLaterPersistentMode(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
+	fakeTimer := installFakeLocateTimer(h)
 
 	timedRR := httptest.NewRecorder()
 	timedReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/locate?led_on_time=1", nil)
@@ -1681,22 +1729,49 @@ func TestHandleLocate_TimedRequestDoesNotClearLaterPersistentMode(t *testing.T) 
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, persistentRR.Code, persistentRR.Body.String())
 	}
 
-	time.Sleep(1100 * time.Millisecond)
+	fakeTimer.requireScheduled(t, 0, time.Second)
+	fakeTimer.fire(t, 0)
 	if !state.IsLocateActive() {
 		t.Fatal("expected later persistent locate mode to remain active")
 	}
 }
 
-func waitForLocateState(t *testing.T, state *MinerState, want bool, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if state.IsLocateActive() == want {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+type scheduledLocateClear struct {
+	duration time.Duration
+	callback func()
+}
+
+type fakeLocateTimer struct {
+	scheduled []scheduledLocateClear
+}
+
+func installFakeLocateTimer(h *RESTApiHandler) *fakeLocateTimer {
+	timer := &fakeLocateTimer{}
+	h.scheduleLocateClear = func(duration time.Duration, callback func()) {
+		timer.scheduled = append(timer.scheduled, scheduledLocateClear{
+			duration: duration,
+			callback: callback,
+		})
 	}
-	t.Fatalf("timed out waiting for locate active=%v", want)
+	return timer
+}
+
+func (f *fakeLocateTimer) requireScheduled(t *testing.T, index int, want time.Duration) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	if got := f.scheduled[index].duration; got != want {
+		t.Fatalf("expected timer %d duration %s, got %s", index, want, got)
+	}
+}
+
+func (f *fakeLocateTimer) fire(t *testing.T, index int) {
+	t.Helper()
+	if len(f.scheduled) <= index {
+		t.Fatalf("expected timer %d to be scheduled, got %d timers", index, len(f.scheduled))
+	}
+	f.scheduled[index].callback()
 }
 
 func TestHandleMining_UsesCanonicalStateStrings(t *testing.T) {
