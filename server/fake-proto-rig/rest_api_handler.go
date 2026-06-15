@@ -546,6 +546,12 @@ type RESTApiHandler struct {
 	state *MinerState
 }
 
+type TestingAuthStateRequest struct {
+	Password        *string `json:"password"`
+	DefaultPassword *string `json:"default_password"`
+	Onboarded       *bool   `json:"onboarded"`
+}
+
 // NewRESTApiHandler creates a new REST API handler
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{state: state}
@@ -556,10 +562,14 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 //     POST /auth/refresh, GET /system, /system/status, /system/ssh,
 //     /system/secure, /system/unlock, /system/tag, /system/telemetry,
 //     /network, /pairing/info, POST /pairing/auth-key.
+//   - Simulator-only testing helpers: public endpoints under /testing used by
+//     Playwright to seed deterministic fake-rig state.
 //   - DEFAULT_PASSWORD_EXEMPT_PREFIXES (auth required but not password-gated):
 //     /auth/change-password and /pools (all verbs, all sub-paths).
 //   - Everything else: auth required AND blocked while default_password_active.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/v1/testing/auth-state", h.handleTestingAuthState)
+
 	// Pools: auth required, exempt from the default-password gate per firmware.
 	// Fleet onboarding configures pools before the operator changes the password.
 	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
@@ -1431,6 +1441,29 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
+
+	passwordSet := h.state.GetPassword() != ""
+
+	h.writeJSON(w, http.StatusOK, SystemStatuses{
+		Onboarded:             h.state.IsOnboarded(),
+		PasswordSet:           passwordSet,
+		DefaultPasswordActive: h.state.IsDefaultPasswordActive(),
+	})
+}
+
+func (h *RESTApiHandler) handleTestingAuthState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	var req TestingAuthStateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	h.state.ApplyTestingAuthState(req.Password, req.DefaultPassword, req.Onboarded)
 
 	passwordSet := h.state.GetPassword() != ""
 

@@ -391,6 +391,27 @@ func (s *MinerState) SeedDefaultPassword(password string) {
 	s.Password = password
 }
 
+// ApplyTestingAuthState mutates the simulator auth/onboarding state for
+// deterministic E2E setup and clears issued credentials afterward.
+func (s *MinerState) ApplyTestingAuthState(password *string, defaultPassword *string, onboarded *bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if defaultPassword != nil {
+		s.DefaultPassword = *defaultPassword
+	}
+	if password != nil {
+		s.Password = *password
+	}
+	if onboarded != nil {
+		s.Onboarded = *onboarded
+	}
+
+	s.AuthPublicKey = ""
+	s.AccessToken = ""
+	s.RefreshToken = ""
+}
+
 // SetPassword safely sets the password.
 func (s *MinerState) SetPassword(password string) {
 	s.mu.Lock()

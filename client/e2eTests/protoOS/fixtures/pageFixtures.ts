@@ -1,6 +1,7 @@
 // NOTE: eslint incorrectly identifies 'use' as react hook
 /* eslint-disable react-hooks/rules-of-hooks */
 import { test as base } from "@playwright/test";
+import { AuthStateHelper } from "../helpers/authStateHelper";
 import { CommonSteps } from "../helpers/commonSteps";
 import { FirmwareHelper } from "../helpers/firmwareHelper";
 import { AuthenticationPage } from "../pages/authentication";
@@ -27,6 +28,7 @@ type PageFixtures = {
   generalPage: GeneralPage;
   hardwarePage: HardwarePage;
   coolingPage: CoolingPage;
+  authStateHelper: AuthStateHelper;
   firmwareHelper: FirmwareHelper;
   commonSteps: CommonSteps;
   navigationComponent: NavigationComponent;
@@ -62,6 +64,9 @@ export const test = base.extend<PageFixtures>({
   },
   coolingPage: async ({ page, isMobile }, use) => {
     await use(new CoolingPage(page, isMobile));
+  },
+  authStateHelper: async ({ page }, use) => {
+    await use(new AuthStateHelper(page));
   },
   firmwareHelper: async ({ page, request }, use) => {
     await use(new FirmwareHelper(page, request));

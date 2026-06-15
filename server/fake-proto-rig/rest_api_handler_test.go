@@ -46,6 +46,45 @@ func TestConfigureStartupAuthState_SeedsDefaultPasswordBaseline(t *testing.T) {
 	}
 }
 
+func TestHandleTestingAuthState_UpdatesStateAndRevokesCredentials(t *testing.T) {
+	state := NewMinerState("PROTO-SIM-12345678", "00:11:22:33:44:55")
+	state.SetPassword("old-password")
+	state.SetAuthKey("old-auth-key")
+	state.SetAccessToken("old-access-token")
+	state.SetRefreshToken("old-refresh-token")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/testing/auth-state",
+		strings.NewReader(`{"password":"factory-pass","default_password":"factory-pass","onboarded":true}`),
+	)
+	h.handleTestingAuthState(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	if state.GetPassword() != "factory-pass" {
+		t.Fatalf("expected password to be updated, got %q", state.GetPassword())
+	}
+	if !state.IsDefaultPasswordActive() {
+		t.Fatal("expected default password to be active after seeding matching password values")
+	}
+	if !state.IsOnboarded() {
+		t.Fatal("expected onboarded to be true")
+	}
+	if state.GetAuthKey() != "" {
+		t.Fatalf("expected auth key to be cleared, got %q", state.GetAuthKey())
+	}
+	if state.GetAccessToken() != "" {
+		t.Fatalf("expected access token to be cleared, got %q", state.GetAccessToken())
+	}
+	if state.GetRefreshToken() != "" {
+		t.Fatalf("expected refresh token to be cleared, got %q", state.GetRefreshToken())
+	}
+}
+
 func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetPassword("correctPassword")
