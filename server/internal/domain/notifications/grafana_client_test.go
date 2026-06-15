@@ -64,6 +64,26 @@ func TestRedactSecretsScrubsSecretsInStringValues(t *testing.T) {
 	assert.Contains(t, bearer, "[REDACTED]")
 }
 
+// Bearer tokens with base64/base64url/JWT punctuation (+, /, =, ~, :)
+// must be redacted in full — a narrow character class would leave the
+// suffix after the first unmatched character exposed.
+func TestRedactSecretsScrubsPunctuationBearingBearerTokens(t *testing.T) {
+	cases := []string{
+		"Bearer aGVsbG8+d29ybGQ/Zm9v==",                           // base64 with + / =
+		"Bearer abc.def~ghi:jkl",                                  // ~ and :
+		"Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s3cr3t-Sig=", // JWT-ish
+	}
+	for _, raw := range cases {
+		// The secret is everything after "Bearer "; assert no run of it survives.
+		secret := raw[len("Bearer "):]
+		out := redactSecrets([]byte(`{"error": "rejected Authorization: ` + raw + `"}`))
+		assert.NotContainsf(t, out, secret, "full token leaked for %q", raw)
+		// Also assert no non-trivial suffix (the bug leaked the tail).
+		assert.NotContainsf(t, out, secret[len(secret)/2:], "token suffix leaked for %q", raw)
+		assert.Contains(t, out, "Bearer [REDACTED]")
+	}
+}
+
 func TestRedactSecretsNonJSONIsNotPassedThrough(t *testing.T) {
 	// A non-JSON body can't be key-redacted and may echo the request
 	// payload, so it's replaced with a length marker — never the raw

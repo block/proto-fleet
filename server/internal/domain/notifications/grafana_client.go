@@ -368,10 +368,14 @@ func redactValue(v any) any {
 
 // urlValuePattern matches an http(s) URL embedded in a free-text value;
 // webhook URLs are themselves the secret (the capability token lives in
-// the path/query). bearerValuePattern matches an echoed bearer token.
+// the path/query). bearerValuePattern matches an echoed bearer token —
+// it consumes everything up to the next whitespace or quote rather than
+// an allowlisted character class, so base64/base64url/JWT tokens
+// containing +, /, =, ~, or : are redacted in full (a narrow class
+// would leave the suffix after the first unmatched char exposed).
 var (
 	urlValuePattern    = regexp.MustCompile(`https?://[^\s"']+`)
-	bearerValuePattern = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._\-]+`)
+	bearerValuePattern = regexp.MustCompile(`(?i)bearer\s+[^\s"']+`)
 )
 
 func scrubSecretSubstrings(s string) string {
