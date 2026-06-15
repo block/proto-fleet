@@ -37,7 +37,7 @@ export const buildByNameAssignments = (
 // excluded so the grid renders them as floating (visible in the list,
 // no cell highlighted). Out-of-bounds positions are dropped — a
 // shrunken layout silently drops cells that no longer exist, matching
-// the AssignMinersModal pattern of "membership outlives placement".
+// the ManageRackModal pattern of "membership outlives placement".
 // The BE-side guard against orphaning shrinks lives in UpdateBuilding;
 // this function only normalizes display state.
 export const buildManualAssignments = (

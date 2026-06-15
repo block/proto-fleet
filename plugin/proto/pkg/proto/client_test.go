@@ -512,6 +512,23 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	return client
 }
 
+func TestBlinkLED_SendsBoundedLocateDuration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/api/v1/system/locate", r.URL.Path)
+		require.Equal(t, strconv.Itoa(locateLEDOnTimeSeconds), r.URL.Query().Get("led_on_time"))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+
+	err := client.BlinkLED(t.Context())
+
+	require.NoError(t, err)
+}
+
 // TestLoginWithPassword tests the miner login step used by ChangePassword.
 func TestLoginWithPassword(t *testing.T) {
 	tests := []struct {

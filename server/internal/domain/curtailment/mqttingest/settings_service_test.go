@@ -2,6 +2,7 @@ package mqttingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,12 +18,13 @@ import (
 )
 
 type fakeSettingsStore struct {
-	mu        sync.Mutex
-	nextID    int64
-	configs   map[int64]SourceConfig
-	states    map[int64]SourceState
-	createErr error
-	updateErr error
+	mu                  sync.Mutex
+	nextID              int64
+	configs             map[int64]SourceConfig
+	states              map[int64]SourceState
+	createErr           error
+	updateErr           error
+	automationRuleCount int64
 }
 
 func newFakeSettingsStore(configs ...SourceConfig) *fakeSettingsStore {
@@ -139,6 +141,10 @@ func (f *fakeSettingsStore) DeleteDisabledSourceConfig(_ context.Context, orgID,
 	return nil
 }
 
+func (f *fakeSettingsStore) CountAutomationRulesByMQTTSource(context.Context, int64, int64) (int64, error) {
+	return f.automationRuleCount, nil
+}
+
 type fakeSettingsCipher struct {
 	encryptCalls int
 }
@@ -159,6 +165,7 @@ type fakeRuntimeController struct {
 	reconcileCalls     int
 	quiesceCalls       int
 	reconcileErr       error
+	quiesceErr         error
 	sawCanceledContext bool
 	contextValue       any
 	status             RuntimeStatus
@@ -181,7 +188,7 @@ func (f *fakeRuntimeController) SourceRuntimeStatus(int64) RuntimeStatus {
 
 func (f *fakeRuntimeController) QuiesceSource(context.Context, int64) error {
 	f.quiesceCalls++
-	return nil
+	return f.quiesceErr
 }
 
 type fakeSourceConnectionTester struct {
@@ -202,7 +209,7 @@ func validSettingsSource() SourceConfig {
 		OrganizationID:      42,
 		ServiceUserID:       99,
 		SourceName:          "maestro",
-		Topic:               "maestro/curtailment",
+		Topic:               "maestro/target",
 		BrokerPrimaryHost:   "10.0.0.1",
 		BrokerSecondaryHost: "10.0.0.2",
 		BrokerPort:          1883,
@@ -296,6 +303,32 @@ func TestSettingsService_TestConnectionRejectsMissingPasswordBeforeBrokerCall(t 
 	assert.Zero(t, tester.calls)
 }
 
+func TestSettingsService_TestConnectionUsesMaestroOSCopyForNonLocalTCPBroker(t *testing.T) {
+	t.Parallel()
+
+	tester := &fakeSourceConnectionTester{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(),
+		Cipher:           &fakeSettingsCipher{},
+		ConnectionTester: tester,
+	})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.SourceName = ""
+	source.BrokerPrimaryHost = "1"
+	_, err = svc.TestConnection(t.Context(), TestSourceConnectionRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), `MaestroOS source "connection-test" uses TCP transport with non-local broker host "1"`)
+	assert.NotContains(t, err.Error(), "mqttingest")
+	assert.Zero(t, tester.calls)
+}
+
 func TestSettingsService_CreateDuplicateNameReturnsAlreadyExists(t *testing.T) {
 	t.Parallel()
 
@@ -313,6 +346,7 @@ func TestSettingsService_CreateDuplicateNameReturnsAlreadyExists(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+	assert.Contains(t, err.Error(), "a MaestroOS curtailment source with this name already exists")
 	assert.Zero(t, runtime.reconcileCalls, "duplicate-name writes must not trigger runtime reload")
 }
 
@@ -369,14 +403,18 @@ func TestSettingsService_UpdatePreservesPasswordWhenOmittedAndReloadsRuntime(t *
 	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: cipher, Runtime: runtime})
 	require.NoError(t, err)
 
-	nextTopic := "maestro/target"
+	nextSourceName := "Site Alpha MaestroOS"
+	nextTopic := "maestro/target/site-alpha"
 	view, err := svc.Update(t.Context(), UpdateSourceRequest{
 		OrganizationID: 42,
 		SourceID:       7,
-		Topic:          &nextTopic,
+		SourceName:     &nextSourceName,
+		// Keep topic update coverage separate from the default production topic fixture.
+		Topic: &nextTopic,
 	})
 	require.NoError(t, err)
 
+	assert.Equal(t, nextSourceName, view.Config.SourceName)
 	assert.Equal(t, nextTopic, view.Config.Topic)
 	assert.Equal(t, "enc:old", view.Config.MQTTPasswordEncrypted)
 	assert.Zero(t, cipher.encryptCalls)
@@ -480,6 +518,29 @@ func TestSettingsService_DisableQuiescesRuntimeAndKeepsSourceState(t *testing.T)
 	assert.Equal(t, 1, runtime.reconcileCalls)
 }
 
+func TestSettingsService_DisableReportsQuiesceFailureBeforeStoreUpdate(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	runtime := &fakeRuntimeController{quiesceErr: errors.New("broker still connected")}
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}, Runtime: runtime})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Contains(t, err.Error(), "MaestroOS source disable failed while quiescing runtime")
+	assert.NotContains(t, err.Error(), "saved")
+	assert.Equal(t, 1, runtime.quiesceCalls)
+	assert.Equal(t, 0, runtime.reconcileCalls)
+	assert.True(t, store.configs[source.ID].Enabled)
+}
+
 func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 	t.Parallel()
 
@@ -493,7 +554,25 @@ func TestSettingsService_DeleteRejectsEnabledSource(t *testing.T) {
 
 	err = svc.Delete(t.Context(), 42, 7)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disable the MQTT source")
+	assert.Contains(t, err.Error(), "disable the MaestroOS source")
+}
+
+func TestSettingsService_DeleteRejectsReferencedSource(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	store.automationRuleCount = 1
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: store, Cipher: &fakeSettingsCipher{}})
+	require.NoError(t, err)
+
+	err = svc.Delete(t.Context(), 42, 7)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "referenced by a curtailment automation rule")
 }
 
 func TestSettingsService_DeleteDisabledSourceWithSignalState(t *testing.T) {

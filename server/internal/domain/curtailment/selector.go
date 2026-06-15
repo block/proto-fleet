@@ -82,6 +82,12 @@ type Plan struct {
 	// EffectiveRestoreBatchIntervalSec is the persisted inter-batch delay
 	// after Service.Start resolves the server-default sentinel. Zero for Preview.
 	EffectiveRestoreBatchIntervalSec int32
+	// EffectiveCurtailBatchSize is the persisted curtail batch size. nil means
+	// all selected targets in scope. Zero for Preview.
+	EffectiveCurtailBatchSize *int32
+	// EffectiveCurtailBatchIntervalSec is the persisted curtail inter-batch
+	// delay. Zero means no delay.
+	EffectiveCurtailBatchIntervalSec int32
 	// EffectiveBatchSize is the adaptive batch size stamped on the event row
 	// at Start time. Zero for Preview. Echoed in the Start response; Stop
 	// and the reconciler read it from the persisted event row, not from Plan.

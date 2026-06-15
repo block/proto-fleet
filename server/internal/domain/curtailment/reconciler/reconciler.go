@@ -320,15 +320,13 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	r.maybeMarkActive(ctx, ev, targets)
 }
 
-// dispatchPendingCurtailBatches drains pending-event Curtail work in bounded
-// command batches. Orphaned DISPATCHING rows from an interrupted prior tick
-// are recovered before fresh PENDING rows, but unlike restore we do not pace
-// Curtail across reconciler intervals: an OFF signal should enqueue all
-// selected devices on a best-effort basis as quickly as the command queue can
-// accept bounded batches.
+// dispatchPendingCurtailBatches drains pending-event Curtail work in command
+// batches. Orphaned DISPATCHING rows from an interrupted prior tick are
+// recovered before fresh PENDING rows. curtail_batch_size=NULL dispatches all
+// remaining targets; a positive interval paces fresh pending batches.
 func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	batchSize := batchSizeForEvent(ev)
-	dispatchByState := func(state models.TargetState) bool {
+	batchSize := curtailBatchSizeForEvent(ev, len(targets))
+	dispatchByState := func(state models.TargetState, singleBatch bool) bool {
 		claim := make([]*models.Target, 0, batchSize)
 		for _, t := range targets {
 			if t.State != state {
@@ -339,6 +337,9 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 				if !r.dispatchCurtailBatch(ctx, ev, claim, state) {
 					return false
 				}
+				if singleBatch {
+					return true
+				}
 				claim = make([]*models.Target, 0, batchSize)
 			}
 		}
@@ -348,10 +349,18 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		return r.dispatchCurtailBatch(ctx, ev, claim, state)
 	}
 
-	if !dispatchByState(models.TargetStateDispatching) {
+	intervalActive := curtailBatchIntervalActive(ev)
+	hadDispatching := hasTargetsInState(targets, models.TargetStateDispatching)
+	if !dispatchByState(models.TargetStateDispatching, intervalActive) {
 		return
 	}
-	_ = dispatchByState(models.TargetStatePending)
+	if intervalActive && hadDispatching {
+		return
+	}
+	if intervalActive && !r.curtailBatchIntervalElapsed(ev, targets) {
+		return
+	}
+	_ = dispatchByState(models.TargetStatePending, intervalActive)
 }
 
 // confirmDispatched promotes Dispatched → Confirmed when telemetry
@@ -520,6 +529,9 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		t.LastDispatchedAt = &now
 		t.LastError = nil
 		t.LastBatchUUID = &batchID
+		t.CurtailPhase.State = models.TargetStateDispatched
+		t.CurtailPhase.DispatchedAt = &now
+		t.CurtailPhase.BatchUUID = &batchID
 	}
 	return true
 }
@@ -887,6 +899,53 @@ func batchSizeForEvent(ev *models.Event) int32 {
 		batchSize = *ev.EffectiveBatchSize
 	}
 	return batchSize
+}
+
+func curtailBatchSizeForEvent(ev *models.Event, targetCount int) int32 {
+	if ev != nil && ev.CurtailBatchSize != nil && *ev.CurtailBatchSize > 0 {
+		return *ev.CurtailBatchSize
+	}
+	if targetCount <= 0 {
+		return 1
+	}
+	if targetCount > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(targetCount) //nolint:gosec // bounded above
+}
+
+func curtailBatchIntervalActive(ev *models.Event) bool {
+	return ev != nil && ev.CurtailBatchSize != nil && ev.CurtailBatchIntervalSec > 0
+}
+
+func hasTargetsInState(targets []*models.Target, state models.TargetState) bool {
+	for _, t := range targets {
+		if t.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event, targets []*models.Target) bool {
+	if !curtailBatchIntervalActive(ev) {
+		return true
+	}
+	interval := time.Duration(ev.CurtailBatchIntervalSec) * time.Second
+	var newest *time.Time
+	for _, t := range targets {
+		if t.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		if t.CurtailPhase.DispatchedAt == nil {
+			continue
+		}
+		if newest == nil || t.CurtailPhase.DispatchedAt.After(*newest) {
+			ts := *t.CurtailPhase.DispatchedAt
+			newest = &ts
+		}
+	}
+	return newest == nil || r.now().Sub(*newest) >= interval
 }
 
 // isCurtailed decides whether telemetry shows the target is curtailed.

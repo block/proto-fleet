@@ -56,6 +56,7 @@ type Config struct {
 	ShutdownDeadline  time.Duration
 	ReconcileTimeout  time.Duration
 	StatusReporter    RuntimeStatusReporter
+	SignalExecutor    SignalExecutor
 }
 
 type sourceWorkerHandle struct {
@@ -657,14 +658,14 @@ func validateBrokerTransport(src SourceConfig, hosts ...string) error {
 		for _, host := range hosts {
 			addr, err := netip.ParseAddr(host)
 			if err != nil || !(addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()) {
-				return fmt.Errorf("mqttingest: source %s uses tcp transport with non-local broker host %q", src.SourceName, host)
+				return fmt.Errorf("MaestroOS source %q uses TCP transport with non-local broker host %q", src.SourceName, host)
 			}
 		}
 		return nil
 	case brokerTransportTLS:
 		return nil
 	default:
-		return fmt.Errorf("mqttingest: source %s has unsupported broker_transport %q", src.SourceName, src.BrokerTransport)
+		return fmt.Errorf("MaestroOS source %q has unsupported broker_transport %q", src.SourceName, src.BrokerTransport)
 	}
 }
 

@@ -21,8 +21,8 @@ export const importEnergyPage = () => import("@/protoFleet/features/energy/pages
 export const importServerLogsPage = () => import("@/protoFleet/features/serverLogs/pages/ServerLogsPage");
 export const importGroupsPage = () => import("@/protoFleet/features/groupManagement/pages/GroupsPage");
 export const importGroupOverviewPage = () => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage");
-export const importRacksPage = () => import("@/protoFleet/features/rackManagement/pages/RacksPage");
-export const importRackOverviewPage = () => import("@/protoFleet/features/rackManagement/pages/RackOverviewPage");
+export const importRacksPage = () => import("@/protoFleet/features/fleetManagement/pages/RacksPage");
+export const importRackOverviewPage = () => import("@/protoFleet/features/fleetManagement/pages/RackOverviewPage");
 export const importAuth = () => import("@/protoFleet/features/auth/pages/Auth");
 export const importUpdatePassword = () => import("@/protoFleet/features/auth/pages/UpdatePassword");
 export const importWelcomePage = () => import("@/protoFleet/features/onboarding/components/Welcome");

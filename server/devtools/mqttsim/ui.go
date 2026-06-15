@@ -411,7 +411,7 @@ const indexHTML = `<!doctype html>
     <header>
       <div>
         <h1>MQTT Curtailment Simulator</h1>
-        <p>Publish MaestroOS-style ON and OFF targets to local brokers for Proto Fleet testing.</p>
+        <p>Publish MaestroOS-compatible ON and OFF targets over MQTT for Proto Fleet testing.</p>
       </div>
       <div class="header-actions">
         <button id="refresh" type="button">Refresh</button>

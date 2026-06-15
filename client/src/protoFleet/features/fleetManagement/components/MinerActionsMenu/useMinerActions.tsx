@@ -375,13 +375,25 @@ export const useMinerActions = ({
             resolve(true);
           },
           onError: () => {
+            if (action === deviceActions.firmwareUpdate) {
+              pushToast({
+                message: "Unable to verify firmware update support for the selected miners. Please try again.",
+                status: TOAST_STATUSES.error,
+              });
+              onActionComplete?.();
+              // Returning true means "handled": keep firmware updates
+              // fail-closed without showing the unsupported-miners modal.
+              resolve(true);
+              return;
+            }
+
             // On error, proceed without showing modal (fail-open for capability check)
             resolve(false);
           },
         });
       });
     },
-    [deviceSelector, checkCommandCapabilities],
+    [deviceSelector, checkCommandCapabilities, onActionComplete],
   );
 
   // Wraps checkAndShowUnsupportedMinersModal with the common proceed pattern:
@@ -721,6 +733,7 @@ export const useMinerActions = ({
           let errorToastId: number | null = null;
           let successCount = 0;
           let totalCount = 0;
+          let successIds: string[] = [];
           let failureIds: string[] = [];
           let completionHandled = false;
 
@@ -729,13 +742,28 @@ export const useMinerActions = ({
             completionHandled = true;
 
             if (successCount > 0) {
+              const rebootDeviceIds = successIds;
+              const hasRebootDeviceIds = rebootDeviceIds.length > 0;
+
               updateToast(toastId, {
-                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage} — reboot required`,
+                message: `${successMessages[deviceActions.firmwareUpdate]} ${successCount} out of ${totalCount} ${minersMessage}${
+                  hasRebootDeviceIds ? "; rebooting" : ""
+                }`,
                 status: TOAST_STATUSES.success,
                 progress: undefined,
                 longRunning: true,
                 ttl: false,
               });
+
+              if (hasRebootDeviceIds) {
+                startBatchOperation({
+                  batchIdentifier: value.batchIdentifier,
+                  action: deviceActions.reboot,
+                  deviceIdentifiers: rebootDeviceIds,
+                });
+              } else {
+                completeBatchOperation(value.batchIdentifier);
+              }
             } else {
               removeToast(toastId);
             }
@@ -744,9 +772,9 @@ export const useMinerActions = ({
               removeDevicesFromBatch(value.batchIdentifier, failureIds);
             }
 
-            // Don't complete batch — let hasReachedExpectedStatus clear the
-            // in-progress state once the device reports REBOOT_REQUIRED.
-            // Stale cleanup handles eventual state cleanup.
+            // Re-track successful firmware installs as a reboot batch. The
+            // firmware REBOOT_REQUIRED status remains a fallback for failed
+            // auto-reboots and legacy in-flight updates.
             onRefetchMiners?.();
             onActionComplete?.();
           };
@@ -760,8 +788,8 @@ export const useMinerActions = ({
               totalCount = Number(response.status?.commandBatchDeviceCount?.total || 0);
               successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
               const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
+              successIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
               failureIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
-              // successDeviceIdentifiers no longer needed — optimistic mutation removed
               const completed = successCount + failureCount;
               const progress = totalCount > 0 ? Math.round((completed / totalCount) * 100) : 0;
 
@@ -813,6 +841,7 @@ export const useMinerActions = ({
       deviceSelector,
       firmwareUpdate,
       startBatchOperation,
+      completeBatchOperation,
       removeDevicesFromBatch,
       streamCommandBatchUpdates,
       deviceIdentifiers,

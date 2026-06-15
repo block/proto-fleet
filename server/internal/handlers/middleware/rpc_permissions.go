@@ -125,6 +125,17 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure: authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceSetMqttCurtailmentSourceEnabledProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceDeleteMqttCurtailmentSourceProcedure:         authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceListCurtailmentResponseProfilesProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentResponseProfileProcedure:       authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceCreateCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentResponseProfileProcedure:    authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceListCurtailmentAutomationRulesProcedure:      authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentAutomationRuleProcedure:        authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceCreateCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure: authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
 
 	// DeviceCollectionService — rack:read for reads, rack:manage for writes.
@@ -212,13 +223,15 @@ var ProcedurePermissions = map[string]string{
 	// MinerCommandService — each action gates on its matching catalog
 	// key. Stream/batch endpoints gate on fleet:read since they're
 	// status surfaces.
-	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:                     authz.PermMinerBlinkLED,
-	minercommandv1connect.MinerCommandServiceRebootProcedure:                       authz.PermMinerReboot,
-	minercommandv1connect.MinerCommandServiceStartMiningProcedure:                  authz.PermMinerStartMining,
-	minercommandv1connect.MinerCommandServiceStopMiningProcedure:                   authz.PermMinerStopMining,
-	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure:            authz.PermMinerUpdatePools,
-	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure:               authz.PermMinerSetCoolingMode,
-	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure:               authz.PermMinerSetPowerTarget,
+	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:          authz.PermMinerBlinkLED,
+	minercommandv1connect.MinerCommandServiceRebootProcedure:            authz.PermMinerReboot,
+	minercommandv1connect.MinerCommandServiceStartMiningProcedure:       authz.PermMinerStartMining,
+	minercommandv1connect.MinerCommandServiceStopMiningProcedure:        authz.PermMinerStopMining,
+	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure: authz.PermMinerUpdatePools,
+	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure:    authz.PermMinerSetCoolingMode,
+	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure:    authz.PermMinerSetPowerTarget,
+	// Primary procedure gate remains miner:firmware_update; the handler
+	// also requires miner:reboot because successful installs now reboot.
 	minercommandv1connect.MinerCommandServiceFirmwareUpdateProcedure:               authz.PermMinerFirmwareUpdate,
 	minercommandv1connect.MinerCommandServiceDownloadLogsProcedure:                 authz.PermMinerDownloadLogs,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure:          authz.PermMinerUpdatePassword,

@@ -193,7 +193,6 @@ func (c *CapabilityChecker) checkDeviceCapabilities(
 }
 
 // deviceSupportsCommand checks if a device supports the command.
-// Returns true if ANY of the required capabilities is supported.
 func (c *CapabilityChecker) deviceSupportsCommand(
 	ctx context.Context,
 	device deviceInfo,
@@ -209,72 +208,79 @@ func (c *CapabilityChecker) deviceSupportsCommand(
 		return false
 	}
 
+	if requiresAllCapabilities(requiredCaps) {
+		return hasAllCapabilities(capabilities.Commands, capabilities.Firmware, requiredCaps)
+	}
+
 	return hasAnyCapability(capabilities.Commands, capabilities.Firmware, requiredCaps)
+}
+
+func requiresAllCapabilities(requiredCaps []string) bool {
+	hasManualUpload := false
+	hasReboot := false
+	for _, cap := range requiredCaps {
+		switch cap {
+		case sdk.CapabilityManualUpload:
+			hasManualUpload = true
+		case sdk.CapabilityReboot:
+			hasReboot = true
+		}
+	}
+	return hasManualUpload && hasReboot
+}
+
+func hasAllCapabilities(commands *capabilitiespb.CommandCapabilities, firmware *capabilitiespb.FirmwareCapabilities, requiredCaps []string) bool {
+	for _, cap := range requiredCaps {
+		if !hasCapability(commands, firmware, cap) {
+			return false
+		}
+	}
+	return true
 }
 
 // hasAnyCapability checks if the device capabilities include any of the required capabilities.
 func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, firmware *capabilitiespb.FirmwareCapabilities, requiredCaps []string) bool {
 	for _, cap := range requiredCaps {
-		switch cap {
-		case sdk.CapabilityReboot:
-			if commands.RebootSupported {
-				return true
-			}
-		case sdk.CapabilityMiningStart:
-			if commands.MiningStartSupported {
-				return true
-			}
-		case sdk.CapabilityMiningStop:
-			if commands.MiningStopSupported {
-				return true
-			}
-		case sdk.CapabilityLEDBlink:
-			if commands.LedBlinkSupported {
-				return true
-			}
-		case sdk.CapabilityCoolingModeAir:
-			if commands.AirCoolingSupported {
-				return true
-			}
-		case sdk.CapabilityCoolingModeImmerse:
-			if commands.ImmersionCoolingSupported {
-				return true
-			}
-		case sdk.CapabilityPoolConfig:
-			if commands.PoolSwitchingSupported {
-				return true
-			}
-		case sdk.CapabilityLogsDownload:
-			if commands.LogsDownloadSupported {
-				return true
-			}
-		case sdk.CapabilityManualUpload:
-			if firmware != nil && firmware.ManualUploadSupported {
-				return true
-			}
-		case sdk.CapabilityFactoryReset:
-			if commands.FactoryResetSupported {
-				return true
-			}
-		case sdk.CapabilityPowerModeEfficiency:
-			if commands.PowerModeEfficiencySupported {
-				return true
-			}
-		case sdk.CapabilityUpdateMinerPassword:
-			if commands.UpdateMinerPasswordSupported {
-				return true
-			}
-		case sdk.CapabilityCurtailFull:
-			if commands.CurtailFullSupported {
-				return true
-			}
-		case sdk.CapabilityCurtailEfficiency:
-			if commands.CurtailEfficiencySupported {
-				return true
-			}
+		if hasCapability(commands, firmware, cap) {
+			return true
 		}
 	}
 	return false
+}
+
+func hasCapability(commands *capabilitiespb.CommandCapabilities, firmware *capabilitiespb.FirmwareCapabilities, capability string) bool {
+	switch capability {
+	case sdk.CapabilityReboot:
+		return commands.RebootSupported
+	case sdk.CapabilityMiningStart:
+		return commands.MiningStartSupported
+	case sdk.CapabilityMiningStop:
+		return commands.MiningStopSupported
+	case sdk.CapabilityLEDBlink:
+		return commands.LedBlinkSupported
+	case sdk.CapabilityCoolingModeAir:
+		return commands.AirCoolingSupported
+	case sdk.CapabilityCoolingModeImmerse:
+		return commands.ImmersionCoolingSupported
+	case sdk.CapabilityPoolConfig:
+		return commands.PoolSwitchingSupported
+	case sdk.CapabilityLogsDownload:
+		return commands.LogsDownloadSupported
+	case sdk.CapabilityManualUpload:
+		return firmware != nil && firmware.ManualUploadSupported
+	case sdk.CapabilityFactoryReset:
+		return commands.FactoryResetSupported
+	case sdk.CapabilityPowerModeEfficiency:
+		return commands.PowerModeEfficiencySupported
+	case sdk.CapabilityUpdateMinerPassword:
+		return commands.UpdateMinerPasswordSupported
+	case sdk.CapabilityCurtailFull:
+		return commands.CurtailFullSupported
+	case sdk.CapabilityCurtailEfficiency:
+		return commands.CurtailEfficiencySupported
+	default:
+		return false
+	}
 }
 
 // stringOrEmpty returns the string value or empty string if the sql.NullString is not valid.

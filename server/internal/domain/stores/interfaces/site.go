@@ -39,6 +39,10 @@ type SiteStore interface {
 	// live device pointing at the site. Returns the count.
 	UnassignDevicesFromSite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// DeleteCurtailmentResponseProfilesBySite deletes reusable
+	// curtailment response behavior scoped to the site being deleted.
+	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// SoftDeleteBuildingsBySite soft-deletes every live building under
 	// the site. Caller wraps it in the cascade tx.
 	SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)

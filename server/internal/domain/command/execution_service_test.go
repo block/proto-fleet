@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -24,6 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+type firmwareStatusMiner struct {
+	minerInterfaces.Miner
+	minerInterfaces.FirmwareUpdateStatusProvider
+}
 
 func TestExecutionService_Start(t *testing.T) {
 	t.Run("starts when not running and returns true", func(t *testing.T) {
@@ -517,6 +523,114 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Uncurtail, message)
 		require.NoError(t, err)
+	})
+}
+
+func TestFirmwareUpdateAutoReboot(t *testing.T) {
+	t.Run("verified install status is reboot ready", func(t *testing.T) {
+		for _, state := range []string{"installed", "success", "confirming"} {
+			t.Run(state, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+
+				mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+				mockProvider := minerIfaceMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+				devID := tmodels.DeviceIdentifier("device-123")
+
+				mockDeviceStore.EXPECT().
+					UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusUpdating, "").
+					Return(nil)
+				mockDeviceStore.EXPECT().
+					UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusRebootRequired, "").
+					Return(nil)
+
+				svc := &ExecutionService{deviceStore: mockDeviceStore}
+
+				installVerified, err := svc.doPollFirmwareInstall(
+					t.Context(),
+					mockProvider,
+					devID,
+					42,
+					&sdk.FirmwareUpdateStatus{State: state},
+					nil,
+				)
+
+				require.NoError(t, err)
+				assert.True(t, installVerified)
+			})
+		}
+	})
+
+	t.Run("successful automatic reboot clears firmware status", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		devID := tmodels.DeviceIdentifier("device-123")
+
+		mockMiner.EXPECT().Reboot(gomock.Any()).Return(nil)
+		mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-123"))
+		mockDeviceStore.EXPECT().
+			GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []tmodels.DeviceIdentifier{devID}).
+			Return(map[tmodels.DeviceIdentifier]models.MinerStatus{devID: models.MinerStatusRebootRequired}, nil)
+		mockDeviceStore.EXPECT().
+			UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusActive, "").
+			Return(nil)
+
+		svc := &ExecutionService{deviceStore: mockDeviceStore}
+
+		err := svc.rebootAfterFirmwareInstall(t.Context(), mockMiner, 42)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("automatic reboot failure is permanent and leaves reboot required", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+
+		mockMiner.EXPECT().Reboot(gomock.Any()).Return(errors.New("connection refused"))
+
+		svc := &ExecutionService{deviceStore: mockDeviceStore}
+
+		err := svc.rebootAfterFirmwareInstall(t.Context(), mockMiner, 42)
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+		assert.Contains(t, err.Error(), "automatic reboot failed")
+	})
+
+	t.Run("miner without firmware status provider is reboot ready after upload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		svc := &ExecutionService{}
+
+		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), mockMiner, 42)
+
+		require.NoError(t, err)
+		assert.True(t, installVerified)
+	})
+
+	t.Run("status provider with nil status is reboot ready after upload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		mockProvider := minerIfaceMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+		mockProvider.EXPECT().GetFirmwareUpdateStatus(gomock.Any()).Return(nil, nil)
+
+		svc := &ExecutionService{}
+		miner := firmwareStatusMiner{Miner: mockMiner, FirmwareUpdateStatusProvider: mockProvider}
+
+		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), miner, 42)
+
+		require.NoError(t, err)
+		assert.True(t, installVerified)
 	})
 }
 

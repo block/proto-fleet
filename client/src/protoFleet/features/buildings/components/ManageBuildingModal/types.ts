@@ -3,7 +3,7 @@
 // `byName` auto-fills cells alphabetically from the assigned-racks list.
 // `manual` lets the operator click a cell + rack to choose a position.
 // The modal swaps render between the two via the same activeAssignments
-// pattern AssignMinersModal uses: manual edits live in slotAssignments,
+// pattern ManageRackModal uses: manual edits live in slotAssignments,
 // byName is derived on render.
 export type BuildingAssignmentMode = "byName" | "manual";
 

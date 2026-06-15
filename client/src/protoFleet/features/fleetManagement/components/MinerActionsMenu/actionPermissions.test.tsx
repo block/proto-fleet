@@ -51,6 +51,16 @@ describe("usePermittedActions", () => {
     vi.mocked(usePermissions).mockReturnValue(["miner:update_pools", "pool:read"]);
     const both = renderHook(() => usePermittedActions([action(settingsActions.miningPool)]));
     expect(both.result.current.map((a) => a.action)).toEqual([settingsActions.miningPool]);
+
+    // Firmware update needs miner:reboot too because successful installs
+    // automatically reboot the miner after activation.
+    vi.mocked(usePermissions).mockReturnValue(["miner:firmware_update"]);
+    const firmwareWithoutReboot = renderHook(() => usePermittedActions([action(deviceActions.firmwareUpdate)]));
+    expect(firmwareWithoutReboot.result.current).toEqual([]);
+
+    vi.mocked(usePermissions).mockReturnValue(["miner:firmware_update", "miner:reboot"]);
+    const firmwareWithReboot = renderHook(() => usePermittedActions([action(deviceActions.firmwareUpdate)]));
+    expect(firmwareWithReboot.result.current.map((a) => a.action)).toEqual([deviceActions.firmwareUpdate]);
   });
 
   it("passes through actions without a mapped permission (e.g. viewMiner)", () => {
@@ -96,7 +106,7 @@ describe("ACTION_PERMISSIONS", () => {
     // Unpair routes through FleetManagementService.DeleteMiners
     // (miner:delete) on the server, not MinerCommandService.Unpair.
     expect(ACTION_PERMISSIONS[deviceActions.unpair]).toBe("miner:delete");
-    expect(ACTION_PERMISSIONS[deviceActions.firmwareUpdate]).toBe("miner:firmware_update");
+    expect(ACTION_PERMISSIONS[deviceActions.firmwareUpdate]).toEqual(["miner:firmware_update", "miner:reboot"]);
     expect(ACTION_PERMISSIONS[deviceActions.downloadLogs]).toBe("miner:download_logs");
     expect(ACTION_PERMISSIONS[performanceActions.curtail]).toBe("curtailment:manage");
     expect(ACTION_PERMISSIONS[settingsActions.miningPool]).toEqual(["miner:update_pools", "pool:read"]);

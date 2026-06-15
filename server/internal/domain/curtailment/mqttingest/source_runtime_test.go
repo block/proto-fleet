@@ -2,6 +2,7 @@ package mqttingest
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -90,7 +91,7 @@ func testSourceConfig() SourceConfig {
 		OrganizationID:        7,
 		ServiceUserID:         99,
 		SourceName:            "maestro",
-		Topic:                 "maestro/curtailment",
+		Topic:                 "maestro/target",
 		BrokerPrimaryHost:     "10.0.0.1",
 		BrokerSecondaryHost:   "10.0.0.2",
 		BrokerPort:            1883,
@@ -172,6 +173,78 @@ func TestSourceWorker_HandleWatchdogRecordsOffWithoutEvent(t *testing.T) {
 	assert.Nil(t, state.PendingEdge)
 }
 
+func TestSourceWorker_HandleMessageRetainsPendingEdgeWhenExecutorFails(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	w := newTestSourceWorker(store, src, func() time.Time { return now })
+	executor := &fakeSignalExecutor{err: errors.New("automation unavailable")}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   now.Add(-time.Minute),
+		LastReceivedAt: now.Add(-time.Minute),
+		LastEdgeAt:     now.Add(-time.Minute),
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092800}`),
+		receivedAt: now,
+	})
+
+	require.NotNil(t, state.PendingEdge)
+	assert.Equal(t, TargetOff, state.PendingEdge.Target)
+	assert.Equal(t, now.Add(time.Second), state.PendingEdge.RetryAt)
+	assert.Equal(t, TargetOn, state.LastTarget, "failed executor must not settle the source target")
+	assert.Equal(t, 1, executor.calls)
+	assert.Equal(t, TargetOff, executor.last.Target)
+
+	persisted := store.state[src.ID]
+	require.NotNil(t, persisted.PendingEdge)
+	assert.Equal(t, TargetOff, persisted.PendingEdge.Target)
+	assert.Equal(t, now.Add(time.Second), persisted.PendingEdge.RetryAt)
+	assert.Equal(t, TargetOn, persisted.LastTarget)
+}
+
+func TestSourceWorker_RetryPendingEdgeBacksOffExecutorFailures(t *testing.T) {
+	t.Parallel()
+
+	receivedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	now := receivedAt.Add(time.Minute)
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	w := newTestSourceWorker(store, src, func() time.Time { return now })
+	executor := &fakeSignalExecutor{err: errors.New("automation unavailable")}
+	w.cfg.SignalExecutor = executor
+
+	state, settled := w.retryPendingEdge(context.Background(), SourceState{
+		SourceConfigID: src.ID,
+		LastTarget:     TargetOn,
+		LastTargetAt:   receivedAt.Add(-time.Minute),
+		LastReceivedAt: receivedAt.Add(-time.Minute),
+		LastEdgeAt:     receivedAt.Add(-time.Minute),
+		PendingEdge: &PendingEdge{
+			Direction:      EdgeOnToOff,
+			Target:         TargetOff,
+			ReceivedAt:     receivedAt,
+			ReceivedBroker: src.BrokerPrimaryHost,
+		},
+	})
+
+	require.True(t, settled)
+	require.NotNil(t, state.PendingEdge)
+	assert.Equal(t, now.Add(64*time.Second), state.PendingEdge.RetryAt)
+	assert.Equal(t, TargetOn, state.LastTarget)
+	assert.Equal(t, 1, executor.calls)
+
+	persisted := store.state[src.ID]
+	require.NotNil(t, persisted.PendingEdge)
+	assert.Equal(t, now.Add(64*time.Second), persisted.PendingEdge.RetryAt)
+}
+
 func TestNewSubscriberDoesNotRequireCurtailmentDriver(t *testing.T) {
 	t.Parallel()
 
@@ -183,4 +256,16 @@ func TestNewSubscriberDoesNotRequireCurtailmentDriver(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, s)
+}
+
+type fakeSignalExecutor struct {
+	calls int
+	last  SignalEdge
+	err   error
+}
+
+func (f *fakeSignalExecutor) HandleMQTTSignal(_ context.Context, signal SignalEdge) error {
+	f.calls++
+	f.last = signal
+	return f.err
 }

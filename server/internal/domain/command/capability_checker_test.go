@@ -445,6 +445,41 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 		assert.True(t, result.NoneSupported)
 	})
 
+	t.Run("requires manual upload and reboot for firmware update", func(t *testing.T) {
+		provider := &mockCapabilitiesProvider{
+			capabilities: map[string]*capabilitiespb.MinerCapabilities{
+				"proto|Proto|Rig1": {
+					Commands: &capabilitiespb.CommandCapabilities{RebootSupported: true},
+					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true},
+				},
+				"proto|Proto|UploadOnly": {
+					Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false},
+					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true},
+				},
+				"proto|Proto|RebootOnly": {
+					Commands: &capabilitiespb.CommandCapabilities{RebootSupported: true},
+					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: false},
+				},
+			},
+		}
+		checker := NewCapabilityChecker(nil, provider)
+
+		devices := []deviceInfo{
+			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Rig1", FirmwareVersion: "2.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "proto", Manufacturer: "Proto", Model: "UploadOnly", FirmwareVersion: "2.0.0"},
+			{DeviceIdentifier: "device-3", DriverName: "proto", Manufacturer: "Proto", Model: "RebootOnly", FirmwareVersion: "2.0.0"},
+		}
+
+		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityManualUpload, sdk.CapabilityReboot})
+
+		assert.Equal(t, int32(1), result.SupportedCount)
+		assert.Equal(t, int32(2), result.UnsupportedCount)
+		assert.Equal(t, int32(3), result.TotalCount)
+		assert.False(t, result.AllSupported)
+		assert.False(t, result.NoneSupported)
+		assert.Equal(t, []string{"device-1"}, result.SupportedDeviceIdentifiers)
+	})
+
 	t.Run("returns unsupported when commands is nil", func(t *testing.T) {
 		provider := &mockCapabilitiesProvider{
 			capabilities: map[string]*capabilitiespb.MinerCapabilities{
@@ -511,7 +546,7 @@ func TestGetRequiredCapabilities(t *testing.T) {
 	t.Run("returns correct capabilities for firmware update command", func(t *testing.T) {
 		caps := GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE)
 
-		assert.Equal(t, []string{sdk.CapabilityManualUpload}, caps)
+		assert.Equal(t, []string{sdk.CapabilityManualUpload, sdk.CapabilityReboot}, caps)
 	})
 
 	t.Run("returns nil for unknown command type", func(t *testing.T) {

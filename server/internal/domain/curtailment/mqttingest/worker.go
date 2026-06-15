@@ -35,6 +35,7 @@ type observation struct {
 // state signal.
 const observationChannelBuffer = 256
 const initialBrokerRetryMax = 30 * time.Second
+const edgeExecutorRetryMax = 5 * time.Minute
 
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
@@ -483,7 +484,7 @@ func (w *sourceWorker) retryPendingEdge(ctx context.Context, prior SourceState) 
 	}
 	state, settled := w.settlePendingSignal(ctx, prior)
 	if !settled {
-		return prior, false
+		return state, true
 	}
 	if !w.persistState(ctx, state) {
 		return state, true
@@ -500,6 +501,32 @@ func (w *sourceWorker) settlePendingSignal(ctx context.Context, prior SourceStat
 		return prior, false
 	}
 
+	if w.cfg.SignalExecutor != nil {
+		if err := w.cfg.SignalExecutor.HandleMQTTSignal(ctx, SignalEdge{
+			Source:         w.source,
+			Direction:      pending.Direction,
+			Target:         pending.Target,
+			TargetAt:       pending.TargetAt,
+			ReceivedAt:     pending.ReceivedAt,
+			ReceivedBroker: pending.ReceivedBroker,
+			PriorEdgeAt:    pending.PriorEdgeAt,
+		}); err != nil {
+			state := prior
+			retry := *pending
+			retry.RetryAt = w.cfg.Clock().Add(w.edgeExecutorRetryDelay(pending))
+			state.PendingEdge = &retry
+			w.cfg.Logger.Warn("mqttingest: edge executor failed; retaining pending edge",
+				slog.String("source", w.source.SourceName),
+				slog.String("direction", pending.Direction.String()),
+				slog.Time("retry_at", retry.RetryAt),
+				slog.Any("error", err))
+			if !w.persistState(ctx, state) {
+				return prior, false
+			}
+			return state, false
+		}
+	}
+
 	state := w.settlePendingEdge(prior, pending, pending.Target)
 	w.cfg.Logger.Info("mqttingest: edge recorded",
 		slog.String("source", w.source.SourceName),
@@ -509,6 +536,28 @@ func (w *sourceWorker) settlePendingSignal(ctx context.Context, prior SourceStat
 
 func (w *sourceWorker) pendingEdgeRetryReady(pending *PendingEdge) bool {
 	return pending == nil || pending.RetryAt.IsZero() || !w.cfg.Clock().Before(pending.RetryAt)
+}
+
+func (w *sourceWorker) edgeExecutorRetryDelay(pending *PendingEdge) time.Duration {
+	base := w.startupRetryEvery()
+	if pending == nil || pending.ReceivedAt.IsZero() {
+		return base
+	}
+	elapsed := w.cfg.Clock().Sub(pending.ReceivedAt)
+	if elapsed <= 0 {
+		return base
+	}
+	delay := base
+	for delay < edgeExecutorRetryMax && elapsed >= delay {
+		if delay > edgeExecutorRetryMax/2 {
+			return edgeExecutorRetryMax
+		}
+		delay *= 2
+	}
+	if delay > edgeExecutorRetryMax {
+		return edgeExecutorRetryMax
+	}
+	return delay
 }
 
 func (w *sourceWorker) settlePendingEdge(

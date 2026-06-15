@@ -59,6 +59,7 @@ func TestReconcile_FreshInstall_AdminExcludesRoleManagement(t *testing.T) {
 	require.Contains(t, got, authz.PermUserRead, "ADMIN holds user:read so org admins can view the team roster")
 	require.Contains(t, got, authz.PermUserManage, "ADMIN holds user:manage; hierarchy check blocks elevated targets at the domain layer")
 	require.Contains(t, got, authz.PermMinerReboot, "ADMIN should still hold miner action permissions")
+	require.Contains(t, got, authz.PermMinerFirmwareUpdate, "ADMIN should seed with firmware update permissions")
 }
 
 func TestReconcile_FreshInstall_FieldTechHasExactSeedSet(t *testing.T) {

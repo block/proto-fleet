@@ -64,9 +64,10 @@ type UpdateSiteParams struct {
 
 // DeleteSiteResult carries the cascade impact for the delete activity log.
 type DeleteSiteResult struct {
-	UnassignedDeviceCount int64
-	UnassignedRackCount   int64
-	DeletedBuildingCount  int64
+	UnassignedDeviceCount       int64
+	UnassignedRackCount         int64
+	DeletedBuildingCount        int64
+	DeletedResponseProfileCount int64
 }
 
 // PerDeviceConflictReason enumerates why a device was rejected by a

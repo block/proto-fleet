@@ -283,6 +283,13 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if sourceID <= 0 {
 		return fleeterror.NewInvalidArgumentError("source_id must be set")
 	}
+	count, err := s.store.CountAutomationRulesByMQTTSource(ctx, orgID, sourceID)
+	if err != nil {
+		return fmt.Errorf("count automation rules by mqtt source: %w", err)
+	}
+	if count > 0 {
+		return sourceStoreError("delete mqtt source setting", ErrSourceConfigReferenced)
+	}
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
 	}
@@ -291,7 +298,7 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 
 func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
 	if s.connectionTester == nil {
-		return TestSourceConnectionResult{}, fleeterror.NewUnimplementedError("mqtt source connection testing is not configured")
+		return TestSourceConnectionResult{}, fleeterror.NewUnimplementedError("MaestroOS source connection testing is not configured")
 	}
 	source := normalizeSourceConfig(req.Source)
 	if source.SourceName == "" {
@@ -461,7 +468,7 @@ func (s *SettingsService) reconcile(ctx context.Context) error {
 	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
 	if err := s.runtime.Reconcile(reconcileCtx); err != nil {
-		return fleeterror.NewUnavailableErrorf("mqtt source saved but runtime reload failed: %v", err)
+		return fleeterror.NewUnavailableErrorf("MaestroOS source saved but runtime reload failed: %v", err)
 	}
 	return nil
 }
@@ -473,7 +480,7 @@ func (s *SettingsService) quiesceSource(ctx context.Context, sourceID int64) err
 	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
 	if err := s.runtime.QuiesceSource(reconcileCtx, sourceID); err != nil {
-		return fleeterror.NewUnavailableErrorf("mqtt source saved but runtime reload failed: %v", err)
+		return fleeterror.NewUnavailableErrorf("MaestroOS source disable failed while quiescing runtime: %v", err)
 	}
 	return nil
 }
@@ -537,11 +544,13 @@ func mqttCredentialBindingChanged(current, next SourceConfig) bool {
 func sourceStoreError(prefix string, err error) error {
 	switch {
 	case errors.Is(err, ErrSourceConfigNotFound):
-		return fleeterror.NewNotFoundError("mqtt source not found")
+		return fleeterror.NewNotFoundError("MaestroOS source not found")
 	case errors.Is(err, ErrSourceConfigNameExists):
-		return fleeterror.NewAlreadyExistsError("an MQTT curtailment source with this name already exists")
+		return fleeterror.NewAlreadyExistsError("a MaestroOS curtailment source with this name already exists")
 	case errors.Is(err, ErrSourceConfigDeleteBlocked):
-		return fleeterror.NewFailedPreconditionError("disable the MQTT source before deleting it")
+		return fleeterror.NewFailedPreconditionError("disable the MaestroOS source before deleting it")
+	case errors.Is(err, ErrSourceConfigReferenced):
+		return fleeterror.NewFailedPreconditionError("MaestroOS source is referenced by a curtailment automation rule")
 	default:
 		return fmt.Errorf("%s: %w", prefix, err)
 	}

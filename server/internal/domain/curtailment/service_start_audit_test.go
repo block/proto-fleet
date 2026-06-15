@@ -185,6 +185,31 @@ func TestService_Start_MapsSchedulerActorType(t *testing.T) {
 		"SourceActorScheduler must map to ActorScheduler")
 }
 
+func TestService_Start_AuditFallsBackToRequestOrgWithoutSession(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	req.SourceActorType = models.SourceActorAutomation
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	assert.Equal(t, activitymodels.ActorCurtailment, events[0].ActorType)
+	require.NotNil(t, events[0].OrganizationID)
+	assert.Equal(t, orgID, *events[0].OrganizationID)
+}
+
 // TestService_Start_CoercesAPIKeyActorTypeToUser: SourceActorAPIKey is the
 // curtailment-vocabulary distinction between session-token and API-key
 // callers; the activity_log doesn't yet model an api_key actor, so the

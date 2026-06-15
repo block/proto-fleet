@@ -62,6 +62,24 @@ type PendingEdge struct {
 	RetryAt        time.Time
 }
 
+// SignalEdge is the durable MQTT edge handed to downstream automation after it
+// has been written as pending state but before pending state is settled.
+type SignalEdge struct {
+	Source         SourceConfig
+	Direction      EdgeDirection
+	Target         Target
+	TargetAt       time.Time
+	ReceivedAt     time.Time
+	ReceivedBroker string
+	PriorEdgeAt    time.Time
+}
+
+// SignalExecutor applies an MQTT edge to downstream business logic. Returning
+// an error keeps the pending edge in durable retry state.
+type SignalExecutor interface {
+	HandleMQTTSignal(ctx context.Context, signal SignalEdge) error
+}
+
 // StateUpdate replaces a source state row. Zero values map to SQL NULL, which
 // lets callers clear pending-edge fields after settlement.
 type StateUpdate struct {
@@ -92,6 +110,7 @@ type SettingsStore interface {
 	UpdateSourceConfig(ctx context.Context, source SourceConfig) (SourceConfig, error)
 	SetSourceConfigEnabled(ctx context.Context, orgID, sourceID int64, enabled bool) (SourceConfig, error)
 	DeleteDisabledSourceConfig(ctx context.Context, orgID, sourceID int64) error
+	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 }
 
 // ErrSourceStateNotFound means cold start.
@@ -105,6 +124,9 @@ var ErrSourceConfigNameExists = errors.New("mqttingest: source config name exist
 
 // ErrSourceConfigDeleteBlocked means a source must be disabled before delete.
 var ErrSourceConfigDeleteBlocked = errors.New("mqttingest: enabled source cannot be deleted")
+
+// ErrSourceConfigReferenced means an automation rule still references a source.
+var ErrSourceConfigReferenced = errors.New("mqttingest: source config is referenced by automation")
 
 const mqttSourceConfigOrgNameConstraint = "uq_curtailment_mqtt_source_config_org_name"
 
@@ -226,6 +248,17 @@ func (s *sqlcStore) DeleteDisabledSourceConfig(ctx context.Context, orgID, sourc
 		return ErrSourceConfigDeleteBlocked
 	}
 	return ErrSourceConfigNotFound
+}
+
+func (s *sqlcStore) CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error) {
+	count, err := s.queries.CountCurtailmentAutomationRulesByMQTTSource(ctx, sqlc.CountCurtailmentAutomationRulesByMQTTSourceParams{
+		OrgID:        orgID,
+		MqttSourceID: sourceID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count curtailment automation rules by mqtt source: %w", err)
+	}
+	return count, nil
 }
 
 func (s *sqlcStore) GetSourceState(ctx context.Context, sourceConfigID int64) (SourceState, error) {

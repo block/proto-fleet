@@ -8,7 +8,7 @@ import "hashboard_cmd.proto";
 option go_package = "pkg/proto;miner_rpc";
 
 enum HbErrorCode {
-    HB_ERROR_CODE_COMMUNICATION = 0;
+    HB_ERROR_CODE_SOFTWARE_ERROR = 0;
     HB_ERROR_CODE_HASHBOARD_IN_ERROR_STATE = 1;
     HB_ERROR_CODE_INVALID_HASHBOARD_TYPE = 2;
     HB_ERROR_CODE_OVER_HEAT = 3;
@@ -215,26 +215,8 @@ message FanControl {
     }
 }
 
-// =============================================================================
-// Test / Simulation Control  (hashboard.<slot>.test)
-// =============================================================================
-
-message InjectHashboardError {
-    // Firmware error causes to inject into simulated AsyncSystemHealth messages.
-    repeated fwpb.error_cause error_codes = 1;
-    // If false, errors are one-shot and consumed by the next health message.
-    // If true, errors persist until cleared with clear_injections.
-    bool persistent = 2;
-}
-
-message ClearHashboardInjections {}
-
-message HashboardSimControl {
-    oneof cmd {
-        InjectHashboardError inject_error = 1;
-        ClearHashboardInjections clear_injections = 2;
-    }
-}
+// Test / simulation control messages (hb.<slot>.test) live in
+// miner_hb_test_api.proto, mirroring miner_psu_test_api.proto.
 
 // =============================================================================
 // Hashboard Info  (hb.<slot>.info — published to JetStream on Ready)

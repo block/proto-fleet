@@ -46,10 +46,12 @@ interface InputProps {
   onChange?: (value: string, id: string) => void;
   onChangeBlur?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
+  readOnly?: boolean;
   testId?: string;
   tooltip?: InputTooltip;
   type?: string;
   statusIcon?: ReactNode;
+  suffixAction?: ReactNode;
   onFocus?: () => void;
   onBlur?: () => void;
   autoComplete?: string;
@@ -83,10 +85,12 @@ const Input = ({
   onChange,
   onChangeBlur,
   onKeyDown,
+  readOnly,
   testId,
   tooltip,
   type = "text",
   statusIcon,
+  suffixAction,
   onFocus,
   onBlur,
   autoComplete,
@@ -121,6 +125,8 @@ const Input = ({
   const hasFloatingLabel = type === "date" || !!length(value) || focused;
   const showPasswordToggle = type === "password" && !hidePasswordToggle;
   const showTrailingIcon = showPasswordToggle || statusIcon !== undefined;
+  const trailingAdornmentCount = [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length;
+  const canShowFocusState = !disabled && !readOnly;
 
   useEffect(() => {
     if (error) return;
@@ -185,19 +191,24 @@ const Input = ({
               "border border-border-5": !error && !compact,
             },
             {
-              "focus:border-border-20 focus:ring-4 focus:ring-core-primary-5": !error && !compact && !disabled,
+              "focus:border-border-20 focus:ring-4 focus:ring-core-primary-5": !error && !compact && canShowFocusState,
             },
             {
-              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20": error,
+              "border border-intent-critical-50": error,
+            },
+            {
+              "focus:ring-4 focus:ring-intent-critical-20": error && canShowFocusState,
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
-            { "pr-4": !compact && !tooltip && !showTrailingIcon },
-            { "pr-10": !compact && ((!tooltip && showTrailingIcon) || (tooltip && !showTrailingIcon)) },
-            { "pr-20": !compact && tooltip && showTrailingIcon },
+            { "pr-4": !compact && trailingAdornmentCount === 0 },
+            { "pr-10": !compact && trailingAdornmentCount === 1 },
+            { "pr-20": !compact && trailingAdornmentCount === 2 },
+            { "pr-28": !compact && trailingAdornmentCount >= 3 },
             { "h-6": compact },
             { "no-spinner": type === "number" },
             { uppercase: type === "date" },
+            { "cursor-default": readOnly },
             className,
           )}
           onChange={handleChange}
@@ -212,6 +223,7 @@ const Input = ({
           value={value}
           ref={inputRef ?? fallbackRef}
           disabled={disabled}
+          readOnly={readOnly}
           autoFocus={autoFocus}
           required={required}
           aria-required={required || undefined}
@@ -246,7 +258,7 @@ const Input = ({
           htmlFor={id}
           className={clsx(
             "absolute text-text-primary-50",
-            { "cursor-text": !disabled },
+            { "cursor-text": canShowFocusState },
             { "text-300": !hasFloatingLabel },
             { "left-0": compact },
             { "left-[17px]": !compact },
@@ -256,9 +268,10 @@ const Input = ({
             { "top-0": !hasFloatingLabel && compact },
             { "top-[7px] text-200": hasFloatingLabel },
             {
-              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200": !hideLabelOnFocus,
+              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
+                !hideLabelOnFocus && canShowFocusState,
             },
-            { "peer-focus:invisible": hideLabelOnFocus },
+            { "peer-focus:invisible": hideLabelOnFocus && canShowFocusState },
             { invisible: hideLabelOnFocus && hasFloatingLabel },
           )}
         >
@@ -272,6 +285,17 @@ const Input = ({
               position={tooltip.position ?? positions["top left"]}
               widthClassName={tooltip.widthClassName}
             />
+          </div>
+        ) : null}
+        {suffixAction ? (
+          <div
+            className={clsx("absolute top-7 z-50 -translate-y-1/2 transform", {
+              "right-4": !tooltip && !showTrailingIcon,
+              "right-12": (tooltip || showTrailingIcon) && !(tooltip && showTrailingIcon),
+              "right-20": tooltip && showTrailingIcon,
+            })}
+          >
+            {suffixAction}
           </div>
         ) : null}
         {dismiss && length(value) && !compact ? (

@@ -133,7 +133,7 @@ var catalog = []CatalogEntry{
 	{PermMinerDelete, "Delete a miner.", ResourceMiner},
 	{PermMinerSetCoolingMode, "Change a miner's cooling mode.", ResourceMiner},
 	{PermMinerSetPowerTarget, "Change a miner's power target.", ResourceMiner},
-	{PermMinerFirmwareUpdate, "Push a firmware update to a miner.", ResourceMiner},
+	{PermMinerFirmwareUpdate, "Push a firmware update to a miner. Firmware dispatch also requires miner:reboot because successful installs may reboot automatically.", ResourceMiner},
 	{PermMinerDownloadLogs, "Download diagnostic logs from a miner.", ResourceMiner},
 	{PermMinerUpdatePassword, "Change the miner's device-local web UI password.", ResourceMiner},
 	{PermMinerUnpair, "Unpair a miner from the fleet.", ResourceMiner},

@@ -88,4 +88,12 @@ describe("FirmwareUpdateModal", () => {
     expect(await screen.findByText("Select an existing firmware file")).toBeInTheDocument();
     expect(screen.getByText("alpha.swu")).toBeInTheDocument();
   });
+
+  it("explains that miners reboot automatically after firmware installation", () => {
+    mockListFirmwareFiles.mockResolvedValue([]);
+
+    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(screen.getByText(/reboot automatically after installation completes/i)).toBeInTheDocument();
+  });
 });

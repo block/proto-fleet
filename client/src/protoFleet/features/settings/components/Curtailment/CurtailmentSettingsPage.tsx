@@ -1,18 +1,35 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
+import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
+import useCurtailmentResponseProfiles, {
+  getResponseProfileScopeLabelForActionType,
+} from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
+import CurtailmentStartModal, {
+  type CurtailmentFormValues,
+  type CurtailmentSubmitValues,
+  type ResponseProfileModalMode,
+} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
+import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import type {
+  AutomationRule,
+  AutomationRuleFormValues,
   CurtailmentHealth,
   CurtailmentSource,
   CurtailmentSourceFormValues,
+  ResponseProfile,
+  ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
+import Card, { cardType } from "@/shared/components/Card";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -20,6 +37,7 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import type { SelectOption } from "@/shared/components/Select";
 import Switch from "@/shared/components/Switch";
 import { positions } from "@/shared/constants";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -28,10 +46,28 @@ import "./CurtailmentSettingsPage.css";
 
 const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
-const SOURCES_DESCRIPTION = "External systems that send curtailment signals via MQTT.";
+const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
+const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
 const SOURCE_CONNECTION_FAILURE_MESSAGE =
   "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
+
+const responseProfileSelectionStrategyOptions: SelectOption[] = [
+  { value: "leastEfficientFirst", label: "Least efficient first" },
+];
+
+const responseProfileRestoreBehaviorOptions: SelectOption[] = [
+  { value: "automaticBatchRestore", label: "Restore in batches" },
+  { value: "automaticImmediateRestore", label: "Restore immediately" },
+];
+
+const responseProfileSelectionStrategyLabel = Object.fromEntries(
+  responseProfileSelectionStrategyOptions.map((option) => [option.value, option.label]),
+) as Record<ResponseProfileFormValues["selectionStrategy"], string>;
+
+const responseProfileRestoreBehaviorLabel = Object.fromEntries(
+  responseProfileRestoreBehaviorOptions.map((option) => [option.value, option.label]),
+) as Record<ResponseProfileFormValues["restoreBehavior"], string>;
 
 const curtailmentSourceCols = {
   name: "name",
@@ -93,10 +129,34 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
 };
 
 const emptyCurtailmentSources: CurtailmentSource[] = [];
+const emptyResponseProfiles: ResponseProfile[] = [];
+const emptyAutomationRules: AutomationRule[] = [];
 const emptyUpdatingSourceIds = new Set<string>();
+const emptyUpdatingResponseProfileIds = new Set<string>();
+const emptyUpdatingAutomationRuleIds = new Set<string>();
 const savedPasswordPlaceholder = "......";
+const immediateRestoreBatchSize = "10000";
 
 type SourceModalMode = "create" | "edit";
+
+const emptyResponseProfileFormValues: ResponseProfileFormValues = {
+  name: "",
+  actionType: "fullFleet",
+  targetKw: "",
+  deviceIdentifiers: [],
+  siteId: "",
+  siteName: "",
+  selectionStrategy: "leastEfficientFirst",
+  restoreBehavior: "automaticBatchRestore",
+  minDurationSec: "",
+  maxDurationSec: "900",
+  curtailBatchSize: "",
+  curtailBatchIntervalSec: "",
+  restoreBatchSize: "",
+  restoreIntervalSec: "",
+  responseDeadlineMinutes: "15",
+  includeMaintenance: true,
+};
 
 const sourceInputIds = {
   name: "source-name",
@@ -120,6 +180,232 @@ const sourceInputIdToFormKey: Record<string, keyof CurtailmentSourceFormValues> 
 
 function isPositiveInteger(value: string): boolean {
   return /^[1-9]\d*$/.test(value.trim());
+}
+
+function getOptionValueByLabel<TValue extends string>(
+  options: SelectOption[],
+  label: string,
+  fallbackValue: TValue,
+): TValue {
+  return (options.find((option) => option.label === label)?.value ?? fallbackValue) as TValue;
+}
+
+function getResponseProfileTargetSummary(values: ResponseProfileFormValues): string {
+  const targetKw = Number(values.targetKw).toLocaleString();
+
+  switch (values.actionType) {
+    case "fixedKwReduction":
+      return `${targetKw} kW target`;
+    case "fullFleet":
+    default:
+      return "100% reduction";
+  }
+}
+
+function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): string {
+  const minutes = Number(values.responseDeadlineMinutes);
+  return minutes === 1 ? "Within 1 min" : `Within ${minutes} min`;
+}
+
+function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
+  return values.siteId
+    ? values.siteName || `Site ${values.siteId}`
+    : getResponseProfileScopeLabelForActionType(values.actionType);
+}
+
+function secondsToDeadlineMinutes(value: string): string {
+  const seconds = Number(value);
+
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return emptyResponseProfileFormValues.responseDeadlineMinutes;
+  }
+
+  return Math.max(Math.ceil(seconds / 60), 1).toString();
+}
+
+function minutesToSeconds(value: string): string {
+  const minutes = Number(value);
+
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return emptyResponseProfileFormValues.maxDurationSec;
+  }
+
+  return String(minutes * 60);
+}
+
+function createResponseProfileId(name: string, existingProfiles: ResponseProfile[]): string {
+  const baseSlug =
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "response-profile";
+  const existingIds = new Set(existingProfiles.map((profile) => profile.id));
+
+  let candidate = baseSlug;
+  let suffix = 2;
+  while (existingIds.has(candidate)) {
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
+
+function createResponseProfileFromFormValues(
+  values: ResponseProfileFormValues,
+  existingProfiles: ResponseProfile[],
+  existingProfile?: ResponseProfile,
+): ResponseProfile {
+  const normalizedValues: ResponseProfileFormValues = {
+    ...values,
+    name: values.name.trim(),
+    targetKw: values.targetKw.trim(),
+    deviceIdentifiers: [],
+    siteId: values.siteId.trim(),
+    siteName: values.siteId.trim() ? values.siteName.trim() : "",
+    minDurationSec: values.minDurationSec.trim(),
+    maxDurationSec: values.maxDurationSec.trim(),
+    curtailBatchSize: values.curtailBatchSize.trim(),
+    curtailBatchIntervalSec: values.curtailBatchIntervalSec.trim(),
+    restoreBatchSize: values.restoreBatchSize.trim(),
+    restoreIntervalSec: values.restoreIntervalSec.trim(),
+    responseDeadlineMinutes: values.responseDeadlineMinutes.trim(),
+  };
+
+  return {
+    id: existingProfile?.id ?? createResponseProfileId(normalizedValues.name, existingProfiles),
+    name: normalizedValues.name,
+    targetSummary: getResponseProfileTargetSummary(normalizedValues),
+    scope: getResponseProfileScopeSummary(normalizedValues),
+    selectionStrategy: responseProfileSelectionStrategyLabel[normalizedValues.selectionStrategy],
+    restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
+    deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
+    formValues: normalizedValues,
+  };
+}
+
+function removeResponseProfileScope(values: ResponseProfileFormValues): ResponseProfileFormValues {
+  const siteId = values.siteId.trim();
+
+  return {
+    ...values,
+    deviceIdentifiers: [],
+    siteId,
+    siteName: siteId ? values.siteName.trim() : "",
+  };
+}
+
+function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
+  if (profile.formValues) {
+    return removeResponseProfileScope(profile.formValues);
+  }
+
+  const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
+  const actionType = targetKwMatch ? "fixedKwReduction" : "fullFleet";
+
+  return {
+    name: profile.name,
+    actionType,
+    targetKw: targetKwMatch?.[1] ?? "",
+    deviceIdentifiers: [],
+    siteId: "",
+    siteName: "",
+    selectionStrategy: getOptionValueByLabel(
+      responseProfileSelectionStrategyOptions,
+      profile.selectionStrategy,
+      emptyResponseProfileFormValues.selectionStrategy,
+    ),
+    restoreBehavior: getOptionValueByLabel(
+      responseProfileRestoreBehaviorOptions,
+      profile.restoreBehavior,
+      emptyResponseProfileFormValues.restoreBehavior,
+    ),
+    minDurationSec: emptyResponseProfileFormValues.minDurationSec,
+    maxDurationSec: minutesToSeconds(
+      profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
+    ),
+    curtailBatchSize: emptyResponseProfileFormValues.curtailBatchSize,
+    curtailBatchIntervalSec: emptyResponseProfileFormValues.curtailBatchIntervalSec,
+    restoreBatchSize:
+      profile.restoreBehavior === responseProfileRestoreBehaviorLabel.automaticImmediateRestore
+        ? immediateRestoreBatchSize
+        : emptyResponseProfileFormValues.restoreBatchSize,
+    restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
+    responseDeadlineMinutes:
+      profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
+    includeMaintenance: emptyResponseProfileFormValues.includeMaintenance,
+  };
+}
+
+function createCurtailmentFormValuesFromResponseProfile(
+  values: ResponseProfileFormValues,
+): Partial<CurtailmentFormValues> {
+  const restoreBatchSize =
+    values.restoreBatchSize ||
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+  const siteId = values.siteId.trim();
+  const siteName = siteId ? values.siteName || `Site ${siteId}` : "";
+
+  return {
+    scopeType: siteId ? "site" : "wholeOrg",
+    scopeId: siteId ? siteName : "whole-org",
+    siteId,
+    deviceSetIds: [],
+    deviceIdentifiers: [],
+    responseProfileId: "customPlan",
+    curtailmentMode: values.actionType,
+    minerSelectionStrategy: values.selectionStrategy,
+    targetKw: values.targetKw,
+    minDurationSec: values.minDurationSec,
+    maxDurationSec: values.maxDurationSec || minutesToSeconds(values.responseDeadlineMinutes),
+    curtailBatchSize: values.curtailBatchSize,
+    curtailBatchIntervalSec: values.curtailBatchIntervalSec,
+    restoreBatchSize,
+    restoreIntervalSec: values.restoreIntervalSec,
+    reason: values.name,
+    includeMaintenance: values.includeMaintenance,
+  };
+}
+
+function getResponseProfileRestoreBehavior(
+  values: CurtailmentSubmitValues,
+): ResponseProfileFormValues["restoreBehavior"] {
+  const restoreBatchSize = Number(values.restoreBatchSize);
+  const restoreIntervalSec = Number(values.restoreIntervalSec || "0");
+
+  return Number.isFinite(restoreBatchSize) &&
+    restoreBatchSize >= Number(immediateRestoreBatchSize) &&
+    Number.isFinite(restoreIntervalSec) &&
+    restoreIntervalSec === 0
+    ? "automaticImmediateRestore"
+    : "automaticBatchRestore";
+}
+
+function createResponseProfileFormValuesFromCurtailmentValues(
+  values: CurtailmentSubmitValues,
+): ResponseProfileFormValues {
+  const siteId = values.scopeType === "site" ? (values.siteId ?? "") : "";
+  const siteName = siteId ? (values.scopeId ?? "") : "";
+
+  return {
+    name: values.reason,
+    actionType: values.curtailmentMode,
+    targetKw: values.targetKw,
+    deviceIdentifiers: [],
+    siteId,
+    siteName,
+    selectionStrategy: values.minerSelectionStrategy,
+    restoreBehavior: getResponseProfileRestoreBehavior(values),
+    minDurationSec: values.minDurationSec,
+    maxDurationSec: values.maxDurationSec,
+    curtailBatchSize: values.curtailBatchSize,
+    curtailBatchIntervalSec: values.curtailBatchIntervalSec,
+    restoreBatchSize: values.restoreBatchSize,
+    restoreIntervalSec: values.restoreIntervalSec,
+    responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
+    includeMaintenance: values.includeMaintenance,
+  };
 }
 
 function createSourceFormValuesFromSource(source: CurtailmentSource): CurtailmentSourceFormValues {
@@ -162,21 +448,36 @@ function sourceCredentialFieldsChanged(
   );
 }
 
-function isSourceFormValid(values: CurtailmentSourceFormValues, passwordRequired: boolean): boolean {
-  const requiredTrimmedValues = [
-    values.name,
-    values.brokerPrimaryHost,
-    values.brokerSecondaryHost,
-    values.topic,
-    values.username,
-  ];
+function validateSourceFormValues(values: CurtailmentSourceFormValues, passwordRequired: boolean): SourceFormErrors {
+  const errors: SourceFormErrors = {};
 
-  return (
-    requiredTrimmedValues.every((value) => value.trim() !== "") &&
-    (!passwordRequired || values.password !== "") &&
-    isPositiveInteger(values.brokerPort) &&
-    Number(values.brokerPort) <= MAX_BROKER_PORT
-  );
+  if (values.name.trim() === "") {
+    errors.name = "Enter a configuration name.";
+  }
+  if (values.brokerPrimaryHost.trim() === "") {
+    errors.brokerPrimaryHost = "Enter broker host 1.";
+  }
+  if (values.brokerSecondaryHost.trim() === "") {
+    errors.brokerSecondaryHost = "Enter broker host 2.";
+  }
+  if (values.topic.trim() === "") {
+    errors.topic = "Enter a topic.";
+  }
+  if (values.username.trim() === "") {
+    errors.username = "Enter a username.";
+  }
+  if (passwordRequired && values.password === "") {
+    errors.password = "Enter a password.";
+  }
+  if (values.brokerPort.trim() === "") {
+    errors.brokerPort = "Enter a port.";
+  } else if (!isPositiveInteger(values.brokerPort)) {
+    errors.brokerPort = "Enter port as a whole number greater than 0.";
+  } else if (Number(values.brokerPort) > MAX_BROKER_PORT) {
+    errors.brokerPort = `Enter port of ${MAX_BROKER_PORT.toLocaleString()} or less.`;
+  }
+
+  return errors;
 }
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
@@ -194,21 +495,26 @@ function formatSourceHealth(health: CurtailmentSource["health"]): string {
   return sourceHealthLabel[health];
 }
 
-const SOURCES_INFO_TRIGGER_CLASS_NAME = "curtailment-sources-info-trigger";
+type InfoToggleContentProps = {
+  ariaLabel: string;
+  description: string;
+  testId: string;
+  triggerClassName: string;
+};
 
-function SourcesInfoToggleContent(): ReactElement {
+function InfoToggleContent({ ariaLabel, description, testId, triggerClassName }: InfoToggleContentProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const { triggerRef } = usePopover();
-  const closeIgnoreSelectors = classNameToSelectors(SOURCES_INFO_TRIGGER_CLASS_NAME);
+  const closeIgnoreSelectors = classNameToSelectors(triggerClassName);
 
   return (
-    <div ref={triggerRef} className={`${SOURCES_INFO_TRIGGER_CLASS_NAME} relative`}>
+    <div ref={triggerRef} className={`${triggerClassName} relative`}>
       <Button
         variant={variants.secondary}
         size={sizes.compact}
         ariaHasPopup
         ariaExpanded={isOpen}
-        ariaLabel="About sources"
+        ariaLabel={ariaLabel}
         prefixIcon={<Info width={iconSizes.small} className="text-text-primary-70" />}
         onClick={() => setIsOpen((current) => !current)}
       />
@@ -220,19 +526,37 @@ function SourcesInfoToggleContent(): ReactElement {
           className="!space-y-0"
           closePopover={() => setIsOpen(false)}
           closeIgnoreSelectors={closeIgnoreSelectors}
-          testId="curtailment-sources-info-popover"
+          testId={testId}
         >
-          <p className="text-300 text-text-primary-70">{SOURCES_DESCRIPTION}</p>
+          <p className="text-300 text-text-primary-70">{description}</p>
         </Popover>
       ) : null}
     </div>
   );
 }
 
+function ResponseProfilesInfoToggle(): ReactElement {
+  return (
+    <PopoverProvider>
+      <InfoToggleContent
+        ariaLabel="About response profiles"
+        description={RESPONSE_PROFILES_DESCRIPTION}
+        testId="curtailment-response-profiles-info-popover"
+        triggerClassName="curtailment-response-profiles-info-trigger"
+      />
+    </PopoverProvider>
+  );
+}
+
 function SourcesInfoToggle(): ReactElement {
   return (
     <PopoverProvider>
-      <SourcesInfoToggleContent />
+      <InfoToggleContent
+        ariaLabel="About sources"
+        description={SOURCES_DESCRIPTION}
+        testId="curtailment-sources-info-popover"
+        triggerClassName="curtailment-sources-info-trigger"
+      />
     </PopoverProvider>
   );
 }
@@ -241,7 +565,7 @@ function SourcesEmptyState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
       <div className="text-heading-200 text-text-primary">No sources configured</div>
-      <p className="mt-1 text-400 text-text-primary-70">Add a source to receive curtailment signals via MQTT.</p>
+      <p className="mt-1 text-400 text-text-primary-70">Add a MaestroOS MQTT source to receive curtailment signals.</p>
     </div>
   );
 }
@@ -267,6 +591,106 @@ function SourcesErrorState({ message }: SourcesErrorStateProps): ReactElement {
   );
 }
 
+function ResponseProfilesEmptyState(): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+      <div className="text-heading-200 text-text-primary">No response profiles configured</div>
+      <p className="mt-1 text-400 text-text-primary-70">
+        Add a profile to reuse curtailment actions across automation rules.
+      </p>
+    </div>
+  );
+}
+
+function ResponseProfilesLoadingState(): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full items-center justify-center py-14">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+}
+
+type ResponseProfilesErrorStateProps = {
+  message: string;
+};
+
+function ResponseProfilesErrorState({ message }: ResponseProfilesErrorStateProps): ReactElement {
+  return (
+    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+      <div className="text-heading-200 text-text-primary">Unable to load response profiles</div>
+      <p className="mt-1 text-400 text-text-primary-70">{message}</p>
+    </div>
+  );
+}
+
+type ResponseProfileCardProps = {
+  profile: ResponseProfile;
+  onEdit: (profile: ResponseProfile) => void;
+};
+
+function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): ReactElement {
+  return (
+    <Card
+      title={profile.name}
+      type={cardType.default}
+      className="curtailment-response-profile-card bg-surface-elevated-base shadow-100"
+      headerTone="neutral"
+      headerClassName="items-start bg-surface-elevated-base px-6 pt-6 pb-0"
+      titleClassName="truncate text-emphasis-300 leading-5 font-semibold text-text-primary"
+      bodyClassName="px-6 pt-0 pb-1"
+      headerAction={
+        <Button
+          variant={variants.secondary}
+          size={sizes.compact}
+          text="Edit"
+          className="!h-8 !px-3 !py-0"
+          onClick={() => onEdit(profile)}
+          testId={`response-profile-edit-${profile.id}`}
+        />
+      }
+    >
+      <div className="space-y-0 text-[14px] leading-[18px] text-text-primary-50">
+        <p className="truncate">{profile.targetSummary}</p>
+        <p className="truncate">{profile.scope}</p>
+      </div>
+    </Card>
+  );
+}
+
+type ResponseProfileCardsProps = {
+  profiles: ResponseProfile[];
+  isLoading?: boolean;
+  loadError?: string | null;
+  onEdit: (profile: ResponseProfile) => void;
+};
+
+function ResponseProfileCards({
+  profiles,
+  isLoading = false,
+  loadError = null,
+  onEdit,
+}: ResponseProfileCardsProps): ReactElement {
+  if (loadError) {
+    return <ResponseProfilesErrorState message={loadError} />;
+  }
+
+  if (isLoading) {
+    return <ResponseProfilesLoadingState />;
+  }
+
+  if (profiles.length === 0) {
+    return <ResponseProfilesEmptyState />;
+  }
+
+  return (
+    <div className="curtailment-response-profile-grid" data-testid="response-profile-card-grid">
+      {profiles.map((profile) => (
+        <ResponseProfileCard key={profile.id} profile={profile} onEdit={onEdit} />
+      ))}
+    </div>
+  );
+}
+
 type SourceModalProps = {
   open: boolean;
   mode?: SourceModalMode;
@@ -280,6 +704,9 @@ type SourceModalProps = {
   testingConnection?: boolean;
   deleting?: boolean;
 };
+
+type SourceFormErrors = Partial<Record<keyof CurtailmentSourceFormValues, string>>;
+type SourceValidationIntent = "save" | "testConnection";
 
 function SourceModal({
   open,
@@ -297,13 +724,25 @@ function SourceModal({
   const [values, setValues] = useState<CurtailmentSourceFormValues>(() => initialValues);
   const [passwordPlaceholderActive, setPasswordPlaceholderActive] = useState(() => mode === "edit" && hasSavedPassword);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [validationIntent, setValidationIntent] = useState<SourceValidationIntent | null>(null);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const isEditMode = mode === "edit";
   const isBusy = saving || deleting || testingConnection;
   const passwordRequired = !isEditMode || sourceCredentialFieldsChanged(values, initialValues);
-  const canSave = isSourceFormValid(values, passwordRequired);
-  const canTestConnection = isSourceFormValid(values, true);
+  const saveValidationErrors = useMemo(
+    () => validateSourceFormValues(values, passwordRequired),
+    [passwordRequired, values],
+  );
+  const testConnectionValidationErrors = useMemo(() => validateSourceFormValues(values, true), [values]);
+  const visibleValidationErrors =
+    validationIntent === "testConnection"
+      ? testConnectionValidationErrors
+      : validationIntent === "save"
+        ? saveValidationErrors
+        : {};
+  const canSave = Object.keys(saveValidationErrors).length === 0;
+  const canTestConnection = Object.keys(testConnectionValidationErrors).length === 0;
   const showSavedPasswordPlaceholder = isEditMode && hasSavedPassword && passwordPlaceholderActive;
   const passwordInputValue = showSavedPasswordPlaceholder ? savedPasswordPlaceholder : values.password;
   const showConnectionSuccessCallout = showConnectionCallout && !testingConnection && !connectionError;
@@ -335,7 +774,15 @@ function SourceModal({
   }, [showSavedPasswordPlaceholder]);
 
   const handleSave = useCallback(async () => {
-    if (!canSave || isBusy) {
+    if (isBusy) {
+      return;
+    }
+
+    if (!canSave) {
+      if (showSavedPasswordPlaceholder && saveValidationErrors.password) {
+        setPasswordPlaceholderActive(false);
+      }
+      setValidationIntent("save");
       return;
     }
 
@@ -346,10 +793,30 @@ function SourceModal({
     } catch (error) {
       setSaveError(getErrorMessage(error, "Failed to save source."));
     }
-  }, [canSave, isBusy, onDismiss, onSave, values]);
+  }, [canSave, isBusy, onDismiss, onSave, saveValidationErrors, showSavedPasswordPlaceholder, values]);
+
+  const handleFormKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!isInputEnterSaveEvent(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleSave();
+    },
+    [handleSave],
+  );
 
   const handleTestConnection = useCallback(async () => {
-    if (!canTestConnection || isBusy || !onTestConnection) {
+    if (isBusy || !onTestConnection) {
+      return;
+    }
+
+    if (!canTestConnection) {
+      if (showSavedPasswordPlaceholder && testConnectionValidationErrors.password) {
+        setPasswordPlaceholderActive(false);
+      }
+      setValidationIntent("testConnection");
       return;
     }
 
@@ -363,7 +830,14 @@ function SourceModal({
     } finally {
       setShowConnectionCallout(true);
     }
-  }, [canTestConnection, isBusy, onTestConnection, values]);
+  }, [
+    canTestConnection,
+    isBusy,
+    onTestConnection,
+    showSavedPasswordPlaceholder,
+    testConnectionValidationErrors,
+    values,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!onDelete || isBusy) {
@@ -406,7 +880,7 @@ function SourceModal({
           variant: variants.secondary,
           className: "whitespace-nowrap overflow-clip",
           testId: "curtailment-source-test-connection-button",
-          disabled: !canTestConnection || isBusy || !onTestConnection,
+          disabled: isBusy || !onTestConnection,
           loading: testingConnection,
           dismissModalOnClick: false,
           onClick: () => void handleTestConnection(),
@@ -414,7 +888,7 @@ function SourceModal({
         {
           text: "Save",
           variant: variants.primary,
-          disabled: !canSave || isBusy,
+          disabled: isBusy,
           loading: saving,
           dismissModalOnClick: false,
           onClick: () => void handleSave(),
@@ -422,7 +896,7 @@ function SourceModal({
       ]}
       bodyClassName="text-text-primary"
     >
-      <div className="grid gap-3 pb-2">
+      <div className="grid gap-3 pb-2" onKeyDown={handleFormKeyDown}>
         <DismissibleCalloutWrapper
           icon={<Success />}
           intent={intents.success}
@@ -447,21 +921,24 @@ function SourceModal({
             id={sourceInputIds.name}
             label="Configuration name"
             initValue={values.name}
+            error={visibleValidationErrors.name}
             onChange={updateSourceValue}
           />
-          <Input id="source-type" label="Source type" initValue="MQTT" disabled />
+          <Input id="source-type" label="Integration" initValue="MaestroOS" disabled />
         </div>
         <div className="grid gap-4 laptop:grid-cols-2">
           <Input
             id={sourceInputIds.brokerPrimaryHost}
             label="Broker host 1"
             initValue={values.brokerPrimaryHost}
+            error={visibleValidationErrors.brokerPrimaryHost}
             onChange={updateSourceValue}
           />
           <Input
             id={sourceInputIds.brokerSecondaryHost}
             label="Broker host 2"
             initValue={values.brokerSecondaryHost}
+            error={visibleValidationErrors.brokerSecondaryHost}
             onChange={updateSourceValue}
           />
         </div>
@@ -472,9 +949,10 @@ function SourceModal({
             type="number"
             inputMode="numeric"
             initValue={values.brokerPort}
+            error={visibleValidationErrors.brokerPort}
             onChange={updateSourceValue}
             tooltip={{
-              body: "Default MQTT port is 1883.",
+              body: "Default MQTT port for MaestroOS is 1883.",
               position: positions["top right"],
               widthClassName: "w-72",
             }}
@@ -483,9 +961,10 @@ function SourceModal({
             id={sourceInputIds.topic}
             label="Topic"
             initValue={values.topic}
+            error={visibleValidationErrors.topic}
             onChange={updateSourceValue}
             tooltip={{
-              body: "The MQTT topic to subscribe to for curtailment signals.",
+              body: "The MQTT topic to subscribe to on MaestroOS for curtailment signals.",
               widthClassName: "w-72",
             }}
           />
@@ -495,6 +974,7 @@ function SourceModal({
             id={sourceInputIds.username}
             label="Username"
             initValue={values.username}
+            error={visibleValidationErrors.username}
             onChange={updateSourceValue}
           />
           <Input
@@ -502,6 +982,7 @@ function SourceModal({
             label="Password"
             type="password"
             initValue={passwordInputValue}
+            error={visibleValidationErrors.password}
             onChange={updateSourceValue}
             onFocus={handlePasswordFocus}
             hidePasswordToggle={showSavedPasswordPlaceholder}
@@ -516,16 +997,17 @@ type SectionHeaderProps = {
   title: string;
   buttonText: string;
   onButtonClick: () => void;
+  infoToggle?: ReactElement;
 };
 
-function SectionHeader({ title, buttonText, onButtonClick }: SectionHeaderProps): ReactElement {
+function SectionHeader({ title, buttonText, onButtonClick, infoToggle }: SectionHeaderProps): ReactElement {
   return (
     <div className="curtailment-section-header">
       <div className="curtailment-section-header__title">
         <h2 className="curtailment-section-header__label">{title}</h2>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <SourcesInfoToggle />
+        {infoToggle}
         <Button
           variant={variants.secondary}
           size={sizes.compact}
@@ -593,14 +1075,39 @@ function createCurtailmentSourceColConfig({
 }
 
 type CurtailmentSettingsContentProps = {
+  initialResponseProfiles?: ResponseProfile[];
+  initialResponseProfileModalOpen?: boolean;
   initialSources?: CurtailmentSource[];
   initialSourceModalOpen?: boolean;
+  initialAutomationRules?: AutomationRule[];
+  responseProfiles?: ResponseProfile[];
   sources?: CurtailmentSource[];
+  automationRules?: AutomationRule[];
+  isLoadingResponseProfiles?: boolean;
+  loadResponseProfilesError?: string | null;
   isLoadingSources?: boolean;
   loadSourcesError?: string | null;
+  isLoadingAutomationRules?: boolean;
+  loadAutomationRulesError?: string | null;
+  isSavingResponseProfile?: boolean;
+  isTestingResponseProfileCurtailment?: boolean;
+  isDeletingResponseProfile?: boolean;
   isSavingSource?: boolean;
   isTestingSourceConnection?: boolean;
+  isSavingAutomationRule?: boolean;
+  updatingResponseProfileIds?: ReadonlySet<string>;
   updatingSourceIds?: ReadonlySet<string>;
+  updatingAutomationRuleIds?: ReadonlySet<string>;
+  onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile | void>;
+  onUpdateResponseProfile?: (
+    profile: ResponseProfile,
+    values: ResponseProfileFormValues,
+  ) => Promise<ResponseProfile | void>;
+  onTestResponseProfileCurtailment?: (
+    values: ResponseProfileFormValues,
+    curtailmentValues: CurtailmentSubmitValues,
+  ) => Promise<void>;
+  onDeleteResponseProfile?: (profile: ResponseProfile) => Promise<void>;
   onCreateSource?: (values: CurtailmentSourceFormValues) => Promise<CurtailmentSource | void>;
   onUpdateSource?: (
     source: CurtailmentSource,
@@ -609,6 +1116,10 @@ type CurtailmentSettingsContentProps = {
   onTestSourceConnection?: (values: CurtailmentSourceFormValues) => Promise<void>;
   onToggleSource?: (source: CurtailmentSource, enabled: boolean) => Promise<CurtailmentSource | void>;
   onDeleteSource?: (source: CurtailmentSource) => Promise<void>;
+  onCreateAutomation?: (values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
+  onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
+  onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
+  onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
 };
 
 function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources: boolean): ReactElement {
@@ -624,30 +1135,93 @@ function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources:
 }
 
 export function CurtailmentSettingsContent({
+  initialResponseProfiles = emptyResponseProfiles,
+  initialResponseProfileModalOpen = false,
   initialSources = emptyCurtailmentSources,
   initialSourceModalOpen = false,
+  initialAutomationRules = emptyAutomationRules,
+  responseProfiles: controlledResponseProfiles,
   sources: controlledSources,
+  automationRules: controlledAutomationRules,
+  isLoadingResponseProfiles = false,
+  loadResponseProfilesError = null,
   isLoadingSources = false,
   loadSourcesError = null,
+  isLoadingAutomationRules = false,
+  loadAutomationRulesError = null,
+  isSavingResponseProfile = false,
+  isTestingResponseProfileCurtailment = false,
+  isDeletingResponseProfile = false,
   isSavingSource = false,
   isTestingSourceConnection = false,
+  isSavingAutomationRule = false,
+  updatingResponseProfileIds = emptyUpdatingResponseProfileIds,
   updatingSourceIds = emptyUpdatingSourceIds,
+  updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
+  onCreateResponseProfile,
+  onUpdateResponseProfile,
+  onTestResponseProfileCurtailment,
+  onDeleteResponseProfile,
   onCreateSource,
   onUpdateSource,
   onTestSourceConnection,
   onToggleSource,
   onDeleteSource,
+  onCreateAutomation,
+  onUpdateAutomation,
+  onToggleAutomation,
+  onDeleteAutomation,
 }: CurtailmentSettingsContentProps): ReactElement {
+  const [localResponseProfiles, setLocalResponseProfiles] = useState<ResponseProfile[]>(() => [
+    ...initialResponseProfiles,
+  ]);
+  const [isResponseProfileModalOpen, setIsResponseProfileModalOpen] = useState(initialResponseProfileModalOpen);
+  const [editingResponseProfile, setEditingResponseProfile] = useState<ResponseProfile | null>(null);
+  const [responseProfileActionError, setResponseProfileActionError] = useState<string | null>(null);
   const [localSources, setLocalSources] = useState<CurtailmentSource[]>(() => [...initialSources]);
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(initialSourceModalOpen);
   const [editingSource, setEditingSource] = useState<CurtailmentSource | null>(null);
+  const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
+  const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
+  const responseProfileModalInitialValues = useMemo(
+    () =>
+      editingResponseProfile
+        ? createResponseProfileFormValuesFromProfile(editingResponseProfile)
+        : emptyResponseProfileFormValues,
+    [editingResponseProfile],
+  );
+  const responseProfileCurtailmentInitialValues = useMemo(
+    () => createCurtailmentFormValuesFromResponseProfile(responseProfileModalInitialValues),
+    [responseProfileModalInitialValues],
+  );
   const sourceModalMode: SourceModalMode = editingSource ? "edit" : "create";
   const sourceModalInitialValues = useMemo(
     () => (editingSource ? createSourceFormValuesFromSource(editingSource) : emptySourceFormValues),
     [editingSource],
   );
+  const isEditingResponseProfile = editingResponseProfile
+    ? updatingResponseProfileIds.has(editingResponseProfile.id)
+    : false;
   const isEditingSource = editingSource ? updatingSourceIds.has(editingSource.id) : false;
+
+  const openCreateResponseProfileModal = useCallback(() => {
+    setResponseProfileActionError(null);
+    setEditingResponseProfile(null);
+    setIsResponseProfileModalOpen(true);
+  }, []);
+
+  const openEditResponseProfileModal = useCallback((profile: ResponseProfile) => {
+    setResponseProfileActionError(null);
+    setEditingResponseProfile(profile);
+    setIsResponseProfileModalOpen(true);
+  }, []);
+
+  const closeResponseProfileModal = useCallback(() => {
+    setResponseProfileActionError(null);
+    setIsResponseProfileModalOpen(false);
+    setEditingResponseProfile(null);
+  }, []);
 
   const openCreateSourceModal = useCallback(() => {
     setEditingSource(null);
@@ -663,6 +1237,110 @@ export function CurtailmentSettingsContent({
     setIsSourceModalOpen(false);
     setEditingSource(null);
   }, []);
+
+  const handleCreateResponseProfile = useCallback(
+    async (values: ResponseProfileFormValues) => {
+      const createdProfile = await onCreateResponseProfile?.(values);
+      if (!controlledResponseProfiles) {
+        setLocalResponseProfiles((currentProfiles) => {
+          const profile = createdProfile ?? createResponseProfileFromFormValues(values, currentProfiles);
+          return [...currentProfiles.filter((currentProfile) => currentProfile.id !== profile.id), profile];
+        });
+      }
+    },
+    [controlledResponseProfiles, onCreateResponseProfile],
+  );
+
+  const handleSaveResponseProfile = useCallback(
+    async (values: ResponseProfileFormValues) => {
+      if (!editingResponseProfile) {
+        await handleCreateResponseProfile(values);
+        return;
+      }
+
+      const updatedProfile =
+        (await onUpdateResponseProfile?.(editingResponseProfile, values)) ??
+        createResponseProfileFromFormValues(values, responseProfiles, editingResponseProfile);
+      if (!controlledResponseProfiles) {
+        setLocalResponseProfiles((currentProfiles) =>
+          currentProfiles.map((currentProfile) =>
+            currentProfile.id === updatedProfile.id ? updatedProfile : currentProfile,
+          ),
+        );
+      }
+    },
+    [
+      controlledResponseProfiles,
+      editingResponseProfile,
+      handleCreateResponseProfile,
+      onUpdateResponseProfile,
+      responseProfiles,
+    ],
+  );
+
+  const handleSaveResponseProfileFromCurtailment = useCallback(
+    async (values: CurtailmentSubmitValues) => {
+      await handleSaveResponseProfile(createResponseProfileFormValuesFromCurtailmentValues(values));
+      closeResponseProfileModal();
+    },
+    [closeResponseProfileModal, handleSaveResponseProfile],
+  );
+
+  const handleTestResponseProfileCurtailmentFromCurtailment = useCallback(
+    async (values: CurtailmentSubmitValues) => {
+      const responseProfileValues = createResponseProfileFormValuesFromCurtailmentValues(values);
+
+      await handleSaveResponseProfile(responseProfileValues);
+      await onTestResponseProfileCurtailment?.(responseProfileValues, values);
+      closeResponseProfileModal();
+    },
+    [closeResponseProfileModal, handleSaveResponseProfile, onTestResponseProfileCurtailment],
+  );
+
+  const handleDeleteResponseProfile = useCallback(async () => {
+    if (!editingResponseProfile) {
+      return;
+    }
+
+    await onDeleteResponseProfile?.(editingResponseProfile);
+    if (!controlledResponseProfiles) {
+      setLocalResponseProfiles((currentProfiles) =>
+        currentProfiles.filter((currentProfile) => currentProfile.id !== editingResponseProfile.id),
+      );
+    }
+  }, [controlledResponseProfiles, editingResponseProfile, onDeleteResponseProfile]);
+
+  const handleDeleteResponseProfileFromCurtailment = useCallback(async () => {
+    await handleDeleteResponseProfile();
+    closeResponseProfileModal();
+  }, [closeResponseProfileModal, handleDeleteResponseProfile]);
+
+  const handleResponseProfileModalSubmit = useCallback(
+    (values: CurtailmentSubmitValues) => {
+      setResponseProfileActionError(null);
+      void handleSaveResponseProfileFromCurtailment(values).catch((error) => {
+        setResponseProfileActionError(getErrorMessage(error, "Failed to save response profile."));
+      });
+    },
+    [handleSaveResponseProfileFromCurtailment],
+  );
+
+  const handleResponseProfileModalTestCurtailment = useCallback(
+    (values: CurtailmentSubmitValues) => {
+      setResponseProfileActionError(null);
+      void handleTestResponseProfileCurtailmentFromCurtailment(values).catch((error) => {
+        setResponseProfileActionError(getErrorMessage(error, "Failed to run curtailment."));
+      });
+    },
+    [handleTestResponseProfileCurtailmentFromCurtailment],
+  );
+
+  const handleResponseProfileModalDelete = useCallback(() => {
+    setResponseProfileActionError(null);
+    void handleDeleteResponseProfileFromCurtailment().catch((error) => {
+      setResponseProfileActionError(getErrorMessage(error, "Failed to delete response profile."));
+    });
+  }, [handleDeleteResponseProfileFromCurtailment]);
 
   const toggleSource = useCallback(
     (sourceId: string) => {
@@ -732,7 +1410,7 @@ export function CurtailmentSettingsContent({
     }
   }, [controlledSources, editingSource, onDeleteSource]);
 
-  const colConfig = useMemo(
+  const sourceColConfig = useMemo(
     () =>
       createCurtailmentSourceColConfig({
         onToggle: toggleSource,
@@ -747,13 +1425,33 @@ export function CurtailmentSettingsContent({
     <div className="flex flex-col gap-14" data-testid="settings-curtailment-page">
       <Header title="Curtailment" titleSize="text-heading-300" description={CURTAILMENT_PAGE_DESCRIPTION} />
 
-      <section className="curtailment-settings__section curtailment-settings__section--last">
-        <SectionHeader title="Sources" buttonText="Add source" onButtonClick={openCreateSourceModal} />
+      <section className="curtailment-settings__section">
+        <SectionHeader
+          title="Response profiles"
+          buttonText="Create profile"
+          onButtonClick={openCreateResponseProfileModal}
+          infoToggle={<ResponseProfilesInfoToggle />}
+        />
+        <ResponseProfileCards
+          profiles={responseProfiles}
+          isLoading={isLoadingResponseProfiles}
+          loadError={loadResponseProfilesError}
+          onEdit={openEditResponseProfileModal}
+        />
+      </section>
+
+      <section className="curtailment-settings__section">
+        <SectionHeader
+          title="Sources"
+          buttonText="Add source"
+          onButtonClick={openCreateSourceModal}
+          infoToggle={<SourcesInfoToggle />}
+        />
         <List<CurtailmentSource, string, CurtailmentSourceColumn>
           activeCols={activeCurtailmentSourceCols}
           colTitles={curtailmentSourceColTitles}
           columnHeaderAriaLabels={curtailmentSourceColumnAriaLabels}
-          colConfig={colConfig}
+          colConfig={sourceColConfig}
           items={sources}
           itemKey="id"
           total={sources.length}
@@ -768,6 +1466,45 @@ export function CurtailmentSettingsContent({
           onRowClick={openEditSourceModal}
         />
       </section>
+
+      <CurtailmentAutomationsContent
+        initialAutomationRules={initialAutomationRules}
+        automationRules={controlledAutomationRules}
+        sources={sources}
+        responseProfiles={responseProfiles}
+        isLoading={isLoadingAutomationRules}
+        loadError={loadAutomationRulesError}
+        isCreating={isSavingAutomationRule}
+        updatingRuleIds={updatingAutomationRuleIds}
+        isLoadingSources={isLoadingSources}
+        loadSourcesError={loadSourcesError}
+        isLoadingResponseProfiles={isLoadingResponseProfiles}
+        loadResponseProfilesError={loadResponseProfilesError}
+        onCreateAutomation={onCreateAutomation}
+        onUpdateAutomation={onUpdateAutomation}
+        onToggleAutomation={onToggleAutomation}
+        onDeleteAutomation={onDeleteAutomation}
+      />
+
+      <CurtailmentStartModal
+        key={
+          isResponseProfileModalOpen
+            ? `response-profile-${responseProfileModalMode}-${editingResponseProfile?.id ?? "new"}`
+            : "response-profile-modal-closed"
+        }
+        open={isResponseProfileModalOpen}
+        variant="responseProfile"
+        responseProfileMode={responseProfileModalMode}
+        initialValues={responseProfileCurtailmentInitialValues}
+        actionError={responseProfileActionError}
+        onDismiss={closeResponseProfileModal}
+        onSubmit={handleResponseProfileModalSubmit}
+        onTestCurtailment={onTestResponseProfileCurtailment ? handleResponseProfileModalTestCurtailment : undefined}
+        onDeleteResponseProfile={editingResponseProfile ? handleResponseProfileModalDelete : undefined}
+        isSubmitting={editingResponseProfile ? isEditingResponseProfile : isSavingResponseProfile}
+        isTestingCurtailment={isTestingResponseProfileCurtailment}
+        isDeleting={editingResponseProfile ? isDeletingResponseProfile || isEditingResponseProfile : false}
+      />
 
       <SourceModal
         key={isSourceModalOpen ? `source-modal-${editingSource?.id ?? "new"}` : "source-modal-closed"}
@@ -789,6 +1526,19 @@ export function CurtailmentSettingsContent({
 
 function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
+  const navigate = useNavigate();
+  const { startCurtailment } = useCurtailmentApi();
+  const [isTestingResponseProfileCurtailment, setIsTestingResponseProfileCurtailment] = useState(false);
+  const {
+    responseProfiles,
+    isLoading: isLoadingResponseProfiles,
+    isCreating: isCreatingResponseProfile,
+    updatingProfileIds,
+    loadError: responseProfilesLoadError,
+    createResponseProfile,
+    updateResponseProfile,
+    deleteResponseProfile,
+  } = useCurtailmentResponseProfiles(canManageCurtailment);
   const {
     sources,
     isLoading,
@@ -802,6 +1552,17 @@ function CurtailmentSettingsPage(): ReactElement {
     setSourceEnabled,
     deleteSource,
   } = useMqttCurtailmentSources(canManageCurtailment);
+  const {
+    automationRules,
+    isLoading: isLoadingAutomationRules,
+    isCreating: isCreatingAutomationRule,
+    updatingRuleIds: updatingAutomationRuleIds,
+    loadError: automationRulesLoadError,
+    createAutomationRule,
+    updateAutomationRule,
+    setAutomationRuleEnabled,
+    deleteAutomationRule,
+  } = useCurtailmentAutomationRules(canManageCurtailment);
 
   useEffect(() => {
     if (!loadError) {
@@ -813,6 +1574,83 @@ function CurtailmentSettingsPage(): ReactElement {
       status: STATUSES.error,
     });
   }, [loadError]);
+
+  useEffect(() => {
+    if (!responseProfilesLoadError) {
+      return;
+    }
+
+    pushToast({
+      message: responseProfilesLoadError,
+      status: STATUSES.error,
+    });
+  }, [responseProfilesLoadError]);
+
+  useEffect(() => {
+    if (!automationRulesLoadError) {
+      return;
+    }
+
+    pushToast({
+      message: automationRulesLoadError,
+      status: STATUSES.error,
+    });
+  }, [automationRulesLoadError]);
+
+  const handleCreateResponseProfile = useCallback(
+    async (values: ResponseProfileFormValues) => {
+      const profile = await createResponseProfile(values);
+      pushToast({
+        message: "Response profile added",
+        status: STATUSES.success,
+      });
+      return profile;
+    },
+    [createResponseProfile],
+  );
+
+  const handleUpdateResponseProfile = useCallback(
+    async (profile: ResponseProfile, values: ResponseProfileFormValues) => {
+      const updatedProfile = await updateResponseProfile(profile.id, values);
+      pushToast({
+        message: "Response profile saved",
+        status: STATUSES.success,
+      });
+      return updatedProfile;
+    },
+    [updateResponseProfile],
+  );
+
+  const handleTestResponseProfileCurtailment = useCallback(
+    async (_values: ResponseProfileFormValues, curtailmentValues: CurtailmentSubmitValues) => {
+      setIsTestingResponseProfileCurtailment(true);
+
+      try {
+        await startCurtailment(curtailmentValues);
+        setIsTestingResponseProfileCurtailment(false);
+        navigate("/energy");
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to run curtailment."),
+          status: STATUSES.error,
+        });
+        setIsTestingResponseProfileCurtailment(false);
+        throw error;
+      }
+    },
+    [navigate, startCurtailment],
+  );
+
+  const handleDeleteResponseProfile = useCallback(
+    async (profile: ResponseProfile) => {
+      await deleteResponseProfile(profile.id);
+      pushToast({
+        message: "Response profile deleted",
+        status: STATUSES.success,
+      });
+    },
+    [deleteResponseProfile],
+  );
 
   const handleCreateSource = useCallback(
     async (values: CurtailmentSourceFormValues) => {
@@ -871,23 +1709,92 @@ function CurtailmentSettingsPage(): ReactElement {
     [deleteSource],
   );
 
+  const handleCreateAutomation = useCallback(
+    async (values: AutomationRuleFormValues) => {
+      const rule = await createAutomationRule(values);
+      pushToast({
+        message: "Automation added",
+        status: STATUSES.success,
+      });
+      return rule;
+    },
+    [createAutomationRule],
+  );
+
+  const handleUpdateAutomation = useCallback(
+    async (rule: AutomationRule, values: AutomationRuleFormValues) => {
+      const updatedRule = await updateAutomationRule(rule.id, values);
+      pushToast({
+        message: "Automation saved",
+        status: STATUSES.success,
+      });
+      return updatedRule;
+    },
+    [updateAutomationRule],
+  );
+
+  const handleToggleAutomation = useCallback(
+    async (rule: AutomationRule, enabled: boolean) => {
+      try {
+        return await setAutomationRuleEnabled(rule.id, enabled);
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to update automation."),
+          status: STATUSES.error,
+        });
+        throw error;
+      }
+    },
+    [setAutomationRuleEnabled],
+  );
+
+  const handleDeleteAutomation = useCallback(
+    async (rule: AutomationRule) => {
+      await deleteAutomationRule(rule.id);
+      pushToast({
+        message: "Automation deleted",
+        status: STATUSES.success,
+      });
+    },
+    [deleteAutomationRule],
+  );
+
   if (!canManageCurtailment) {
     return <Navigate to="/settings/general" replace />;
   }
 
   return (
     <CurtailmentSettingsContent
+      responseProfiles={responseProfiles}
       sources={sources}
+      automationRules={automationRules}
+      isLoadingResponseProfiles={isLoadingResponseProfiles}
+      loadResponseProfilesError={responseProfilesLoadError}
       isLoadingSources={isLoading}
       loadSourcesError={loadError}
+      isLoadingAutomationRules={isLoadingAutomationRules}
+      loadAutomationRulesError={automationRulesLoadError}
+      isSavingResponseProfile={isCreatingResponseProfile}
+      isTestingResponseProfileCurtailment={isTestingResponseProfileCurtailment}
       isSavingSource={isCreating}
       isTestingSourceConnection={isTestingConnection}
+      isSavingAutomationRule={isCreatingAutomationRule}
+      updatingResponseProfileIds={updatingProfileIds}
       updatingSourceIds={updatingSourceIds}
+      updatingAutomationRuleIds={updatingAutomationRuleIds}
+      onCreateResponseProfile={handleCreateResponseProfile}
+      onUpdateResponseProfile={handleUpdateResponseProfile}
+      onTestResponseProfileCurtailment={handleTestResponseProfileCurtailment}
+      onDeleteResponseProfile={handleDeleteResponseProfile}
       onCreateSource={handleCreateSource}
       onUpdateSource={handleUpdateSource}
       onTestSourceConnection={handleTestSourceConnection}
       onToggleSource={handleToggleSource}
       onDeleteSource={handleDeleteSource}
+      onCreateAutomation={handleCreateAutomation}
+      onUpdateAutomation={handleUpdateAutomation}
+      onToggleAutomation={handleToggleAutomation}
+      onDeleteAutomation={handleDeleteAutomation}
     />
   );
 }

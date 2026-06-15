@@ -44,7 +44,7 @@ describe("useLocateSystem", () => {
     expect(result.current.pending).toBe(false);
   });
 
-  test("calls locateSystem API with default ledOnTime", async () => {
+  test("calls locateSystem API with OpenAPI defaults", async () => {
     mockLocateSystem.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useLocateSystem());
@@ -52,7 +52,7 @@ describe("useLocateSystem", () => {
     result.current.locateSystem({});
 
     await waitFor(() => {
-      expect(mockLocateSystem).toHaveBeenCalledWith({ led_on_time: 30 }, mockAuthHeader);
+      expect(mockLocateSystem).toHaveBeenCalledWith({}, mockAuthHeader);
     });
   });
 
@@ -65,6 +65,18 @@ describe("useLocateSystem", () => {
 
     await waitFor(() => {
       expect(mockLocateSystem).toHaveBeenCalledWith({ led_on_time: 60 }, mockAuthHeader);
+    });
+  });
+
+  test("calls locateSystem API with enable false", async () => {
+    mockLocateSystem.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useLocateSystem());
+
+    result.current.locateSystem({ enable: false });
+
+    await waitFor(() => {
+      expect(mockLocateSystem).toHaveBeenCalledWith({ enable: false }, mockAuthHeader);
     });
   });
 

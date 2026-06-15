@@ -54,7 +54,7 @@ interface RackRowProps {
   onRemove: (rackId: bigint) => void;
 }
 
-// Row layout mirrors MinerRow from AssignMinersModal: leading icon column
+// Row layout mirrors MinerRow from ManageRackModal: leading icon column
 // (arrow when selected / checkmark when placed), title + subtitle stack,
 // trailing hint or position label, and a trailing remove control. Manual
 // mode is the only state where rows are interactive — byName mode

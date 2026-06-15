@@ -541,7 +541,7 @@ func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
 	eventID := int64(10)
 	eventUUID := uuid.New()
 	store.events = []*models.Event{
-		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, CurtailBatchSize: &effBatch, EffectiveBatchSize: &effBatch},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
@@ -579,7 +579,7 @@ func TestReconciler_PendingDispatchesAllTargetsInEffectiveBatches(t *testing.T) 
 	eventID := int64(10)
 	eventUUID := uuid.New()
 	store.events = []*models.Event{
-		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, CurtailBatchSize: &effBatch, EffectiveBatchSize: &effBatch},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
@@ -607,7 +607,7 @@ func TestReconciler_PendingDispatchesLargeEventInBoundedBatches(t *testing.T) {
 	eventID := int64(10)
 	eventUUID := uuid.New()
 	store.events = []*models.Event{
-		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, EffectiveBatchSize: &effBatch},
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, CurtailBatchSize: &effBatch, EffectiveBatchSize: &effBatch},
 	}
 	for i := range 205 {
 		store.targetsByEventID[eventID] = append(store.targetsByEventID[eventID], &models.Target{
@@ -800,8 +800,9 @@ func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *test
 
 	eventID := int64(10)
 	eventUUID := uuid.New()
+	curtailBatchSize := int32(1)
 	store.events = []*models.Event{
-		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, CurtailBatchSize: &curtailBatchSize},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
@@ -827,8 +828,9 @@ func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t 
 
 	eventID := int64(10)
 	eventUUID := uuid.New()
+	curtailBatchSize := int32(1)
 	store.events = []*models.Event{
-		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, CurtailBatchSize: &curtailBatchSize},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},

@@ -252,39 +252,24 @@ function formatDurationEstimate(seconds: number, approximate = true): string {
   return `${prefix}${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
 }
 
-function estimateCurtailDuration(values: CurtailmentFormValues): string {
-  const minDurationSec = parseNonNegativeInteger(values.minDurationSec);
-  const maxDurationSec = parseNonNegativeInteger(values.maxDurationSec);
-  const hasMinDuration = minDurationSec !== undefined && minDurationSec > 0;
-  const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
+function estimateBatchDuration(batchSizeValue: string, intervalSecValue: string, selectedMinerCount: number): string {
+  const batchSize = parsePositiveInteger(batchSizeValue);
+  const intervalSec = parseNonNegativeInteger(intervalSecValue);
 
-  if (hasMinDuration && hasMaxDuration) {
-    return minDurationSec === maxDurationSec
-      ? formatDurationEstimate(minDurationSec, false)
-      : `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
-  }
-
-  if (hasMinDuration) {
-    return `${formatDurationEstimate(minDurationSec, false)} - server default`;
-  }
-
-  if (hasMaxDuration) {
-    return `Up to ${formatDurationEstimate(maxDurationSec, false)}`;
-  }
-
-  return "Server default";
-}
-
-function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
-  const restoreBatchSize = parsePositiveInteger(values.restoreBatchSize);
-  const restoreIntervalSec = parsePositiveInteger(values.restoreIntervalSec);
-
-  if (restoreBatchSize === undefined || restoreIntervalSec === undefined) {
+  if (batchSize === undefined || intervalSec === undefined) {
     return "Server default";
   }
 
-  const restoreBatchCount = Math.ceil(selectedMinerCount / restoreBatchSize);
-  return formatDurationEstimate(Math.max(restoreBatchCount - 1, 0) * restoreIntervalSec);
+  const batchCount = Math.ceil(selectedMinerCount / batchSize);
+  return formatDurationEstimate(Math.max(batchCount - 1, 0) * intervalSec);
+}
+
+function estimateCurtailDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
+  return estimateBatchDuration(values.curtailBatchSize, values.curtailBatchIntervalSec, selectedMinerCount);
+}
+
+function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
+  return estimateBatchDuration(values.restoreBatchSize, values.restoreIntervalSec, selectedMinerCount);
 }
 
 export function createCurtailmentPlanPreview(
@@ -304,7 +289,7 @@ export function createCurtailmentPlanPreview(
     selectedMinerCount,
     targetKw,
     estimatedReductionKw,
-    curtailEstimate: estimateCurtailDuration(values),
+    curtailEstimate: estimateCurtailDuration(values, selectedMinerCount),
     restoreEstimate: estimateRestoreDuration(values, selectedMinerCount),
     scopeLabel: formatScopeLabel(values),
   };

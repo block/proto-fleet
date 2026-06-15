@@ -93,6 +93,8 @@ INSERT INTO curtailment_event (
     scope_type,
     scope_jsonb,
     mode_params_jsonb,
+    curtail_batch_size,
+    curtail_batch_interval_sec,
     restore_batch_size,
     restore_batch_interval_sec,
     min_curtailed_duration_sec,
@@ -123,6 +125,8 @@ INSERT INTO curtailment_event (
     sqlc.arg('scope_type'),
     sqlc.arg('scope_jsonb'),
     sqlc.arg('mode_params_jsonb'),
+    sqlc.narg('curtail_batch_size'),
+    sqlc.arg('curtail_batch_interval_sec'),
     sqlc.arg('restore_batch_size'),
     sqlc.arg('restore_batch_interval_sec'),
     sqlc.arg('min_curtailed_duration_sec'),
@@ -158,6 +162,7 @@ WHERE event_uuid = sqlc.arg('event_uuid')
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance,
@@ -322,6 +327,7 @@ RETURNING *;
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance,

@@ -1,0 +1,3 @@
+DROP TRIGGER IF EXISTS update_curtailment_response_profile_updated_at ON curtailment_response_profile;
+DROP INDEX IF EXISTS idx_curtailment_response_profile_org_site;
+DROP TABLE IF EXISTS curtailment_response_profile;

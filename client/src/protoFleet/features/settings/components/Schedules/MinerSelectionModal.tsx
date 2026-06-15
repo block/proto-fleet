@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
-import MinerSelectionList from "@/protoFleet/components/MinerSelectionList";
+import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import Modal from "@/shared/components/Modal";
 
 interface MinerSelectionModalProps {
@@ -11,6 +11,7 @@ interface MinerSelectionModalProps {
 }
 
 const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: MinerSelectionModalProps) => {
+  const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [draftSelection, setDraftSelection] = useState<string[]>(selectedMinerIds);
 
   if (!open) {
@@ -30,13 +31,14 @@ const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: Mine
         {
           text: "Done",
           variant: "primary",
-          onClick: () => onSave(draftSelection),
+          onClick: () => onSave(selectionRef.current?.getSelection().selectedItems ?? draftSelection),
           dismissModalOnClick: false,
         },
       ]}
     >
       <div className="flex h-full min-h-0 flex-col gap-4">
         <MinerSelectionList
+          ref={selectionRef}
           key={selectedMinerIds.join(",")}
           initialSelectedItems={selectedMinerIds}
           onSelectionChange={({ selectedItems }) => setDraftSelection(selectedItems)}

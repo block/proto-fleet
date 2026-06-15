@@ -168,6 +168,13 @@ func TestRPCContract_ProcedurePermissionsKeysAreInCatalog(t *testing.T) {
 	}
 }
 
+func TestRPCContract_FirmwareUpdateUsesFirmwareUpdatePermission(t *testing.T) {
+	require.Equal(t,
+		authz.PermMinerFirmwareUpdate,
+		middleware.ProcedurePermissions[minercommandv1connect.MinerCommandServiceFirmwareUpdateProcedure],
+	)
+}
+
 // mainConnectMountRe captures both the connect-package shortname and
 // the service-handler short name (e.g. "authv1connect" + "Auth") from
 // every Connect handler mount in main.go like

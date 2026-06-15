@@ -8,8 +8,13 @@ import { SettingsFirmwarePage } from "../pages/settingsFirmware";
 async function cleanupUpdatedRigMiner(minersPage: MinersPage, rigMinerIp: string) {
   const currentStatus = (await minersPage.getMinerStatus(rigMinerIp)).trim();
 
-  if (currentStatus === "Updating firmware") {
-    await minersPage.validateMinerStatusSettled(rigMinerIp, "Reboot required", testConfig.testTimeout);
+  if (currentStatus === "Updating firmware" || currentStatus === "Rebooting") {
+    try {
+      await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing", testConfig.testTimeout);
+    } catch (error) {
+      const fallbackStatus = (await minersPage.getMinerStatus(rigMinerIp)).trim();
+      if (fallbackStatus !== "Reboot required") throw error;
+    }
   }
 
   const rebootRequiredStatus = (await minersPage.getMinerStatus(rigMinerIp)).trim();
@@ -19,6 +24,21 @@ async function cleanupUpdatedRigMiner(minersPage: MinersPage, rigMinerIp: string
     await minersPage.clickRebootConfirm();
     await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing");
   }
+}
+
+async function waitForFirmwareActivation(minersPage: MinersPage, rigMinerIp: string, timeoutMs: number) {
+  await test.expect
+    .poll(
+      async () => {
+        try {
+          return (await minersPage.getMinerStatus(rigMinerIp)).trim();
+        } catch {
+          return "";
+        }
+      },
+      { timeout: timeoutMs },
+    )
+    .toMatch(/^(Rebooting|Hashing)$/);
 }
 
 test.describe("Firmware", () => {
@@ -115,14 +135,8 @@ test.describe("Firmware", () => {
 
     await test.step("Validate the miner transitions through firmware update states", async () => {
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Updating firmware", firmwareStatusTimeout);
-      await minersPage.validateMinerStatusSettled(rigMinerIp, "Reboot required", firmwareStatusTimeout);
-    });
-
-    await test.step("Reboot the miner and validate it returns to hashing", async () => {
-      await minersPage.clickMinerThreeDotsButton(rigMinerIp);
-      await minersPage.clickRebootButton();
-      await minersPage.clickRebootConfirm();
-      await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing");
+      await waitForFirmwareActivation(minersPage, rigMinerIp, firmwareStatusTimeout);
+      await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing", firmwareStatusTimeout);
     });
   });
 });

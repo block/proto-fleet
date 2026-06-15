@@ -30,6 +30,7 @@ const mockSetCoolingMode = vi.fn();
 const mockUpdateMinerPassword = vi.fn();
 const mockGetMinerModelGroups = vi.fn();
 const mockDownloadLogs = vi.fn();
+const mockFirmwareUpdate = vi.fn();
 const mockGetCommandBatchLogBundle = vi.fn();
 const mockRenameSingleMiner = vi.fn();
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
@@ -59,7 +60,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     checkCommandCapabilities: mockCheckCommandCapabilities,
     updateMinerPassword: mockUpdateMinerPassword,
     downloadLogs: mockDownloadLogs,
-    firmwareUpdate: vi.fn(),
+    firmwareUpdate: mockFirmwareUpdate,
     getCommandBatchLogBundle: mockGetCommandBatchLogBundle,
   }),
 }));
@@ -3619,6 +3620,152 @@ describe("useMinerActions", () => {
       const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
 
       expect(fwAction).toEqual(expect.objectContaining({ icon: expect.objectContaining({ type: Settings }) }));
+    });
+
+    it("tracks successful firmware installs as rebooting after command completion", async () => {
+      mockFirmwareUpdate.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-firmware" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(1),
+              successDeviceIdentifiers: ["device-1"],
+              failureDeviceIdentifiers: ["device-2"],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      await act(async () => {
+        result.current.handleFirmwareUpdateConfirm("firmware-file-1");
+        await Promise.resolve();
+      });
+
+      expect(mockStartBatchOperation).toHaveBeenNthCalledWith(1, {
+        batchIdentifier: "batch-firmware",
+        action: deviceActions.firmwareUpdate,
+        deviceIdentifiers: ["device-1", "device-2"],
+      });
+      expect(mockStartBatchOperation).toHaveBeenNthCalledWith(2, {
+        batchIdentifier: "batch-firmware",
+        action: deviceActions.reboot,
+        deviceIdentifiers: ["device-1"],
+      });
+      expect(mockRemoveDevicesFromBatch).toHaveBeenCalledWith("batch-firmware", ["device-2"]);
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: expect.stringContaining("rebooting"),
+          status: toaster.STATUSES.success,
+        }),
+      );
+      expect(
+        (toaster.updateToast as ReturnType<typeof vi.fn>).mock.calls.some(([, toast]) =>
+          String(toast?.message ?? "").includes("reboot required"),
+        ),
+      ).toBe(false);
+    });
+
+    it("does not infer rebooting devices when successful identifiers are omitted", async () => {
+      mockFirmwareUpdate.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-firmware" });
+      });
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(0),
+              successDeviceIdentifiers: [],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      await act(async () => {
+        result.current.handleFirmwareUpdateConfirm("firmware-file-1");
+        await Promise.resolve();
+      });
+
+      expect(mockStartBatchOperation).toHaveBeenCalledTimes(1);
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier: "batch-firmware",
+        action: deviceActions.firmwareUpdate,
+        deviceIdentifiers: ["device-1", "device-2"],
+      });
+      expect(mockCompleteBatchOperation).toHaveBeenCalledWith("batch-firmware");
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: expect.not.stringContaining("rebooting"),
+          status: toaster.STATUSES.success,
+        }),
+      );
+    });
+
+    it("does not open the firmware modal when capability verification fails", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onError }: any) => {
+        onError(new Error("Network error"));
+      });
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+      expect(mockFirmwareUpdate).not.toHaveBeenCalled();
+      expect(onActionComplete).toHaveBeenCalled();
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Unable to verify firmware update support"),
+          status: "error",
+        }),
+      );
     });
 
     it("should show error toast and not open modal when selected miners have mixed models", async () => {

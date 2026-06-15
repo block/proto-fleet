@@ -94,6 +94,27 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 	return i, err
 }
 
+const deleteCurtailmentResponseProfilesBySite = `-- name: DeleteCurtailmentResponseProfilesBySite :execrows
+DELETE FROM curtailment_response_profile
+WHERE org_id = $1
+  AND site_id = $2
+`
+
+type DeleteCurtailmentResponseProfilesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Deletes reusable response profiles tied to a site as part of the
+// site delete cascade so they cannot outlive a soft-deleted site.
+func (q *Queries) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteCurtailmentResponseProfilesBySiteStmt, deleteCurtailmentResponseProfilesBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const findDeviceSiteConflicts = `-- name: FindDeviceSiteConflicts :many
 SELECT d.device_identifier, dsr.site_id::bigint AS conflicting_site_id
 FROM device d

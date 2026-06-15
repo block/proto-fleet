@@ -134,6 +134,17 @@ func (s *SQLSiteStore) UnassignDevicesFromSite(ctx context.Context, orgID, siteI
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	rowsAffected, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfilesBySite(ctx, sqlc.DeleteCurtailmentResponseProfilesBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to delete curtailment response profiles by site: %v", err)
+	}
+	return rowsAffected, nil
+}
+
 func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).SoftDeleteBuildingsBySite(ctx, sqlc.SoftDeleteBuildingsBySiteParams{
 		OrgID:  orgID,

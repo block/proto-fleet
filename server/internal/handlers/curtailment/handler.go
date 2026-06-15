@@ -23,13 +23,15 @@ import (
 // Action verb for requireAdminFromContext error messages on the legacy
 // admin-only override checks that run after the curtailment:manage gate.
 const actionSupplyOverrideFields = "supply curtailment override fields"
-const actionManageMqttSources = "manage MQTT curtailment sources"
+const actionManageMqttSources = "manage MaestroOS curtailment sources"
 
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
 type Handler struct {
-	service      *curtailment.Service
-	mqttSettings *mqttingest.SettingsService
+	service          *curtailment.Service
+	mqttSettings     *mqttingest.SettingsService
+	responseProfiles *curtailment.ResponseProfileService
+	automation       *curtailment.AutomationService
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
@@ -39,6 +41,27 @@ func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.Settin
 	if len(mqttSettings) > 0 {
 		h.mqttSettings = mqttSettings[0]
 	}
+	return h
+}
+
+func NewHandlerWithResponseProfiles(
+	service *curtailment.Service,
+	profiles *curtailment.ResponseProfileService,
+	mqttSettings ...*mqttingest.SettingsService,
+) *Handler {
+	h := NewHandler(service, mqttSettings...)
+	h.responseProfiles = profiles
+	return h
+}
+
+func NewHandlerWithCurtailmentSettings(
+	service *curtailment.Service,
+	profiles *curtailment.ResponseProfileService,
+	automation *curtailment.AutomationService,
+	mqttSettings *mqttingest.SettingsService,
+) *Handler {
+	h := NewHandlerWithResponseProfiles(service, profiles, mqttSettings)
+	h.automation = automation
 	return h
 }
 

@@ -72,6 +72,12 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 		curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure,
 		curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure,
 		curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure,
+		curtailmentv1connect.CurtailmentServiceListCurtailmentAutomationRulesProcedure,
+		curtailmentv1connect.CurtailmentServiceGetCurtailmentAutomationRuleProcedure,
+		curtailmentv1connect.CurtailmentServiceCreateCurtailmentAutomationRuleProcedure,
+		curtailmentv1connect.CurtailmentServiceUpdateCurtailmentAutomationRuleProcedure,
+		curtailmentv1connect.CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure,
+		curtailmentv1connect.CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure,
 	}
 
 	for _, procedure := range apiKeyAccessible {

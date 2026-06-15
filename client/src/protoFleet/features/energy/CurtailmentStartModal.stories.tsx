@@ -4,9 +4,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
+  type CurtailmentResponseProfileOption,
   type CurtailmentStartModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 
 const meta = {
   title: "Proto Fleet/Energy/Plan Curtailment Modal",
@@ -14,6 +16,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
   },
+  decorators: [withMockedMinerSelectionApis],
 } satisfies Meta<typeof CurtailmentStartModal>;
 
 export default meta;
@@ -24,22 +27,65 @@ interface ModalStoryProps {
   initialValues?: Partial<CurtailmentFormValues>;
   mode?: CurtailmentStartModalMode;
   preview?: CurtailmentPlanPreview;
+  responseProfiles?: CurtailmentResponseProfileOption[];
 }
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "40",
-  minDurationSec: "300",
-  maxDurationSec: "1800",
+  curtailBatchSize: "8",
+  curtailBatchIntervalSec: "30",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
 };
 
+const responseProfiles: CurtailmentResponseProfileOption[] = [
+  {
+    id: "standard-shed",
+    label: "Standard shed",
+    values: {
+      curtailmentMode: "fixedKwReduction",
+      targetKw: "50",
+      curtailBatchSize: "20",
+      curtailBatchIntervalSec: "60",
+      restoreBatchSize: "10",
+      restoreIntervalSec: "120",
+      includeMaintenance: true,
+    },
+  },
+  {
+    id: "emergency-shed",
+    label: "Emergency shed",
+    values: {
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      curtailBatchSize: "60",
+      curtailBatchIntervalSec: "30",
+      restoreBatchSize: "20",
+      restoreIntervalSec: "120",
+      includeMaintenance: true,
+    },
+  },
+  {
+    id: "partial-reduction",
+    label: "Partial reduction",
+    values: {
+      curtailmentMode: "fixedKwReduction",
+      targetKw: "2000",
+      curtailBatchSize: "40",
+      curtailBatchIntervalSec: "60",
+      restoreBatchSize: "20",
+      restoreIntervalSec: "120",
+      includeMaintenance: true,
+    },
+  },
+];
+
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
-  curtailEstimate: "5 minutes - 30 minutes",
+  curtailEstimate: "~1 minute",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };
@@ -77,12 +123,12 @@ function ModalStory(props: ModalStoryProps): ReactElement {
 }
 
 export const Empty: Story = {
-  render: () => <ModalStory />,
+  render: () => <ModalStory responseProfiles={responseProfiles} />,
 };
 
 export const WithPreview: Story = {
   name: "Fixed kW reduction preview",
-  render: () => <ModalStory initialValues={configuredValues} preview={preview} />,
+  render: () => <ModalStory initialValues={configuredValues} preview={preview} responseProfiles={responseProfiles} />,
 };
 
 export const FullFleet: Story = {

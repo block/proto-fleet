@@ -93,6 +93,20 @@ func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
 	assert.Contains(t, err.Error(), "force_include_maintenance")
 }
 
+func TestService_Start_RejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.CurtailBatchIntervalSec = 15
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "curtail_batch_interval_sec")
+}
+
 func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)

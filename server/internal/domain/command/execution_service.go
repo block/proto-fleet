@@ -536,7 +536,14 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if err != nil {
 			break
 		}
-		err = es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID)
+		shouldReboot, pollErr := es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID)
+		if pollErr != nil {
+			err = pollErr
+			break
+		}
+		if shouldReboot {
+			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
+		}
 	case commandtype.Unpair:
 		err = minerInfo.Unpair(ctx)
 		if err == nil {
@@ -943,10 +950,9 @@ const (
 	firmwareInstallGraceWindow  = 60 * time.Second
 )
 
-var errPollComplete = errors.New("polling complete")
-
-// clearFirmwareUpdateStatus resets the device status from REBOOT_REQUIRED back to ACTIVE
-// after a successful reboot command, allowing telemetry to take over status management.
+// clearFirmwareUpdateStatus resets stale firmware statuses back to ACTIVE after
+// a reboot command or firmware cleanup path, allowing telemetry to take over
+// status management.
 func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, deviceID int64) {
 	if es.conn == nil {
 		return
@@ -963,7 +969,11 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 	}
 	devID := tmodels.DeviceIdentifier(deviceIdentifier)
 
-	currentStatuses, err := es.deviceStore.GetDeviceStatusForDeviceIdentifiers(cleanupCtx, []tmodels.DeviceIdentifier{devID})
+	es.clearFirmwareUpdateStatusForDevice(cleanupCtx, deviceID, devID)
+}
+
+func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Context, deviceID int64, devID tmodels.DeviceIdentifier) {
+	currentStatuses, err := es.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []tmodels.DeviceIdentifier{devID})
 	if err != nil {
 		slog.Warn("failed to read current device status for firmware status cleanup", "device_id", deviceID, "error", err)
 		return
@@ -975,7 +985,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 
 	var upsertErr error
 	for attempt := range 3 {
-		upsertErr = es.deviceStore.UpsertDeviceStatus(cleanupCtx, devID, models.MinerStatusActive, "")
+		upsertErr = es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusActive, "")
 		if upsertErr == nil {
 			slog.Info("cleared firmware update status after reboot", "device_id", deviceID, "previous_status", currentStatus)
 			return
@@ -983,7 +993,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 		slog.Warn("failed to clear firmware update status after reboot, retrying",
 			"device_id", deviceID, "attempt", attempt+1, "error", upsertErr)
 		select {
-		case <-cleanupCtx.Done():
+		case <-ctx.Done():
 			return
 		case <-time.After(1 * time.Second):
 		}
@@ -993,33 +1003,36 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 }
 
 // pollFirmwareInstallStatus polls the rig's install status after a successful firmware
-// upload until installation completes or fails. The device status is set to UPDATING
-// only after the probe confirms the device supports install status reporting, then
-// transitions to REBOOT_REQUIRED on success.
-// Returns nil on successful install, or an error if installation fails or times out.
-// For miners that don't support install status polling, returns nil immediately.
-func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) error {
+// upload until installation completes or fails. Devices without install-status
+// reporting are still reboot-ready after upload success; capability dispatch has
+// already verified reboot support for firmware updates. For polling-capable
+// devices, status transitions to UPDATING while installation runs, then
+// REBOOT_REQUIRED on success.
+func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) (bool, error) {
 	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
 	if !canPoll {
-		return nil
+		slog.Info("firmware update status provider unavailable, rebooting after upload", "device_id", deviceID)
+		es.markFirmwareRebootRequired(ctx, deviceID)
+		return true, nil
 	}
 
 	probeStatus, probeErr := provider.GetFirmwareUpdateStatus(ctx)
 	if probeErr == nil && probeStatus == nil {
-		slog.Info("firmware update status provider does not report install status, skipping polling", "device_id", deviceID)
-		return nil
+		slog.Info("firmware update status provider does not report install status, rebooting after upload", "device_id", deviceID)
+		es.markFirmwareRebootRequired(ctx, deviceID)
+		return true, nil
 	}
 
 	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to resolve device identifier for firmware status polling: %v", err)
+		return false, fleeterror.NewInternalErrorf("failed to resolve device identifier for firmware status polling: %v", err)
 	}
 
 	devID := tmodels.DeviceIdentifier(deviceIdentifier)
 
-	pollResult := es.doPollFirmwareInstall(ctx, provider, devID, deviceID, probeStatus, probeErr)
+	installVerified, pollResult := es.doPollFirmwareInstall(ctx, provider, devID, deviceID, probeStatus, probeErr)
 
 	if pollResult != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -1028,10 +1041,28 @@ func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, miner
 			slog.Warn("failed to clear firmware update status after polling failure", "device_id", deviceID, "error", upsertErr)
 		}
 	}
-	return pollResult
+	return installVerified, pollResult
 }
 
-func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, probeStatus *sdk.FirmwareUpdateStatus, probeErr error) error {
+func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, deviceID int64) {
+	if es.conn == nil || es.deviceStore == nil {
+		return
+	}
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(ctx, deviceID)
+	})
+	if err != nil {
+		slog.Warn("failed to resolve device identifier for firmware reboot status", "device_id", deviceID, "error", err)
+		return
+	}
+
+	devID := tmodels.DeviceIdentifier(deviceIdentifier)
+	if upsertErr := es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusRebootRequired, ""); upsertErr != nil {
+		slog.Warn("failed to set firmware status to REBOOT_REQUIRED before automatic reboot", "device_id", deviceID, "error", upsertErr)
+	}
+}
+
+func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, probeStatus *sdk.FirmwareUpdateStatus, probeErr error) (bool, error) {
 	if upsertErr := es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusUpdating, ""); upsertErr != nil {
 		slog.Warn("failed to set device status to UPDATING", "device_id", deviceID, "error", upsertErr)
 	}
@@ -1040,13 +1071,13 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 	defer ticker.Stop()
 	uploadCompletedAt := time.Now()
 
-	handleStatus := func(status *sdk.FirmwareUpdateStatus, pollErr error) error {
+	handleStatus := func(status *sdk.FirmwareUpdateStatus, pollErr error) (bool, error) {
 		if pollErr != nil {
 			slog.Warn("firmware install status poll failed", "device_id", deviceID, "error", pollErr)
-			return nil
+			return false, nil
 		}
 		if status == nil {
-			return nil
+			return false, nil
 		}
 
 		switch status.State {
@@ -1056,18 +1087,18 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 			if upsertErr := es.deviceStore.UpsertDeviceStatus(cleanupCtx, devID, models.MinerStatusRebootRequired, ""); upsertErr != nil {
 				slog.Error("firmware install completed but failed to persist REBOOT_REQUIRED, treating as success to avoid re-upload", "device_id", deviceID, "error", upsertErr)
 			}
-			slog.Info("firmware install completed, reboot required", "device_id", deviceID)
-			return errPollComplete
+			slog.Info("firmware install completed, rebooting device", "device_id", deviceID)
+			return true, nil
 
 		case "installing", "downloaded":
 			slog.Debug("firmware install in progress", "device_id", deviceID, "state", status.State, "progress", status.Progress)
 
 		case "current":
 			if status.Error != nil && *status.Error != "" {
-				return fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, *status.Error)
+				return false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, *status.Error)
 			}
 			if time.Since(uploadCompletedAt) > firmwareInstallGraceWindow {
-				return fleeterror.NewInternalErrorf("firmware install reverted to 'current' on device %d (install may have failed silently)", deviceID)
+				return false, fleeterror.NewInternalErrorf("firmware install reverted to 'current' on device %d (install may have failed silently)", deviceID)
 			}
 			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID)
 
@@ -1076,35 +1107,43 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 			if status.Error != nil && *status.Error != "" {
 				errMsg = *status.Error
 			}
-			return fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
+			return false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
 
 		default:
 			slog.Debug("unexpected firmware install state", "device_id", deviceID, "state", status.State)
 		}
-		return nil
+		return false, nil
 	}
 
-	if result := handleStatus(probeStatus, probeErr); result != nil {
-		if errors.Is(result, errPollComplete) {
-			return nil
-		}
-		return result
+	if installVerified, result := handleStatus(probeStatus, probeErr); installVerified || result != nil {
+		return installVerified, result
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return fleeterror.NewInternalErrorf("firmware install polling timed out for device %d", deviceID)
+			return false, fleeterror.NewInternalErrorf("firmware install polling timed out for device %d", deviceID)
 		case <-ticker.C:
 			status, pollErr := provider.GetFirmwareUpdateStatus(ctx)
-			if result := handleStatus(status, pollErr); result != nil {
-				if errors.Is(result, errPollComplete) {
-					return nil
-				}
-				return result
+			if installVerified, result := handleStatus(status, pollErr); installVerified || result != nil {
+				return installVerified, result
 			}
 		}
 	}
+}
+
+func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) error {
+	if err := minerInfo.Reboot(ctx); err != nil {
+		slog.Error("firmware install completed but automatic reboot failed",
+			"device_id", deviceID, "error", err)
+		return fleeterror.NewFailedPreconditionErrorf(
+			"firmware installed on device %d but automatic reboot failed: %v",
+			deviceID, err)
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	es.clearFirmwareUpdateStatusForDevice(cleanupCtx, deviceID, minerInfo.GetID())
+	return nil
 }
 
 // updateMinerPasswordInDB encrypts and stores the miner password in the database

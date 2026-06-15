@@ -59,6 +59,14 @@ type StartRequest struct {
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	MinCurtailedDurationSec int32
+	// Curtailed dispatch controls. Manual Start calls leave
+	// UseProfileCurtailSettings=false so the pre-existing adaptive
+	// effective_batch_size behavior is preserved. Automation/profile starts set
+	// it true so nil CurtailBatchSize is persisted as NULL, meaning "curtail all
+	// selected targets in scope."
+	CurtailBatchSize          *int32
+	CurtailBatchIntervalSec   int32
+	UseProfileCurtailSettings bool
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
@@ -223,6 +231,12 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	// Stamp once so buildInsertParams and the Start response agree.
 	plan.EffectiveBatchSize = ComputeEffectiveBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
+	if !req.UseProfileCurtailSettings {
+		req.CurtailBatchSize = &plan.EffectiveBatchSize
+		req.CurtailBatchIntervalSec = 0
+	}
+	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
+	plan.EffectiveCurtailBatchIntervalSec = req.CurtailBatchIntervalSec
 
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
 	if err != nil {
@@ -258,6 +272,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EventUUID = &result.EventUUID
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
 	plan.EffectiveRestoreBatchIntervalSec = req.RestoreBatchIntervalSec
+	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
+	plan.EffectiveCurtailBatchIntervalSec = req.CurtailBatchIntervalSec
 
 	s.emitStartAuditTrail(ctx, req, plan)
 	if req.ForceIncludeMaintenance {
@@ -565,6 +581,10 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 			event.SiteID = &siteID
 		}
 		activity.StampActor(ctx, &event)
+		if event.OrganizationID == nil {
+			orgID := req.OrgID
+			event.OrganizationID = &orgID
+		}
 		if err := s.audit.LogStrict(ctx, event); err != nil {
 			slog.Error("curtailment audit log failed",
 				"activity_type", eventType, "event_uuid", plan.EventUUID, "error", err)
@@ -655,14 +675,20 @@ func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event,
 	}
 }
 
-// mapSourceActorTypeToActivity collapses curtailment's finer
-// api_key/user split into the activity model's ActorUser; Scheduler
-// maps directly.
+// mapSourceActorTypeToActivity collapses curtailment's finer api_key/user split
+// into the activity model's ActorUser. Scheduler and automation map to their
+// synthetic actors.
 func mapSourceActorTypeToActivity(t models.SourceActorType) activitymodels.ActorType {
-	if t == models.SourceActorScheduler {
+	switch t {
+	case models.SourceActorUser, models.SourceActorAPIKey, models.SourceActorWebhook:
+		return activitymodels.ActorUser
+	case models.SourceActorScheduler:
 		return activitymodels.ActorScheduler
+	case models.SourceActorAutomation:
+		return activitymodels.ActorCurtailment
+	default:
+		return activitymodels.ActorUser
 	}
-	return activitymodels.ActorUser
 }
 
 // lookupIdempotentReplay returns the prior event a webhook-style replay
@@ -703,6 +729,8 @@ func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64,
 	plan := &Plan{
 		EventUUID:                        &eventUUID,
 		EffectiveRestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
+		EffectiveCurtailBatchSize:        cloneInt32Ptr(event.CurtailBatchSize),
+		EffectiveCurtailBatchIntervalSec: event.CurtailBatchIntervalSec,
 		ReplayEvent:                      event,
 		ReplayTargets:                    targets,
 	}
@@ -1068,6 +1096,30 @@ func validateStartRequest(req StartRequest) error {
 			"restore_batch_size must be >= 0, got %d", req.RestoreBatchSize,
 		)
 	}
+	if req.CurtailBatchSize != nil && *req.CurtailBatchSize <= 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_size must be > 0 when set, got %d",
+			*req.CurtailBatchSize,
+		)
+	}
+	if req.CurtailBatchSize != nil && *req.CurtailBatchSize > responseProfileBatchSizeMax {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_size must be <= %d, got %d",
+			responseProfileBatchSizeMax,
+			*req.CurtailBatchSize,
+		)
+	}
+	if req.CurtailBatchIntervalSec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_interval_sec must be >= 0, got %d",
+			req.CurtailBatchIntervalSec,
+		)
+	}
+	if req.CurtailBatchSize == nil && req.CurtailBatchIntervalSec > 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"curtail_batch_interval_sec must be 0 when curtail_batch_size is unset",
+		)
+	}
 	if req.RestoreBatchIntervalSec < 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"restore_batch_interval_sec must be >= 0, got %d", req.RestoreBatchIntervalSec,
@@ -1108,6 +1160,18 @@ func validateStartRequest(req StartRequest) error {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"restore_batch_interval_sec must be <= %d, got %d",
 			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
+		)
+	}
+	if req.CurtailBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"curtail_batch_interval_sec must be <= %d, got %d",
+			restoreBatchIntervalUpperBoundSec, req.CurtailBatchIntervalSec,
+		)
+	}
+	if req.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenErrorf(
+			"only admins can set curtail_batch_interval_sec above %d",
+			nonAdminRestoreBatchIntervalMax,
 		)
 	}
 	if req.SourceActorType == "" {
@@ -1415,6 +1479,8 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		ScopeType:               req.Scope.Type,
 		ScopeJSON:               scopeJSON,
 		ModeParamsJSON:          modeParamsJSON,
+		CurtailBatchSize:        req.CurtailBatchSize,
+		CurtailBatchIntervalSec: req.CurtailBatchIntervalSec,
 		RestoreBatchSize:        req.RestoreBatchSize,
 		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
 		MinCurtailedDurationSec: req.MinCurtailedDurationSec,
@@ -1625,6 +1691,14 @@ func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
 		base = maxBatchSizeCeiling
 	}
 	return base
+}
+
+func cloneInt32Ptr(v *int32) *int32 {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
 }
 
 // marshalDecisionSnapshot captures the selector outputs for the

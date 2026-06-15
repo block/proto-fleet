@@ -109,6 +109,8 @@ export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): C
     priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
     minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
     maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
+    curtailBatchSize: "",
+    curtailBatchIntervalSec: "",
     restoreBatchSize: formatPositiveNumberField(event.restoreBatchSize),
     restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
     reason: event.reason || "Curtailment",

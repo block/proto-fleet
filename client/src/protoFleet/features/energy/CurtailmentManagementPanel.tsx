@@ -1,7 +1,9 @@
-import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
+import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import ActiveCurtailmentStatus, {
   type ActiveCurtailmentEvent,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
@@ -9,6 +11,7 @@ import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtail
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
+  type CurtailmentResponseProfileOption,
   type CurtailmentStartModalMode,
   type CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
@@ -16,8 +19,13 @@ import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { createCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
+import type {
+  ResponseProfile,
+  ResponseProfileFormValues,
+} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -43,6 +51,86 @@ interface CurtailmentMessageProps {
 
 const activeCurtailmentRefreshIntervalMs = 3_000;
 const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
+const defaultResponseDeadlineMinutes = "15";
+const defaultMaxDurationSec = "900";
+const immediateRestoreBatchSize = "10000";
+
+function minutesToSeconds(value: string): string {
+  const minutes = Number(value);
+
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return defaultMaxDurationSec;
+  }
+
+  return String(minutes * 60);
+}
+
+function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
+  if (profile.formValues) {
+    const siteId = profile.formValues.siteId.trim();
+
+    return {
+      ...profile.formValues,
+      deviceIdentifiers: [],
+      siteId,
+      siteName: siteId ? profile.formValues.siteName.trim() : "",
+    };
+  }
+
+  const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
+  const actionType: ResponseProfileFormValues["actionType"] = targetKwMatch ? "fixedKwReduction" : "fullFleet";
+  const responseDeadlineMinutes = profile.deadlineSummary.match(/(\d+)/)?.[1] ?? defaultResponseDeadlineMinutes;
+
+  return {
+    name: profile.name,
+    actionType,
+    targetKw: targetKwMatch?.[1] ?? "",
+    deviceIdentifiers: [],
+    siteId: "",
+    siteName: "",
+    selectionStrategy: "leastEfficientFirst",
+    restoreBehavior: profile.restoreBehavior.toLowerCase().includes("immediate")
+      ? "automaticImmediateRestore"
+      : "automaticBatchRestore",
+    minDurationSec: "",
+    maxDurationSec: minutesToSeconds(responseDeadlineMinutes),
+    curtailBatchSize: "",
+    curtailBatchIntervalSec: "",
+    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate") ? immediateRestoreBatchSize : "",
+    restoreIntervalSec: "",
+    responseDeadlineMinutes,
+    includeMaintenance: true,
+  };
+}
+
+function createCurtailmentResponseProfileOption(profile: ResponseProfile): CurtailmentResponseProfileOption {
+  const values = createResponseProfileFormValuesFromProfile(profile);
+  const restoreBatchSize =
+    values.restoreBatchSize ||
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+  const siteId = values.siteId.trim();
+  const siteName = siteId ? values.siteName || `Site ${siteId}` : "";
+
+  return {
+    id: profile.id,
+    label: profile.name,
+    values: {
+      scopeType: siteId ? "site" : "wholeOrg",
+      scopeId: siteId ? siteName : "whole-org",
+      siteId,
+      deviceSetIds: [],
+      deviceIdentifiers: [],
+      curtailmentMode: values.actionType,
+      minerSelectionStrategy: values.selectionStrategy,
+      targetKw: values.targetKw,
+      curtailBatchSize: values.curtailBatchSize,
+      curtailBatchIntervalSec: values.curtailBatchIntervalSec,
+      restoreBatchSize,
+      restoreIntervalSec: values.restoreIntervalSec,
+      includeMaintenance: values.includeMaintenance,
+    },
+  };
+}
 
 function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement {
   return (
@@ -68,6 +156,7 @@ function CurtailmentManagementPanel({
   canManageCurtailment = true,
   className,
 }: CurtailmentManagementPanelProps): ReactElement {
+  const navigate = useNavigate();
   const {
     activeEvent,
     activeEventId,
@@ -94,9 +183,15 @@ function CurtailmentManagementPanel({
     updateCurtailment,
     stopCurtailment,
   } = useCurtailmentApi();
+  const { responseProfiles } = useCurtailmentResponseProfiles(canManageCurtailment);
+  const responseProfileOptions = useMemo(
+    () => responseProfiles.map(createCurtailmentResponseProfileOption),
+    [responseProfiles],
+  );
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
+  const [showActiveCurtailmentDialog, setShowActiveCurtailmentDialog] = useState(false);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const foregroundRefreshInFlightRef = useRef(false);
@@ -107,6 +202,9 @@ function CurtailmentManagementPanel({
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
   const activeEventState = activeEvent?.state;
+  const hasOngoingCurtailment = activeEventState ? nonTerminalActiveEventStates.has(activeEventState) : false;
+  const hasOngoingHistoryEvent = historyEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
+  const shouldPollCurtailment = hasOngoingCurtailment || hasOngoingHistoryEvent;
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -131,7 +229,7 @@ function CurtailmentManagementPanel({
   }, [refreshCurtailment, runAbortableRefresh]);
 
   useEffect(() => {
-    if (!activeEventState || !nonTerminalActiveEventStates.has(activeEventState)) {
+    if (!shouldPollCurtailment) {
       return undefined;
     }
 
@@ -165,7 +263,7 @@ function CurtailmentManagementPanel({
       activeRefreshAbortControllerRef.current?.abort();
       activeRefreshAbortControllerRef.current = null;
     };
-  }, [activeEventState, refreshCurtailment]);
+  }, [refreshCurtailment, shouldPollCurtailment]);
 
   const closeModal = useCallback(() => {
     setModalMode(null);
@@ -173,9 +271,14 @@ function CurtailmentManagementPanel({
   }, []);
 
   const openCreateModal = useCallback(() => {
+    if (hasOngoingCurtailment) {
+      setShowActiveCurtailmentDialog(true);
+      return;
+    }
+
     setEditSession(null);
     setModalMode("create");
-  }, []);
+  }, [hasOngoingCurtailment]);
 
   const openEditModal = useCallback(() => {
     if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {
@@ -271,20 +374,32 @@ function CurtailmentManagementPanel({
     closeModal();
     openStopConfirmation("stopCurtailment", editEventId);
   }, [activeEventId, closeModal, editSession, openStopConfirmation]);
+  const handleEditSettings = useCallback(() => {
+    navigate("/settings/curtailment");
+  }, [navigate]);
 
   return (
     <section className={clsx("grid gap-6", className)}>
       <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
         <Header title="Curtailment" titleSize="text-heading-300" />
         {canManageCurtailment ? (
-          <Button
-            variant={variants.primary}
-            size={sizes.base}
-            text="Plan curtailment"
-            onClick={openCreateModal}
-            disabled={isStarting || isUpdating}
-            className="phone:w-full"
-          />
+          <div className="flex items-center gap-2 phone:flex-col phone:items-stretch">
+            <Button
+              variant={variants.secondary}
+              size={sizes.base}
+              text="Edit settings"
+              onClick={handleEditSettings}
+              className="phone:w-full"
+            />
+            <Button
+              variant={variants.primary}
+              size={sizes.base}
+              text="Run curtailment"
+              onClick={openCreateModal}
+              disabled={isStarting || isUpdating}
+              className="phone:w-full"
+            />
+          </div>
         ) : null}
       </div>
 
@@ -326,6 +441,7 @@ function CurtailmentManagementPanel({
           open
           mode={modalMode}
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
+          responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           preview={isEditingCurtailment ? editSession?.preview : undefined}
           onDismiss={closeModal}
           onSubmit={handleModalSubmit}
@@ -342,6 +458,29 @@ function CurtailmentManagementPanel({
           onCancel={() => setPendingStopConfirmation(null)}
           onConfirm={handleConfirmStop}
         />
+      ) : null}
+
+      {showActiveCurtailmentDialog ? (
+        <Dialog
+          open
+          title="Curtailment already active"
+          testId="active-curtailment-limit-dialog"
+          onDismiss={() => setShowActiveCurtailmentDialog(false)}
+          icon={
+            <DialogIcon intent="warning">
+              <Alert />
+            </DialogIcon>
+          }
+          buttons={[
+            {
+              text: "Got it",
+              variant: variants.primary,
+              onClick: () => setShowActiveCurtailmentDialog(false),
+            },
+          ]}
+        >
+          <div className="text-300 text-text-primary-70">You can only have one active curtailment at a time.</div>
+        </Dialog>
       ) : null}
     </section>
   );

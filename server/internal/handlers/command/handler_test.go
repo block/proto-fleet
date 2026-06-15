@@ -14,9 +14,11 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	handler "github.com/block/proto-fleet/server/internal/handlers/command"
+	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 	db2 "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -26,6 +28,43 @@ import (
 // and don't need plugin support.
 func TestCommandHandler(t *testing.T) {
 	t.Skip("Disabled pending plugin-based test infrastructure")
+}
+
+func TestHandler_FirmwareUpdateRequiresFirmwareUpdateAndRebootPermissions(t *testing.T) {
+	t.Parallel()
+	h := handler.NewHandler(nil)
+
+	cases := []struct {
+		name         string
+		permissions  []string
+		wantRequired string
+	}{
+		{
+			name:         "denies without firmware update permission",
+			permissions:  []string{authz.PermMinerReboot},
+			wantRequired: authz.PermMinerFirmwareUpdate,
+		},
+		{
+			name:         "denies without reboot permission",
+			permissions:  []string{authz.PermMinerFirmwareUpdate},
+			wantRequired: authz.PermMinerReboot,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := handlerstest.CtxWithPermissions(t, 1, tc.permissions...)
+
+			_, err := h.FirmwareUpdate(ctx, connect.NewRequest(&pb.FirmwareUpdateRequest{}))
+
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+			assert.JSONEq(t, `{"required":"`+tc.wantRequired+`","scope":{}}`, fleetErr.DebugMessage)
+		})
+	}
 }
 
 // TestHandler_GetCommandBatchDeviceResults_PassesThroughHappyPath builds the
