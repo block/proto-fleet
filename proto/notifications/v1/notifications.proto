@@ -1,0 +1,258 @@
+syntax = "proto3";
+
+package notifications.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+service ChannelService {
+    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+
+    rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+
+    rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+
+    rpc DeleteChannel(DeleteChannelRequest) returns (DeleteChannelResponse);
+
+    rpc TestChannel(TestChannelRequest) returns (TestChannelResponse);
+}
+
+service RuleService {
+    rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+
+    rpc PauseRule(PauseRuleRequest) returns (PauseRuleResponse);
+
+    rpc ResumeRule(ResumeRuleRequest) returns (ResumeRuleResponse);
+}
+
+service MaintenanceWindowService {
+    rpc ListMaintenanceWindows(ListMaintenanceWindowsRequest) returns (ListMaintenanceWindowsResponse);
+    rpc CreateMaintenanceWindow(CreateMaintenanceWindowRequest) returns (CreateMaintenanceWindowResponse);
+    rpc UpdateMaintenanceWindow(UpdateMaintenanceWindowRequest) returns (UpdateMaintenanceWindowResponse);
+    rpc DeleteMaintenanceWindow(DeleteMaintenanceWindowRequest) returns (DeleteMaintenanceWindowResponse);
+}
+
+service HistoryService {
+    rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+}
+
+enum ChannelKind {
+    CHANNEL_KIND_UNSPECIFIED = 0;
+    CHANNEL_KIND_WEBHOOK = 1;
+    CHANNEL_KIND_SMTP = 2;
+    CHANNEL_KIND_SLACK = 3;
+}
+
+enum ValidationState {
+    VALIDATION_STATE_UNSPECIFIED = 0;
+    VALIDATION_STATE_PENDING = 1;
+    VALIDATION_STATE_OK = 2;
+    VALIDATION_STATE_FAILED = 3;
+}
+
+message WebhookConfig {
+    string url = 1;
+    string bearer_header = 2;
+}
+
+message SmtpConfig {
+    string host = 1;
+    int32 port = 2;
+    string username = 3;
+    string from = 4;
+    repeated string to = 5;
+    string password = 6;
+}
+
+message SlackConfig {
+    string webhook_url = 1;
+}
+
+message Channel {
+    string id = 1;
+    int64 organization_id = 2;
+    string name = 3;
+    ChannelKind kind = 4;
+    WebhookConfig webhook = 5;
+    SmtpConfig smtp = 6;
+    google.protobuf.Timestamp created_at = 7;
+    google.protobuf.Timestamp updated_at = 8;
+    google.protobuf.Timestamp validated_at = 9;
+    ValidationState validation_state = 10;
+    string validation_error = 11;
+    bool has_secret = 12;
+    SlackConfig slack = 13;
+}
+
+message ListChannelsRequest {}
+message ListChannelsResponse {
+    repeated Channel channels = 1;
+}
+
+message CreateChannelRequest {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    ChannelKind kind = 2;
+    WebhookConfig webhook = 3;
+    SmtpConfig smtp = 4;
+    SlackConfig slack = 5;
+}
+message CreateChannelResponse {
+    Channel channel = 1;
+}
+
+message UpdateChannelRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    ChannelKind kind = 3;
+    WebhookConfig webhook = 4;
+    SmtpConfig smtp = 5;
+    SlackConfig slack = 6;
+}
+message UpdateChannelResponse {
+    Channel channel = 1;
+}
+
+message DeleteChannelRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteChannelResponse {}
+
+message TestChannelRequest {
+    string id = 1;
+    ChannelKind kind = 2;
+    WebhookConfig webhook = 3;
+    SmtpConfig smtp = 4;
+    SlackConfig slack = 5;
+}
+message TestChannelResponse {
+    bool ok = 1;
+    string error = 2;
+    int32 response_code = 3;
+}
+
+enum RuleTemplate {
+    RULE_TEMPLATE_UNSPECIFIED = 0;
+    RULE_TEMPLATE_OFFLINE = 1;
+    RULE_TEMPLATE_HASHRATE = 2;
+    RULE_TEMPLATE_TEMPERATURE = 3;
+    RULE_TEMPLATE_POOL = 4;
+    RULE_TEMPLATE_COMMAND_FAILURE = 5;
+    RULE_TEMPLATE_TELEMETRY_POLL = 6;
+}
+
+message Rule {
+    string id = 1;
+    int64 organization_id = 2;
+    string name = 3;
+    RuleTemplate template = 4;
+    string group = 5;
+    string severity = 6;
+    string summary = 7;
+    string description = 8;
+    int32 duration_seconds = 9;
+    bool enabled = 10;
+}
+
+message ListRulesRequest {}
+message ListRulesResponse {
+    repeated Rule rules = 1;
+}
+
+message PauseRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message PauseRuleResponse {
+    Rule rule = 1;
+}
+
+message ResumeRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message ResumeRuleResponse {
+    Rule rule = 1;
+}
+
+enum MaintenanceWindowScopeKind {
+    MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED = 0;
+    MAINTENANCE_WINDOW_SCOPE_KIND_RULE = 1;
+    MAINTENANCE_WINDOW_SCOPE_KIND_GROUP = 2;
+    MAINTENANCE_WINDOW_SCOPE_KIND_SITE = 3;
+    MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE = 4;
+}
+
+message MaintenanceWindowScope {
+    MaintenanceWindowScopeKind kind = 1;
+    string rule_id = 2;
+    string group_id = 3;
+    string site_id = 4;
+    repeated string device_ids = 5;
+}
+
+message MaintenanceWindow {
+    string id = 1;
+    int64 organization_id = 2;
+    MaintenanceWindowScope scope = 3;
+    google.protobuf.Timestamp starts_at = 4;
+    google.protobuf.Timestamp ends_at = 5;
+    string comment = 6;
+    string created_by = 7;
+    google.protobuf.Timestamp created_at = 8;
+    bool active = 9;
+}
+
+message ListMaintenanceWindowsRequest {}
+message ListMaintenanceWindowsResponse {
+    repeated MaintenanceWindow maintenance_windows = 1;
+}
+
+message CreateMaintenanceWindowRequest {
+    MaintenanceWindowScope scope = 1;
+    google.protobuf.Timestamp starts_at = 2;
+    google.protobuf.Timestamp ends_at = 3;
+    string comment = 4 [(buf.validate.field).string.max_len = 1024];
+}
+message CreateMaintenanceWindowResponse {
+    MaintenanceWindow maintenance_window = 1;
+}
+
+message UpdateMaintenanceWindowRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    MaintenanceWindowScope scope = 2;
+    google.protobuf.Timestamp starts_at = 3;
+    google.protobuf.Timestamp ends_at = 4;
+    string comment = 5 [(buf.validate.field).string.max_len = 1024];
+}
+message UpdateMaintenanceWindowResponse {
+    MaintenanceWindow maintenance_window = 1;
+}
+
+message DeleteMaintenanceWindowRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteMaintenanceWindowResponse {}
+
+message NotificationHistoryEntry {
+    string id = 1;
+    google.protobuf.Timestamp received_at = 2;
+    string alert_name = 3;
+    string status = 4;
+    string severity = 5;
+    string rule_group = 6;
+    string fingerprint = 7;
+    string device_id = 8;
+    string device_name = 9;
+    string device_mac = 10;
+    string template = 11;
+    string summary = 12;
+    google.protobuf.Timestamp starts_at = 13;
+    google.protobuf.Timestamp ends_at = 14;
+}
+
+message ListNotificationsRequest {
+    string before_id = 1;
+    int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
+}
+message ListNotificationsResponse {
+    repeated NotificationHistoryEntry notifications = 1;
+    bool has_more = 2;
+}
