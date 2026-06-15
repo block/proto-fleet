@@ -1177,16 +1177,21 @@ func (q *Queries) LockRackPlacementForWrite(ctx context.Context, arg LockRackPla
 }
 
 const lockSourceRacksForDevices = `-- name: LockSourceRacksForDevices :many
-SELECT DISTINCT dsm.device_set_id
-FROM device_set_membership dsm
-JOIN device_set ds ON ds.id = dsm.device_set_id
-WHERE ds.org_id = $1
-  AND dsm.device_set_type = 'rack'
+SELECT ds.id AS device_set_id
+FROM device_set ds
+WHERE ds.id IN (
+    SELECT dsm.device_set_id
+    FROM device_set_membership dsm
+    WHERE dsm.org_id = $1
+      AND dsm.device_set_type = 'rack'
+      AND dsm.device_identifier = ANY($2::text[])
+      AND dsm.device_set_id != $3::bigint
+  )
+  AND ds.org_id = $1
+  AND ds.type = 'rack'
   AND ds.deleted_at IS NULL
-  AND dsm.device_identifier = ANY($2::text[])
-  AND dsm.device_set_id != $3::bigint
-ORDER BY dsm.device_set_id ASC
-FOR UPDATE OF ds
+ORDER BY ds.id ASC
+FOR UPDATE
 `
 
 type LockSourceRacksForDevicesParams struct {
@@ -1195,16 +1200,15 @@ type LockSourceRacksForDevicesParams struct {
 	ExcludeRackID     int64
 }
 
-// Returns the distinct source rack ids currently holding any of the
-// provided device identifiers, locked FOR UPDATE in ascending id order.
-// AssignDevicesToRack calls this BEFORE the DELETE-from-source +
-// INSERT-into-target cascade so concurrent reparent calls touching
-// overlapping device sets serialize on the source rack rows instead of
-// racing the device_set_membership unique constraint. Excludes the
-// target rack (@exclude_rack_id) so the caller can take the target
-// lock once via LockRackPlacementForWrite without re-locking here.
-// Pass 0 for @exclude_rack_id to lock every source rack (clear-rack
-// path where there is no target).
+// Returns the source rack ids currently holding any of the provided
+// device identifiers, locked FOR UPDATE in ascending id order. Used
+// by AssignDevicesToRack to serialize concurrent reparent calls that
+// touch overlapping device sets. Excludes the target rack so the
+// caller can take the target lock once via LockRackPlacementForWrite
+// without re-locking here. Pass 0 for @exclude_rack_id to lock every
+// source rack (clear-rack path where there is no target). Distinct
+// ids are derived in a subquery so the outer locking SELECT can use
+// FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
 func (q *Queries) LockSourceRacksForDevices(ctx context.Context, arg LockSourceRacksForDevicesParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.lockSourceRacksForDevicesStmt, lockSourceRacksForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.ExcludeRackID)
 	if err != nil {

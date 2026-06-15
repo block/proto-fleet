@@ -296,26 +296,30 @@ WHERE device_set_id = $1
   AND org_id = $2;
 
 -- name: LockSourceRacksForDevices :many
--- Returns the distinct source rack ids currently holding any of the
--- provided device identifiers, locked FOR UPDATE in ascending id order.
--- AssignDevicesToRack calls this BEFORE the DELETE-from-source +
--- INSERT-into-target cascade so concurrent reparent calls touching
--- overlapping device sets serialize on the source rack rows instead of
--- racing the device_set_membership unique constraint. Excludes the
--- target rack (@exclude_rack_id) so the caller can take the target
--- lock once via LockRackPlacementForWrite without re-locking here.
--- Pass 0 for @exclude_rack_id to lock every source rack (clear-rack
--- path where there is no target).
-SELECT DISTINCT dsm.device_set_id
-FROM device_set_membership dsm
-JOIN device_set ds ON ds.id = dsm.device_set_id
-WHERE ds.org_id = @org_id
-  AND dsm.device_set_type = 'rack'
+-- Returns the source rack ids currently holding any of the provided
+-- device identifiers, locked FOR UPDATE in ascending id order. Used
+-- by AssignDevicesToRack to serialize concurrent reparent calls that
+-- touch overlapping device sets. Excludes the target rack so the
+-- caller can take the target lock once via LockRackPlacementForWrite
+-- without re-locking here. Pass 0 for @exclude_rack_id to lock every
+-- source rack (clear-rack path where there is no target). Distinct
+-- ids are derived in a subquery so the outer locking SELECT can use
+-- FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
+SELECT ds.id AS device_set_id
+FROM device_set ds
+WHERE ds.id IN (
+    SELECT dsm.device_set_id
+    FROM device_set_membership dsm
+    WHERE dsm.org_id = @org_id
+      AND dsm.device_set_type = 'rack'
+      AND dsm.device_identifier = ANY(@device_identifiers::text[])
+      AND dsm.device_set_id != @exclude_rack_id::bigint
+  )
+  AND ds.org_id = @org_id
+  AND ds.type = 'rack'
   AND ds.deleted_at IS NULL
-  AND dsm.device_identifier = ANY(@device_identifiers::text[])
-  AND dsm.device_set_id != @exclude_rack_id::bigint
-ORDER BY dsm.device_set_id ASC
-FOR UPDATE OF ds;
+ORDER BY ds.id ASC
+FOR UPDATE;
 
 -- name: RemoveDevicesFromAnyRack :execrows
 -- Removes the given devices from whatever rack they're currently in,

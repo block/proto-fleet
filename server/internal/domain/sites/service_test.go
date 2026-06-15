@@ -361,9 +361,12 @@ func TestAssignDevicesToSite_forceClearCascadesRackMembership(t *testing.T) {
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": conflictingSite,
 	}, nil)
-	// targetRackID=0 means "clear every rack membership for these
-	// devices" — there's no target rack in a site move.
-	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, identifiers, int64(0)).Return(int64(1), nil)
+	// Only d1 had a rack-at-other-site conflict, so only d1's rack
+	// memberships get cleared. d2 (no conflict, already at target)
+	// keeps its rack row so its rack_slot child isn't cascade-dropped.
+	// targetRackID=0 means "exclude nothing" — drop every rack row
+	// for the listed devices.
+	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d1"}, int64(0)).Return(int64(1), nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
 
 	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
@@ -451,10 +454,12 @@ func TestAssignDevicesToSite_forceClearMissingDeviceStillRejects(t *testing.T) {
 			store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 				"d1": conflictingSite,
 			}, nil)
-			// Cascade clear still fires for the rack conflict; the
-			// remaining DEVICE_NOT_FOUND rejects the batch before any
-			// site write.
-			collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, identifiers, int64(0)).Return(int64(1), nil)
+			// Residual DEVICE_NOT_FOUND aborts the tx BEFORE any
+			// deletion runs. Otherwise the cascade-clear delete would
+			// commit and the tx would still return without the site
+			// move, leaving d1 rack-stripped on its old site.
+			// No RemoveDevicesFromAnyRack expectation: gomock fails
+			// the test if it's called.
 			// No AssignDevicesToSite expectation: batch must reject.
 
 			count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
@@ -534,6 +539,57 @@ func TestAssignDevicesToSite_forceClearRollsBackOnSiteWriteFailure(t *testing.T)
 				t.Fatalf("unexpected transactor type %T", tx)
 			}
 		})
+	}
+}
+
+// TestAssignDevicesToSite_forceClearOnlyConflictingDevices pins the
+// scoped-clear contract: when only a subset of devices have a
+// rack-at-other-site conflict, RemoveDevicesFromAnyRack is called
+// only with the conflicting identifiers. Devices already at the
+// target site (no conflict) keep their rack rows so their rack_slot
+// children aren't cascade-dropped. Regression test for codex PR
+// review (issue-420): the original implementation passed the full
+// identifier list, over-deleting unrelated rack memberships.
+func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	identifiers := []string{"d-conflict", "d-already-here"}
+	target := int64(20)
+	conflictingSite := int64(30)
+
+	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// Only d-conflict is at a different site; d-already-here returns
+	// no rack-site row (already at target, would be filtered by the
+	// target==site equality check anyway).
+	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d-conflict": conflictingSite,
+	}, nil)
+	// Critical: only d-conflict's rack rows get dropped. Passing
+	// the full identifier list here would delete d-already-here's
+	// rack membership and cascade its rack_slot row.
+	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d-conflict"}, int64(0)).Return(int64(1), nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+
+	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
+		OrgID:                               testOrgID,
+		TargetSiteID:                        &target,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 rows updated, got %d", count)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected zero conflicts after scoped clear, got %v", conflicts)
 	}
 }
 

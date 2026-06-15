@@ -423,7 +423,15 @@ const ManageBuildingModal = ({
         });
 
       try {
-        await Promise.all([dispatch(inBuilding, building.id), dispatch(unassign, undefined)]);
+        // Serialize: unassign (vacate) before in-building (claim).
+        // Each AssignRacksToBuilding call has internal clear-before-
+        // place ordering inside its tx, but that doesn't protect
+        // across two separate calls. If rack A is being removed and
+        // rack B is being placed at A's former cell, the in-building
+        // call can hit the partial unique index before the unassign
+        // commits. dispatch short-circuits when the list is empty.
+        await dispatch(unassign, undefined);
+        await dispatch(inBuilding, building.id);
       } catch (err) {
         setErrorMsg(
           err instanceof Error ? `Failed to save rack positions: ${err.message}.` : "Failed to save rack positions.",

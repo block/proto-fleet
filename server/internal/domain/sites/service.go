@@ -321,31 +321,44 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 		// When the caller opted into the force-clear branch, treat
 		// DEVICE_IN_RACK_AT_OTHER_SITE conflicts as a cascade-clear
 		// signal instead of a rejection. DEVICE_NOT_FOUND still aborts
-		// — the caller can't move what doesn't exist. We filter the
-		// conflict list and require collectionStore to be wired before
-		// touching the rack rows.
+		// — the caller can't move what doesn't exist. Partition
+		// conflicts: only identifiers whose blocker is rack-at-other-
+		// site get their rack memberships cleared. Devices already at
+		// the target site (no conflict) keep their rack rows, so we
+		// don't cascade-delete unrelated rack_slot rows.
 		if params.ForceClearConflictingRackMembership && len(conflicts) > 0 {
-			filtered := conflicts[:0]
-			hasRackConflict := false
+			var (
+				clearableIDs []string
+				residual     []models.PerDeviceConflict
+			)
 			for _, c := range conflicts {
 				if c.Reason == models.ReasonDeviceInRackAtOtherSite {
-					hasRackConflict = true
+					clearableIDs = append(clearableIDs, c.DeviceIdentifier)
 					continue
 				}
-				filtered = append(filtered, c)
+				residual = append(residual, c)
 			}
-			conflicts = filtered
-			if hasRackConflict {
+			// Abort BEFORE any deletion when residual non-clearable
+			// conflicts remain. Otherwise the tx would commit the
+			// rack-membership delete for clearable devices and then
+			// return without the site move, leaving rack-stripped
+			// devices on their old site.
+			if len(residual) > 0 {
+				txConflicts = residual
+				return nil
+			}
+			if len(clearableIDs) > 0 {
 				if s.collectionStore == nil {
 					return fleeterror.NewInternalErrorf("force-clear branch requires a collection store")
 				}
-				// Pass targetRackID=0 so the helper clears every rack
-				// membership for these devices — there's no target rack
-				// here, just a site move. The F2 fix made this branch
-				// safe (0 means "exclude nothing").
-				if _, err := s.collectionStore.RemoveDevicesFromAnyRack(txCtx, params.OrgID, identifiers, 0); err != nil {
+				// Clear only the rack memberships for devices that
+				// actually had the cross-site conflict. targetRackID=0
+				// means "exclude nothing", i.e. drop every rack row
+				// for the listed devices.
+				if _, err := s.collectionStore.RemoveDevicesFromAnyRack(txCtx, params.OrgID, clearableIDs, 0); err != nil {
 					return err
 				}
+				conflicts = nil
 			}
 		}
 		if len(conflicts) > 0 {
