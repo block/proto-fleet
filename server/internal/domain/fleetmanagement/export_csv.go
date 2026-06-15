@@ -207,12 +207,19 @@ func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
 	return headers
 }
 
-// needsCredentialRemediation reports whether the device is in a paired state
-// that blocks telemetry until the operator acts (supplies credentials or changes
-// the default password).
+// needsCredentialRemediation reports whether the device needs operator action
+// (supply credentials or change the default password) and should surface as
+// "needs attention" in the status column.
 func needsCredentialRemediation(status pb.PairingStatus) bool {
 	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED ||
 		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
+}
+
+// telemetryGatedByAuth reports whether the device's telemetry is unavailable
+// because authentication is required. DEFAULT_PASSWORD devices still report
+// telemetry, so their metric values are exported normally.
+func telemetryGatedByAuth(status pb.PairingStatus) bool {
+	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
 }
 
 func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
@@ -303,7 +310,7 @@ func powerCSVValue(snapshot *pb.MinerStateSnapshot) string {
 }
 
 func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.CsvTemperatureUnit) string {
-	if needsCredentialRemediation(snapshot.PairingStatus) {
+	if telemetryGatedByAuth(snapshot.PairingStatus) {
 		return ""
 	}
 
@@ -332,7 +339,7 @@ func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.Csv
 }
 
 func measurementCSVValue(snapshot *pb.MinerStateSnapshot, measurements []*commonpb.Measurement) string {
-	if needsCredentialRemediation(snapshot.PairingStatus) {
+	if telemetryGatedByAuth(snapshot.PairingStatus) {
 		return ""
 	}
 

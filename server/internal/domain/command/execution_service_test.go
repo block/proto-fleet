@@ -2,11 +2,14 @@ package command
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // register the pgx SQL driver for sql.Open
 
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -18,6 +21,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -1463,4 +1467,53 @@ func TestShouldAppendMinerNameToUsername(t *testing.T) {
 	assert.False(t, shouldAppendMinerNameToUsername("wallet.worker-a"))
 	assert.False(t, shouldAppendMinerNameToUsername(""))
 	assert.False(t, shouldAppendMinerNameToUsername("   "))
+}
+
+// TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand verifies that
+// when the on-device password change succeeds but persisting the new credential
+// to the DB fails, the command is reported as failed rather than a false success
+// (which would leave Fleet with stale credentials).
+func TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	})
+	require.NoError(t, err)
+
+	// A closed DB makes the credential-persistence transaction fail deterministically.
+	closedDB, err := sql.Open("pgx", "")
+	require.NoError(t, err)
+	require.NoError(t, closedDB.Close())
+
+	mockQueue := mocks.NewMockMessageQueue(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+
+	payload, err := json.Marshal(dto.UpdateMinerPasswordPayload{CurrentPassword: "old", NewPassword: "new"})
+	require.NoError(t, err)
+	message := queue.Message{ID: 7, DeviceID: 50, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
+
+	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()
+	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("dev-50")).AnyTimes()
+	// On-device password change succeeds.
+	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), gomock.Any()).Return(nil)
+
+	svc := NewExecutionService(t.Context(), &Config{
+		MaxWorkers:             5,
+		MasterPollingInterval:  10 * time.Millisecond,
+		WorkerExecutionTimeout: 5 * time.Second,
+	}, closedDB, mockQueue, encryptSvc, nil, mockMinerGetter, nil, nil, nil)
+
+	// Act
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, message)
+
+	// Assert
+	require.Error(t, err, "persist failure after on-device change must fail the command")
+	assert.Contains(t, err.Error(), "credential persistence failed")
 }

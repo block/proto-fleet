@@ -178,6 +178,14 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Needs attention",
 		},
 		{
+			name: "default password overrides online to needs attention",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "Needs attention",
+		},
+		{
 			name:     "needs mining pool",
 			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL},
 			expected: "Needs attention",
@@ -221,6 +229,13 @@ func TestMinerIssuesCSVValue(t *testing.T) {
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 			},
 			expected: "Authentication required",
+		},
+		{
+			name: "default password",
+			snapshot: &pb.MinerStateSnapshot{
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "Password change required",
 		},
 		{
 			name:     "needs mining pool",
@@ -483,4 +498,23 @@ func TestMeasurementCSVValue_AuthNeededOverridesInactive(t *testing.T) {
 		PairingStatus: pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
 	}
 	assert.Equal(t, "", measurementCSVValue(snapshot, nil), "auth-needed with inactive status should return empty, not dash")
+}
+
+// TestMeasurementCSVValue_DefaultPasswordExportsTelemetry verifies that
+// DEFAULT_PASSWORD devices export their telemetry values (telemetry is not gated
+// by the default password), unlike AUTHENTICATION_NEEDED which blanks them.
+func TestMeasurementCSVValue_DefaultPasswordExportsTelemetry(t *testing.T) {
+	snapshot := &pb.MinerStateSnapshot{
+		DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
+		PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+	}
+	measurements := []*commonpb.Measurement{{Value: 42}}
+
+	assert.Equal(t, "42.000", measurementCSVValue(snapshot, measurements),
+		"default-password devices report telemetry, so values must be exported")
+	assert.Equal(t, "42.000", temperatureCSVValue(&pb.MinerStateSnapshot{
+		DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
+		PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+		Temperature:   measurements,
+	}, pb.CsvTemperatureUnit_CSV_TEMPERATURE_UNIT_CELSIUS))
 }
