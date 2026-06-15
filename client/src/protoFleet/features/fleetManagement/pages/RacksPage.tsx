@@ -241,6 +241,7 @@ const RacksPage = () => {
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
+      setSelectedRackIds([]);
       if (key === "zone") {
         setSelectedZones(values);
         selectedZonesRef.current = values;
@@ -311,6 +312,7 @@ const RacksPage = () => {
   const handleClearRackSelection = useCallback(() => setSelectedRackIds([]), []);
 
   const handleClearFilters = useCallback(() => {
+    setSelectedRackIds([]);
     // Snapshot before state changes — these flags drive the "ride the
     // URL-change effect" branch below.
     const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
@@ -498,13 +500,40 @@ const RacksPage = () => {
   }, [hasCompletedInitialFetch, isModalOpen, refreshCurrentPage]);
 
   // Sort dropdown handler for grid view
+  const handleRackSort: typeof handleSort = useCallback(
+    (field, direction) => {
+      setSelectedRackIds([]);
+      handleSort(field, direction);
+    },
+    [handleSort],
+  );
+
   const handleSortSelect = useCallback(
     (selected: string[]) => {
       const nextSort = getNextSortFromSelection(selected, currentSort);
-      handleSort(nextSort.field, nextSort.direction);
+      handleRackSort(nextSort.field, nextSort.direction);
     },
-    [currentSort, handleSort],
+    [currentSort, handleRackSort],
   );
+
+  const handleRacksViewModeSelect = useCallback(
+    (key: string) => {
+      const nextViewMode = key === "list" ? "list" : "grid";
+      if (nextViewMode === "grid") setSelectedRackIds([]);
+      setRacksViewMode(nextViewMode);
+    },
+    [setRacksViewMode],
+  );
+
+  const handleRackNextPage = useCallback(() => {
+    setSelectedRackIds([]);
+    handleNextPage();
+  }, [handleNextPage]);
+
+  const handleRackPrevPage = useCallback(() => {
+    setSelectedRackIds([]);
+    handlePrevPage();
+  }, [handlePrevPage]);
 
   // Grid pagination
   const firstItemIndex = currentPage * DEFAULT_PAGE_SIZE + 1;
@@ -592,7 +621,7 @@ const RacksPage = () => {
                 { key: "list", title: "View list" },
               ]}
               initialSegmentKey={racksViewMode}
-              onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
+              onSelect={handleRacksViewModeSelect}
             />
           </div>
           {/* Desktop layout — single row with toggle + filters left, buttons right */}
@@ -605,7 +634,7 @@ const RacksPage = () => {
                 { key: "list", title: "View list" },
               ]}
               initialSegmentKey={racksViewMode}
-              onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
+              onSelect={handleRacksViewModeSelect}
             />
             <FilterChipsBar
               filters={filterChipsBarFilters}
@@ -663,7 +692,7 @@ const RacksPage = () => {
             renderBuilding={renderBuilding}
             columns={insideFleetShell && MULTI_SITE_ENABLED ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
-            onSort={handleSort}
+            onSort={handleRackSort}
             itemName={{ singular: "rack", plural: "racks" }}
             total={totalCount}
             loading={isLoading}
@@ -671,8 +700,8 @@ const RacksPage = () => {
             currentPage={currentPage}
             hasPreviousPage={currentPage > 0}
             hasNextPage={hasNextPage}
-            onNextPage={handleNextPage}
-            onPrevPage={handlePrevPage}
+            onNextPage={handleRackNextPage}
+            onPrevPage={handleRackPrevPage}
             emptyStateRow={emptyStateRow}
             selectedIds={selectedRackIds}
             onSelectedIdsChange={setSelectedRackIds}
@@ -725,7 +754,7 @@ const RacksPage = () => {
                   size={sizes.compact}
                   ariaLabel="Previous page"
                   prefixIcon={<ChevronDown className="rotate-90" />}
-                  onClick={handlePrevPage}
+                  onClick={handleRackPrevPage}
                   disabled={currentPage === 0}
                 />
                 <Button
@@ -733,7 +762,7 @@ const RacksPage = () => {
                   size={sizes.compact}
                   ariaLabel="Next page"
                   prefixIcon={<ChevronDown className="rotate-270" />}
-                  onClick={handleNextPage}
+                  onClick={handleRackNextPage}
                   disabled={!hasNextPage}
                 />
               </div>
