@@ -18,7 +18,7 @@ const DOT_CLASS: Record<ValidationState, string> = {
 };
 
 const ChannelStatusBadge = ({ state }: ChannelStatusBadgeProps) => (
-  <span className="inline-flex items-center gap-2 text-200 text-text-primary-50">
+  <span className="inline-flex items-center gap-2 text-300 text-text-primary-50">
     <span className={clsx("h-2 w-2 rounded-full", DOT_CLASS[state])} />
     {LABEL[state]}
   </span>
