@@ -112,15 +112,30 @@ Prefixes:
 
 ### Pull Requests
 
-Create PRs with a clear summary and test plan:
+Write the description so a reviewer can judge the architecture and technical
+decisions without reading the low-level code. Use the six-part structure
+documented in the **PR descriptions** section of [AGENTS.md](./AGENTS.md):
+Summary, How it works, Diagrams (mermaid, so they render on GitHub), Areas of
+the code involved, Key technical decisions & trade-offs, and Testing &
+validation. Scale each section to the change — a one-line fix does not need a
+diagram, a new subsystem does.
 
 ```bash
 gh pr create --title "Brief description" --body "## Summary
-- Bullet point summary of changes
+- What this delivers and why
 
-## Test Plan
-- How to verify the changes work"
+## How it works
+- The end-to-end mechanism in plain language
+
+## Areas of the code involved
+| Area / file | What changed | Why it matters for review |
+| --- | --- | --- |
+
+## Testing & validation
+- What was run and how to verify; what is not covered"
 ```
+
+Claude Code users can generate a conforming description with `/pr-describe`.
 
 ## Cross-Component Workflows
 

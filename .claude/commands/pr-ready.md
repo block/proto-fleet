@@ -40,9 +40,13 @@ PR description they can paste — or open the PR directly if asked.
    imports (`client-boundaries`), edits to deployed migrations
    (`migration-immutability`), `--no-verify` slipping in
    (`lefthook-bypass-guard`).
-5. Draft a PR description following the format in CONTRIBUTING.md:
-   - **Summary** (1–3 bullets, focus on the *why*)
-   - **Test Plan** (what was run, how to verify manually)
+5. Draft a PR description following the **PR descriptions** standard in
+   AGENTS.md — the same six-part structure `/pr-describe` produces: Summary,
+   How it works, Diagrams (mermaid), Areas of the code involved, Key technical
+   decisions & trade-offs, and Testing & validation. Fold the lint and test
+   results from steps 2–4 into the Testing & validation section. You already
+   have the diff and subsystem list from step 1, so draft inline rather than
+   re-deriving; run `/pr-describe` instead if you want the full standalone pass.
 6. **Open the PR only if the user's invocation explicitly asked you to**
    (e.g. "open it", "create the PR", "ship it"). Otherwise stop after
    presenting the draft so the user can edit it before running
