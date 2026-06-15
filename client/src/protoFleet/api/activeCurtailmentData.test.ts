@@ -14,10 +14,11 @@ import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
   CurtailmentEventState,
+  CurtailmentTargetSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
-const { mockGetActiveCurtailment, mockGetCurtailmentEvent } = vi.hoisted(() => ({
-  mockGetActiveCurtailment: vi.fn(),
+const { mockListActiveCurtailments, mockGetCurtailmentEvent } = vi.hoisted(() => ({
+  mockListActiveCurtailments: vi.fn(),
   mockGetCurtailmentEvent: vi.fn(),
 }));
 vi.mock("@/protoFleet/api/clients", () => {
@@ -25,9 +26,8 @@ vi.mock("@/protoFleet/api/clients", () => {
 
   return {
     curtailmentClient: {
-      getActiveCurtailment: mockGetActiveCurtailment,
       listActiveCurtailments: async (...args: unknown[]) => {
-        const response = (await mockGetActiveCurtailment(...args)) as {
+        const response = (await mockListActiveCurtailments(...args)) as {
           event?: CurtailmentEvent;
           events?: CurtailmentEvent[];
         };
@@ -45,7 +45,7 @@ vi.mock("@/protoFleet/api/clients", () => {
 function curtailmentEvent(
   eventUuid: string,
   state = CurtailmentEventState.ACTIVE,
-  overrides: { reason?: string } = {},
+  overrides: Partial<CurtailmentEvent> = {},
 ): CurtailmentEvent {
   return create(CurtailmentEventSchema, { eventUuid, state, ...overrides });
 }
@@ -59,7 +59,7 @@ describe("activeCurtailmentData", () => {
 
   it("keeps dismissed events suppressed when an older refresh is discarded", async () => {
     let resolveRefresh: (value: { event: CurtailmentEvent }) => void = () => {};
-    mockGetActiveCurtailment
+    mockListActiveCurtailments
       .mockReturnValueOnce(
         new Promise<{ event: CurtailmentEvent }>((resolve) => {
           resolveRefresh = resolve;
@@ -89,7 +89,7 @@ describe("activeCurtailmentData", () => {
     expect(snapshot.event?.eventUuid).toBe(activeEvent.eventUuid);
     expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
 
-    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [restoredEvent, activeEvent] });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [restoredEvent, activeEvent] });
     await refreshActiveCurtailmentData();
     snapshot = getActiveCurtailmentSnapshot();
 
@@ -98,7 +98,7 @@ describe("activeCurtailmentData", () => {
   });
 
   it("starts a fresh request after all shared request subscribers abort", async () => {
-    mockGetActiveCurtailment
+    mockListActiveCurtailments
       .mockImplementationOnce(
         (_request: unknown, options?: { signal?: AbortSignal }) =>
           new Promise((_resolve, reject) => {
@@ -119,13 +119,13 @@ describe("activeCurtailmentData", () => {
     const freshRefresh = await fetchActiveCurtailmentData();
 
     expect(freshRefresh.event?.eventUuid).toBe("fresh-event");
-    expect(mockGetActiveCurtailment).toHaveBeenCalledTimes(2);
+    expect(mockListActiveCurtailments).toHaveBeenCalledTimes(2);
     await expect(abortedRequest).resolves.toBeInstanceOf(DOMException);
   });
 
   it("keeps a newer applied event when a later subscriber commits a stale shared refresh", async () => {
     let resolveRefresh: (value: { event?: CurtailmentEvent }) => void = () => undefined;
-    mockGetActiveCurtailment.mockReturnValueOnce(
+    mockListActiveCurtailments.mockReturnValueOnce(
       new Promise<{ event?: CurtailmentEvent }>((resolve) => {
         resolveRefresh = resolve;
       }),
@@ -145,7 +145,7 @@ describe("activeCurtailmentData", () => {
 
   it("preserves a mutation-backed event through one stale shared active refresh", async () => {
     applyActiveCurtailmentEvent(curtailmentEvent("started-event"), { preserveAgainstStaleRefresh: true });
-    mockGetActiveCurtailment.mockResolvedValueOnce({ event: undefined }).mockResolvedValueOnce({ event: undefined });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: undefined }).mockResolvedValueOnce({ event: undefined });
 
     const firstRefresh = fetchActiveCurtailmentData();
     const secondRefresh = fetchActiveCurtailmentData();
@@ -166,7 +166,7 @@ describe("activeCurtailmentData", () => {
         preserveAgainstStaleRefresh: true,
       },
     );
-    mockGetActiveCurtailment.mockResolvedValueOnce({
+    mockListActiveCurtailments.mockResolvedValueOnce({
       event: curtailmentEvent("updated-event", CurtailmentEventState.ACTIVE, { reason: "Previous" }),
     });
 
@@ -175,26 +175,79 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event?.reason).toBe("Updated");
   });
 
-  it("hydrates every listed active curtailment before committing the active list", async () => {
+  it("hydrates only the selected active curtailment before committing the active list", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
     const activeDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Detail A" });
-    const otherDetail = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Detail B" });
-    mockGetActiveCurtailment.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
-    mockGetCurtailmentEvent.mockImplementation(async ({ eventUuid }: { eventUuid: string }) => ({
-      event: eventUuid === "active-a" ? activeDetail : otherDetail,
-    }));
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: activeDetail });
 
     await refreshActiveCurtailmentData();
 
     const snapshot = getActiveCurtailmentSnapshot();
     expect(snapshot.event?.reason).toBe("Detail A");
-    expect(snapshot.events.map((event) => event.reason)).toEqual(["Detail A", "Detail B"]);
-    expect(mockGetCurtailmentEvent).toHaveBeenCalledTimes(2);
+    expect(snapshot.events.map((event) => event.reason)).toEqual(["Detail A", "Summary B"]);
+    expect(mockGetCurtailmentEvent).toHaveBeenCalledOnce();
+    expect(mockGetCurtailmentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventUuid: "active-a" }),
+      expect.anything(),
+    );
+  });
+
+  it("falls back to the selected summary when active detail hydration fails", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
+    mockGetCurtailmentEvent.mockRejectedValueOnce(new Error("detail unavailable"));
+
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.reason).toBe("Summary A");
+    expect(snapshot.events.map((event) => event.reason)).toEqual(["Summary A", "Summary B"]);
+  });
+
+  it("loads every selected active detail target page before committing detail", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Detail A",
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1" })],
+    });
+    const secondPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Detail A",
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-2" })],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary] });
+    mockGetCurtailmentEvent
+      .mockResolvedValueOnce({ event: firstPageDetail, nextTargetPageToken: "page-2" })
+      .mockResolvedValueOnce({ event: secondPageDetail, nextTargetPageToken: "" });
+
+    await refreshActiveCurtailmentData();
+
+    expect(getActiveCurtailmentSnapshot().event?.targets.map((target) => target.deviceIdentifier)).toEqual([
+      "miner-1",
+      "miner-2",
+    ]);
+    expect(mockGetCurtailmentEvent.mock.calls.map(([request]) => request.targetPageToken)).toEqual(["", "page-2"]);
+  });
+
+  it("preserves a selected restored curtailment while another active curtailment remains listed", async () => {
+    const activeEvent = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE);
+    const restoredEvent = curtailmentEvent("restored-event", CurtailmentEventState.COMPLETED);
+
+    applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(restoredEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeEvent] });
+
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.eventUuid).toBe(restoredEvent.eventUuid);
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
   });
 
   it("rejects a reset-aborted shared request as an AbortError", async () => {
-    mockGetActiveCurtailment.mockImplementationOnce(
+    mockListActiveCurtailments.mockImplementationOnce(
       (_request: unknown, options?: { signal?: AbortSignal }) =>
         new Promise((_resolve, reject) => {
           options?.signal?.addEventListener("abort", () => reject(new ConnectError("canceled", Code.Canceled)), {
@@ -211,7 +264,7 @@ describe("activeCurtailmentData", () => {
 
   it("clears a restoring curtailment after an empty active response", async () => {
     applyActiveCurtailmentEvent(curtailmentEvent("restoring", CurtailmentEventState.RESTORING));
-    mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
+    mockListActiveCurtailments.mockResolvedValue({ event: undefined });
 
     await refreshActiveCurtailmentData();
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
@@ -219,7 +272,7 @@ describe("activeCurtailmentData", () => {
 
   it("does not let stale empty refreshes clear a newer restoring event", async () => {
     let resolveStaleRefresh: (value: { event?: CurtailmentEvent }) => void = () => undefined;
-    mockGetActiveCurtailment
+    mockListActiveCurtailments
       .mockReturnValueOnce(
         new Promise<{ event?: CurtailmentEvent }>((resolve) => {
           resolveStaleRefresh = resolve;
@@ -245,7 +298,7 @@ describe("activeCurtailmentData", () => {
     ["incomplete restore", CurtailmentEventState.COMPLETED_WITH_FAILURES],
   ])("preserves a %s curtailment through empty active responses until dismissal", async (eventUuid, state) => {
     applyActiveCurtailmentEvent(curtailmentEvent(eventUuid, state));
-    mockGetActiveCurtailment.mockResolvedValue({ event: undefined });
+    mockListActiveCurtailments.mockResolvedValue({ event: undefined });
 
     await refreshActiveCurtailmentData();
     await refreshActiveCurtailmentData();

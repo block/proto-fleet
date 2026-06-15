@@ -489,12 +489,12 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const applyEvent = useCallback(
     (event: ProtoCurtailmentEvent) => {
       const state = mapCurtailmentEventState(event.state);
-      const shouldShowActiveEvent = visibleActiveCurtailmentEventStates.has(state);
-      const activeSnapshot = applyActiveCurtailmentEvent(shouldShowActiveEvent ? event : undefined, {
+      const activeSnapshot = applyActiveCurtailmentEvent(event, {
         mergeActiveEvents: true,
         preserveAgainstStaleRefresh: true,
       });
-      const nextActiveEvent = shouldShowActiveEvent ? mapActiveCurtailmentEvent(event) : null;
+      const nextActiveSnapshotEvent = activeSnapshot.event;
+      const nextActiveEvent = getActiveSnapshotEvent(nextActiveSnapshotEvent);
       const activeStatusFilters = historyStatusFiltersRef.current;
       const shouldUpdateHistoryPage =
         historyPaginationRef.current.currentPage === 0 &&
@@ -508,8 +508,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           current.historyEvents,
           activeStatusFilters,
         ),
-        activeEventId: nextActiveEvent ? event.eventUuid : null,
-        activeEventFormValues: nextActiveEvent ? mapCurtailmentEventToFormValues(event) : null,
+        activeEventId: nextActiveSnapshotEvent && nextActiveEvent ? nextActiveSnapshotEvent.eventUuid : null,
+        activeEventFormValues:
+          nextActiveSnapshotEvent && nextActiveEvent ? mapCurtailmentEventToFormValues(nextActiveSnapshotEvent) : null,
         historyEvents: shouldUpdateHistoryPage
           ? upsertHistoryEvent(current.historyEvents, event)
           : current.historyEvents,
