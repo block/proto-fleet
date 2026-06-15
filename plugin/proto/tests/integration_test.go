@@ -16,9 +16,11 @@ import (
 
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/internal/driver"
-	"github.com/block/proto-fleet/plugin/proto/tests/testutils"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
+
+// testCredentials are the factory defaults the fake rig is seeded with below.
+var testCredentials = sdk.UsernamePassword{Username: "admin", Password: "proto"}
 
 func TestProtoPluginIntegration(t *testing.T) {
 	if testing.Short() {
@@ -26,11 +28,6 @@ func TestProtoPluginIntegration(t *testing.T) {
 	}
 
 	ctx := t.Context()
-
-	// Generate a key pair that will be used throughout the test
-	// This simulates the real workflow where the same key pair is used for pairing and JWT generation
-	keyPair, err := testutils.GenerateEd25519KeyPair()
-	require.NoError(t, err, "Failed to generate Ed25519 key pair for test")
 
 	// Start fake-proto-rig container (Go-based simulator)
 	req := testcontainers.ContainerRequest{
@@ -44,8 +41,9 @@ func TestProtoPluginIntegration(t *testing.T) {
 		ExposedPorts: []string{"8080/tcp"},
 		WaitingFor:   wait.ForHTTP("/health").WithPort("8080/tcp").WithStartupTimeout(2 * time.Minute),
 		Env: map[string]string{
-			"HTTP_PORT":     "8080",
-			"SERIAL_NUMBER": "PROTO-SIM-TEST",
+			"HTTP_PORT":         "8080",
+			"SERIAL_NUMBER":     "PROTO-SIM-TEST",
+			"FAKE_RIG_PASSWORD": "proto",
 		},
 	}
 
@@ -78,7 +76,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 		handshake, err := d.Handshake(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, "proto", handshake.DriverName)
-		assert.Equal(t, "v1", handshake.APIVersion)
+		assert.Equal(t, "v2", handshake.APIVersion)
 	})
 
 	t.Run("Driver Describe", func(t *testing.T) {
@@ -102,52 +100,37 @@ func TestProtoPluginIntegration(t *testing.T) {
 		deviceInfo, err := d.DiscoverDevice(ctx, host, mappedPort.Port())
 		require.NoError(t, err)
 
-		// Get the public key in the format expected by the miner (base64 SPKI DER)
-		publicKeyBase64, err := keyPair.PublicKeyBase64()
-		require.NoError(t, err, "Failed to encode public key")
-
-		// Test pairing with real Ed25519 public key
+		// Test pairing with username/password credentials
 		pairingSecret := sdk.SecretBundle{
 			Version: "v1",
-			Kind: sdk.APIKey{
-				Key: publicKeyBase64,
-			},
+			Kind:    testCredentials,
 		}
 
-		// Attempt pairing with real Ed25519 key
-		// This may still fail if the sim-miner doesn't support pairing, but the error
-		// should be authentication-related, not a parsing error
+		// Pairing verifies the credentials by logging in to the rig.
 		result, err := d.PairDevice(ctx, deviceInfo, pairingSecret)
-		require.NoError(t, err, "Pairing failed with real Ed25519 key")
+		require.NoError(t, err, "Pairing failed with credentials")
 		assert.NotEmpty(t, result.SerialNumber, "Pairing result should include serial number")
 		assert.NotEmpty(t, result.MacAddress, "Pairing result should include MAC address")
 		assert.Equal(t, deviceInfo.Host, result.Host, "Host should match")
 		assert.Equal(t, deviceInfo.Port, result.Port, "Port should match")
 	})
 
-	t.Run("Real Miner Operations With JWT", func(t *testing.T) {
+	t.Run("Real Miner Operations With Credentials", func(t *testing.T) {
 		// Discover device
 		deviceInfo, err := d.DiscoverDevice(ctx, host, mappedPort.Port())
 		require.NoError(t, err)
 
-		// Generate a real JWT token signed with the same Ed25519 private key used for pairing
-		// Use the device serial number as the subject
-		jwtToken, err := keyPair.GenerateJWT(deviceInfo.SerialNumber, 1*time.Hour)
-		require.NoError(t, err, "Failed to generate JWT token")
-
-		// Create operation secret with real JWT token
+		// Create operation secret with username/password credentials
 		operationSecret := sdk.SecretBundle{
 			Version: "v1",
-			Kind: sdk.BearerToken{
-				Token: jwtToken,
-			},
+			Kind:    testCredentials,
 		}
 
-		// Create device instance using the real JWT token
+		// Create device instance using the credentials
 		deviceID := "test-device"
 		result, err := d.NewDevice(ctx, deviceID, deviceInfo, operationSecret)
 
-		require.NoError(t, err, "Device creation failed with real JWT token")
+		require.NoError(t, err, "Device creation failed with credentials")
 
 		// If device creation succeeded, test basic operations
 		require.NotNil(t, result, "Device creation result should not be nil if no error occurred")
@@ -155,7 +138,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 		defer result.Device.Close(ctx)
 
-		device, err := device.New(deviceID, deviceInfo, sdk.BearerToken{Token: jwtToken}, device.SetStatusTTL(0*time.Second))
+		device, err := device.New(deviceID, deviceInfo, testCredentials, device.SetStatusTTL(0*time.Second))
 		require.NoError(t, err)
 		t.Run("Get Status", func(t *testing.T) {
 			metrics, err := device.Status(ctx)

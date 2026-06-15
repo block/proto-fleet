@@ -242,6 +242,10 @@ enum PairingStatus {
 
   // Devices that failed to pair
   PAIRING_STATUS_FAILED = 5;
+
+  // Devices that are paired but still using the factory default password;
+  // the password must be changed before they can be operated.
+  PAIRING_STATUS_DEFAULT_PASSWORD = 6;
 }
 
 // Removed ComponentType enum and ComponentStatusFilter - now using errors.v1.ComponentType directly

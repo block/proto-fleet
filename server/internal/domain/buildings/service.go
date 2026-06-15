@@ -785,6 +785,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		PairingStatuses: []fm.PairingStatus{
 			fm.PairingStatus_PAIRING_STATUS_PAIRED,
 			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 		},
 		Limit: MaxDevicesPerStatsResponse + 1,
 	}

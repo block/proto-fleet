@@ -831,6 +831,8 @@ func ProtoPairingStatusToSQL(status fm.PairingStatus) sqlc.PairingStatusEnum {
 		return sqlc.PairingStatusEnumUNPAIRED
 	case fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
 		return sqlc.PairingStatusEnumAUTHENTICATIONNEEDED
+	case fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD:
+		return sqlc.PairingStatusEnumDEFAULTPASSWORD
 	case fm.PairingStatus_PAIRING_STATUS_PENDING:
 		return sqlc.PairingStatusEnumPENDING
 	case fm.PairingStatus_PAIRING_STATUS_FAILED:
@@ -1141,26 +1143,26 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 SELECT
     COALESCE(SUM(CASE
         WHEN filtered.status = 'OFFLINE'
-             OR (filtered.status IS NULL AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
         THEN 1 ELSE 0
     END), 0)::bigint AS offline_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
-             AND filtered.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
         THEN 1 ELSE 0
     END), 0)::bigint AS sleeping_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (filtered.status IS NULL AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
-             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
              AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR filtered.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR filtered.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
                   OR filtered.has_open_error)
         THEN 1 ELSE 0
     END), 0)::bigint AS broken_count,
     COALESCE(SUM(CASE
         WHEN filtered.status = 'ACTIVE'
-             AND filtered.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
              AND NOT filtered.has_open_error
         THEN 1 ELSE 0
     END), 0)::bigint AS hashing_count
@@ -1177,7 +1179,7 @@ FROM (
 LEFT JOIN open_errors ON device.id = open_errors.device_id`)
 	sb.WriteString(minerWhereClause)
 	sb.WriteString(`
-    AND device_pairing.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')`)
+    AND device_pairing.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')`)
 
 	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
 	sb.WriteString(`
@@ -1394,29 +1396,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
     END), 0)::int AS hashing_count
@@ -1440,7 +1442,7 @@ WHERE dcm.device_set_id = ANY($2::bigint[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
 GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))

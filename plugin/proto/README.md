@@ -1,6 +1,6 @@
 # Proto Miner Plugin
 
-A Fleet plugin for the Proto mining system, implementing SDK v1 with authentication and testing.
+A Fleet plugin for the Proto mining system, implementing SDK v1 with credentials-based authentication and testing.
 
 ## Overview
 
@@ -59,8 +59,8 @@ plugin/proto/                  # Plugin root
 ## Key Features
 
 ### ✅ **Features**
-- Device discovery and pairing with Ed25519 public key authentication
-- JWT-based device authentication for secure operations
+- Device discovery and pairing with username/password credentials
+- Token-based session management with automatic re-login on expiry
 - Mining control (start/stop) with real-time status monitoring
 - Comprehensive telemetry collection (hashrate, power, temperature)
 - Pool configuration with priority-based failover
@@ -70,11 +70,10 @@ plugin/proto/                  # Plugin root
 - TLS/HTTP2 support with configurable security settings
 
 ### 🔐 **Authentication & Security**
-- Ed25519 key pair generation for cryptographic pairing
-- JWT token management with proper signing and validation
-- Bearer token authentication for API operations
+- Username/password login with factory-default auto-pairing (`admin`/`proto`)
+- Cached access tokens with automatic re-login when the rig rejects a token
+- Default-password lockout handling via the `UpdateMinerPassword` flow
 - TLS certificate verification with configurable bypass for development
-- Context-based auth injection for all API calls
 - Secure credential handling through SDK SecretBundle interface
 
 ### 🧪 **Testing & Quality**
@@ -141,55 +140,28 @@ deviceInfo, err := driver.DiscoverDevice(ctx, "192.168.1.100", "443")
 
 ### Authentication
 
-The plugin supports multiple authentication methods with a focus on security:
+The plugin authenticates to Proto rigs with username/password credentials. The
+factory defaults are `admin` / `proto`; the server auto-pairs with these when the
+operator does not supply credentials (see `GetDefaultCredentials`). The client
+logs in to the rig's `/api/v1/auth/login` endpoint, caches the returned access
+token, and re-logs in automatically when the rig rejects the token.
 
-#### Ed25519 Key Pair Authentication (Pairing)
+#### Credentials Authentication (Pairing and Operations)
 ```go
-// Generate Ed25519 key pair for pairing
-keyPair, err := testutils.GenerateEd25519KeyPair()
-publicKeyBase64, err := keyPair.PublicKeyBase64()
-
-// Use public key for device pairing
-pairingSecret := sdk.SecretBundle{
-    Version: "v1",
-    Kind: sdk.APIKey{
-        Key: publicKeyBase64,
-    },
-}
-```
-
-#### JWT Bearer Token Authentication (Operations)
-```go
-// Generate JWT token signed with Ed25519 private key
-jwtToken, err := keyPair.GenerateJWT(deviceSerialNumber, 1*time.Hour)
-
-// Use JWT token for device operations
-operationSecret := sdk.SecretBundle{
-    Version: "v1",
-    Kind: sdk.BearerToken{
-        Token: jwtToken,
-    },
-}
-```
-
-#### Alternative Authentication Methods
-```go
-// API key (for simple implementations)
-secret := sdk.SecretBundle{
-    Version: "v1", 
-    Kind: sdk.APIKey{Key: "your-key"},
-}
-
-// TLS client certificate (for certificate-based auth)
+// Pair and operate with username/password credentials.
 secret := sdk.SecretBundle{
     Version: "v1",
-    Kind: sdk.TLSClientCert{
-        ClientCertPEM: certPEM,
-        KeyPEM: keyPEM,
-        CACertPEM: caPEM,
+    Kind: sdk.UsernamePassword{
+        Username: "admin",
+        Password: "proto",
     },
 }
 ```
+
+Devices paired before the credentials switch have no stored credentials; the
+plugin falls back to the factory defaults so they reconnect. Proto firmware gates
+operational endpoints behind a default-password lockout — change the password via
+`UpdateMinerPassword` to clear it.
 
 ## Testing
 

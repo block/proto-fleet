@@ -19,6 +19,7 @@ func TestDriverDescribe(t *testing.T) {
 	require.NoError(t, err, "DescribeDriver should not return error")
 
 	assert.Equal(t, "proto", handshake.DriverName, "Expected driver name 'proto'")
+	assert.Equal(t, "v2", handshake.APIVersion, "Expected credentials-auth driver to report API version v2")
 
 	// Check required capabilities
 	requiredCaps := []string{
@@ -28,13 +29,48 @@ func TestDriverDescribe(t *testing.T) {
 		sdk.CapabilityPowerModeEfficiency,
 		sdk.CapabilityCurtailFull,
 		sdk.CapabilityCurtailEfficiency,
+		sdk.CapabilityBasicAuth,
+		sdk.CapabilityLogLevels,
 	}
 
 	for _, cap := range requiredCaps {
 		assert.True(t, caps[cap], "Expected capability '%s' to be true", cap)
 	}
 
+	assert.False(t, caps[sdk.CapabilityAsymmetricAuth], "Credentials-auth driver must not advertise asymmetric auth")
+
 	assert.Equal(t, []string{"443"}, driver.GetDiscoveryPorts(ctx))
+}
+
+// TestDriverGetDefaultCredentials verifies the driver advertises the factory
+// default credentials used for auto-authentication during pairing.
+func TestDriverGetDefaultCredentials(t *testing.T) {
+	// Arrange
+	d, err := driver.New(443)
+	require.NoError(t, err)
+
+	// Act
+	creds := d.GetDefaultCredentials(t.Context(), "Proto", "")
+
+	// Assert
+	require.Len(t, creds, 1)
+	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "proto"}, creds[0])
+}
+
+// TestNewDevice_WrongSecretKind verifies NewDevice rejects a non-credentials
+// secret bundle.
+func TestNewDevice_WrongSecretKind(t *testing.T) {
+	// Arrange
+	d, err := driver.New(443)
+	require.NoError(t, err)
+	deviceInfo := sdk.DeviceInfo{Host: "192.168.1.100", Port: 443, URLScheme: "https", SerialNumber: "PROTO123"}
+
+	// Act
+	_, err = d.NewDevice(t.Context(), deviceInfo.SerialNumber, deviceInfo, sdk.SecretBundle{Kind: sdk.APIKey{Key: "x"}})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected UsernamePassword")
 }
 
 func TestDriverGetDiscoveryPorts_Override(t *testing.T) {

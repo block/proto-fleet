@@ -16,6 +16,8 @@ func SDKDeviceMetricsToV2(sdkMetrics sdk.DeviceMetrics) modelsV2.DeviceMetrics {
 		Health:       mapHealthStatus(sdkMetrics.Health),
 		HealthReason: sdkMetrics.HealthReason,
 
+		DefaultPasswordActive: sdkMetrics.DefaultPasswordActive,
+
 		// Device-level aggregated metrics
 		HashrateHS:   mapMetricValue(sdkMetrics.HashrateHS),
 		TempC:        mapMetricValue(sdkMetrics.TempC),

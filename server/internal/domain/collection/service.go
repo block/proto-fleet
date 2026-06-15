@@ -1284,6 +1284,7 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 			PairingStatuses: []fm.PairingStatus{
 				fm.PairingStatus_PAIRING_STATUS_PAIRED,
 				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
 		}
 		if collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {

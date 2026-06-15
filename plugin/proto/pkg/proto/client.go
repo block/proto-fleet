@@ -53,10 +53,21 @@ var (
 
 // Client provides communication with a Proto miner via the MDK REST API.
 type Client struct {
-	baseURL     string
-	httpClient  *http.Client
-	bearerToken sdk.BearerToken
+	baseURL    string
+	httpClient *http.Client
+
+	// authMu guards credentials and accessToken. The client logs in lazily with
+	// the configured password and caches the returned access token, re-logging in
+	// when the rig rejects the token (401).
+	authMu      sync.Mutex
+	credentials sdk.UsernamePassword
+	accessToken string
 }
+
+// errInvalidCredentials is returned by loginWithPassword when the rig rejects
+// the supplied password (HTTP 401). Callers translate it into the wording their
+// surface expects (auth-failure detection vs. "incorrect current password").
+var errInvalidCredentials = errors.New("invalid credentials")
 
 // DeviceInfo represents basic device information.
 type DeviceInfo struct {
@@ -436,10 +447,66 @@ func createHTTPClient() *http.Client {
 	return sharedHTTPClient
 }
 
-// SetCredentials sets authentication credentials for API calls.
-func (c *Client) SetCredentials(bearerToken sdk.BearerToken) error {
-	c.bearerToken = bearerToken
+// SetCredentials sets the username/password used to authenticate API calls.
+// The access token is obtained lazily on the first authenticated request.
+func (c *Client) SetCredentials(credentials sdk.UsernamePassword) error {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	c.credentials = credentials
+	c.accessToken = ""
 	return nil
+}
+
+// Authenticate verifies the configured credentials by logging in. Used during
+// pairing to confirm the rig accepts the credentials before they are persisted.
+func (c *Client) Authenticate(ctx context.Context) error {
+	_, err := c.ensureToken(ctx)
+	return err
+}
+
+// hasCredentials reports whether a password is configured.
+func (c *Client) hasCredentials() bool {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	return c.credentials.Password != ""
+}
+
+// ensureToken returns a cached access token, logging in if none is cached.
+// Returns ("", nil) when no credentials are configured so that public endpoints
+// (e.g. discovery) can be reached unauthenticated.
+func (c *Client) ensureToken(ctx context.Context) (string, error) {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.accessToken != "" {
+		return c.accessToken, nil
+	}
+	if c.credentials.Password == "" {
+		return "", nil
+	}
+	return c.loginLocked(ctx)
+}
+
+// refreshToken forces a new login after a token is rejected. oldToken is the
+// token that just failed; if another goroutine already refreshed it, the newer
+// token is reused instead of logging in again.
+func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, error) {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.accessToken != "" && c.accessToken != oldToken {
+		return c.accessToken, nil
+	}
+	return c.loginLocked(ctx)
+}
+
+// loginLocked logs in with the configured password and caches the token.
+// The caller must hold authMu.
+func (c *Client) loginLocked(ctx context.Context) (string, error) {
+	token, err := c.loginWithPassword(ctx, c.credentials.Password)
+	if err != nil {
+		return "", fmt.Errorf("login failed: %w", err)
+	}
+	c.accessToken = token
+	return token, nil
 }
 
 // Close closes the client and cleans up resources.
@@ -447,30 +514,59 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// doRequest executes an HTTP request with authentication and returns the response.
+// doRequest executes an authenticated HTTP request and returns the response.
+// It logs in lazily, and if the rig rejects the token (401) it re-logs in once
+// and retries — covering tokens that expired or were invalidated by an
+// out-of-band login (e.g. a password change).
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	url := c.baseURL + path
-
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
-		bodyBytes, err := json.Marshal(body)
+		b, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
+		bodyBytes = b
+	}
+
+	token, err := c.ensureToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.sendRequest(ctx, method, path, bodyBytes, token)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized && c.hasCredentials() {
+		resp.Body.Close()
+		token, err = c.refreshToken(ctx, token)
+		if err != nil {
+			return nil, err
+		}
+		return c.sendRequest(ctx, method, path, bodyBytes, token)
+	}
+
+	return resp, nil
+}
+
+// sendRequest builds and executes a single HTTP request with the given token.
+func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string) (*http.Response, error) {
+	var bodyReader io.Reader
+	if bodyBytes != nil {
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if body != nil {
+	if bodyBytes != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-
-	if c.bearerToken.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.bearerToken.Token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -618,6 +714,20 @@ func (c *Client) GetSoftwareInfo(ctx context.Context) (string, error) {
 // GetFirmwareVersion retrieves the firmware (OS) version string from the miner.
 func (c *Client) GetFirmwareVersion(ctx context.Context) (string, error) {
 	return c.GetSoftwareInfo(ctx)
+}
+
+type systemStatusResponse struct {
+	DefaultPasswordActive bool `json:"default_password_active"`
+}
+
+// IsDefaultPasswordActive reports whether the rig still uses its factory default
+// password (read from the public /api/v1/system/status endpoint).
+func (c *Client) IsDefaultPasswordActive(ctx context.Context) (bool, error) {
+	var resp systemStatusResponse
+	if err := c.doGet(ctx, "/api/v1/system/status", &resp); err != nil {
+		return false, fmt.Errorf("failed to get system status: %w", err)
+	}
+	return resp.DefaultPasswordActive, nil
 }
 
 // GetUpdateStatus retrieves the firmware update installation status from the miner.
@@ -902,7 +1012,7 @@ func (c *Client) loginWithPassword(ctx context.Context, password string) (string
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return "", fmt.Errorf("incorrect current password")
+		return "", errInvalidCredentials
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -917,10 +1027,15 @@ func (c *Client) loginWithPassword(ctx context.Context, password string) (string
 	return tokens.AccessToken, nil
 }
 
-// ChangePassword updates the miner web UI password.
+// ChangePassword updates the miner web UI password. On success the client's
+// stored password is updated and the cached token cleared so the next request
+// re-logs in with the new password.
 func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
 	accessToken, err := c.loginWithPassword(ctx, currentPassword)
 	if err != nil {
+		if errors.Is(err, errInvalidCredentials) {
+			return fmt.Errorf("incorrect current password")
+		}
 		return err
 	}
 
@@ -952,6 +1067,11 @@ func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPasswor
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("change password failed with status %d", resp.StatusCode)
 	}
+
+	c.authMu.Lock()
+	c.credentials.Password = newPassword
+	c.accessToken = ""
+	c.authMu.Unlock()
 
 	return nil
 }
@@ -1173,14 +1293,21 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		writerDone <- pw.Close()
 	}()
 
+	// Log in proactively; the streamed multipart body can't be replayed, so a
+	// mid-upload 401 retry isn't possible — surface it as an unauthorized error.
+	token, err := c.ensureToken(ctx)
+	if err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, pr)
 	if err != nil {
 		return fmt.Errorf("failed to create firmware upload request: %w", err)
 	}
 	req.Header.Set("Content-Type", parts.contentType)
 	req.ContentLength = parts.contentLength
-	if c.bearerToken.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.bearerToken.Token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	// Use a client without the default 30s timeout — firmware uploads can take

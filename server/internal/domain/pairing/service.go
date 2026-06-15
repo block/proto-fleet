@@ -1467,7 +1467,9 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 			if statusErr != nil && !fleeterror.IsNotFoundError(statusErr) {
 				return "", fleeterror.NewInternalErrorf("error getting existing device pairing status: %v", statusErr)
 			}
-			knownPairedDevice = pairingStatus == StatusPaired || pairingStatus == StatusAuthenticationNeeded
+			knownPairedDevice = pairingStatus == StatusPaired ||
+				pairingStatus == StatusAuthenticationNeeded ||
+				pairingStatus == StatusDefaultPassword
 		} else {
 			knownPairedDevice = true
 		}

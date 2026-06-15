@@ -90,7 +90,7 @@ func minerBaseQueryWithSortValue(sortValueExpr string) string {
 const (
 	actionableErrorSeverityList      = "(1, 2, 3, 4)"
 	actionableErrorComponentTypeList = "(1, 2, 3, 4)"
-	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED')"
+	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')"
 	actionableErrorSeverities        = "errors.severity IN " + actionableErrorSeverityList
 )
 

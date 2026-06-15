@@ -1,0 +1,2 @@
+-- Postgres does not support removing values from an enum type.
+-- 'DEFAULT_PASSWORD' is safe to leave in place; it will simply go unused after rollback.

@@ -28,14 +28,21 @@ import (
 
 const (
 	driverName         = "proto"
-	apiVersion         = "v1"
+	apiVersion         = "v2"
 	maxValidPortNumber = math.MaxUint16
 )
 
 var canonicalDiscoveryPorts = []int{443}
 
+// defaultCredentials are the factory defaults for Proto rigs, tried during
+// auto-authentication when the operator does not supply credentials.
+var defaultCredentials = []sdk.UsernamePassword{
+	{Username: "admin", Password: "proto"},
+}
+
 var _ sdk.Driver = (*Driver)(nil)
 var _ sdk.DiscoveryPortsProvider = (*Driver)(nil)
+var _ sdk.DefaultCredentialsProvider = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Proto miners.
 type Driver struct {
@@ -105,6 +112,9 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		// Security capabilities
 		sdk.CapabilityUpdateMinerPassword: true, // We can update miner web UI password
 
+		// Logs
+		sdk.CapabilityLogLevels: true, // Device logs include a per-line log-level field
+
 		// Telemetry capabilities
 		sdk.CapabilityRealtimeTelemetry: true, // We support real-time telemetry
 		sdk.CapabilityHistoricalData:    true, // We support historical data
@@ -127,7 +137,7 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityManualUpload: true, // We support manual firmware upload
 
 		// Authentication capabilities
-		sdk.CapabilityAsymmetricAuth: true, // We use asymmetric key authentication
+		sdk.CapabilityBasicAuth: true, // We authenticate with username/password credentials
 
 		// Advanced capabilities - not yet implemented
 		sdk.CapabilityPollingPlugin: false, // Plugin-side polling not supported
@@ -324,12 +334,16 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	deviceInfo.SerialNumber = info.SerialNumber
 	deviceInfo.MacAddress = info.MacAddress
 
-	publicKey, ok := access.Kind.(sdk.APIKey)
+	credentials, ok := access.Kind.(sdk.UsernamePassword)
 	if !ok {
-		return sdk.DeviceInfo{}, fmt.Errorf("expected APIKey in secret bundle for pairing, got %T", access.Kind)
+		return sdk.DeviceInfo{}, fmt.Errorf("expected UsernamePassword in secret bundle for pairing, got %T", access.Kind)
 	}
 
-	if err := client.Pair(ctx, publicKey); err != nil {
+	if err := client.SetCredentials(credentials); err != nil {
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to set credentials: %w", err)
+	}
+
+	if err := client.Authenticate(ctx); err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
 	}
 
@@ -350,12 +364,12 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 		"host", deviceInfo.Host,
 		"port", deviceInfo.Port)
 
-	token, ok := secret.Kind.(sdk.BearerToken)
-	if !ok {
-		return sdk.NewDeviceResult{}, fmt.Errorf("expected BearerToken in secret bundle, got %T", secret.Kind)
+	credentials, err := credentialsFromSecret(secret)
+	if err != nil {
+		return sdk.NewDeviceResult{}, err
 	}
 
-	dev, err := device.New(deviceID, deviceInfo, token)
+	dev, err := device.New(deviceID, deviceInfo, credentials)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
 	}
@@ -369,4 +383,28 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 		"serial", deviceInfo.SerialNumber,
 		"total_devices", len(d.devices))
 	return sdk.NewDeviceResult{Device: dev}, nil
+}
+
+// GetDefaultCredentials implements sdk.DefaultCredentialsProvider, enabling the
+// server to auto-authenticate Proto rigs with factory defaults during pairing.
+func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
+	return defaultCredentials
+}
+
+// credentialsFromSecret extracts username/password credentials from a secret
+// bundle. An empty bundle (or empty password) falls back to factory defaults so
+// devices paired before the credentials switch — which have no stored
+// credentials — can still be reconstructed and reconnected.
+func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
+	switch kind := secret.Kind.(type) {
+	case nil:
+		return defaultCredentials[0], nil
+	case sdk.UsernamePassword:
+		if kind.Password == "" {
+			return defaultCredentials[0], nil
+		}
+		return kind, nil
+	default:
+		return sdk.UsernamePassword{}, fmt.Errorf("expected UsernamePassword in secret bundle, got %T", secret.Kind)
+	}
 }

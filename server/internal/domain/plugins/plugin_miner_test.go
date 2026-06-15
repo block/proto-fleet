@@ -437,7 +437,7 @@ func (m *mockLogSaver) SaveLogs(_ string, _ string, logLines []string) (string, 
 func TestPluginMiner_DownloadLogs_Success(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
 	pm.driverName = "proto"
-	pm.caps = sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true}
+	pm.caps = sdk.Capabilities{sdk.CapabilityLogLevels: true}
 	saver := &mockLogSaver{}
 	pm.filesService = saver
 

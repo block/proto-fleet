@@ -56,6 +56,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 	filter.PairingStatuses = []pb.PairingStatus{
 		pb.PairingStatus_PAIRING_STATUS_PAIRED,
 		pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 	}
 	// Export uses default name-ASC order for cross-page consistency.
 	temperatureUnit := normalizeCSVTemperatureUnit(req.TemperatureUnit)
@@ -206,8 +207,16 @@ func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
 	return headers
 }
 
+// needsCredentialRemediation reports whether the device is in a paired state
+// that blocks telemetry until the operator acts (supplies credentials or changes
+// the default password).
+func needsCredentialRemediation(status pb.PairingStatus) bool {
+	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED ||
+		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
+}
+
 func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
-	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+	if needsCredentialRemediation(snapshot.PairingStatus) {
 		return csvStatusNeedsAttention
 	}
 
@@ -236,6 +245,10 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 func minerIssuesCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return "Authentication required"
+	}
+
+	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+		return "Password change required"
 	}
 
 	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL {
@@ -290,7 +303,7 @@ func powerCSVValue(snapshot *pb.MinerStateSnapshot) string {
 }
 
 func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.CsvTemperatureUnit) string {
-	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+	if needsCredentialRemediation(snapshot.PairingStatus) {
 		return ""
 	}
 
@@ -319,7 +332,7 @@ func temperatureCSVValue(snapshot *pb.MinerStateSnapshot, temperatureUnit pb.Csv
 }
 
 func measurementCSVValue(snapshot *pb.MinerStateSnapshot, measurements []*commonpb.Measurement) string {
-	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+	if needsCredentialRemediation(snapshot.PairingStatus) {
 		return ""
 	}
 

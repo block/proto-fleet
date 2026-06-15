@@ -105,6 +105,7 @@ services:
       dockerfile: server/fake-proto-rig/Dockerfile
     environment:
       HTTP_PORT: "8080"
+      FAKE_RIG_PASSWORD: "proto"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
@@ -277,6 +278,7 @@ services:
     environment:
       HTTP_PORT: "8080"
       SERIAL_NUMBER: "PROTO-SIM-001"
+      FAKE_RIG_PASSWORD: "proto"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s

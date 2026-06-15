@@ -254,9 +254,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString("))")
 
 		if fp.needsAttentionFilter {
-			// Auth-needed (exclude OFFLINE only)
+			// Auth-needed and default-password (exclude OFFLINE only)
 			sb.WriteString(
-				" OR (device_pairing.pairing_status = 'AUTHENTICATION_NEEDED'" +
+				" OR (device_pairing.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')" +
 					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
 			// Devices with actionable errors. Excludes NULL-status paired miners
 			// so they stay bucketed as offline (matches CountMinersByState).

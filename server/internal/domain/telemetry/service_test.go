@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storesMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	mock "github.com/block/proto-fleet/server/internal/domain/telemetry/mocks"
@@ -3760,9 +3761,9 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	mockMinerGetter.EXPECT().
 		InvalidateMiner(deviceID)
 
-	// processStatusOnly calls handleAuthenticationFailure on auth error
+	// An auth error moves the device into the AUTHENTICATION_NEEDED state.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusAuthenticationNeeded).
 		Return(nil)
 
 	service := NewTelemetryService(Config{
@@ -3805,8 +3806,10 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusUnknown, forbiddenErr)
 
+	// A default-password forbidden error moves the device into the distinct
+	// DEFAULT_PASSWORD remediation state (not AUTHENTICATION_NEEDED).
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
 		Return(nil)
 
 	service := NewTelemetryService(Config{
@@ -3819,6 +3822,38 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 	device := models.Device{ID: deviceID}
 
 	service.processStatusOnly(ctx, device)
+}
+
+func TestReconcileDefaultPasswordState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	deviceID := models.DeviceIdentifier("device-dp")
+	service := NewTelemetryService(Config{},
+		mock.NewMockTelemetryDataStore(ctrl), mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl), mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	ctx := t.Context()
+
+	// A non-default password on first sight seeds the cache without a write.
+	service.reconcileDefaultPasswordState(ctx, deviceID, false)
+
+	// Becoming default-password writes DEFAULT_PASSWORD once...
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
+		Return(nil)
+	service.reconcileDefaultPasswordState(ctx, deviceID, true)
+	// ...and is not rewritten while unchanged.
+	service.reconcileDefaultPasswordState(ctx, deviceID, true)
+
+	// Clearing the default password demotes back to PAIRED.
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
+		Return(nil)
+	service.reconcileDefaultPasswordState(ctx, deviceID, false)
+
+	// Assert — gomock verifies each UpdateDevicePairingStatusByIdentifier ran exactly once.
 }
 
 func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing.T) {

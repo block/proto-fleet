@@ -237,6 +237,10 @@ message DeviceMetrics {
 
   reserved 16;
   reserved "stratum_v2_support";
+
+  // True when the device still uses its factory default password and must be
+  // changed before mutating operations are allowed. Telemetry is unaffected.
+  bool default_password_active = 17;
 }
 
 

@@ -698,6 +698,8 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PAIRED
 		case "AUTHENTICATION_NEEDED":
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
+		case "DEFAULT_PASSWORD":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
 		case "PENDING":
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PENDING
 		case "FAILED":
@@ -881,6 +883,7 @@ func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 		switch status {
 		case pb.PairingStatus_PAIRING_STATUS_PAIRED,
 			pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			pb.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
 			return true
 		case pb.PairingStatus_PAIRING_STATUS_UNPAIRED,

@@ -856,6 +856,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 		PairingStatuses: []fm.PairingStatus{
 			fm.PairingStatus_PAIRING_STATUS_PAIRED,
 			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 		},
 		Limit: MaxDevicesPerSiteStatsRequest + 1,
 	})

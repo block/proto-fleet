@@ -296,9 +296,10 @@ func TestPoolsExemptFromDefaultPasswordGate(t *testing.T) {
 	}
 }
 
-func TestNonExemptRequestsBlockedWhenDefaultPasswordActive(t *testing.T) {
-	// Sanity check: routes outside DEFAULT_PASSWORD_EXEMPT_PREFIXES still
-	// return 403 while default_password_active is true.
+func TestMutatingRequestsBlockedWhenDefaultPasswordActive(t *testing.T) {
+	// Mutating operations stay gated while default_password_active is true, but
+	// telemetry/read endpoints are not gated — operators can see a rig before
+	// changing its factory password.
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SeedDefaultPassword("defaultPass123")
 	h := NewRESTApiHandler(state)
@@ -313,13 +314,22 @@ func TestNonExemptRequestsBlockedWhenDefaultPasswordActive(t *testing.T) {
 	var tokens AuthTokens
 	_ = json.Unmarshal(loginRR.Body.Bytes(), &tokens)
 
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/mining", nil)
-	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-	mux.ServeHTTP(rr, req)
+	// Mutating op: blocked.
+	mutateRR := httptest.NewRecorder()
+	mutateReq := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
+	mutateReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	mux.ServeHTTP(mutateRR, mutateReq)
+	if mutateRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on mutating route, got %d; body=%s", mutateRR.Code, mutateRR.Body.String())
+	}
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 on non-exempt route, got %d; body=%s", rr.Code, rr.Body.String())
+	// Telemetry read: not blocked.
+	readRR := httptest.NewRecorder()
+	readReq := httptest.NewRequest(http.MethodGet, "/api/v1/mining", nil)
+	readReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	mux.ServeHTTP(readRR, readReq)
+	if readRR.Code == http.StatusForbidden {
+		t.Fatalf("expected telemetry read to be allowed under default password, got 403; body=%s", readRR.Body.String())
 	}
 }
 

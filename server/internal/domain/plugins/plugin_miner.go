@@ -375,7 +375,7 @@ func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) err
 	}
 	logLines := strings.Split(strings.TrimRight(logData, "\n"), "\n")
 
-	csvRows := formatLogsToCSV(logLines, p.caps[sdk.CapabilityAsymmetricAuth])
+	csvRows := formatLogsToCSV(logLines, p.caps[sdk.CapabilityLogLevels])
 	if _, err := p.filesService.SaveLogs(batchLogUUID, p.deviceInfo.MacAddress, csvRows); err != nil {
 		return fleeterror.NewInternalErrorf("failed to save logs: %v", err)
 	}

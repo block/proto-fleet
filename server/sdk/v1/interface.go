@@ -175,6 +175,11 @@ type DeviceMetrics struct {
 	Health       HealthStatus
 	HealthReason *string
 
+	// DefaultPasswordActive is true when the device still uses its factory
+	// default password and must be changed before mutating operations are
+	// allowed. Telemetry is unaffected.
+	DefaultPasswordActive bool
+
 	// Device-level aggregated metrics
 	HashrateHS   *MetricValue
 	TempC        *MetricValue
@@ -529,6 +534,7 @@ const (
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
 	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively
 	CapabilityLogsDownload       = "logs_download"        // Device logs download support
+	CapabilityLogLevels          = "log_levels"           // Device logs include a per-line log-level field
 	//#nosec G101 -- Capability constant name, not actual credentials
 	CapabilityUpdateMinerPassword = "update_miner_password" // Update miner web UI password support
 

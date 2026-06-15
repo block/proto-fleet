@@ -199,6 +199,7 @@ const (
 	PairingStatusEnumUNPAIRED             PairingStatusEnum = "UNPAIRED"
 	PairingStatusEnumFAILED               PairingStatusEnum = "FAILED"
 	PairingStatusEnumAUTHENTICATIONNEEDED PairingStatusEnum = "AUTHENTICATION_NEEDED"
+	PairingStatusEnumDEFAULTPASSWORD      PairingStatusEnum = "DEFAULT_PASSWORD"
 )
 
 func (e *PairingStatusEnum) Scan(src interface{}) error {

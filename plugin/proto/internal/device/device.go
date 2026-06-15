@@ -129,13 +129,13 @@ func SetStatusTTL(ttl time.Duration) func(*Device) {
 //   - Connection establishment and validation
 //   - Authentication setup
 //   - Status caching configuration
-func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken, opts ...DeviceOption) (*Device, error) {
+func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, opts ...DeviceOption) (*Device, error) {
 	client, err := proto.NewClient(deviceInfo.Host, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
-	if err := client.SetCredentials(bearerToken); err != nil {
+	if err := client.SetCredentials(credentials); err != nil {
 		return nil, fmt.Errorf("failed to set credentials: %w", err)
 	}
 
@@ -282,6 +282,14 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	metrics := d.convertStatus(minerStatus, telemetryResp)
 
 	d.refreshFirmwareVersion(ctx, &metrics)
+
+	// Surface the default-password state so the server can flag remediation
+	// without gating telemetry. A read failure here must not fail the status poll.
+	if defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx); err != nil {
+		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
+	} else {
+		metrics.DefaultPasswordActive = defaultPasswordActive
+	}
 
 	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()

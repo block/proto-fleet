@@ -176,6 +176,9 @@ func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
 	var clearAuthKeyCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -204,7 +207,7 @@ func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
 		URLScheme: "http",
 	}
 
-	dev, err := New("device-locked", deviceInfo, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	dev, err := New("device-locked", deviceInfo, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
 	require.NoError(t, err, "constructor must succeed under default-password so remediation ops remain reachable")
 	require.NotNil(t, dev)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
@@ -500,6 +503,9 @@ func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningContro
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, *miningState)))
@@ -528,7 +534,7 @@ func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningContro
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, opts...)
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 
@@ -553,6 +559,9 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
@@ -594,7 +603,7 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 
@@ -612,6 +621,9 @@ func newFullEfficiencyCurtailmentTestDevice(
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, miningState)))
@@ -656,7 +668,7 @@ func newFullEfficiencyCurtailmentTestDevice(
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 

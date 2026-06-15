@@ -4,6 +4,7 @@ import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetman
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
+import { needsPasswordChange } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { Alert } from "@/shared/assets/icons";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useMinerIssues } from "@/shared/hooks/useStatusSummary";
@@ -62,6 +63,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
 
   // Compute issue flags
   const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsPwChange = needsPasswordChange(miner.pairingStatus);
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const isUpdating = deviceStatus === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatus === DeviceStatus.REBOOT_REQUIRED;
@@ -100,12 +102,17 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   }, [needsAuthentication, needsMiningPool, sharedErrors]);
 
   // While errors haven't loaded, show shimmer for devices that could have issues
-  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired) {
+  if (!errorsLoaded && !needsAuthentication && !needsPwChange && !needsMiningPool && !isUpdating && !isRebootRequired) {
     return <SkeletonBar className="w-24" />;
   }
 
+  // Default-password devices are authenticated but gated until the password is
+  // changed; surface that distinct remediation instead of a hardware issue.
+  const effectiveSummary = needsPwChange ? "Password change required" : summary;
+  const effectiveHasIssues = needsPwChange || hasIssues;
+
   // Show empty state if no issues
-  if (!hasIssues) {
+  if (!effectiveHasIssues) {
     return null;
   }
 
@@ -114,8 +121,8 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
 
   const content = (
     <>
-      {icon}
-      {summary}
+      {needsPwChange ? null : icon}
+      {effectiveSummary}
     </>
   );
 

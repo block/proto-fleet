@@ -118,8 +118,15 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 }
 
 func configureStartupAuthState(state *MinerState) {
+	// FAKE_RIG_DEFAULT_PASSWORD seeds a factory-default password, leaving the
+	// default-password gate active (operational endpoints return 403 until it is
+	// changed). FAKE_RIG_PASSWORD seeds an already-changed password with the gate
+	// off, so credentials login works and telemetry flows immediately.
 	if defaultPassword := os.Getenv("FAKE_RIG_DEFAULT_PASSWORD"); defaultPassword != "" {
 		state.SeedDefaultPassword(defaultPassword)
+	}
+	if password := os.Getenv("FAKE_RIG_PASSWORD"); password != "" {
+		state.SetPassword(password)
 	}
 }
 

@@ -5,6 +5,10 @@ import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetman
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
+import {
+  needsAuthentication as needsAuthFn,
+  needsCredentialRemediation,
+} from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
@@ -40,14 +44,15 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const deviceStatusFromStore = miner.deviceStatus;
 
   // Compute status flags
-  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsRemediation = needsCredentialRemediation(miner.pairingStatus);
+  const needsAuthentication = needsAuthFn(miner.pairingStatus);
   const isPaired = miner.pairingStatus === PairingStatus.PAIRED;
   // Paired miners with UNSPECIFIED device_status (typically freshly paired, not yet polled)
   // are treated as offline — this matches the Fleet Health dashboard and Offline filter.
   const isOffline =
     deviceStatusFromStore === DeviceStatus.OFFLINE || (deviceStatusFromStore === DeviceStatus.UNSPECIFIED && isPaired);
-  // When authentication is needed, we can't trust INACTIVE/MAINTENANCE status
-  // (could be sleeping OR showing as inactive because we can't authenticate)
+  // When authentication is needed we can't trust INACTIVE/MAINTENANCE status (telemetry
+  // is gated). Default-password devices still report telemetry, so their status is trusted.
   const isSleeping =
     (deviceStatusFromStore === DeviceStatus.INACTIVE || deviceStatusFromStore === DeviceStatus.MAINTENANCE) &&
     !needsAuthentication;
@@ -57,7 +62,7 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
 
   const needsAttention = useNeedsAttention(
-    needsAuthentication,
+    needsRemediation,
     needsMiningPool,
     errors,
     hasDeviceError,

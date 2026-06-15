@@ -315,6 +315,9 @@ type TelemetryService struct {
 	// avoids a race condition between reading old statuses and writing new ones.
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
+	// lastDefaultPwActive caches the last-seen default-password flag per device so
+	// the poll only writes a pairing-status change on transitions, not every poll.
+	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
 	// inFlight tracks devices currently being processed by a worker via the tasks channel.
 	// statusPollingRoutine skips devices in this map to avoid double-processing the same
 	// device simultaneously in both the full-telemetry and status-only paths.
@@ -364,6 +367,7 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		s.devicesForStatusPolling.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
+		s.lastDefaultPwActive.Delete(id)
 		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
@@ -763,8 +767,8 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", telemetryErr)
 
 		if requiresCredentialRemediation(telemetryErr) {
-			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+			if updateErr := s.handleCredentialRemediation(ctx, device.ID, telemetryErr); updateErr != nil {
+				slog.Error("failed to update pairing status for credential remediation",
 					"deviceID", device.ID, "error", updateErr)
 			}
 		}
@@ -792,8 +796,8 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 			slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
 
 			if requiresCredentialRemediation(statusErr) {
-				if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-					slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+				if updateErr := s.handleCredentialRemediation(ctx, device.ID, statusErr); updateErr != nil {
+					slog.Error("failed to update pairing status for credential remediation",
 						"deviceID", device.ID, "error", updateErr)
 				}
 			}
@@ -862,8 +866,8 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 		slog.Debug("status polling failed for device", "deviceID", device.ID, "error", statusErr)
 
 		if requiresCredentialRemediation(statusErr) {
-			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
-				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+			if updateErr := s.handleCredentialRemediation(ctx, device.ID, statusErr); updateErr != nil {
+				slog.Error("failed to update pairing status for credential remediation",
 					"deviceID", device.ID, "error", updateErr)
 			}
 		}
@@ -1067,12 +1071,16 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 	}
 }
 
-// handleAuthenticationFailure updates the pairing status to AUTHENTICATION_NEEDED
-// when the device requires credential remediation (for example auth failure or
-// default-password rotation before normal operations).
-func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, deviceID models.DeviceIdentifier) error {
-	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly.
-	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded); err != nil {
+// handleCredentialRemediation moves the device into the pairing state matching
+// the failure: DEFAULT_PASSWORD when the rig still has its factory password (the
+// operator must change it), otherwise AUTHENTICATION_NEEDED (the operator must
+// supply valid credentials).
+func (s *TelemetryService) handleCredentialRemediation(ctx context.Context, deviceID models.DeviceIdentifier, cause error) error {
+	status := pairing.StatusAuthenticationNeeded
+	if isDefaultPasswordRemediationError(cause) {
+		status = pairing.StatusDefaultPassword
+	}
+	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), status); err != nil {
 		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
 	}
 
@@ -1137,6 +1145,38 @@ func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, 
 		return
 	}
 	s.lastKnownFirmware.Store(deviceID, firmwareVersion)
+}
+
+// reconcileDefaultPasswordState keeps the device's pairing status in sync with
+// the rig's default-password flag, without gating telemetry. A successful poll
+// means authentication worked, so the device is PAIRED or DEFAULT_PASSWORD (never
+// AUTHENTICATION_NEEDED) and toggling between those two is safe. An in-memory
+// cache limits writes to actual transitions.
+func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, deviceID models.DeviceIdentifier, active bool) {
+	prev, seen := s.lastDefaultPwActive.Load(deviceID)
+	if seen && prev.(bool) == active {
+		return
+	}
+
+	// First time we see this device reporting a non-default password, just seed the
+	// cache without a write: the steady state for most devices is PAIRED already, so
+	// avoid an UPDATE per device on startup. Promotion to DEFAULT_PASSWORD and the
+	// true->false demotion (e.g. after a password change) are the cases that write.
+	if !seen && !active {
+		s.lastDefaultPwActive.Store(deviceID, false)
+		return
+	}
+
+	status := pairing.StatusPaired
+	if active {
+		status = pairing.StatusDefaultPassword
+	}
+	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), status); err != nil {
+		slog.Error("failed to reconcile default-password pairing status",
+			"device_id", deviceID, "default_password_active", active, "error", err)
+		return
+	}
+	s.lastDefaultPwActive.Store(deviceID, active)
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
@@ -1270,6 +1310,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		}
 
 		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
+		s.reconcileDefaultPasswordState(ctx, device.ID, result.metrics.DefaultPasswordActive)
 	}
 
 	if err := s.updateScheduler.AddDevices(ctx, models.Device{
