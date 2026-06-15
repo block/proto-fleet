@@ -93,8 +93,9 @@ func toListBuildingsResponse(rows []models.BuildingWithCounts) *pb.ListBuildings
 	for i := range rows {
 		row := rows[i]
 		out = append(out, &pb.BuildingWithCounts{
-			Building:  toProtoBuilding(&row.Building),
-			RackCount: row.RackCount,
+			Building:    toProtoBuilding(&row.Building),
+			RackCount:   row.RackCount,
+			DeviceCount: row.DeviceCount,
 		})
 	}
 	return &pb.ListBuildingsResponse{Buildings: out}

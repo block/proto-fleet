@@ -12,6 +12,7 @@ import (
 	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -22,13 +23,15 @@ import (
 // file from pulling another generated mock package; the surface is
 // three methods so the assertion overhead is trivial.
 type fakeDeviceQueryer struct {
-	deviceIDs     []string
-	deviceIDsErr  error
-	lastFilter    *interfaces.MinerFilter
-	stateCounts   interfaces.MinerStateCounts
-	stateCountErr error
-	collections   map[int64]interfaces.MinerStateCounts
-	collErr       error
+	deviceIDs       []string
+	deviceIDsErr    error
+	lastFilter      *interfaces.MinerFilter
+	stateCounts     interfaces.MinerStateCounts
+	stateCountErr   error
+	collections     map[int64]interfaces.MinerStateCounts
+	collErr         error
+	componentCounts []interfaces.ComponentErrorCount
+	componentErr    error
 }
 
 func (f *fakeDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Context, _ int64, filter *interfaces.MinerFilter) ([]string, error) {
@@ -42,6 +45,10 @@ func (f *fakeDeviceQueryer) GetMinerStateCountsByDeviceIDs(_ context.Context, _ 
 
 func (f *fakeDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
 	return f.collections, f.collErr
+}
+
+func (f *fakeDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	return f.componentCounts, f.componentErr
 }
 
 // fakeTelemetryCollector is a hand-rolled
@@ -76,6 +83,10 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(
+		[]sitemodels.SiteWithCounts{{Site: sitemodels.Site{ID: 1}, RackCount: 2}},
+		nil,
+	)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(
@@ -119,6 +130,9 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	if stats.BuildingCount != 3 {
 		t.Errorf("BuildingCount: got %d want 3", stats.BuildingCount)
 	}
+	if stats.RackCount != 2 {
+		t.Errorf("RackCount: got %d want 2", stats.RackCount)
+	}
 	if stats.DeviceCount != 3 {
 		t.Errorf("DeviceCount: got %d want 3", stats.DeviceCount)
 	}
@@ -145,6 +159,7 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(nil, nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
@@ -184,6 +199,7 @@ func TestGetSiteStats_failsFastOverCap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(nil, nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
@@ -206,6 +222,7 @@ func TestGetSiteStats_emptyDevicesShortCircuits(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return(nil, nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 

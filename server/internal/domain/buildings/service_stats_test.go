@@ -19,11 +19,13 @@ import (
 
 // fakeDeviceQueryer is a hand-rolled devicerollup.DeviceQueryer.
 type fakeDeviceQueryer struct {
-	deviceIDs    []string
-	deviceIDsErr error
-	lastFilter   *interfaces.MinerFilter
-	stateCounts  interfaces.MinerStateCounts
-	collections  map[int64]interfaces.MinerStateCounts
+	deviceIDs       []string
+	deviceIDsErr    error
+	lastFilter      *interfaces.MinerFilter
+	stateCounts     interfaces.MinerStateCounts
+	collections     map[int64]interfaces.MinerStateCounts
+	componentCounts []interfaces.ComponentErrorCount
+	componentErr    error
 }
 
 func (f *fakeDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Context, _ int64, filter *interfaces.MinerFilter) ([]string, error) {
@@ -37,6 +39,10 @@ func (f *fakeDeviceQueryer) GetMinerStateCountsByDeviceIDs(_ context.Context, _ 
 
 func (f *fakeDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
 	return f.collections, nil
+}
+
+func (f *fakeDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	return f.componentCounts, f.componentErr
 }
 
 type fakeTelemetryCollector struct {

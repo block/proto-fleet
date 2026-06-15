@@ -817,6 +817,19 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.OfflineCount = counts.OfflineCount
 		stats.SleepingCount = counts.SleepingCount
 
+		componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+			Kind: interfaces.ComponentErrorScopeBuildings,
+			IDs:  []int64{buildingID},
+		})
+		if err != nil {
+			return nil, err
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+
 		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
 		metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 		if err != nil {
@@ -827,9 +840,12 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.HashrateReportingCount = rollup.HashrateReportingCount
 		stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
 		stats.PowerReportingCount = rollup.PowerReportingCount
+		stats.TemperatureReportingCount = rollup.TemperatureReportingCount
 		stats.TotalHashrateThs = rollup.TotalHashrateThs
 		stats.TotalPowerKw = rollup.TotalPowerKw
 		stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+		stats.MinTemperatureC = rollup.MinTemperatureC
+		stats.MaxTemperatureC = rollup.MaxTemperatureC
 	}
 
 	// Belt-and-braces: re-read the building after all the rollup queries.

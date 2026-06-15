@@ -839,6 +839,17 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	if err != nil {
 		return nil, err
 	}
+	sites, err := s.store.ListSites(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var rackCount int32
+	for _, siteWithCounts := range sites {
+		if siteWithCounts.Site.ID == siteID {
+			rackCount = int32(siteWithCounts.RackCount) //nolint:gosec // rack count bounded by org config
+			break
+		}
+	}
 
 	// Device identifiers scoped to the site via the existing MinerFilter.
 	// SiteIDs alone is enough — site-direct devices have device.site_id
@@ -868,7 +879,8 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 
 	stats := &models.SiteStats{
 		SiteID:        siteID,
-		BuildingCount: int32(len(bldgs)),     //nolint:gosec // building count bounded by org config
+		BuildingCount: int32(len(bldgs)), //nolint:gosec // building count bounded by org config
+		RackCount:     rackCount,
 		DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
 	}
 
@@ -887,6 +899,19 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.OfflineCount = counts.OfflineCount
 	stats.SleepingCount = counts.SleepingCount
 
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeSites,
+		IDs:  []int64{siteID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	issues := devicerollup.AggregateComponentIssueCounts(componentCounts, siteID)
+	stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+	stats.FanIssueCount = issues.FanIssueCount
+	stats.HashBoardIssueCount = issues.HashBoardIssueCount
+	stats.PsuIssueCount = issues.PsuIssueCount
+
 	// Telemetry rollup runs through the shared aggregator so site +
 	// building stats can't drift on unit conversions or NaN handling.
 	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
@@ -899,9 +924,12 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.HashrateReportingCount = rollup.HashrateReportingCount
 	stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
 	stats.PowerReportingCount = rollup.PowerReportingCount
+	stats.TemperatureReportingCount = rollup.TemperatureReportingCount
 	stats.TotalHashrateThs = rollup.TotalHashrateThs
 	stats.TotalPowerKw = rollup.TotalPowerKw
 	stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+	stats.MinTemperatureC = rollup.MinTemperatureC
+	stats.MaxTemperatureC = rollup.MaxTemperatureC
 
 	return stats, nil
 }

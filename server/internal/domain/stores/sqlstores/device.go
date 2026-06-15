@@ -1490,31 +1490,54 @@ func (s *SQLDeviceStore) GetMinerStateCountsByDeviceIDs(ctx context.Context, org
 	}, nil
 }
 
-func (s *SQLDeviceStore) GetComponentErrorCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) ([]stores.ComponentErrorCount, error) {
-	if len(collectionIDs) == 0 {
+func (s *SQLDeviceStore) GetComponentErrorCounts(ctx context.Context, orgID int64, scope stores.ComponentErrorScope) ([]stores.ComponentErrorCount, error) {
+	if len(scope.IDs) == 0 {
 		return nil, nil
 	}
 
-	query := fmt.Sprintf(`SELECT dcm.device_set_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+	var sourceSQL string
+	switch scope.Kind {
+	case stores.ComponentErrorScopeCollections:
+		sourceSQL = `SELECT dcm.device_set_id AS scope_id, d.id AS device_id, d.discovered_device_id
 FROM device_set_membership dcm
 JOIN device_set dc ON dcm.device_set_id = dc.id AND dc.deleted_at IS NULL
 JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
-JOIN discovered_device dd ON d.discovered_device_id = dd.id AND dd.is_active = TRUE
-JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1`
+	case stores.ComponentErrorScopeSites:
+		sourceSQL = `SELECT d.site_id AS scope_id, d.id AS device_id, d.discovered_device_id
+FROM device d
+WHERE d.site_id = ANY($2::bigint[]) AND d.org_id = $1 AND d.deleted_at IS NULL`
+	case stores.ComponentErrorScopeBuildings:
+		sourceSQL = `SELECT dsr.building_id AS scope_id, d.id AS device_id, d.discovered_device_id
+FROM device_set_membership dcm
+JOIN device_set_rack dsr ON dcm.device_set_id = dsr.device_set_id AND dsr.building_id = ANY($2::bigint[])
+JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
+WHERE dcm.org_id = $1`
+	default:
+		return nil, fleeterror.NewInternalErrorf("unknown component error scope kind: %d", scope.Kind)
+	}
+
+	query := fmt.Sprintf(`WITH scoped_devices AS (
+%s
+)
+SELECT sd.scope_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+FROM scoped_devices sd
+JOIN discovered_device dd ON sd.discovered_device_id = dd.id AND dd.is_active = TRUE
+JOIN device_pairing dp ON sd.device_id = dp.device_id
     AND %s
-JOIN errors e ON d.id = e.device_id
-    AND e.org_id = dcm.org_id
+JOIN errors e ON sd.device_id = e.device_id
+    AND e.org_id = $1
     AND e.closed_at IS NULL
     AND %s
     AND %s
-WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1
-GROUP BY dcm.device_set_id, e.component_type`,
+GROUP BY sd.scope_id, e.component_type`,
+		sourceSQL,
 		actionablePairingStatusesExpr("dp"),
 		actionableErrorSeveritiesExpr("e"),
 		actionableErrorComponentTypesExpr("e"),
 	)
 
-	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
+	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(scope.IDs))
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get component error counts: %v", err)
 	}
@@ -1523,7 +1546,7 @@ GROUP BY dcm.device_set_id, e.component_type`,
 	var results []stores.ComponentErrorCount
 	for rows.Next() {
 		var r stores.ComponentErrorCount
-		if err := rows.Scan(&r.CollectionID, &r.ComponentType, &r.DeviceCount); err != nil {
+		if err := rows.Scan(&r.ScopeID, &r.ComponentType, &r.DeviceCount); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to scan component error count: %v", err)
 		}
 		results = append(results, r)

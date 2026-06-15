@@ -13,6 +13,7 @@ import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import { useBuildingListState } from "@/protoFleet/hooks/useBuildingListState";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -88,6 +89,15 @@ const FleetBuildingsPage = () => {
     }
     return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
   }, [buildings, activeSite, urlSiteIds]);
+  // UserInfo.permissions is a flat union across scopes. These are only
+  // optimistic page-level gates; useBuildingListState drops per-row
+  // PermissionDenied responses so scoped grants leave unauthorized rows blank.
+  const canReadFleetStats = useHasPermission("fleet:read");
+  const canReadMinerStats = useHasPermission("miner:read");
+  const canReadBuildingStats = canReadFleetStats && canReadMinerStats;
+  const { statsMap, statsError, refetchStats } = useBuildingListState(visibleBuildings, {
+    enabled: canReadBuildingStats,
+  });
   const visibleBuildingScopes = useMemo(
     () =>
       visibleBuildings.flatMap((building) => {
@@ -223,6 +233,17 @@ const FleetBuildingsPage = () => {
           testId="fleet-buildings-inline-error"
         />
       ) : null}
+      {canReadBuildingStats && statsError ? (
+        <Callout
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Couldn't refresh building telemetry"
+          subtitle={statsError}
+          buttonText="Retry"
+          buttonOnClick={refetchStats}
+          testId="fleet-buildings-stats-error"
+        />
+      ) : null}
     </>
   );
 
@@ -281,6 +302,7 @@ const FleetBuildingsPage = () => {
           <BuildingList
             buildings={visibleBuildings}
             sites={sites}
+            statsMap={statsMap}
             onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
             onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
             selectedIds={selectedBuildingIds}

@@ -45,8 +45,9 @@ type Building struct {
 // BuildingWithCounts pairs a Building with its rack_count for the
 // list/delete-confirm flows.
 type BuildingWithCounts struct {
-	Building  Building
-	RackCount int64
+	Building    Building
+	RackCount   int64
+	DeviceCount int64
 }
 
 // CreateParams is the input shape for the building create flow.
@@ -142,21 +143,28 @@ type AssignRacksToBuildingResult struct {
 // BuildingStats is the rollup returned by GetBuildingStats. Scope is
 // every device whose rack lives in the building.
 type BuildingStats struct {
-	BuildingID               int64
-	RackCount                int32
-	DeviceCount              int32
-	ReportingCount           int32
-	HashrateReportingCount   int32
-	EfficiencyReportingCount int32
-	PowerReportingCount      int32
-	TotalHashrateThs         float64
-	AvgEfficiencyJth         float64
-	TotalPowerKw             float64
-	HashingCount             int32
-	BrokenCount              int32
-	OfflineCount             int32
-	SleepingCount            int32
-	RackHealth               []BuildingRackHealth
+	BuildingID                int64
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
+	RackHealth                []BuildingRackHealth
 	// DeviceIdentifiers is the set of devices the rollup was computed
 	// over. Returned so FE telemetry consumers can scope themselves
 	// without a separate ListMinerStateSnapshots pagination.

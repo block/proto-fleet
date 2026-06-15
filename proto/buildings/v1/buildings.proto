@@ -105,6 +105,7 @@ message Building {
 message BuildingWithCounts {
     Building building = 1;
     int64 rack_count = 2;
+    int64 device_count = 3;
 }
 
 // ListBuildings
@@ -336,6 +337,13 @@ message GetBuildingStatsResponse {
     int32 hashrate_reporting_count    = 14;
     int32 efficiency_reporting_count  = 15;
     int32 power_reporting_count       = 16;
+    double min_temperature_c          = 17;
+    double max_temperature_c          = 18;
+    int32 temperature_reporting_count = 19;
+    int32 control_board_issue_count   = 20;
+    int32 fan_issue_count             = 21;
+    int32 hash_board_issue_count      = 22;
+    int32 psu_issue_count             = 23;
 }
 
 // BuildingRackHealth is the per-rack rollup returned by GetBuildingStats.

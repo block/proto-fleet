@@ -89,7 +89,8 @@ func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.List
 				CreatedAt:             row.CreatedAt,
 				UpdatedAt:             row.UpdatedAt,
 			},
-			RackCount: row.RackCount,
+			RackCount:   row.RackCount,
+			DeviceCount: row.DeviceCount,
 		})
 	}
 	return out, nil

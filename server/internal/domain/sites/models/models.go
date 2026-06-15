@@ -155,18 +155,26 @@ type SiteNetworkConfigEntry struct {
 // SiteStats is the rollup returned by GetSiteStats. Scope is every
 // live device with site_id matching the requested site, racked or not.
 type SiteStats struct {
-	SiteID                   int64
-	BuildingCount            int32
-	DeviceCount              int32
-	ReportingCount           int32
-	HashrateReportingCount   int32
-	EfficiencyReportingCount int32
-	PowerReportingCount      int32
-	TotalHashrateThs         float64
-	AvgEfficiencyJth         float64
-	TotalPowerKw             float64
-	HashingCount             int32
-	BrokenCount              int32
-	OfflineCount             int32
-	SleepingCount            int32
+	SiteID                    int64
+	BuildingCount             int32
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
 }

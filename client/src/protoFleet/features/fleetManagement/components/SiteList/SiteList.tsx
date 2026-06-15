@@ -3,22 +3,41 @@ import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type RowAction } from "../RowActionsMenu";
-import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import {
+  type GetSiteStatsResponse,
+  type Site,
+  type SiteWithCounts,
+} from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { createSiteColConfig } from "@/protoFleet/features/fleetManagement/components/SiteList/siteColConfig";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import { ArrowRight, Edit } from "@/shared/assets/icons";
 import List, { type SelectionMode } from "@/shared/components/List";
-import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
+import { type ColTitles } from "@/shared/components/List/types";
 
-type SiteListItem = {
+export type SiteListItem = {
   id: string;
   site: SiteWithCounts;
+  stats?: GetSiteStatsResponse;
 };
 
-type SiteColumn = "name" | "miners" | "issues" | "hashrate" | "efficiency" | "power" | "temperature" | "health";
+export type SiteColumn =
+  | "name"
+  | "buildings"
+  | "racks"
+  | "miners"
+  | "issues"
+  | "hashrate"
+  | "efficiency"
+  | "power"
+  | "temperature"
+  | "health";
 
 const INACTIVE_PLACEHOLDER = "—";
 
 const COL_TITLES: ColTitles<SiteColumn> = {
   name: "Name",
+  buildings: "Buildings",
+  racks: "Racks",
   miners: "Miners",
   issues: "Issues",
   hashrate: "Total Hashrate",
@@ -30,6 +49,8 @@ const COL_TITLES: ColTitles<SiteColumn> = {
 
 const ACTIVE_COLS: SiteColumn[] = [
   "name",
+  "buildings",
+  "racks",
   "miners",
   "issues",
   "hashrate",
@@ -42,20 +63,32 @@ const ACTIVE_COLS: SiteColumn[] = [
 interface SiteListProps {
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
+  statsMap?: Map<bigint, GetSiteStatsResponse>;
   onEditSite?: (site: Site) => void;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
 }
 
-const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIdsChange }: SiteListProps) => {
+const SiteList = ({
+  sites,
+  emptyStateRow,
+  statsMap = EMPTY_STATS_MAP,
+  onEditSite,
+  selectedIds,
+  onSelectedIdsChange,
+}: SiteListProps) => {
   const navigate = useNavigate();
+  const temperatureUnit = useTemperatureUnit();
 
   const items: SiteListItem[] = useMemo(
     () =>
       [...sites]
         .sort((a, b) => (a.site?.name ?? "").localeCompare(b.site?.name ?? ""))
-        .map((site) => ({ id: (site.site?.id ?? 0n).toString(), site })),
-    [sites],
+        .map((site) => {
+          const siteId = site.site?.id ?? 0n;
+          return { id: siteId.toString(), site, stats: statsMap.get(siteId) };
+        }),
+    [sites, statsMap],
   );
 
   const buildExtraActions = useCallback(
@@ -87,41 +120,28 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
     [navigate, onEditSite],
   );
 
-  const colConfig = useMemo<ColConfig<SiteListItem, string, SiteColumn>>(
-    () => ({
-      name: {
-        component: (item) => {
-          const siteId = item.site.site?.id;
-          const siteName = item.site.site?.name ?? "(unnamed)";
-          return (
-            <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
-              <span className="truncate text-emphasis-300">{siteName}</span>
-              {siteId !== undefined && siteId !== 0n ? (
-                <FleetGroupActionsMenu
-                  scopes={[{ kind: "site", id: siteId, name: siteName }]}
-                  ariaLabel={`Actions for ${siteName}`}
-                  testIdPrefix={`site-list-row-${item.id}-actions`}
-                  extraActions={buildExtraActions(item)}
-                />
-              ) : null}
-            </div>
-          );
-        },
-        width: "min-w-44",
-      },
-      miners: {
-        component: (item) => <span>{item.site.deviceCount.toString()}</span>,
-        width: "min-w-20",
-      },
-      issues: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-20" },
-      hashrate: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
-      efficiency: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
-      power: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-24" },
-      temperature: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
-      health: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-32" },
-    }),
+  const renderName = useCallback(
+    (item: SiteListItem) => {
+      const siteId = item.site.site?.id;
+      const siteName = item.site.site?.name ?? "(unnamed)";
+      return (
+        <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
+          <span className="truncate text-emphasis-300">{siteName}</span>
+          {siteId !== undefined && siteId !== 0n ? (
+            <FleetGroupActionsMenu
+              scopes={[{ kind: "site", id: siteId, name: siteName }]}
+              ariaLabel={`Actions for ${siteName}`}
+              testIdPrefix={`site-list-row-${item.id}-actions`}
+              extraActions={buildExtraActions(item)}
+            />
+          ) : null}
+        </div>
+      );
+    },
     [buildExtraActions],
   );
+
+  const colConfig = useMemo(() => createSiteColConfig(renderName, temperatureUnit), [renderName, temperatureUnit]);
 
   const handleRowClick = useCallback((item: SiteListItem) => navigate(`/sites/${item.id}`), [navigate]);
   const isSelectableSite = useCallback((item: SiteListItem) => {
@@ -159,5 +179,7 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
 
   return <List<SiteListItem, string, SiteColumn> {...commonProps} />;
 };
+
+const EMPTY_STATS_MAP = new Map<bigint, GetSiteStatsResponse>();
 
 export default SiteList;

@@ -3,7 +3,6 @@ package collection
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -12,6 +11,7 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -34,12 +34,6 @@ const (
 	maxDeviceSetFilterValues = 1024
 )
 
-const (
-	hashToTeraHashConversion                   = 1e12
-	wattsToKilowattsConversion                 = 1000.0
-	joulesPerHashToJoulesPerTeraHashMultiplier = 1e12
-)
-
 // TelemetryCollector fetches latest device metrics for telemetry aggregation.
 type TelemetryCollector interface {
 	GetLatestDeviceMetrics(ctx context.Context, deviceIDs []minerModels.DeviceIdentifier) (map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
@@ -49,7 +43,7 @@ type TelemetryCollector interface {
 type DeviceQueryer interface {
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]interfaces.MinerStateCounts, error)
-	GetComponentErrorCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) ([]interfaces.ComponentErrorCount, error)
+	GetComponentErrorCounts(ctx context.Context, orgID int64, scope interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error)
 }
 
 // DeviceIdentifierResolver resolves a DeviceSelector into device identifiers for an org.
@@ -1322,7 +1316,10 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 	}
 
 	// Fetch component error counts per collection
-	componentErrors, err := s.deviceQueryer.GetComponentErrorCountsByCollections(ctx, info.OrganizationID, req.CollectionIds)
+	componentErrors, err := s.deviceQueryer.GetComponentErrorCounts(ctx, info.OrganizationID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeCollections,
+		IDs:  req.CollectionIds,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1333,7 +1330,7 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 	}
 	componentErrorMap := make(map[componentKey]int32, len(componentErrors))
 	for _, ce := range componentErrors {
-		componentErrorMap[componentKey{ce.CollectionID, ce.ComponentType}] = ce.DeviceCount
+		componentErrorMap[componentKey{ce.ScopeID, ce.ComponentType}] = ce.DeviceCount
 	}
 
 	// Fetch per-slot device statuses for rack-type collections
@@ -1366,67 +1363,18 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 			SleepingCount: counts.SleepingCount,
 		}
 
-		var (
-			reportingCount    int32
-			hashrateReporting int32
-			powerReporting    int32
-			efficiencyN       int32
-			tempReporting     int32
-			totalHashrate     float64
-			totalPower        float64
-			efficiencySum     float64
-			minTemp           = math.MaxFloat64
-			maxTemp           = -math.MaxFloat64
-		)
-
-		for _, devID := range deviceIDs {
-			metrics, ok := telemetryData[minerModels.DeviceIdentifier(devID)]
-			if !ok {
-				continue
-			}
-			reportingCount++
-
-			if metrics.HashrateHS != nil {
-				totalHashrate += metrics.HashrateHS.Value
-				hashrateReporting++
-			}
-			if metrics.PowerW != nil {
-				totalPower += metrics.PowerW.Value
-				powerReporting++
-			}
-			if metrics.EfficiencyJH != nil {
-				efficiencySum += metrics.EfficiencyJH.Value
-				efficiencyN++
-			}
-			if metrics.TempC != nil {
-				if metrics.TempC.Value < minTemp {
-					minTemp = metrics.TempC.Value
-				}
-				if metrics.TempC.Value > maxTemp {
-					maxTemp = metrics.TempC.Value
-				}
-				tempReporting++
-			}
-		}
-
-		cs.ReportingCount = reportingCount
-		cs.HashrateReportingCount = hashrateReporting
-		cs.PowerReportingCount = powerReporting
-		cs.EfficiencyReportingCount = efficiencyN
-		cs.TemperatureReportingCount = tempReporting
-		if reportingCount > 0 {
-			cs.TotalHashrateThs = totalHashrate / hashToTeraHashConversion
-			cs.TotalPowerKw = totalPower / wattsToKilowattsConversion
-			if efficiencyN > 0 {
-				cs.AvgEfficiencyJth = (efficiencySum / float64(efficiencyN)) * joulesPerHashToJoulesPerTeraHashMultiplier
-			}
-			if minTemp != math.MaxFloat64 {
-				cs.MinTemperatureC = minTemp
-			}
-			if maxTemp != -math.MaxFloat64 {
-				cs.MaxTemperatureC = maxTemp
-			}
-		}
+		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+		rollup := devicerollup.AggregateLatestMetrics(telemetryData, telemetryIDs)
+		cs.ReportingCount = rollup.ReportingCount
+		cs.HashrateReportingCount = rollup.HashrateReportingCount
+		cs.PowerReportingCount = rollup.PowerReportingCount
+		cs.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+		cs.TemperatureReportingCount = rollup.TemperatureReportingCount
+		cs.TotalHashrateThs = rollup.TotalHashrateThs
+		cs.TotalPowerKw = rollup.TotalPowerKw
+		cs.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+		cs.MinTemperatureC = rollup.MinTemperatureC
+		cs.MaxTemperatureC = rollup.MaxTemperatureC
 
 		// Populate component issue counts
 		cs.ControlBoardIssueCount = componentErrorMap[componentKey{collectionID, 4}]

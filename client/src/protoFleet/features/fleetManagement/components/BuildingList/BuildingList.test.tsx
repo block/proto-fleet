@@ -125,8 +125,8 @@ const renderList = ({
           }
         />
         <Route path="/buildings/:id" element={<PathProbe />} />
-        <Route path="/racks" element={<PathProbe />} />
-        <Route path="/miners" element={<PathProbe />} />
+        <Route path="/fleet/racks" element={<PathProbe />} />
+        <Route path="/fleet/miners" element={<PathProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -153,18 +153,18 @@ describe("BuildingList row actions menu", () => {
     }
   });
 
-  it("View racks scopes the /racks redirect to the building", () => {
+  it("View racks scopes the /fleet/racks redirect to the building", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View racks"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/racks?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/racks?building=42");
   });
 
-  it("View miners scopes the /miners redirect to the building", () => {
+  it("View miners scopes the /fleet/miners redirect to the building", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View miners"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/miners?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/miners?building=42");
   });
 
   it("View building navigates to the detail page", () => {

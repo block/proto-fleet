@@ -87,9 +87,22 @@ type MinerStateCounts struct {
 	SleepingCount int32
 }
 
-// ComponentErrorCount holds error counts by component type for a collection.
+type ComponentErrorScopeKind int
+
+const (
+	ComponentErrorScopeCollections ComponentErrorScopeKind = iota
+	ComponentErrorScopeSites
+	ComponentErrorScopeBuildings
+)
+
+type ComponentErrorScope struct {
+	Kind ComponentErrorScopeKind
+	IDs  []int64
+}
+
+// ComponentErrorCount holds error counts by component type for a scoped parent.
 type ComponentErrorCount struct {
-	CollectionID  int64
+	ScopeID       int64
 	ComponentType int32
 	DeviceCount   int32
 }
@@ -182,6 +195,7 @@ type DeviceStore interface {
 	// also counts site-direct devices that aren't placed in any rack.
 	// Mirrors the bucket logic in GetMinerStateCountsByCollections.
 	GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (MinerStateCounts, error)
+	GetComponentErrorCounts(ctx context.Context, orgID int64, scope ComponentErrorScope) ([]ComponentErrorCount, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
