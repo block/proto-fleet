@@ -1,5 +1,6 @@
 import { expect, test } from "../fixtures/pageFixtures";
 import {
+  assertSafeSimulatorTarget,
   getAuthAccessToken,
   waitForAuthenticatedApiOutage,
   waitForAuthenticatedApiRecovery,
@@ -15,6 +16,11 @@ test.describe("Power management", () => {
   });
 
   test("Miner can be rebooted from the header power menu", async ({ headerComponent, page, request }) => {
+    await assertSafeSimulatorTarget({
+      actionDescription: "reboot",
+      request,
+    });
+
     const accessToken = await getAuthAccessToken(page);
     const rebootRequestPromise = page.waitForRequest(
       (request) => request.method() === "POST" && request.url().includes("/api/v1/system/reboot"),

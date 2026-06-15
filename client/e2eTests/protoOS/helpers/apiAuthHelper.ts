@@ -1,10 +1,17 @@
 import { APIRequestContext, expect, Page } from "@playwright/test";
 
+const FAKE_PROTO_RIG_SERIAL_PREFIX = "PROTO-SIM-";
+
 type WaitForAuthenticatedApiRecoveryParams = {
   accessToken: string;
   path: string;
   request: APIRequestContext;
   timeoutMs: number;
+};
+
+type SafeSimulatorTargetParams = {
+  actionDescription: string;
+  request: APIRequestContext;
 };
 
 async function getAuthenticatedApiStatus({
@@ -49,6 +56,29 @@ export async function getAuthAccessToken(page: Page) {
 
     return accessToken;
   });
+}
+
+export async function assertSafeSimulatorTarget({ actionDescription, request }: SafeSimulatorTargetParams) {
+  const response = await request.get("/api/v1/system");
+  expect(response.ok()).toBeTruthy();
+
+  const data = (await response.json()) as {
+    "system-info": {
+      cb_sn?: string;
+      product_name?: string;
+      manufacturer?: string;
+      model?: string;
+    };
+  };
+
+  const systemInfo = data["system-info"];
+  const serialNumber = systemInfo.cb_sn ?? "";
+
+  if (!serialNumber.startsWith(FAKE_PROTO_RIG_SERIAL_PREFIX)) {
+    throw new Error(
+      `Refusing to ${actionDescription} non-simulator target "${serialNumber || "unknown"}" (${systemInfo.manufacturer ?? "unknown"} ${systemInfo.product_name ?? systemInfo.model ?? "unknown"}).`,
+    );
+  }
 }
 
 export async function waitForAuthenticatedApiRecovery({
