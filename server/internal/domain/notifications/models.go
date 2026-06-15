@@ -1,32 +1,8 @@
-// Package notifications is the domain layer that backs the
-// settings → notifications UI. It owns the translation between
-// Proto Fleet's per-org channel/silence concepts and the
-// Grafana sidecar's contact-point / alert-rule / silence APIs.
-//
-// The package intentionally does not persist anything itself —
-// Grafana is the source of truth for rule + receiver state. The
-// only Proto Fleet-side persistence is for encrypted secrets
-// (webhook bearer headers, SMTP passwords); those live in the
-// encrypt service and are looked up by `secret_ref` when fleet-api
-// composes the outbound Grafana payload.
-//
-// Every read filters server-side to the caller's organization id
-// (channels via name prefix, rules via labels.organization_id,
-// silences via the matcher set). Every write injects the caller's
-// organization id into the same fields. The handler layer is the
-// authentication boundary; the service refuses zero org ids out of
-// an abundance of caution.
-//
-// IMPORTANT: this package intentionally does NOT expose any
-// rule-authoring surface. The set of alert rules is a closed list
-// provisioned by ops via the Grafana YAML — operators can only
-// list / pause / resume / silence them, never create / edit /
-// delete.
+// Package notifications is the domain layer translating Proto Fleet's channel/silence concepts to Grafana's APIs.
 package notifications
 
 import "time"
 
-// ChannelKind enumerates the destination types the UI exposes.
 type ChannelKind string
 
 const (
@@ -35,10 +11,7 @@ const (
 	ChannelKindSlack   ChannelKind = "slack"
 )
 
-// ValidationState mirrors the UI's lightweight state machine for a
-// channel's last test result. Grafana doesn't expose a structured
-// "last validated" field per receiver, so fleet-api tracks it
-// alongside the secret in the encrypt service's metadata bag.
+// ValidationState is a channel's last test result, tracked by fleet-api since Grafana has no per-receiver field.
 type ValidationState string
 
 const (
@@ -47,24 +20,18 @@ const (
 	ValidationFailed  ValidationState = "failed"
 )
 
-// WebhookConfig is the read shape returned to the UI. The bearer
-// header is zeroed on reads; presence is signalled by Channel.HasSecret.
+// WebhookConfig is the read shape returned to the UI; BearerHeader is zeroed on reads (see Channel.HasSecret).
 type WebhookConfig struct {
 	URL          string
 	BearerHeader string
 }
 
-// SlackConfig configures a Slack incoming-webhook destination,
-// delivered via Grafana's native slack contact-point type. The URL
-// embeds the capability token, so the whole value is a secret:
-// Grafana stores it as a secure setting, reads return it empty, and
-// presence is signalled by Channel.HasSecret.
+// SlackConfig configures a Slack incoming-webhook; WebhookURL is the secret and reads return it empty.
 type SlackConfig struct {
 	WebhookURL string
 }
 
-// SMTPConfig is the read shape returned to the UI. Password is
-// write-only and zeroed on reads.
+// SMTPConfig is the read shape returned to the UI; Password is write-only and zeroed on reads.
 type SMTPConfig struct {
 	Host     string
 	Port     int32
@@ -74,8 +41,7 @@ type SMTPConfig struct {
 	Password string
 }
 
-// Channel is a destination the rule engine delivers notifications to.
-// One Channel == one Grafana contact point in the caller's org.
+// Channel is a delivery destination; one Channel maps to one Grafana contact point in the caller's org.
 type Channel struct {
 	ID              string
 	OrganizationID  int64
@@ -92,10 +58,7 @@ type Channel struct {
 	HasSecret       bool
 }
 
-// RuleTemplate is the closed set of rule "kinds" the provisioned
-// YAML exposes. Surfaced on the rule via the `template` label
-// (e.g. labels.template="offline"). Anything unrecognised maps to
-// the empty string so the UI falls back to the rule title alone.
+// RuleTemplate is the closed set of rule kinds from the `template` label; unrecognised values map to empty.
 type RuleTemplate string
 
 const (
@@ -107,11 +70,7 @@ const (
 	RuleTemplateTelemetryPoll  RuleTemplate = "telemetry-poll"
 )
 
-// Rule is a read-only descriptor of one provisioned Grafana alert
-// rule. The UI uses these to render the rules list and decide
-// which rule a silence targets. There is no editable scope or
-// threshold field here on purpose — operators can pause / resume /
-// silence but not alter the SQL behind a rule.
+// Rule is a read-only descriptor of one provisioned Grafana alert rule; thresholds are intentionally not editable.
 type Rule struct {
 	ID              string
 	OrganizationID  int64
@@ -125,7 +84,6 @@ type Rule struct {
 	Enabled         bool
 }
 
-// SilenceScopeKind narrows a silence to one slice of the fleet.
 type SilenceScopeKind string
 
 const (
@@ -135,9 +93,7 @@ const (
 	SilenceScopeDevice SilenceScopeKind = "device"
 )
 
-// SilenceScope is the structured payload behind a Grafana silence
-// matcher set. fleet-api compiles this down to the matcher list
-// Grafana stores and reverses the mapping on reads.
+// SilenceScope is the structured form of a Grafana silence matcher set, compiled to/from matchers by fleet-api.
 type SilenceScope struct {
 	Kind      SilenceScopeKind
 	RuleID    string
@@ -146,9 +102,7 @@ type SilenceScope struct {
 	DeviceIDs []string
 }
 
-// Silence is a temporary mute that suppresses a matching rule for a
-// finite window. Active is derived from Now() ∈ [StartsAt, EndsAt)
-// at read time.
+// Silence is a temporary mute; Active is derived from Now() ∈ [StartsAt, EndsAt) at read time.
 type Silence struct {
 	ID             string
 	OrganizationID int64

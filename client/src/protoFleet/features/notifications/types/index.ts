@@ -1,7 +1,4 @@
-// Wire types for the notifications surface. Snake_case keys match the
-// JSON shapes the server-side handler emits — see
-// server/internal/handlers/notifications/handler.go for the source of truth.
-
+// Wire types for the notifications surface; snake_case keys match server/internal/handlers/notifications/handler.go.
 export type ChannelKind = "webhook" | "smtp" | "slack";
 export type ValidationState = "ok" | "failed" | "pending";
 
@@ -16,13 +13,12 @@ export interface SmtpConfig {
   username: string;
   from: string;
   to: string[];
-  // password is write-only — present only on requests, never on reads.
+  // Write-only: present on requests, never on reads.
   password?: string;
 }
 
 export interface SlackConfig {
-  // webhook_url is write-only — the URL embeds the capability token,
-  // so reads return it empty and has_secret signals one is stored.
+  // Write-only: the URL embeds a capability token, so reads return it empty and has_secret signals one is stored.
   webhook_url?: string;
 }
 
@@ -42,11 +38,7 @@ export interface Channel {
   has_secret?: boolean;
 }
 
-// Rule — read-only descriptor of a provisioned Grafana alert rule.
-// There is no client-side rule creation flow: the rule set is owned
-// by the ops Grafana YAML and operators can only pause / resume /
-// silence the rules that ship with the deploy.
-
+// Read-only descriptor of a provisioned Grafana alert rule; the ops YAML owns the set, clients only pause/resume/silence.
 export type RuleTemplate = "offline" | "temperature" | "hashrate" | "pool" | "command_failure" | "telemetry-poll" | "";
 
 export interface Rule {
@@ -61,8 +53,6 @@ export interface Rule {
   duration_seconds: number;
   enabled: boolean;
 }
-
-// Silence — temporary mute that blocks a rule from delivering during a window.
 
 export type SilenceScopeKind = "rule" | "group" | "site" | "device";
 
@@ -88,9 +78,6 @@ export interface Silence {
 export interface SilenceWithActive extends Silence {
   active: boolean;
 }
-
-// NotificationHistoryEntry — one alert delivery persisted by the
-// alertmanager webhook receiver into notification_history.
 
 export type NotificationHistoryStatus = "firing" | "resolved";
 

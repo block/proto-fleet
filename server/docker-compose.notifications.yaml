@@ -13,8 +13,7 @@ services:
       FLEET_METRICS_GRAFANA_USER: "${FLEET_METRICS_GRAFANA_USER:-admin}"
       FLEET_METRICS_GRAFANA_PASSWORD: localdev-grafana-admin-not-for-prod
       FLEET_METRICS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
-      # Dev stacks test notification channels against local/private
-      # endpoints; prod keeps the default (external destinations only).
+      # Dev-only: allow testing channels against local/private endpoints (prod allows external destinations only).
       FLEET_METRICS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_METRICS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS:-true}"
     depends_on:
       otel-collector:

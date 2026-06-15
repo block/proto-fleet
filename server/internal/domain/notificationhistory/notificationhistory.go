@@ -29,10 +29,7 @@ type Store interface {
 	Insert(ctx context.Context, n *Notification) error
 }
 
-// StoredNotification is a Notification read back from the table,
-// carrying the row identity the write path doesn't have plus
-// read-time device enrichment (resolved from the device table at
-// query time, ” when the device is unknown or deleted).
+// StoredNotification is a Notification read back from the table, with row identity and read-time device enrichment.
 type StoredNotification struct {
 	ID         int64
 	ReceivedAt time.Time
@@ -41,11 +38,7 @@ type StoredNotification struct {
 	Notification
 }
 
-// Lister reads pages of persisted notifications, newest first. Split
-// from Store so write-only consumers (the alertmanager webhook
-// receiver and its test fakes) don't have to implement reads.
-// beforeID is the keyset cursor: nil for the first page, otherwise
-// the previous page's last row id.
+// Lister reads pages of persisted notifications, newest first; beforeID is the keyset cursor (nil for the first page).
 type Lister interface {
 	List(ctx context.Context, organizationID int64, beforeID *int64, limit int32) ([]StoredNotification, error)
 }

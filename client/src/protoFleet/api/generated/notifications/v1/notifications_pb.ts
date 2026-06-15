@@ -2,27 +2,7 @@
 // @generated from file notifications/v1/notifications.proto (package notifications.v1, syntax proto3)
 /* eslint-disable */
 
-// The notifications service is the thin Connect-RPC surface that the
-// settings UI uses to manage channels and silences in the Grafana
-// sidecar, plus pause/resume the small set of provisioned alert rules.
-//
-// Persistence and evaluation live in Grafana. fleet-api translates
-// each RPC into a call against Grafana's HTTP API (provisioning for
-// rules and contact points, the Alertmanager API for silences) and
-// scopes every read/write to the caller's organization by tagging
-// Grafana objects with an `org=<id>` label on rules, a name prefix
-// on contact points, and a `organization_id=<id>` matcher on
-// silences. The fleet-api handler is the security boundary — every
-// list path filters server-side, every write injects the caller's
-// org id, and a user from org A targeting an id owned by org B gets
-// permission_denied.
-//
-// IMPORTANT: this service intentionally does NOT expose any
-// rule-authoring surface. The set of alert rules is a closed list
-// provisioned by ops via the Grafana YAML — operators can only
-// list / pause / resume / silence them, never create / edit /
-// delete. If you find yourself adding a CreateRule or UpdateRule
-// RPC here, that's a product change, not a transport change.
+// Connect-RPC surface proxying the Grafana sidecar; fleet-api is the security boundary that scopes every read/write to the caller's org. No rule-authoring surface by design (the rule set is provisioned by ops YAML).
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
@@ -51,10 +31,7 @@ export type WebhookConfig = Message<"notifications.v1.WebhookConfig"> & {
   url: string;
 
   /**
-   * bearer_header is the value Grafana sets on the Authorization
-   * header. Returned as the empty string on reads; presence is
-   * signalled by Channel.has_secret. The server stores it in the
-   * encrypt service, not in Grafana provisioning JSON.
+   * Write-only secret; empty on reads, presence signalled by Channel.has_secret.
    *
    * @generated from field: string bearer_header = 2;
    */
@@ -99,7 +76,7 @@ export type SmtpConfig = Message<"notifications.v1.SmtpConfig"> & {
   to: string[];
 
   /**
-   * password is write-only; readbacks are always empty.
+   * Write-only; readbacks are always empty.
    *
    * @generated from field: string password = 6;
    */
@@ -119,10 +96,7 @@ export const SmtpConfigSchema: GenMessage<SmtpConfig> =
  */
 export type SlackConfig = Message<"notifications.v1.SlackConfig"> & {
   /**
-   * webhook_url is the Slack incoming-webhook URL. The URL embeds
-   * the capability token, so the whole value is a secret: Grafana
-   * stores it as a secure setting, reads return it empty, and
-   * presence is signalled by Channel.has_secret.
+   * The incoming-webhook URL embeds a capability token, so the whole value is a write-only secret.
    *
    * @generated from field: string webhook_url = 1;
    */
@@ -197,9 +171,7 @@ export type Channel = Message<"notifications.v1.Channel"> & {
   validationError: string;
 
   /**
-   * has_secret is true when a webhook bearer header, SMTP password,
-   * or Slack webhook URL is stored. Lets the UI render "•••• Set"
-   * without leaking the secret on the wire.
+   * True when a secret is stored, so the UI can render "•••• Set" without leaking it.
    *
    * @generated from field: bool has_secret = 12;
    */
@@ -401,9 +373,7 @@ export const DeleteChannelResponseSchema: GenMessage<DeleteChannelResponse> =
  */
 export type TestChannelRequest = Message<"notifications.v1.TestChannelRequest"> & {
   /**
-   * Either an existing id, or an unsaved definition. The handler
-   * prefers the unsaved definition when both are set so the UI's
-   * "Test before save" flow does not require a prior write.
+   * Either an existing id or an unsaved definition; the unsaved definition wins when both are set.
    *
    * @generated from field: string id = 1;
    */
@@ -471,8 +441,7 @@ export const TestChannelResponseSchema: GenMessage<TestChannelResponse> =
  */
 export type Rule = Message<"notifications.v1.Rule"> & {
   /**
-   * id is the Grafana alert-rule UID. Stable across deploys
-   * because the YAML pins it.
+   * Grafana alert-rule UID, stable across deploys because the YAML pins it.
    *
    * @generated from field: string id = 1;
    */
@@ -484,58 +453,44 @@ export type Rule = Message<"notifications.v1.Rule"> & {
   organizationId: bigint;
 
   /**
-   * name is the human-readable rule title from Grafana.
-   *
    * @generated from field: string name = 3;
    */
   name: string;
 
   /**
-   * template is decoded from labels.template. RULE_TEMPLATE_UNSPECIFIED
-   * for self-monitoring rules that don't carry the label.
-   *
    * @generated from field: notifications.v1.RuleTemplate template = 4;
    */
   template: RuleTemplate;
 
   /**
-   * group is the Grafana rule-group name (e.g. "proto-fleet-defaults").
-   *
    * @generated from field: string group = 5;
    */
   group: string;
 
   /**
-   * severity comes from labels.severity ("warning", "critical").
-   *
    * @generated from field: string severity = 6;
    */
   severity: string;
 
   /**
-   * summary comes from annotations.summary — the short one-liner
-   * the UI shows under the rule name.
-   *
    * @generated from field: string summary = 7;
    */
   summary: string;
 
   /**
-   * description comes from annotations.description, multi-line.
-   *
    * @generated from field: string description = 8;
    */
   description: string;
 
   /**
-   * duration_seconds is parsed from Grafana's `for:` window.
+   * Parsed from Grafana's `for:` window.
    *
    * @generated from field: int32 duration_seconds = 9;
    */
   durationSeconds: number;
 
   /**
-   * enabled is the inverse of Grafana's isPaused.
+   * Inverse of Grafana's isPaused.
    *
    * @generated from field: bool enabled = 10;
    */
@@ -915,10 +870,7 @@ export const DeleteSilenceResponseSchema: GenMessage<DeleteSilenceResponse> =
   messageDesc(file_notifications_v1_notifications, 30);
 
 /**
- * NotificationHistoryEntry is one delivered alert, recorded by the
- * Alertmanager webhook receiver. All fields are denormalized from the
- * inbound alert at ingest time; status/severity/template are free-form
- * strings rather than enums because they originate from Grafana.
+ * One delivered alert; fields are denormalized from the inbound alert, free-form strings since they originate from Grafana.
  *
  * @generated from message notifications.v1.NotificationHistoryEntry
  */
@@ -1007,17 +959,14 @@ export const NotificationHistoryEntrySchema: GenMessage<NotificationHistoryEntry
  */
 export type ListNotificationsRequest = Message<"notifications.v1.ListNotificationsRequest"> & {
   /**
-   * before_id is the keyset cursor: return entries with id strictly
-   * less than before_id (entries are ordered newest-first by id).
-   * Empty for the first page.
+   * Keyset cursor: returns entries with id < before_id; empty for the first page.
    *
    * @generated from field: string before_id = 1;
    */
   beforeId: string;
 
   /**
-   * page_size is clamped server-side to a sane default and maximum;
-   * 0 means "use the default".
+   * Clamped server-side; 0 means "use the default".
    *
    * @generated from field: int32 page_size = 2;
    */
@@ -1118,11 +1067,7 @@ export const ValidationStateSchema: GenEnum<ValidationState> =
   enumDesc(file_notifications_v1_notifications, 1);
 
 /**
- * RuleTemplate is the closed set of rule "kinds" the provisioned
- * YAML exposes. Surfaced on the rule via the `template` label
- * (e.g. labels.template="offline"). Anything unrecognised maps to
- * RULE_TEMPLATE_UNSPECIFIED so the UI can fall back to the rule
- * title alone.
+ * Closed set of rule kinds from the provisioned YAML; unrecognised maps to RULE_TEMPLATE_UNSPECIFIED.
  *
  * @generated from enum notifications.v1.RuleTemplate
  */
@@ -1206,17 +1151,13 @@ export const SilenceScopeKindSchema: GenEnum<SilenceScopeKind> =
   enumDesc(file_notifications_v1_notifications, 3);
 
 /**
- * ChannelService manages destinations the rule engine delivers to.
- * Backed by Grafana contact points.
+ * ChannelService manages delivery destinations, backed by Grafana contact points.
  *
  * @generated from service notifications.v1.ChannelService
  */
 export const ChannelService: GenService<{
   /**
-   * ListChannels returns every channel owned by the caller's org.
-   * Secrets (webhook bearer headers, SMTP passwords) are zeroed in
-   * the response; the boolean has_secret tells the UI whether a
-   * secret is set so it can render the "•••• Set" affordance.
+   * Secrets are zeroed on reads; Channel.has_secret signals presence.
    *
    * @generated from rpc notifications.v1.ChannelService.ListChannels
    */
@@ -1226,10 +1167,6 @@ export const ChannelService: GenService<{
     output: typeof ListChannelsResponseSchema;
   };
   /**
-   * CreateChannel inserts a new channel. The Grafana contact-point
-   * name is prefixed with org-<id>- server-side; the caller cannot
-   * collide with another org's name space.
-   *
    * @generated from rpc notifications.v1.ChannelService.CreateChannel
    */
   createChannel: {
@@ -1238,8 +1175,7 @@ export const ChannelService: GenService<{
     output: typeof CreateChannelResponseSchema;
   };
   /**
-   * UpdateChannel replaces a channel's destination + name. Editing
-   * the destination clears the validation state.
+   * Editing the destination clears the validation state.
    *
    * @generated from rpc notifications.v1.ChannelService.UpdateChannel
    */
@@ -1249,9 +1185,6 @@ export const ChannelService: GenService<{
     output: typeof UpdateChannelResponseSchema;
   };
   /**
-   * DeleteChannel removes the channel from Grafana and its secret
-   * from the encrypt service.
-   *
    * @generated from rpc notifications.v1.ChannelService.DeleteChannel
    */
   deleteChannel: {
@@ -1260,9 +1193,7 @@ export const ChannelService: GenService<{
     output: typeof DeleteChannelResponseSchema;
   };
   /**
-   * TestChannel sends a synthetic alert through the channel without
-   * requiring it to be saved. Mirrors Grafana's test endpoint with
-   * an Alertmanager-shaped payload constructed server-side.
+   * Sends a synthetic alert through the channel without requiring it to be saved.
    *
    * @generated from rpc notifications.v1.ChannelService.TestChannel
    */
@@ -1274,17 +1205,12 @@ export const ChannelService: GenService<{
 }> = /*@__PURE__*/ serviceDesc(file_notifications_v1_notifications, 0);
 
 /**
- * RuleService is read-only plus pause/resume. The set of rules is
- * fixed by the provisioned YAML; this service does NOT expose a
- * create / update / delete surface.
+ * RuleService is read-only plus pause/resume; rules are fixed by provisioned YAML (no create/update/delete).
  *
  * @generated from service notifications.v1.RuleService
  */
 export const RuleService: GenService<{
   /**
-   * ListRules returns every provisioned alert rule. Each rule's
-   * `enabled` flag is the inverse of Grafana's `isPaused`.
-   *
    * @generated from rpc notifications.v1.RuleService.ListRules
    */
   listRules: {
@@ -1293,8 +1219,7 @@ export const RuleService: GenService<{
     output: typeof ListRulesResponseSchema;
   };
   /**
-   * PauseRule sets isPaused=true on the rule, stopping it from
-   * firing without removing it from the provisioning. Idempotent.
+   * Idempotent.
    *
    * @generated from rpc notifications.v1.RuleService.PauseRule
    */
@@ -1304,7 +1229,7 @@ export const RuleService: GenService<{
     output: typeof PauseRuleResponseSchema;
   };
   /**
-   * ResumeRule clears isPaused on the rule. Idempotent.
+   * Idempotent.
    *
    * @generated from rpc notifications.v1.RuleService.ResumeRule
    */
@@ -1316,8 +1241,7 @@ export const RuleService: GenService<{
 }> = /*@__PURE__*/ serviceDesc(file_notifications_v1_notifications, 1);
 
 /**
- * SilenceService manages temporary mutes. Backed by Grafana's
- * built-in Alertmanager silences API.
+ * SilenceService manages temporary mutes, backed by Grafana's Alertmanager silences API.
  *
  * @generated from service notifications.v1.SilenceService
  */
@@ -1357,17 +1281,13 @@ export const SilenceService: GenService<{
 }> = /*@__PURE__*/ serviceDesc(file_notifications_v1_notifications, 2);
 
 /**
- * HistoryService is read-only access to the delivered-notification
- * log. Entries are persisted by fleet-api's Alertmanager webhook
- * receiver (a separate ingest path); this service only reads them
- * back, scoped to the caller's organization.
+ * HistoryService is read-only access to the delivered-notification log, scoped to the caller's org.
  *
  * @generated from service notifications.v1.HistoryService
  */
 export const HistoryService: GenService<{
   /**
-   * ListNotifications returns one page of history entries, newest
-   * first, using keyset pagination on the entry id.
+   * Newest first, keyset-paginated on the entry id.
    *
    * @generated from rpc notifications.v1.HistoryService.ListNotifications
    */

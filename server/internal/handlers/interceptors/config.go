@@ -37,8 +37,7 @@ var RedactedRequestProcedures = []string{
 	// PairDiscoveredDevicesOnFleetNode carries miner credentials (username/password)
 	// in the request body.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
-	// Notification channel mutations carry destination secrets (webhook
-	// bearer headers, SMTP passwords, Slack webhook URLs) in the request.
+	// Channel mutations carry destination secrets in the request.
 	notificationsv1connect.ChannelServiceCreateChannelProcedure,
 	notificationsv1connect.ChannelServiceUpdateChannelProcedure,
 	notificationsv1connect.ChannelServiceTestChannelProcedure,
@@ -116,10 +115,7 @@ var SessionOnlyProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
-	// Notifications are a Settings-screen surface. Keeping the whole
-	// service session-only preserves the prior hand-written handler's
-	// behaviour (it accepted session cookies only) and keeps a leaked
-	// API key from reconfiguring alert delivery or muting alerts.
+	// Session-only so a leaked API key can't reconfigure alert delivery or mute alerts.
 	notificationsv1connect.ChannelServiceListChannelsProcedure,
 	notificationsv1connect.ChannelServiceCreateChannelProcedure,
 	notificationsv1connect.ChannelServiceUpdateChannelProcedure,

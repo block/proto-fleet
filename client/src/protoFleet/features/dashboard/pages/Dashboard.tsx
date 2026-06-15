@@ -36,9 +36,7 @@ const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
   const duration = useDuration();
   const setDuration = useSetDuration();
-  // The notifications card fetches notification history on mount, which the
-  // server gates on notification:read. Don't render it for users without
-  // that permission, or the main dashboard hits a guaranteed 403.
+  // The card fetches history on mount (server gates on notification:read), so omit it without permission to avoid a guaranteed 403.
   const canViewNotifications = useHasPermission("notification:read");
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();

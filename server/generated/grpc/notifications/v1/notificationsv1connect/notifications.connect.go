@@ -2,27 +2,7 @@
 //
 // Source: notifications/v1/notifications.proto
 
-// The notifications service is the thin Connect-RPC surface that the
-// settings UI uses to manage channels and silences in the Grafana
-// sidecar, plus pause/resume the small set of provisioned alert rules.
-//
-// Persistence and evaluation live in Grafana. fleet-api translates
-// each RPC into a call against Grafana's HTTP API (provisioning for
-// rules and contact points, the Alertmanager API for silences) and
-// scopes every read/write to the caller's organization by tagging
-// Grafana objects with an `org=<id>` label on rules, a name prefix
-// on contact points, and a `organization_id=<id>` matcher on
-// silences. The fleet-api handler is the security boundary — every
-// list path filters server-side, every write injects the caller's
-// org id, and a user from org A targeting an id owned by org B gets
-// permission_denied.
-//
-// IMPORTANT: this service intentionally does NOT expose any
-// rule-authoring surface. The set of alert rules is a closed list
-// provisioned by ops via the Grafana YAML — operators can only
-// list / pause / resume / silence them, never create / edit /
-// delete. If you find yourself adding a CreateRule or UpdateRule
-// RPC here, that's a product change, not a transport change.
+// Connect-RPC surface proxying the Grafana sidecar; fleet-api is the security boundary that scopes every read/write to the caller's org. No rule-authoring surface by design (the rule set is provisioned by ops YAML).
 package notificationsv1connect
 
 import (
@@ -101,24 +81,13 @@ const (
 
 // ChannelServiceClient is a client for the notifications.v1.ChannelService service.
 type ChannelServiceClient interface {
-	// ListChannels returns every channel owned by the caller's org.
-	// Secrets (webhook bearer headers, SMTP passwords) are zeroed in
-	// the response; the boolean has_secret tells the UI whether a
-	// secret is set so it can render the "•••• Set" affordance.
+	// Secrets are zeroed on reads; Channel.has_secret signals presence.
 	ListChannels(context.Context, *connect.Request[v1.ListChannelsRequest]) (*connect.Response[v1.ListChannelsResponse], error)
-	// CreateChannel inserts a new channel. The Grafana contact-point
-	// name is prefixed with org-<id>- server-side; the caller cannot
-	// collide with another org's name space.
 	CreateChannel(context.Context, *connect.Request[v1.CreateChannelRequest]) (*connect.Response[v1.CreateChannelResponse], error)
-	// UpdateChannel replaces a channel's destination + name. Editing
-	// the destination clears the validation state.
+	// Editing the destination clears the validation state.
 	UpdateChannel(context.Context, *connect.Request[v1.UpdateChannelRequest]) (*connect.Response[v1.UpdateChannelResponse], error)
-	// DeleteChannel removes the channel from Grafana and its secret
-	// from the encrypt service.
 	DeleteChannel(context.Context, *connect.Request[v1.DeleteChannelRequest]) (*connect.Response[v1.DeleteChannelResponse], error)
-	// TestChannel sends a synthetic alert through the channel without
-	// requiring it to be saved. Mirrors Grafana's test endpoint with
-	// an Alertmanager-shaped payload constructed server-side.
+	// Sends a synthetic alert through the channel without requiring it to be saved.
 	TestChannel(context.Context, *connect.Request[v1.TestChannelRequest]) (*connect.Response[v1.TestChannelResponse], error)
 }
 
@@ -196,24 +165,13 @@ func (c *channelServiceClient) TestChannel(ctx context.Context, req *connect.Req
 
 // ChannelServiceHandler is an implementation of the notifications.v1.ChannelService service.
 type ChannelServiceHandler interface {
-	// ListChannels returns every channel owned by the caller's org.
-	// Secrets (webhook bearer headers, SMTP passwords) are zeroed in
-	// the response; the boolean has_secret tells the UI whether a
-	// secret is set so it can render the "•••• Set" affordance.
+	// Secrets are zeroed on reads; Channel.has_secret signals presence.
 	ListChannels(context.Context, *connect.Request[v1.ListChannelsRequest]) (*connect.Response[v1.ListChannelsResponse], error)
-	// CreateChannel inserts a new channel. The Grafana contact-point
-	// name is prefixed with org-<id>- server-side; the caller cannot
-	// collide with another org's name space.
 	CreateChannel(context.Context, *connect.Request[v1.CreateChannelRequest]) (*connect.Response[v1.CreateChannelResponse], error)
-	// UpdateChannel replaces a channel's destination + name. Editing
-	// the destination clears the validation state.
+	// Editing the destination clears the validation state.
 	UpdateChannel(context.Context, *connect.Request[v1.UpdateChannelRequest]) (*connect.Response[v1.UpdateChannelResponse], error)
-	// DeleteChannel removes the channel from Grafana and its secret
-	// from the encrypt service.
 	DeleteChannel(context.Context, *connect.Request[v1.DeleteChannelRequest]) (*connect.Response[v1.DeleteChannelResponse], error)
-	// TestChannel sends a synthetic alert through the channel without
-	// requiring it to be saved. Mirrors Grafana's test endpoint with
-	// an Alertmanager-shaped payload constructed server-side.
+	// Sends a synthetic alert through the channel without requiring it to be saved.
 	TestChannel(context.Context, *connect.Request[v1.TestChannelRequest]) (*connect.Response[v1.TestChannelResponse], error)
 }
 
@@ -291,13 +249,10 @@ func (UnimplementedChannelServiceHandler) TestChannel(context.Context, *connect.
 
 // RuleServiceClient is a client for the notifications.v1.RuleService service.
 type RuleServiceClient interface {
-	// ListRules returns every provisioned alert rule. Each rule's
-	// `enabled` flag is the inverse of Grafana's `isPaused`.
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
-	// PauseRule sets isPaused=true on the rule, stopping it from
-	// firing without removing it from the provisioning. Idempotent.
+	// Idempotent.
 	PauseRule(context.Context, *connect.Request[v1.PauseRuleRequest]) (*connect.Response[v1.PauseRuleResponse], error)
-	// ResumeRule clears isPaused on the rule. Idempotent.
+	// Idempotent.
 	ResumeRule(context.Context, *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.ResumeRuleResponse], error)
 }
 
@@ -353,13 +308,10 @@ func (c *ruleServiceClient) ResumeRule(ctx context.Context, req *connect.Request
 
 // RuleServiceHandler is an implementation of the notifications.v1.RuleService service.
 type RuleServiceHandler interface {
-	// ListRules returns every provisioned alert rule. Each rule's
-	// `enabled` flag is the inverse of Grafana's `isPaused`.
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
-	// PauseRule sets isPaused=true on the rule, stopping it from
-	// firing without removing it from the provisioning. Idempotent.
+	// Idempotent.
 	PauseRule(context.Context, *connect.Request[v1.PauseRuleRequest]) (*connect.Response[v1.PauseRuleResponse], error)
-	// ResumeRule clears isPaused on the rule. Idempotent.
+	// Idempotent.
 	ResumeRule(context.Context, *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.ResumeRuleResponse], error)
 }
 
@@ -553,8 +505,7 @@ func (UnimplementedSilenceServiceHandler) DeleteSilence(context.Context, *connec
 
 // HistoryServiceClient is a client for the notifications.v1.HistoryService service.
 type HistoryServiceClient interface {
-	// ListNotifications returns one page of history entries, newest
-	// first, using keyset pagination on the entry id.
+	// Newest first, keyset-paginated on the entry id.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 }
 
@@ -588,8 +539,7 @@ func (c *historyServiceClient) ListNotifications(ctx context.Context, req *conne
 
 // HistoryServiceHandler is an implementation of the notifications.v1.HistoryService service.
 type HistoryServiceHandler interface {
-	// ListNotifications returns one page of history entries, newest
-	// first, using keyset pagination on the entry id.
+	// Newest first, keyset-paginated on the entry id.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 }
 

@@ -17,65 +17,25 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// Service is the org-scoped domain layer. All public methods require
-// a non-zero organization id and refuse if zero.
-//
-// The Grafana client is the only outbound transport. Org isolation is
-// enforced here by:
-//
-//   - Channels: every contact-point name is prefixed with `org-<id>-`
-//     so a list scoped to a prefix returns only the caller's rows.
-//   - Rules: every rule gets `labels.organization_id="<id>"` injected
-//     on read filtering. The provisioned defaults ship as org=0 (or
-//     no label) and are visible to every org; ops-authored rules
-//     carry the label and are visible only to their owner.
-//   - Silences: every silence carries an `organization_id="<id>"`
-//     matcher; list filters by the same matcher and pause/resume of
-//     a silence implicitly recheck ownership.
-//
-// IMPORTANT: there is no CreateRule / UpdateRule / DeleteRule — by
-// product decision. Operators can pause / resume / silence the
-// closed set of provisioned rules; new rules require a deploy.
-//
-// Secrets: webhook bearer headers, SMTP passwords, and Slack webhook
-// URLs are passed straight through to Grafana, which stores them
-// encrypted at rest
-// in its own datastore. We do not keep a parallel copy in fleet-api
-// — there's nothing for fleet-api to do with them (Grafana is the
-// one calling out to the destination), and storing them twice would
-// double the rotation surface area.
+// Service is the org-scoped domain layer; org isolation is enforced here via name prefixes (channels), label/matcher filtering (rules, silences), and there is deliberately no rule create/update/delete.
 type Service struct {
 	grafana *Grafana
 	policy  DestinationPolicy
 	now     func() time.Time
 }
 
-// DestinationPolicy is the operator-facing egress policy for
-// notification destinations. Grafana (not fleet-api) opens the
-// outbound connection, so user-supplied webhook URLs and SMTP hosts
-// are an SSRF vector against whatever network the Grafana sidecar can
-// reach. By default destinations that resolve to loopback, link-local
-// (incl. cloud metadata), or RFC-1918 private ranges are rejected.
+// DestinationPolicy is the egress policy for notification destinations: Grafana opens the connection, so user-supplied URLs/hosts are an SSRF vector and private ranges are rejected by default.
 type DestinationPolicy struct {
 	AllowPrivateDestinations bool `help:"Allow notification destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
-// NewService returns a notifications service bound to the supplied
-// Grafana client. The clock is `time.Now` outside tests; tests
-// inject a deterministic clock.
 func NewService(g *Grafana, policy DestinationPolicy) *Service {
 	return &Service{grafana: g, policy: policy, now: time.Now}
 }
 
-// ErrZeroOrgID rejects callers that forgot to populate the org id on
-// the request. The handler layer is the first line of defence
-// (it pulls the org id from the auth interceptor's context); this is
-// the second.
 var ErrZeroOrgID = errors.New("notifications: organization id is required")
 
-// ErrNotFound is returned when a Grafana row exists but doesn't
-// belong to the caller's org — surfaced as permission_denied so a
-// scan for ids isn't a list oracle.
+// ErrNotFound is returned when a Grafana row exists but isn't owned by the caller's org; surfaced as permission_denied so id scans aren't a list oracle.
 var ErrNotFound = errors.New("notifications: not found")
 
 func requireOrg(orgID int64) error {
@@ -85,11 +45,7 @@ func requireOrg(orgID int64) error {
 	return nil
 }
 
-// === Channels ==========================================================
-
-// ListChannels returns every channel owned by the caller's
-// organization. Secrets are zeroed; HasSecret indicates whether a
-// secret is stored.
+// ListChannels returns every channel owned by the caller's organization.
 func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -106,9 +62,7 @@ func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, err
 		}
 		c, err := contactPointToChannel(orgID, cp)
 		if err != nil {
-			// Skip rows we can't decode rather than failing the whole
-			// list. The UI surfaces a callout if this ever happens
-			// repeatedly.
+			// Skip undecodable rows rather than failing the whole list.
 			continue
 		}
 		out = append(out, c)
@@ -117,9 +71,7 @@ func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, err
 	return out, nil
 }
 
-// CreateChannel inserts a new channel for orgID. Secrets are stored
-// in the encrypt service and the secret_ref is embedded in the
-// Grafana contact-point settings JSON.
+// CreateChannel inserts a new channel for orgID.
 func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*Channel, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -149,16 +101,12 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err != nil {
 		return nil, err
 	}
-	// Preserve the HasSecret flag that encodeChannelSettings set on the
-	// local copy — Grafana's response strips the secret value, so the
-	// decoder sees an empty string and reports HasSecret=false.
+	// Grafana's response strips the secret, so preserve the local HasSecret flag.
 	out.HasSecret = c.HasSecret
 	return &out, nil
 }
 
-// UpdateChannel replaces a channel's name + destination. Editing the
-// destination clears the validation state — the caller is expected
-// to re-test the channel before relying on it.
+// UpdateChannel replaces a channel's name and destination, clearing the validation state.
 func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*Channel, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -166,25 +114,12 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if c.ID == "" {
 		return nil, errors.New("channel id is required for update")
 	}
-	// Verify ownership before issuing the PUT — Grafana doesn't
-	// enforce our prefix scheme. Fetched before validation so we can
-	// resolve the carried-over webhook URL (see below) and validate
-	// the URL we will actually write.
+	// Verify ownership before the PUT (Grafana doesn't enforce our prefix scheme) and resolve the carried-over URL before validation.
 	owned, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
 	if err != nil {
 		return nil, err
 	}
-	// Resolve the effective destination and decide whether it changed.
-	// This gates secret preservation below: a stored secret must never
-	// be carried onto a *new* destination, or a manage user could
-	// redirect the channel to infrastructure they control and have the
-	// old bearer token / SMTP password delivered there.
-	//
-	// Webhook URLs are returned host-only on reads (they embed
-	// capability tokens), so an ordinary rename echoes back the
-	// redacted host rather than the full URL. Treat an empty or
-	// still-redacted URL as "unchanged" and restore the stored full
-	// URL; anything else is a real destination change.
+	// Whether the destination changed gates secret preservation below: a stored secret must never be carried onto a new destination. Reads echo back a redacted host, so an empty/redacted URL means "unchanged" and restores the stored full URL.
 	destinationChanged := false
 	keepStoredSlackURL := false
 	switch c.Kind {
@@ -197,28 +132,19 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 			destinationChanged = c.Webhook.URL != stored
 		}
 	case ChannelKindSMTP:
-		// The SMTP server (host:port) is the credential's audience;
-		// changing recipients or the display name reuses the same
-		// server and is not a destination change.
+		// The SMTP server (host:port) is the credential's audience; recipient/name changes are not destination changes.
 		if c.SMTP != nil && owned.SMTP != nil {
 			destinationChanged = c.SMTP.Host != owned.SMTP.Host || c.SMTP.Port != owned.SMTP.Port
 		}
 	case ChannelKindSlack:
-		// Slack URLs are write-only — the whole URL is the secret,
-		// Grafana stores it as a secure setting, and reads return only
-		// a redacted placeholder. An edit without a fresh URL therefore
-		// means "keep the stored destination": carrySecretSettings below
-		// carries the stored value (Grafana's "[REDACTED]" placeholder,
-		// resolved back on PUT) into the payload. A fresh URL is both a
-		// destination change and its own new secret.
+		// Slack URLs are write-only secrets: an edit without a fresh URL keeps the stored destination, a fresh URL is both a destination change and a new secret.
 		keepStoredSlackURL = c.Slack == nil || c.Slack.WebhookURL == ""
 		if c.Slack == nil {
 			c.Slack = &SlackConfig{}
 		}
 		destinationChanged = !keepStoredSlackURL
 	}
-	// A kept stored Slack URL has nothing new to validate (and the
-	// placeholder wouldn't parse as a URL anyway).
+	// A kept stored Slack URL has nothing new to validate.
 	if !keepStoredSlackURL {
 		if err := s.validateDestination(ctx, &c); err != nil {
 			return nil, err
@@ -235,18 +161,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err != nil {
 		return nil, err
 	}
-	// Ordinary edits (rename, recipient change) arrive without the
-	// secret — reads never return it, so the UI can't echo it back.
-	// Writing the empty value would silently wipe the stored credential
-	// in Grafana, so carry the existing settings' secret field into the
-	// update payload instead. For webhook channels the carried value is
-	// Grafana's "[REDACTED]" placeholder, which Grafana's provisioning
-	// API resolves back to the stored secure value on PUT.
-	//
-	// The carry is gated on the destination being unchanged: a changed
-	// destination without a fresh secret drops the stored one (the PUT
-	// omits the field, which wipes it in Grafana) rather than deliver
-	// the old credential to the new destination.
+	// Edits without a secret carry the stored field forward (writing empty would wipe it), but only when the destination is unchanged so the old credential can't be delivered to a new destination.
 	if !hasNewSecret {
 		if destinationChanged {
 			c.HasSecret = false
@@ -277,9 +192,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	return &out, nil
 }
 
-// DeleteChannel removes the channel from Grafana. Missing rows are
-// treated as deletes that already happened — repeated DELETEs are
-// idempotent.
+// DeleteChannel removes the channel from Grafana; missing rows make the delete idempotent.
 func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) error {
 	if err := requireOrg(orgID); err != nil {
 		return err
@@ -293,10 +206,7 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 	return nil
 }
 
-// TestChannel sends a synthetic alert through the supplied channel
-// definition. The id field is optional; an unsaved definition can be
-// tested directly so the UI's "Test before save" flow doesn't need a
-// prior write.
+// TestChannel sends a synthetic alert through the supplied channel definition; the id is optional so an unsaved definition can be tested directly.
 func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool, int, string, error) {
 	if err := requireOrg(orgID); err != nil {
 		return false, 0, "", err
@@ -304,14 +214,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 
 	var body map[string]any
 	if c.ID != "" {
-		// Saved channel: test the receiver exactly as stored in Grafana.
-		// Reads hand the UI a redacted destination (webhook URLs are
-		// host-only, Slack URLs omitted, secrets stripped), so testing
-		// the echoed-back request payload would probe the wrong target —
-		// or succeed against a host root that isn't the real
-		// destination. Resolve the owned contact point and test its
-		// stored settings, which carry the full URL and Grafana's secure
-		// fields. Ownership is enforced by findOwnedChannel.
+		// Saved channel: test the stored settings (full URL + secure fields), since the echoed-back payload is redacted and would probe the wrong target.
 		_, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
 		if err != nil {
 			return false, 0, "", err
@@ -322,8 +225,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 			"settings": ownedCP.Settings,
 		}
 	} else {
-		// Unsaved preview ("Test before save"): validate and test the
-		// supplied definition directly.
+		// Unsaved preview: validate and test the supplied definition directly.
 		if err := s.validateDestination(ctx, &c); err != nil {
 			return false, 0, "", err
 		}
@@ -347,10 +249,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 	return ok, code, "", nil
 }
 
-// findOwnedChannel returns the decoded channel together with the raw
-// Grafana contact point it came from. The raw row is needed by
-// UpdateChannel to carry secret settings (which the decoded Channel
-// deliberately drops) into the update payload.
+// findOwnedChannel returns the decoded channel plus the raw contact point it came from (needed to carry secret settings the decoded Channel drops).
 func (s *Service) findOwnedChannel(ctx context.Context, orgID int64, id string) (*Channel, *GrafanaContactPoint, error) {
 	cps, err := s.grafana.ListContactPoints(ctx)
 	if err != nil {
@@ -370,9 +269,7 @@ func (s *Service) findOwnedChannel(ctx context.Context, orgID int64, id string) 
 	return nil, nil, ErrNotFound
 }
 
-// requestHasNewSecret tells whether the caller's update payload
-// includes a fresh secret value (as opposed to the empty placeholder
-// returned by reads).
+// requestHasNewSecret reports whether the update payload includes a fresh secret value rather than the empty placeholder reads return.
 func (s *Service) requestHasNewSecret(c *Channel) bool {
 	switch c.Kind {
 	case ChannelKindWebhook:
@@ -385,8 +282,7 @@ func (s *Service) requestHasNewSecret(c *Channel) bool {
 	return false
 }
 
-// secretSettingsKeyFor names the Grafana settings field that carries
-// the channel kind's secret, or "" for kinds without one.
+// secretSettingsKeyFor names the Grafana settings field that carries the kind's secret, or "" for none.
 func secretSettingsKeyFor(kind ChannelKind) string {
 	switch kind {
 	case ChannelKindWebhook:
@@ -399,9 +295,7 @@ func secretSettingsKeyFor(kind ChannelKind) string {
 	return ""
 }
 
-// carrySecretSettings copies the secret field from the existing
-// contact point's settings into the update payload. Returns the
-// (possibly rewritten) settings and whether a secret was carried.
+// carrySecretSettings copies the secret field from the existing settings into the update payload, returning the settings and whether a secret was carried.
 func carrySecretSettings(existing, next json.RawMessage, kind ChannelKind) (json.RawMessage, bool, error) {
 	key := secretSettingsKeyFor(kind)
 	if key == "" {
@@ -427,12 +321,7 @@ func carrySecretSettings(existing, next json.RawMessage, kind ChannelKind) (json
 	return b, true, nil
 }
 
-// validateDestination rejects malformed or policy-violating outbound
-// destinations before they reach Grafana. Grafana is the process that
-// connects to the destination, so without this check any caller with
-// notification:manage could point the sidecar at internal services or
-// the cloud metadata endpoint (and TestChannel triggers the connection
-// immediately).
+// validateDestination rejects malformed or policy-violating destinations before they reach Grafana, which is what connects out (an SSRF vector otherwise).
 func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
 	switch c.Kind {
 	case ChannelKindWebhook:
@@ -457,10 +346,7 @@ func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
 	return nil
 }
 
-// checkDestinationURL applies the URL-shaped half of the destination
-// policy: parseable, http(s) scheme, a host present, and the host
-// passes checkDestinationHost. label prefixes error messages so the
-// UI can tell webhook and slack failures apart.
+// checkDestinationURL applies the URL-shaped half of the policy: parseable, http(s) scheme, host present and passing checkDestinationHost.
 func (s *Service) checkDestinationURL(ctx context.Context, raw, label string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -475,22 +361,10 @@ func (s *Service) checkDestinationURL(ctx context.Context, raw, label string) er
 	return s.checkDestinationHost(ctx, u.Hostname())
 }
 
-// destinationLookupTimeout bounds the DNS check in
-// checkDestinationHost so a slow resolver can't hang a save.
+// destinationLookupTimeout bounds the DNS check so a slow resolver can't hang a save.
 const destinationLookupTimeout = 3 * time.Second
 
-// checkDestinationHost rejects hosts that are (or resolve to)
-// loopback, link-local, private, or unspecified addresses unless the
-// operator opted in via AllowPrivateDestinations. DNS failures fail
-// closed: a host we can't classify is rejected rather than waved
-// through.
-//
-// Residual risk: Grafana resolves the hostname again at delivery
-// time, so a DNS-rebinding attacker (public IP at validation, private
-// IP at delivery) can still beat this pre-check. Deployments that
-// need a hard guarantee must enforce egress at the Grafana container's
-// network boundary; this check is the application-level backstop, not
-// the whole story.
+// checkDestinationHost rejects hosts that are or resolve to loopback/link-local/private/unspecified addresses (unless opted in); DNS failures fail closed. Not rebinding-proof — egress enforcement at Grafana's network boundary is the hard guarantee.
 func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
 	if s.policy.AllowPrivateDestinations {
 		return nil
@@ -525,22 +399,7 @@ func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
 	return nil
 }
 
-// === Rules =============================================================
-
-// ListRules returns the full set of provisioned alert rules visible
-// to the caller. Rules without an `organization_id` label are
-// treated as global defaults (visible to every org); rules that
-// carry the label are visible only to that org.
-//
-// A rule's `Enabled` flag reflects two signals OR'd together:
-//
-//   - The rule's own isPaused state (managed by ops via YAML).
-//   - The presence of an active pause-silence on the rule. We can't
-//     flip isPaused via the provisioning API on YAML-provisioned
-//     rules (Grafana 11.6+ "cannot change provenance from 'file' to
-//     ”" guard), so PauseRule below records pauses as a system
-//     silence with a marker matcher. ListRules resolves those and
-//     reports `Enabled = false` when one is active.
+// ListRules returns the provisioned alert rules visible to the caller (unlabelled rules are global defaults); Enabled ORs the rule's own isPaused with any active pause-silence overlay.
 func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -557,9 +416,7 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 		}
 		out = append(out, grafanaRuleToDomain(orgID, gr))
 	}
-	// Apply pause-silence overlay: rules with an active pause silence
-	// surface as `Enabled = false` even if the underlying rule's
-	// isPaused is false.
+	// Pause-silence overlay: an active pause silence forces Enabled=false.
 	paused := s.pauseSilencedRules(ctx, orgID)
 	if len(paused) > 0 {
 		for i := range out {
@@ -577,15 +434,7 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 	return out, nil
 }
 
-// PauseRule mutes a rule by writing a "pause silence" into Grafana's
-// Alertmanager — a silence with a far-future end time and a marker
-// matcher that identifies it as a system pause (not an operator-
-// authored silence). We use this rather than flipping isPaused on
-// the rule because Grafana 11.6+ refuses to let the provisioning
-// API edit a YAML-provisioned rule ("cannot change provenance from
-// 'file' to ”"); a silence is the only side-channel that achieves
-// the same observable behaviour (no alerts fire) without touching
-// the rule's provenance. Idempotent.
+// PauseRule mutes a rule via a marker pause-silence rather than flipping isPaused, since Grafana 11.6+ forbids the provisioning API from editing YAML-provisioned rules. Idempotent.
 func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -595,7 +444,6 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule,
 		return nil, err
 	}
 	if !rule.Enabled {
-		// Already paused — either via the YAML or a prior pause-silence.
 		return rule, nil
 	}
 	silence := buildPauseSilence(orgID, id, s.now())
@@ -607,11 +455,7 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule,
 	return &out, nil
 }
 
-// ResumeRule clears any active pause silence on the rule. If the
-// underlying rule's YAML-provisioned isPaused is true, the rule
-// remains paused even after the silence is lifted — that's a
-// product decision, since YAML-paused means "ops wants this off",
-// which the UI shouldn't override. Idempotent.
+// ResumeRule clears any active pause silence; a YAML-provisioned isPaused still keeps the rule paused. Idempotent.
 func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -629,8 +473,6 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 		if !isPauseSilenceFor(sil, want, id) {
 			continue
 		}
-		// Skip already-expired pause silences — Grafana garbage-collects
-		// them eventually, no need to issue a redundant DELETE.
 		if sil.Status != nil && sil.Status.State == "expired" {
 			continue
 		}
@@ -638,8 +480,7 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 			return nil, err
 		}
 	}
-	// Re-fetch through ListRules so the Enabled flag reflects both
-	// the rule's own isPaused and the (now-cleared) pause silences.
+	// Re-fetch so Enabled reflects the now-cleared pause silences.
 	updated, err := s.requireRule(ctx, orgID, id)
 	if err != nil {
 		return nil, err
@@ -647,9 +488,7 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 	return updated, nil
 }
 
-// requireRule looks up a rule visible to orgID via ListRules and
-// returns ErrNotFound if it's missing. Used by Pause / Resume to
-// share the visibility check.
+// requireRule looks up a rule visible to orgID via ListRules, returning ErrNotFound if missing.
 func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
 	if id == "" {
 		return nil, errors.New("rule id is required")
@@ -666,10 +505,7 @@ func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rul
 	return nil, ErrNotFound
 }
 
-// pauseSilencedRules returns the set of rule UIDs that have an
-// active pause silence on them. Best-effort: a Grafana fetch error
-// returns an empty map so the rules list still renders (the user
-// just sees stale Enabled flags rather than no rules at all).
+// pauseSilencedRules returns the rule UIDs with an active pause silence; best-effort, a fetch error returns an empty map so the list still renders.
 func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) map[string]bool {
 	sils, err := s.grafana.ListSilences(ctx)
 	if err != nil {
@@ -697,10 +533,7 @@ func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) map[strin
 	return out
 }
 
-// === Silences ==========================================================
-
-// ListSilences returns every silence carrying the caller's org
-// matcher, with the Active flag derived from Now().
+// ListSilences returns every silence carrying the caller's org matcher.
 func (s *Service) ListSilences(ctx context.Context, orgID int64) ([]Silence, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -716,9 +549,7 @@ func (s *Service) ListSilences(ctx context.Context, orgID int64) ([]Silence, err
 		if !silenceMatchesOrg(gs, want) {
 			continue
 		}
-		// Pause silences are an implementation detail of PauseRule —
-		// the operator sees the rule's "Paused" badge, not a stray
-		// silence entry. Hide them here.
+		// Hide pause silences; they're an implementation detail of PauseRule.
 		if isPauseSilence(gs) {
 			continue
 		}
@@ -729,9 +560,7 @@ func (s *Service) ListSilences(ctx context.Context, orgID int64) ([]Silence, err
 	return out, nil
 }
 
-// CreateSilence inserts a new silence. The scope is compiled to the
-// Alertmanager matcher set Grafana stores; the caller's org id is
-// always one of the matchers.
+// CreateSilence inserts a new silence, always including the caller's org id matcher.
 func (s *Service) CreateSilence(ctx context.Context, orgID int64, sil Silence) (*Silence, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -751,8 +580,7 @@ func (s *Service) CreateSilence(ctx context.Context, orgID int64, sil Silence) (
 	return &sil, nil
 }
 
-// UpdateSilence replaces an existing silence. Grafana doesn't have a
-// dedicated update endpoint — POST with the existing id replaces.
+// UpdateSilence replaces an existing silence (Grafana has no dedicated update endpoint; POST with the existing id replaces).
 func (s *Service) UpdateSilence(ctx context.Context, orgID int64, sil Silence) (*Silence, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
@@ -763,7 +591,6 @@ func (s *Service) UpdateSilence(ctx context.Context, orgID int64, sil Silence) (
 	if err := validateSilenceScope(sil.Scope); err != nil {
 		return nil, err
 	}
-	// Verify ownership.
 	existing, err := s.ListSilences(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -815,11 +642,7 @@ func (s *Service) DeleteSilence(ctx context.Context, orgID int64, id string) err
 	return nil
 }
 
-// validateSilenceScope rejects scopes without a concrete target. The
-// Grafana compiler in domainSilenceToGrafana only emits a target
-// matcher when the scope's field is populated — a targetless scope
-// would compile to just the org matcher and silence every alert in
-// the organization.
+// validateSilenceScope rejects targetless scopes, which would compile to just the org matcher and silence every alert in the organization.
 func validateSilenceScope(scope SilenceScope) error {
 	switch scope.Kind {
 	case SilenceScopeRule:
@@ -841,10 +664,7 @@ func validateSilenceScope(scope SilenceScope) error {
 		if len(scope.DeviceIDs) > maxSilenceDeviceIDs {
 			return fleeterror.NewInvalidArgumentErrorf("too many device_ids: %d (max %d)", len(scope.DeviceIDs), maxSilenceDeviceIDs)
 		}
-		// Device ids are compiled into an Alertmanager regex matcher.
-		// Restrict them to the identifier alphabet (UUIDs, MACs,
-		// serials) so a crafted id like ".*" can't broaden a
-		// device-scoped silence to the whole org.
+		// Restrict ids to the identifier alphabet so a crafted id like ".*" can't broaden the silence to the whole org.
 		for _, id := range scope.DeviceIDs {
 			if !deviceIDPattern.MatchString(id) {
 				return fleeterror.NewInvalidArgumentErrorf("invalid device id: %q", id)
@@ -856,47 +676,22 @@ func validateSilenceScope(scope SilenceScope) error {
 	return nil
 }
 
-// maxSilenceDeviceIDs caps the device list on a device-scoped silence
-// so a single request can't compile to an unbounded regex matcher or
-// an oversized Grafana write.
+// maxSilenceDeviceIDs caps the device list so a request can't compile to an unbounded matcher or oversized write.
 const maxSilenceDeviceIDs = 500
 
-// deviceIDPattern is the identifier alphabet accepted in device-scoped
-// silences: covers UUIDs, MAC addresses, and serial-style ids while
-// excluding every regex metacharacter except ".", which
-// domainSilenceToGrafana escapes.
+// deviceIDPattern is the identifier alphabet for device ids, excluding every regex metacharacter except "." (which domainSilenceToGrafana escapes).
 var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
-// === helpers ===========================================================
-
-// pauseSilenceMatcher is the marker matcher PauseRule stamps onto
-// the silences it creates. Reading this matcher back tells the
-// service "this silence is a system pause, not a user-authored
-// silence" — so it should drive the rule's Enabled flag (instead of
-// appearing in the silences list).
+// pauseSilenceMatcher is the marker matcher distinguishing a system pause from an operator-authored silence.
 const pauseSilenceMatcher = "proto_fleet_pause"
 
-// alertRuleUIDMatcher is Grafana's reserved matcher label used to
-// scope a silence to a single alert rule.
+// alertRuleUIDMatcher is Grafana's reserved matcher label scoping a silence to a single alert rule.
 const alertRuleUIDMatcher = "__alert_rule_uid__"
 
-// pauseSilenceEndsAt is the silence end time PauseRule writes.
-// Grafana requires a finite EndsAt on every silence; we pick a date
-// well outside any realistic operational horizon so the pause
-// behaves like "indefinite" in practice. Resume removes the silence
-// before it expires.
+// pauseSilenceEndsAt is a far-future end time making a pause behave as indefinite; Resume removes the silence before it expires.
 var pauseSilenceEndsAt = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// buildPauseSilence assembles the Alertmanager silence that
-// PauseRule writes for the given rule. The matcher set carries:
-//
-//   - organization_id == orgID: same per-org isolation every other
-//     silence carries.
-//   - __alert_rule_uid__ == ruleID: scopes the silence to a single
-//     rule (Grafana's reserved label for rule-level scoping).
-//   - proto_fleet_pause == true: marker matcher that lets the
-//     service distinguish system pauses from operator-authored
-//     silences.
+// buildPauseSilence assembles the pause silence for a rule, carrying org-id, alert-rule-uid, and pause-marker matchers.
 func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence {
 	return GrafanaSilence{
 		StartsAt:  now,
@@ -923,8 +718,7 @@ func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence
 	}
 }
 
-// isPauseSilence is true when the silence carries the proto-fleet
-// pause marker matcher.
+// isPauseSilence is true when the silence carries the pause marker matcher.
 func isPauseSilence(sil GrafanaSilence) bool {
 	for _, m := range sil.Matchers {
 		if m.Name == pauseSilenceMatcher && m.Value == "true" && m.IsEqual && !m.IsRegex {
@@ -934,8 +728,7 @@ func isPauseSilence(sil GrafanaSilence) bool {
 	return false
 }
 
-// isPauseSilenceFor is isPauseSilence narrowed to a specific org +
-// rule. Used by ResumeRule to find the silence(s) to clear.
+// isPauseSilenceFor is isPauseSilence narrowed to a specific org and rule.
 func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 	if !isPauseSilence(sil) {
 		return false
@@ -951,19 +744,12 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 	return false
 }
 
-// ruleLabelOrganizationID is the label name we read on alert rules
-// to decide which org owns them. Set on rules ops author per-org;
-// absent on the defaults shipped in the YAML, which are visible
-// (and pauseable) by every org's admin.
+// ruleLabelOrganizationID is the label deciding which org owns a rule; absent on YAML defaults, which every org can see.
 const ruleLabelOrganizationID = "organization_id"
 
-// silenceLabelOrganizationID is the matcher name we inject onto
-// every silence so the list filter can scope per-org.
 const silenceLabelOrganizationID = "organization_id"
 
-// channelNamePrefix is the per-org prefix every contact point name
-// carries. Grafana doesn't sandbox by org at the provisioning API
-// level, so we sandbox by name.
+// channelNamePrefix is the per-org prefix on every contact point name; Grafana doesn't sandbox by org, so we sandbox by name.
 func channelNamePrefix(orgID int64) string {
 	return fmt.Sprintf("org-%d-", orgID)
 }
@@ -988,9 +774,7 @@ func grafanaTypeFor(kind ChannelKind) string {
 	return ""
 }
 
-// encodeChannelSettings serialises the destination fields into the
-// JSON shape Grafana expects. Secrets ride along in the settings
-// payload; Grafana stores them encrypted at rest in its own datastore.
+// encodeChannelSettings serialises the destination fields into the JSON shape Grafana expects.
 func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
 	switch c.Kind {
 	case ChannelKindWebhook:
@@ -1034,9 +818,7 @@ func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
 		if c.Slack == nil {
 			return nil, errors.New("slack config is required")
 		}
-		// The URL is the only setting and it's the secret. Omit it when
-		// empty so an edit that keeps the stored destination leaves the
-		// field for carrySecretSettings to fill.
+		// The URL is the only setting and it's the secret; omit it when empty so carrySecretSettings can fill it on a stored-destination edit.
 		settings := map[string]any{}
 		if c.Slack.WebhookURL != "" {
 			settings["url"] = c.Slack.WebhookURL
@@ -1051,11 +833,7 @@ func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
 	return nil, fmt.Errorf("unsupported channel kind %q", c.Kind)
 }
 
-// redactWebhookURL reduces a webhook URL to scheme://host[:port],
-// dropping the userinfo, path, query, and fragment where capability
-// tokens (Slack/PagerDuty/Teams) live. Returns "" for an empty or
-// unparseable URL. This is the value reads expose; the full URL is
-// kept only in Grafana's stored settings.
+// redactWebhookURL reduces a webhook URL to scheme://host[:port], dropping the userinfo/path/query/fragment where capability tokens live. This is the value reads expose.
 func redactWebhookURL(raw string) string {
 	if raw == "" {
 		return ""
@@ -1067,9 +845,7 @@ func redactWebhookURL(raw string) string {
 	return u.Scheme + "://" + u.Host
 }
 
-// webhookURLFromSettings pulls the full (unredacted) webhook URL out of
-// a stored Grafana contact-point settings blob. Used by UpdateChannel
-// to carry the stored URL through an edit that didn't replace it.
+// webhookURLFromSettings pulls the full (unredacted) webhook URL out of a stored contact-point settings blob.
 func webhookURLFromSettings(raw json.RawMessage) string {
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &settings); err != nil {
@@ -1084,9 +860,7 @@ func webhookURLFromSettings(raw json.RawMessage) string {
 	return url
 }
 
-// contactPointToChannel reverses encodeChannelSettings on reads. The
-// secret value is never returned — only the boolean indicating one
-// exists.
+// contactPointToChannel reverses encodeChannelSettings on reads, returning HasSecret but never the secret value.
 func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error) {
 	out := Channel{
 		ID:             cp.UID,
@@ -1104,9 +878,7 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 		if raw, ok := settings["url"]; ok {
 			_ = json.Unmarshal(raw, &url)
 		}
-		// URLs go out host-only — webhook URLs embed capability tokens
-		// in the path/query, and these reads are reachable by
-		// notification:read holders who can't otherwise see secrets.
+		// Host-only: webhook URLs embed capability tokens reachable by notification:read holders.
 		out.Webhook = &WebhookConfig{URL: redactWebhookURL(url)}
 		if raw, ok := settings["authorization_credentials"]; ok && len(raw) > 0 && string(raw) != `""` {
 			out.HasSecret = true
@@ -1139,24 +911,18 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 		out.SMTP = smtp
 	case "slack":
 		out.Kind = ChannelKindSlack
-		// The URL is the secret; Grafana already returns it redacted,
-		// and we don't expose even the placeholder. Presence only.
+		// The URL is the secret; expose presence only, not even the placeholder.
 		out.Slack = &SlackConfig{}
 		if raw, ok := settings["url"]; ok && len(raw) > 0 && string(raw) != `""` {
 			out.HasSecret = true
 		}
 	}
-	// Default unknown channels to pending; the encrypt-service metadata
-	// bag carries the real last-validated state but loading it on every
-	// list is too expensive, so the UI sees pending and the operator
-	// presses Test to refresh.
+	// Default to pending; loading the real last-validated state on every list is too expensive, so the operator presses Test to refresh.
 	out.ValidationState = ValidationPending
 	return out, nil
 }
 
-// ruleVisibleToOrg decides whether the caller can see / pause / resume
-// a rule. The rule is visible if it carries no organization_id label
-// (provisioned default) or carries one matching the caller's id.
+// ruleVisibleToOrg is true if the rule carries no organization_id label (default) or one matching the caller.
 func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
 	if r.Labels == nil {
 		return true
@@ -1168,10 +934,7 @@ func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
 	return got == wantOrgID
 }
 
-// grafanaRuleToDomain pulls the user-facing metadata off a Grafana
-// alert rule. Opaque Data / Settings / Condition fields are ignored —
-// the UI doesn't render them and we don't expose an authoring surface
-// that would write them.
+// grafanaRuleToDomain pulls the user-facing metadata off a Grafana alert rule.
 func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 	out := Rule{
 		ID:              r.UID,
@@ -1192,11 +955,7 @@ func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 	return out
 }
 
-// templateFromLabel is the closed mapping between the `template`
-// label the YAML stamps on each rule and the closed enum the UI
-// uses. Unknown labels (including the self-monitoring rules that
-// don't carry a template label) map to the empty string, which the
-// UI treats as "fall back to rule name".
+// templateFromLabel maps the YAML `template` label to the UI enum; unknown labels map to "" ("fall back to rule name").
 func templateFromLabel(label string) RuleTemplate {
 	switch label {
 	case "offline":
@@ -1215,9 +974,7 @@ func templateFromLabel(label string) RuleTemplate {
 	return ""
 }
 
-// parseDurationSeconds parses Grafana's go-duration string ("5m",
-// "10m", "30s") into seconds. Best-effort: anything we can't parse
-// returns zero, which the UI renders as "fires immediately".
+// parseDurationSeconds parses Grafana's go-duration string into seconds; unparseable input returns zero ("fires immediately").
 func parseDurationSeconds(s string) int32 {
 	if s == "" {
 		return 0
@@ -1236,10 +993,7 @@ func parseDurationSeconds(s string) int32 {
 	return int32(secs)
 }
 
-// silenceMatchesOrg returns true if the silence has a matcher
-// `organization_id=<wantOrgID>` (isEqual + non-regex). Anything else
-// belongs to a different org or is a malformed-by-our-rules silence
-// and is filtered out.
+// silenceMatchesOrg is true if the silence has an `organization_id=<wantOrgID>` equality matcher.
 func silenceMatchesOrg(s GrafanaSilence, wantOrgID string) bool {
 	for _, m := range s.Matchers {
 		if m.Name == silenceLabelOrganizationID && m.IsEqual && !m.IsRegex && m.Value == wantOrgID {
@@ -1249,8 +1003,7 @@ func silenceMatchesOrg(s GrafanaSilence, wantOrgID string) bool {
 	return false
 }
 
-// grafanaSilenceToDomain reverses domainSilenceToGrafana on reads
-// and stamps the Active flag from the supplied clock.
+// grafanaSilenceToDomain reverses domainSilenceToGrafana on reads and stamps Active from the supplied clock.
 func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) Silence {
 	out := Silence{
 		ID:             gs.ID,
@@ -1260,10 +1013,7 @@ func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) Silen
 		Comment:        gs.Comment,
 		CreatedBy:      gs.CreatedBy,
 	}
-	// CreatedBy is the only timestamp Grafana stamps; map to CreatedAt
-	// when StartsAt looks like a creation marker so the UI's "Created"
-	// column isn't always empty. Best-effort: the Alertmanager API
-	// doesn't expose a created_at field.
+	// The Alertmanager API exposes no created_at, so approximate it with StartsAt.
 	out.CreatedAt = gs.StartsAt
 
 	out.Scope = matchersToScope(gs.Matchers)
@@ -1271,10 +1021,7 @@ func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) Silen
 	return out
 }
 
-// matchersToScope reconstructs the structured scope payload from the
-// Alertmanager-style matcher list. It mirrors domainSilenceToGrafana
-// exactly; the order doesn't matter because Grafana stores them as a
-// set.
+// matchersToScope reconstructs the structured scope from the matcher list (the inverse of domainSilenceToGrafana).
 func matchersToScope(ms []GrafanaSilenceMatcher) SilenceScope {
 	scope := SilenceScope{Kind: SilenceScopeRule}
 	for _, m := range ms {
@@ -1290,11 +1037,7 @@ func matchersToScope(ms []GrafanaSilenceMatcher) SilenceScope {
 			scope.SiteID = m.Value
 		case "device_id":
 			scope.Kind = SilenceScopeDevice
-			// device_id silences may carry many ids via a regex matcher,
-			// or a single id via an equality matcher. The regex form is
-			// `^(?:id1|id2)$` with QuoteMeta-escaped ids (see
-			// domainSilenceToGrafana); strip the anchors and escapes to
-			// recover the plain id list.
+			// A regex matcher holds many ids as `^(?:id1|id2)$`; strip anchors and escapes to recover the plain list.
 			if m.IsRegex {
 				v := strings.TrimSuffix(strings.TrimPrefix(m.Value, "^(?:"), ")$")
 				for id := range strings.SplitSeq(v, "|") {
@@ -1308,8 +1051,7 @@ func matchersToScope(ms []GrafanaSilenceMatcher) SilenceScope {
 	return scope
 }
 
-// domainSilenceToGrafana compiles the structured scope payload to
-// Alertmanager matchers, always including the org-id matcher.
+// domainSilenceToGrafana compiles the structured scope to Alertmanager matchers, always including the org-id matcher.
 func domainSilenceToGrafana(orgID int64, sil Silence) GrafanaSilence {
 	matchers := []GrafanaSilenceMatcher{
 		{
@@ -1352,10 +1094,7 @@ func domainSilenceToGrafana(orgID int64, sil Silence) GrafanaSilence {
 				IsEqual: true,
 			})
 		} else if len(sil.Scope.DeviceIDs) > 1 {
-			// Anchor and escape: validateSilenceScope restricts ids to
-			// the identifier alphabet, but QuoteMeta still escapes "."
-			// and the anchors stop a partial match from widening the
-			// silence to ids that merely contain a target as substring.
+			// Escape ids and anchor the alternation so a partial match can't widen the silence to substring-containing ids.
 			quoted := make([]string, len(sil.Scope.DeviceIDs))
 			for i, id := range sil.Scope.DeviceIDs {
 				quoted[i] = regexp.QuoteMeta(id)
@@ -1377,9 +1116,7 @@ func domainSilenceToGrafana(orgID int64, sil Silence) GrafanaSilence {
 	}
 }
 
-// silenceActive reports whether now is inside [StartsAt, EndsAt).
-// EndsAt zero means "no end" (Alertmanager's "indefinite" silence);
-// in that case any time after StartsAt is active.
+// silenceActive reports whether now is inside [StartsAt, EndsAt); a zero EndsAt means indefinite.
 func silenceActive(s Silence, now time.Time) bool {
 	if now.Before(s.StartsAt) {
 		return false

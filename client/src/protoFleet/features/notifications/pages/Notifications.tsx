@@ -9,10 +9,6 @@ import Header from "@/shared/components/Header";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const Notifications = () => {
-  // Single fetch on mount populates channels, rules, and silences in
-  // parallel. Mutations from the section components hit the API and
-  // merge the canonical row back into the cache, so we don't need to
-  // re-fetch after each user action.
   const refresh = useNotificationsStore((s) => s.refresh);
 
   useEffect(() => {

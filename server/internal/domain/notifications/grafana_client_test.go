@@ -24,8 +24,7 @@ func TestRedactSecrets(t *testing.T) {
 
 	assert.NotContains(t, out, "super-secret-token")
 	assert.NotContains(t, out, "hunter2")
-	// Webhook URLs routinely embed capability tokens in the path, so
-	// the whole value is redacted.
+	// Webhook URLs embed capability tokens, so the whole value is redacted.
 	assert.NotContains(t, out, "hooks.example.com")
 
 	var v struct {
@@ -50,8 +49,6 @@ func TestRedactSecretsArrays(t *testing.T) {
 	assert.NotContains(t, out, "p2")
 }
 
-// A secret echoed inside a generic JSON string field (not under a
-// known secret key) must still be scrubbed.
 func TestRedactSecretsScrubsSecretsInStringValues(t *testing.T) {
 	in := []byte(`{"message": "failed to POST to https://hooks.slack.com/services/T1/B2/SECRET: 403"}`)
 	out := redactSecrets(in)
@@ -64,30 +61,23 @@ func TestRedactSecretsScrubsSecretsInStringValues(t *testing.T) {
 	assert.Contains(t, bearer, "[REDACTED]")
 }
 
-// Bearer tokens with base64/base64url/JWT punctuation (+, /, =, ~, :)
-// must be redacted in full — a narrow character class would leave the
-// suffix after the first unmatched character exposed.
+// Bearer tokens with base64/JWT punctuation must be redacted in full, not just up to the first odd character.
 func TestRedactSecretsScrubsPunctuationBearingBearerTokens(t *testing.T) {
 	cases := []string{
-		"Bearer aGVsbG8+d29ybGQ/Zm9v==",                           // base64 with + / =
-		"Bearer abc.def~ghi:jkl",                                  // ~ and :
-		"Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s3cr3t-Sig=", // JWT-ish
+		"Bearer aGVsbG8+d29ybGQ/Zm9v==",
+		"Bearer abc.def~ghi:jkl",
+		"Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s3cr3t-Sig=",
 	}
 	for _, raw := range cases {
-		// The secret is everything after "Bearer "; assert no run of it survives.
 		secret := raw[len("Bearer "):]
 		out := redactSecrets([]byte(`{"error": "rejected Authorization: ` + raw + `"}`))
 		assert.NotContainsf(t, out, secret, "full token leaked for %q", raw)
-		// Also assert no non-trivial suffix (the bug leaked the tail).
 		assert.NotContainsf(t, out, secret[len(secret)/2:], "token suffix leaked for %q", raw)
 		assert.Contains(t, out, "Bearer [REDACTED]")
 	}
 }
 
 func TestRedactSecretsNonJSONIsNotPassedThrough(t *testing.T) {
-	// A non-JSON body can't be key-redacted and may echo the request
-	// payload, so it's replaced with a length marker — never the raw
-	// content.
 	out := redactSecrets([]byte("Bad Gateway: upstream sent authorization_credentials=sk-secret"))
 	assert.NotContains(t, out, "sk-secret")
 	assert.Contains(t, out, "non-JSON response body omitted")

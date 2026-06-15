@@ -544,9 +544,7 @@ func start(config *Config) error {
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
-	// notifications: pure proxy onto the Grafana sidecar. The service
-	// does not persist anything itself; org isolation is enforced at
-	// the read/write boundary inside the package.
+	// notifications: pure proxy onto the Grafana sidecar; org isolation is enforced inside the package.
 	grafanaClient := notificationsDomain.NewGrafana(config.Metrics.Grafana)
 	notificationsSvc := notificationsDomain.NewService(grafanaClient, config.Metrics.NotificationDestinations)
 
@@ -622,12 +620,6 @@ func start(config *Config) error {
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
-	// Notifications run through the generated Connect handlers and the
-	// shared interceptor chain (li): authentication, buf.validate
-	// request validation, error mapping, and request-log redaction.
-	// Each method additionally calls RequirePermission
-	// (notification:read / notification:manage); the procedures are
-	// registered session-only in interceptors.SessionOnlyProcedures.
 	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
 	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
 	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))

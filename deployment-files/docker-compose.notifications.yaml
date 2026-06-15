@@ -4,19 +4,9 @@ services:
       FLEET_METRICS_ENABLED: "${FLEET_METRICS_ENABLED:-true}"
       FLEET_METRICS_FLUSH_INTERVAL: "${FLEET_METRICS_FLUSH_INTERVAL:-5s}"
       FLEET_METRICS_BUFFER_SIZE: "${FLEET_METRICS_BUFFER_SIZE:-4096}"
-      # Prefer a least-privilege Grafana service-account token (Editor
-      # on contact points / alert rules / silences). When set it takes
-      # precedence over the basic-auth fallback below, so fleet-api
-      # never holds the Grafana admin credential. Create one via
-      # Grafana → Administration → Service accounts after first boot.
+      # Preferred least-privilege service-account token; takes precedence over the basic-auth fallback when set.
       FLEET_METRICS_GRAFANA_TOKEN: "${FLEET_METRICS_GRAFANA_TOKEN:-}"
-      # Basic-auth fallback, used only when no service-account token is
-      # configured. Defaults EMPTY so a token deployment never receives
-      # the Grafana admin credential in fleet-api's environment (which
-      # would widen the blast radius of a fleet-api compromise). For a
-      # no-token deployment, the operator/run-fleet.sh must set
-      # FLEET_METRICS_GRAFANA_PASSWORD explicitly (e.g. to the admin
-      # password) so basic auth can authenticate.
+      # Basic-auth fallback; defaults empty so a token deployment never holds the Grafana admin credential.
       FLEET_METRICS_GRAFANA_USER: "${FLEET_METRICS_GRAFANA_USER:-admin}"
       FLEET_METRICS_GRAFANA_PASSWORD: "${FLEET_METRICS_GRAFANA_PASSWORD:-}"
       FLEET_METRICS_WEBHOOK_TOKEN: "${FLEET_METRICS_WEBHOOK_TOKEN}"

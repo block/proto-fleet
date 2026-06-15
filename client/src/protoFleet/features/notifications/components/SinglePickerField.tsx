@@ -22,9 +22,7 @@ interface SinglePickerFieldProps {
 }
 
 const popoverViewportPadding = minimalMargin * 2;
-// Only flip the popover above the trigger when the space below truly can't
-// fit a reasonable list. Otherwise mid-modal triggers flip up the moment they
-// cross the viewport midpoint and overlap the fields above them.
+// Only flip above the trigger when the space below can't fit a reasonable list, to avoid overlapping fields.
 const minOpenBelowHeight = 240;
 
 const SinglePickerFieldContent = ({

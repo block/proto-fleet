@@ -27,8 +27,6 @@ const formatWindow = (silence: SilenceWithActive): string => {
 };
 
 const SilencesSection = () => {
-  // Select the raw array — stable reference, only changes when silences actually mutate.
-  // `active` is derived in the useMemo below so we don't re-create the array on every render.
   const silences = useNotificationsStore((s) => s.silences);
   const rules = useNotificationsStore((s) => s.rules);
   const removeSilence = useNotificationsStore((s) => s.removeSilence);
@@ -36,9 +34,7 @@ const SilencesSection = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingSilence, setEditingSilence] = useState<SilenceWithActive | null>(null);
 
-  // Active first, then by start time ascending. Mirrors prototype's sort.
-  // `active` is precomputed by the store at fetch / mutation time so
-  // this useMemo body stays pure.
+  // Active first, then by start time ascending; `active` is precomputed by the store to keep this pure.
   const sortedSilences = useMemo<SilenceWithActive[]>(
     () =>
       silences.slice().sort((a, b) => Number(b.active) - Number(a.active) || a.starts_at.localeCompare(b.starts_at)),

@@ -248,10 +248,7 @@ var ProcedurePermissions = map[string]string{
 	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure:        authz.PermFleetRead,
 	networkinfov1connect.NetworkInfoServiceUpdateNetworkNicknameProcedure: authz.PermSiteManage,
 
-	// NotificationsServices — ChannelService / RuleService /
-	// SilenceService / HistoryService. Reads on notification:read; every
-	// mutation on notification:manage, including TestChannel (triggers
-	// an outbound delivery) and the rule pause/resume side-channel.
+	// Notifications — reads on notification:read, every mutation (incl. TestChannel) on notification:manage.
 	notificationsv1connect.ChannelServiceListChannelsProcedure:      authz.PermNotificationRead,
 	notificationsv1connect.ChannelServiceCreateChannelProcedure:     authz.PermNotificationManage,
 	notificationsv1connect.ChannelServiceUpdateChannelProcedure:     authz.PermNotificationManage,

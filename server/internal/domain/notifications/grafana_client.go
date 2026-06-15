@@ -14,27 +14,7 @@ import (
 	"time"
 )
 
-// Grafana provides typed access to the subset of Grafana's HTTP API
-// the notifications domain uses:
-//
-//   - Provisioning API for contact points and alert rules
-//     (/api/v1/provisioning/contact-points, /api/v1/provisioning/alert-rules)
-//   - Alertmanager API for silences (/api/alertmanager/grafana/api/v2/silences)
-//   - Provisioning test endpoint for synthetic deliveries
-//     (/api/v1/provisioning/contact-points/test)
-//
-// The client deliberately doesn't model Grafana's full schema — only
-// the fields fleet-api writes or reads. Anything else round-trips as
-// `json.RawMessage` so a Grafana minor-version bump that adds fields
-// doesn't break the call.
-//
-// Auth: in prod we inject a Grafana service-account token via
-// `Authorization: Bearer <token>`. In dev, Grafana ships with admin
-// auth only and no service account, so we fall back to basic auth
-// against the admin user — the docker-compose defaults wire
-// GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD through to this client
-// so the local stack works out of the box. The token, if set, takes
-// precedence over the basic-auth credentials.
+// Grafana provides typed access to the subset of Grafana's HTTP API the notifications domain uses.
 type Grafana struct {
 	baseURL    string
 	token      string
@@ -44,7 +24,6 @@ type Grafana struct {
 }
 
 // GrafanaConfig is the operator-facing config for the Grafana client.
-// Bound from environment variables under FLEET_METRICS_GRAFANA_*.
 type GrafanaConfig struct {
 	URL      string        `help:"Base URL of the Grafana sidecar (no trailing slash)" default:"http://grafana:3000" env:"URL"`
 	Token    string        `help:"Service-account token with Editor permissions on org 1. Takes precedence over user/password when set." default:"" env:"TOKEN"`
@@ -53,8 +32,6 @@ type GrafanaConfig struct {
 	Timeout  time.Duration `help:"HTTP client timeout for Grafana calls" default:"10s" env:"TIMEOUT"`
 }
 
-// NewGrafana returns a Grafana client configured for the supplied
-// sidecar.
 func NewGrafana(cfg GrafanaConfig) *Grafana {
 	return &Grafana{
 		baseURL:  strings.TrimRight(cfg.URL, "/"),
@@ -67,11 +44,7 @@ func NewGrafana(cfg GrafanaConfig) *Grafana {
 	}
 }
 
-// === Contact points ====================================================
-
-// GrafanaContactPoint mirrors the provisioning API's contact-point
-// shape. The Settings field is opaque JSON because every receiver
-// kind has its own schema.
+// GrafanaContactPoint mirrors the provisioning API's contact-point shape; Settings is opaque per-receiver JSON.
 type GrafanaContactPoint struct {
 	UID                   string          `json:"uid,omitempty"`
 	Name                  string          `json:"name"`
@@ -111,10 +84,7 @@ func (g *Grafana) DeleteContactPoint(ctx context.Context, uid string) error {
 	return nil
 }
 
-// TestContactPoint sends a synthetic alert through the supplied
-// receiver definition. Grafana accepts the same body as the create
-// endpoint plus an `alert` field; we let the caller pass the shaped
-// payload so we don't double-marshal.
+// TestContactPoint sends a synthetic alert through the supplied receiver definition.
 func (g *Grafana) TestContactPoint(ctx context.Context, payload any) (int, error) {
 	resp, err := g.rawPost(ctx, "/api/v1/provisioning/contact-points/test", payload)
 	if err != nil {
@@ -125,12 +95,7 @@ func (g *Grafana) TestContactPoint(ctx context.Context, payload any) (int, error
 	return resp.StatusCode, nil
 }
 
-// === Alert rules =======================================================
-
-// GrafanaAlertRule mirrors the subset of the provisioning alert-rule
-// shape we read and write. The Data field is opaque JSON because
-// Grafana's expression model is rich enough that round-tripping it as
-// a strongly-typed struct would couple us to internal Grafana types.
+// GrafanaAlertRule mirrors the provisioning alert-rule shape; Data is opaque JSON to avoid coupling to Grafana's expression model.
 type GrafanaAlertRule struct {
 	UID          string            `json:"uid,omitempty"`
 	OrgID        int64             `json:"orgID,omitempty"`
@@ -155,9 +120,7 @@ func (g *Grafana) ListAlertRules(ctx context.Context) ([]GrafanaAlertRule, error
 	return out, nil
 }
 
-// GetAlertRule fetches a single rule by UID. Used by pause / resume
-// so we can round-trip the opaque Data + Annotations fields back
-// through PUT without dropping anything.
+// GetAlertRule fetches a single rule by UID so pause/resume can round-trip its opaque fields through PUT.
 func (g *Grafana) GetAlertRule(ctx context.Context, uid string) (*GrafanaAlertRule, error) {
 	var out GrafanaAlertRule
 	if err := g.do(ctx, http.MethodGet, "/api/v1/provisioning/alert-rules/"+uid, nil, &out); err != nil {
@@ -166,18 +129,9 @@ func (g *Grafana) GetAlertRule(ctx context.Context, uid string) (*GrafanaAlertRu
 	return &out, nil
 }
 
-// Note: there is intentionally no CreateAlertRule / UpdateAlertRule /
-// DeleteAlertRule at this layer. The alert-rule set is owned by the
-// provisioning YAML, and Grafana 11.6+ enforces a "cannot change
-// provenance from 'file' to ''" guard that prevents the API from
-// modifying YAML-provisioned rules in place anyway. Pause / resume
-// is implemented at the silence layer (see PauseRule / ResumeRule
-// in the service).
+// Intentionally no Create/Update/DeleteAlertRule: rules are YAML-provisioned and Grafana 11.6+ blocks in-place API edits.
 
-// === Silences ==========================================================
-
-// GrafanaSilence mirrors the Alertmanager-compatible silence shape
-// Grafana exposes at /api/alertmanager/grafana/api/v2/silences.
+// GrafanaSilence mirrors the Alertmanager-compatible silence shape Grafana exposes.
 type GrafanaSilence struct {
 	ID        string                  `json:"id,omitempty"`
 	Status    *GrafanaSilenceStatus   `json:"status,omitempty"`
@@ -209,8 +163,7 @@ func (g *Grafana) ListSilences(ctx context.Context) ([]GrafanaSilence, error) {
 	return out, nil
 }
 
-// PutSilence creates a new silence or updates an existing one. The
-// Alertmanager API takes the silence id in the body, not the URL.
+// PutSilence creates or updates a silence; the Alertmanager API takes the id in the body, not the URL.
 func (g *Grafana) PutSilence(ctx context.Context, s GrafanaSilence) (string, error) {
 	var out struct {
 		SilenceID string `json:"silenceID"`
@@ -229,18 +182,7 @@ func (g *Grafana) DeleteSilence(ctx context.Context, id string) error {
 	return nil
 }
 
-// === transport =========================================================
-
-// do is the generic JSON request/response helper. Pass nil body for
-// requests without one; pass nil out for responses you want to discard.
-//
-// On a non-2xx response, do() logs the request body and the response
-// body at WARN, with secret-bearing fields redacted (see
-// redactSecrets). The body field is opaque JSON from Grafana's
-// perspective (`data` for alert rules is dozens of lines), so the
-// only way to debug a 500 is to see what we sent and what came back.
-// Operators can grep `notifications.grafana_error` in fleet-api's
-// stdout.
+// do is the generic JSON request/response helper; pass nil body or nil out to skip either.
 func (g *Grafana) do(ctx context.Context, method, path string, body, out any) error {
 	var reqJSON []byte
 	if body != nil {
@@ -265,11 +207,7 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 			"request_body", redactSecrets(reqJSON),
 			"response_body", redactSecrets(respBody),
 		)
-		// The message rides back to the browser via err.Error(). Only
-		// surface Grafana's own structured (JSON) error after key-based
-		// redaction; a non-JSON body (proxy HTML, echoed payload) can't
-		// be scrubbed structurally and may carry secrets, so fall back
-		// to the generic status text instead.
+		// Only surface a JSON body after redaction; non-JSON may carry unscrubabble secrets, so use status text.
 		msg := http.StatusText(resp.StatusCode)
 		if json.Valid(respBody) {
 			if red := strings.TrimSpace(redactSecrets(respBody)); red != "" {
@@ -292,13 +230,7 @@ func (g *Grafana) rawPost(ctx context.Context, path string, body any) (*http.Res
 	return g.request(ctx, http.MethodPost, path, body)
 }
 
-// redactedLogKeys are JSON field names whose values are secrets and
-// must never reach the log stream. Channel payloads carry webhook
-// bearer tokens and SMTP passwords inside the opaque settings object;
-// "url" is included because webhook URLs routinely embed capability
-// tokens in the path or query (Slack, PagerDuty, Teams); the extra
-// keys cover credential fields of other Grafana receiver types this
-// client may round-trip in the future.
+// redactedLogKeys are JSON field names whose values are secrets ("url" included: webhook URLs embed capability tokens).
 var redactedLogKeys = map[string]bool{
 	"authorization_credentials": true,
 	"smtpPassword":              true,
@@ -310,15 +242,7 @@ var redactedLogKeys = map[string]bool{
 	"url":                       true,
 }
 
-// redactSecrets returns body with every redactedLogKeys value replaced
-// by a placeholder, recursing through nested objects and arrays.
-//
-// Non-JSON input is NOT passed through: key-based redaction can't reach
-// secrets in an HTML/plaintext error page, and Grafana (or an
-// intermediary proxy) can echo the request payload — bearer tokens,
-// SMTP passwords, webhook URLs — in such a body. We return only a
-// length marker so logs and client-facing errors never carry an
-// upstream body we couldn't structurally scrub.
+// redactSecrets replaces redactedLogKeys values with a placeholder; non-JSON input returns only a length marker.
 func redactSecrets(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -339,8 +263,7 @@ func redactValue(v any) any {
 	case map[string]any:
 		for k, val := range t {
 			if redactedLogKeys[k] {
-				// Keep empty strings as-is so the log still shows
-				// whether a secret was present at all.
+				// Keep empty strings as-is so the log shows whether a secret was present at all.
 				if s, ok := val.(string); ok && s == "" {
 					continue
 				}
@@ -356,23 +279,13 @@ func redactValue(v any) any {
 		}
 		return t
 	case string:
-		// Key-based redaction misses a secret Grafana echoes inside a
-		// generic string field (e.g. {"message":"failed to POST to
-		// https://hooks.slack.com/services/T/B/SECRET"}). Scrub the two
-		// shapes a destination secret takes — a webhook URL or a bearer
-		// token — out of any string value, wherever it sits.
+		// Scrub secrets a server may echo inside a generic string field, not just under a known key.
 		return scrubSecretSubstrings(t)
 	}
 	return v
 }
 
-// urlValuePattern matches an http(s) URL embedded in a free-text value;
-// webhook URLs are themselves the secret (the capability token lives in
-// the path/query). bearerValuePattern matches an echoed bearer token —
-// it consumes everything up to the next whitespace or quote rather than
-// an allowlisted character class, so base64/base64url/JWT tokens
-// containing +, /, =, ~, or : are redacted in full (a narrow class
-// would leave the suffix after the first unmatched char exposed).
+// bearerValuePattern consumes up to the next whitespace/quote so punctuation-bearing tokens are redacted in full.
 var (
 	urlValuePattern    = regexp.MustCompile(`https?://[^\s"']+`)
 	bearerValuePattern = regexp.MustCompile(`(?i)bearer\s+[^\s"']+`)
@@ -384,8 +297,7 @@ func scrubSecretSubstrings(s string) string {
 	return s
 }
 
-// requestWithBytes is the same as request, but takes a pre-marshalled
-// body so do() can log it on errors without re-marshalling.
+// requestWithBytes takes a pre-marshalled body so do() can log it on errors without re-marshalling.
 func (g *Grafana) requestWithBytes(ctx context.Context, method, path string, bodyBytes []byte) (*http.Response, error) {
 	var bodyReader io.Reader
 	if bodyBytes != nil {
@@ -413,11 +325,7 @@ func (g *Grafana) send(ctx context.Context, method, path string, bodyReader io.R
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
-	// Token wins when set — prod uses a service-account token.
-	// In dev there's no service account, so fall back to basic auth
-	// against the Grafana admin user. We don't refuse to send the
-	// request when neither is set; Grafana will 401 and the error
-	// path will surface that to the operator.
+	// Token wins when set (prod); fall back to basic auth in dev.
 	if g.token != "" {
 		req.Header.Set("Authorization", "Bearer "+g.token)
 	} else if g.user != "" {
@@ -427,8 +335,7 @@ func (g *Grafana) send(ctx context.Context, method, path string, bodyReader io.R
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
-	// The provisioning API requires this header on writes to disable
-	// the "this object is provisioned, please edit the file" lock.
+	// The provisioning API requires this header on writes to disable the file-provenance lock.
 	if method != http.MethodGet {
 		req.Header.Set("X-Disable-Provenance", "true")
 	}
@@ -439,8 +346,7 @@ func (g *Grafana) send(ctx context.Context, method, path string, bodyReader io.R
 	return resp, nil
 }
 
-// GrafanaError carries a non-2xx Grafana response back to the
-// handler layer.
+// GrafanaError carries a non-2xx Grafana response back to the handler layer.
 type GrafanaError struct {
 	StatusCode int
 	Message    string
@@ -450,7 +356,6 @@ func (e *GrafanaError) Error() string {
 	return fmt.Sprintf("grafana %d: %s", e.StatusCode, e.Message)
 }
 
-// IsNotFound reports whether err originated as a 404 from Grafana.
 func IsNotFound(err error) bool {
 	var ge *GrafanaError
 	if errors.As(err, &ge) {

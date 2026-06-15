@@ -139,15 +139,7 @@ type ListNotificationHistoryRow struct {
 	EndsAt         sql.NullTime
 }
 
-// One page of an organization's notifications, newest first. Keyset
-// pagination: pass the previous page's last id as before_id, or NULL
-// for the first page. id order matches received_at order (rows are
-// insert-only with a now() default) and stays stable across pages.
-// The device join resolves the Grafana device_id label (the device
-// identifier UUID) to a display name and MAC for the UI; device_name
-// follows the same custom_name → manufacturer+model precedence as the
-// device list sort. Both come back ” when the device is unknown or
-// has been deleted since the alert fired.
+// One page newest-first via keyset on id; device join resolves device_id to name/MAC (” when unknown/deleted).
 func (q *Queries) ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error) {
 	rows, err := q.query(ctx, q.listNotificationHistoryStmt, listNotificationHistory, arg.OrganizationID, arg.BeforeID, arg.PageLimit)
 	if err != nil {

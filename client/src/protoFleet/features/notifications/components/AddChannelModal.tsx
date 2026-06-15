@@ -27,12 +27,9 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
 
   const [kind, setKind] = useState<ChannelKind>("webhook");
   const [name, setName] = useState("");
-  // Webhook fields
   const [webhookUrl, setWebhookUrl] = useState("");
   const [bearerHeader, setBearerHeader] = useState("");
-  // Slack fields
   const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
-  // SMTP fields
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("");
   const [smtpUsername, setSmtpUsername] = useState("");
@@ -65,8 +62,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
 
   const clearError = () => setErrorMsg("");
 
-  // build the mutation payload (and validate inputs). Returns null if
-  // validation fails — the function set errorMsg before returning.
+  // Returns null and sets errorMsg when validation fails.
   const buildPayload = useCallback((): {
     name: string;
     kind: ChannelKind;
@@ -172,9 +168,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
     }
   }, [buildPayload, createChannel, onDismiss]);
 
-  // Only surface "Send test" once there's something testable. For webhooks and
-  // Slack that's a URL; for SMTP we need at least one To address (matches the
-  // save validator).
+  // Testable once a URL (webhook/Slack) or a To address (SMTP) is present.
   const canTest =
     kind === "webhook"
       ? webhookUrl.trim().length > 0

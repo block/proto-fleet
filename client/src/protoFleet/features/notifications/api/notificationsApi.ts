@@ -1,12 +1,4 @@
-// Notifications API layer. Calls the generated notifications.v1
-// Connect clients and maps protobuf messages to/from the hand-written
-// view types in ../types so the store and components are insulated from
-// the wire shape (proto camelCase fields, numeric enums, Timestamp and
-// bigint scalars).
-//
-// The server speaks the real Connect/protobuf contract; this module is
-// the single translation point between that contract and the
-// snake_case view model the rest of the feature uses.
+// Single translation point between the notifications.v1 Connect/protobuf contract and the feature's snake_case view model.
 import { type Timestamp, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
@@ -41,22 +33,17 @@ import type {
   WebhookConfig,
 } from "@/protoFleet/features/notifications/types";
 
-// === scalar helpers =====================================================
-
 const isoFromTs = (ts?: Timestamp): string => (ts ? timestampDate(ts).toISOString() : "");
 const isoOrNull = (ts?: Timestamp): string | null => (ts ? timestampDate(ts).toISOString() : null);
 const tsFromIso = (iso: string): Timestamp => timestampFromDate(new Date(iso));
 
-// required unwraps a singular message field the server always sets but
-// the generated type marks optional; a missing value is a server bug.
+// Unwraps a field the server always sets but the generated type marks optional; a missing value is a server bug.
 function required<T>(value: T | undefined, name: string): T {
   if (value == null) {
     throw new Error(`notifications: response missing ${name}`);
   }
   return value;
 }
-
-// === enum mapping =======================================================
 
 const channelKindToProto = (k: ChannelKind): ProtoChannelKind => {
   switch (k) {
@@ -136,15 +123,12 @@ const scopeKindFromProto = (k: ProtoSilenceScopeKind): SilenceScopeKind => {
   }
 };
 
-// === proto → view =======================================================
-
 const channelFromProto = (c: ProtoChannel): Channel => ({
   id: c.id,
   organization_id: String(c.organizationId),
   name: c.name,
   kind: channelKindFromProto(c.kind),
-  // Reads never carry secrets: bearer header / SMTP password / Slack URL
-  // come back empty, signalled by has_secret.
+  // Reads never carry secrets; emptiness is signalled by has_secret.
   webhook: c.webhook ? { url: c.webhook.url, bearer_header: null } : null,
   smtp: c.smtp
     ? { host: c.smtp.host, port: c.smtp.port, username: c.smtp.username, from: c.smtp.from, to: c.smtp.to }
@@ -205,8 +189,6 @@ const historyFromProto = (n: ProtoHistoryEntry): NotificationHistoryEntry => ({
   ends_at: isoOrNull(n.endsAt),
 });
 
-// === view → proto (request init shapes) =================================
-
 const webhookToProto = (w?: WebhookConfig | null) =>
   w ? { url: w.url, bearerHeader: w.bearer_header ?? "" } : undefined;
 
@@ -225,16 +207,12 @@ const scopeToProto = (s: SilenceScope) => ({
   deviceIds: s.device_ids,
 });
 
-// channelDestinationFields builds the kind + destination request fields
-// shared by create / update / test (each adds its own id/name on top).
 const channelDestinationFields = (input: ChannelMutationInput) => ({
   kind: channelKindToProto(input.kind),
   webhook: webhookToProto(input.webhook),
   smtp: smtpToProto(input.smtp),
   slack: slackToProto(input.slack),
 });
-
-// === Channels ===========================================================
 
 export async function listChannels(): Promise<Channel[]> {
   const res = await notificationChannelClient.listChannels({});
@@ -285,8 +263,6 @@ export async function testChannel(input: ChannelMutationInput): Promise<TestChan
   return { ok: res.ok, error: res.error, response_code: res.responseCode };
 }
 
-// === Rules ==============================================================
-
 export async function listRules(): Promise<Rule[]> {
   const res = await notificationRuleClient.listRules({});
   return res.rules.map(ruleFromProto);
@@ -301,8 +277,6 @@ export async function resumeRule(id: string): Promise<Rule> {
   const res = await notificationRuleClient.resumeRule({ id });
   return ruleFromProto(required(res.rule, "rule"));
 }
-
-// === Silences ===========================================================
 
 export async function listSilences(): Promise<Silence[]> {
   const res = await notificationSilenceClient.listSilences({});
@@ -341,8 +315,6 @@ export async function updateSilence(input: SilenceMutationInput & { id: string }
 export async function deleteSilence(id: string): Promise<void> {
   await notificationSilenceClient.deleteSilence({ id });
 }
-
-// === History ============================================================
 
 export interface HistoryPage {
   notifications: NotificationHistoryEntry[];

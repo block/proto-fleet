@@ -25,8 +25,7 @@ const activeCols: ChannelColumns[] = ["name", "destination", "status"];
 
 const formatDestination = (c: Channel) => {
   if (c.kind === "webhook") return c.webhook?.url ?? "";
-  // Slack webhook URLs are write-only (the URL is the secret), so
-  // reads have nothing to show — render a presence marker instead.
+  // Slack webhook URLs are write-only secrets, so show a presence marker only.
   if (c.kind === "slack") return c.has_secret ? "Slack webhook (hidden)" : "";
   return (c.smtp?.to ?? []).join(", ");
 };
@@ -43,9 +42,7 @@ const ChannelsSection = () => {
 
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // Renaming a channel posts a full PUT — the server only edits the
-  // name field on the contact point and leaves the destination
-  // settings untouched.
+  // Full PUT required, but the server only applies the new name.
   const handleSaveName = useCallback(
     async (channel: Channel, next: string) => {
       try {
@@ -68,10 +65,7 @@ const ChannelsSection = () => {
     [updateChannel],
   );
 
-  // Editing the destination invalidates the previous test on the
-  // server side (the service flips validation_state to pending). The
-  // cell's onSave hands us the raw entered text — for webhook
-  // channels that's a URL, for SMTP it's a comma-separated To list.
+  // Editing the destination resets validation_state to pending server-side; next is a URL (webhook/Slack) or a comma-separated To list (SMTP).
   const handleSaveDestination = useCallback(
     async (channel: Channel, next: string) => {
       try {

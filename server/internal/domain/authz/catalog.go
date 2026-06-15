@@ -74,9 +74,7 @@ const (
 	PermFleetnodeRead   = "fleetnode:read"
 	PermFleetnodeManage = "fleetnode:manage"
 
-	// notification — alert delivery configuration (channels, rule
-	// pause/resume, silences, history). :manage gates every mutation
-	// including TestChannel, which triggers an outbound delivery.
+	// notification — alert delivery config; :manage gates every mutation including TestChannel (triggers an outbound delivery).
 	PermNotificationRead   = "notification:read"
 	PermNotificationManage = "notification:manage"
 

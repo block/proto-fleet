@@ -1,26 +1,4 @@
-// Package notifications implements the generated notifications.v1
-// Connect service handlers (ChannelService, RuleService,
-// SilenceService, HistoryService) on top of the notifications domain
-// service and the notification-history store.
-//
-// These replace an earlier hand-written JSON surface. Mounting the
-// generated handlers means the routes now speak the real protobuf /
-// Connect wire contract (protojson field names, enum constants), run
-// through the shared interceptor chain (authentication, buf.validate
-// request validation, error mapping, request-log redaction), and are
-// reachable by generated clients.
-//
-// Security model unchanged from the hand-written version:
-//
-//   - Authentication is the AuthInterceptor's job; these procedures
-//     are registered session-only (no API key) in
-//     interceptors.SessionOnlyProcedures.
-//   - Every method calls middleware.RequirePermission — reads on
-//     notification:read, every mutation (including TestChannel, which
-//     triggers an outbound delivery) on notification:manage.
-//   - Org scoping, secret redaction, SSRF destination checks, silence
-//     scope/device-id validation, and secret-carry-on-update all live
-//     in the domain service and are exercised unchanged here.
+// Package notifications implements the generated notifications.v1 Connect service handlers.
 package notifications
 
 import (
@@ -41,14 +19,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// Handler implements all four notifications Connect services.
 type Handler struct {
 	svc     *notifications.Service
 	history notificationhistory.Lister
 }
 
-// NewHandler returns a handler bound to the domain service and the
-// notification-history lister.
 func NewHandler(svc *notifications.Service, history notificationhistory.Lister) *Handler {
 	return &Handler{svc: svc, history: history}
 }
@@ -65,10 +40,7 @@ const (
 	historyMaxPageSize     = 200
 )
 
-// authorize runs the per-route RBAC gate and returns the caller's org
-// id. RequirePermission resolves the session.Info the AuthInterceptor
-// stashed on the context; a zero org id is a wiring fault and fails
-// closed.
+// authorize runs the per-route RBAC gate and returns the caller's org id; a zero org id fails closed.
 func (h *Handler) authorize(ctx context.Context, permission string) (int64, error) {
 	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
 	if err != nil {
@@ -80,18 +52,13 @@ func (h *Handler) authorize(ctx context.Context, permission string) (int64, erro
 	return info.OrganizationID, nil
 }
 
-// mapErr translates the domain's sentinel ErrNotFound (a plain error)
-// into a fleeterror the error-mapping interceptor renders as a Connect
-// NotFound; every other error is already a fleeterror (or is mapped to
-// Internal by the interceptor).
+// mapErr translates the domain's sentinel ErrNotFound into a fleeterror NotFound.
 func mapErr(err error) error {
 	if errors.Is(err, notifications.ErrNotFound) {
 		return fleeterror.NewNotFoundError(err.Error())
 	}
 	return err
 }
-
-// === ChannelService =====================================================
 
 func (h *Handler) ListChannels(ctx context.Context, _ *connect.Request[notificationsv1.ListChannelsRequest]) (*connect.Response[notificationsv1.ListChannelsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
@@ -157,19 +124,14 @@ func (h *Handler) TestChannel(ctx context.Context, req *connect.Request[notifica
 	if err != nil {
 		return nil, err
 	}
-	// TestChannelRequest carries no name; the domain service uses the
-	// stored receiver when an id is present and an org-prefixed
-	// synthetic name otherwise.
+	// TestChannelRequest carries no name; the domain service derives one from the id when present.
 	dom, err := protoToChannel(req.Msg.GetId(), "", req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSmtp(), req.Msg.GetSlack())
 	if err != nil {
 		return nil, err
 	}
 	ok, code, errMsg, err := h.svc.TestChannel(ctx, orgID, dom)
 	if err != nil {
-		// A genuine service error (unknown/foreign id, invalid
-		// destination, Grafana unreachable) surfaces as a Connect error.
-		// A reachable Grafana reporting a non-2xx test result comes back
-		// in the ok/error/response_code fields.
+		// A reachable Grafana reporting a non-2xx test result comes back in ok/error/response_code, not here.
 		return nil, mapErr(err)
 	}
 	return connect.NewResponse(&notificationsv1.TestChannelResponse{
@@ -178,8 +140,6 @@ func (h *Handler) TestChannel(ctx context.Context, req *connect.Request[notifica
 		ResponseCode: httpStatusToInt32(code),
 	}), nil
 }
-
-// === RuleService ========================================================
 
 func (h *Handler) ListRules(ctx context.Context, _ *connect.Request[notificationsv1.ListRulesRequest]) (*connect.Response[notificationsv1.ListRulesResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
@@ -220,8 +180,6 @@ func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[notificat
 	}
 	return connect.NewResponse(&notificationsv1.ResumeRuleResponse{Rule: ruleToProto(*rule)}), nil
 }
-
-// === SilenceService =====================================================
 
 func (h *Handler) ListSilences(ctx context.Context, _ *connect.Request[notificationsv1.ListSilencesRequest]) (*connect.Response[notificationsv1.ListSilencesResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
@@ -285,8 +243,6 @@ func (h *Handler) DeleteSilence(ctx context.Context, req *connect.Request[notifi
 	return connect.NewResponse(&notificationsv1.DeleteSilenceResponse{}), nil
 }
 
-// === HistoryService =====================================================
-
 func (h *Handler) ListNotifications(ctx context.Context, req *connect.Request[notificationsv1.ListNotificationsRequest]) (*connect.Response[notificationsv1.ListNotificationsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
 	if err != nil {
@@ -307,8 +263,7 @@ func (h *Handler) ListNotifications(ctx context.Context, req *connect.Request[no
 		}
 		beforeID = &v
 	}
-	// Fetch one extra row so has_more is exact rather than inferred from
-	// a full page.
+	// Fetch one extra row so has_more is exact.
 	rows, err := h.history.List(ctx, orgID, beforeID, limit+1)
 	if err != nil {
 		return nil, err
@@ -326,8 +281,6 @@ func (h *Handler) ListNotifications(ctx context.Context, req *connect.Request[no
 		HasMore:       hasMore,
 	}), nil
 }
-
-// === proto ↔ domain =====================================================
 
 func channelToProto(c notifications.Channel) *notificationsv1.Channel {
 	out := &notificationsv1.Channel{
@@ -364,9 +317,7 @@ func channelToProto(c notifications.Channel) *notificationsv1.Channel {
 	return out
 }
 
-// protoToChannel builds a domain Channel from the channel fields shared
-// by Create / Update / Test requests. id and name are empty when the
-// caller's request type doesn't carry them.
+// protoToChannel builds a domain Channel; id and name are empty when the request type lacks them.
 func protoToChannel(id, name string, kind notificationsv1.ChannelKind, wh *notificationsv1.WebhookConfig, smtp *notificationsv1.SmtpConfig, slack *notificationsv1.SlackConfig) (notifications.Channel, error) {
 	dk, err := protoToChannelKind(kind)
 	if err != nil {
@@ -434,9 +385,7 @@ func scopeToProto(sc notifications.SilenceScope) *notificationsv1.SilenceScope {
 	}
 }
 
-// protoToSilence builds a domain Silence from the fields shared by
-// Create / Update requests. The domain service validates scope targets
-// and device ids; starts_at is required.
+// protoToSilence builds a domain Silence; the domain service validates scope targets and device ids.
 func protoToSilence(id string, scope *notificationsv1.SilenceScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (notifications.Silence, error) {
 	if scope == nil {
 		return notifications.Silence{}, fleeterror.NewInvalidArgumentError("scope is required")
@@ -490,8 +439,6 @@ func historyEntryToProto(n notificationhistory.StoredNotification) *notification
 	return out
 }
 
-// === enum mapping =======================================================
-
 func channelKindToProto(k notifications.ChannelKind) notificationsv1.ChannelKind {
 	switch k {
 	case notifications.ChannelKindWebhook:
@@ -517,9 +464,6 @@ func protoToChannelKind(k notificationsv1.ChannelKind) (notifications.ChannelKin
 	return "", fleeterror.NewInvalidArgumentErrorf("unknown channel kind: %s", k)
 }
 
-// httpStatusToInt32 narrows an HTTP status code to the proto int32
-// response field. Status codes are always in range; the clamp keeps
-// the conversion provably safe.
 func httpStatusToInt32(code int) int32 {
 	if code < 0 {
 		return 0

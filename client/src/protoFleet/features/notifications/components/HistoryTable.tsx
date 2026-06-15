@@ -71,18 +71,10 @@ const colConfig: ColConfig<NotificationHistoryEntry, string, HistoryColumns> = {
   },
 };
 
-// An alert is "active" when its most recent delivery for a given
-// fingerprint is firing rather than resolved. We dedupe in the client
-// because notification_history stores each transition as its own row.
-// The dedupe only sees the loaded pages (newest-first), so a firing
-// alert older than the loaded window won't surface.
+// Dedupes newest-first history to one firing row per fingerprint; alerts older than the loaded window won't surface.
 const selectActive = (history: NotificationHistoryEntry[]): NotificationHistoryEntry[] => {
   const latestByKey = new Map<string, NotificationHistoryEntry>();
-  // history is newest-first, so the first entry seen per key is the
-  // latest transition for that alert instance.
   for (const entry of history) {
-    // Prefer the alertmanager fingerprint; fall back to the alert name
-    // so alerts without one still collapse to one row.
     const key = entry.fingerprint || entry.alert_name;
     if (!latestByKey.has(key)) latestByKey.set(key, entry);
   }
@@ -90,20 +82,11 @@ const selectActive = (history: NotificationHistoryEntry[]): NotificationHistoryE
 };
 
 interface HistoryTableProps {
-  /**
-   * Show only alerts whose latest transition is firing, collapsed to
-   * one row per fingerprint. Also hides the load-more control, since
-   * the active view is derived from the loaded pages rather than a
-   * paginated feed.
-   */
+  // Collapse to firing-only rows per fingerprint and hide load-more (active view is derived, not paginated).
   activeOnly?: boolean;
   noDataElement: ReactNode;
 }
 
-// Self-contained notification history feed: primes the shared store on
-// mount, then renders the loading / error / table / load-more states.
-// `total` is intentionally omitted from List so it doesn't render its
-// built-in count line — both consumers render their own headers.
 const HistoryTable = ({ activeOnly = false, noDataElement }: HistoryTableProps) => {
   const history = useNotificationsStore((s) => s.history);
   const historyHasMore = useNotificationsStore((s) => s.historyHasMore);

@@ -18,7 +18,6 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 interface AddSilenceModalProps {
   open: boolean;
   editingSilence: SilenceWithActive | null;
-  // When opening from a rule row action, pre-pick that rule.
   prefillRuleId?: string | null;
   onDismiss: () => void;
 }
@@ -88,8 +87,7 @@ const AddSilenceModal = ({ open, editingSilence, prefillRuleId, onDismiss }: Add
     clearError();
   }, []);
 
-  // If the operator hand-edits the datetimes, the preset window no longer
-  // matches — drop the quick-window selection to "Custom".
+  // Hand-editing a datetime drops the quick-window preset to "Custom".
   const handleStartsChange = (value: string) => {
     setStarts(value);
     setQuick(null);

@@ -49,8 +49,7 @@ func TestValidateSilenceScope(t *testing.T) {
 	}
 }
 
-// CreateSilence must reject a targetless scope before anything reaches
-// Grafana — an untargeted scope would compile to an org-wide silence.
+// A targetless scope would compile to an org-wide silence, so it must be rejected before reaching Grafana.
 func TestCreateSilenceRejectsTargetlessScope(t *testing.T) {
 	svc := NewService(nil, DestinationPolicy{})
 	_, err := svc.CreateSilence(context.Background(), 7, Silence{
@@ -60,8 +59,6 @@ func TestCreateSilenceRejectsTargetlessScope(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-// Multi-device silences compile to an anchored, escaped regex matcher
-// and the matcher round-trips back to the plain id list on reads.
 func TestDeviceScopeRegexCompilation(t *testing.T) {
 	sil := Silence{Scope: SilenceScope{
 		Kind:      SilenceScopeDevice,
@@ -136,8 +133,7 @@ func TestValidateDestination(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// DNS failures fail closed: a host we can't classify is
-			// rejected. .invalid never resolves (RFC 6761).
+			// .invalid never resolves (RFC 6761); unclassifiable hosts fail closed.
 			name:    "webhook unresolvable host rejected",
 			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "https://definitely-not-real.invalid/hook"}},
 			wantErr: true,
@@ -214,9 +210,7 @@ func TestValidateDestination(t *testing.T) {
 	}
 }
 
-// fakeGrafana stands in for the sidecar: serves a fixed contact-point
-// list and captures the body of any PUT so tests can assert what
-// fleet-api would have written.
+// fakeGrafana serves a fixed contact-point list and captures any PUT body for assertions.
 func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *Grafana {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -238,11 +232,7 @@ func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *G
 	return NewGrafana(GrafanaConfig{URL: srv.URL})
 }
 
-// An update without a fresh secret must carry the stored secret field
-// into the PUT payload instead of overwriting it with an empty value.
-// For webhooks Grafana redacts the secure field on reads, so the
-// carried value is the "[REDACTED]" placeholder Grafana resolves back
-// to the stored credential.
+// An update without a fresh secret must carry the stored secret field forward rather than overwrite it with empty.
 func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:  "cp-1",
@@ -258,11 +248,9 @@ func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
 
 	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:   "cp-1",
-		Name: "pager",
-		Kind: ChannelKindWebhook,
-		// Ordinary edit: same destination, and the UI never has the
-		// secret to echo back.
+		ID:      "cp-1",
+		Name:    "pager",
+		Kind:    ChannelKindWebhook,
 		Webhook: &WebhookConfig{URL: "https://hooks.example.com/old"},
 	})
 	require.NoError(t, err)
@@ -277,9 +265,7 @@ func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 	assert.Equal(t, "https://hooks.example.com/old", sent.Settings["url"])
 }
 
-// Changing the destination without supplying a fresh secret must drop
-// the stored one — carrying it would deliver the old credential to
-// whatever new destination the caller pointed the channel at.
+// Changing the destination without a fresh secret must drop the stored one, not deliver it to the new destination.
 func TestUpdateChannelDropsSecretOnDestinationChange(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:  "cp-1",
@@ -312,8 +298,7 @@ func TestUpdateChannelDropsSecretOnDestinationChange(t *testing.T) {
 	assert.Equal(t, "https://hooks.example.com/new", sent.Settings["url"])
 }
 
-// Testing a saved channel must probe the stored full webhook URL, not
-// the host-only URL the UI echoes back from a redacted read.
+// Testing a saved channel must probe the stored full URL, not the host-only URL the UI echoes back.
 func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 	const fullURL = "https://hooks.slack.com/services/T1/B2/SECRET"
 	listed := []GrafanaContactPoint{{
@@ -337,7 +322,6 @@ func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
 
-	// UI sends the saved channel with the redacted host-only URL.
 	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{
 		ID:      "cp-1",
 		Name:    "pager",
@@ -354,8 +338,6 @@ func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 	assert.Equal(t, fullURL, sent.Settings["url"], "saved-channel test must use the stored full URL, not the redacted host")
 }
 
-// Testing a saved channel the caller's org doesn't own is rejected
-// before any outbound test fires.
 func TestTestChannelRejectsForeignSavedChannel(t *testing.T) {
 	listed := []GrafanaContactPoint{{
 		UID:      "cp-1",
@@ -397,8 +379,6 @@ func TestRedactWebhookURL(t *testing.T) {
 	}
 }
 
-// Reads expose webhook URLs host-only — the path/query where tokens
-// live must never reach a notification:read holder.
 func TestListChannelsRedactsWebhookURL(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:      "cp-1",
@@ -415,8 +395,6 @@ func TestListChannelsRedactsWebhookURL(t *testing.T) {
 	assert.Equal(t, "https://hooks.slack.com", channels[0].Webhook.URL)
 }
 
-// A rename echoes back the host-only URL the read returned; the stored
-// full URL must be carried through rather than truncated.
 func TestUpdateChannelPreservesWebhookURLOnRename(t *testing.T) {
 	const fullURL = "https://hooks.slack.com/services/T1/B2/SECRET"
 	existing := []GrafanaContactPoint{{
@@ -429,10 +407,9 @@ func TestUpdateChannelPreservesWebhookURLOnRename(t *testing.T) {
 	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
 
 	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:   "cp-1",
-		Name: "renamed-pager",
-		Kind: ChannelKindWebhook,
-		// UI echoes back the redacted host-only URL on a rename.
+		ID:      "cp-1",
+		Name:    "renamed-pager",
+		Kind:    ChannelKindWebhook,
 		Webhook: &WebhookConfig{URL: "https://hooks.slack.com"},
 	})
 	require.NoError(t, err)
@@ -476,8 +453,6 @@ func TestUpdateChannelPreservesSMTPSecret(t *testing.T) {
 		"update without a new password must carry the stored one")
 }
 
-// A Slack channel read must expose only that a URL exists — the URL
-// is the secret (it embeds the capability token).
 func TestListChannelsHidesSlackURL(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:      "cp-3",
@@ -497,8 +472,7 @@ func TestListChannelsHidesSlackURL(t *testing.T) {
 	assert.True(t, channels[0].HasSecret)
 }
 
-// A rename without a fresh URL must carry Grafana's "[REDACTED]"
-// placeholder through so the stored secure URL survives the PUT.
+// A rename without a fresh URL must carry the "[REDACTED]" placeholder so the stored URL survives the PUT.
 func TestUpdateChannelPreservesSlackURLOnRename(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:      "cp-3",
@@ -510,10 +484,9 @@ func TestUpdateChannelPreservesSlackURLOnRename(t *testing.T) {
 	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
 
 	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:   "cp-3",
-		Name: "renamed-slack",
-		Kind: ChannelKindSlack,
-		// Ordinary edit: reads never return the URL to echo back.
+		ID:    "cp-3",
+		Name:  "renamed-slack",
+		Kind:  ChannelKindSlack,
 		Slack: &SlackConfig{},
 	})
 	require.NoError(t, err)
@@ -527,7 +500,6 @@ func TestUpdateChannelPreservesSlackURLOnRename(t *testing.T) {
 		"rename must carry the redacted placeholder so Grafana keeps the stored URL")
 }
 
-// A fresh Slack URL replaces the stored one outright.
 func TestUpdateChannelReplacesSlackURL(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:      "cp-3",
@@ -584,7 +556,6 @@ func TestUpdateChannelReplacesSecretWhenProvided(t *testing.T) {
 	assert.Equal(t, "fresh-token", sent.Settings["authorization_credentials"])
 }
 
-// Cross-org updates must 404 before any write reaches Grafana.
 func TestUpdateChannelRejectsForeignOrg(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:      "cp-1",

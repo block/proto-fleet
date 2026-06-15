@@ -9,12 +9,7 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-// Rules are read-only descriptors of the provisioned Grafana alert
-// rule set. The Add Rule, Edit Rule, and Delete Rule affordances
-// from the prototype are deliberately absent — operators can only
-// pause / resume the rules that ship with the deploy, or attach a
-// silence to one. New rules require a YAML change + redeploy.
-
+// Rules are read-only: the Grafana YAML owns them, so operators can only pause/resume or attach a silence.
 type RuleColumns = "name" | "when" | "severity";
 
 const colTitles: ColTitles<RuleColumns> = {
@@ -25,11 +20,6 @@ const colTitles: ColTitles<RuleColumns> = {
 
 const activeCols: RuleColumns[] = ["name", "when", "severity"];
 
-// formatRuleCondition pulls the user-facing description from the rule
-// metadata Grafana stamps on each rule's annotations + labels. The
-// prototype reconstructed this from a user-authored threshold; we
-// don't have one (rules are not user-editable), so we lean on the
-// annotation Grafana renders in its own UI.
 const formatRuleCondition = (rule: Rule): string => {
   if (rule.summary) return rule.summary;
   if (rule.duration_seconds > 0) return `fires after ${rule.duration_seconds}s`;
@@ -46,10 +36,7 @@ const RulesSection = () => {
   const [silencePrefillRuleId, setSilencePrefillRuleId] = useState<string | null>(null);
   const [showSilenceModal, setShowSilenceModal] = useState(false);
 
-  // Map ruleId → active silence (if any) so the kebab can flip
-  // Silence ⇄ Lift silence. `active` is precomputed by the store
-  // when silences are fetched so we don't have to call Date.now()
-  // during render (lint blocks that).
+  // Maps ruleId to its active silence so the kebab can flip Silence/Lift; `active` is precomputed by the store.
   const activeSilenceByRule = useMemo(() => {
     const map = new Map<string, string>();
     silences.forEach((sil) => {
@@ -60,8 +47,7 @@ const RulesSection = () => {
     return map;
   }, [silences]);
 
-  // Enabled rules first, paused at the bottom. Within each group,
-  // sort by group + name so the order is stable across reloads.
+  // Enabled first, then by group + name for a stable order across reloads.
   const sortedRules = useMemo(
     () =>
       rules
@@ -148,8 +134,6 @@ const RulesSection = () => {
         width: "w-56",
       },
       when: {
-        // Wide enough that the longest provisioned rule summary stays
-        // on one line; allowWrap is the fallback for anything longer.
         component: (rule) => <span className="text-text-primary-50">{formatRuleCondition(rule)}</span>,
         width: "w-[480px]",
         allowWrap: true,

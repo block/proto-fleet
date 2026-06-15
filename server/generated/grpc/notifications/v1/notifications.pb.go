@@ -4,27 +4,7 @@
 // 	protoc        (unknown)
 // source: notifications/v1/notifications.proto
 
-// The notifications service is the thin Connect-RPC surface that the
-// settings UI uses to manage channels and silences in the Grafana
-// sidecar, plus pause/resume the small set of provisioned alert rules.
-//
-// Persistence and evaluation live in Grafana. fleet-api translates
-// each RPC into a call against Grafana's HTTP API (provisioning for
-// rules and contact points, the Alertmanager API for silences) and
-// scopes every read/write to the caller's organization by tagging
-// Grafana objects with an `org=<id>` label on rules, a name prefix
-// on contact points, and a `organization_id=<id>` matcher on
-// silences. The fleet-api handler is the security boundary — every
-// list path filters server-side, every write injects the caller's
-// org id, and a user from org A targeting an id owned by org B gets
-// permission_denied.
-//
-// IMPORTANT: this service intentionally does NOT expose any
-// rule-authoring surface. The set of alert rules is a closed list
-// provisioned by ops via the Grafana YAML — operators can only
-// list / pause / resume / silence them, never create / edit /
-// delete. If you find yourself adding a CreateRule or UpdateRule
-// RPC here, that's a product change, not a transport change.
+// Connect-RPC surface proxying the Grafana sidecar; fleet-api is the security boundary that scopes every read/write to the caller's org. No rule-authoring surface by design (the rule set is provisioned by ops YAML).
 
 package notificationsv1
 
@@ -150,11 +130,7 @@ func (ValidationState) EnumDescriptor() ([]byte, []int) {
 	return file_notifications_v1_notifications_proto_rawDescGZIP(), []int{1}
 }
 
-// RuleTemplate is the closed set of rule "kinds" the provisioned
-// YAML exposes. Surfaced on the rule via the `template` label
-// (e.g. labels.template="offline"). Anything unrecognised maps to
-// RULE_TEMPLATE_UNSPECIFIED so the UI can fall back to the rule
-// title alone.
+// Closed set of rule kinds from the provisioned YAML; unrecognised maps to RULE_TEMPLATE_UNSPECIFIED.
 type RuleTemplate int32
 
 const (
@@ -274,10 +250,7 @@ func (SilenceScopeKind) EnumDescriptor() ([]byte, []int) {
 type WebhookConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
-	// bearer_header is the value Grafana sets on the Authorization
-	// header. Returned as the empty string on reads; presence is
-	// signalled by Channel.has_secret. The server stores it in the
-	// encrypt service, not in Grafana provisioning JSON.
+	// Write-only secret; empty on reads, presence signalled by Channel.has_secret.
 	BearerHeader  string `protobuf:"bytes,2,opt,name=bearer_header,json=bearerHeader,proto3" json:"bearer_header,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -334,7 +307,7 @@ type SmtpConfig struct {
 	Username string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
 	From     string                 `protobuf:"bytes,4,opt,name=from,proto3" json:"from,omitempty"`
 	To       []string               `protobuf:"bytes,5,rep,name=to,proto3" json:"to,omitempty"`
-	// password is write-only; readbacks are always empty.
+	// Write-only; readbacks are always empty.
 	Password      string `protobuf:"bytes,6,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -414,10 +387,7 @@ func (x *SmtpConfig) GetPassword() string {
 
 type SlackConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// webhook_url is the Slack incoming-webhook URL. The URL embeds
-	// the capability token, so the whole value is a secret: Grafana
-	// stores it as a secure setting, reads return it empty, and
-	// presence is signalled by Channel.has_secret.
+	// The incoming-webhook URL embeds a capability token, so the whole value is a write-only secret.
 	WebhookUrl    string `protobuf:"bytes,1,opt,name=webhook_url,json=webhookUrl,proto3" json:"webhook_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -473,9 +443,7 @@ type Channel struct {
 	ValidatedAt     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=validated_at,json=validatedAt,proto3" json:"validated_at,omitempty"`
 	ValidationState ValidationState        `protobuf:"varint,10,opt,name=validation_state,json=validationState,proto3,enum=notifications.v1.ValidationState" json:"validation_state,omitempty"`
 	ValidationError string                 `protobuf:"bytes,11,opt,name=validation_error,json=validationError,proto3" json:"validation_error,omitempty"`
-	// has_secret is true when a webhook bearer header, SMTP password,
-	// or Slack webhook URL is stored. Lets the UI render "•••• Set"
-	// without leaking the secret on the wire.
+	// True when a secret is stored, so the UI can render "•••• Set" without leaking it.
 	HasSecret     bool         `protobuf:"varint,12,opt,name=has_secret,json=hasSecret,proto3" json:"has_secret,omitempty"`
 	Slack         *SlackConfig `protobuf:"bytes,13,opt,name=slack,proto3" json:"slack,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1013,9 +981,7 @@ func (*DeleteChannelResponse) Descriptor() ([]byte, []int) {
 
 type TestChannelRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Either an existing id, or an unsaved definition. The handler
-	// prefers the unsaved definition when both are set so the UI's
-	// "Test before save" flow does not require a prior write.
+	// Either an existing id or an unsaved definition; the unsaved definition wins when both are set.
 	Id            string         `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Kind          ChannelKind    `protobuf:"varint,2,opt,name=kind,proto3,enum=notifications.v1.ChannelKind" json:"kind,omitempty"`
 	Webhook       *WebhookConfig `protobuf:"bytes,3,opt,name=webhook,proto3" json:"webhook,omitempty"`
@@ -1152,27 +1118,18 @@ func (x *TestChannelResponse) GetResponseCode() int32 {
 
 type Rule struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// id is the Grafana alert-rule UID. Stable across deploys
-	// because the YAML pins it.
-	Id             string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrganizationId int64  `protobuf:"varint,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	// name is the human-readable rule title from Grafana.
-	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	// template is decoded from labels.template. RULE_TEMPLATE_UNSPECIFIED
-	// for self-monitoring rules that don't carry the label.
-	Template RuleTemplate `protobuf:"varint,4,opt,name=template,proto3,enum=notifications.v1.RuleTemplate" json:"template,omitempty"`
-	// group is the Grafana rule-group name (e.g. "proto-fleet-defaults").
-	Group string `protobuf:"bytes,5,opt,name=group,proto3" json:"group,omitempty"`
-	// severity comes from labels.severity ("warning", "critical").
-	Severity string `protobuf:"bytes,6,opt,name=severity,proto3" json:"severity,omitempty"`
-	// summary comes from annotations.summary — the short one-liner
-	// the UI shows under the rule name.
-	Summary string `protobuf:"bytes,7,opt,name=summary,proto3" json:"summary,omitempty"`
-	// description comes from annotations.description, multi-line.
-	Description string `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
-	// duration_seconds is parsed from Grafana's `for:` window.
+	// Grafana alert-rule UID, stable across deploys because the YAML pins it.
+	Id             string       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrganizationId int64        `protobuf:"varint,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	Name           string       `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Template       RuleTemplate `protobuf:"varint,4,opt,name=template,proto3,enum=notifications.v1.RuleTemplate" json:"template,omitempty"`
+	Group          string       `protobuf:"bytes,5,opt,name=group,proto3" json:"group,omitempty"`
+	Severity       string       `protobuf:"bytes,6,opt,name=severity,proto3" json:"severity,omitempty"`
+	Summary        string       `protobuf:"bytes,7,opt,name=summary,proto3" json:"summary,omitempty"`
+	Description    string       `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
+	// Parsed from Grafana's `for:` window.
 	DurationSeconds int32 `protobuf:"varint,9,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
-	// enabled is the inverse of Grafana's isPaused.
+	// Inverse of Grafana's isPaused.
 	Enabled       bool `protobuf:"varint,10,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2110,10 +2067,7 @@ func (*DeleteSilenceResponse) Descriptor() ([]byte, []int) {
 	return file_notifications_v1_notifications_proto_rawDescGZIP(), []int{30}
 }
 
-// NotificationHistoryEntry is one delivered alert, recorded by the
-// Alertmanager webhook receiver. All fields are denormalized from the
-// inbound alert at ingest time; status/severity/template are free-form
-// strings rather than enums because they originate from Grafana.
+// One delivered alert; fields are denormalized from the inbound alert, free-form strings since they originate from Grafana.
 type NotificationHistoryEntry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2264,12 +2218,9 @@ func (x *NotificationHistoryEntry) GetEndsAt() *timestamppb.Timestamp {
 
 type ListNotificationsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// before_id is the keyset cursor: return entries with id strictly
-	// less than before_id (entries are ordered newest-first by id).
-	// Empty for the first page.
+	// Keyset cursor: returns entries with id < before_id; empty for the first page.
 	BeforeId string `protobuf:"bytes,1,opt,name=before_id,json=beforeId,proto3" json:"before_id,omitempty"`
-	// page_size is clamped server-side to a sane default and maximum;
-	// 0 means "use the default".
+	// Clamped server-side; 0 means "use the default".
 	PageSize      int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
