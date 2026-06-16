@@ -112,6 +112,7 @@ export class SettingsCurtailmentPage extends BasePage {
     const emptyState = this.page.getByText("No response profiles configured", { exact: true });
 
     await expect(this.page.getByRole("button", { name: "Create profile", exact: true })).toBeVisible();
+    await this.waitForLoadedSection(cards, emptyState, "curtailment-response-profiles-loading");
     await this.waitForStableCount(cards, emptyState);
   }
 
@@ -160,6 +161,7 @@ export class SettingsCurtailmentPage extends BasePage {
     const emptyState = this.page.getByText("No sources configured", { exact: true });
 
     await expect(this.page.getByRole("button", { name: "Add source", exact: true })).toBeVisible();
+    await this.waitForLoadedSection(rows, emptyState, "curtailment-sources-loading");
     await this.waitForStableCount(rows, emptyState);
   }
 
@@ -216,6 +218,17 @@ export class SettingsCurtailmentPage extends BasePage {
       const itemCountAfterDelay = await items.count();
       // eslint-disable-next-line playwright/prefer-to-have-count -- intentionally non-retrying: verifies count has stabilized
       expect(itemCountAfterDelay).toBe(itemCount);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+  }
+
+  private async waitForLoadedSection(items: Locator, emptyState: Locator, loadingTestId: string) {
+    await expect(this.page.getByTestId(loadingTestId)).toBeHidden();
+
+    await expect(async () => {
+      const itemCount = await items.count();
+      const isEmpty = await emptyState.isVisible().catch(() => false);
+
+      expect(itemCount > 0 || isEmpty).toBe(true);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 }

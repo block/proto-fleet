@@ -573,7 +573,7 @@ function SourcesEmptyState(): ReactElement {
 function SourcesLoadingState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full items-center justify-center py-14">
-      <ProgressCircular indeterminate />
+      <ProgressCircular indeterminate dataTestId="curtailment-sources-loading" />
     </div>
   );
 }
@@ -605,7 +605,7 @@ function ResponseProfilesEmptyState(): ReactElement {
 function ResponseProfilesLoadingState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full items-center justify-center py-14">
-      <ProgressCircular indeterminate />
+      <ProgressCircular indeterminate dataTestId="curtailment-response-profiles-loading" />
     </div>
   );
 }
