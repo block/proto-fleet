@@ -170,9 +170,14 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
   });
 
-  it("preserves a mutation-backed event through one stale shared active refresh", async () => {
-    applyActiveCurtailmentEvent(curtailmentEvent("started-event"), { preserveAgainstStaleRefresh: true });
-    mockListActiveCurtailments.mockResolvedValueOnce({ event: undefined }).mockResolvedValueOnce({ event: undefined });
+  it("preserves a mutation-backed event until active polling catches up", async () => {
+    const startedEvent = curtailmentEvent("started-event");
+    applyActiveCurtailmentEvent(startedEvent, { preserveAgainstStaleRefresh: true });
+    mockListActiveCurtailments
+      .mockResolvedValueOnce({ event: undefined })
+      .mockResolvedValueOnce({ event: undefined })
+      .mockResolvedValueOnce({ event: startedEvent })
+      .mockResolvedValueOnce({ event: undefined });
 
     const firstRefresh = fetchActiveCurtailmentData();
     const secondRefresh = fetchActiveCurtailmentData();
@@ -180,6 +185,12 @@ describe("activeCurtailmentData", () => {
     firstSnapshot.commit();
     secondSnapshot.commit();
 
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
+
+    await refreshActiveCurtailmentData();
     expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe("started-event");
 
     await refreshActiveCurtailmentData();
@@ -308,6 +319,35 @@ describe("activeCurtailmentData", () => {
       "miner-2",
     ]);
     expect(mockGetCurtailmentEvent.mock.calls.map(([request]) => request.targetPageToken)).toEqual(["", "page-2"]);
+  });
+
+  it("keeps fully hydrated selected targets when polling detail is partial", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Detail A",
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1" })],
+    });
+    const secondPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Detail A",
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-2" })],
+    });
+    const pollingDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Polling Detail A",
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-3" })],
+    });
+    applyActiveCurtailmentEvent(activeSummary, { mergeActiveEvents: true });
+    mockGetCurtailmentEvent
+      .mockResolvedValueOnce({ event: firstPageDetail, nextTargetPageToken: "page-2" })
+      .mockResolvedValueOnce({ event: secondPageDetail, nextTargetPageToken: "" });
+    await selectActiveCurtailmentEvent(activeSummary.eventUuid);
+
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: pollingDetail, nextTargetPageToken: "page-2" });
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.reason).toBe("Polling Detail A");
+    expect(snapshot.event?.targets.map((target) => target.deviceIdentifier)).toEqual(["miner-1", "miner-2"]);
   });
 
   it("keeps explicit detail hydration usable when target pagination exceeds the safety cap", async () => {

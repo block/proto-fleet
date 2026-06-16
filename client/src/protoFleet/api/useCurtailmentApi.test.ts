@@ -747,6 +747,65 @@ describe("useCurtailmentApi", () => {
     ]);
   });
 
+  it("preserves a vanished non-selected restoring event until history confirms terminal state", async () => {
+    const selectedActiveEvent = curtailmentEvent({
+      eventUuid: "curt-selected-active",
+      reason: "Selected active event",
+      state: CurtailmentEventState.ACTIVE,
+    });
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-vanished-restoring",
+      reason: "Restoring event",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-vanished-restoring",
+      reason: "Restoring event",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(selectedActiveEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments
+      .mockResolvedValueOnce({ events: [selectedActiveEvent] })
+      .mockResolvedValueOnce({ events: [selectedActiveEvent] });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-selected-active");
+    expect(result.current.activeEvents.map((event) => event.id)).toEqual([
+      "curt-selected-active",
+      "curt-vanished-restoring",
+    ]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual([
+      "curt-selected-active",
+      "curt-vanished-restoring",
+    ]);
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvents.map((event) => event.id)).toEqual(["curt-selected-active"]);
+    expect(result.current.historyEvents).toEqual([
+      expect.objectContaining({
+        id: "curt-selected-active",
+        state: "active",
+      }),
+      expect.objectContaining({
+        id: "curt-vanished-restoring",
+        state: "completed",
+      }),
+    ]);
+  });
+
   it("reconciles restoring state from terminal history without resetting the current page", async () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-page-terminal",
@@ -1597,6 +1656,30 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyCurrentPage).toBe(1);
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-page-2"]);
     expect(result.current.loadError).toBe("refresh failed");
+  });
+
+  it("clears a detail load error after a later active selection succeeds", async () => {
+    const activeSummary = curtailmentEvent({ eventUuid: "curt-detail-load", reason: "Summary" });
+    const activeDetail = curtailmentEvent({ eventUuid: "curt-detail-load", reason: "Detail" });
+    applyActiveCurtailmentEvent(activeSummary, { mergeActiveEvents: true });
+    mockGetCurtailmentEvent.mockRejectedValueOnce(new Error("detail failed")).mockResolvedValueOnce({
+      event: activeDetail,
+    });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.selectActiveCurtailment("curt-detail-load").catch(() => undefined);
+    });
+
+    expect(result.current.loadError).toBe("detail failed");
+
+    await act(async () => {
+      await result.current.selectActiveCurtailment("curt-detail-load");
+    });
+
+    expect(result.current.activeEvent?.reason).toBe("Detail");
+    expect(result.current.loadError).toBeNull();
   });
 
   it("passes refresh abort signals to history requests and uses a shared active request signal", async () => {

@@ -6,6 +6,7 @@ import {
   dismissActiveCurtailmentEvent,
   fetchActiveCurtailmentData,
   getActiveCurtailmentSnapshot,
+  preserveActiveCurtailmentEvents,
   selectActiveCurtailmentEvent,
   useActiveCurtailmentEvent,
   useActiveCurtailmentEvents,
@@ -253,6 +254,32 @@ function getActiveEventInputs(
   }
 
   return activeEvents.map((event, index) => (index === selectedEventIndex ? selectedActiveEvent : event));
+}
+
+function isRestoringCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+  return event.state === ProtoCurtailmentEventState.RESTORING;
+}
+
+function hasTerminalHistoryEvent(event: ProtoCurtailmentEvent, historyEvents: ProtoCurtailmentEvent[]): boolean {
+  const matchingHistoryEvent = historyEvents.find((historyEvent) => historyEvent.eventUuid === event.eventUuid);
+  return Boolean(
+    matchingHistoryEvent &&
+    historyTerminalCurtailmentEventStates.has(mapCurtailmentEventState(matchingHistoryEvent.state)),
+  );
+}
+
+function getVanishedRestoringEventsToPreserve(
+  previousActiveEvents: ProtoCurtailmentEvent[],
+  nextActiveEvents: ProtoCurtailmentEvent[],
+  historyEvents: ProtoCurtailmentEvent[],
+): ProtoCurtailmentEvent[] {
+  const nextActiveEventIds = new Set(nextActiveEvents.map((event) => event.eventUuid));
+  return previousActiveEvents.filter(
+    (event) =>
+      isRestoringCurtailmentEvent(event) &&
+      !nextActiveEventIds.has(event.eventUuid) &&
+      !hasTerminalHistoryEvent(event, historyEvents),
+  );
 }
 
 function getActiveHistoryEvents(
@@ -635,7 +662,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       return (async () => {
         try {
-          const fallbackActiveEvent = getActiveCurtailmentSnapshot().event;
+          const fallbackActiveSnapshot = getActiveCurtailmentSnapshot();
+          const fallbackActiveEvent = fallbackActiveSnapshot.event;
+          const fallbackActiveEvents = fallbackActiveSnapshot.events;
           const [activeRefresh, historyPageResponse] = await Promise.all([
             includeActive ? fetchActiveCurtailmentData({ signal }) : undefined,
             listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, stateFilters, signal),
@@ -671,7 +700,15 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           }
 
           const activeSnapshot = activeRefresh ? activeRefresh.commit() : previewActiveSnapshot;
-          const activeEvents = activeSnapshot.events;
+          const preservedRestoringEvents = getVanishedRestoringEventsToPreserve(
+            fallbackActiveEvents,
+            activeSnapshot.events,
+            reconciliationEvents,
+          );
+          const activeEvents =
+            preservedRestoringEvents.length > 0
+              ? preserveActiveCurtailmentEvents(preservedRestoringEvents).events
+              : activeSnapshot.events;
           const activeEvent = reconcileActiveEventWithTerminalFallback(
             activeSnapshot.event,
             currentActiveEvent,
@@ -797,6 +834,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             historyPaginationRef.current.currentPage,
           ),
         }));
+        setLoadError(null);
         return activeSnapshotFields;
       } catch (error) {
         if (isAbortError(error, signal)) {

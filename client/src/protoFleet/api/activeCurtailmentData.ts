@@ -67,8 +67,6 @@ let dismissedEventUuid: string | null = null;
 let mutationBackedEventUuid: string | null = null;
 let preservedMutationBackedRefreshWriteVersions = new Set<number>();
 
-const preservedMutationBackedActiveRefreshLimit = 1;
-
 function getNextWriteVersion(): number {
   nextWriteVersion += 1;
   return nextWriteVersion;
@@ -189,12 +187,7 @@ function shouldPreserveMutationBackedSnapshot(
   next: ActiveCurtailmentSnapshot,
   writeVersion: number,
 ): boolean {
-  if (
-    !mutationBackedEventUuid ||
-    !current.event ||
-    current.event.eventUuid !== mutationBackedEventUuid ||
-    preservedMutationBackedRefreshWriteVersions.size >= preservedMutationBackedActiveRefreshLimit
-  ) {
+  if (!mutationBackedEventUuid || !current.event || current.event.eventUuid !== mutationBackedEventUuid) {
     return preservedMutationBackedRefreshWriteVersions.has(writeVersion);
   }
 
@@ -278,6 +271,27 @@ export function applyActiveCurtailmentEvent(
     undefined,
     options,
   );
+}
+
+export function preserveActiveCurtailmentEvents(eventsToPreserve: ProtoCurtailmentEvent[]): ActiveCurtailmentSnapshot {
+  const currentSnapshot = getActiveCurtailmentSnapshot();
+  const events = eventsToPreserve.reduce<ProtoCurtailmentEvent[]>((nextEvents, eventToPreserve) => {
+    if (!isListedActiveCurtailmentEvent(eventToPreserve)) {
+      return nextEvents;
+    }
+
+    const eventIndex = nextEvents.findIndex((event) => event.eventUuid === eventToPreserve.eventUuid);
+    if (eventIndex === -1) {
+      return [...nextEvents, eventToPreserve];
+    }
+
+    return nextEvents.map((event, index) => (index === eventIndex ? eventToPreserve : event));
+  }, currentSnapshot.events);
+
+  return setActiveCurtailmentSnapshot({
+    event: currentSnapshot.event,
+    events,
+  });
 }
 
 export function dismissActiveCurtailmentEvent(eventUuid?: string | null): ActiveCurtailmentSnapshot {
@@ -387,8 +401,12 @@ async function requestActiveCurtailmentDetail(
 
     if (!hydrateAllTargetPages) {
       // Polling only needs event-level detail. Drop the partial target page so
-      // target-derived metrics do not look complete.
-      return detailedEvent ? createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }) : undefined;
+      // target-derived metrics do not look complete, but do not downgrade an
+      // already fully hydrated selected detail snapshot.
+      return detailedEvent
+        ? (getSelectedActiveCurtailmentWithCurrentDetail(detailedEvent) ??
+            createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }))
+        : undefined;
     }
 
     if (pageCount >= activeCurtailmentDetailMaxTargetPages) {
