@@ -234,9 +234,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.findDeviceSiteConflictsStmt, err = db.PrepareContext(ctx, findDeviceSiteConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDeviceSiteConflicts: %w", err)
 	}
-	if q.getActiveCurtailmentEventStmt, err = db.PrepareContext(ctx, getActiveCurtailmentEvent); err != nil {
-		return nil, fmt.Errorf("error preparing query GetActiveCurtailmentEvent: %w", err)
-	}
 	if q.getActiveFleetNodeForDeviceStmt, err = db.PrepareContext(ctx, getActiveFleetNodeForDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveFleetNodeForDevice: %w", err)
 	}
@@ -1547,11 +1544,6 @@ func (q *Queries) Close() error {
 	if q.findDeviceSiteConflictsStmt != nil {
 		if cerr := q.findDeviceSiteConflictsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDeviceSiteConflictsStmt: %w", cerr)
-		}
-	}
-	if q.getActiveCurtailmentEventStmt != nil {
-		if cerr := q.getActiveCurtailmentEventStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getActiveCurtailmentEventStmt: %w", cerr)
 		}
 	}
 	if q.getActiveFleetNodeForDeviceStmt != nil {
@@ -3258,7 +3250,6 @@ type Queries struct {
 	deviceSetBelongsToOrgStmt                             *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                        *sql.Stmt
 	findDeviceSiteConflictsStmt                           *sql.Stmt
-	getActiveCurtailmentEventStmt                         *sql.Stmt
 	getActiveFleetNodeForDeviceStmt                       *sql.Stmt
 	getActiveSchedulesStmt                                *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                *sql.Stmt
@@ -3654,7 +3645,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deviceSetBelongsToOrgStmt:                             q.deviceSetBelongsToOrgStmt,
 		ensureCurtailmentOrgConfigStmt:                        q.ensureCurtailmentOrgConfigStmt,
 		findDeviceSiteConflictsStmt:                           q.findDeviceSiteConflictsStmt,
-		getActiveCurtailmentEventStmt:                         q.getActiveCurtailmentEventStmt,
 		getActiveFleetNodeForDeviceStmt:                       q.getActiveFleetNodeForDeviceStmt,
 		getActiveSchedulesStmt:                                q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                q.getActiveUnpairedDiscoveredDevicesStmt,

@@ -125,22 +125,26 @@ func TestCurtailmentLifecycle(t *testing.T) {
 			startedEventUUID, resp.Msg.Event.State.String())
 	})
 
-	// Step 5: Poll GetActive until the reconciler advances pending → active.
+	// Step 5: Poll ListActive until the reconciler advances pending → active.
 	// 30s tick + telemetry confirmation gives a generous 3-minute budget.
 	t.Run("ReconcilerAdvancesToActive", func(t *testing.T) {
 		deadline := time.Now().Add(3 * time.Minute)
 		var finalState curtailmentv1.CurtailmentEventState
 		for time.Now().Before(deadline) {
-			req := connect.NewRequest(&curtailmentv1.GetActiveCurtailmentRequest{})
+			req := connect.NewRequest(&curtailmentv1.ListActiveCurtailmentsRequest{})
 			req.Header().Set("Authorization", "Bearer "+token)
-			resp, err := curtailmentClient.GetActiveCurtailment(ctx, req)
+			resp, err := curtailmentClient.ListActiveCurtailments(ctx, req)
 			require.NoError(t, err)
-			require.NotNil(t, resp.Msg.Event, "active event must be present while curtailment is in flight")
-			finalState = resp.Msg.Event.State
-			if finalState == curtailmentv1.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE {
-				t.Logf("✓ Event advanced to ACTIVE after %v",
-					time.Since(deadline.Add(-3*time.Minute)).Truncate(time.Second))
-				return
+			for _, event := range resp.Msg.Events {
+				if event.EventUuid == startedEventUUID {
+					finalState = event.State
+					if finalState == curtailmentv1.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE {
+						t.Logf("✓ Event advanced to ACTIVE after %v",
+							time.Since(deadline.Add(-3*time.Minute)).Truncate(time.Second))
+						return
+					}
+					break
+				}
 			}
 			time.Sleep(5 * time.Second)
 		}
@@ -161,25 +165,30 @@ func TestCurtailmentLifecycle(t *testing.T) {
 		t.Logf("✓ Stop accepted for event %s", startedEventUUID)
 	})
 
-	// Step 7: Poll GetActive until the event reaches a terminal state
-	// (COMPLETED or COMPLETED_WITH_FAILURES). Restore at default 30s
-	// interval + adaptive batch_size for a single miner completes in
-	// ~30–90s with telemetry confirmation.
+	// Step 7: Poll ListActive until the event leaves the active set. Restore
+	// at default 30s interval + adaptive batch_size for a single miner
+	// completes in ~30–90s with telemetry confirmation.
 	t.Run("RestoreCompletes", func(t *testing.T) {
 		deadline := time.Now().Add(3 * time.Minute)
 		listClient := curtailmentClient
 		var lastSeenState string
 		for time.Now().Before(deadline) {
-			// GetActive returns nil event once the event is terminal.
-			req := connect.NewRequest(&curtailmentv1.GetActiveCurtailmentRequest{})
+			req := connect.NewRequest(&curtailmentv1.ListActiveCurtailmentsRequest{})
 			req.Header().Set("Authorization", "Bearer "+token)
-			resp, err := listClient.GetActiveCurtailment(ctx, req)
+			resp, err := listClient.ListActiveCurtailments(ctx, req)
 			require.NoError(t, err)
-			if resp.Msg.Event == nil {
-				t.Logf("✓ No active event — restore completed")
+			var activeEvent *curtailmentv1.CurtailmentEvent
+			for _, event := range resp.Msg.Events {
+				if event.EventUuid == startedEventUUID {
+					activeEvent = event
+					break
+				}
+			}
+			if activeEvent == nil {
+				t.Logf("✓ Event left active set — restore completed")
 				return
 			}
-			lastSeenState = resp.Msg.Event.State.String()
+			lastSeenState = activeEvent.State.String()
 			time.Sleep(5 * time.Second)
 		}
 		t.Fatalf("event did not terminate within 3 minutes; last active state: %s", lastSeenState)
@@ -343,11 +352,18 @@ func TestCurtailmentReconcilerKillAndResume(t *testing.T) {
 	t.Log("Waiting for event to terminate after restart + stop...")
 	deadline = time.Now().Add(3 * time.Minute)
 	for time.Now().Before(deadline) {
-		req := connect.NewRequest(&curtailmentv1.GetActiveCurtailmentRequest{})
+		req := connect.NewRequest(&curtailmentv1.ListActiveCurtailmentsRequest{})
 		req.Header().Set("Authorization", "Bearer "+token)
-		resp, err := curtailmentClient.GetActiveCurtailment(ctx, req)
+		resp, err := curtailmentClient.ListActiveCurtailments(ctx, req)
 		require.NoError(t, err)
-		if resp.Msg.Event == nil {
+		stillActive := false
+		for _, event := range resp.Msg.Events {
+			if event.EventUuid == eventUUID {
+				stillActive = true
+				break
+			}
+		}
+		if !stillActive {
 			t.Logf("✓ Event terminal after restart-and-stop")
 			return
 		}

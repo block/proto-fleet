@@ -57,7 +57,6 @@ type fakeStore struct {
 	// BeginRestoreTransition outcomes.
 	eventsByUUID            map[uuid.UUID]*models.Event
 	targetsByEventUUID      map[uuid.UUID][]*models.Target
-	activeEvent             *models.Event
 	activeEvents            []*models.Event
 	activeEventErr          error
 	listTargetsErr          error
@@ -193,13 +192,6 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UU
 
 func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	return f.GetEventByUUID(ctx, orgID, eventUUID)
-}
-
-func (f *fakeStore) GetActiveEvent(_ context.Context, _ int64) (*models.Event, error) {
-	if f.activeEventErr != nil {
-		return nil, f.activeEventErr
-	}
-	return f.activeEvent, nil
 }
 
 func (f *fakeStore) ListActiveEvents(_ context.Context, _ int64) ([]*models.Event, error) {

@@ -320,62 +320,6 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 	return i, err
 }
 
-const getActiveCurtailmentEvent = `-- name: GetActiveCurtailmentEvent :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
-FROM curtailment_event
-WHERE org_id = $1
-    AND state IN ('pending', 'active', 'restoring')
-ORDER BY COALESCE(started_at, created_at) DESC, id DESC
-LIMIT 1
-`
-
-// Most-recent non-terminal event for the org (several can coexist, one per
-// disjoint device scope). Ordered by effective time — created_at for pending
-// events so a fresh pending isn't buried behind older active ones — id tiebreak.
-func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
-	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
-	var i CurtailmentEvent
-	err := row.Scan(
-		&i.ID,
-		&i.EventUuid,
-		&i.OrgID,
-		&i.State,
-		&i.Mode,
-		&i.Strategy,
-		&i.Level,
-		&i.Priority,
-		&i.LoopType,
-		&i.ScopeType,
-		&i.ScopeJsonb,
-		&i.ModeParamsJsonb,
-		&i.RestoreBatchSize,
-		&i.RestoreBatchIntervalSec,
-		&i.EffectiveBatchSize,
-		&i.MinCurtailedDurationSec,
-		&i.MaxDurationSeconds,
-		&i.AllowUnbounded,
-		&i.IncludeMaintenance,
-		&i.ForceIncludeMaintenance,
-		&i.DecisionSnapshotJsonb,
-		&i.SourceActorType,
-		&i.SourceActorID,
-		&i.ExternalSource,
-		&i.ExternalReference,
-		&i.IdempotencyKey,
-		&i.SupersedesEventID,
-		&i.Reason,
-		&i.ScheduledStartAt,
-		&i.StartedAt,
-		&i.EndedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CreatedByUserID,
-		&i.CurtailBatchSize,
-		&i.CurtailBatchIntervalSec,
-	)
-	return i, err
-}
-
 const getCurtailmentEventByExternalReference = `-- name: GetCurtailmentEventByExternalReference :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event

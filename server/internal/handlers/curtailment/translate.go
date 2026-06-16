@@ -644,7 +644,7 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 
 // toListActiveCurtailmentsResponse builds the active-events response: event
 // metadata + scope, no per-device targets or decision snapshot (use
-// GetActiveCurtailment for detail). Replay handles are scrubbed as in the
+// GetCurtailmentEvent for detail). Replay handles are scrubbed as in the
 // history list — a list view doesn't expose webhook trigger metadata.
 func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurtailmentsResponse {
 	out := &pb.ListActiveCurtailmentsResponse{

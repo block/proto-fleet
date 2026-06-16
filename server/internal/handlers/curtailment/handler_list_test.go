@@ -98,9 +98,6 @@ func (s *listStubStore) GetEventDetailByUUID(ctx context.Context, orgID int64, e
 	}
 	return ev, nil
 }
-func (s *listStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
-	panic("GetActiveEvent not exercised by List handler tests")
-}
 func (s *listStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	return s.activeEvents, nil
 }
@@ -246,7 +243,7 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 
 // TestHandler_ListActiveCurtailments_ReturnsActiveEvents: multiple concurrent
 // non-terminal events round-trip through the handler, and the per-target heavy
-// payload is intentionally absent (use GetActiveCurtailment for detail).
+// payload is intentionally absent (use GetCurtailmentEvent for detail).
 func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	t.Parallel()
 	source, reference, key := "opensearch", "alert-1", "retry-key"

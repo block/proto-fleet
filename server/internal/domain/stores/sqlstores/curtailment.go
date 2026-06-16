@@ -731,17 +731,6 @@ func (s *SQLCurtailmentStore) GetEventDetailByUUID(ctx context.Context, orgID in
 	return convertEventDetailRow(row), nil
 }
 
-func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error) {
-	row, err := s.GetQueries(ctx).GetActiveCurtailmentEvent(ctx, orgID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to get active curtailment event for org %d: %v", orgID, err)
-	}
-	return convertEventRow(row), nil
-}
-
 func (s *SQLCurtailmentStore) ListActiveEvents(ctx context.Context, orgID int64) ([]*models.Event, error) {
 	rows, err := s.GetQueries(ctx).ListActiveCurtailmentEvents(ctx, orgID)
 	if err != nil {

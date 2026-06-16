@@ -94,10 +94,6 @@ func (s *startStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID)
 	panic("GetEventDetailByUUID not exercised by handler Start tests")
 }
 
-func (s *startStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
-	panic("GetActiveEvent not exercised by handler Start tests")
-}
-
 func (s *startStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by handler Start tests")
 }

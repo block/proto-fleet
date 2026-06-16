@@ -28,10 +28,6 @@ service CurtailmentService {
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
-    // Get the most-recent pending, active, or restoring event.
-    rpc GetActiveCurtailment(GetActiveCurtailmentRequest)
-        returns (GetActiveCurtailmentResponse);
-
     // List every active (pending/active/restoring) event for the org.
     // Multiple can be active at once when scoped to disjoint device sets.
     rpc ListActiveCurtailments(ListActiveCurtailmentsRequest)
@@ -618,16 +614,6 @@ message StopCurtailmentRequest {
 
 message StopCurtailmentResponse {
     CurtailmentEvent event = 1;
-}
-
-// GetActiveCurtailment returns the caller's active event, if any.
-message GetActiveCurtailmentRequest {}
-
-message GetActiveCurtailmentResponse {
-    // The most-recent pending/active/restoring event, or empty when none.
-    // Multiple events can be active per org (one per disjoint device scope);
-    // use ListActiveCurtailments to enumerate them all.
-    optional CurtailmentEvent event = 1;
 }
 
 // ListActiveCurtailments returns every non-terminal event for the caller's

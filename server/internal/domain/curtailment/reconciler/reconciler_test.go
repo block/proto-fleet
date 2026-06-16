@@ -100,9 +100,6 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	return f.GetEventByUUID(ctx, orgID, eventUUID)
 }
-func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
-	panic("GetActiveEvent not exercised")
-}
 func (f *fakeStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised")
 }

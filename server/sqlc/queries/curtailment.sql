@@ -366,17 +366,6 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY id DESC
 LIMIT sqlc.arg('row_limit')::BIGINT;
 
--- name: GetActiveCurtailmentEvent :one
--- Most-recent non-terminal event for the org (several can coexist, one per
--- disjoint device scope). Ordered by effective time — created_at for pending
--- events so a fresh pending isn't buried behind older active ones — id tiebreak.
-SELECT *
-FROM curtailment_event
-WHERE org_id = sqlc.arg('org_id')
-    AND state IN ('pending', 'active', 'restoring')
-ORDER BY COALESCE(started_at, created_at) DESC, id DESC
-LIMIT 1;
-
 -- name: ListActiveCurtailmentEvents :many
 -- Org-scoped list of every non-terminal event. Multiple can be active when
 -- they target disjoint device scopes (e.g. per-site curtailment). Most-recent

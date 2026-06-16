@@ -204,35 +204,6 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 	}), nil
 }
 
-func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[pb.GetActiveCurtailmentRequest]) (*connect.Response[pb.GetActiveCurtailmentResponse], error) {
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("GetActiveCurtailment")
-	}
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	events, err := h.service.ListActive(ctx, info.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	events, err = filterEventsByPermission(ctx, authz.PermCurtailmentRead, events)
-	if err != nil {
-		return nil, err
-	}
-
-	resp := &pb.GetActiveCurtailmentResponse{}
-	if len(events) > 0 {
-		event := events[0]
-		targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
-		if err != nil {
-			return nil, err
-		}
-		resp.Event = toEventProtoWithTargets(event, targets)
-	}
-	return connect.NewResponse(resp), nil
-}
-
 func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request[pb.ListActiveCurtailmentsRequest]) (*connect.Response[pb.ListActiveCurtailmentsResponse], error) {
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("ListActiveCurtailments")

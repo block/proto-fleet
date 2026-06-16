@@ -151,11 +151,6 @@ type CurtailmentStore interface {
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 	GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
-	// GetActiveEvent returns the most-recent non-terminal event for the org,
-	// or nil. Multiple non-terminal events can coexist (one per disjoint
-	// device scope); ListActiveEvents returns all of them.
-	GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error)
-
 	// ListActiveEvents returns every non-terminal event for the org,
 	// most-recent first.
 	ListActiveEvents(ctx context.Context, orgID int64) ([]*models.Event, error)

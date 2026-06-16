@@ -46,9 +46,6 @@ const (
 	// CurtailmentServiceStopCurtailmentProcedure is the fully-qualified name of the
 	// CurtailmentService's StopCurtailment RPC.
 	CurtailmentServiceStopCurtailmentProcedure = "/curtailment.v1.CurtailmentService/StopCurtailment"
-	// CurtailmentServiceGetActiveCurtailmentProcedure is the fully-qualified name of the
-	// CurtailmentService's GetActiveCurtailment RPC.
-	CurtailmentServiceGetActiveCurtailmentProcedure = "/curtailment.v1.CurtailmentService/GetActiveCurtailment"
 	// CurtailmentServiceListActiveCurtailmentsProcedure is the fully-qualified name of the
 	// CurtailmentService's ListActiveCurtailments RPC.
 	CurtailmentServiceListActiveCurtailmentsProcedure = "/curtailment.v1.CurtailmentService/ListActiveCurtailments"
@@ -134,8 +131,6 @@ type CurtailmentServiceClient interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the most-recent pending, active, or restoring event.
-	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List every active (pending/active/restoring) event for the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
@@ -221,11 +216,6 @@ func NewCurtailmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 		stopCurtailment: connect.NewClient[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse](
 			httpClient,
 			baseURL+CurtailmentServiceStopCurtailmentProcedure,
-			opts...,
-		),
-		getActiveCurtailment: connect.NewClient[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse](
-			httpClient,
-			baseURL+CurtailmentServiceGetActiveCurtailmentProcedure,
 			opts...,
 		),
 		listActiveCurtailments: connect.NewClient[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse](
@@ -352,7 +342,6 @@ type curtailmentServiceClient struct {
 	startCurtailment                    *connect.Client[v1.StartCurtailmentRequest, v1.StartCurtailmentResponse]
 	updateCurtailmentEvent              *connect.Client[v1.UpdateCurtailmentEventRequest, v1.UpdateCurtailmentEventResponse]
 	stopCurtailment                     *connect.Client[v1.StopCurtailmentRequest, v1.StopCurtailmentResponse]
-	getActiveCurtailment                *connect.Client[v1.GetActiveCurtailmentRequest, v1.GetActiveCurtailmentResponse]
 	listActiveCurtailments              *connect.Client[v1.ListActiveCurtailmentsRequest, v1.ListActiveCurtailmentsResponse]
 	listCurtailmentEvents               *connect.Client[v1.ListCurtailmentEventsRequest, v1.ListCurtailmentEventsResponse]
 	getCurtailmentEvent                 *connect.Client[v1.GetCurtailmentEventRequest, v1.GetCurtailmentEventResponse]
@@ -396,11 +385,6 @@ func (c *curtailmentServiceClient) UpdateCurtailmentEvent(ctx context.Context, r
 // StopCurtailment calls curtailment.v1.CurtailmentService.StopCurtailment.
 func (c *curtailmentServiceClient) StopCurtailment(ctx context.Context, req *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error) {
 	return c.stopCurtailment.CallUnary(ctx, req)
-}
-
-// GetActiveCurtailment calls curtailment.v1.CurtailmentService.GetActiveCurtailment.
-func (c *curtailmentServiceClient) GetActiveCurtailment(ctx context.Context, req *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
-	return c.getActiveCurtailment.CallUnary(ctx, req)
 }
 
 // ListActiveCurtailments calls curtailment.v1.CurtailmentService.ListActiveCurtailments.
@@ -545,8 +529,6 @@ type CurtailmentServiceHandler interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Get the most-recent pending, active, or restoring event.
-	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List every active (pending/active/restoring) event for the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
@@ -628,11 +610,6 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 	curtailmentServiceStopCurtailmentHandler := connect.NewUnaryHandler(
 		CurtailmentServiceStopCurtailmentProcedure,
 		svc.StopCurtailment,
-		opts...,
-	)
-	curtailmentServiceGetActiveCurtailmentHandler := connect.NewUnaryHandler(
-		CurtailmentServiceGetActiveCurtailmentProcedure,
-		svc.GetActiveCurtailment,
 		opts...,
 	)
 	curtailmentServiceListActiveCurtailmentsHandler := connect.NewUnaryHandler(
@@ -760,8 +737,6 @@ func NewCurtailmentServiceHandler(svc CurtailmentServiceHandler, opts ...connect
 			curtailmentServiceUpdateCurtailmentEventHandler.ServeHTTP(w, r)
 		case CurtailmentServiceStopCurtailmentProcedure:
 			curtailmentServiceStopCurtailmentHandler.ServeHTTP(w, r)
-		case CurtailmentServiceGetActiveCurtailmentProcedure:
-			curtailmentServiceGetActiveCurtailmentHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListActiveCurtailmentsProcedure:
 			curtailmentServiceListActiveCurtailmentsHandler.ServeHTTP(w, r)
 		case CurtailmentServiceListCurtailmentEventsProcedure:
@@ -831,10 +806,6 @@ func (UnimplementedCurtailmentServiceHandler) UpdateCurtailmentEvent(context.Con
 
 func (UnimplementedCurtailmentServiceHandler) StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.StopCurtailment is not implemented"))
-}
-
-func (UnimplementedCurtailmentServiceHandler) GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("curtailment.v1.CurtailmentService.GetActiveCurtailment is not implemented"))
 }
 
 func (UnimplementedCurtailmentServiceHandler) ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error) {

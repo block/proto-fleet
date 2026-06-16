@@ -86,9 +86,6 @@ func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eve
 func (s *adminTerminateStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventDetailByUUID not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
-	panic("GetActiveEvent not exercised by AdminTerminate handler tests")
-}
 func (s *adminTerminateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by AdminTerminate handler tests")
 }
