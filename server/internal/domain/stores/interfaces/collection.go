@@ -105,8 +105,11 @@ type CollectionStore interface {
 	// mirror the per-row UpdateRackPlacement with the
 	// AssignRacksToBuilding-specific rules in SQL:
 	//   * targetBuildingID == nil keeps each rack's current site_id.
-	//   * Zone clears to '' for racks transitioning to a different (or
-	//     NULL) building; preserved otherwise.
+	//   * Zone clears to NULL for racks transitioning to a different (or
+	//     NULL) building; preserved otherwise. NULL (not '') matches the
+	//     per-row path so collection_sort.go's "zone NULLS LAST"
+	//     ordering keeps racks-without-a-building in the trailing
+	//     bucket.
 	//   * Grid position clears when building_id changes.
 	// Caller is expected to have locked every rack via
 	// LockRackPlacementForWrite before invoking.

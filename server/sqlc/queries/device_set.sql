@@ -144,9 +144,12 @@ WHERE device_set_id = sqlc.arg('device_set_id')
 --   * When @target_building_id IS NULL (unassign branch), each rack
 --     keeps its current site_id (no cascade fires later). Otherwise
 --     every rack is stamped with @target_site_id.
---   * Zone clears to '' for any rack that had a building and is
+--   * Zone clears to NULL for any rack that had a building and is
 --     transitioning to a different (or NULL) building. Racks staying in
---     the same building preserve their zone.
+--     the same building preserve their zone. NULL (not '') is
+--     load-bearing: collection_sort.go orders by zone NULLS LAST, so an
+--     empty-string zone would sort as a real zone instead of falling
+--     into the NULLS LAST bucket like the per-row path produced.
 --   * aisle_index / position_in_aisle clear when building_id changes,
 --     matching the single-row CASE.
 UPDATE device_set_rack dsr
@@ -158,7 +161,7 @@ SET site_id = CASE
     zone = CASE
         WHEN dsr.building_id IS NOT NULL
              AND dsr.building_id IS DISTINCT FROM sqlc.narg('target_building_id')::bigint
-        THEN ''
+        THEN NULL
         ELSE dsr.zone
     END,
     aisle_index = CASE
@@ -180,16 +183,26 @@ WHERE dsr.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
 
 -- name: UpdateRackPlacementBulkForSite :exec
 -- Bulk variant used by AssignRacksToSite. Stamps every rack in
--- @rack_ids with the target site, clears building_id and zone (because
--- a building belongs to one site, the rack's building membership is
--- invalidated by any site transition), and clears the grid placement
--- as a downstream effect of building_id changing. Caller is expected
--- to only pass racks whose current site differs from the target so the
+-- @rack_ids with the target site, clears building_id (because a
+-- building belongs to one site, the rack's building membership is
+-- invalidated by any site transition), and clears grid placement as a
+-- downstream effect of building_id changing. Caller is expected to
+-- only pass racks whose current site differs from the target so the
 -- response counts stay accurate.
+--
+-- Zone is cleared (to NULL) only when the rack was actually in a
+-- building before — racks with building_id IS NULL keep their zone,
+-- matching the old per-rack path. ListRackZoneRefs surfaces
+-- building-less zone refs as building_id=0, and silently wiping them
+-- would lose user-curated metadata. NULL (not '') preserves the
+-- collection_sort.go "zone NULLS LAST" semantics.
 UPDATE device_set_rack dsr
 SET site_id           = sqlc.narg('target_site_id')::bigint,
     building_id       = NULL,
-    zone              = '',
+    zone              = CASE
+        WHEN dsr.building_id IS NOT NULL THEN NULL
+        ELSE dsr.zone
+    END,
     aisle_index       = NULL,
     position_in_aisle = NULL
 WHERE dsr.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
