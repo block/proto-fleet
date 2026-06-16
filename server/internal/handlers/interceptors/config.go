@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 )
@@ -36,6 +37,9 @@ var RedactedRequestProcedures = []string{
 	// PairDiscoveredDevicesOnFleetNode carries miner credentials (username/password)
 	// in the request body.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
+	notificationsv1connect.ChannelServiceCreateChannelProcedure,
+	notificationsv1connect.ChannelServiceUpdateChannelProcedure,
+	notificationsv1connect.ChannelServiceTestChannelProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -110,6 +114,19 @@ var SessionOnlyProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
+	notificationsv1connect.ChannelServiceListChannelsProcedure,
+	notificationsv1connect.ChannelServiceCreateChannelProcedure,
+	notificationsv1connect.ChannelServiceUpdateChannelProcedure,
+	notificationsv1connect.ChannelServiceDeleteChannelProcedure,
+	notificationsv1connect.ChannelServiceTestChannelProcedure,
+	notificationsv1connect.RuleServiceListRulesProcedure,
+	notificationsv1connect.RuleServicePauseRuleProcedure,
+	notificationsv1connect.RuleServiceResumeRuleProcedure,
+	notificationsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure,
+	notificationsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure,
+	notificationsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
+	notificationsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
+	notificationsv1connect.HistoryServiceListNotificationsProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

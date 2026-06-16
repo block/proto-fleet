@@ -52,6 +52,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -79,6 +80,7 @@ import (
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	notificationsDomain "github.com/block/proto-fleet/server/internal/domain/notifications"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -107,6 +109,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
+	notificationsHandler "github.com/block/proto-fleet/server/internal/handlers/notifications"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
@@ -543,6 +546,9 @@ func start(config *Config) error {
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
+	grafanaClient := notificationsDomain.NewGrafana(config.Metrics.Grafana)
+	notificationsSvc := notificationsDomain.NewService(grafanaClient, config.Metrics.NotificationDestinations)
+
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 		middleware.TelemetryMiddleware{},
@@ -614,6 +620,12 @@ func start(config *Config) error {
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
+
+	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
+	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewHistoryServiceHandler(notifHandler, li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
