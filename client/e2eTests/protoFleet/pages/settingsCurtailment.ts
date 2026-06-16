@@ -79,7 +79,7 @@ export class SettingsCurtailmentPage extends BasePage {
     await this.page.getByLabel("Port").fill(values.brokerPort);
     await this.page.getByLabel("Topic").fill(values.topic);
     await this.page.getByLabel("Username").fill(values.username);
-    await this.page.getByRole("textbox", { name: "Password", exact: true }).fill(values.password);
+    await this.page.locator("#source-password").fill(values.password);
   }
 
   async saveSource() {
