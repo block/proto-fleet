@@ -20,6 +20,7 @@ const LIST_WRAPPER = "pt-6";
 const FleetSitesPage = () => {
   const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
+  const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
@@ -55,6 +56,13 @@ const FleetSitesPage = () => {
     [visibleSiteScopes],
   );
   const handleClearSiteSelection = useCallback(() => setSelectedSiteIds([]), []);
+  const handleSelectedSiteIdsChange = useCallback(
+    (ids: string[]) => {
+      if (isBulkActionBusy) return;
+      setSelectedSiteIds(ids);
+    },
+    [isBulkActionBusy],
+  );
 
   if (sites === undefined) {
     return (
@@ -167,15 +175,16 @@ const FleetSitesPage = () => {
           sites={sites}
           onEditSite={canManageSites ? modals.openManageEdit : undefined}
           selectedIds={selectedSiteIds}
-          onSelectedIdsChange={setSelectedSiteIds}
+          onSelectedIdsChange={handleSelectedSiteIdsChange}
         />
       </div>
-      {selectedSiteScopes.length > 0 ? (
+      {selectedSiteScopes.length > 0 || isBulkActionBusy ? (
         <FleetGroupListActionBar
           selectedScopes={selectedSiteScopes}
           kind="site"
           onClearSelection={handleClearSiteSelection}
           onSelectAllVisible={handleSelectAllVisibleSites}
+          onActionBusyChange={setIsBulkActionBusy}
         />
       ) : null}
       <SiteModals modals={modals} sites={sites} />

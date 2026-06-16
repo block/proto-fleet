@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
@@ -10,6 +10,7 @@ interface FleetGroupListActionBarProps {
   kind: "site" | "building" | "rack";
   onClearSelection: () => void;
   onSelectAllVisible: () => void;
+  onActionBusyChange?: (busy: boolean) => void;
 }
 
 const PLURAL_KIND: Record<FleetGroupListActionBarProps["kind"], string> = {
@@ -23,9 +24,17 @@ const FleetGroupListActionBar = ({
   kind,
   onClearSelection,
   onSelectAllVisible,
+  onActionBusyChange,
 }: FleetGroupListActionBarProps) => {
   const setActionBarVisible = useSetActionBarVisible();
-  const selectedIds = useMemo(() => selectedScopes.map((scope) => scope.id.toString()), [selectedScopes]);
+  const [isActionBusy, setIsActionBusy] = useState(false);
+  const lastSelectedScopesRef = useRef(selectedScopes);
+  if (selectedScopes.length > 0) {
+    lastSelectedScopesRef.current = selectedScopes;
+  }
+  const activeSelectedScopes =
+    selectedScopes.length > 0 || !isActionBusy ? selectedScopes : lastSelectedScopesRef.current;
+  const selectedIds = useMemo(() => activeSelectedScopes.map((scope) => scope.id.toString()), [activeSelectedScopes]);
   const pluralKind = PLURAL_KIND[kind];
   // Tracks whether the bar is still mounted so a late-arriving onActionComplete
   // can't resurrect the global toaster push-up after the user navigated away.
@@ -43,16 +52,19 @@ const FleetGroupListActionBar = ({
     return () => {
       mountedRef.current = false;
       setActionBarVisible(false);
+      onActionBusyChange?.(false);
     };
-  }, [setActionBarVisible]);
+  }, [onActionBusyChange, setActionBarVisible]);
 
   const handleActionComplete = useCallback(
     (setHidden: (hidden: boolean) => void) => {
+      setIsActionBusy(false);
+      onActionBusyChange?.(false);
       setHidden(false);
       if (!mountedRef.current) return;
       setActionBarVisible(selectedCountRef.current > 0);
     },
-    [setActionBarVisible],
+    [onActionBusyChange, setActionBarVisible],
   );
 
   return (
@@ -90,11 +102,13 @@ const FleetGroupListActionBar = ({
       }
       renderActions={(setHidden) => (
         <FleetGroupActionsMenu
-          scopes={selectedScopes}
+          scopes={activeSelectedScopes}
           ariaLabel={`Bulk actions for selected ${pluralKind}`}
           testIdPrefix={`fleet-bulk-${kind}-actions`}
           presentation="bulk"
           onActionStart={() => {
+            setIsActionBusy(true);
+            onActionBusyChange?.(true);
             setHidden(true);
             setActionBarVisible(false);
           }}

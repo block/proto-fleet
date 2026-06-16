@@ -30,6 +30,7 @@ const FleetBuildingsPage = () => {
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
+  const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
@@ -120,6 +121,13 @@ const FleetBuildingsPage = () => {
     [visibleBuildingScopes],
   );
   const handleClearBuildingSelection = useCallback(() => setSelectedBuildingIds([]), []);
+  const handleSelectedBuildingIdsChange = useCallback(
+    (ids: string[]) => {
+      if (isBulkActionBusy) return;
+      setSelectedBuildingIds(ids);
+    },
+    [isBulkActionBusy],
+  );
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
 
@@ -267,15 +275,16 @@ const FleetBuildingsPage = () => {
           onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
           onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
           selectedIds={selectedBuildingIds}
-          onSelectedIdsChange={setSelectedBuildingIds}
+          onSelectedIdsChange={handleSelectedBuildingIdsChange}
         />
       </div>
-      {selectedBuildingScopes.length > 0 ? (
+      {selectedBuildingScopes.length > 0 || isBulkActionBusy ? (
         <FleetGroupListActionBar
           selectedScopes={selectedBuildingScopes}
           kind="building"
           onClearSelection={handleClearBuildingSelection}
           onSelectAllVisible={handleSelectAllVisibleBuildings}
+          onActionBusyChange={setIsBulkActionBusy}
         />
       ) : null}
       <BuildingModals modals={buildingModals} sites={sites} />

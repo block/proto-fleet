@@ -17,8 +17,17 @@ vi.mock("./FleetGroupActionsMenu", async (importOriginal) => {
   const actual = (await importOriginal()) as object;
   return {
     ...actual,
-    default: ({ onActionStart, onActionComplete }: { onActionStart?: () => void; onActionComplete?: () => void }) => (
+    default: ({
+      scopes,
+      onActionStart,
+      onActionComplete,
+    }: {
+      scopes: { id: bigint }[];
+      onActionStart?: () => void;
+      onActionComplete?: () => void;
+    }) => (
       <div>
+        <span data-testid="stub-scope-count">{scopes.length}</span>
         <button data-testid="stub-start" onClick={onActionStart}>
           start
         </button>
@@ -67,20 +76,42 @@ describe("FleetGroupListActionBar", () => {
   });
 
   test("hides the bar while an action is running and restores it on complete", () => {
+    const onActionBusyChange = vi.fn();
     mockSetActionBarVisible.mockClear();
-    const { getByTestId } = renderBar(scopes(2));
+    const { getByTestId } = renderBar(scopes(2), { onActionBusyChange });
 
     mockSetActionBarVisible.mockClear();
     fireEvent.click(getByTestId("stub-start"));
     expect(mockSetActionBarVisible).toHaveBeenLastCalledWith(false);
+    expect(onActionBusyChange).toHaveBeenLastCalledWith(true);
 
     mockSetActionBarVisible.mockClear();
     fireEvent.click(getByTestId("stub-complete"));
     expect(mockSetActionBarVisible).toHaveBeenLastCalledWith(true);
+    expect(onActionBusyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test("keeps the last selected scopes while an action is running", () => {
+    const { getByTestId, queryByTestId, rerender } = renderBar(scopes(2));
+
+    fireEvent.click(getByTestId("stub-start"));
+    rerender(
+      <FleetGroupListActionBar
+        selectedScopes={[]}
+        kind="site"
+        onClearSelection={vi.fn()}
+        onSelectAllVisible={vi.fn()}
+      />,
+    );
+    expect(getByTestId("stub-scope-count")).toHaveTextContent("2");
+
+    fireEvent.click(getByTestId("stub-complete"));
+    expect(queryByTestId("stub-scope-count")).not.toBeInTheDocument();
   });
 
   test("does not re-show the bar on action complete after unmount", () => {
-    const { getByTestId, unmount } = renderBar(scopes(2));
+    const onActionBusyChange = vi.fn();
+    const { getByTestId, unmount } = renderBar(scopes(2), { onActionBusyChange });
 
     fireEvent.click(getByTestId("stub-start"));
     const completeButton = getByTestId("stub-complete");
@@ -89,6 +120,7 @@ describe("FleetGroupListActionBar", () => {
     mockSetActionBarVisible.mockClear();
     fireEvent.click(completeButton);
     expect(mockSetActionBarVisible).not.toHaveBeenCalledWith(true);
+    expect(onActionBusyChange).toHaveBeenLastCalledWith(false);
   });
 
   test("Select all visible fires the callback", () => {

@@ -88,6 +88,7 @@ const RacksPage = () => {
   const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
+  const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
   // listDeviceSets has no native siteIds filter, so we resolve
   // site → buildings client-side and pipe through buildingIds.
@@ -310,6 +311,13 @@ const RacksPage = () => {
     [visibleRackScopes],
   );
   const handleClearRackSelection = useCallback(() => setSelectedRackIds([]), []);
+  const handleSelectedRackIdsChange = useCallback(
+    (ids: string[]) => {
+      if (isBulkActionBusy) return;
+      setSelectedRackIds(ids);
+    },
+    [isBulkActionBusy],
+  );
 
   const handleClearFilters = useCallback(() => {
     setSelectedRackIds([]);
@@ -704,7 +712,7 @@ const RacksPage = () => {
             onPrevPage={handleRackPrevPage}
             emptyStateRow={emptyStateRow}
             selectedIds={selectedRackIds}
-            onSelectedIdsChange={setSelectedRackIds}
+            onSelectedIdsChange={handleSelectedRackIdsChange}
           />
         </div>
       ) : (
@@ -770,12 +778,13 @@ const RacksPage = () => {
           ) : null}
         </div>
       )}
-      {selectedRackScopes.length > 0 ? (
+      {selectedRackScopes.length > 0 || isBulkActionBusy ? (
         <FleetGroupListActionBar
           selectedScopes={selectedRackScopes}
           kind="rack"
           onClearSelection={handleClearRackSelection}
           onSelectAllVisible={handleSelectAllVisibleRacks}
+          onActionBusyChange={setIsBulkActionBusy}
         />
       ) : null}
       {showRackSettingsModal ? (
