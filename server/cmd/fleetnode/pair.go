@@ -63,9 +63,13 @@ type pluginPairer struct {
 }
 
 func newPluginPairer(manager *plugins.Manager, minerSigningPrivKeyHex string) (*pluginPairer, error) {
-	pub, err := minerSigningPublicKeySPKIBase64(minerSigningPrivKeyHex)
-	if err != nil {
-		return nil, err
+	var pub string
+	if minerSigningPrivKeyHex != "" {
+		var err error
+		pub, err = minerSigningPublicKeySPKIBase64(minerSigningPrivKeyHex)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &pluginPairer{manager: manager, minerSigningPubKey: pub}, nil
 }
@@ -94,8 +98,13 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		FirmwareVersion: target.GetFirmwareVersion(),
 	}
 
-	// Asymmetric-auth drivers (Proto) pair with the node's own miner-signing key;
+	// Legacy asymmetric-auth drivers pair with the node's own miner-signing key;
 	// operator-supplied username/password covers basic-auth drivers.
+	if plugin.Caps[sdk.CapabilityAsymmetricAuth] && p.minerSigningPubKey == "" {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = "asymmetric auth pairing unavailable: fleet node has no miner-signing key"
+		return res
+	}
 	if bundle, ok := secretBundleFor(plugin.Caps, p.minerSigningPubKey, creds); ok {
 		basicAuth := !plugin.Caps[sdk.CapabilityAsymmetricAuth]
 		if basicAuth && !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
@@ -147,6 +156,9 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 // reports AUTH_NEEDED).
 func secretBundleFor(caps sdk.Capabilities, nodePubKey string, creds *pairingpb.Credentials) (sdk.SecretBundle, bool) {
 	if caps[sdk.CapabilityAsymmetricAuth] {
+		if nodePubKey == "" {
+			return sdk.SecretBundle{}, false
+		}
 		return sdk.SecretBundle{Version: "v1", Kind: sdk.APIKey{Key: nodePubKey}}, true
 	}
 	if creds != nil && creds.Password != nil {

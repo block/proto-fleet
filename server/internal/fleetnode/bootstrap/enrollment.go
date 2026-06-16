@@ -50,10 +50,6 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	mPub, mPriv, err := GenerateKeypair()
-	if err != nil {
-		return nil, err
-	}
 
 	client, err := NewGatewayClient(p.ServerURL)
 	if err != nil {
@@ -61,10 +57,9 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	}
 	callCtx, cancel := withHandshakeTimeout(ctx)
 	resp, err := client.Register(callCtx, connect.NewRequest(&pb.RegisterRequest{
-		EnrollmentToken:    p.Code,
-		Name:               p.Name,
-		IdentityPubkey:     idPub,
-		MinerSigningPubkey: mPub,
+		EnrollmentToken: p.Code,
+		Name:            p.Name,
+		IdentityPubkey:  idPub,
 	}))
 	cancel()
 	if err != nil {
@@ -81,14 +76,12 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	}
 
 	state := &State{
-		ServerURL:                 p.ServerURL,
-		AllowInsecureTransport:    p.AllowInsecureTransport,
-		FleetNodeID:               resp.Msg.GetFleetNodeId(),
-		IdentityFingerprint:       localFP,
-		IdentityPrivateKeyHex:     hex.EncodeToString(idPriv),
-		IdentityPublicKeyHex:      hex.EncodeToString(idPub),
-		MinerSigningPrivateKeyHex: hex.EncodeToString(mPriv),
-		MinerSigningPublicKeyHex:  hex.EncodeToString(mPub),
+		ServerURL:              p.ServerURL,
+		AllowInsecureTransport: p.AllowInsecureTransport,
+		FleetNodeID:            resp.Msg.GetFleetNodeId(),
+		IdentityFingerprint:    localFP,
+		IdentityPrivateKeyHex:  hex.EncodeToString(idPriv),
+		IdentityPublicKeyHex:   hex.EncodeToString(idPub),
 	}
 	return &RegisterResult{State: state}, nil
 }
