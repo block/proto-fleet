@@ -93,7 +93,7 @@ function HeaderWidgets({
             return dismissedSetup ? (
               <Button
                 key={widget}
-                className="min-w-0 max-w-full overflow-hidden"
+                className="max-w-full min-w-0 overflow-hidden"
                 variant={variants.secondary}
                 size={sizes.compact}
                 onClick={onContinueSetup}

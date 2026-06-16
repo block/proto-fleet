@@ -4,9 +4,9 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppLayout from "./AppLayout";
+import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import type { CurtailmentPillEvent } from "@/protoFleet/components/PageHeader/CurtailmentPill";
 import type { UseSchedulePillDataResult } from "@/protoFleet/components/PageHeader/useSchedulePillData";
-import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { useHasPermission } from "@/protoFleet/store";
 
 const mockUseWindowDimensions = vi.fn();
