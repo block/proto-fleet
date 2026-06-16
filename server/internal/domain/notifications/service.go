@@ -119,8 +119,12 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	switch c.Kind {
 	case ChannelKindWebhook:
 		if c.Webhook != nil {
-			stored := webhookURLFromSettings(ownedCP.Settings)
-			if c.Webhook.URL == "" || c.Webhook.URL == redactWebhookURL(stored) {
+			// Only reuse the stored URL when this was already a webhook; otherwise we'd graft the prior kind's secret (e.g. a Slack URL) onto the webhook.
+			stored := ""
+			if owned.Kind == ChannelKindWebhook {
+				stored = webhookURLFromSettings(ownedCP.Settings)
+			}
+			if stored != "" && (c.Webhook.URL == "" || c.Webhook.URL == redactWebhookURL(stored)) {
 				c.Webhook.URL = stored
 			}
 			destinationChanged = c.Webhook.URL != stored
@@ -378,11 +382,35 @@ func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
 	}
 	for _, ip := range ips {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() || isReservedIP(ip) {
 			return reject()
 		}
 	}
 	return nil
+}
+
+// Non-public ranges net.IP.IsPrivate misses (CGNAT, benchmarking, reserved); blocked so internal-only deployments stay off-limits.
+var reservedDestinationCIDRs = parseCIDRs("100.64.0.0/10", "198.18.0.0/15", "240.0.0.0/4")
+
+func parseCIDRs(specs ...string) []*net.IPNet {
+	nets := make([]*net.IPNet, 0, len(specs))
+	for _, s := range specs {
+		_, n, err := net.ParseCIDR(s)
+		if err != nil {
+			panic(err)
+		}
+		nets = append(nets, n)
+	}
+	return nets
+}
+
+func isReservedIP(ip net.IP) bool {
+	for _, n := range reservedDestinationCIDRs {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
@@ -579,6 +607,8 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	for _, e := range existing {
 		if e.ID == sil.ID {
 			owned = true
+			// Carry the original creator; the update request has no created_by, so a blank would wipe the audit owner.
+			sil.CreatedBy = e.CreatedBy
 			break
 		}
 	}

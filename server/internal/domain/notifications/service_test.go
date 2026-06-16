@@ -127,6 +127,16 @@ func TestValidateDestination(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "webhook cgnat range rejected",
+			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "https://100.64.0.1/hook"}},
+			wantErr: true,
+		},
+		{
+			name:    "webhook benchmarking range rejected",
+			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "https://198.18.0.1/hook"}},
+			wantErr: true,
+		},
+		{
 			name:    "webhook localhost rejected",
 			channel: Channel{Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "http://localhost:9000/hook"}},
 			wantErr: true,
@@ -520,6 +530,27 @@ func TestUpdateChannelReplacesSlackURL(t *testing.T) {
 	assert.Equal(t, "https://hooks.example.com/services/T1/B2/fresh", sent.Settings["url"])
 }
 
+func TestUpdateChannelChangingToWebhookRequiresFreshURL(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:      "cp-3",
+		Name:     "org-7-oncall-slack",
+		Type:     "slack",
+		Settings: json.RawMessage(`{"url": "https://hooks.slack.com/services/secret"}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
+
+	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID:      "cp-3",
+		Name:    "oncall-webhook",
+		Kind:    ChannelKindWebhook,
+		Webhook: &WebhookConfig{},
+	})
+	require.Error(t, err, "changing kind to webhook with no URL must not reuse the stored Slack URL")
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Nil(t, putBody, "no contact point should be written")
+}
+
 func TestUpdateChannelReplacesSecretWhenProvided(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:  "cp-1",
@@ -568,4 +599,50 @@ func TestUpdateChannelRejectsForeignOrg(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrNotFound)
 	assert.Nil(t, putBody, "no PUT should reach Grafana for a foreign org's channel")
+}
+
+func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte) *Grafana {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("POST /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		*postBody = b
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"silenceID":"sil-1"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return NewGrafana(GrafanaConfig{URL: srv.URL})
+}
+
+func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
+	existing := []GrafanaSilence{{
+		ID:        "sil-1",
+		CreatedBy: "alice@example.com",
+		Comment:   "old",
+		Matchers: []GrafanaSilenceMatcher{
+			{Name: "organization_id", Value: "7", IsEqual: true},
+			{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
+		},
+	}}
+	var postBody []byte
+	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), DestinationPolicy{})
+
+	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID:      "sil-1",
+		Comment: "updated",
+		Scope:   MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+	})
+	require.NoError(t, err)
+
+	var sent struct {
+		CreatedBy string `json:"createdBy"`
+	}
+	require.NoError(t, json.Unmarshal(postBody, &sent))
+	assert.Equal(t, "alice@example.com", sent.CreatedBy, "update must carry the original creator")
 }
