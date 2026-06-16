@@ -326,11 +326,20 @@ function getSelectedActiveCurtailmentSummary(events: ProtoCurtailmentEvent[]): P
   return events.find((event) => event.eventUuid === currentEventUuid) ?? events[0];
 }
 
-function getCurrentSelectedActiveCurtailmentDetail(
+function getSelectedActiveCurtailmentWithCurrentDetail(
   selectedEvent: ProtoCurtailmentEvent,
 ): ProtoCurtailmentEvent | undefined {
   const currentEvent = getActiveCurtailmentSnapshot().event;
-  return currentEvent?.eventUuid === selectedEvent.eventUuid ? currentEvent : undefined;
+  if (currentEvent?.eventUuid !== selectedEvent.eventUuid) {
+    return undefined;
+  }
+
+  return createMessage(CurtailmentEventSchema, {
+    ...selectedEvent,
+    decisionSnapshot: currentEvent.decisionSnapshot,
+    targetRollup: currentEvent.targetRollup,
+    targets: currentEvent.targets,
+  });
 }
 
 function getSelectedActiveCurtailmentEventToPreserve(
@@ -438,7 +447,7 @@ async function requestActiveCurtailmentResponseSnapshot(
   }
 
   return getActiveCurtailmentSnapshotFromResponse(
-    detailedSelectedEvent ?? getCurrentSelectedActiveCurtailmentDetail(selectedEvent),
+    detailedSelectedEvent ?? getSelectedActiveCurtailmentWithCurrentDetail(selectedEvent),
     response.events,
   );
 }

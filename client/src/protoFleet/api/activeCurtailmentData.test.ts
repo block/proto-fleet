@@ -221,10 +221,17 @@ describe("activeCurtailmentData", () => {
     );
   });
 
-  it("keeps the current selected detail when active detail hydration fails", async () => {
-    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+  it("keeps current selected detail fields with fresh active-list state when active detail hydration fails", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.RESTORING, { reason: "Summary A" });
     const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
-    const currentDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Current Detail A" });
+    const currentDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Current Detail A",
+      decisionSnapshot: {
+        estimated_reduction_kw: 5,
+        selected_count: 2,
+      },
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1" })],
+    });
     applyActiveCurtailmentEvent(currentDetail, { mergeActiveEvents: true });
     mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
     mockGetCurtailmentEvent.mockRejectedValueOnce(new Error("detail unavailable"));
@@ -232,8 +239,22 @@ describe("activeCurtailmentData", () => {
     await refreshActiveCurtailmentData();
 
     const snapshot = getActiveCurtailmentSnapshot();
-    expect(snapshot.event?.reason).toBe("Current Detail A");
-    expect(snapshot.events.map((event) => event.reason)).toEqual(["Current Detail A", "Summary B"]);
+    expect(snapshot.event).toEqual(
+      expect.objectContaining({
+        eventUuid: "active-a",
+        reason: "Summary A",
+        state: CurtailmentEventState.RESTORING,
+        decisionSnapshot: {
+          estimated_reduction_kw: 5,
+          selected_count: 2,
+        },
+      }),
+    );
+    expect(snapshot.event?.targets.map((target) => target.deviceIdentifier)).toEqual(["miner-1"]);
+    expect(snapshot.events.map((event) => [event.eventUuid, event.state])).toEqual([
+      ["active-a", CurtailmentEventState.RESTORING],
+      ["active-b", CurtailmentEventState.ACTIVE],
+    ]);
   });
 
   it("does not select an unhydrated active summary when active detail hydration fails", async () => {
