@@ -392,7 +392,7 @@ async function requestActiveCurtailmentDetail(
     }
 
     if (pageCount >= activeCurtailmentDetailMaxTargetPages) {
-      throw new Error("Curtailment detail exceeded the target pagination limit.");
+      return detailedEvent ? createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }) : undefined;
     }
 
     pageToken = response.nextTargetPageToken;

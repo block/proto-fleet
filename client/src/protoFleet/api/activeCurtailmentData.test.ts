@@ -310,17 +310,36 @@ describe("activeCurtailmentData", () => {
     expect(mockGetCurtailmentEvent.mock.calls.map(([request]) => request.targetPageToken)).toEqual(["", "page-2"]);
   });
 
-  it("rejects explicit detail hydration when target pagination exceeds the safety cap", async () => {
+  it("keeps explicit detail hydration usable when target pagination exceeds the safety cap", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     applyActiveCurtailmentEvent(activeSummary, { mergeActiveEvents: true });
     mockGetCurtailmentEvent.mockImplementation(async ({ targetPageToken }: { targetPageToken: string }) => ({
-      event: activeSummary,
+      event: curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+        reason: "Detail A",
+        decisionSnapshot: {
+          estimated_reduction_kw: 5,
+          selected_count: 2,
+        },
+        targets: [create(CurtailmentTargetSchema, { deviceIdentifier: targetPageToken || "miner-1" })],
+      }),
       nextTargetPageToken: targetPageToken ? `${targetPageToken}-next` : "page-2",
     }));
 
-    await expect(selectActiveCurtailmentEvent(activeSummary.eventUuid)).rejects.toThrow(
-      "Curtailment detail exceeded the target pagination limit.",
+    await selectActiveCurtailmentEvent(activeSummary.eventUuid);
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event).toEqual(
+      expect.objectContaining({
+        eventUuid: "active-a",
+        reason: "Detail A",
+        decisionSnapshot: {
+          estimated_reduction_kw: 5,
+          selected_count: 2,
+        },
+      }),
     );
+    expect(snapshot.event?.targets).toEqual([]);
+    expect(mockGetCurtailmentEvent).toHaveBeenCalledTimes(25);
   });
 
   it("preserves a selected restored curtailment while another active curtailment remains listed", async () => {
