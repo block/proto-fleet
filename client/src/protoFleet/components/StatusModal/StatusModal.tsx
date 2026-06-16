@@ -9,16 +9,12 @@ import {
   transformFleetErrorsToShared,
 } from "./utils";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
-import {
-  needsAuthentication as needsAuthFn,
-  needsPasswordChange,
-  PASSWORD_CHANGE_REQUIRED_LABEL,
-} from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
@@ -142,39 +138,17 @@ const ProtoFleetStatusModal = ({
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
   // Determine status flags from DeviceStatus and PairingStatus
-  const needsAuthentication = miner ? needsAuthFn(miner.pairingStatus) : false;
-  const needsPwChange = miner ? needsPasswordChange(miner.pairingStatus) : false;
+  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
-  // When authentication is needed we can't trust INACTIVE (or MAINTENANCE) status
-  // (telemetry is gated). Default-password devices still report telemetry, so their
-  // status is trusted.
+  // When authentication is needed, we can't trust INACTIVE (or MAINTENANCE) status
+  // (could be sleeping OR showing as inactive/maintenance because we can't authenticate)
   const isSleeping =
     (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
     !needsAuthentication;
   const needsMiningPool = miner?.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
-  // Compute summary using shared hook (replaces API-provided summary).
-  // Default-password devices are authenticated but gated until the password is
-  // changed; override the summary with that distinct remediation message.
-  const computedSummary = useMinerStatusSummary(
-    sharedErrors,
-    isSleeping,
-    isOffline,
-    needsAuthentication,
-    needsMiningPool,
-  );
-  const summary = useMemo(
-    () =>
-      needsPwChange
-        ? {
-            ...computedSummary,
-            title: PASSWORD_CHANGE_REQUIRED_LABEL,
-            subtitle:
-              "This miner is using the default password. Change it from the miner actions menu to finish setup.",
-          }
-        : computedSummary,
-    [computedSummary, needsPwChange],
-  );
+  // Compute summary using shared hook (replaces API-provided summary)
+  const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool);
 
   // getMinerStatus function - returns complete data including config
   const getMinerStatus = useCallback((): MinerStatusData => {
@@ -192,11 +166,17 @@ const ProtoFleetStatusModal = ({
       other: transformErrorsForModal(groupedErrors.other || [], deviceId, onClickHandler),
     };
 
+    // Check if miner is sleeping (offline state in fleet context)
+    // Don't show wake button if authentication is needed (can't trust INACTIVE/MAINTENANCE status)
+    const isMinersleeping =
+      (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
+      !needsAuthentication;
+
     // Build buttons
     const buttons = [];
 
     // Add wake miner button if miner is sleeping
-    if (isSleeping) {
+    if (isMinersleeping) {
       buttons.push({
         text: "Wake miner",
         variant: variants.secondary,
@@ -218,7 +198,7 @@ const ProtoFleetStatusModal = ({
         title: summary.title,
         subtitle: summary.subtitle,
         errors: errorsBySource,
-        isSleeping,
+        isSleeping: isMinersleeping,
         isOffline,
         needsAuthentication,
         needsMiningPool,
@@ -235,7 +215,6 @@ const ProtoFleetStatusModal = ({
     handleWakeMiner,
     handleClose,
     isOffline,
-    isSleeping,
     needsAuthentication,
     needsMiningPool,
   ]);

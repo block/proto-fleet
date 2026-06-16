@@ -8,7 +8,6 @@ import {
 export const FLEET_VISIBLE_PAIRING_STATUSES: PairingStatus[] = [
   PairingStatus.PAIRED,
   PairingStatus.AUTHENTICATION_NEEDED,
-  PairingStatus.DEFAULT_PASSWORD,
 ];
 
 export const FLEET_SELECTABLE_PAIRING_STATUSES: PairingStatus[] = [PairingStatus.PAIRED];

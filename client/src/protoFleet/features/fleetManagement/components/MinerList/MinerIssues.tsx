@@ -1,14 +1,9 @@
 import { ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
-import {
-  needsAuthentication as needsAuthFn,
-  needsPasswordChange,
-  PASSWORD_CHANGE_REQUIRED_LABEL,
-} from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { Alert } from "@/shared/assets/icons";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useMinerIssues } from "@/shared/hooks/useStatusSummary";
@@ -66,8 +61,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const groupedErrors = useMemo(() => groupErrors(errors), [errors]);
 
   // Compute issue flags
-  const needsAuthentication = needsAuthFn(miner.pairingStatus);
-  const needsPwChange = needsPasswordChange(miner.pairingStatus);
+  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const isUpdating = deviceStatus === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatus === DeviceStatus.REBOOT_REQUIRED;
@@ -106,17 +100,12 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   }, [needsAuthentication, needsMiningPool, sharedErrors]);
 
   // While errors haven't loaded, show shimmer for devices that could have issues
-  if (!errorsLoaded && !needsAuthentication && !needsPwChange && !needsMiningPool && !isUpdating && !isRebootRequired) {
+  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired) {
     return <SkeletonBar className="w-24" />;
   }
 
-  // Default-password devices are authenticated but gated until the password is
-  // changed; surface that distinct remediation instead of a hardware issue.
-  const effectiveSummary = needsPwChange ? PASSWORD_CHANGE_REQUIRED_LABEL : summary;
-  const effectiveHasIssues = needsPwChange || hasIssues;
-
   // Show empty state if no issues
-  if (!effectiveHasIssues) {
+  if (!hasIssues) {
     return null;
   }
 
@@ -125,8 +114,8 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
 
   const content = (
     <>
-      {needsPwChange ? null : icon}
-      {effectiveSummary}
+      {icon}
+      {summary}
     </>
   );
 

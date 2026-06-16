@@ -48,12 +48,7 @@ function isProtoRig(manufacturer: string): boolean {
 }
 
 function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
-  // The server auto-pairs using the plugin's default credentials for both
-  // basic-auth (username/password) and asymmetric-key drivers.
-  return (
-    supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY) ||
-    supportedMethods.includes(AuthenticationMethod.BASIC)
-  );
+  return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
 }
 
 const SKELETON_INDICES = [0, 1, 2];

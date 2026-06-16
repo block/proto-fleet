@@ -1,7 +1,7 @@
 import type { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { needsAuthentication } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 
 // Stable reference for empty measurement array (prevents infinite re-renders when used in components)
@@ -29,10 +29,10 @@ export function getMinerMeasurement(
     return null;
   }
 
-  // Empty cell when a pool or authentication is needed (telemetry gated).
-  // Default-password devices still report telemetry, so their metrics show.
+  // Show empty cell for devices with pool required or auth required status
   const needsPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
-  if (needsPool || needsAuthentication(miner.pairingStatus)) {
+  const needsAuth = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  if (needsPool || needsAuth) {
     return EMPTY_MEASUREMENT;
   }
 
