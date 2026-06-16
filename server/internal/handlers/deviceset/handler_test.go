@@ -620,6 +620,29 @@ func TestAddDevicesToGroup_PermissionRequired(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
+// TestAddDevicesToGroup_RejectsCrossOrgTarget pins the wire-visible
+// NotFound code when target_group_id belongs to a different org.
+// The service layer's GetCollection(orgID, id) returns NotFound for any
+// collection not owned by the caller's org; this test exercises the
+// end-to-end path so a future refactor cannot accidentally leak the
+// existence of cross-org collections.
+func TestAddDevicesToGroup_RejectsCrossOrgTarget(t *testing.T) {
+	targetID := int64(11)
+	h := newGroupHandlerWithResolver(t, []string{"d1"})
+	h.collectionStore.EXPECT().
+		GetCollection(gomock.Any(), testOrgID, targetID).
+		Return(nil, fleeterror.NewNotFoundErrorf("collection not found"))
+
+	_, err := h.handler.AddDevicesToGroup(testCtx(t), connect.NewRequest(&dspb.AddDevicesToGroupRequest{
+		TargetGroupId:  targetID,
+		DeviceSelector: deviceListSelector("d1"),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeNotFound, fe.GRPCCode)
+}
+
 // TestRemoveDevicesFromGroup_HappyPath asserts the handler verifies the
 // target is a group and forwards to the group remove path.
 func TestRemoveDevicesFromGroup_HappyPath(t *testing.T) {
