@@ -20,18 +20,24 @@ describe("applyFleetVisiblePairingStatuses", () => {
 
   it("preserves existing visible pairing statuses", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
-      pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
+      pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED, PairingStatus.DEFAULT_PASSWORD],
     });
 
-    expect(applyFleetVisiblePairingStatuses(filter).pairingStatuses).toEqual([PairingStatus.AUTHENTICATION_NEEDED]);
+    expect(applyFleetVisiblePairingStatuses(filter).pairingStatuses).toEqual([
+      PairingStatus.AUTHENTICATION_NEEDED,
+      PairingStatus.DEFAULT_PASSWORD,
+    ]);
   });
 
   it("filters out non-visible pairing statuses", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
-      pairingStatuses: [PairingStatus.PAIRED, PairingStatus.PENDING],
+      pairingStatuses: [PairingStatus.PAIRED, PairingStatus.DEFAULT_PASSWORD, PairingStatus.PENDING],
     });
 
-    expect(applyFleetVisiblePairingStatuses(filter).pairingStatuses).toEqual([PairingStatus.PAIRED]);
+    expect(applyFleetVisiblePairingStatuses(filter).pairingStatuses).toEqual([
+      PairingStatus.PAIRED,
+      PairingStatus.DEFAULT_PASSWORD,
+    ]);
   });
 
   it("preserves an empty intersection when an explicit filter contains no visible statuses", () => {
@@ -50,7 +56,7 @@ describe("applyFleetSelectablePairingStatuses", () => {
 
   it("filters out non-selectable pairing statuses", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
-      pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED],
+      pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED, PairingStatus.DEFAULT_PASSWORD],
     });
 
     expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([PairingStatus.PAIRED]);
@@ -80,5 +86,6 @@ describe("isFleetSelectablePairingStatus", () => {
   it("returns true only for pairing statuses that can be selected in the miner list", () => {
     expect(isFleetSelectablePairingStatus(PairingStatus.PAIRED)).toBe(true);
     expect(isFleetSelectablePairingStatus(PairingStatus.AUTHENTICATION_NEEDED)).toBe(false);
+    expect(isFleetSelectablePairingStatus(PairingStatus.DEFAULT_PASSWORD)).toBe(false);
   });
 });
