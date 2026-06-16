@@ -87,6 +87,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     onManageActiveEvent,
     onStatusFiltersChange,
     onStopActiveEvent,
+    onStopActiveEventRequested,
   }: {
     currentPage?: number;
     events: CurtailmentHistoryEvent[];
@@ -98,6 +99,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
     onStatusFiltersChange?: (filters: string[]) => void;
     onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
+    onStopActiveEventRequested?: (event: CurtailmentHistoryEvent) => void;
   }) => (
     <div data-testid="curtailment-history">
       <div data-testid="history-page">{currentPage}</div>
@@ -138,6 +140,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
           disabled={events.length === 0}
           onClick={() => {
             if (events[0]) {
+              onStopActiveEventRequested?.(events[0]);
               onStopActiveEvent(events[0]);
             }
           }}
@@ -786,6 +789,61 @@ describe("CurtailmentManagementPanel", () => {
 
     await waitFor(() => expect(screen.getByTestId("modal-initial-reason")).toHaveTextContent("Grid peak"));
     expect(screen.getByTestId("modal-preview")).toHaveTextContent("2 miners, 5 kW target, 6.2 kW estimated");
+  });
+
+  it("keeps stop confirmation open when a stale manage selection resolves", async () => {
+    const user = userEvent.setup();
+    const secondaryFormValues = {
+      ...activeEventFormValues,
+      reason: "Secondary grid peak",
+      targetKw: "8",
+    } satisfies CurtailmentSubmitValues;
+    const secondaryActiveEvent = {
+      ...activeEvent,
+      reason: "Secondary grid peak",
+      selectedMiners: 4,
+      targetKw: 8,
+      estimatedReductionKw: 9.1,
+    } as ActiveCurtailmentEvent;
+    let resolveSelection: (
+      value: Awaited<ReturnType<UseCurtailmentApiResult["selectActiveCurtailment"]>>,
+    ) => void = () => undefined;
+    const secondaryHistoryEvent = { ...historyEvent, id: "curt-2" } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSelection = resolve;
+        }),
+    );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEventId: "curt-1",
+        activeEventFormValues,
+        activeEvents: [secondaryHistoryEvent],
+        historyEvents: [secondaryHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Manage history event" }));
+    const selectionSignal = mocks.selectActiveCurtailment.mock.calls[0][1].signal as AbortSignal;
+    await user.click(screen.getByRole("button", { name: "Request stop" }));
+
+    expect(selectionSignal.aborted).toBe(true);
+    expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument();
+
+    resolveSelection({
+      activeEvent: secondaryActiveEvent,
+      activeEventId: "curt-2",
+      activeEventFormValues: secondaryFormValues,
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument();
   });
 
   it("keeps create flow open when a stale manage selection resolves", async () => {

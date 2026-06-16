@@ -81,6 +81,12 @@ describe("activeCurtailmentData", () => {
 
   it("dismisses a terminal selected event without clearing other active curtailments", async () => {
     const activeEvent = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE);
+    const activeDetail = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE, {
+      decisionSnapshot: {
+        estimated_reduction_kw: 5,
+        selected_count: 2,
+      },
+    });
     const restoredEvent = curtailmentEvent("restored-event", CurtailmentEventState.COMPLETED);
 
     applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
@@ -88,15 +94,34 @@ describe("activeCurtailmentData", () => {
 
     let snapshot = dismissActiveCurtailmentEvent(restoredEvent.eventUuid);
 
-    expect(snapshot.event?.eventUuid).toBe(activeEvent.eventUuid);
+    expect(snapshot.event).toBeUndefined();
     expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
 
     mockListActiveCurtailments.mockResolvedValueOnce({ events: [restoredEvent, activeEvent] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: activeDetail });
     await refreshActiveCurtailmentData();
     snapshot = getActiveCurtailmentSnapshot();
 
     expect(snapshot.event?.eventUuid).toBe(activeEvent.eventUuid);
     expect(snapshot.events.map((event) => event.eventUuid)).toEqual([activeEvent.eventUuid]);
+  });
+
+  it("selects a remaining detailed active curtailment after terminal dismissal", () => {
+    const detailedActiveEvent = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE, {
+      decisionSnapshot: {
+        estimated_reduction_kw: 5,
+        selected_count: 2,
+      },
+    });
+    const restoredEvent = curtailmentEvent("restored-event", CurtailmentEventState.COMPLETED);
+
+    applyActiveCurtailmentEvent(detailedActiveEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(restoredEvent, { mergeActiveEvents: true });
+
+    const snapshot = dismissActiveCurtailmentEvent(restoredEvent.eventUuid);
+
+    expect(snapshot.event?.eventUuid).toBe(detailedActiveEvent.eventUuid);
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual([detailedActiveEvent.eventUuid]);
   });
 
   it("starts a fresh request after all shared request subscribers abort", async () => {

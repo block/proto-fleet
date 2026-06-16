@@ -66,6 +66,7 @@ interface CurtailmentHistoryProps {
    * starts; a rejected promise re-enables retry controls.
    */
   onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
+  onStopActiveEventRequested?: (event: CurtailmentHistoryEvent) => void;
 }
 
 interface DotProps {
@@ -451,6 +452,7 @@ function CurtailmentHistory({
   onStatusFiltersChange,
   onManageActiveEvent,
   onStopActiveEvent,
+  onStopActiveEventRequested,
 }: CurtailmentHistoryProps): ReactElement {
   const [localSelectedStatusFilters, setLocalSelectedStatusFilters] = useState<CurtailmentEventState[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
@@ -564,6 +566,7 @@ function CurtailmentHistory({
       return;
     }
 
+    onStopActiveEventRequested?.(event);
     setSelectedStopEventId(event.id);
   };
 

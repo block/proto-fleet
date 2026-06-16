@@ -53,6 +53,8 @@ interface SetActiveCurtailmentSnapshotOptions {
 
 const activeCurtailmentDetailTargetPageSize = 1000;
 const activeCurtailmentDetailMaxTargetPages = 25;
+const detailReductionSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
+const detailSelectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined, events: [] };
 
@@ -134,6 +136,19 @@ function removeActiveCurtailmentEventFromList(
   return events.filter((event) => event.eventUuid !== eventUuid);
 }
 
+function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
+  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
+}
+
+function hasActiveCurtailmentDetail(event: ProtoCurtailmentEvent): boolean {
+  return (
+    Boolean(event.targetRollup) ||
+    event.targets.length > 0 ||
+    hasSnapshotNumber(event, detailReductionSnapshotKeys) ||
+    hasSnapshotNumber(event, detailSelectedCountSnapshotKeys)
+  );
+}
+
 function getNextSelectedActiveCurtailmentEvent(
   event: ProtoCurtailmentEvent | undefined,
   events: ProtoCurtailmentEvent[],
@@ -143,7 +158,7 @@ function getNextSelectedActiveCurtailmentEvent(
     return event;
   }
 
-  return events[0];
+  return events.find(hasActiveCurtailmentDetail);
 }
 
 function filterDismissedActiveCurtailmentEvent(

@@ -377,9 +377,10 @@ function CurtailmentManagementPanel({
         return;
       }
 
+      cancelManageSelection();
       setPendingStopConfirmation({ action, eventId });
     },
-    [activeEventId, canManageCurtailment],
+    [activeEventId, canManageCurtailment, cancelManageSelection],
   );
 
   const handleStartSubmit = useCallback(
@@ -418,8 +419,11 @@ function CurtailmentManagementPanel({
   );
 
   const handleHistoryStop = useCallback(
-    (event: CurtailmentHistoryEvent) => stopCurtailment(event.id),
-    [stopCurtailment],
+    (event: CurtailmentHistoryEvent) => {
+      cancelManageSelection();
+      return stopCurtailment(event.id);
+    },
+    [cancelManageSelection, stopCurtailment],
   );
 
   const handleHistoryPageChange = useCallback(
@@ -511,6 +515,7 @@ function CurtailmentManagementPanel({
             onPageChange={handleHistoryPageChange}
             onStatusFiltersChange={handleHistoryStatusFiltersChange}
             onManageActiveEvent={canManageCurtailment ? openHistoryManageModal : undefined}
+            onStopActiveEventRequested={canManageCurtailment ? cancelManageSelection : undefined}
             onStopActiveEvent={canManageCurtailment ? handleHistoryStop : undefined}
           />
         </>
