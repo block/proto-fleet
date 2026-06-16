@@ -214,8 +214,8 @@ func (f *fakeStore) ListTargetsByEventPage(ctx context.Context, params interface
 	return targets, "", err
 }
 
-func (f *fakeStore) ListTargetSiteIDsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]int64, error) {
-	return append([]int64(nil), f.targetSiteIDsByEventUUID[eventUUID]...), nil
+func (f *fakeStore) ListTargetSiteIDsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]int64, bool, error) {
+	return append([]int64(nil), f.targetSiteIDsByEventUUID[eventUUID]...), true, nil
 }
 
 func (f *fakeStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {

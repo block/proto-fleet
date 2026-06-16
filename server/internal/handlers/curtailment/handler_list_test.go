@@ -39,6 +39,7 @@ type listStubStore struct {
 	eventDetailByUUID    map[uuid.UUID]*models.Event
 	targetsByUUID        map[uuid.UUID][]*models.Target
 	targetSiteIDsByUUID  map[uuid.UUID][]int64
+	incompleteTargetSite map[uuid.UUID]bool
 	targetRollupByUUID   map[uuid.UUID]*models.TargetRollup
 	eventsByPageToken    map[string][]*models.Event
 	nextByPageToken      map[string]string
@@ -122,11 +123,11 @@ func (s *listStubStore) ListTargetsByEventPage(_ context.Context, params interfa
 	}
 	return s.targetsByUUID[params.EventUUID], s.targetNextPageToken, nil
 }
-func (s *listStubStore) ListTargetSiteIDsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]int64, error) {
+func (s *listStubStore) ListTargetSiteIDsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]int64, bool, error) {
 	if s.targetSiteIDsByUUID == nil {
 		panic("ListTargetSiteIDsByEvent not exercised by List handler tests")
 	}
-	return s.targetSiteIDsByUUID[eventUUID], nil
+	return s.targetSiteIDsByUUID[eventUUID], !s.incompleteTargetSite[eventUUID], nil
 }
 func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
 	if s.targetRollupByUUID != nil {
@@ -434,6 +435,48 @@ func TestHandler_ListCurtailmentEvents_FiltersSiteScopedEventsAcrossPages(t *tes
 	assert.Equal(t, []string{"", "next"}, store.listPageTokens)
 }
 
+func TestHandler_ListCurtailmentEvents_CapsPermissionFilteringScan(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID      = int64(42)
+		deniedSite = int64(8)
+	)
+	deniedEvent := func(id int64) *models.Event {
+		return &models.Event{
+			ID:        id,
+			EventUUID: uuid.New(),
+			OrgID:     orgID,
+			State:     models.EventStateCompleted,
+			ScopeType: models.ScopeTypeSite,
+			ScopeJSON: siteScopeJSON(t, deniedSite),
+			Reason:    "denied-site",
+		}
+	}
+	store := &listStubStore{
+		eventsByPageToken: map[string][]*models.Event{
+			"":       {deniedEvent(5)},
+			"page-2": {deniedEvent(4)},
+			"page-3": {deniedEvent(3)},
+			"page-4": {deniedEvent(2)},
+		},
+		nextByPageToken: map[string]string{"": "page-2", "page-2": "page-3", "page-3": "page-4"},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(deniedSite))
+
+	resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{PageSize: 1}))
+	require.NoError(t, err)
+
+	assert.Empty(t, resp.Msg.Events)
+	assert.Equal(t, "page-4", resp.Msg.NextPageToken)
+	assert.Equal(t, []string{"", "page-2", "page-3"}, store.listPageTokens)
+}
+
 func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsByTargetSite(t *testing.T) {
 	t.Parallel()
 	const (
@@ -482,6 +525,34 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsByTargetSite(t *t
 	assert.Equal(t, allowedUUID.String(), resp.Msg.Events[0].EventUuid)
 }
 
+func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTargetSites(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	eventUUID := uuid.New()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:        1,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeDeviceList,
+				Reason:    "unmapped-device",
+			},
+		},
+		targetSiteIDsByUUID: map[uuid.UUID][]int64{eventUUID: {}},
+		incompleteTargetSite: map[uuid.UUID]bool{
+			eventUUID: true,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := sessionCtx(orgID)
+
+	resp, err := h.ListActiveCurtailments(ctx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Events)
+}
+
 func TestHandler_GetCurtailmentEvent_UsesTargetSitesForDeviceListEvents(t *testing.T) {
 	t.Parallel()
 	const (
@@ -514,6 +585,37 @@ func TestHandler_GetCurtailmentEvent_UsesTargetSitesForDeviceListEvents(t *testi
 	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(deniedSite))
 
 	_, err := h.GetCurtailmentEvent(ctx, connect.NewRequest(&pb.GetCurtailmentEventRequest{EventUuid: eventUUID.String()}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, uuid.Nil, store.lastTargetPageParams.EventUUID)
+}
+
+func TestHandler_GetCurtailmentEvent_DeniesIncompleteTargetSiteCoverage(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	eventUUID := uuid.New()
+	store := &listStubStore{
+		eventByUUID: map[uuid.UUID]*models.Event{
+			eventUUID: {
+				ID:        1,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeDeviceList,
+				Reason:    "unmapped-device",
+			},
+		},
+		targetsByUUID:        map[uuid.UUID][]*models.Target{eventUUID: {}},
+		targetSiteIDsByUUID:  map[uuid.UUID][]int64{eventUUID: {}},
+		incompleteTargetSite: map[uuid.UUID]bool{eventUUID: true},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+		EventUuid: eventUUID.String(),
+	}))
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)

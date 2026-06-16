@@ -662,7 +662,7 @@ describe("useCurtailmentApi", () => {
       eventUuid: "curt-newer-history",
       state: CurtailmentEventState.COMPLETED,
     });
-    applyActiveCurtailmentEvent(restoringEvent);
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
     mockListActiveCurtailments.mockResolvedValueOnce({ event: undefined });
     mockListCurtailmentEvents
       .mockResolvedValueOnce({ events: [], nextPageToken: "" })
@@ -891,14 +891,14 @@ describe("useCurtailmentApi", () => {
       state: CurtailmentEventState.COMPLETED,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
     });
-    applyActiveCurtailmentEvent(restoringEvent);
-    mockListActiveCurtailments.mockResolvedValueOnce({ event: undefined });
     mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
     mockGetCurtailmentEvent.mockImplementation(({ eventUuid }: { eventUuid: string }) =>
       eventUuid === restoringEvent.eventUuid ? { event: completedEvent } : undefined,
     );
 
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
     const { result } = renderHook(() => useCurtailmentApi());
+    applyActiveCurtailmentEvent(undefined);
 
     await act(async () => {
       await result.current.setHistoryStatusFilters(["restoring"]);

@@ -391,20 +391,27 @@ WHERE org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active', 'restoring')
 ORDER BY COALESCE(started_at, created_at) DESC, id DESC;
 
--- name: ListCurtailmentTargetSiteIDsByEvent :many
--- Distinct current site contexts for the devices selected by one event.
--- Used only for authorization of explicit-device scopes; whole-org remains
--- org-scoped and site-scoped events use their immutable scope_jsonb site.
-SELECT DISTINCT d.site_id::BIGINT
-FROM curtailment_event ce
-JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
-JOIN device d ON d.org_id = ce.org_id
-    AND d.device_identifier = ct.device_identifier
-    AND d.deleted_at IS NULL
-WHERE ce.org_id = sqlc.arg('org_id')
-    AND ce.event_uuid = sqlc.arg('event_uuid')
-    AND d.site_id IS NOT NULL
-ORDER BY d.site_id;
+-- name: ListCurtailmentTargetSiteCoverageByEvent :many
+-- Coverage for explicit-device event authorization. target_count is every
+-- persisted target row; mapped_target_count includes only targets that still
+-- resolve to a live device with a site. Any mismatch fails closed in handlers.
+WITH target_sites AS (
+    SELECT d.site_id::BIGINT AS site_id
+    FROM curtailment_event ce
+    JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+    LEFT JOIN device d ON d.org_id = ce.org_id
+        AND d.device_identifier = ct.device_identifier
+        AND d.deleted_at IS NULL
+    WHERE ce.org_id = sqlc.arg('org_id')
+        AND ce.event_uuid = sqlc.arg('event_uuid')
+)
+SELECT
+    COALESCE(site_id, 0)::BIGINT AS site_id,
+    COUNT(*) OVER ()::BIGINT AS target_count,
+    COUNT(site_id) OVER ()::BIGINT AS mapped_target_count
+FROM target_sites
+GROUP BY site_id
+ORDER BY site_id NULLS FIRST;
 
 -- name: BulkInsertCurtailmentTargets :execrows
 -- Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB

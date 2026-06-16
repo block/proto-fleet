@@ -816,16 +816,17 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       return (async () => {
         try {
           const currentActiveDataSnapshot = getActiveCurtailmentSnapshot();
+          const previousReconciliationSnapshot = activeReconciliationSnapshotRef.current;
           const readableFallbackRestoringEvents = await findReadableRestoringEvents(
             getVanishedRestoringEvents(
-              activeReconciliationSnapshotRef.current.events,
+              getActiveEventInputs(previousReconciliationSnapshot.events, previousReconciliationSnapshot.event),
               currentActiveDataSnapshot.events,
             ),
             signal,
           );
           const fallbackActiveSnapshot = getActiveSnapshotForReconciliation(
             currentActiveDataSnapshot,
-            activeReconciliationSnapshotRef.current,
+            previousReconciliationSnapshot,
             snapshotRef.current.historyEvents,
             readableFallbackRestoringEvents.eventIds,
           );

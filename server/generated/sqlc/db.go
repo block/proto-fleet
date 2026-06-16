@@ -699,8 +699,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentResponseProfilesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfilesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfilesByOrg: %w", err)
 	}
-	if q.listCurtailmentTargetSiteIDsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetSiteIDsByEvent); err != nil {
-		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetSiteIDsByEvent: %w", err)
+	if q.listCurtailmentTargetSiteCoverageByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetSiteCoverageByEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetSiteCoverageByEvent: %w", err)
 	}
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
@@ -2324,9 +2324,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentResponseProfilesByOrgStmt: %w", cerr)
 		}
 	}
-	if q.listCurtailmentTargetSiteIDsByEventStmt != nil {
-		if cerr := q.listCurtailmentTargetSiteIDsByEventStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listCurtailmentTargetSiteIDsByEventStmt: %w", cerr)
+	if q.listCurtailmentTargetSiteCoverageByEventStmt != nil {
+		if cerr := q.listCurtailmentTargetSiteCoverageByEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentTargetSiteCoverageByEventStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentTargetsByEventStmt != nil {
@@ -3413,7 +3413,7 @@ type Queries struct {
 	listCurtailmentCandidatesByOrgStmt                    *sql.Stmt
 	listCurtailmentEventsForOrgStmt                       *sql.Stmt
 	listCurtailmentResponseProfilesByOrgStmt              *sql.Stmt
-	listCurtailmentTargetSiteIDsByEventStmt               *sql.Stmt
+	listCurtailmentTargetSiteCoverageByEventStmt          *sql.Stmt
 	listCurtailmentTargetsByEventStmt                     *sql.Stmt
 	listCurtailmentTargetsByEventPageStmt                 *sql.Stmt
 	listCustomRolesForOrgStmt                             *sql.Stmt
@@ -3809,7 +3809,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCurtailmentCandidatesByOrgStmt:                    q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentEventsForOrgStmt:                       q.listCurtailmentEventsForOrgStmt,
 		listCurtailmentResponseProfilesByOrgStmt:              q.listCurtailmentResponseProfilesByOrgStmt,
-		listCurtailmentTargetSiteIDsByEventStmt:               q.listCurtailmentTargetSiteIDsByEventStmt,
+		listCurtailmentTargetSiteCoverageByEventStmt:          q.listCurtailmentTargetSiteCoverageByEventStmt,
 		listCurtailmentTargetsByEventStmt:                     q.listCurtailmentTargetsByEventStmt,
 		listCurtailmentTargetsByEventPageStmt:                 q.listCurtailmentTargetsByEventPageStmt,
 		listCustomRolesForOrgStmt:                             q.listCustomRolesForOrgStmt,

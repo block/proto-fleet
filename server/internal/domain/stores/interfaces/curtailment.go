@@ -183,7 +183,7 @@ type CurtailmentStore interface {
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 	ListTargetsByEventPage(ctx context.Context, params ListTargetsByEventPageParams) ([]*models.Target, string, error)
-	ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, error)
+	ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, bool, error)
 	GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error)
 
 	// InsertEventWithTargets writes the event + every target row in one

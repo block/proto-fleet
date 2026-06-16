@@ -426,20 +426,6 @@ function getSelectedActiveCurtailmentWithCurrentDetail(
   });
 }
 
-function getSelectedActiveCurtailmentWithCurrentTargets(
-  selectedEvent: ProtoCurtailmentEvent,
-): ProtoCurtailmentEvent | undefined {
-  const currentEvent = getActiveCurtailmentSnapshot().event;
-  if (currentEvent?.eventUuid !== selectedEvent.eventUuid) {
-    return undefined;
-  }
-
-  return createMessage(CurtailmentEventSchema, {
-    ...selectedEvent,
-    targets: currentEvent.targets,
-  });
-}
-
 function getSelectedActiveCurtailmentEventToPreserve(
   events: ProtoCurtailmentEvent[],
 ): ProtoCurtailmentEvent | undefined {
@@ -485,12 +471,8 @@ async function requestActiveCurtailmentDetail(
 
     if (!hydrateAllTargetPages) {
       // Polling only needs event-level detail. Drop the partial target page so
-      // target-derived metrics do not look complete, but do not downgrade an
-      // already fully hydrated selected detail snapshot.
-      return detailedEvent
-        ? (getSelectedActiveCurtailmentWithCurrentTargets(detailedEvent) ??
-            createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }))
-        : undefined;
+      // target-derived metrics do not reuse stale samples from older detail.
+      return detailedEvent ? createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }) : undefined;
     }
 
     if (pageCount >= activeCurtailmentDetailMaxTargetPages) {

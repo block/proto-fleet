@@ -1315,40 +1315,53 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 	return items, nil
 }
 
-const listCurtailmentTargetSiteIDsByEvent = `-- name: ListCurtailmentTargetSiteIDsByEvent :many
-SELECT DISTINCT d.site_id::BIGINT
-FROM curtailment_event ce
-JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
-JOIN device d ON d.org_id = ce.org_id
-    AND d.device_identifier = ct.device_identifier
-    AND d.deleted_at IS NULL
-WHERE ce.org_id = $1
-    AND ce.event_uuid = $2
-    AND d.site_id IS NOT NULL
-ORDER BY d.site_id
+const listCurtailmentTargetSiteCoverageByEvent = `-- name: ListCurtailmentTargetSiteCoverageByEvent :many
+WITH target_sites AS (
+    SELECT d.site_id::BIGINT AS site_id
+    FROM curtailment_event ce
+    JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+    LEFT JOIN device d ON d.org_id = ce.org_id
+        AND d.device_identifier = ct.device_identifier
+        AND d.deleted_at IS NULL
+    WHERE ce.org_id = $1
+        AND ce.event_uuid = $2
+)
+SELECT
+    COALESCE(site_id, 0)::BIGINT AS site_id,
+    COUNT(*) OVER ()::BIGINT AS target_count,
+    COUNT(site_id) OVER ()::BIGINT AS mapped_target_count
+FROM target_sites
+GROUP BY site_id
+ORDER BY site_id NULLS FIRST
 `
 
-type ListCurtailmentTargetSiteIDsByEventParams struct {
+type ListCurtailmentTargetSiteCoverageByEventParams struct {
 	OrgID     int64
 	EventUuid uuid.UUID
 }
 
-// Distinct current site contexts for the devices selected by one event.
-// Used only for authorization of explicit-device scopes; whole-org remains
-// org-scoped and site-scoped events use their immutable scope_jsonb site.
-func (q *Queries) ListCurtailmentTargetSiteIDsByEvent(ctx context.Context, arg ListCurtailmentTargetSiteIDsByEventParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.listCurtailmentTargetSiteIDsByEventStmt, listCurtailmentTargetSiteIDsByEvent, arg.OrgID, arg.EventUuid)
+type ListCurtailmentTargetSiteCoverageByEventRow struct {
+	SiteID            int64
+	TargetCount       int64
+	MappedTargetCount int64
+}
+
+// Coverage for explicit-device event authorization. target_count is every
+// persisted target row; mapped_target_count includes only targets that still
+// resolve to a live device with a site. Any mismatch fails closed in handlers.
+func (q *Queries) ListCurtailmentTargetSiteCoverageByEvent(ctx context.Context, arg ListCurtailmentTargetSiteCoverageByEventParams) ([]ListCurtailmentTargetSiteCoverageByEventRow, error) {
+	rows, err := q.query(ctx, q.listCurtailmentTargetSiteCoverageByEventStmt, listCurtailmentTargetSiteCoverageByEvent, arg.OrgID, arg.EventUuid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []ListCurtailmentTargetSiteCoverageByEventRow
 	for rows.Next() {
-		var d_site_id int64
-		if err := rows.Scan(&d_site_id); err != nil {
+		var i ListCurtailmentTargetSiteCoverageByEventRow
+		if err := rows.Scan(&i.SiteID, &i.TargetCount, &i.MappedTargetCount); err != nil {
 			return nil, err
 		}
-		items = append(items, d_site_id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

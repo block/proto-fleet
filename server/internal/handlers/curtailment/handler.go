@@ -26,6 +26,7 @@ const actionSupplyOverrideFields = "supply curtailment override fields"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
 const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
+const listCurtailmentEventsMaxPermissionScanPages = 3
 
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
@@ -379,6 +380,9 @@ func (h *Handler) filterEventsByPermission(
 	for _, event := range events {
 		siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
 		if err != nil {
+			if fleeterror.IsForbiddenError(err) {
+				continue
+			}
 			return nil, err
 		}
 		permitted := true
@@ -407,7 +411,7 @@ func (h *Handler) listPermittedEvents(
 	nextReq := req
 	nextReq.PageSize = pageSize
 
-	for {
+	for scannedPages := 0; scannedPages < listCurtailmentEventsMaxPermissionScanPages; scannedPages++ {
 		nextReq.PageSize = remainingListCurtailmentEventsPageSize(pageSize, len(filtered))
 		events, nextToken, err := h.service.ListEvents(ctx, nextReq)
 		if err != nil {
@@ -423,6 +427,7 @@ func (h *Handler) listPermittedEvents(
 		}
 		nextReq.PageToken = nextToken
 	}
+	return filtered, nextReq.PageToken, nil
 }
 
 func normalizedListCurtailmentEventsPageSize(pageSize int32) int32 {
@@ -492,9 +497,12 @@ func (h *Handler) eventSiteResourceContexts(
 	if event == nil || event.ScopeType == "" || event.ScopeType == models.ScopeTypeWholeOrg {
 		return nil, nil
 	}
-	siteIDs, err := h.service.ListTargetSiteIDsByEvent(ctx, orgID, event.EventUUID)
+	siteIDs, complete, err := h.service.ListTargetSiteIDsByEvent(ctx, orgID, event.EventUUID)
 	if err != nil {
 		return nil, err
+	}
+	if !complete {
+		return nil, fleeterror.NewForbiddenError("curtailment target site context is incomplete")
 	}
 	contexts := make([]authz.ResourceContext, 0, len(siteIDs))
 	for _, siteID := range siteIDs {

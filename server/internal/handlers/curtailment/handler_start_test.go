@@ -130,7 +130,7 @@ func (s *startStubStore) ListTargetsByEventPage(context.Context, interfaces.List
 	panic("ListTargetsByEventPage not exercised by handler Start tests")
 }
 
-func (s *startStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, error) {
+func (s *startStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
 	panic("ListTargetSiteIDsByEvent not exercised by handler Start tests")
 }
 

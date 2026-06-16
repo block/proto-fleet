@@ -132,7 +132,7 @@ func (f *fakeStore) ListTargetsByEventPage(ctx context.Context, params interface
 	return targets, "", err
 }
 
-func (f *fakeStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, error) {
+func (f *fakeStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
 	panic("ListTargetSiteIDsByEvent not exercised by reconciler tests")
 }
 

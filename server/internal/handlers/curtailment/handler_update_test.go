@@ -143,7 +143,7 @@ func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) 
 func (s *updateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by Update handler tests")
 }
-func (s *updateStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, error) {
+func (s *updateStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
 	panic("ListTargetSiteIDsByEvent not exercised by Update handler tests")
 }
 func (s *updateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {

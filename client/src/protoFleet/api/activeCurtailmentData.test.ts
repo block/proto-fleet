@@ -441,7 +441,7 @@ describe("activeCurtailmentData", () => {
     expect(snapshot.events.map((event) => event.eventUuid)).toEqual([remainingSummary.eventUuid]);
   });
 
-  it("keeps fully hydrated selected targets when polling detail is partial", async () => {
+  it("drops stale selected targets when polling detail is partial", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
       reason: "Detail A",
@@ -482,7 +482,7 @@ describe("activeCurtailmentData", () => {
       selected_count: 4,
     });
     expect(snapshot.event?.targetRollup).toEqual(create(CurtailmentTargetRollupSchema, { total: 4, confirmed: 3 }));
-    expect(snapshot.event?.targets.map((target) => target.deviceIdentifier)).toEqual(["miner-1", "miner-2"]);
+    expect(snapshot.event?.targets).toEqual([]);
   });
 
   it("keeps explicit detail hydration usable when target pagination exceeds the safety cap", async () => {
