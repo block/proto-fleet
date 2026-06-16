@@ -4,6 +4,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
+	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -46,7 +47,16 @@ func identifiersFromAssignSelector(sel *commonpb.DeviceSelector) ([]string, erro
 		if v.DeviceList == nil {
 			return nil, fleeterror.NewInvalidArgumentError("device_selector.device_list is required")
 		}
-		return v.DeviceList.GetDeviceIdentifiers(), nil
+		ids := v.DeviceList.GetDeviceIdentifiers()
+		// common.v1.DeviceSelector.device_list has no buf.validate rules
+		// (unlike the deprecated repeated string device_identifiers field
+		// it replaced). Enforce the same min_items/max_items + per-item
+		// length bounds here so empty strings + oversized lists don't
+		// silently flow through to the store layer.
+		if err := deviceresolver.ValidateDeviceIdentifiers(ids); err != nil {
+			return nil, err
+		}
+		return ids, nil
 	case *commonpb.DeviceSelector_AllDevices:
 		return nil, fleeterror.NewInvalidArgumentError("device_selector.all_devices is not supported for AssignDevicesToRack; pass an explicit device_list")
 	default:

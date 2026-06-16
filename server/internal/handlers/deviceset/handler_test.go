@@ -491,6 +491,68 @@ func TestAssignDevicesToRack_RejectsAllDevicesSelector(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
 }
 
+// TestAssignDevicesToRack_RejectsEmptyIdentifier confirms that a
+// device_list containing an empty-string identifier is rejected at the
+// handler boundary. common.v1.DeviceSelector.device_list carries no
+// buf.validate constraints, unlike the deprecated repeated-string field
+// it replaced, so handler-side validation is the only stop before the
+// store layer silently matches no rows.
+func TestAssignDevicesToRack_RejectsEmptyIdentifier(t *testing.T) {
+	h := newTestHandler(t)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: deviceListSelector("d1", ""),
+	}))
+	require.Error(t, err)
+	require.Nil(t, resp)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
+}
+
+// TestAssignDevicesToRack_RejectsOverlongIdentifier confirms a single
+// identifier longer than the documented 256-char cap is rejected.
+// Parallels the buf.validate items.string.max_len on the old field.
+func TestAssignDevicesToRack_RejectsOverlongIdentifier(t *testing.T) {
+	h := newTestHandler(t)
+
+	long := make([]byte, 257)
+	for i := range long {
+		long[i] = 'a'
+	}
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: deviceListSelector(string(long)),
+	}))
+	require.Error(t, err)
+	require.Nil(t, resp)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
+}
+
+// TestAssignDevicesToRack_RejectsOversizedList confirms the
+// max_items: 10000 cap. Without this bound the store-side ANY()
+// expansion can be DoS'd by passing an unbounded list.
+func TestAssignDevicesToRack_RejectsOversizedList(t *testing.T) {
+	h := newTestHandler(t)
+
+	tooMany := make([]string, 10001)
+	for i := range tooMany {
+		tooMany[i] = "d"
+	}
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: deviceListSelector(tooMany...),
+	}))
+	require.Error(t, err)
+	require.Nil(t, resp)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
+}
+
 // TestAddDevicesToGroup_HappyPath asserts that the handler verifies the
 // target is a group, calls the underlying AddDevicesToGroup path, and
 // round-trips the added_count onto the wire response.
