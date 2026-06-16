@@ -36,11 +36,11 @@ describe what the code does, not the decisions made getting there.
    `part N` marker. A foundation PR that targets the default branch but has
    descendants still counts, so do not gate on the base ref alone. Walk the
    chain both ways. Upward: find the parent PR whose head is this PR's base
-   (`gh pr list --head <baseRefName> --state all --json
+   (`gh pr list --head "<baseRefName>" --state all --json
    number,title,url,baseRefName`, adding `-R <owner>/<repo>` on the numbered-PR
    path), repeating on the parent's base until you reach the default branch.
    Downward: find child PRs whose base is this PR's head (`gh pr list --base
-   <headRefName> --state open --json number,title,url,baseRefName`, adding `-R`),
+   "<headRefName>" --state open --json number,title,url,baseRefName`, adding `-R`),
    repeating on each child's head. Record both ancestors and descendants (each
    one's number, title, url) for steps 2 and 3.
 
@@ -53,12 +53,12 @@ describe what the code does, not the decisions made getting there.
      Pull the commit list from
      `gh pr view <number> -R <owner>/<repo> --json commits`. All of these read
      the PR head in its own repo, regardless of what is checked out locally.
-   - **Current-branch path:** fetch the base first (`git fetch origin <base>`)
+   - **Current-branch path:** fetch the base first (`git fetch origin "<base>"`)
      and diff against `origin/<base>`, never the bare local ref, so a parent
      branch that has moved (common in a stack) can't produce a stale diff:
-     `git diff origin/<base>...HEAD` (full diff),
-     `git diff origin/<base>...HEAD --stat`, and
-     `git log origin/<base>..HEAD --oneline`, where `<base>` is the
+     `git diff "origin/<base>...HEAD"` (full diff),
+     `git diff "origin/<base>...HEAD" --stat`, and
+     `git log "origin/<base>..HEAD" --oneline`, where `<base>` is the
      `baseRefName` from step 1 (default `main`).
 
    From the file list, identify which subsystems are touched (`server/`,
@@ -131,3 +131,8 @@ describe what the code does, not the decisions made getting there.
 - Don't narrate the back-and-forth or rejected approaches — describe the final
   state.
 - No filler praise. Be concise; prefer tables and diagrams over long paragraphs.
+- Always quote JSON-derived branch refs (`headRefName`, `baseRefName`) when
+  passing them to a shell command. Branch names may contain shell
+  metacharacters (a branch literally named `feature;rm -rf foo` is valid on
+  GitHub), so an unquoted ref can run unintended commands instead of just
+  querying `gh`/`git`.
