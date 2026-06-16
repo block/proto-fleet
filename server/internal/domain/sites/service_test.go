@@ -7,6 +7,8 @@ import (
 
 	"go.uber.org/mock/gomock"
 
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -591,6 +593,135 @@ func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
 	if len(conflicts) != 0 {
 		t.Fatalf("expected zero conflicts after scoped clear, got %v", conflicts)
 	}
+}
+
+// TestAssignDevicesToSite_forceClearAuditLogsCascade pins the audit
+// trail: when force-clear actually deletes rack memberships, the
+// activity event records the cascade side effect alongside the site
+// move. Pure site reassignments (no force-clear, or force-clear that
+// didn't fire) do not carry the force-clear metadata fields.
+func TestAssignDevicesToSite_forceClearAuditLogsCascade(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	mockActivityStore := mocks.NewMockActivityStore(ctrl)
+	tx := &fakeTransactor{}
+
+	captured := []activitymodels.Event{}
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			captured = append(captured, *event)
+			return nil
+		}).AnyTimes()
+
+	svc := NewService(store, nil, collStore, nil, nil, tx, activity.NewService(mockActivityStore))
+
+	identifiers := []string{"d-clear", "d-already"}
+	target := int64(20)
+	conflictingSite := int64(30)
+
+	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d-clear": conflictingSite,
+	}, nil)
+	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d-clear"}, int64(0)).Return(int64(1), nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+
+	_, _, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
+		OrgID:                               testOrgID,
+		TargetSiteID:                        &target,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(captured) != 1 {
+		t.Fatalf("expected one audit event, got %d", len(captured))
+	}
+	event := captured[0]
+	if event.Type != eventDevicesReassignedToSite {
+		t.Fatalf("unexpected event type %q", event.Type)
+	}
+	got, ok := event.Metadata["force_cleared_rack_membership_count"].(int)
+	if !ok {
+		t.Fatalf("force_cleared_rack_membership_count missing or wrong type: %#v", event.Metadata["force_cleared_rack_membership_count"])
+	}
+	if got != 1 {
+		t.Fatalf("expected force_cleared_rack_membership_count=1, got %d", got)
+	}
+	clearedIdents, ok := event.Metadata["force_cleared_device_identifiers"].([]string)
+	if !ok {
+		t.Fatalf("force_cleared_device_identifiers missing or wrong type: %#v", event.Metadata["force_cleared_device_identifiers"])
+	}
+	if len(clearedIdents) != 1 || clearedIdents[0] != "d-clear" {
+		t.Fatalf("expected [\"d-clear\"], got %v", clearedIdents)
+	}
+	// Description should mention the rack clear so the audit reader sees
+	// the side effect at a glance.
+	if !contains(event.Description, "force-cleared") {
+		t.Fatalf("expected description to mention force-cleared, got %q", event.Description)
+	}
+}
+
+// TestAssignDevicesToSite_noForceClearOmitsCascadeMetadata pins the
+// negative: a plain site reassignment (no force-clear branch fired)
+// must not carry the force-clear metadata fields, since no rack rows
+// were deleted.
+func TestAssignDevicesToSite_noForceClearOmitsCascadeMetadata(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	mockActivityStore := mocks.NewMockActivityStore(ctrl)
+	tx := &fakeTransactor{}
+
+	captured := []activitymodels.Event{}
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			captured = append(captured, *event)
+			return nil
+		}).AnyTimes()
+
+	svc := NewService(store, nil, nil, nil, nil, tx, activity.NewService(mockActivityStore))
+
+	identifiers := []string{"d1"}
+	target := int64(20)
+
+	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
+
+	_, _, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
+		OrgID:             testOrgID,
+		TargetSiteID:      &target,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(captured) != 1 {
+		t.Fatalf("expected one audit event, got %d", len(captured))
+	}
+	if _, present := captured[0].Metadata["force_cleared_rack_membership_count"]; present {
+		t.Fatalf("force_cleared_rack_membership_count should be absent on plain reassign, got %#v", captured[0].Metadata["force_cleared_rack_membership_count"])
+	}
+	if _, present := captured[0].Metadata["force_cleared_device_identifiers"]; present {
+		t.Fatalf("force_cleared_device_identifiers should be absent on plain reassign")
+	}
+}
+
+// contains is a tiny helper that avoids dragging in strings just for
+// audit-message assertions.
+func contains(haystack, needle string) bool {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAssignBuildingsToSite_cascadeOnSuccess(t *testing.T) {
