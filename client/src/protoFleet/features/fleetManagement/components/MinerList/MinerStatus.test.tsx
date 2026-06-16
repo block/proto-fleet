@@ -217,6 +217,18 @@ describe("MinerStatus", () => {
 
       expect(screen.getByText("Needs attention")).toBeInTheDocument();
     });
+
+    it("should use the pending indicator for sleeping miners", async () => {
+      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
+      vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
+
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.INACTIVE });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(screen.getByText("Sleeping")).toBeInTheDocument();
+      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "pending");
+    });
   });
 
   describe("Status after pool assignment", () => {

@@ -71,7 +71,10 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   // Priority: (offline | sleeping) > needs attention > normal
   // Note: isSleeping is already filtered to exclude auth-needed devices
   const circleStatus = useMemo(() => {
-    if (isOffline || isSleeping) {
+    if (isSleeping) {
+      return statuses.pending;
+    }
+    if (isOffline) {
       return statuses.sleeping;
     }
     if (needsAttention) {
