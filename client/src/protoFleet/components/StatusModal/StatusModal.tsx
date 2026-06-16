@@ -9,13 +9,16 @@ import {
   transformFleetErrorsToShared,
 } from "./utils";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
-import { needsPasswordChange } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
+import {
+  needsAuthentication as needsAuthFn,
+  needsPasswordChange,
+  PASSWORD_CHANGE_REQUIRED_LABEL,
+} from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
@@ -139,7 +142,7 @@ const ProtoFleetStatusModal = ({
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
   // Determine status flags from DeviceStatus and PairingStatus
-  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsAuthentication = miner ? needsAuthFn(miner.pairingStatus) : false;
   const needsPwChange = miner ? needsPasswordChange(miner.pairingStatus) : false;
   const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
   // When authentication is needed we can't trust INACTIVE (or MAINTENANCE) status
@@ -165,7 +168,7 @@ const ProtoFleetStatusModal = ({
       needsPwChange
         ? {
             ...computedSummary,
-            title: "Password change required",
+            title: PASSWORD_CHANGE_REQUIRED_LABEL,
             subtitle:
               "This miner is using the default password. Change it from the miner actions menu to finish setup.",
           }
@@ -189,17 +192,11 @@ const ProtoFleetStatusModal = ({
       other: transformErrorsForModal(groupedErrors.other || [], deviceId, onClickHandler),
     };
 
-    // Check if miner is sleeping (offline state in fleet context)
-    // Don't show wake button while authentication is gating telemetry.
-    const isMinersleeping =
-      (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
-      !needsAuthentication;
-
     // Build buttons
     const buttons = [];
 
     // Add wake miner button if miner is sleeping
-    if (isMinersleeping) {
+    if (isSleeping) {
       buttons.push({
         text: "Wake miner",
         variant: variants.secondary,
@@ -221,7 +218,7 @@ const ProtoFleetStatusModal = ({
         title: summary.title,
         subtitle: summary.subtitle,
         errors: errorsBySource,
-        isSleeping: isMinersleeping,
+        isSleeping,
         isOffline,
         needsAuthentication,
         needsMiningPool,
@@ -238,6 +235,7 @@ const ProtoFleetStatusModal = ({
     handleWakeMiner,
     handleClose,
     isOffline,
+    isSleeping,
     needsAuthentication,
     needsMiningPool,
   ]);

@@ -3840,15 +3840,21 @@ func TestReconcileDefaultPasswordState(t *testing.T) {
 	// An undetermined reading (nil) never writes — keeps the current status.
 	service.reconcileDefaultPasswordState(ctx, deviceID, nil)
 
-	// A non-default password on first sight seeds the cache without a write.
+	// First determined reading writes the matching status (so a device whose
+	// password changed while the server was down is corrected on the next poll)...
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
+		Return(nil)
+	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
+	// ...and is not rewritten while unchanged.
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
 
-	// Becoming default-password writes DEFAULT_PASSWORD once...
+	// Becoming default-password writes DEFAULT_PASSWORD once, and an undetermined
+	// read afterward must not demote it.
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
 		Return(nil)
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(true))
-	// ...and is not rewritten while unchanged, nor demoted by an undetermined read.
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(true))
 	service.reconcileDefaultPasswordState(ctx, deviceID, nil)
 

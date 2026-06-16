@@ -1146,9 +1146,10 @@ func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, 
 }
 
 // reconcileDefaultPasswordState syncs pairing status with the rig's
-// default-password flag (PAIRED <-> DEFAULT_PASSWORD), writing only on transitions.
-// A nil activePtr means undetermined (older plugin or failed probe), so the status
-// is left untouched rather than demoting a still-default-password device.
+// default-password flag (PAIRED <-> DEFAULT_PASSWORD), writing only when the flag
+// differs from the last value seen for the device (cached in memory). A nil
+// activePtr means undetermined (older plugin or failed probe), so the status is
+// left untouched rather than demoting a still-default-password device.
 func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, deviceID models.DeviceIdentifier, activePtr *bool) {
 	if activePtr == nil {
 		return
@@ -1158,13 +1159,6 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 	prev, seen := s.lastDefaultPwActive.Load(deviceID)
 	prevActive, _ := prev.(bool)
 	if seen && prevActive == active {
-		return
-	}
-
-	// First sight of a non-default device: seed the cache without a write to avoid
-	// an UPDATE per PAIRED device on startup. Only transitions write.
-	if !seen && !active {
-		s.lastDefaultPwActive.Store(deviceID, false)
 		return
 	}
 

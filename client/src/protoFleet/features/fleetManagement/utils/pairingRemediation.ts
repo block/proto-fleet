@@ -10,3 +10,6 @@ export const needsPasswordChange = (status: PairingStatus): boolean => status ==
 
 export const needsCredentialRemediation = (status: PairingStatus): boolean =>
   needsAuthentication(status) || needsPasswordChange(status);
+
+// Operator-facing remediation label for default-password devices.
+export const PASSWORD_CHANGE_REQUIRED_LABEL = "Password change required";

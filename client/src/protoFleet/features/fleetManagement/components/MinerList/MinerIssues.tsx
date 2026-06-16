@@ -1,10 +1,14 @@
 import { ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
-import { needsPasswordChange } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
+import {
+  needsAuthentication as needsAuthFn,
+  needsPasswordChange,
+  PASSWORD_CHANGE_REQUIRED_LABEL,
+} from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { Alert } from "@/shared/assets/icons";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useMinerIssues } from "@/shared/hooks/useStatusSummary";
@@ -62,7 +66,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const groupedErrors = useMemo(() => groupErrors(errors), [errors]);
 
   // Compute issue flags
-  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsAuthentication = needsAuthFn(miner.pairingStatus);
   const needsPwChange = needsPasswordChange(miner.pairingStatus);
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const isUpdating = deviceStatus === DeviceStatus.UPDATING;
@@ -108,7 +112,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
 
   // Default-password devices are authenticated but gated until the password is
   // changed; surface that distinct remediation instead of a hardware issue.
-  const effectiveSummary = needsPwChange ? "Password change required" : summary;
+  const effectiveSummary = needsPwChange ? PASSWORD_CHANGE_REQUIRED_LABEL : summary;
   const effectiveHasIssues = needsPwChange || hasIssues;
 
   // Show empty state if no issues
