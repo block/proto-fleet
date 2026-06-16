@@ -68,6 +68,9 @@ describe("SitePicker", () => {
     renderPicker({ sites });
 
     const trigger = screen.getByTestId("site-picker-trigger");
+    const label = screen.getByText("All sites");
+    expect(trigger).toHaveClass("max-w-full", "min-w-0");
+    expect(label).toHaveClass("min-w-0", "truncate");
     expect(trigger).toHaveTextContent("All sites");
 
     fireEvent.click(trigger);

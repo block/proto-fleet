@@ -120,16 +120,16 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
     <>
       <button
         type="button"
-        className="hover:bg-surface-base-hover flex items-center gap-1 rounded-md px-2 py-1 text-300 text-text-primary focus-visible:underline"
+        className="hover:bg-surface-base-hover flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-300 text-text-primary focus-visible:underline"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-label="Active site"
         onClick={() => setIsOpen(true)}
         data-testid="site-picker-trigger"
       >
-        <span>{currentLabel}</span>
+        <span className="min-w-0 truncate">{currentLabel}</span>
         {/* Smaller, dimmed chevron matches the prototype's compact trigger affordance. */}
-        <ChevronDown className={clsx(iconSizes.xSmall, "opacity-70")} />
+        <ChevronDown className={clsx(iconSizes.xSmall, "shrink-0 opacity-70")} />
       </button>
       <Modal
         open={isOpen}

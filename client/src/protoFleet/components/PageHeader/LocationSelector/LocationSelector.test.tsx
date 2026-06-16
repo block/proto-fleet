@@ -14,9 +14,9 @@ describe("Location Selector", () => {
   });
 
   test("renders location name", () => {
-    const { queryByText, queryByTestId } = render(<LocationSelector loading={false} location={locationName} />);
+    const { getByText, queryByTestId } = render(<LocationSelector loading={false} location={locationName} />);
 
     expect(queryByTestId(skeletonTestId)).toBeNull();
-    expect(queryByText(locationName)).toBeInTheDocument();
+    expect(getByText(locationName)).toHaveClass("min-w-0", "truncate");
   });
 });

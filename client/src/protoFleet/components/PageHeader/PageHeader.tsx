@@ -181,7 +181,7 @@ function PageHeader({
     <>
       <div className="flex h-12 items-center laptop:h-15">
         <div className="flex grow items-center px-4">
-          <div className="flex grow items-center">
+          <div className="flex min-w-0 flex-1 items-center" data-testid="page-header-location-area">
             {isPhone || isTablet ? (
               <Pause
                 ariaExpanded={isMenuOpen}
