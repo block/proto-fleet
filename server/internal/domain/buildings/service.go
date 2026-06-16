@@ -445,10 +445,25 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		// SQL CASE expressions mirror the per-row UpdateRackPlacement +
 		// service-layer zone rules so the swap/mixed-clear-and-place
 		// cases still behave like the F5 two-pass shape.
-		if err := s.collectionStore.UpdateRackPlacementBulkForBuilding(
+		//
+		// The returned row count must match len(allRackIDs). Phase A's
+		// LockRackPlacementForWrite pre-pass already errors on
+		// missing/cross-org ids, but the count check locks the
+		// contract in case the pre-pass is ever refactored: an UPDATE
+		// that touches fewer rows than requested means one or more
+		// rack ids didn't resolve to a row in this org and we'd
+		// otherwise silently drop them.
+		rowsAffected, err := s.collectionStore.UpdateRackPlacementBulkForBuilding(
 			txCtx, params.OrgID, allRackIDs, targetSiteID, params.TargetBuildingID,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, err
+		}
+		if rowsAffected != int64(len(allRackIDs)) {
+			return nil, fleeterror.NewNotFoundErrorf(
+				"one or more racks not found (expected %d, updated %d)",
+				len(allRackIDs), rowsAffected,
+			)
 		}
 
 		// Phase B2: single bulk cascade for the subset of racks whose

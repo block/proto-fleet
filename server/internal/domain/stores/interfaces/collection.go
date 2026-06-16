@@ -112,8 +112,10 @@ type CollectionStore interface {
 	//     bucket.
 	//   * Grid position clears when building_id changes.
 	// Caller is expected to have locked every rack via
-	// LockRackPlacementForWrite before invoking.
-	UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error
+	// LockRackPlacementForWrite before invoking. Returns the row count
+	// the UPDATE touched so callers can verify every requested rack id
+	// resolved (defense-in-depth against stale or cross-org ids).
+	UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) (int64, error)
 
 	// UpdateRackPlacementBulkForSite stamps every rack in rackIDs with
 	// the target site, clears building_id + zone + grid placement.

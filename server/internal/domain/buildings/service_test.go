@@ -228,7 +228,7 @@ func TestAssignRacksToBuilding_placesRackWithGridCell(t *testing.T) {
 		h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: nil, BuildingID: nil, Zone: ""}, nil),
 		// Phase B1: single bulk placement update.
-		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(nil),
+		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(int64(1), nil),
 		// Phase B2: single bulk cascade — siteChanged (nil -> &siteID).
 		h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &siteID).Return(int64(2), nil),
 		// Phase B3: bulk pass-1 vacate.
@@ -275,7 +275,7 @@ func TestAssignRacksToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 	// No cascade — site unchanged. Bulk placement update + bulk pass-1
 	// vacate fire; pass-2 place is skipped because no positions were
 	// requested.
-	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(int64(1), nil)
 	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
 
 	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
@@ -306,7 +306,7 @@ func TestAssignRacksToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
 		Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(buildingID), Zone: "Z1"}, nil)
 	// Bulk placement update — zone preservation is now decided in SQL
 	// per-row, so the bulk call only carries (target_site, target_building).
-	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(int64(1), nil)
 	// Critical: explicit bulk pass-1 vacate fires.
 	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
 
@@ -336,7 +336,7 @@ func TestAssignRacksToBuilding_unassignPreservesSiteAndSkipsCascade(t *testing.T
 	// CascadeRackDeviceSitesBulk must NOT fire — site is preserved.
 	// Bulk pass-1 vacate is skipped — building_id change inside SQL CASE
 	// nulls aisle/position automatically.
-	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, (*int64)(nil), (*int64)(nil)).Return(nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, (*int64)(nil), (*int64)(nil)).Return(int64(1), nil)
 
 	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
 		OrgID:            testOrgID,
@@ -364,7 +364,7 @@ func TestAssignRacksToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: ptrInt64(priorBuildingID), Zone: "Z1"}, nil)
 	// Bulk placement update — crossingBuildings zone clear runs in SQL.
-	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &newSite, &targetBuildingID).Return(nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &newSite, &targetBuildingID).Return(int64(1), nil)
 	// Bulk cascade fires for site-changed racks.
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &newSite).Return(int64(4), nil)
 	// Bulk pass-1 vacate confirms the new row carries no stale placement.
@@ -551,7 +551,7 @@ func TestAssignRacksToBuilding_swapsPositionsInSingleBatch(t *testing.T) {
 		h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackB, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(buildingID), Zone: ""}, nil),
 		// Phase B1: single bulk placement update across both racks.
-		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackA, rackB}, &siteID, &buildingID).Return(nil),
+		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackA, rackB}, &siteID, &buildingID).Return(int64(2), nil),
 		// Phase B2: no cascade — both racks stay in the same site.
 		// Phase B3: single bulk pass-1 vacate — critical for the swap.
 		h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackA, rackB}).Return(nil),
@@ -600,7 +600,7 @@ func TestAssignRacksToBuilding_mixedClearAndPlaceInSingleBatch(t *testing.T) {
 		h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackPlacer, testOrgID).
 			Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(buildingID), Zone: ""}, nil),
 		// Phase B1: single bulk placement update across both racks.
-		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackClearer, rackPlacer}, &siteID, &buildingID).Return(nil),
+		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackClearer, rackPlacer}, &siteID, &buildingID).Return(int64(2), nil),
 		// Phase B2: no cascade — both stay in the same site.
 		// Phase B3: bulk vacate covers both racks unconditionally
 		// (swap-safe invariant).
@@ -666,7 +666,7 @@ func TestAssignRacksToBuilding_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 			Return(interfaces.RackPlacement{}, nil)
 	}
 	// Phase B writes: exactly four bulk calls, regardless of N.
-	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, wantRackIDs, &siteID, &buildingID).Return(nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, wantRackIDs, &siteID, &buildingID).Return(int64(len(wantRackIDs)), nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, wantRackIDs, &siteID).Return(int64(200), nil)
 	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, wantRackIDs).Return(nil)
 	h.store.EXPECT().SetRackBuildingPositionBulkPlace(inTxCtx, testOrgID, wantRackIDs, wantAisles, wantPositions).Return(nil)

@@ -1528,7 +1528,7 @@ func (q *Queries) UpdateRackPlacement(ctx context.Context, arg UpdateRackPlaceme
 	return err
 }
 
-const updateRackPlacementBulkForBuilding = `-- name: UpdateRackPlacementBulkForBuilding :exec
+const updateRackPlacementBulkForBuilding = `-- name: UpdateRackPlacementBulkForBuilding :execrows
 UPDATE device_set_rack dsr
 SET site_id = CASE
         WHEN $1::bigint IS NULL THEN dsr.site_id
@@ -1584,14 +1584,22 @@ type UpdateRackPlacementBulkForBuildingParams struct {
 //     into the NULLS LAST bucket like the per-row path produced.
 //   - aisle_index / position_in_aisle clear when building_id changes,
 //     matching the single-row CASE.
-func (q *Queries) UpdateRackPlacementBulkForBuilding(ctx context.Context, arg UpdateRackPlacementBulkForBuildingParams) error {
-	_, err := q.exec(ctx, q.updateRackPlacementBulkForBuildingStmt, updateRackPlacementBulkForBuilding,
+//
+// Returns the number of affected rows so the service layer can verify
+// every requested rack id resolved to an actual row (defense-in-depth
+// against cross-org or stale ids slipping past the per-rack lock
+// pre-pass).
+func (q *Queries) UpdateRackPlacementBulkForBuilding(ctx context.Context, arg UpdateRackPlacementBulkForBuildingParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateRackPlacementBulkForBuildingStmt, updateRackPlacementBulkForBuilding,
 		arg.TargetBuildingID,
 		arg.TargetSiteID,
 		pq.Array(arg.RackIds),
 		arg.OrgID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateRackPlacementBulkForSite = `-- name: UpdateRackPlacementBulkForSite :exec

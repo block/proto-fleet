@@ -407,7 +407,7 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 			Return(interfaces.RackPlacement{SiteID: nil}, nil),
 		// Phase B1: single bulk placement write.
 		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(gomock.Any(), int64(7), []int64{99}, &siteID, &buildingID).
-			Return(nil),
+			Return(int64(1), nil),
 		// Phase B2: single bulk cascade for site-changed rack.
 		h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{99}, &siteID).
 			Return(int64(3), nil),

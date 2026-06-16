@@ -133,7 +133,7 @@ WHERE device_set_id = sqlc.arg('device_set_id')
       AND ds.deleted_at IS NULL
   );
 
--- name: UpdateRackPlacementBulkForBuilding :exec
+-- name: UpdateRackPlacementBulkForBuilding :execrows
 -- Bulk variant of UpdateRackPlacement scoped to AssignRacksToBuilding.
 -- Sets site_id, building_id, and zone for every rack in @rack_ids in a
 -- single update.
@@ -152,6 +152,11 @@ WHERE device_set_id = sqlc.arg('device_set_id')
 --     into the NULLS LAST bucket like the per-row path produced.
 --   * aisle_index / position_in_aisle clear when building_id changes,
 --     matching the single-row CASE.
+--
+-- Returns the number of affected rows so the service layer can verify
+-- every requested rack id resolved to an actual row (defense-in-depth
+-- against cross-org or stale ids slipping past the per-rack lock
+-- pre-pass).
 UPDATE device_set_rack dsr
 SET site_id = CASE
         WHEN sqlc.narg('target_building_id')::bigint IS NULL THEN dsr.site_id

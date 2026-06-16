@@ -237,19 +237,20 @@ func (s *SQLCollectionStore) UpdateRackPlacement(ctx context.Context, collection
 	return nil
 }
 
-func (s *SQLCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error {
+func (s *SQLCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) (int64, error) {
 	if len(rackIDs) == 0 {
-		return nil
+		return 0, nil
 	}
-	if err := s.GetQueries(ctx).UpdateRackPlacementBulkForBuilding(ctx, sqlc.UpdateRackPlacementBulkForBuildingParams{
+	rowsAffected, err := s.GetQueries(ctx).UpdateRackPlacementBulkForBuilding(ctx, sqlc.UpdateRackPlacementBulkForBuildingParams{
 		TargetBuildingID: ptrToNullInt64(targetBuildingID),
 		TargetSiteID:     ptrToNullInt64(targetSiteID),
 		RackIds:          rackIDs,
 		OrgID:            orgID,
-	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to bulk-update rack placement: %v", err)
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-update rack placement: %v", err)
 	}
-	return nil
+	return rowsAffected, nil
 }
 
 func (s *SQLCollectionStore) UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error {

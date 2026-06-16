@@ -609,11 +609,12 @@ func (mr *MockCollectionStoreMockRecorder) UpdateRackPlacement(ctx, collectionID
 }
 
 // UpdateRackPlacementBulkForBuilding mocks base method.
-func (m *MockCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) error {
+func (m *MockCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateRackPlacementBulkForBuilding", ctx, orgID, rackIDs, targetSiteID, targetBuildingID)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // UpdateRackPlacementBulkForBuilding indicates an expected call of UpdateRackPlacementBulkForBuilding.
