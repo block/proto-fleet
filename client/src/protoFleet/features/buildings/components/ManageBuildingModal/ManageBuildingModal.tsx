@@ -414,7 +414,10 @@ const ManageBuildingModal = ({
       // removed racks would otherwise hit request validation. Chunk
       // each phase into RPC-sized batches, dispatched sequentially
       // so a mid-chain failure stops the chain (handled by the catch
-      // blocks below).
+      // blocks below). Vacate-before-place is enforced across chunks
+      // by the two-pass dispatch below — the server only orders
+      // clear-then-place within a single RPC, so unassigns and cell-
+      // clears must all complete before any place runs.
       const RACKS_PER_RPC = 1000;
       const dispatch = async (racks: RackPlacementInput[], targetBuildingId?: bigint) => {
         if (racks.length === 0) return;
@@ -431,16 +434,30 @@ const ManageBuildingModal = ({
         }
       };
 
+      // Two-pass shape across chunks: vacate ALL cells before placing
+      // ANY rack at a new cell. The server's clear-then-place ordering
+      // only applies within a single AssignRacksToBuilding tx, so a
+      // >1000-rack save where chunk 2 still owns the cell chunk 1 is
+      // trying to claim would trip uk_device_set_rack_building_position.
+      // Partition the in-building bucket into:
+      //   - vacate entries (no aisle/position) — racks staying in the
+      //     building but clearing their cell.
+      //   - place entries (with aisle/position) — racks landing at a
+      //     specific cell. These can only run after every vacate above
+      //     (plus the unassign bucket) has committed.
+      const inBuildingVacate = inBuilding.filter((r) => r.aisleIndex === undefined || r.positionInAisle === undefined);
+      const inBuildingPlace = inBuilding.filter((r) => r.aisleIndex !== undefined && r.positionInAisle !== undefined);
+
       try {
-        // Serialize: unassign (vacate) before in-building (claim).
-        // Each AssignRacksToBuilding call has internal clear-before-
-        // place ordering inside its tx, but that doesn't protect
-        // across two separate calls. If rack A is being removed and
-        // rack B is being placed at A's former cell, the in-building
-        // call can hit the partial unique index before the unassign
-        // commits. dispatch short-circuits when the list is empty.
+        // Pass 1: all vacates (unassign bucket + in-building cell-
+        // clears). dispatch short-circuits when the list is empty.
         await dispatch(unassign, undefined);
-        await dispatch(inBuilding, building.id);
+        await dispatch(inBuildingVacate, building.id);
+
+        // Pass 2: all places. By now every cell that will be reused
+        // has been vacated, so no two writes collide on the partial
+        // unique index — even across >1000-rack chunked saves.
+        await dispatch(inBuildingPlace, building.id);
       } catch (err) {
         setErrorMsg(
           err instanceof Error ? `Failed to save rack positions: ${err.message}.` : "Failed to save rack positions.",
