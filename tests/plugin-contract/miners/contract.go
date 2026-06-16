@@ -241,6 +241,12 @@ func AssertMaintenance(t *testing.T, device sdk.Device, caps sdk.Capabilities) {
 	}
 
 	if caps["update_miner_password"] {
+		t.Run("update_miner_password_rejects_wrong_current_password", func(t *testing.T) {
+			err := device.UpdateMinerPassword(TestCtx(t), "wrong-password", "new-admin")
+
+			assert.Error(t, err)
+		})
+
 		t.Run("update_miner_password_succeeds", func(t *testing.T) {
 			err := device.UpdateMinerPassword(TestCtx(t), "admin", "new-admin")
 

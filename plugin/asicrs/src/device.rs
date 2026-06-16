@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,6 +10,7 @@ use asic_rs_core::data::firmware::FirmwareImage;
 use asic_rs_core::data::miner::{MinerData, MiningMode, TuningTarget};
 use asic_rs_core::data::pool::PoolURL;
 use asic_rs_core::traits::miner::{ExposeSecret, Miner, MinerAuth};
+use chrono::{DateTime, Utc};
 use digest_auth::{AuthContext, HttpMethod};
 use futures::FutureExt;
 use proto_fleet_plugin::capabilities::*;
@@ -34,6 +36,12 @@ const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(15);
 const OP_TIMEOUT: Duration = Duration::from_secs(20);
 /// Timeout for firmware upload/apply operations. Matches the legacy Go plugin.
 const FIRMWARE_UPDATE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// Match the server-side firmware upload limit.
+const MAX_FIRMWARE_FILE_SIZE_BYTES: u64 = 500 * 1024 * 1024;
+/// Keep plugin log responses below common gRPC message-size limits.
+const MAX_LOG_RESPONSE_BYTES: usize = 512 * 1024;
+/// Bound retained continuation batches so a sequence of log downloads cannot grow forever.
+const MAX_LOG_BATCHES: usize = 16;
 /// Timeout for write validation probe.
 const WRITE_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Shorter timeout for the MiningMode attempt in set_power_target. asic-rs internally
@@ -64,6 +72,7 @@ pub struct AsicRsDevice {
     last_connect_attempt: Mutex<Option<Instant>>,
     factory: Arc<MinerFactory>,
     auth: Mutex<Option<MinerAuth>>,
+    log_batches: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -115,6 +124,7 @@ impl AsicRsDevice {
             last_connect_attempt: Mutex::new(None),
             factory,
             auth: Mutex::new(auth),
+            log_batches: Mutex::new(HashMap::new()),
         }
     }
 
@@ -790,45 +800,92 @@ impl AsicRsDevice {
         Ok(())
     }
 
-    pub async fn download_logs(&self) -> anyhow::Result<String> {
+    pub async fn download_logs(
+        &self,
+        since: Option<prost_types::Timestamp>,
+        batch_log_uuid: &str,
+    ) -> anyhow::Result<(String, bool)> {
+        if !batch_log_uuid.is_empty() {
+            let mut batches = self.log_batches.lock().await;
+            if let Some(remaining) = batches.remove(batch_log_uuid) {
+                let (chunk, next) = take_log_chunk(remaining);
+                if let Some(next) = next {
+                    batches.insert(batch_log_uuid.to_string(), next);
+                    return Ok((chunk, true));
+                }
+                return Ok((chunk, false));
+            }
+        }
+
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_LOGS_DOWNLOAD).await?;
         let miner = guard.as_ref().unwrap();
 
         let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.read_logs())).await?;
-        result
+        let logs = result
             .map_err(|_| anyhow::anyhow!("download_logs timed out"))?
-            .map_err(|e| anyhow::anyhow!("download_logs failed: {e}"))
+            .map_err(|e| anyhow::anyhow!("download_logs failed: {e}"))?;
+        let logs = filter_logs_since(logs, since)?;
+        let (chunk, next) = take_log_chunk(logs);
+
+        if let Some(next) = next {
+            if batch_log_uuid.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "batch_log_uuid is required when logs exceed {MAX_LOG_RESPONSE_BYTES} bytes"
+                ));
+            }
+            let mut batches = self.log_batches.lock().await;
+            if batches.len() >= MAX_LOG_BATCHES {
+                batches.clear();
+            }
+            batches.insert(batch_log_uuid.to_string(), next);
+            Ok((chunk, true))
+        } else {
+            Ok((chunk, false))
+        }
     }
 
-    pub async fn update_miner_password(&self, new_password: &str) -> anyhow::Result<()> {
+    pub async fn update_miner_password(
+        &self,
+        current_password: &str,
+        new_password: &str,
+    ) -> anyhow::Result<()> {
         let mut guard = self.connected_miner().await?;
         self.require_cap(CAP_UPDATE_MINER_PASSWORD).await?;
         let miner = guard.as_mut().unwrap();
+
+        let original_auth =
+            self.auth.lock().await.clone().ok_or_else(|| {
+                anyhow::anyhow!("stored credentials are required to update password")
+            })?;
+        let current_auth = MinerAuth::new(original_auth.username.clone(), current_password);
+        miner.set_auth(current_auth);
 
         let result = catch_panic(tokio::time::timeout(
             OP_TIMEOUT,
             miner.change_password(new_password),
         ))
         .await?;
-        let ok = result
+        let ok = match result
             .map_err(|_| anyhow::anyhow!("update_miner_password timed out"))?
-            .map_err(|e| anyhow::anyhow!("update_miner_password failed: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("update_miner_password failed: {e}"))
+        {
+            Ok(ok) => ok,
+            Err(err) => {
+                miner.set_auth(original_auth);
+                return Err(err);
+            }
+        };
         if !ok {
+            miner.set_auth(original_auth);
             return Err(anyhow::anyhow!(
                 "update_miner_password command returned false"
             ));
         }
 
-        let new_auth = {
-            let auth = self.auth.lock().await;
-            auth.as_ref()
-                .map(|auth| MinerAuth::new(auth.username.clone(), new_password))
-        };
-        if let Some(auth) = new_auth {
-            miner.set_auth(auth.clone());
-            *self.auth.lock().await = Some(auth);
-        }
+        let new_auth = MinerAuth::new(original_auth.username, new_password);
+        miner.set_auth(new_auth.clone());
+        *self.auth.lock().await = Some(new_auth);
 
         drop(guard);
         self.invalidate_cache().await;
@@ -838,6 +895,26 @@ impl AsicRsDevice {
     pub async fn update_firmware(&self, firmware: pb::FirmwareFileInfo) -> anyhow::Result<()> {
         if firmware.file_path.is_empty() {
             return Err(anyhow::anyhow!("firmware file path is required"));
+        }
+        if firmware.file_size < 0 {
+            return Err(anyhow::anyhow!("firmware file size must not be negative"));
+        }
+        if firmware.file_size as u64 > MAX_FIRMWARE_FILE_SIZE_BYTES {
+            return Err(anyhow::anyhow!(
+                "firmware file size {} exceeds maximum {}",
+                firmware.file_size,
+                MAX_FIRMWARE_FILE_SIZE_BYTES
+            ));
+        }
+        let metadata = tokio::fs::metadata(&firmware.file_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to stat firmware file: {e}"))?;
+        if metadata.len() > MAX_FIRMWARE_FILE_SIZE_BYTES {
+            return Err(anyhow::anyhow!(
+                "firmware file size {} exceeds maximum {}",
+                metadata.len(),
+                MAX_FIRMWARE_FILE_SIZE_BYTES
+            ));
         }
 
         self.ensure_connected().await?;
@@ -849,7 +926,15 @@ impl AsicRsDevice {
         if !firmware.original_filename.is_empty() {
             image.filename = firmware.original_filename;
         }
-        let fallback_image = image.clone();
+
+        if self.is_stock_antminer_device() {
+            let ok = self.update_stock_antminer_firmware(image).await?;
+            if !ok {
+                return Err(anyhow::anyhow!("update_firmware command returned false"));
+            }
+            self.invalidate_connection().await;
+            return Ok(());
+        }
 
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_MANUAL_UPLOAD).await?;
@@ -862,18 +947,6 @@ impl AsicRsDevice {
         let ok = match result {
             Err(_) => return Err(anyhow::anyhow!("update_firmware timed out")),
             Ok(Ok(ok)) => ok,
-            Ok(Err(e)) if self.is_stock_antminer_device() => {
-                tracing::warn!(
-                    device_id = %self.id,
-                    error = %e,
-                    "ASIC-RS stock Antminer firmware upload failed; using one-shot digest upload fallback"
-                );
-                self.update_stock_antminer_firmware(fallback_image)
-                    .await
-                    .map_err(|fallback| {
-                        anyhow::anyhow!("update_firmware failed: {e}; fallback failed: {fallback}")
-                    })?
-            }
             Ok(Err(e)) => return Err(anyhow::anyhow!("update_firmware failed: {e}")),
         };
         if !ok {
@@ -1334,6 +1407,70 @@ fn classify_error(msg: &str) -> (pb::MinerError, pb::Severity, pb::ComponentType
     (miner_error, severity, component_type)
 }
 
+fn take_log_chunk(mut logs: String) -> (String, Option<String>) {
+    if logs.len() <= MAX_LOG_RESPONSE_BYTES {
+        return (logs, None);
+    }
+
+    let mut split_at = MAX_LOG_RESPONSE_BYTES;
+    while split_at > 0 && !logs.is_char_boundary(split_at) {
+        split_at -= 1;
+    }
+    if split_at == 0 {
+        split_at = logs
+            .char_indices()
+            .nth(1)
+            .map(|(idx, _)| idx)
+            .unwrap_or(logs.len());
+    }
+
+    let remaining = logs.split_off(split_at);
+    (logs, Some(remaining))
+}
+
+fn filter_logs_since(
+    logs: String,
+    since: Option<prost_types::Timestamp>,
+) -> anyhow::Result<String> {
+    let Some(since) = since else {
+        return Ok(logs);
+    };
+    if since.nanos < 0 || since.nanos >= 1_000_000_000 {
+        return Err(anyhow::anyhow!("invalid since timestamp nanos"));
+    }
+    let Some(since) = DateTime::<Utc>::from_timestamp(since.seconds, since.nanos as u32) else {
+        return Err(anyhow::anyhow!("invalid since timestamp"));
+    };
+    let since_prefix = since.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    Ok(logs
+        .lines()
+        .filter(|line| {
+            let Some(prefix) = line.get(..19) else {
+                return true;
+            };
+            !is_log_timestamp_prefix(prefix) || prefix >= since_prefix.as_str()
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+fn is_log_timestamp_prefix(prefix: &str) -> bool {
+    let bytes = prefix.as_bytes();
+    bytes.len() == 19
+        && bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+        && bytes[10] == b' '
+        && bytes[11..13].iter().all(u8::is_ascii_digit)
+        && bytes[13] == b':'
+        && bytes[14..16].iter().all(u8::is_ascii_digit)
+        && bytes[16] == b':'
+        && bytes[17..19].iter().all(u8::is_ascii_digit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1395,7 +1532,6 @@ mod tests {
                 firmware: String::new(),
                 algo: asic_rs_core::data::device::HashAlgorithm::SHA256,
                 hardware: asic_rs_core::data::device::MinerHardware {
-                    chips: None,
                     fans: None,
                     boards: None,
                 },
@@ -1421,6 +1557,7 @@ mod tests {
             pools: vec![],
             messages: vec![],
             tuning_target: None,
+            scaled_tuning_target: None,
             fluid_temperature: None,
             light_flashing: None,
             total_chips: None,
@@ -1650,5 +1787,40 @@ mod tests {
 
         // Assert
         assert!(matches!(strategy, WriteAccessProbeStrategy::None));
+    }
+
+    #[test]
+    fn test_filter_logs_since_keeps_lines_at_or_after_timestamp() {
+        let logs = [
+            "2026-03-12 09:59:59 old",
+            "line without timestamp",
+            "2026-03-12 10:00:00 keep",
+            "2026-03-12 10:00:01 newer",
+        ]
+        .join("\n");
+
+        let filtered = filter_logs_since(
+            logs,
+            Some(prost_types::Timestamp {
+                seconds: 1_773_309_600,
+                nanos: 0,
+            }),
+        )
+        .unwrap();
+
+        assert!(!filtered.contains("old"));
+        assert!(filtered.contains("line without timestamp"));
+        assert!(filtered.contains("keep"));
+        assert!(filtered.contains("newer"));
+    }
+
+    #[test]
+    fn test_take_log_chunk_splits_on_utf8_boundary() {
+        let logs = format!("{}é{}", "a".repeat(MAX_LOG_RESPONSE_BYTES - 1), "b");
+
+        let (chunk, remaining) = take_log_chunk(logs);
+
+        assert!(chunk.len() <= MAX_LOG_RESPONSE_BYTES);
+        assert_eq!(remaining.unwrap(), "éb");
     }
 }

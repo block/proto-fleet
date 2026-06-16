@@ -853,10 +853,13 @@ impl Driver for DriverService {
             .map(|r| &r.device_id)
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
         let device = self.get_device(device_id).await?;
-        let log_data = device.download_logs().await.map_err(device_err_to_status)?;
+        let (log_data, more_data) = device
+            .download_logs(req.since, &req.batch_log_uuid)
+            .await
+            .map_err(device_err_to_status)?;
         Ok(Response::new(pb::DownloadLogsResponse {
             log_data,
-            more_data: false,
+            more_data,
         }))
     }
 
@@ -908,9 +911,14 @@ impl Driver for DriverService {
         if req.new_password.is_empty() {
             return Err(Status::invalid_argument("new_password must not be empty"));
         }
+        if req.current_password.is_empty() {
+            return Err(Status::invalid_argument(
+                "current_password must not be empty",
+            ));
+        }
         let device = self.get_device(device_id).await?;
         device
-            .update_miner_password(&req.new_password)
+            .update_miner_password(&req.current_password, &req.new_password)
             .await
             .map_err(device_err_to_status)?;
         Ok(Response::new(()))

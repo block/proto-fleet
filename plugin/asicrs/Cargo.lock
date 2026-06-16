@@ -486,6 +486,7 @@ dependencies = [
  "anyhow",
  "asic-rs",
  "asic-rs-core",
+ "chrono",
  "digest_auth",
  "futures",
  "measurements",

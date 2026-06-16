@@ -70,7 +70,7 @@ build-virtual-plugin: (rebuild-plugin "virtual")
 # --- Tests ---
 
 # run plugin contract tests (each test suite in its own container for port isolation)
-test-contract: _asicrs-build-docker
+test-contract: _asicrs-build-contract
   #!/usr/bin/env bash
   set -euo pipefail
   GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
@@ -388,6 +388,29 @@ _asicrs-build outdir="server/plugins":
       --output type=local,dest={{outdir}} \
       .
   fi
+  chmod +x "$BIN"
+  # buildx --output type=local preserves the in-image mtime; touch so freshness checks see "now".
+  touch "$BIN"
+  echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
+
+_asicrs-build-contract:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  BIN=server/plugins/asicrs-plugin
+  PLATFORM_MARKER=server/plugins/.asicrs-platform
+  WANT_PLATFORM="contract-docker-default"
+  if [ -f "$BIN" ] \
+     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
+     && [ -z "$(find plugin/asicrs sdk/rust server/sdk/v1/pb -newer "$BIN" -type f 2>/dev/null | head -1)" ]; then
+    echo "asicrs plugin up to date for contract tests, skipping build."
+    exit 0
+  fi
+  echo "Building asicrs plugin for contract tests using Docker's default platform..."
+  mkdir -p server/plugins
+  docker buildx build \
+    --file plugin/asicrs/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
   chmod +x "$BIN"
   # buildx --output type=local preserves the in-image mtime; touch so freshness checks see "now".
   touch "$BIN"

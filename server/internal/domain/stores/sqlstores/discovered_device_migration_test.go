@@ -1,10 +1,12 @@
 package sqlstores_test
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,13 +51,8 @@ func TestMigration000087_MigratesPairedAntminerDiscoveredDevicesToAsicrs(t *test
 	`, orgID)
 	require.NoError(t, err)
 
-	_, err = db.ExecContext(ctx, `
-		UPDATE discovered_device
-		SET driver_name = 'asicrs',
-			port = CASE WHEN port = '4028' THEN '80' ELSE port END
-		WHERE driver_name = 'antminer'
-			AND deleted_at IS NULL
-	`)
+	upSQL := readMigration(t, "000087_migrate_antminer_to_asicrs.up.sql")
+	_, err = db.ExecContext(ctx, upSQL)
 	require.NoError(t, err)
 
 	rows, err := db.QueryContext(ctx, `
@@ -96,17 +93,8 @@ func TestMigration000087_MigratesPairedAntminerDiscoveredDevicesToAsicrs(t *test
 	`, orgID).Scan(&pairedDriverName))
 	require.Equal(t, "asicrs", pairedDriverName)
 
-	_, err = db.ExecContext(ctx, `
-		UPDATE discovered_device
-		SET driver_name = 'antminer',
-			port = CASE WHEN port = '80' THEN '4028' ELSE port END
-		WHERE driver_name = 'asicrs'
-			AND deleted_at IS NULL
-			AND (
-				LOWER(COALESCE(manufacturer, '')) = 'bitmain'
-				OR LOWER(COALESCE(model, '')) LIKE 'antminer%'
-			)
-	`)
+	downSQL := readMigration(t, "000087_migrate_antminer_to_asicrs.down.sql")
+	_, err = db.ExecContext(ctx, downSQL)
 	require.NoError(t, err)
 
 	var downDriverName, downPort string
@@ -125,4 +113,12 @@ func TestMigration000087_MigratesPairedAntminerDiscoveredDevicesToAsicrs(t *test
 	`, orgID).Scan(&downDriverName, &downPort))
 	require.Equal(t, "proto", downDriverName)
 	require.Equal(t, "50051", downPort)
+}
+
+func readMigration(t *testing.T, name string) string {
+	t.Helper()
+
+	contents, err := fs.ReadFile(migrations.Migrations, name)
+	require.NoError(t, err)
+	return string(contents)
 }

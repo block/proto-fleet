@@ -41,6 +41,7 @@ type Server struct {
 	webOverrides    map[string][]byte
 	behaviors       map[string]mockapi.ConnBehavior
 	defaultBehavior mockapi.ConnBehavior
+	webPassword     string
 }
 
 // NewServer starts a mock Antminer server with RPC on 127.0.0.1:4028 and HTTP on port 80.
@@ -77,6 +78,7 @@ func NewServer(t testing.TB, dataDir string) *Server {
 		rpcOverrides: make(map[string][]byte),
 		webOverrides: make(map[string][]byte),
 		behaviors:    make(map[string]mockapi.ConnBehavior),
+		webPassword:  "admin",
 	}
 
 	// Start RPC server
@@ -268,8 +270,34 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordHTTPCommand(endpoint)
+	if endpoint == "passwd" {
+		s.handlePasswordChange(w, r)
+		return
+	}
 
 	s.writeHTTPFixture(w, endpoint)
+}
+
+func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		CurrentPassword string `json:"curPwd"`
+		NewPassword     string `json:"newPwd"`
+		ConfirmPassword string `json:"confirmPwd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, `{"stats":"error","msg":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if payload.CurrentPassword != s.webPassword || payload.NewPassword != payload.ConfirmPassword {
+		w.Write([]byte(`{"stats":"error","msg":"invalid password"}`))
+		return
+	}
+	s.webPassword = payload.NewPassword
+	w.Write(s.webResponses["passwd"])
 }
 
 func (s *Server) recordHTTPCommand(endpoint string) {
