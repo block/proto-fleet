@@ -408,7 +408,7 @@ func (h *Handler) listPermittedEvents(
 	nextReq.PageSize = pageSize
 
 	for {
-		nextReq.PageSize = int32(int(pageSize) - len(filtered))
+		nextReq.PageSize = remainingListCurtailmentEventsPageSize(pageSize, len(filtered))
 		events, nextToken, err := h.service.ListEvents(ctx, nextReq)
 		if err != nil {
 			return nil, "", err
@@ -433,6 +433,17 @@ func normalizedListCurtailmentEventsPageSize(pageSize int32) int32 {
 		return listCurtailmentEventsMaxPageSize
 	}
 	return pageSize
+}
+
+func remainingListCurtailmentEventsPageSize(pageSize int32, filteredCount int) int32 {
+	remaining := int(pageSize) - filteredCount
+	if remaining <= 0 {
+		return 0
+	}
+	if remaining > int(listCurtailmentEventsMaxPageSize) {
+		return listCurtailmentEventsMaxPageSize
+	}
+	return int32(remaining) // #nosec G115 -- page size is clamped to <= 200 above.
 }
 
 func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {
@@ -487,7 +498,6 @@ func (h *Handler) eventSiteResourceContexts(
 	}
 	contexts := make([]authz.ResourceContext, 0, len(siteIDs))
 	for _, siteID := range siteIDs {
-		siteID := siteID
 		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
 	}
 	return contexts, nil
