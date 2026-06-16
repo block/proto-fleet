@@ -112,7 +112,6 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		// Security capabilities
 		sdk.CapabilityUpdateMinerPassword: true, // We can update miner web UI password
 
-		// Logs
 		sdk.CapabilityLogLevels: true, // Device logs include a per-line log-level field
 
 		// Telemetry capabilities
@@ -347,9 +346,8 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
 	}
 
-	// Record the default-password state at pairing time so the server can mark the
-	// device for password-change remediation immediately instead of waiting for the
-	// first telemetry poll. Leave it unset on a probe failure (undetermined).
+	// Record default-password state at pair time so the server can flag remediation
+	// without waiting for the first poll; leave unset on a probe failure.
 	if active, err := client.IsDefaultPasswordActive(ctx); err != nil {
 		slog.Debug("failed to read default-password status during pairing",
 			"serial", deviceInfo.SerialNumber, "error", err)
@@ -401,13 +399,9 @@ func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.Use
 	return defaultCredentials
 }
 
-// credentialsFromSecret extracts username/password credentials from a secret
-// bundle. A truly empty bundle (nil kind) falls back to factory defaults so
-// devices paired before the credentials switch — which have no stored
-// credentials — can still be reconstructed and reconnected. An explicit
-// UsernamePassword with an empty password is rejected rather than silently
-// upgraded to the default, so callers can't establish a device with unusable
-// credentials.
+// credentialsFromSecret extracts the credentials from a secret bundle. A nil
+// bundle (devices paired before the credentials switch stored none) falls back to
+// factory defaults; an explicit empty password is rejected rather than upgraded.
 func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
 	switch kind := secret.Kind.(type) {
 	case nil:

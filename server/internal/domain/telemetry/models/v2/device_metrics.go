@@ -21,9 +21,8 @@ type DeviceMetrics struct {
 	Health       HealthStatus `json:"health"`
 	HealthReason *string      `json:"health_reason,omitempty"` // Human-readable reason for health status
 
-	// DefaultPasswordActive is set only when the plugin determined the
-	// default-password state: non-nil true means the device still uses its
-	// factory default password; nil means undetermined (e.g. status probe failed).
+	// DefaultPasswordActive is non-nil only when determined: true = still on the
+	// factory password; nil = undetermined.
 	DefaultPasswordActive *bool `json:"default_password_active,omitempty"`
 
 	// Device-level metrics (aggregated from components)

@@ -283,10 +283,8 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	d.refreshFirmwareVersion(ctx, &metrics)
 
-	// Surface the default-password state so the server can flag remediation
-	// without gating telemetry. Leave the field unset (nil) on a read failure so
-	// the server treats it as "undetermined" and keeps the current pairing state
-	// rather than demoting a still-default-password device.
+	// Leave unset (nil) on a read failure so the server treats it as undetermined
+	// and doesn't demote a still-default-password device.
 	if defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx); err != nil {
 		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
 	} else {

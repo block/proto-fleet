@@ -578,11 +578,8 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			break
 		}
 
-		// Persist the new password so reconnects authenticate with it. All
-		// credential-auth drivers (now including Proto) store a password in the DB.
 		// Surface a persistence failure as a command error: the on-device password
-		// has already changed, so a silent success would leave Fleet with stale
-		// credentials that fail once the cached handle is evicted.
+		// already changed, so a silent success would leave Fleet with stale credentials.
 		if dbErr := es.persistMinerPassword(ctx, message.DeviceID, minerInfo.GetDriverName(), p.NewPassword); dbErr != nil {
 			slog.Error("device password updated but database sync failed",
 				"device_id", message.DeviceID, "error", dbErr)
@@ -592,8 +589,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			break
 		}
 
-		// A successful change clears the DEFAULT_PASSWORD remediation state; the
-		// IS DISTINCT FROM guard makes this a no-op for already-PAIRED devices.
+		// Clear the DEFAULT_PASSWORD remediation state (no-op for already-PAIRED rows).
 		if resetErr := es.deviceStore.UpdateDevicePairingStatusByIdentifier(
 			ctx, string(minerInfo.GetID()), string(sqlc.PairingStatusEnumPAIRED)); resetErr != nil {
 			slog.Error("password updated but pairing-status reset failed",
@@ -1158,18 +1154,15 @@ func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, mine
 	return nil
 }
 
-// protoDefaultUsername is the nominal username stored for Proto credentials.
-// Proto rigs authenticate by password only, so the username is cosmetic. It is
-// used when a credentials row must be created for a Proto device that has none
-// (devices paired under the legacy key-based scheme stored no credentials).
+// protoDefaultUsername is the nominal username stored for Proto credentials; Proto
+// authenticates by password only, so it's cosmetic and used only when inserting a
+// row for a Proto device that has none (legacy key-based pairings stored none).
 const protoDefaultUsername = "admin"
 
-// errMinerCredentialsMissing indicates no credentials row exists for the device.
 var errMinerCredentialsMissing = errors.New("no miner credentials row for device")
 
-// persistMinerPassword stores the new password so reconnects authenticate with
-// it. It updates the existing credentials row; for Proto devices that have none
-// (paired under the legacy key-based scheme) it inserts one instead.
+// persistMinerPassword updates the device's stored password, inserting a row for
+// legacy Proto devices that have none.
 func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID int64, driverName, password string) error {
 	err := es.updateMinerPasswordInDB(ctx, deviceID, password)
 	if errors.Is(err, errMinerCredentialsMissing) && driverName == models.DriverNameProto {
@@ -1178,8 +1171,6 @@ func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID i
 	return err
 }
 
-// insertProtoCredentials creates a credentials row for a Proto device using the
-// nominal default username and the supplied password.
 func (es *ExecutionService) insertProtoCredentials(ctx context.Context, deviceID int64, password string) error {
 	usernameEnc, err := es.encryptService.Encrypt([]byte(protoDefaultUsername))
 	if err != nil {

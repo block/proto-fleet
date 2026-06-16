@@ -207,17 +207,15 @@ func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
 	return headers
 }
 
-// needsCredentialRemediation reports whether the device needs operator action
-// (supply credentials or change the default password) and should surface as
-// "needs attention" in the status column.
+// needsCredentialRemediation reports whether the device needs operator action and
+// should surface as "needs attention".
 func needsCredentialRemediation(status pb.PairingStatus) bool {
 	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED ||
 		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
 }
 
-// telemetryGatedByAuth reports whether the device's telemetry is unavailable
-// because authentication is required. DEFAULT_PASSWORD devices still report
-// telemetry, so their metric values are exported normally.
+// telemetryGatedByAuth reports whether telemetry is unavailable pending auth.
+// DEFAULT_PASSWORD devices still report telemetry, so their values are exported.
 func telemetryGatedByAuth(status pb.PairingStatus) bool {
 	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
 }

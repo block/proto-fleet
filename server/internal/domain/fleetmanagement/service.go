@@ -710,8 +710,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
 		}
 
-		// DEFAULT_PASSWORD devices are paired and report telemetry; treat them like
-		// PAIRED for snapshot metadata and device status rather than forcing INACTIVE.
 		isPaired := isPairedLikeStatus(row.PairingStatus)
 
 		snapshot.Name = ComposeDeviceName(row.CustomName.String, snapshot.Manufacturer, snapshot.Model)
@@ -753,15 +751,12 @@ const (
 	joulesPerHashToJoulesPerTeraHashMultiplier = 1e12
 )
 
-// isPairedLikeStatus reports whether a stored pairing_status string represents a
-// device that is paired and reporting telemetry. DEFAULT_PASSWORD devices are
-// paired but still using the factory password; their telemetry is trusted, so
-// they are treated like PAIRED for snapshot metadata and enrichment.
+// isPairedLikeStatus reports whether a pairing_status is paired and reporting
+// telemetry. DEFAULT_PASSWORD is treated like PAIRED (its telemetry is trusted).
 func isPairedLikeStatus(status string) bool {
 	return status == "PAIRED" || status == "DEFAULT_PASSWORD"
 }
 
-// isPairedLikePairingStatus is the protobuf-enum equivalent of isPairedLikeStatus.
 func isPairedLikePairingStatus(status pb.PairingStatus) bool {
 	return status == pb.PairingStatus_PAIRING_STATUS_PAIRED ||
 		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD

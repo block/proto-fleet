@@ -263,15 +263,12 @@ func (p *Pairer) handlePairViaStore(
 			return err
 		}
 
-		// A device that paired while still on its factory password is recorded in
-		// the DEFAULT_PASSWORD remediation state immediately (rather than PAIRED),
-		// so the UI surfaces "change password" without waiting for the first poll.
+		// Record a factory-password device as DEFAULT_PASSWORD immediately (not
+		// PAIRED/ACTIVE) so the UI surfaces remediation without waiting for the poll.
 		pairingStatus := pairing.StatusPaired
 		initialStatus := models.MinerStatusActive
 		if discoveredDevice.DefaultPasswordActive != nil && *discoveredDevice.DefaultPasswordActive {
 			pairingStatus = pairing.StatusDefaultPassword
-			// Don't claim ACTIVE for a gated device; leave status unknown until the
-			// first telemetry poll reports real health.
 			initialStatus = models.MinerStatusUnknown
 		}
 
@@ -279,8 +276,6 @@ func (p *Pairer) handlePairViaStore(
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 
-		// Set initial device status since the miner was reachable during pairing.
-		// This ensures the dashboard shows correct status immediately after pairing.
 		if err := p.deviceStore.UpsertDeviceStatus(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), initialStatus, ""); err != nil {
 			return fleeterror.NewInternalErrorf("failed to set initial device status: %v", err)
 		}

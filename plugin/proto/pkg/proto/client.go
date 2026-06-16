@@ -56,17 +56,14 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 
-	// authMu guards credentials and accessToken. The client logs in lazily with
-	// the configured password and caches the returned access token, re-logging in
-	// when the rig rejects the token (401).
+	// authMu guards credentials and accessToken.
 	authMu      sync.Mutex
 	credentials sdk.UsernamePassword
 	accessToken string
 }
 
-// errInvalidCredentials is returned by loginWithPassword when the rig rejects
-// the supplied password (HTTP 401). Callers translate it into the wording their
-// surface expects (auth-failure detection vs. "incorrect current password").
+// errInvalidCredentials is returned by loginWithPassword on an HTTP 401 so callers
+// can translate it into their surface's wording.
 var errInvalidCredentials = errors.New("invalid credentials")
 
 // DeviceInfo represents basic device information.
@@ -447,8 +444,7 @@ func createHTTPClient() *http.Client {
 	return sharedHTTPClient
 }
 
-// SetCredentials sets the username/password used to authenticate API calls.
-// The access token is obtained lazily on the first authenticated request.
+// SetCredentials sets the username/password; the access token is fetched lazily.
 func (c *Client) SetCredentials(credentials sdk.UsernamePassword) error {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
@@ -457,9 +453,8 @@ func (c *Client) SetCredentials(credentials sdk.UsernamePassword) error {
 	return nil
 }
 
-// Authenticate verifies the configured credentials by logging in. Used during
-// pairing to confirm the rig accepts the credentials before they are persisted.
-// An empty password is rejected so pairing can't "succeed" without a real login.
+// Authenticate verifies the configured credentials by logging in. An empty
+// password is rejected so pairing can't "succeed" without a real login.
 func (c *Client) Authenticate(ctx context.Context) error {
 	if !c.hasCredentials() {
 		return fmt.Errorf("password is required to authenticate")
@@ -468,16 +463,14 @@ func (c *Client) Authenticate(ctx context.Context) error {
 	return err
 }
 
-// hasCredentials reports whether a password is configured.
 func (c *Client) hasCredentials() bool {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
 	return c.credentials.Password != ""
 }
 
-// ensureToken returns a cached access token, logging in if none is cached.
-// Returns ("", nil) when no credentials are configured so that public endpoints
-// (e.g. discovery) can be reached unauthenticated.
+// ensureToken returns a cached token, logging in if needed. Returns ("", nil) when
+// no credentials are set, so public endpoints (e.g. discovery) work unauthenticated.
 func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
@@ -490,9 +483,8 @@ func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	return c.loginLocked(ctx)
 }
 
-// refreshToken forces a new login after a token is rejected. oldToken is the
-// token that just failed; if another goroutine already refreshed it, the newer
-// token is reused instead of logging in again.
+// refreshToken re-logs in after a token is rejected, reusing a token another
+// goroutine may have already refreshed (i.e. when it differs from oldToken).
 func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, error) {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
@@ -502,8 +494,7 @@ func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, err
 	return c.loginLocked(ctx)
 }
 
-// loginLocked logs in with the configured password and caches the token.
-// The caller must hold authMu.
+// loginLocked logs in and caches the token. The caller must hold authMu.
 func (c *Client) loginLocked(ctx context.Context) (string, error) {
 	token, err := c.loginWithPassword(ctx, c.credentials.Password)
 	if err != nil {
@@ -518,10 +509,8 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// doRequest executes an authenticated HTTP request and returns the response.
-// It logs in lazily, and if the rig rejects the token (401) it re-logs in once
-// and retries — covering tokens that expired or were invalidated by an
-// out-of-band login (e.g. a password change).
+// doRequest executes an authenticated request, re-logging in and retrying once on
+// a 401 (token expired or invalidated by an out-of-band login).
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
 	var bodyBytes []byte
 	if body != nil {
@@ -554,7 +543,6 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 	return resp, nil
 }
 
-// sendRequest builds and executes a single HTTP request with the given token.
 func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string) (*http.Response, error) {
 	var bodyReader io.Reader
 	if bodyBytes != nil {
@@ -724,8 +712,8 @@ type systemStatusResponse struct {
 	DefaultPasswordActive bool `json:"default_password_active"`
 }
 
-// IsDefaultPasswordActive reports whether the rig still uses its factory default
-// password (read from the public /api/v1/system/status endpoint).
+// IsDefaultPasswordActive reads the rig's default-password state from the public
+// /api/v1/system/status endpoint.
 func (c *Client) IsDefaultPasswordActive(ctx context.Context) (bool, error) {
 	var resp systemStatusResponse
 	if err := c.doGet(ctx, "/api/v1/system/status", &resp); err != nil {
@@ -1031,9 +1019,8 @@ func (c *Client) loginWithPassword(ctx context.Context, password string) (string
 	return tokens.AccessToken, nil
 }
 
-// ChangePassword updates the miner web UI password. On success the client's
-// stored password is updated and the cached token cleared so the next request
-// re-logs in with the new password.
+// ChangePassword updates the miner web UI password; on success the client's stored
+// password is updated and the cached token cleared.
 func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
 	accessToken, err := c.loginWithPassword(ctx, currentPassword)
 	if err != nil {
@@ -1297,8 +1284,7 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		writerDone <- pw.Close()
 	}()
 
-	// Log in proactively; the streamed multipart body can't be replayed, so a
-	// mid-upload 401 retry isn't possible — surface it as an unauthorized error.
+	// Log in proactively: the streamed body can't be replayed for a 401 retry.
 	token, err := c.ensureToken(ctx)
 	if err != nil {
 		return err

@@ -29,9 +29,8 @@ export function getMinerMeasurement(
     return null;
   }
 
-  // Show empty cell for devices needing a pool or authentication — their
-  // telemetry is gated. Default-password devices still report telemetry, so
-  // their metrics are shown normally.
+  // Empty cell when a pool or authentication is needed (telemetry gated).
+  // Default-password devices still report telemetry, so their metrics show.
   const needsPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   if (needsPool || needsAuthentication(miner.pairingStatus)) {
     return EMPTY_MEASUREMENT;

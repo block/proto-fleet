@@ -1071,10 +1071,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 	}
 }
 
-// handleCredentialRemediation moves the device into the pairing state matching
-// the failure: DEFAULT_PASSWORD when the rig still has its factory password (the
-// operator must change it), otherwise AUTHENTICATION_NEEDED (the operator must
-// supply valid credentials).
+// handleCredentialRemediation sets the pairing state matching the failure:
+// DEFAULT_PASSWORD for a default-password rig, otherwise AUTHENTICATION_NEEDED.
 func (s *TelemetryService) handleCredentialRemediation(ctx context.Context, deviceID models.DeviceIdentifier, cause error) error {
 	status := pairing.StatusAuthenticationNeeded
 	if isDefaultPasswordRemediationError(cause) {
@@ -1147,16 +1145,10 @@ func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, 
 	s.lastKnownFirmware.Store(deviceID, firmwareVersion)
 }
 
-// reconcileDefaultPasswordState keeps the device's pairing status in sync with
-// the rig's default-password flag, without gating telemetry. A successful poll
-// means authentication worked, so the device is PAIRED or DEFAULT_PASSWORD (never
-// AUTHENTICATION_NEEDED) and toggling between those two is safe. An in-memory
-// cache limits writes to actual transitions.
-//
-// activePtr is nil when the plugin could not determine the default-password state
-// (e.g. an older plugin or a failed status probe); in that case the current
-// pairing status is left untouched so a transient probe failure can't demote a
-// still-default-password device back to PAIRED.
+// reconcileDefaultPasswordState syncs pairing status with the rig's
+// default-password flag (PAIRED <-> DEFAULT_PASSWORD), writing only on transitions.
+// A nil activePtr means undetermined (older plugin or failed probe), so the status
+// is left untouched rather than demoting a still-default-password device.
 func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, deviceID models.DeviceIdentifier, activePtr *bool) {
 	if activePtr == nil {
 		return
@@ -1169,10 +1161,8 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 		return
 	}
 
-	// First time we see this device reporting a non-default password, just seed the
-	// cache without a write: the steady state for most devices is PAIRED already, so
-	// avoid an UPDATE per device on startup. Promotion to DEFAULT_PASSWORD and the
-	// true->false demotion (e.g. after a password change) are the cases that write.
+	// First sight of a non-default device: seed the cache without a write to avoid
+	// an UPDATE per PAIRED device on startup. Only transitions write.
 	if !seen && !active {
 		s.lastDefaultPwActive.Store(deviceID, false)
 		return
