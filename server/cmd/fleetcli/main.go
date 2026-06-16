@@ -132,7 +132,7 @@ func authCommand() *cli.Command {
 func apiKeyCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "apikey",
-		Usage: "Create, list, and revoke Fleet API keys",
+		Usage: "Create, list, and revoke Fleet API keys using session credentials",
 		Commands: []*cli.Command{
 			{
 				Name:  "create",
@@ -142,20 +142,14 @@ func apiKeyCommand() *cli.Command {
 					&cli.StringFlag{Name: "expires-at", Usage: "Optional expiration timestamp in RFC3339 format"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, opts, err := openClient(ctx, cmd)
+					client, _, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
 					defer func() { _ = client.Close() }()
 
-					if opts.APIKey == "" {
-						username, password, err := usernamePassword(cmd)
-						if err != nil {
-							return fmt.Errorf("create requires either an API key or username/password: %w", err)
-						}
-						if _, err := client.Authenticate(ctx, username, password); err != nil {
-							return err
-						}
+					if err := authenticateAPIKeySession(ctx, cmd, client, "create"); err != nil {
+						return err
 					}
 
 					req := &apikeyv1.CreateApiKeyRequest{Name: cmd.String("name")}
@@ -178,20 +172,14 @@ func apiKeyCommand() *cli.Command {
 				Name:  "list",
 				Usage: "List active API keys",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, opts, err := openClient(ctx, cmd)
+					client, _, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
 					defer func() { _ = client.Close() }()
 
-					if opts.APIKey == "" {
-						username, password, err := usernamePassword(cmd)
-						if err != nil {
-							return fmt.Errorf("list requires either an API key or username/password: %w", err)
-						}
-						if _, err := client.Authenticate(ctx, username, password); err != nil {
-							return err
-						}
+					if err := authenticateAPIKeySession(ctx, cmd, client, "list"); err != nil {
+						return err
 					}
 
 					resp, err := client.ListAPIKeys(ctx)
@@ -208,20 +196,14 @@ func apiKeyCommand() *cli.Command {
 					&cli.StringFlag{Name: "key-id", Usage: "API key id to revoke", Required: true},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, opts, err := openClient(ctx, cmd)
+					client, _, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
 					defer func() { _ = client.Close() }()
 
-					if opts.APIKey == "" {
-						username, password, err := usernamePassword(cmd)
-						if err != nil {
-							return fmt.Errorf("revoke requires either an API key or username/password: %w", err)
-						}
-						if _, err := client.Authenticate(ctx, username, password); err != nil {
-							return err
-						}
+					if err := authenticateAPIKeySession(ctx, cmd, client, "revoke"); err != nil {
+						return err
 					}
 
 					resp, err := client.RevokeAPIKey(ctx, cmd.String("key-id"))
@@ -233,6 +215,17 @@ func apiKeyCommand() *cli.Command {
 			},
 		},
 	}
+}
+
+func authenticateAPIKeySession(ctx context.Context, cmd *cli.Command, client *Client, action string) error {
+	username, password, err := usernamePassword(cmd)
+	if err != nil {
+		return fmt.Errorf("%s requires username/password because API key lifecycle commands are session-only: %w", action, err)
+	}
+	if _, err := client.Authenticate(ctx, username, password); err != nil {
+		return err
+	}
+	return nil
 }
 
 // defaultPerformanceMetrics are the metric types `performance get` requests

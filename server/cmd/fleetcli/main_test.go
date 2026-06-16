@@ -370,6 +370,7 @@ func TestApiKeyListAuthenticatesWithEnvCreds(t *testing.T) {
 	})
 
 	var authBody map[string]any
+	var listAuthHeader string
 	var listCookie string
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
@@ -381,6 +382,7 @@ func TestApiKeyListAuthenticatesWithEnvCreds(t *testing.T) {
 		_, _ = w.Write([]byte("{}"))
 	})
 	mux.HandleFunc("POST /apikey.v1.ApiKeyService/ListApiKeys", func(w http.ResponseWriter, r *http.Request) {
+		listAuthHeader = r.Header.Get("Authorization")
 		if cookie, err := r.Cookie("fleet_session"); err == nil {
 			listCookie = cookie.Value
 		}
@@ -399,8 +401,54 @@ func TestApiKeyListAuthenticatesWithEnvCreds(t *testing.T) {
 	if authBody["username"] != "admin" || authBody["password"] != "proto" {
 		t.Errorf("authenticate body = %v, want env username/password", authBody)
 	}
+	if listAuthHeader != "" {
+		t.Errorf("ListApiKeys Authorization = %q, want empty for session-only command", listAuthHeader)
+	}
 	if listCookie != "sess" {
 		t.Errorf("ListApiKeys session cookie = %q, want %q", listCookie, "sess")
+	}
+}
+
+func TestApiKeyCommandsRejectAPIKeyOnly(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "create", args: []string{"apikey", "create", "--name", "test-key"}},
+		{name: "list", args: []string{"apikey", "list"}},
+		{name: "revoke", args: []string{"apikey", "revoke", "--key-id", "key-1"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pinFleetAuthEnv(t, nil)
+
+			requestCount := 0
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				requestCount++
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				http.Error(w, "unexpected request", http.StatusTeapot)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			err := newRootCommand().Run(context.Background(), append([]string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), "requires username/password") {
+				t.Fatalf("fleetcli %s error = %v, want username/password requirement", strings.Join(tt.args, " "), err)
+			}
+			if !strings.Contains(err.Error(), "session-only") {
+				t.Errorf("error should explain session-only API key lifecycle commands, got: %v", err)
+			}
+			if strings.Contains(err.Error(), "either an API key") {
+				t.Errorf("error should not claim API keys are accepted, got: %v", err)
+			}
+			if requestCount != 0 {
+				t.Fatalf("request count = %d, want 0", requestCount)
+			}
+		})
 	}
 }
 
