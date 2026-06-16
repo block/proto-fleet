@@ -107,6 +107,7 @@ const ACTION_ICON: Record<WiredActionKey, ReactElement> = {
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
+const SCOPED_MINER_LOOKUP_PERMISSION = "miner:read";
 type ScopedMinerLookupResult = {
   deviceIdentifiers: string[];
   includesUnauthenticatedMiner: boolean;
@@ -171,10 +172,13 @@ const FleetGroupActionsMenu = ({
   });
   const permissions = usePermissions();
 
-  // Mirrors `usePermittedActions` from MinerActionsMenu so read-only
-  // roles don't see entries that would 403 on click. Server enforces.
+  // Mirrors `usePermittedActions` from MinerActionsMenu so roles don't
+  // see entries that would 403 on click. Group actions also require
+  // miner:read up front because every wired entry first resolves the
+  // scoped descendants via ListMinerStateSnapshots. Server enforces.
   const permittedKeys = useMemo(() => {
     const allowed = new Set<WiredActionKey>();
+    if (!permissions.includes(SCOPED_MINER_LOOKUP_PERMISSION)) return allowed;
     const lookup: Record<string, string | readonly string[] | undefined> = ACTION_PERMISSIONS;
     const hasAll = (required: string | readonly string[] | undefined): boolean => {
       if (required === undefined) return true;

@@ -26,6 +26,7 @@ const {
   mockPushToast,
   mockRemoveToast,
   mockUpdateToast,
+  mockUsePermissions,
 } = vi.hoisted(() => ({
   mockListMinerStateSnapshots: vi.fn(),
   mockUseMinerActions: vi.fn(),
@@ -45,6 +46,7 @@ const {
   mockPushToast: vi.fn(),
   mockRemoveToast: vi.fn(),
   mockUpdateToast: vi.fn(),
+  mockUsePermissions: vi.fn(),
 }));
 
 vi.mock("@/shared/components/Popover", () => ({
@@ -93,36 +95,11 @@ vi.mock(import("@/shared/features/toaster"), async (importOriginal) => {
   };
 });
 
-// Grant every permission the menu consults so the wired entries
-// render in tests. Production filtering is verified by the live
-// permission catalog plus the server gate; the menu's job here is
-// only to surface what the role can invoke. Partial-mock so the
-// surrounding store hooks (useAuthErrors, useBatch*, ...) stay live.
 vi.mock(import("@/protoFleet/store"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    usePermissions: () => [
-      "miner:read",
-      "miner:blink_led",
-      "miner:download_logs",
-      "miner:firmware_update",
-      "miner:reboot",
-      "miner:stop_mining",
-      "miner:start_mining",
-      "miner:delete",
-      "miner:set_power_target",
-      "miner:set_cooling_mode",
-      "miner:rename",
-      "miner:update_worker_names",
-      "miner:update_password",
-      "miner:update_pools",
-      "pool:read",
-      "rack:read",
-      "rack:manage",
-      "site:read",
-      "site:manage",
-    ],
+    usePermissions: () => mockUsePermissions(),
   };
 });
 
@@ -168,6 +145,28 @@ vi.mock("../BulkActions/UnsupportedMinersModal", () => ({ default: () => null })
 
 // eslint-disable-next-line import-x/order -- import must come after vi.mock calls
 import FleetGroupActionsMenu from "./FleetGroupActionsMenu";
+
+const DEFAULT_PERMISSIONS = [
+  "miner:read",
+  "miner:blink_led",
+  "miner:download_logs",
+  "miner:firmware_update",
+  "miner:reboot",
+  "miner:stop_mining",
+  "miner:start_mining",
+  "miner:delete",
+  "miner:set_power_target",
+  "miner:set_cooling_mode",
+  "miner:rename",
+  "miner:update_worker_names",
+  "miner:update_password",
+  "miner:update_pools",
+  "pool:read",
+  "rack:read",
+  "rack:manage",
+  "site:read",
+  "site:manage",
+] as const;
 
 const buildPopoverActions = () => [
   {
@@ -278,6 +277,7 @@ const makeMinerActions = () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUsePermissions.mockReturnValue([...DEFAULT_PERMISSIONS]);
   mockPushToast.mockReturnValue(1);
   mockListMinerStateSnapshots.mockResolvedValue({
     miners: [{ deviceIdentifier: "miner-a" }, { deviceIdentifier: "miner-b" }, { deviceIdentifier: "miner-c" }],
@@ -311,6 +311,31 @@ describe("FleetGroupActionsMenu", () => {
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+  });
+
+  it("hides scoped miner actions without miner read but keeps row extras", () => {
+    mockUsePermissions.mockReturnValue(DEFAULT_PERMISSIONS.filter((permission) => permission !== "miner:read"));
+    const onViewRacks = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        extraActions={[{ label: "View racks", onClick: onViewRacks }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+
+    expect(screen.getByText("View racks")).toBeInTheDocument();
+    expect(screen.queryByText("Reboot miners")).not.toBeInTheDocument();
+    expect(screen.queryByText("Add to group")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("View racks"));
+
+    expect(onViewRacks).toHaveBeenCalledOnce();
+    expect(mockListMinerStateSnapshots).not.toHaveBeenCalled();
   });
 
   it("fires the hook's Sleep handler after the device IDs land", async () => {
@@ -556,5 +581,24 @@ describe("FleetGroupActionsMenu", () => {
         }),
       );
     });
+  });
+
+  it("hides bulk controls without miner read", () => {
+    mockUsePermissions.mockReturnValue(DEFAULT_PERMISSIONS.filter((permission) => permission !== "miner:read"));
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[
+          { kind: "rack", id: 11n, name: "Rack A" },
+          { kind: "rack", id: 12n, name: "Rack B" },
+        ]}
+        ariaLabel="Bulk actions for selected racks"
+        testIdPrefix="racks"
+        presentation="bulk"
+      />,
+    );
+
+    expect(screen.queryByTestId(`racks-quick-${deviceActions.reboot}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("racks-trigger")).not.toBeInTheDocument();
   });
 });
