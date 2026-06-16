@@ -411,7 +411,7 @@ func (h *Handler) listPermittedEvents(
 	nextReq := req
 	nextReq.PageSize = pageSize
 
-	for scannedPages := 0; scannedPages < listCurtailmentEventsMaxPermissionScanPages; scannedPages++ {
+	for range listCurtailmentEventsMaxPermissionScanPages {
 		nextReq.PageSize = remainingListCurtailmentEventsPageSize(pageSize, len(filtered))
 		events, nextToken, err := h.service.ListEvents(ctx, nextReq)
 		if err != nil {
