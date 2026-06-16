@@ -145,6 +145,24 @@ describe("PageHeader", () => {
     expect(screen.getByTestId("phone-header-widget-row")).toHaveClass("h-[80px]");
   });
 
+  it("constrains the setup button when it is the inline phone widget", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+
+    render(
+      <MemoryRouter>
+        <PageHeader schedulePillData={createSchedulePillData()} />
+      </MemoryRouter>,
+    );
+
+    const inlineWidgets = screen.getByTestId("page-header-inline-widgets");
+    const setupButton = within(inlineWidgets).getByRole("button", { name: "Continue setup" });
+    const setupLabel = within(setupButton).getByText("Continue setup");
+
+    expect(setupButton).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
+    expect(setupLabel).toHaveClass("truncate");
+    expect(screen.queryByTestId("phone-header-widget-row")).not.toBeInTheDocument();
+  });
+
   it("keeps the phone widget row hidden when neither setup nor schedules need space", () => {
     render(
       <MemoryRouter>

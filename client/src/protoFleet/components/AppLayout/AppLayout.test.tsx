@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "./AppLayout";
 import type { CurtailmentPillEvent } from "@/protoFleet/components/PageHeader/CurtailmentPill";
 import type { UseSchedulePillDataResult } from "@/protoFleet/components/PageHeader/useSchedulePillData";
+import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { useHasPermission } from "@/protoFleet/store";
 
 const mockUseWindowDimensions = vi.fn();
@@ -47,14 +48,32 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
 }));
 
-const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = {}): UseSchedulePillDataResult => ({
-  hasVisibleSchedules: false,
-  pillSchedule: null,
-  sections: [],
-  pendingScheduleId: null,
-  onToggleScheduleStatus: vi.fn(),
-  ...overrides,
-});
+const createPillSchedule = (): ScheduleListItem =>
+  ({
+    id: "1",
+    priority: 1,
+    name: "Night reboot",
+    targetSummary: "Applies to all miners",
+    scheduleSummary: "Weekdays · 10:00 PM",
+    nextRunSummary: "Runs tomorrow at 10:00 PM",
+    action: "sleep",
+    status: "active",
+    createdBy: "Review",
+    rawSchedule: {},
+  }) as ScheduleListItem;
+
+const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = {}): UseSchedulePillDataResult => {
+  const pillSchedule = overrides.pillSchedule ?? null;
+
+  return {
+    sections: [],
+    pendingScheduleId: null,
+    onToggleScheduleStatus: vi.fn(),
+    ...overrides,
+    pillSchedule,
+    hasVisibleSchedules: pillSchedule !== null,
+  };
+};
 
 const activeCurtailmentEvent: CurtailmentPillEvent = {
   reason: "Grid peak call",
@@ -79,7 +98,7 @@ describe("AppLayout", () => {
   it("keeps the base phone content offset when the only schedule widget fits inline", () => {
     mockUseSchedulePillData.mockReturnValue(
       createSchedulePillData({
-        hasVisibleSchedules: true,
+        pillSchedule: createPillSchedule(),
       }),
     );
 
@@ -99,7 +118,7 @@ describe("AppLayout", () => {
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
     mockUseSchedulePillData.mockReturnValue(
       createSchedulePillData({
-        hasVisibleSchedules: true,
+        pillSchedule: createPillSchedule(),
       }),
     );
 
@@ -118,7 +137,7 @@ describe("AppLayout", () => {
     mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
     mockUseSchedulePillData.mockReturnValue(
       createSchedulePillData({
-        hasVisibleSchedules: true,
+        pillSchedule: createPillSchedule(),
       }),
     );
 

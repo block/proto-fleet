@@ -93,11 +93,13 @@ function HeaderWidgets({
             return dismissedSetup ? (
               <Button
                 key={widget}
+                className="min-w-0 max-w-full overflow-hidden"
                 variant={variants.secondary}
                 size={sizes.compact}
-                text="Continue setup"
                 onClick={onContinueSetup}
-              />
+              >
+                <span className="block min-w-0 truncate">Continue setup</span>
+              </Button>
             ) : null;
         }
       })}
