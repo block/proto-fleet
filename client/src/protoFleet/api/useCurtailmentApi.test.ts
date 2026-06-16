@@ -789,6 +789,9 @@ describe("useCurtailmentApi", () => {
     });
     applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
     applyActiveCurtailmentEvent(selectedActiveEvent, { mergeActiveEvents: true });
+    mockGetCurtailmentEvent.mockImplementation(({ eventUuid }: { eventUuid: string }) =>
+      eventUuid === restoringEvent.eventUuid ? { event: restoringEvent } : undefined,
+    );
     mockListActiveCurtailments
       .mockResolvedValueOnce({ events: [selectedActiveEvent] })
       .mockResolvedValueOnce({ events: [selectedActiveEvent] })
@@ -839,6 +842,41 @@ describe("useCurtailmentApi", () => {
         CurtailmentEventState.FAILED,
       ],
     ]);
+  });
+
+  it("does not preserve a vanished restoring event that is no longer readable", async () => {
+    const selectedActiveEvent = curtailmentEvent({
+      eventUuid: "curt-selected-active",
+      reason: "Selected active event",
+      state: CurtailmentEventState.ACTIVE,
+    });
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-unreadable-restoring",
+      reason: "Restoring event",
+      state: CurtailmentEventState.RESTORING,
+    });
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(selectedActiveEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [selectedActiveEvent] });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" });
+    mockGetCurtailmentEvent.mockImplementation(({ eventUuid }: { eventUuid: string }) => {
+      if (eventUuid === restoringEvent.eventUuid) {
+        throw new ConnectError("permission denied", Code.PermissionDenied);
+      }
+      return undefined;
+    });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-selected-active");
+    expect(result.current.activeEvents.map((event) => event.id)).toEqual(["curt-selected-active"]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-selected-active"]);
   });
 
   it("drops a mutation-backed vanished restoring event when history confirms terminal state", async () => {
