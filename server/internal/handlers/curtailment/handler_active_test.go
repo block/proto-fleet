@@ -54,6 +54,54 @@ func TestHandler_GetActiveCurtailment_ReturnsActiveEvent(t *testing.T) {
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Total)
 }
 
+func TestHandler_GetActiveCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(42)
+		siteID = int64(7)
+	)
+
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+	}{
+		{"org permission without site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead)}, 0},
+		{"matching site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(siteID, authz.PermCurtailmentRead)}, 0},
+		{"site-only permission denies read", []authz.Assignment{testSiteAssignment(siteID, authz.PermCurtailmentRead)}, connect.CodePermissionDenied},
+		{"site narrowing without read denies read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(siteID)}, connect.CodePermissionDenied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newStopStubStore()
+			store.event.OrgID = orgID
+			store.event.ScopeType = models.ScopeTypeSite
+			store.event.ScopeJSON = siteScopeJSON(t, siteID)
+			store.activeEvent = store.event
+			h := NewHandler(domainCurtailment.NewService(store))
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+				require.NotNil(t, resp.Msg.Event)
+				assert.Equal(t, store.event.EventUUID.String(), resp.Msg.Event.EventUuid)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+		})
+	}
+}
+
 func TestHandler_GetActiveCurtailment_ReturnsEmptyWhenNoActiveEvent(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()

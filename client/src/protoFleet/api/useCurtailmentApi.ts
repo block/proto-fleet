@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   type ActiveCurtailmentSnapshot,
   applyActiveCurtailmentEvent,
+  clearMutationBackedActiveCurtailmentEvent,
   dismissActiveCurtailmentEvent,
   fetchActiveCurtailmentData,
   getActiveCurtailmentSnapshot,
@@ -144,6 +146,11 @@ const activeReconciliationHistoryStateFilters: CurtailmentEventState[] = [
   "cancelled",
   "failed",
 ];
+const activeCurtailmentClearErrorCodes = new Set<Code>([Code.Unauthenticated, Code.PermissionDenied]);
+
+function shouldClearActiveCurtailmentOnError(error: unknown): boolean {
+  return error instanceof ConnectError && activeCurtailmentClearErrorCodes.has(error.code);
+}
 
 function mapHistoryStateFilter(stateFilter?: CurtailmentEventState): ProtoCurtailmentEventState {
   switch (stateFilter) {
@@ -795,6 +802,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             return previewSnapshot;
           }
 
+          activeReconciliationEvents
+            .filter((event) => historyTerminalCurtailmentEventStates.has(mapCurtailmentEventState(event.state)))
+            .forEach((event) => clearMutationBackedActiveCurtailmentEvent(event.eventUuid));
           const activeSnapshot = activeRefresh ? activeRefresh.commit() : previewActiveSnapshot;
           const preservedRestoringEvents = getVanishedRestoringEventsToPreserve(
             fallbackNonSelectedActiveEvents,
@@ -840,6 +850,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
           const resolvedError = handleFailure(error, "Failed to load curtailment data.");
           if (requestId === latestRefreshRequestIdRef.current) {
+            if (shouldClearActiveCurtailmentOnError(error)) {
+              activeReconciliationSnapshotRef.current = applyActiveCurtailmentEvent(undefined);
+            }
             setLoadError(resolvedError.message);
           }
           throw resolvedError;
@@ -941,6 +954,9 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
         }
 
         const resolvedError = handleFailure(error, "Failed to load curtailment detail.");
+        if (shouldClearActiveCurtailmentOnError(error)) {
+          activeReconciliationSnapshotRef.current = applyActiveCurtailmentEvent(undefined);
+        }
         setLoadError(resolvedError.message);
         throw resolvedError;
       }

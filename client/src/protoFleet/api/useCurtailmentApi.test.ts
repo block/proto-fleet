@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   applyActiveCurtailmentEvent,
@@ -212,6 +213,28 @@ describe("useCurtailmentApi", () => {
         startedAt: "2026-05-01T12:00:00.000Z",
       }),
     );
+  });
+
+  it("clears cached active state when refresh loses curtailment read permission", async () => {
+    const activeEvent = curtailmentEvent({ eventUuid: "curt-permission-loss" });
+    applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockRejectedValueOnce(new ConnectError("permission denied", Code.PermissionDenied));
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    expect(result.current.activeEventId).toBe("curt-permission-loss");
+
+    await act(async () => {
+      await result.current.refreshCurtailment().catch(() => undefined);
+    });
+
+    expect(result.current.activeEventId).toBeNull();
+    expect(result.current.activeEvent).toBeNull();
+    expect(result.current.activeEvents).toEqual([]);
+    expect(mockHandleAuthErrors).toHaveBeenCalledWith({
+      error: expect.any(ConnectError),
+    });
   });
 
   it("lists multiple active curtailments while hydrating only the selected detail", async () => {
@@ -815,6 +838,45 @@ describe("useCurtailmentApi", () => {
         CurtailmentEventState.CANCELLED,
         CurtailmentEventState.FAILED,
       ],
+    ]);
+  });
+
+  it("drops a mutation-backed vanished restoring event when history confirms terminal state", async () => {
+    const selectedActiveEvent = curtailmentEvent({
+      eventUuid: "curt-selected-active",
+      reason: "Selected active event",
+      state: CurtailmentEventState.ACTIVE,
+    });
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-mutation-restoring",
+      reason: "Restoring event",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-mutation-restoring",
+      reason: "Restoring event",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    applyActiveCurtailmentEvent(restoringEvent, {
+      mergeActiveEvents: true,
+      preserveAgainstStaleRefresh: true,
+    });
+    applyActiveCurtailmentEvent(selectedActiveEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [selectedActiveEvent] });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventId).toBe("curt-selected-active");
+    expect(result.current.activeEvents.map((event) => event.id)).toEqual(["curt-selected-active"]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual([
+      "curt-selected-active",
+      "curt-mutation-restoring",
     ]);
   });
 

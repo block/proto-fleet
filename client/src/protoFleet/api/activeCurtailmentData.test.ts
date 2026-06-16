@@ -198,6 +198,21 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
+  it("clears a mutation-backed event when active polling keeps omitting it", async () => {
+    const restoringEvent = curtailmentEvent("stopping-event", CurtailmentEventState.RESTORING);
+    applyActiveCurtailmentEvent(restoringEvent, { preserveAgainstStaleRefresh: true });
+    mockListActiveCurtailments.mockResolvedValue({ event: undefined });
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(restoringEvent.eventUuid);
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(restoringEvent.eventUuid);
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
+  });
+
   it("accepts same-state mutation-backed active polling once the event is visible", async () => {
     applyActiveCurtailmentEvent(
       curtailmentEvent("updated-event", CurtailmentEventState.ACTIVE, { reason: "Updated" }),
@@ -386,6 +401,31 @@ describe("activeCurtailmentData", () => {
       "miner-2",
     ]);
     expect(mockGetCurtailmentEvent.mock.calls.map(([request]) => request.targetPageToken)).toEqual(["", "page-2"]);
+  });
+
+  it("does not reselect an active curtailment removed while explicit detail loads", async () => {
+    const removedSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const remainingSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
+    const removedDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Stale Detail A" });
+    let resolveDetail: (value: { event: CurtailmentEvent }) => void = () => undefined;
+
+    applyActiveCurtailmentEvent(removedSummary, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(remainingSummary, { mergeActiveEvents: true });
+    mockGetCurtailmentEvent.mockReturnValueOnce(
+      new Promise<{ event: CurtailmentEvent }>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+
+    const selectionPromise = selectActiveCurtailmentEvent(removedSummary.eventUuid);
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [remainingSummary] });
+    await refreshActiveCurtailmentData();
+    resolveDetail({ event: removedDetail });
+    await selectionPromise;
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.eventUuid).toBe(remainingSummary.eventUuid);
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual([remainingSummary.eventUuid]);
   });
 
   it("keeps fully hydrated selected targets when polling detail is partial", async () => {

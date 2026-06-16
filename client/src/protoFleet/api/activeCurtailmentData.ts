@@ -55,6 +55,7 @@ interface SetActiveCurtailmentSnapshotOptions {
 
 const activeCurtailmentDetailTargetPageSize = 1000;
 const activeCurtailmentDetailMaxTargetPages = 25;
+const mutationBackedMissingRefreshPreserveLimit = 2;
 const detailReductionSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 const detailSelectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 
@@ -68,6 +69,7 @@ let inFlightActiveCurtailmentRequest: InFlightActiveCurtailmentRequest | null = 
 let dismissedEventUuid: string | null = null;
 let mutationBackedEventUuid: string | null = null;
 let preservedMutationBackedRefreshWriteVersions = new Set<number>();
+let mutationBackedMissingRefreshCount = 0;
 
 function getNextWriteVersion(): number {
   nextWriteVersion += 1;
@@ -230,7 +232,7 @@ function shouldPreserveMutationBackedSnapshot(
 
   const nextMutationBackedEvent = getMutationBackedEventFromSnapshot(next);
   if (!nextMutationBackedEvent) {
-    return true;
+    return mutationBackedMissingRefreshCount < mutationBackedMissingRefreshPreserveLimit;
   }
 
   if (equals(CurtailmentEventSchema, currentMutationBackedEvent, nextMutationBackedEvent)) {
@@ -243,6 +245,13 @@ function shouldPreserveMutationBackedSnapshot(
 function clearMutationBackedPreservation(): void {
   mutationBackedEventUuid = null;
   preservedMutationBackedRefreshWriteVersions = new Set<number>();
+  mutationBackedMissingRefreshCount = 0;
+}
+
+export function clearMutationBackedActiveCurtailmentEvent(eventUuid: string): void {
+  if (mutationBackedEventUuid === eventUuid) {
+    clearMutationBackedPreservation();
+  }
 }
 
 function setActiveCurtailmentSnapshot(
@@ -261,7 +270,18 @@ function setActiveCurtailmentSnapshot(
   snapshot = filterDismissedActiveCurtailmentEvent(snapshot, fromActiveRefresh);
 
   const currentSnapshot = getActiveCurtailmentSnapshot();
+  const alreadyPreservedWriteVersion = preservedMutationBackedRefreshWriteVersions.has(writeVersion);
+  const currentMutationBackedEvent = getMutationBackedEventFromSnapshot(currentSnapshot);
+  const nextMutationBackedEvent = getMutationBackedEventFromSnapshot(snapshot);
   if (fromActiveRefresh && shouldPreserveMutationBackedSnapshot(currentSnapshot, snapshot, writeVersion)) {
+    if (
+      !alreadyPreservedWriteVersion &&
+      mutationBackedEventUuid &&
+      currentMutationBackedEvent &&
+      !nextMutationBackedEvent
+    ) {
+      mutationBackedMissingRefreshCount += 1;
+    }
     preservedMutationBackedRefreshWriteVersions.add(writeVersion);
     return currentSnapshot;
   }
@@ -269,6 +289,7 @@ function setActiveCurtailmentSnapshot(
   if (preserveAgainstStaleRefresh && preserveEventUuid) {
     mutationBackedEventUuid = preserveEventUuid;
     preservedMutationBackedRefreshWriteVersions = new Set<number>();
+    mutationBackedMissingRefreshCount = 0;
   } else if (fromActiveRefresh || (mutationBackedEventUuid && !getMutationBackedEventFromSnapshot(snapshot))) {
     clearMutationBackedPreservation();
   }
@@ -487,13 +508,13 @@ export async function selectActiveCurtailmentEvent(
   { signal }: RefreshActiveCurtailmentOptions = {},
 ): Promise<ActiveCurtailmentSnapshot> {
   assertNotAborted(signal);
-  const currentSnapshot = getActiveCurtailmentSnapshot();
-  const summaryEvent = currentSnapshot.events.find((event) => event.eventUuid === eventUuid);
   const detailedEvent = await requestActiveCurtailmentDetail(eventUuid, { hydrateAllTargetPages: true, signal });
   assertNotAborted(signal);
 
-  if (!detailedEvent && !summaryEvent) {
-    return currentSnapshot;
+  const latestSnapshot = getActiveCurtailmentSnapshot();
+  const summaryEvent = latestSnapshot.events.find((event) => event.eventUuid === eventUuid);
+  if (!summaryEvent) {
+    return latestSnapshot;
   }
 
   return applyActiveCurtailmentEvent(detailedEvent ?? summaryEvent, { mergeActiveEvents: true });
