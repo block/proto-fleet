@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors } = vi.hoisted(() => ({
   mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
@@ -49,15 +50,6 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: vi.fn(() => ({
     listGroups: vi.fn(),
     listRacks: vi.fn(),
-  })),
-}));
-
-vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
-  default: vi.fn(() => ({
-    totalMiners: 0,
-    refetch: mockRefetchAuthNeededMiners,
-    hasInitialLoadCompleted: true,
-    isLoading: false,
   })),
 }));
 
@@ -245,6 +237,12 @@ describe("Fleet - Component Integration", () => {
         pageSize: 50,
       }),
     );
+    expect(useFleet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageSize: 1,
+        pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
+      }),
+    );
   });
 
   it("shows the loading state during sort refetches even when miners are already present", async () => {
@@ -268,13 +266,24 @@ describe("Fleet - Component Integration", () => {
     const mockRefetch = vi.fn();
     const mockRefreshCurrentPage = vi.fn();
 
-    vi.mocked(useFleetModule.default).mockReturnValue(
-      createFleetMock({
-        minerIds: ["miner-1"],
-        totalMiners: 1,
-        refetch: mockRefetch,
-        refreshCurrentPage: mockRefreshCurrentPage,
-      }),
+    vi.mocked(useFleetModule.default).mockImplementation(
+      (options: { pageSize?: number; pairingStatuses?: PairingStatus[] } = {}) => {
+        if (
+          options.pairingStatuses?.length === 1 &&
+          options.pairingStatuses?.includes(PairingStatus.AUTHENTICATION_NEEDED)
+        ) {
+          return createFleetMock({ refetch: mockRefetchAuthNeededMiners });
+        }
+        if (options.pageSize === 1) {
+          return createFleetMock();
+        }
+        return createFleetMock({
+          minerIds: ["miner-1"],
+          totalMiners: 1,
+          refetch: mockRefetch,
+          refreshCurrentPage: mockRefreshCurrentPage,
+        });
+      },
     );
 
     renderFleet();

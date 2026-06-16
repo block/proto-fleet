@@ -14,10 +14,10 @@ import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type MinerListFilter,
   type MinerStateSnapshot,
-  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { needsAuthentication } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { ChevronDown, Edit, MiningPools, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -85,7 +85,11 @@ const MinerActionsMenu = ({
     [selectedMiners],
   );
   const selectedIdsIncludeUnauthenticatedMiner = useMemo(
-    () => selectedMiners.some((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED),
+    () =>
+      selectedMiners.some((id) => {
+        const status = miners[id]?.pairingStatus;
+        return status !== undefined && needsAuthentication(status);
+      }),
     [miners, selectedMiners],
   );
   const selectionIncludesUnauthenticatedMiner =
@@ -227,7 +231,7 @@ const MinerActionsMenu = ({
         : {
             ...action,
             disabled: true,
-            disabledReason: "Selection includes miners that need authentication.",
+            disabledReason: "Selection includes miners that need authentication before actions can run.",
           },
     );
   }, [permittedActions, selectionIncludesUnauthenticatedMiner]);

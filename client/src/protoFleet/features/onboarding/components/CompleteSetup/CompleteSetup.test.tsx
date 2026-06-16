@@ -112,7 +112,7 @@ describe("CompleteSetup", () => {
   };
 
   describe("Visibility conditions", () => {
-    it("does not render when no miners need pools and no miners need auth", () => {
+    it("does not render when no miners need pools or auth", () => {
       vi.mocked(usePoolNeededCount).mockReturnValue({
         poolNeededCount: 0,
         isLoading: false,
@@ -135,6 +135,13 @@ describe("CompleteSetup", () => {
       renderCompleteSetup();
 
       expect(screen.queryByText("Complete setup")).not.toBeInTheDocument();
+    });
+
+    it("does not render for default-password miners alone", () => {
+      renderCompleteSetup();
+
+      expect(screen.queryByText("Complete setup")).not.toBeInTheDocument();
+      expect(screen.queryByText("Update passwords")).not.toBeInTheDocument();
     });
 
     it("renders when miners need pools", () => {
@@ -172,7 +179,7 @@ describe("CompleteSetup", () => {
       expect(screen.getByText("2 miners need attention")).toBeInTheDocument();
     });
 
-    it("renders both cards when miners need pools and auth", () => {
+    it("renders all setup cards when miners need pools and auth", () => {
       vi.mocked(usePoolNeededCount).mockReturnValue({
         poolNeededCount: 3,
         isLoading: false,
@@ -199,6 +206,7 @@ describe("CompleteSetup", () => {
       expect(screen.getByText("3 miners")).toBeInTheDocument();
       expect(screen.getByText("Authenticate miners")).toBeInTheDocument();
       expect(screen.getByText("1 miner needs attention")).toBeInTheDocument();
+      expect(screen.queryByText("Update passwords")).not.toBeInTheDocument();
     });
 
     it("does not render when complete setup is dismissed", async () => {

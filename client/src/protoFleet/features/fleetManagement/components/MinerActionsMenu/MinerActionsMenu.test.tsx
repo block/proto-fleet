@@ -744,9 +744,34 @@ describe("MinerActionsMenu", () => {
 
       expect(unpair?.disabled).not.toBe(true);
       expect(reboot?.disabled).toBe(true);
-      expect(reboot?.disabledReason).toContain("authentication");
+      expect(reboot?.disabledReason).toContain("need authentication");
       expect(editPool?.disabled).toBe(true);
-      expect(editPool?.disabledReason).toContain("authentication");
+      expect(editPool?.disabledReason).toContain("need authentication");
+    });
+
+    test("leaves actions enabled when a DEFAULT_PASSWORD miner is selected", () => {
+      // Arrange
+      mockUseMinerActions.mockReturnValueOnce({
+        ...createMockMinerActionsReturn(null),
+        popoverActions: popoverActionsFixture,
+      });
+
+      // Act
+      render(
+        <MinerActionsMenu
+          selectedMiners={["miner-1", "miner-2"]}
+          selectionMode="subset"
+          totalCount={2}
+          miners={{
+            "miner-1": create(MinerStateSnapshotSchema, { pairingStatus: PairingStatus.DEFAULT_PASSWORD }),
+            "miner-2": create(MinerStateSnapshotSchema, { pairingStatus: PairingStatus.PAIRED }),
+          }}
+        />,
+      );
+
+      // Assert
+      const actions = readActions();
+      expect(actions.every((a) => a.disabled !== true)).toBe(true);
     });
 
     test("uses the parent override even when the miners map is empty (all-mode)", () => {

@@ -328,10 +328,16 @@ export const useMinerActions = ({
   );
 
   // Create device selector based on selection mode (undefined when nothing selected)
-  const deviceSelector = useMemo(
-    () => (selectionMode === "none" ? undefined : createDeviceSelector(selectionMode, deviceIdentifiers)),
-    [selectionMode, deviceIdentifiers],
-  );
+  const deviceSelector = useMemo(() => {
+    if (selectionMode === "none") return undefined;
+    if (selectionMode === "subset") return createDeviceSelector(selectionMode, deviceIdentifiers);
+
+    return createDeviceSelector(selectionMode, deviceIdentifiers, {
+      deviceStatuses: currentFilter?.deviceStatus ?? [],
+      pairingStatuses: currentFilter?.pairingStatuses ?? [],
+      models: currentFilter?.models ?? [],
+    });
+  }, [selectionMode, deviceIdentifiers, currentFilter]);
 
   // Determine device status for power state actions
   const deviceStatus = useMemo(() => {

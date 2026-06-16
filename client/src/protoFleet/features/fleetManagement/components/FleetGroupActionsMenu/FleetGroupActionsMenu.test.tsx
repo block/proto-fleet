@@ -243,6 +243,13 @@ const buildPopoverActions = () => [
     actionHandler: vi.fn(),
     requiresConfirmation: false,
   },
+  {
+    action: settingsActions.security,
+    title: "Manage security",
+    icon: null,
+    actionHandler: vi.fn(),
+    requiresConfirmation: false,
+  },
 ];
 
 const makeMinerActions = () => ({
@@ -503,6 +510,36 @@ describe("FleetGroupActionsMenu", () => {
     expect(onActionComplete).toHaveBeenCalledOnce();
   });
 
+  it("allows normal scoped actions when scoped miners need a password change", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.DEFAULT_PASSWORD }],
+      cursor: "",
+    });
+    const onActionComplete = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Reboot miners"));
+
+    await waitFor(() => {
+      const reboot = mockUseMinerActions.mock.results
+        .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+        .find((entry) => entry.action === deviceActions.reboot);
+      expect(reboot?.actionHandler).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPushToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("need authentication") }),
+    );
+    expect(onActionComplete).not.toHaveBeenCalled();
+  });
+
   it("allows unpair when scoped miners need authentication", async () => {
     mockListMinerStateSnapshots.mockResolvedValueOnce({
       miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
@@ -528,6 +565,65 @@ describe("FleetGroupActionsMenu", () => {
     expect(mockPushToast).not.toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining("need authentication") }),
     );
+  });
+
+  it("allows manage security when scoped miners need a password change", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.DEFAULT_PASSWORD }],
+      cursor: "",
+    });
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Manage security"));
+
+    await waitFor(() => {
+      const security = mockUseMinerActions.mock.results
+        .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+        .find((entry) => entry.action === settingsActions.security);
+      expect(security?.actionHandler).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPushToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("need authentication") }),
+    );
+  });
+
+  it("blocks manage security when scoped miners need authentication", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+      cursor: "",
+    });
+    const onActionComplete = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Manage security"));
+
+    await waitFor(() => {
+      expect(mockPushToast).toHaveBeenLastCalledWith({
+        message:
+          "Some miners in Alpha need authentication before this action can run. Unpair those miners or authenticate them first.",
+        status: "error",
+      });
+    });
+    const security = mockUseMinerActions.mock.results
+      .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+      .find((entry) => entry.action === settingsActions.security);
+    expect(security?.actionHandler).not.toHaveBeenCalled();
+    expect(onActionComplete).toHaveBeenCalledOnce();
   });
 
   it("combines same-kind scopes into one snapshot filter and hides row-only extras", async () => {

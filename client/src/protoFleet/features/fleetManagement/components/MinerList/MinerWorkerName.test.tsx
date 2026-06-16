@@ -110,4 +110,17 @@ describe("MinerWorkerName", () => {
     expect(screen.queryByText("worker-01")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Default worker name")).not.toBeInTheDocument();
   });
+
+  it("shows a stored worker name while a default password is active", () => {
+    const miner = createMockMiner({
+      macAddress: "aa:bb:cc:dd:ee:ff",
+      workerName: "worker-01",
+      pairingStatus: PairingStatus.DEFAULT_PASSWORD,
+    });
+
+    render(<MinerWorkerName miner={miner} />);
+
+    expect(screen.getByText("worker-01")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Default worker name")).not.toBeInTheDocument();
+  });
 });

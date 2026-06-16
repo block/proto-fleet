@@ -5,6 +5,7 @@ import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetman
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
+import { needsAuthentication as needsAuthFn } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
@@ -40,25 +41,23 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const deviceStatusFromStore = miner.deviceStatus;
 
   // Compute status flags
-  const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const needsPasswordChange = miner.pairingStatus === PairingStatus.DEFAULT_PASSWORD;
-  const needsRemediation = needsAuthentication || needsPasswordChange;
+  const needsAuthentication = needsAuthFn(miner.pairingStatus);
   const isPaired = miner.pairingStatus === PairingStatus.PAIRED;
   // Paired miners with UNSPECIFIED device_status (typically freshly paired, not yet polled)
   // are treated as offline — this matches the Fleet Health dashboard and Offline filter.
   const isOffline =
     deviceStatusFromStore === DeviceStatus.OFFLINE || (deviceStatusFromStore === DeviceStatus.UNSPECIFIED && isPaired);
-  // Password remediation should outrank a sleeping/maintenance device status.
+  // Authentication remediation should outrank a sleeping/maintenance device status.
   const isSleeping =
     (deviceStatusFromStore === DeviceStatus.INACTIVE || deviceStatusFromStore === DeviceStatus.MAINTENANCE) &&
-    !needsRemediation;
+    !needsAuthentication;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
   const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
 
   const needsAttention = useNeedsAttention(
-    needsRemediation,
+    needsAuthentication,
     needsMiningPool,
     errors,
     hasDeviceError,

@@ -122,6 +122,16 @@ describe("getMinerMeasurement", () => {
     expect(result).toHaveLength(0);
   });
 
+  it("returns measurement data when miner needs a password change", () => {
+    const hashrateData = [createMeasurement(100)];
+    const miner = createMinerSnapshot({
+      deviceStatus: DeviceStatus.ONLINE,
+      pairingStatus: PairingStatus.DEFAULT_PASSWORD,
+      hashrate: hashrateData,
+    });
+    expect(getMinerMeasurement(miner, hashrateGetter)).toEqual(hashrateData);
+  });
+
   it("returns stable empty array reference for needs-pool state", () => {
     const miner = createMinerSnapshot({
       deviceStatus: DeviceStatus.NEEDS_MINING_POOL,

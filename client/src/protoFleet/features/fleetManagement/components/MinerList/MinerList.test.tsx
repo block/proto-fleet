@@ -1029,17 +1029,18 @@ describe("MinerList", () => {
       },
     );
 
-    it("keeps authentication-needed miners selectable and flags the selection to the action bar", async () => {
+    it("keeps credential-remediation miners visible but only auth-needed miners non-selectable", async () => {
       const user = userEvent.setup();
 
       renderMinerList({
         title: "Miners",
-        minerIds: ["m1", "m2"],
+        minerIds: ["m1", "m2", "m3"],
         miners: {
           m1: createMinerSnapshot("m1", PairingStatus.AUTHENTICATION_NEEDED),
-          m2: createMinerSnapshot("m2"),
+          m2: createMinerSnapshot("m2", PairingStatus.DEFAULT_PASSWORD),
+          m3: createMinerSnapshot("m3"),
         },
-        totalMiners: 2,
+        totalMiners: 3,
         totalDisabledMiners: 1,
         currentPage: 0,
         onAddMiners: vi.fn(),
@@ -1047,15 +1048,24 @@ describe("MinerList", () => {
       });
 
       const rowCheckboxes = screen.getAllByTestId("checkbox");
-      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      const inputs = rowCheckboxes.map(
+        (checkbox) => checkbox.querySelector("input[type='checkbox']") as HTMLInputElement,
+      );
 
-      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
-      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
+      expect(inputs[0]).toBeDisabled();
+      expect(inputs[1]).not.toBeDisabled();
+      expect(inputs[2]).not.toBeDisabled();
+
+      await user.click(inputs[1]);
+
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m2");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
 
       await user.click(screen.getByTestId("mock-action-bar-select-all"));
 
-      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1,m2");
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m2,m3");
       expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
     });
 
     it("does not flag the selection as auth-needed when no selected miner needs authentication", async () => {

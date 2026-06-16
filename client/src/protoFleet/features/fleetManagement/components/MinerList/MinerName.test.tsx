@@ -92,15 +92,15 @@ describe("MinerName", () => {
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
   });
 
-  it("restricts row actions while keeping security available when password change is required", () => {
+  it("does not treat default-password miners as authentication-blocked", () => {
     const miner = createMockMiner({ pairingStatus: PairingStatus.DEFAULT_PASSWORD });
 
     render(<MinerName miner={miner} errors={[]} isActionLoading={false} onOpenStatusFlow={vi.fn()} />);
 
+    expect(screen.getByTitle("Test Miner")).not.toHaveClass("opacity-50");
     const lastCall = singleMinerActionsMenuMock.mock.calls[singleMinerActionsMenuMock.mock.calls.length - 1];
     expect(lastCall?.[0]).toMatchObject({
-      needsAuthentication: true,
-      allowSecurityAction: true,
+      needsAuthentication: false,
     });
   });
 

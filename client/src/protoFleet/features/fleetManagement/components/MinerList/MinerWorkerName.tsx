@@ -1,8 +1,6 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
-import {
-  type MinerStateSnapshot,
-  PairingStatus,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { type MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { needsAuthentication } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import Tooltip from "@/shared/components/Tooltip";
 import { positions } from "@/shared/constants";
 
@@ -26,7 +24,7 @@ const MinerWorkerName = ({ miner }: MinerWorkerNameProps) => {
   const normalizedWorkerName = normalizeWorkerName(miner.workerName);
   const isDefault = isDefaultWorkerName(normalizedWorkerName, miner.macAddress);
 
-  if (miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED) {
+  if (needsAuthentication(miner.pairingStatus)) {
     return null;
   }
 

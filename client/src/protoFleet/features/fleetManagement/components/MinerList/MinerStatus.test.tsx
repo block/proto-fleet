@@ -242,11 +242,11 @@ describe("MinerStatus", () => {
       expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
     });
 
-    it("lets default-password remediation override sleeping status", async () => {
+    it("uses the sleeping status for default-password miners when telemetry says sleeping", async () => {
       const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
       const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useNeedsAttention).mockReturnValue(true);
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
+      vi.mocked(useNeedsAttention).mockReturnValue(false);
+      vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
 
       const miner = createMockMiner({
         pairingStatus: PairingStatus.DEFAULT_PASSWORD,
@@ -255,8 +255,9 @@ describe("MinerStatus", () => {
 
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
 
-      expect(useMinerStatus).toHaveBeenLastCalledWith(false, false, true);
-      expect(screen.getByText("Needs attention")).toBeInTheDocument();
+      expect(useNeedsAttention).toHaveBeenLastCalledWith(false, false, [], false, false);
+      expect(useMinerStatus).toHaveBeenLastCalledWith(false, true, false);
+      expect(screen.getByText("Sleeping")).toBeInTheDocument();
     });
   });
 

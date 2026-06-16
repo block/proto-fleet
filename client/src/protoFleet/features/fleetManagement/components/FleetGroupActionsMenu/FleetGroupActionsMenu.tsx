@@ -8,7 +8,6 @@ import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   MinerListFilterSchema,
   type MinerStateSnapshot,
-  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
@@ -22,6 +21,7 @@ import {
 import MinerActionModalStack from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/MinerActionModalStack";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { needsAuthentication } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { usePermissions } from "@/protoFleet/store";
 import {
   ChevronDown,
@@ -115,7 +115,12 @@ const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 const SCOPED_MINER_LOOKUP_PERMISSION = "miner:read";
 type ScopedMinerLookupResult = {
   deviceIdentifiers: string[];
-  includesUnauthenticatedMiner: boolean;
+  includesAuthenticationNeededMiner: boolean;
+};
+
+const isBlockedByCredentialState = (key: WiredActionKey, lookupResult: ScopedMinerLookupResult): boolean => {
+  if (key === deviceActions.unpair) return false;
+  return lookupResult.includesAuthenticationNeededMiner;
 };
 
 const pluralizeScopeKind = (kind: GroupScope["kind"], count: number) => {
@@ -204,6 +209,7 @@ const FleetGroupActionsMenu = ({
 
     const collected: string[] = [];
     const snapshotMap: Record<string, MinerStateSnapshot> = {};
+    let includesAuthenticationNeededMiner = false;
     const filterInit =
       scopeKind === "building"
         ? { buildingIds: scopeIds }
@@ -222,6 +228,7 @@ const FleetGroupActionsMenu = ({
       for (const miner of response.miners) {
         collected.push(miner.deviceIdentifier);
         snapshotMap[miner.deviceIdentifier] = miner;
+        if (needsAuthentication(miner.pairingStatus)) includesAuthenticationNeededMiner = true;
       }
       if (!response.cursor) {
         exhausted = true;
@@ -237,9 +244,7 @@ const FleetGroupActionsMenu = ({
     setMinerSnapshots(snapshotMap);
     return {
       deviceIdentifiers: collected,
-      includesUnauthenticatedMiner: Object.values(snapshotMap).some(
-        (miner) => miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED,
-      ),
+      includesAuthenticationNeededMiner,
     };
   }, [scopeIds, scopeKind, scopeLabel]);
 
@@ -284,7 +289,7 @@ const FleetGroupActionsMenu = ({
         onActionComplete?.();
         return;
       }
-      if (key !== deviceActions.unpair && lookupResult.includesUnauthenticatedMiner) {
+      if (isBlockedByCredentialState(key, lookupResult)) {
         pushToast({
           message: `Some miners in ${scopeLabel} need authentication before this action can run. Unpair those miners or authenticate them first.`,
           status: STATUSES.error,

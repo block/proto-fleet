@@ -724,6 +724,33 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
+    it("keeps Manage security when allowSecurityAction is true (default-password remediation)", () => {
+      // Arrange
+      const actionsWithSecurity = [
+        ...allPopoverActions,
+        {
+          action: settingsActions.security,
+          title: "Manage security",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ] as any[];
+
+      // Act
+      renderWithActions(
+        { needsAuthentication: true, allowSecurityAction: true },
+        { popoverActions: actionsWithSecurity },
+      );
+      fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+
+      // Assert
+      expect(screen.getByText("Manage security")).toBeInTheDocument();
+      expect(screen.getByText("Unpair")).toBeInTheDocument();
+      expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
+      expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
+    });
+
     it("does not disable the menu button when needsAuthentication is true", () => {
       renderWithActions({ needsAuthentication: true });
 

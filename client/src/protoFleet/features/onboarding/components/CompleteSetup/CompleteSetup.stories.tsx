@@ -102,7 +102,7 @@ const CompleteSetupStory = ({ poolNeededCount, authNeededCount, isLoading = fals
   );
 };
 
-export const BothCards = () => <CompleteSetupStory poolNeededCount={6} authNeededCount={3} />;
+export const AllCards = () => <CompleteSetupStory poolNeededCount={6} authNeededCount={3} />;
 
 export const OnlyConfigurePools = () => <CompleteSetupStory poolNeededCount={14} authNeededCount={0} />;
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDeviceSelector } from "./deviceSelector";
+import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 describe("createDeviceSelector", () => {
   describe("when selectionMode is 'all'", () => {
@@ -20,6 +21,23 @@ describe("createDeviceSelector", () => {
       expect(result.selectionType.case).toBe("allDevices");
       if (result.selectionType.case === "allDevices") {
         expect(result.selectionType.value).toBeDefined();
+      }
+    });
+
+    it("includes filter criteria for all-device selectors", () => {
+      const result = createDeviceSelector("all", ["ignored-device"], {
+        deviceStatuses: [DeviceStatus.NEEDS_MINING_POOL],
+        pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
+        models: ["Rig"],
+        manufacturers: ["Proto"],
+      });
+
+      expect(result.selectionType.case).toBe("allDevices");
+      if (result.selectionType.case === "allDevices") {
+        expect(result.selectionType.value?.deviceStatus).toEqual([DeviceStatus.NEEDS_MINING_POOL]);
+        expect(result.selectionType.value?.pairingStatus).toEqual([PairingStatus.DEFAULT_PASSWORD]);
+        expect(result.selectionType.value?.models).toEqual(["Rig"]);
+        expect(result.selectionType.value?.manufacturers).toEqual(["Proto"]);
       }
     });
   });

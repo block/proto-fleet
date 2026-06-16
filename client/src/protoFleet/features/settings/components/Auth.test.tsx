@@ -1,12 +1,24 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthenticationSettings from "./Auth";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
+import useDefaultPasswordMiners from "@/protoFleet/api/useDefaultPasswordMiners";
 import { useLogin } from "@/protoFleet/api/useLogin";
+import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
+import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { useUsername } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/api/useAuth");
+vi.mock("@/protoFleet/api/useDefaultPasswordMiners");
 vi.mock("@/protoFleet/api/useLogin");
+vi.mock("@/protoFleet/api/useMinerModelGroups");
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions");
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/MinerActionModalStack", () => ({
+  default: ({ displayCount }: { displayCount?: number }) => (
+    <div data-testid="miner-action-modal-stack" data-display-count={displayCount ?? 0} />
+  ),
+}));
 vi.mock("@/protoFleet/store");
 vi.mock("@/shared/features/toaster");
 
@@ -14,8 +26,23 @@ const mockSetPassword = vi.fn();
 const mockUpdatePassword = vi.fn();
 const mockUpdateUsername = vi.fn();
 const mockLogin = vi.fn();
+const mockGetMinerModelGroups = vi.fn();
+const mockRefetchDefaultPasswordMiners = vi.fn();
+const mockSecurityActionHandler = vi.fn();
+
+const totalModelGroups = [
+  { model: "Rig", manufacturer: "Proto", count: 202 },
+  { model: "Antminer S21", manufacturer: "Bitmain", count: 78 },
+];
+
+const defaultPasswordModelGroups = [
+  { model: "Rig", manufacturer: "Proto", count: 64 },
+  { model: "Antminer S21", manufacturer: "Bitmain", count: 9 },
+];
 
 beforeEach(() => {
+  vi.clearAllMocks();
+
   vi.mocked(useAuth).mockReturnValue({
     setPassword: mockSetPassword,
     updatePassword: mockUpdatePassword,
@@ -24,9 +51,27 @@ beforeEach(() => {
   });
 
   vi.mocked(useLogin).mockReturnValue(mockLogin);
+  mockGetMinerModelGroups.mockImplementation(async (filter) =>
+    filter?.pairingStatuses?.includes(PairingStatus.DEFAULT_PASSWORD) ? defaultPasswordModelGroups : totalModelGroups,
+  );
+  vi.mocked(useMinerModelGroups).mockReturnValue({
+    getMinerModelGroups: mockGetMinerModelGroups,
+  });
+  vi.mocked(useDefaultPasswordMiners).mockReturnValue({
+    minerIds: [],
+    miners: {},
+    totalMiners: 64,
+    hasMore: false,
+    isLoading: false,
+    hasInitialLoadCompleted: true,
+    loadMore: vi.fn(),
+    refetch: mockRefetchDefaultPasswordMiners,
+    availableModels: [],
+  });
+  vi.mocked(useMinerActions).mockReturnValue({
+    popoverActions: [{ action: "security", actionHandler: mockSecurityActionHandler }],
+  } as unknown as ReturnType<typeof useMinerActions>);
   vi.mocked(useUsername).mockReturnValue("testuser");
-
-  vi.clearAllMocks();
 });
 
 describe("AuthenticationSettings", () => {
@@ -133,6 +178,70 @@ describe("AuthenticationSettings", () => {
       }
 
       expect(getByText("Account password required")).toBeInTheDocument();
+    });
+  });
+
+  describe("devices", () => {
+    it("renders Proto Rig total and default-password counts", async () => {
+      render(<AuthenticationSettings />);
+
+      expect(await screen.findByText("64 miners are using default passwords")).toBeInTheDocument();
+      expect(screen.getByText("Proto Rig")).toBeInTheDocument();
+      expect(screen.getByText("64 with default username/password")).toBeInTheDocument();
+      expect(screen.getByText("202 miners")).toBeInTheDocument();
+      expect(screen.queryByText("Antminer S21")).not.toBeInTheDocument();
+    });
+
+    it("hides the default-password callout when no Proto Rig miners use default passwords", async () => {
+      mockGetMinerModelGroups.mockImplementation(async (filter) =>
+        filter?.pairingStatuses?.includes(PairingStatus.DEFAULT_PASSWORD) ? [] : totalModelGroups,
+      );
+
+      render(<AuthenticationSettings />);
+
+      expect(await screen.findByText("Proto Rig")).toBeInTheDocument();
+      expect(screen.queryByText(/using default passwords/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/with default username\/password/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("default-password-update-button")).not.toBeInTheDocument();
+    });
+
+    it("starts the all-default-password security flow from the Devices card", async () => {
+      render(<AuthenticationSettings />);
+
+      await screen.findByText("64 miners are using default passwords");
+      fireEvent.click(screen.getByTestId("default-password-update-button"));
+
+      expect(mockSecurityActionHandler).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("miner-action-modal-stack")).toHaveAttribute("data-display-count", "64");
+
+      const useMinerActionsCalls = vi.mocked(useMinerActions).mock.calls;
+      const lastUseMinerActionsCall = useMinerActionsCalls[useMinerActionsCalls.length - 1]?.[0];
+      expect(lastUseMinerActionsCall).toMatchObject({
+        selectionMode: "all",
+        totalCount: 64,
+        currentFilter: expect.objectContaining({
+          models: ["Rig"],
+          pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
+        }),
+      });
+    });
+
+    it("refreshes default-password data after the security action completes", async () => {
+      render(<AuthenticationSettings />);
+
+      await screen.findByText("64 miners are using default passwords");
+      const callsBeforeCompletion = mockGetMinerModelGroups.mock.calls.length;
+      const useMinerActionsCalls = vi.mocked(useMinerActions).mock.calls;
+      const onActionComplete = useMinerActionsCalls[useMinerActionsCalls.length - 1]?.[0].onActionComplete;
+
+      await act(async () => {
+        onActionComplete?.();
+      });
+
+      expect(mockRefetchDefaultPasswordMiners).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(mockGetMinerModelGroups).toHaveBeenCalledTimes(callsBeforeCompletion + 2);
+      });
     });
   });
 });

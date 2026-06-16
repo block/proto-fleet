@@ -12,9 +12,9 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import {
   type MinerListFilter,
   MinerListFilterSchema,
+  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
-import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
@@ -80,6 +80,8 @@ const applySiteScopeToMinerFilter = (
   };
 };
 
+const AUTH_NEEDED_PAIRING_STATUSES = [PairingStatus.AUTHENTICATION_NEEDED];
+
 const Fleet = () => {
   const navigate = useNavigate();
   const { listGroups, listRacks } = useDeviceSets();
@@ -133,21 +135,22 @@ const Fleet = () => {
     } as const;
   }, [currentSortConfig]);
 
-  // Count of miners requiring authentication. Refetched in the polling loop
-  // below so the bulk-action gate releases promptly after a fleet-wide auth
-  // resolves (otherwise the count is stale-positive until the next manual
-  // refresh). `hasInitialLoadCompleted` is sticky across refetches, so it
-  // alone can't tell us the count matches the current filter — combine with
-  // `isLoading` to gate while any refetch is in flight.
+  // Count of miners blocked from normal bulk selection. Refetched in the
+  // polling loop below so the bulk-action gate releases promptly after
+  // authentication remediation resolves (otherwise the count is stale-positive
+  // until the next manual refresh). `hasInitialLoadCompleted` is sticky across
+  // refetches, so it alone can't tell us the count matches the current filter —
+  // combine with `isLoading` to gate while any refetch is in flight.
   const {
     totalMiners: totalAuthNeededMiners,
     refetch: refetchAuthNeededMiners,
     hasInitialLoadCompleted: totalAuthNeededMinersInitialLoadCompleted,
     isLoading: totalAuthNeededMinersLoading,
-  } = useAuthNeededMiners({
+  } = useFleet({
     pageSize: 1,
     filter: currentFilter,
     enabled: !siteScopeMatchesNoRows,
+    pairingStatuses: AUTH_NEEDED_PAIRING_STATUSES,
   });
   const totalAuthNeededMinersFresh = totalAuthNeededMinersInitialLoadCompleted && !totalAuthNeededMinersLoading;
   const { exportCsv, isExportingCsv } = useExportMinerListCsv({

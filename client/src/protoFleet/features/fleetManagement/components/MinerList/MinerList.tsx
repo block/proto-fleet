@@ -44,6 +44,8 @@ import {
   FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { isFleetSelectablePairingStatus } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
+import { needsAuthentication } from "@/protoFleet/features/fleetManagement/utils/pairingRemediation";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import {
   protoFieldForTelemetryKey,
@@ -112,7 +114,7 @@ type MinerListProps = {
    */
   totalUnfilteredMiners?: number;
   /**
-   * Total number of disabled miners (requiring authentication).
+   * Total number of disabled miners (requiring credential remediation).
    * Used to calculate selectable count: totalMiners - totalDisabledMiners
    */
   totalDisabledMiners?: number;
@@ -212,9 +214,6 @@ type MinerListProps = {
   onPairingCompleted?: () => void;
 };
 
-// Module-level so the `List`'s memoized helpers keep a stable identity.
-const ALL_ROWS_SELECTABLE = () => true;
-
 type ScopedMinerListBodyProps = {
   /**
    * Selection-scope identifier — when this changes, internal selection state resets.
@@ -311,7 +310,9 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
+  const currentPageSelectableMinerIds = deviceItems
+    .filter((item) => !isRowDisabled(item))
+    .map((item) => item.deviceIdentifier);
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
@@ -403,16 +404,13 @@ const ScopedMinerListBody = ({
         stickyChromeClassName={overflowContainer === false ? PAGE_SCROLL_CHROME_WIDTH : undefined}
         applyColumnWidthsToCells
         total={totalMiners}
-        // Every row is selectable; `totalSelectable = totalMiners` so action-bar
-        // copy and confirmation counts cover both paired and auth-needed miners.
-        totalDisabled={0}
+        totalDisabled={totalDisabledMiners}
         hideTotal
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={isRowDisabled}
-        isRowSelectable={ALL_ROWS_SELECTABLE}
         columnsExemptFromDisabledStyling={new Set([minerCols.name, minerCols.status, minerCols.issues])}
         sortableColumns={sortableColumnsSet}
         currentSort={currentSort}
@@ -567,8 +565,15 @@ const MinerList = ({
     [minerIds, miners, errorsByDevice, batchStateVersion, refreshingMinerIds],
   );
 
+  // AUTHENTICATION_NEEDED rigs cannot be operated until credentials are fixed.
+  // DEFAULT_PASSWORD remains selectable; miner firmware handles operation gates.
   const disabledMinerIdSet = useMemo(
-    () => new Set(minerIds.filter((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED)),
+    () =>
+      new Set(
+        minerIds.filter(
+          (id) => !isFleetSelectablePairingStatus(miners[id]?.pairingStatus ?? PairingStatus.UNSPECIFIED),
+        ),
+      ),
     [minerIds, miners],
   );
   const isRowDisabled = useCallback(
@@ -612,10 +617,10 @@ const MinerList = ({
       const miner = minersRef.current[deviceIdentifier];
       if (!miner) return;
 
-      const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+      const minerNeedsAuthentication = needsAuthentication(miner.pairingStatus);
       const needsMiningPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
-      if (needsAuthentication) {
+      if (minerNeedsAuthentication) {
         setModalFlow({ kind: "authenticate-miners", deviceIdentifier });
         return;
       }

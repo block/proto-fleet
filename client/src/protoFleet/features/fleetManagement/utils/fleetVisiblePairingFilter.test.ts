@@ -59,7 +59,10 @@ describe("applyFleetSelectablePairingStatuses", () => {
       pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED, PairingStatus.DEFAULT_PASSWORD],
     });
 
-    expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([PairingStatus.PAIRED]);
+    expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([
+      PairingStatus.PAIRED,
+      PairingStatus.DEFAULT_PASSWORD,
+    ]);
   });
 
   it("preserves an empty selectable intersection for explicit non-selectable filters", () => {
@@ -86,6 +89,6 @@ describe("isFleetSelectablePairingStatus", () => {
   it("returns true only for pairing statuses that can be selected in the miner list", () => {
     expect(isFleetSelectablePairingStatus(PairingStatus.PAIRED)).toBe(true);
     expect(isFleetSelectablePairingStatus(PairingStatus.AUTHENTICATION_NEEDED)).toBe(false);
-    expect(isFleetSelectablePairingStatus(PairingStatus.DEFAULT_PASSWORD)).toBe(false);
+    expect(isFleetSelectablePairingStatus(PairingStatus.DEFAULT_PASSWORD)).toBe(true);
   });
 });

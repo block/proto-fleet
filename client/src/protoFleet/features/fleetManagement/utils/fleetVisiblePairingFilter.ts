@@ -11,7 +11,10 @@ export const FLEET_VISIBLE_PAIRING_STATUSES: PairingStatus[] = [
   PairingStatus.DEFAULT_PASSWORD,
 ];
 
-export const FLEET_SELECTABLE_PAIRING_STATUSES: PairingStatus[] = [PairingStatus.PAIRED];
+export const FLEET_SELECTABLE_PAIRING_STATUSES: PairingStatus[] = [
+  PairingStatus.PAIRED,
+  PairingStatus.DEFAULT_PASSWORD,
+];
 
 const fleetVisiblePairingStatusSet = new Set<number>(FLEET_VISIBLE_PAIRING_STATUSES);
 const fleetSelectablePairingStatusSet = new Set<number>(FLEET_SELECTABLE_PAIRING_STATUSES);

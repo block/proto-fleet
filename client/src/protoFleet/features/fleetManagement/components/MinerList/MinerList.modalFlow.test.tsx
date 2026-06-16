@@ -152,6 +152,22 @@ describe("MinerList modal flow orchestration", () => {
     expect(screen.queryByTestId("pool-selection-page")).not.toBeInTheDocument();
   });
 
+  it("opens fleet auth then pool selection for default-password miners that need pools", async () => {
+    const user = userEvent.setup();
+    minersById["miner-1"] = {
+      pairingStatus: PairingStatus.DEFAULT_PASSWORD,
+      deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
+    };
+
+    renderMinerList();
+    await user.click(screen.getByTestId("open-status-flow"));
+
+    expect(screen.getByTestId("authenticate-fleet-modal")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("authenticate-fleet-success"));
+    expect(screen.getByTestId("pool-selection-page")).toBeInTheDocument();
+  });
+
   it("opens status modal for non-auth, non-pool miners and closes cleanly", async () => {
     const user = userEvent.setup();
     minersById["miner-1"] = {
@@ -165,5 +181,19 @@ describe("MinerList modal flow orchestration", () => {
 
     await user.click(screen.getByTestId("status-modal-close"));
     expect(screen.queryByTestId("status-modal")).not.toBeInTheDocument();
+  });
+
+  it("opens status modal for default-password miners without pool issues", async () => {
+    const user = userEvent.setup();
+    minersById["miner-1"] = {
+      pairingStatus: PairingStatus.DEFAULT_PASSWORD,
+      deviceStatus: DeviceStatus.ONLINE,
+    };
+
+    renderMinerList();
+    await user.click(screen.getByTestId("open-status-flow"));
+
+    expect(screen.getByTestId("status-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("authenticate-fleet-modal")).not.toBeInTheDocument();
   });
 });

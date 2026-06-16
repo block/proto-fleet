@@ -48,9 +48,10 @@ test.describe("Mining Pools", () => {
 
         await commonSteps.goToMinersPage();
 
-        const amountOfMiners = await minersPage.getMinersCount();
-        if (amountOfMiners > 0) {
+        const totalMiners = await minersPage.getMinersCount();
+        if (totalMiners > 0) {
           await minersPage.clickSelectAllCheckbox();
+          const amountOfMiners = await minersPage.getSelectedMinersCount();
           await minersPage.clickActionsMenuButton();
           await minersPage.clickEditMiningPoolButton();
           await loginModal.loginAsAdmin();

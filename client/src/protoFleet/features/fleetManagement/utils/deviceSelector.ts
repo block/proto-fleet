@@ -10,7 +10,11 @@ import { type SelectionMode } from "@/shared/components/List";
 
 export interface DeviceFilterCriteria {
   deviceStatus?: DeviceStatus;
+  deviceStatuses?: DeviceStatus[];
   pairingStatus?: PairingStatus;
+  pairingStatuses?: PairingStatus[];
+  models?: string[];
+  manufacturers?: string[];
 }
 
 /**
@@ -32,8 +36,12 @@ export const createDeviceSelector = (
       selectionType: {
         case: "allDevices",
         value: create(DeviceFilterSchema, {
-          deviceStatus: filterCriteria?.deviceStatus ? [filterCriteria.deviceStatus] : [],
-          pairingStatus: filterCriteria?.pairingStatus ? [filterCriteria.pairingStatus] : [],
+          deviceStatus:
+            filterCriteria?.deviceStatuses ?? (filterCriteria?.deviceStatus ? [filterCriteria.deviceStatus] : []),
+          pairingStatus:
+            filterCriteria?.pairingStatuses ?? (filterCriteria?.pairingStatus ? [filterCriteria.pairingStatus] : []),
+          models: filterCriteria?.models ?? [],
+          manufacturers: filterCriteria?.manufacturers ?? [],
         }),
       },
     });
