@@ -85,30 +85,6 @@ func (h *Handler) ListCollections(ctx context.Context, r *connect.Request[pb.Lis
 	return connect.NewResponse(result), nil
 }
 
-// AddDevicesToCollection adds devices to a collection.
-func (h *Handler) AddDevicesToCollection(ctx context.Context, r *connect.Request[pb.AddDevicesToCollectionRequest]) (*connect.Response[pb.AddDevicesToCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.collectionSvc.AddDevicesToCollection(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(result), nil
-}
-
-// RemoveDevicesFromCollection removes devices from a collection.
-func (h *Handler) RemoveDevicesFromCollection(ctx context.Context, r *connect.Request[pb.RemoveDevicesFromCollectionRequest]) (*connect.Response[pb.RemoveDevicesFromCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.collectionSvc.RemoveDevicesFromCollection(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(result), nil
-}
-
 // ListCollectionMembers returns all members of a collection.
 func (h *Handler) ListCollectionMembers(ctx context.Context, r *connect.Request[pb.ListCollectionMembersRequest]) (*connect.Response[pb.ListCollectionMembersResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {

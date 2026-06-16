@@ -12,6 +12,7 @@ import (
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1"
 	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/foreman"
@@ -64,20 +65,25 @@ func (f *fakeCollectionManager) CreateCollection(_ context.Context, _ *collectio
 	}, nil
 }
 
-func (f *fakeCollectionManager) AddDevicesToCollection(_ context.Context, req *collectionpb.AddDevicesToCollectionRequest) (*collectionpb.AddDevicesToCollectionResponse, error) {
+func (f *fakeCollectionManager) AddDevicesToGroup(_ context.Context, params collection.AddDevicesToGroupParams) (*collection.AddDevicesToGroupResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var count int32
-	if sel := req.GetDeviceSelector(); sel != nil {
+	if sel := params.DeviceSelector; sel != nil {
 		if dl := sel.GetDeviceList(); dl != nil {
 			count = int32(len(dl.DeviceIdentifiers)) //nolint:gosec
 		}
 	}
 	f.devicesAdded += count
-	return &collectionpb.AddDevicesToCollectionResponse{
-		CollectionId: req.CollectionId,
-		AddedCount:   count,
-	}, nil
+	return &collection.AddDevicesToGroupResult{AddedCount: int64(count)}, nil
+}
+
+func (f *fakeCollectionManager) AssignDevicesToRack(_ context.Context, params collection.AssignDevicesToRackParams) (*collection.AssignDevicesToRackResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count := int32(len(params.DeviceIdentifiers)) //nolint:gosec
+	f.devicesAdded += count
+	return &collection.AssignDevicesToRackResult{AssignedCount: int64(count)}, nil
 }
 
 func (f *fakeCollectionManager) ListCollections(_ context.Context, _ *collectionpb.ListCollectionsRequest) (*collectionpb.ListCollectionsResponse, error) {

@@ -695,194 +695,150 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
 }
 
-type membershipChangeResult struct {
-	collection   *pb.DeviceCollection
-	count        int64
-	conflicts    []interfaces.AddedDeviceSiteConflict
-	finalSiteID  *int64
-	cascadeCount int64
+// AddDevicesToGroupParams is the domain-layer input shape for adding
+// devices to a group device set. TargetGroupID must point at a group;
+// rack adds must go through AssignDevicesToRack to get atomic prior-rack
+// removal + site cascade.
+type AddDevicesToGroupParams struct {
+	TargetGroupID  int64
+	DeviceSelector *commonpb.DeviceSelector
 }
 
-// AddDevicesToCollection adds devices to a collection.
-func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevicesToCollectionRequest) (*pb.AddDevicesToCollectionResponse, error) {
+// AddDevicesToGroupResult carries the added-row count for the activity
+// log + handler response surface.
+type AddDevicesToGroupResult struct {
+	AddedCount int64
+}
+
+// AddDevicesToGroup adds devices to a group device set. Groups are
+// org-scoped (devices may span sites) so this skips the rack site
+// cascade entirely. Rack targets are rejected with InvalidArgument.
+func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGroupParams) (*AddDevicesToGroupResult, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, params.DeviceSelector, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
+	type txOut struct {
+		added int64
+		label string
+	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, params.TargetGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if coll.Type != pb.CollectionType_COLLECTION_TYPE_GROUP {
+			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
+		}
+
+		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		// Lock rack FOR UPDATE so the cascade reads rack.site_id under a
-		// write lock that serializes against SiteService writers. Skip the
-		// site lock — that would invert canonical lock order and deadlock
-		// against concurrent site moves. Groups skip lock and cascade.
-		var (
-			conflicts    []interfaces.AddedDeviceSiteConflict
-			finalSiteID  *int64
-			cascadeCount int64
-		)
-		if coll.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-			finalSiteID = placement.SiteID
-			if placement.SiteID != nil {
-				conflicts, err = s.collectionStore.GetAddedDeviceSiteConflicts(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-
-		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-		if err != nil {
-			return nil, err
-		}
-
-		if coll.Type == pb.CollectionType_COLLECTION_TYPE_RACK && finalSiteID != nil {
-			n, err := s.collectionStore.CascadeAddedDeviceSites(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-			if err != nil {
-				return nil, err
-			}
-			cascadeCount = n
-		}
-
-		return &membershipChangeResult{
-			collection:   coll,
-			count:        addedCount,
-			conflicts:    conflicts,
-			finalSiteID:  finalSiteID,
-			cascadeCount: cascadeCount,
-		}, nil
+		return &txOut{added: addedCount, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	txResult, ok := result.(*membershipChangeResult)
+	out, ok := result.(*txOut)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	addedCountInt := int(txResult.count)
-	scopeType := collectionScopeType(txResult.collection.Type)
-	label := txResult.collection.Label
-	addEvent := activitymodels.Event{
+	addedCountInt := int(out.added)
+	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
+	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "add_devices",
-		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, label),
+		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, out.label),
 		ScopeType:      &scopeType,
-		ScopeLabel:     &label,
+		ScopeLabel:     &out.label,
 		ScopeCount:     &addedCountInt,
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-		SiteID:         txResult.finalSiteID,
-	}
-	if len(txResult.conflicts) > 0 {
-		total := len(txResult.conflicts)
-		capacity := total
-		if capacity > maxCascadeAuditEntries {
-			capacity = maxCascadeAuditEntries
-		}
-		priors := make([]map[string]any, 0, capacity)
-		for i, c := range txResult.conflicts {
-			if i >= maxCascadeAuditEntries {
-				break
-			}
-			row := map[string]any{
-				"device_identifier": c.DeviceIdentifier,
-				"target_site_id":    c.TargetSiteID,
-			}
-			if c.PriorSiteID != nil {
-				row["prior_site_id"] = *c.PriorSiteID
-			}
-			priors = append(priors, row)
-		}
-		meta := map[string]any{
-			"site_cascade":          true,
-			"final_site_id":         txResult.finalSiteID,
-			"site_reassigned_count": txResult.cascadeCount,
-			"device_site_changes":   priors,
-			"total_affected":        total,
-		}
-		if total > maxCascadeAuditEntries {
-			meta["truncated"] = true
-		}
-		addEvent.Metadata = meta
-	}
-	s.logActivity(ctx, addEvent)
+	})
 
-	// #nosec G115 -- addedCount is bounded by request size which is limited by gRPC message size
-	return &pb.AddDevicesToCollectionResponse{
-		CollectionId: req.CollectionId,
-		AddedCount:   int32(txResult.count),
-		// #nosec G115 -- cascadeCount bounded by added member count
-		SiteReassignedCount: int32(txResult.cascadeCount),
-	}, nil
+	return &AddDevicesToGroupResult{AddedCount: out.added}, nil
 }
 
-// RemoveDevicesFromCollection removes devices from a collection.
-func (s *Service) RemoveDevicesFromCollection(ctx context.Context, req *pb.RemoveDevicesFromCollectionRequest) (*pb.RemoveDevicesFromCollectionResponse, error) {
+// RemoveDevicesFromGroupParams is the domain-layer input shape for
+// removing devices from a group device set. Rack targets are rejected
+// with InvalidArgument; use AssignDevicesToRack (target_rack_id unset)
+// to clear rack membership.
+type RemoveDevicesFromGroupParams struct {
+	TargetGroupID  int64
+	DeviceSelector *commonpb.DeviceSelector
+}
+
+// RemoveDevicesFromGroupResult carries the removed-row count for the
+// activity log + handler response surface.
+type RemoveDevicesFromGroupResult struct {
+	RemovedCount int64
+}
+
+// RemoveDevicesFromGroup removes devices from a group device set.
+func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevicesFromGroupParams) (*RemoveDevicesFromGroupResult, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+	deviceIdentifiers, err := s.resolveDeviceIdentifiers(ctx, params.DeviceSelector, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
+	type txOut struct {
+		removed int64
+		label   string
+	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, params.TargetGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if coll.Type != pb.CollectionType_COLLECTION_TYPE_GROUP {
+			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
+		}
+
+		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
-		if err != nil {
-			return nil, err
-		}
-
-		return &membershipChangeResult{collection: coll, count: removedCount}, nil
+		return &txOut{removed: removedCount, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	txResult, ok := result.(*membershipChangeResult)
+	out, ok := result.(*txOut)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	removedCountInt := int(txResult.count)
-	scopeType := collectionScopeType(txResult.collection.Type)
-	label := txResult.collection.Label
+	removedCountInt := int(out.removed)
+	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
 	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "remove_devices",
-		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, label),
+		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, out.label),
 		ScopeType:      &scopeType,
-		ScopeLabel:     &label,
+		ScopeLabel:     &out.label,
 		ScopeCount:     &removedCountInt,
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 	})
 
-	// #nosec G115 -- removedCount is bounded by request size which is limited by gRPC message size
-	return &pb.RemoveDevicesFromCollectionResponse{RemovedCount: int32(txResult.count)}, nil
+	return &RemoveDevicesFromGroupResult{RemovedCount: out.removed}, nil
 }
 
 // uniqueIdentifiers returns the unique entries of ids, preserving no
@@ -909,8 +865,19 @@ type AssignDevicesToRackParams struct {
 
 // AssignDevicesToRackResult carries the per-step row counts the
 // activity log + handler response surface.
+//
+// AssignedCount is "devices whose membership now points at the target
+// rack" — includes devices that were already in the target before this
+// call. NewlyAssignedCount is the subset that were newly inserted on
+// this call (i.e. excludes prior-target membership rows preserved by the
+// excludeRackID predicate in RemoveDevicesFromAnyRack). Callers that
+// surface user-facing "how many were added" metrics — e.g. the bulk
+// importer — must use NewlyAssignedCount; re-imports over already-
+// assigned devices would otherwise overstate the count by the size of
+// the overlap.
 type AssignDevicesToRackResult struct {
 	AssignedCount       int64
+	NewlyAssignedCount  int64
 	RemovedCount        int64
 	SiteReassignedCount int64
 }
@@ -932,10 +899,14 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}
 
 	type txOut struct {
-		assigned       int64
-		removed        int64
-		siteReassigned int64
-		targetLabel    string
+		assigned          int64
+		newlyAssigned     int64
+		removed           int64
+		siteReassigned    int64
+		targetLabel       string
+		finalSiteID       *int64
+		deviceSiteChanges []map[string]any
+		totalAffected     int
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
@@ -982,8 +953,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		}
 
 		var (
-			assigned       int64
-			siteReassigned int64
+			assigned          int64
+			newlyAssigned     int64
+			siteReassigned    int64
+			deviceSiteChanges []map[string]any
+			totalAffected     int
 		)
 		if params.TargetRackID != nil {
 			// AddDevicesToCollection uses ON CONFLICT DO NOTHING, so its
@@ -995,12 +969,29 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			// excludeRackID predicate). Missing devices (not present in
 			// our DB at all) are silently skipped by the store layer,
 			// matching pre-PR behavior; we count the unique requested
-			// identifiers as the defensible approximation.
-			if _, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers); err != nil {
+			// identifiers as the defensible approximation. The store's
+			// return value — only newly-inserted rows — is the
+			// "newly added" half of the contract, exposed separately for
+			// callers that need to match the old AddDevicesToCollection
+			// semantics (e.g. the bulk importer's devices_assigned
+			// counter, which would otherwise inflate on re-imports).
+			added, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
+			if err != nil {
 				return nil, err
 			}
+			newlyAssigned = added
 			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
 			if targetSiteID != nil {
+				// Capture per-device priors BEFORE the cascade rewrites
+				// device.site_id, so the activity audit reflects the
+				// implicit site reassignment. Mirrors the CreateCollection
+				// cascade-audit path so audit consumers can treat both
+				// event types uniformly.
+				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
+				if err != nil {
+					return nil, err
+				}
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, targetSiteID)
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
 				if err != nil {
 					return nil, err
@@ -1010,10 +1001,14 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		}
 
 		return &txOut{
-			assigned:       assigned,
-			removed:        removed,
-			siteReassigned: siteReassigned,
-			targetLabel:    targetLabel,
+			assigned:          assigned,
+			newlyAssigned:     newlyAssigned,
+			removed:           removed,
+			siteReassigned:    siteReassigned,
+			targetLabel:       targetLabel,
+			finalSiteID:       targetSiteID,
+			deviceSiteChanges: deviceSiteChanges,
+			totalAffected:     totalAffected,
 		}, nil
 	})
 	if err != nil {
@@ -1056,15 +1051,37 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		UserID:         userID,
 		Username:       username,
 		OrganizationID: orgIDPtr,
+		SiteID:         out.finalSiteID,
 	}
 	if eventScopeStr != "" {
 		event.ScopeType = &eventScopeStr
 		event.ScopeLabel = &out.targetLabel
 	}
+	// Cascade-audit metadata mirrors the CreateCollection path so audit
+	// consumers don't need to special-case this event when reconstructing
+	// implicit device.site_id reassignments.
+	if out.siteReassigned > 0 || out.totalAffected > 0 {
+		meta := map[string]any{
+			"site_cascade":          true,
+			"final_site_id":         out.finalSiteID,
+			"site_reassigned_count": out.siteReassigned,
+		}
+		if len(out.deviceSiteChanges) > 0 {
+			meta["device_site_changes"] = out.deviceSiteChanges
+		}
+		if out.totalAffected > 0 {
+			meta["total_affected"] = out.totalAffected
+			if out.totalAffected > maxCascadeAuditEntries {
+				meta["truncated"] = true
+			}
+		}
+		event.Metadata = meta
+	}
 	s.logActivity(ctx, event)
 
 	return &AssignDevicesToRackResult{
 		AssignedCount:       out.assigned,
+		NewlyAssignedCount:  out.newlyAssigned,
 		RemovedCount:        out.removed,
 		SiteReassignedCount: out.siteReassigned,
 	}, nil

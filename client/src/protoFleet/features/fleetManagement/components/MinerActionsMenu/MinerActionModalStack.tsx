@@ -31,7 +31,7 @@ const MinerActionModalStack = ({
   displayCount,
   onActionBoundary,
 }: MinerActionModalStackProps) => {
-  const { addDevicesToDeviceSet, createGroup } = useDeviceSets();
+  const { addDevicesToGroup, createGroup } = useDeviceSets();
   const wrap = useCallback(
     <Args extends unknown[]>(handler: (...args: Args) => void) =>
       onActionBoundary
@@ -54,8 +54,8 @@ const MinerActionModalStack = ({
   const dispatchAddToGroup = useCallback(
     (groupId: bigint) =>
       new Promise<void>((resolve, reject) => {
-        void addDevicesToDeviceSet({
-          deviceSetId: groupId,
+        void addDevicesToGroup({
+          targetGroupId: groupId,
           deviceIdentifiers,
           allDevices,
           onSuccess: () => {
@@ -71,7 +71,7 @@ const MinerActionModalStack = ({
           },
         });
       }),
-    [addDevicesToDeviceSet, deviceIdentifiers, allDevices, sourceLabel],
+    [addDevicesToGroup, deviceIdentifiers, allDevices, sourceLabel],
   );
 
   const handleAddToGroupConfirm = useCallback(
