@@ -127,6 +127,7 @@ describe("PageHeader", () => {
     const mobileWidgets = screen.getByTestId("page-header-mobile-widgets");
 
     expect(screen.getByTestId("page-header-location-area")).toHaveClass("min-w-0", "flex-1");
+    expect(screen.getByTestId("page-header-selector-area")).toHaveClass("min-w-0", "flex-1");
     expect(within(inlineWidgets).getByText("Curtailment pill")).toBeVisible();
     expect(inlineWidgets).toHaveClass("min-w-0");
     expect(inlineWidgets).not.toHaveClass("shrink-0");

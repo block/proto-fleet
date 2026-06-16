@@ -191,11 +191,13 @@ function PageHeader({
                 testId="navigation-menu-button"
               />
             ) : null}
-            {MULTI_SITE_ENABLED ? (
-              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
-            ) : (
-              <LocationSelector />
-            )}
+            <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
+              {MULTI_SITE_ENABLED ? (
+                <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
+              ) : (
+                <LocationSelector />
+              )}
+            </div>
           </div>
           {!isPhone && headerWidgetEnabled ? (
             <HeaderWidgets testId="page-header-desktop-widgets" widgets={headerWidgetKinds} {...headerWidgetsProps} />
