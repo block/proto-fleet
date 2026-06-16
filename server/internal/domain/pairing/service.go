@@ -1344,7 +1344,7 @@ func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID
 		return false, err
 	}
 
-	if pairingStatus != StatusPaired {
+	if !shouldScheduleTelemetryForPairingStatus(pairingStatus) {
 		slog.Info("skipping telemetry scheduling for device that is not fully paired",
 			"device_identifier", deviceID,
 			"pairing_status", pairingStatus)
@@ -1352,6 +1352,10 @@ func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID
 	}
 
 	return true, nil
+}
+
+func shouldScheduleTelemetryForPairingStatus(pairingStatus string) bool {
+	return pairingStatus == StatusPaired || pairingStatus == StatusDefaultPassword
 }
 
 // isCredentialsRequiredError checks if an error indicates that credentials are required but not provided
