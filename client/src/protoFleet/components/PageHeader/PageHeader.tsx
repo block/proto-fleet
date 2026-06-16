@@ -180,8 +180,19 @@ function PageHeader({
   return (
     <>
       <div className="flex h-12 items-center laptop:h-15">
-        <div className="flex grow items-center px-4">
-          <div className="flex min-w-0 flex-1 items-center" data-testid="page-header-location-area">
+        <div
+          className={clsx(
+            "w-full px-4",
+            inlineFirstPhoneWidget
+              ? "grid grid-cols-[minmax(0,1fr)_minmax(0,min(15rem,45vw))] items-center gap-3"
+              : "flex grow items-center",
+          )}
+          data-testid="page-header-content"
+        >
+          <div
+            className={clsx("flex min-w-0 items-center", !inlineFirstPhoneWidget && "flex-1")}
+            data-testid="page-header-location-area"
+          >
             {isPhone || isTablet ? (
               <Pause
                 ariaExpanded={isMenuOpen}
@@ -204,7 +215,7 @@ function PageHeader({
           ) : null}
           {inlineFirstPhoneWidget ? (
             <HeaderWidgets
-              className="ml-3 min-w-0 justify-end"
+              className="min-w-0 justify-end overflow-hidden"
               testId="page-header-inline-widgets"
               widgets={phoneTopWidgetKinds}
               {...headerWidgetsProps}

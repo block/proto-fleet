@@ -126,10 +126,16 @@ describe("PageHeader", () => {
     const inlineWidgets = screen.getByTestId("page-header-inline-widgets");
     const mobileWidgets = screen.getByTestId("page-header-mobile-widgets");
 
-    expect(screen.getByTestId("page-header-location-area")).toHaveClass("min-w-0", "flex-1");
+    expect(screen.getByTestId("page-header-content")).toHaveClass(
+      "grid",
+      "grid-cols-[minmax(0,1fr)_minmax(0,min(15rem,45vw))]",
+    );
+    expect(screen.getByTestId("page-header-location-area")).toHaveClass("min-w-0");
+    expect(screen.getByTestId("page-header-location-area")).not.toHaveClass("flex-1");
     expect(screen.getByTestId("page-header-selector-area")).toHaveClass("min-w-0", "flex-1");
     expect(within(inlineWidgets).getByText("Curtailment pill")).toBeVisible();
-    expect(inlineWidgets).toHaveClass("min-w-0");
+    expect(inlineWidgets).toHaveClass("min-w-0", "overflow-hidden");
+    expect(inlineWidgets).not.toHaveClass("ml-3");
     expect(inlineWidgets).not.toHaveClass("shrink-0");
     expect(within(mobileWidgets).queryByText("Curtailment pill")).not.toBeInTheDocument();
     expect(within(mobileWidgets).getByText("Night reboot")).toBeVisible();
