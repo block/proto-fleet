@@ -101,8 +101,8 @@ func TestHandler_GetSiteStats_plumbsResponse(t *testing.T) {
 	h := newStatsHandler(t)
 
 	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), int64(1)).Return(true, nil)
+	h.siteStore.EXPECT().CountBuildingsBySite(gomock.Any(), int64(7), int64(1)).Return(int64(0), nil)
 	h.siteStore.EXPECT().CountRacksBySite(gomock.Any(), int64(7), int64(1)).Return(int64(2), nil)
-	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 	h.deviceQueryer.deviceIDs = nil // empty short-circuit; telemetry never called
 
 	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteRead, authz.PermFleetRead)

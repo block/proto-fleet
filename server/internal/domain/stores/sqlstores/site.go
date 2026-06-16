@@ -102,6 +102,17 @@ func (s *SQLSiteStore) CountRacksBySite(ctx context.Context, orgID, siteID int64
 	return count, nil
 }
 
+func (s *SQLSiteStore) CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountBuildingsBySite(ctx, sqlc.CountBuildingsBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count buildings by site: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error) {
 	q := s.GetQueries(ctx)
 	if err := q.UpdateSite(ctx, sqlc.UpdateSiteParams{

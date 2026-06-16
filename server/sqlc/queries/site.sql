@@ -82,6 +82,13 @@ WHERE dsr.org_id = sqlc.arg('org_id')
   AND dsr.site_id = sqlc.arg('site_id')
   AND ds.deleted_at IS NULL;
 
+-- name: CountBuildingsBySite :one
+SELECT COUNT(*)::bigint
+FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
 -- name: UpdateSite :exec
 UPDATE site
 SET name              = sqlc.arg('name'),

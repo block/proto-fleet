@@ -9,7 +9,6 @@ import (
 	"go.uber.org/mock/gomock"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -82,13 +81,10 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(3), nil)
 	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(2), nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(
-		[]buildingsmodels.BuildingWithCounts{{}, {}, {}}, // 3 buildings
-		nil,
-	)
 
 	devices := &fakeDeviceQueryer{
 		deviceIDs: []string{"d1", "d2", "d3"},
@@ -155,10 +151,10 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	devices := &fakeDeviceQueryer{deviceIDs: nil} // no devices → telemetry not called
 	svc := NewService(store, buildingStore, nil, devices, &fakeTelemetryCollector{}, &fakeTransactor{}, nil)
@@ -195,9 +191,9 @@ func TestGetSiteStats_failsFastOverCap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	overCap := make([]string, MaxDevicesPerSiteStatsRequest+1)
 	for i := range overCap {
@@ -218,9 +214,9 @@ func TestGetSiteStats_emptyDevicesShortCircuits(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().CountBuildingsBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	store.EXPECT().CountRacksBySite(gomock.Any(), testOrgID, int64(1)).Return(int64(0), nil)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	// Telemetry should never fire when device list is empty — set err so
 	// any unexpected call would surface.

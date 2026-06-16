@@ -40,6 +40,26 @@ func (q *Queries) AssignDevicesToSite(ctx context.Context, arg AssignDevicesToSi
 	return result.RowsAffected()
 }
 
+const countBuildingsBySite = `-- name: CountBuildingsBySite :one
+SELECT COUNT(*)::bigint
+FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountBuildingsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countBuildingsBySiteStmt, countBuildingsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countRacksBySite = `-- name: CountRacksBySite :one
 SELECT COUNT(*)::bigint
 FROM device_set_rack dsr

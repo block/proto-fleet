@@ -15,7 +15,6 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
-	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
@@ -820,8 +819,8 @@ func formatSiteIDForDescription(target *int64) string {
 // in the site (racked or directly site-attached) plus the live building
 // count. NotFound when the site doesn't exist in the org.
 func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*models.SiteStats, error) {
-	if s.deviceQueryer == nil || s.telemetry == nil || s.buildingStore == nil {
-		return nil, fleeterror.NewInternalErrorf("sites.GetSiteStats requires deviceQueryer, telemetry, and buildingStore")
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("sites.GetSiteStats requires deviceQueryer and telemetry")
 	}
 
 	// Existence check — NotFound if the site is gone or belongs to a
@@ -834,8 +833,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 		return nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
 	}
 
-	// Building count from the buildings store.
-	bldgs, err := s.buildingStore.ListBuildings(ctx, buildingsmodels.ListFilter{OrgID: orgID, SiteID: &siteID})
+	buildingCount, err := s.store.CountBuildingsBySite(ctx, orgID, siteID)
 	if err != nil {
 		return nil, err
 	}
@@ -872,7 +870,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 
 	stats := &models.SiteStats{
 		SiteID:        siteID,
-		BuildingCount: int32(len(bldgs)),     //nolint:gosec // building count bounded by org config
+		BuildingCount: int32(buildingCount),  //nolint:gosec // building count bounded by org config
 		RackCount:     int32(rackCount),      //nolint:gosec // rack count bounded by org config
 		DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
 	}

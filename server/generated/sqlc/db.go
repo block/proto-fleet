@@ -114,6 +114,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActivityLogsStmt, err = db.PrepareContext(ctx, countActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActivityLogs: %w", err)
 	}
+	if q.countBuildingsBySiteStmt, err = db.PrepareContext(ctx, countBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountBuildingsBySite: %w", err)
+	}
 	if q.countComponentsWithErrorsStmt, err = db.PrepareContext(ctx, countComponentsWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountComponentsWithErrors: %w", err)
 	}
@@ -1350,6 +1353,11 @@ func (q *Queries) Close() error {
 	if q.countActivityLogsStmt != nil {
 		if cerr := q.countActivityLogsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActivityLogsStmt: %w", cerr)
+		}
+	}
+	if q.countBuildingsBySiteStmt != nil {
+		if cerr := q.countBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countBuildingsBySiteStmt: %w", cerr)
 		}
 	}
 	if q.countComponentsWithErrorsStmt != nil {
@@ -3226,6 +3234,7 @@ type Queries struct {
 	countActiveAssignmentsForRoleStmt                     *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	countActivityLogsStmt                                 *sql.Stmt
+	countBuildingsBySiteStmt                              *sql.Stmt
 	countComponentsWithErrorsStmt                         *sql.Stmt
 	countCurtailmentAutomationRulesByMQTTSourceStmt       *sql.Stmt
 	countCurtailmentAutomationRulesByResponseProfileStmt  *sql.Stmt
@@ -3623,6 +3632,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countActiveAssignmentsForRoleStmt:                     q.countActiveAssignmentsForRoleStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:              q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                 q.countActivityLogsStmt,
+		countBuildingsBySiteStmt:                              q.countBuildingsBySiteStmt,
 		countComponentsWithErrorsStmt:                         q.countComponentsWithErrorsStmt,
 		countCurtailmentAutomationRulesByMQTTSourceStmt:       q.countCurtailmentAutomationRulesByMQTTSourceStmt,
 		countCurtailmentAutomationRulesByResponseProfileStmt:  q.countCurtailmentAutomationRulesByResponseProfileStmt,

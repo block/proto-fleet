@@ -56,9 +56,8 @@ export const createSiteColConfig = (
   },
   racks: {
     component: (item) => {
-      const id = item.site.site?.id;
       const count = item.stats?.rackCount.toString() ?? item.site.rackCount.toString();
-      return id ? countLink(siteTabHref("racks", id), count) : <span>{count}</span>;
+      return <span>{count}</span>;
     },
     width: "min-w-20",
   },

@@ -30,6 +30,10 @@ type SiteStore interface {
 	// site in the org.
 	CountRacksBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// CountBuildingsBySite returns the number of live buildings attached
+	// to the site in the org.
+	CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// UpdateSite mutates the live site row. Maps unique-violation to
 	// AlreadyExists; returns NotFound when the row is gone.
 	UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error)
