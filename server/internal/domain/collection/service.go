@@ -899,11 +899,14 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}
 
 	type txOut struct {
-		assigned       int64
-		newlyAssigned  int64
-		removed        int64
-		siteReassigned int64
-		targetLabel    string
+		assigned          int64
+		newlyAssigned     int64
+		removed           int64
+		siteReassigned    int64
+		targetLabel       string
+		finalSiteID       *int64
+		deviceSiteChanges []map[string]any
+		totalAffected     int
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
@@ -950,9 +953,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		}
 
 		var (
-			assigned       int64
-			newlyAssigned  int64
-			siteReassigned int64
+			assigned          int64
+			newlyAssigned     int64
+			siteReassigned    int64
+			deviceSiteChanges []map[string]any
+			totalAffected     int
 		)
 		if params.TargetRackID != nil {
 			// AddDevicesToCollection uses ON CONFLICT DO NOTHING, so its
@@ -977,6 +982,16 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			newlyAssigned = added
 			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
 			if targetSiteID != nil {
+				// Capture per-device priors BEFORE the cascade rewrites
+				// device.site_id, so the activity audit reflects the
+				// implicit site reassignment. Mirrors the CreateCollection
+				// cascade-audit path so audit consumers can treat both
+				// event types uniformly.
+				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
+				if err != nil {
+					return nil, err
+				}
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, targetSiteID)
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
 				if err != nil {
 					return nil, err
@@ -986,11 +1001,14 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		}
 
 		return &txOut{
-			assigned:       assigned,
-			newlyAssigned:  newlyAssigned,
-			removed:        removed,
-			siteReassigned: siteReassigned,
-			targetLabel:    targetLabel,
+			assigned:          assigned,
+			newlyAssigned:     newlyAssigned,
+			removed:           removed,
+			siteReassigned:    siteReassigned,
+			targetLabel:       targetLabel,
+			finalSiteID:       targetSiteID,
+			deviceSiteChanges: deviceSiteChanges,
+			totalAffected:     totalAffected,
 		}, nil
 	})
 	if err != nil {
@@ -1033,10 +1051,31 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		UserID:         userID,
 		Username:       username,
 		OrganizationID: orgIDPtr,
+		SiteID:         out.finalSiteID,
 	}
 	if eventScopeStr != "" {
 		event.ScopeType = &eventScopeStr
 		event.ScopeLabel = &out.targetLabel
+	}
+	// Cascade-audit metadata mirrors the CreateCollection path so audit
+	// consumers don't need to special-case this event when reconstructing
+	// implicit device.site_id reassignments.
+	if out.siteReassigned > 0 || out.totalAffected > 0 {
+		meta := map[string]any{
+			"site_cascade":          true,
+			"final_site_id":         out.finalSiteID,
+			"site_reassigned_count": out.siteReassigned,
+		}
+		if len(out.deviceSiteChanges) > 0 {
+			meta["device_site_changes"] = out.deviceSiteChanges
+		}
+		if out.totalAffected > 0 {
+			meta["total_affected"] = out.totalAffected
+			if out.totalAffected > maxCascadeAuditEntries {
+				meta["truncated"] = true
+			}
+		}
+		event.Metadata = meta
 	}
 	s.logActivity(ctx, event)
 

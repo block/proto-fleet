@@ -1915,6 +1915,8 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+			Return(map[string]*int64{"d1": int64Ptr(99), "d2": &rackSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
 	)
 
@@ -1984,4 +1986,97 @@ func TestService_AssignDevicesToRack_emptyDevicesRejected(t *testing.T) {
 		DeviceIdentifiers: nil,
 	})
 	require.Error(t, err)
+}
+
+// TestService_AssignDevicesToRack_crossSiteEmitsCascadeMetadata asserts
+// that when the target rack lives at a different site than (some of) the
+// devices, the activity event carries SiteID + cascade Metadata mirroring
+// the CreateCollection cascade-audit shape — preserving the audit trail
+// for slot-search rack moves and any flow where the reparent crosses
+// sites.
+func TestService_AssignDevicesToRack_crossSiteEmitsCascadeMetadata(t *testing.T) {
+	svc, mockStore, _, captured := newTestServiceWithSitesRecordingActivity(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(8)
+	priorSite := int64(7)
+	deviceIDs := []string{"d1"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(1), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+			Return(map[string]*int64{"d1": &priorSite}, nil),
+		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, *captured, 1, "expected exactly one assign_devices_to_rack event")
+	event := (*captured)[0]
+	assert.Equal(t, "assign_devices_to_rack", event.Type)
+	require.NotNil(t, event.SiteID, "activity event must carry final site_id")
+	assert.Equal(t, rackSite, *event.SiteID)
+	require.NotNil(t, event.Metadata, "cross-site reassignments must populate metadata")
+	assert.Equal(t, true, event.Metadata["site_cascade"])
+	assert.Equal(t, int64(1), event.Metadata["site_reassigned_count"])
+	assert.Equal(t, 1, event.Metadata["total_affected"])
+	_, truncated := event.Metadata["truncated"]
+	assert.False(t, truncated, "single-device change should not be truncated")
+	changes, ok := event.Metadata["device_site_changes"].([]map[string]any)
+	require.True(t, ok, "device_site_changes must be present and typed")
+	require.Len(t, changes, 1)
+	assert.Equal(t, "d1", changes[0]["device_identifier"])
+	assert.Equal(t, priorSite, changes[0]["prior_site_id"])
+	assert.Equal(t, rackSite, changes[0]["target_site_id"])
+}
+
+// TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata asserts
+// the no-op cascade case: when every device already sits at the target
+// rack's site, the event records SiteID but omits cascade-specific
+// metadata keys so audit consumers can distinguish "implicit move"
+// from "membership-only change".
+func TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata(t *testing.T) {
+	svc, mockStore, _, captured := newTestServiceWithSitesRecordingActivity(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(8)
+	deviceIDs := []string{"d1"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+			Return(map[string]*int64{"d1": &rackSite}, nil),
+		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, *captured, 1)
+	event := (*captured)[0]
+	assert.Equal(t, "assign_devices_to_rack", event.Type)
+	require.NotNil(t, event.SiteID)
+	assert.Equal(t, rackSite, *event.SiteID)
+	assert.Nil(t, event.Metadata, "no cascade should mean no cascade metadata")
 }

@@ -436,6 +436,9 @@ func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
 			AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 			Return(int64(2), nil),
 		h.collectionStore.EXPECT().
+			GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+			Return(map[string]*int64{"d1": nil, "d2": &rackSite}, nil),
+		h.collectionStore.EXPECT().
 			CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 			Return(int64(1), nil),
 	)
