@@ -103,55 +103,6 @@ const FleetSitesPage = () => {
       />
     ) : null;
 
-  // Empty state always wins over the picker branches below: after the
-  // last site is deleted the stale "site"-kind picker can't reset
-  // (useActiveSite skips its validator when knownSiteIds is empty), and
-  // the operator still needs the create CTA.
-  if (sites.length === 0) {
-    return (
-      <>
-        <FilterRow testId="fleet-sites-page">
-          {inlineError}
-          <SitesEmptyState onAddSite={canManageSites ? modals.openCreate : undefined} />
-        </FilterRow>
-        <SiteModals modals={modals} sites={sites} />
-      </>
-    );
-  }
-
-  // Transitional placeholder while FleetLayout's redirect effect fires —
-  // avoids briefly showing the All-Sites list under a single-site picker.
-  if (activeSite.kind === "site") {
-    return (
-      <>
-        <FilterRow testId="fleet-sites-page">
-          {inlineError}
-          <div className="text-300 text-text-primary-70" data-testid="fleet-sites-redirecting">
-            Loading…
-          </div>
-        </FilterRow>
-        <SiteModals modals={modals} sites={sites} />
-      </>
-    );
-  }
-
-  if (activeSite.kind === "unassigned") {
-    return (
-      <>
-        <FilterRow testId="fleet-sites-page">
-          {inlineError}
-          <div
-            className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
-            data-testid="fleet-sites-unassigned-note"
-          >
-            &quot;Unassigned&quot; filters miners, not sites. Switch the picker to All Sites to see every site.
-          </div>
-        </FilterRow>
-        <SiteModals modals={modals} sites={sites} />
-      </>
-    );
-  }
-
   const addSiteButton: ReactNode = canManageSites ? (
     <div className="flex items-center justify-end">
       <Button
@@ -164,29 +115,75 @@ const FleetSitesPage = () => {
     </div>
   ) : null;
 
-  return (
-    <>
+  const bulkActionBar =
+    selectedSiteScopes.length > 0 || isBulkActionBusy ? (
+      <FleetGroupListActionBar
+        selectedScopes={selectedSiteScopes}
+        kind="site"
+        onClearSelection={handleClearSiteSelection}
+        onSelectAllVisible={handleSelectAllVisibleSites}
+        onActionBusyChange={setIsBulkActionBusy}
+      />
+    ) : null;
+
+  let pageContent: ReactNode;
+  // Empty state always wins over the picker branches below: after the
+  // last site is deleted the stale "site"-kind picker can't reset
+  // (useActiveSite skips its validator when knownSiteIds is empty), and
+  // the operator still needs the create CTA.
+  if (sites.length === 0) {
+    pageContent = (
       <FilterRow testId="fleet-sites-page">
         {inlineError}
-        {addSiteButton}
+        <SitesEmptyState onAddSite={canManageSites ? modals.openCreate : undefined} />
       </FilterRow>
-      <div className={LIST_WRAPPER}>
-        <SiteList
-          sites={sites}
-          onEditSite={canManageSites ? modals.openManageEdit : undefined}
-          selectedIds={selectedSiteIds}
-          onSelectedIdsChange={handleSelectedSiteIdsChange}
-        />
-      </div>
-      {selectedSiteScopes.length > 0 || isBulkActionBusy ? (
-        <FleetGroupListActionBar
-          selectedScopes={selectedSiteScopes}
-          kind="site"
-          onClearSelection={handleClearSiteSelection}
-          onSelectAllVisible={handleSelectAllVisibleSites}
-          onActionBusyChange={setIsBulkActionBusy}
-        />
-      ) : null}
+    );
+  } else if (activeSite.kind === "site") {
+    // Transitional placeholder while FleetLayout's redirect effect fires —
+    // avoids briefly showing the All-Sites list under a single-site picker.
+    pageContent = (
+      <FilterRow testId="fleet-sites-page">
+        {inlineError}
+        <div className="text-300 text-text-primary-70" data-testid="fleet-sites-redirecting">
+          Loading…
+        </div>
+      </FilterRow>
+    );
+  } else if (activeSite.kind === "unassigned") {
+    pageContent = (
+      <FilterRow testId="fleet-sites-page">
+        {inlineError}
+        <div
+          className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+          data-testid="fleet-sites-unassigned-note"
+        >
+          &quot;Unassigned&quot; filters miners, not sites. Switch the picker to All Sites to see every site.
+        </div>
+      </FilterRow>
+    );
+  } else {
+    pageContent = (
+      <>
+        <FilterRow testId="fleet-sites-page">
+          {inlineError}
+          {addSiteButton}
+        </FilterRow>
+        <div className={LIST_WRAPPER}>
+          <SiteList
+            sites={sites}
+            onEditSite={canManageSites ? modals.openManageEdit : undefined}
+            selectedIds={selectedSiteIds}
+            onSelectedIdsChange={handleSelectedSiteIdsChange}
+          />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {pageContent}
+      {bulkActionBar}
       <SiteModals modals={modals} sites={sites} />
     </>
   );
