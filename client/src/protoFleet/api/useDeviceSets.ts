@@ -514,6 +514,11 @@ const useDeviceSets = () => {
       onError,
       onFinally,
     }: AddDevicesToGroupProps) => {
+      if (!allDevices && (!deviceIdentifiers || deviceIdentifiers.length === 0)) {
+        onError?.("No devices selected.");
+        onFinally?.();
+        return;
+      }
       try {
         const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
@@ -631,10 +636,12 @@ const useDeviceSets = () => {
   const assignDevicesToRack = useCallback(
     async ({ targetRackId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
       try {
-        // Server requires the device_list variant; the all_devices
-        // variant is rejected with InvalidArgument upstream. Always
-        // build the device_list selector explicitly so callers can't
-        // accidentally trigger that error by passing an empty array.
+        // Always construct the device_list variant of DeviceSelector — the
+        // server rejects all_devices for AssignDevicesToRack (moving every
+        // paired device into a single rack is never the intended op). The
+        // hook contract is `deviceIdentifiers: string[]`, which the caller
+        // is responsible for ensuring is non-empty; an empty array still
+        // produces InvalidArgument from the server's identifier validation.
         const deviceSelector = create(DeviceSelectorSchema, {
           selectionType: {
             case: "deviceList",
@@ -684,6 +691,11 @@ const useDeviceSets = () => {
       onError,
       onFinally,
     }: RemoveDevicesFromGroupProps) => {
+      if (!allDevices && (!deviceIdentifiers || deviceIdentifiers.length === 0)) {
+        onError?.("No devices selected.");
+        onFinally?.();
+        return;
+      }
       try {
         const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
 
