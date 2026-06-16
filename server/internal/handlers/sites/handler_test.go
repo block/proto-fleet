@@ -72,6 +72,7 @@ func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+func ptrBool(v bool) *bool    { return &v }
 
 // TestHandler_authGate exercises the permission gate at the handler
 // boundary. Callers without the required key get PermissionDenied
@@ -283,6 +284,72 @@ func TestHandler_AssignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
 	assert.Equal(t, "d1", c.GetDeviceIdentifier())
 	assert.Equal(t, pb.PerDeviceConflictReason_PER_DEVICE_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_SITE, c.GetReason())
 	assert.Equal(t, conflictingSite, c.GetConflictingSiteId())
+}
+
+// TestHandler_AssignDevicesToSite_forceClearRequiresRackManage pins
+// the auth gate on the force-clear branch. Site:manage alone clears
+// the no-clear path but rejects force_clear=true — the cascade deletes
+// device_set_membership rows, which sibling rack RPCs require
+// rack:manage to perform. The caller must hold both keys for the
+// flagged path.
+func TestHandler_AssignDevicesToSite_forceClearRequiresRackManage(t *testing.T) {
+	t.Parallel()
+
+	target := int64(20)
+	idents := []string{"d1"}
+
+	t.Run("site:manage alone + force_clear=false succeeds", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
+		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+
+		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage)
+		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
+			TargetSiteId:                        &target,
+			DeviceIdentifiers:                   idents,
+			ForceClearConflictingRackMembership: ptrBool(false),
+		}))
+		require.NoError(t, err)
+	})
+
+	t.Run("site:manage alone + force_clear=true is rejected", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		// No store expectations — the auth gate fires before the service.
+
+		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage)
+		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
+			TargetSiteId:                        &target,
+			DeviceIdentifiers:                   idents,
+			ForceClearConflictingRackMembership: ptrBool(true),
+		}))
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
+
+	t.Run("site:manage + rack:manage + force_clear=true succeeds", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
+		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+
+		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage, authz.PermRackManage)
+		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
+			TargetSiteId:                        &target,
+			DeviceIdentifiers:                   idents,
+			ForceClearConflictingRackMembership: ptrBool(true),
+		}))
+		require.NoError(t, err)
+	})
 }
 
 func TestHandler_AssignBuildingsToSite_surfacesCascadeCounts(t *testing.T) {
