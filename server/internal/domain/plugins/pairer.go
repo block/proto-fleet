@@ -185,6 +185,7 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 	discoveredDevice.Model = updatedDeviceInfo.Model
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
+	discoveredDevice.DefaultPasswordActive = updatedDeviceInfo.DefaultPasswordActive
 
 	return nil
 }
@@ -262,13 +263,25 @@ func (p *Pairer) handlePairViaStore(
 			return err
 		}
 
-		if err := p.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, pairing.StatusPaired); err != nil {
+		// A device that paired while still on its factory password is recorded in
+		// the DEFAULT_PASSWORD remediation state immediately (rather than PAIRED),
+		// so the UI surfaces "change password" without waiting for the first poll.
+		pairingStatus := pairing.StatusPaired
+		initialStatus := models.MinerStatusActive
+		if discoveredDevice.DefaultPasswordActive != nil && *discoveredDevice.DefaultPasswordActive {
+			pairingStatus = pairing.StatusDefaultPassword
+			// Don't claim ACTIVE for a gated device; leave status unknown until the
+			// first telemetry poll reports real health.
+			initialStatus = models.MinerStatusUnknown
+		}
+
+		if err := p.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, pairingStatus); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 
-		// Set initial device status to ACTIVE since the miner was reachable during pairing
-		// This ensures the dashboard shows correct status immediately after pairing
-		if err := p.deviceStore.UpsertDeviceStatus(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), models.MinerStatusActive, ""); err != nil {
+		// Set initial device status since the miner was reachable during pairing.
+		// This ensures the dashboard shows correct status immediately after pairing.
+		if err := p.deviceStore.UpsertDeviceStatus(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), initialStatus, ""); err != nil {
 			return fleeterror.NewInternalErrorf("failed to set initial device status: %v", err)
 		}
 
@@ -599,7 +612,7 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, caps sdk.C
 		if credentials == nil {
 			return sdk.SecretBundle{}, fmt.Errorf("credentials required for secret bundle")
 		}
-		if credentials.Password == nil {
+		if credentials.Password == nil || *credentials.Password == "" {
 			return sdk.SecretBundle{}, fmt.Errorf("password is required for secret bundle")
 		}
 		bundle.Kind = sdk.UsernamePassword{

@@ -482,9 +482,9 @@ impl AsicRsDevice {
             fan_metrics,
             sensor_metrics: vec![],
             firmware_version,
-            // ASIC-rs devices authenticate with username/password, not a
-            // default-password lockout, so this is always false.
-            default_password_active: false,
+            // ASIC-rs devices have no default-password lockout, so leave the
+            // optional flag unset (None = not applicable / undetermined).
+            default_password_active: None,
         }
     }
 

@@ -413,6 +413,7 @@ impl Driver for DriverService {
                 manufacturer,
                 mac_address,
                 firmware_version,
+                default_password_active: None,
             }),
         }))
     }
@@ -569,6 +570,7 @@ impl Driver for DriverService {
                 manufacturer: fresh_manufacturer,
                 mac_address: fresh_mac,
                 firmware_version,
+                default_password_active: None,
             }),
         }))
     }

@@ -347,6 +347,16 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
 	}
 
+	// Record the default-password state at pairing time so the server can mark the
+	// device for password-change remediation immediately instead of waiting for the
+	// first telemetry poll. Leave it unset on a probe failure (undetermined).
+	if active, err := client.IsDefaultPasswordActive(ctx); err != nil {
+		slog.Debug("failed to read default-password status during pairing",
+			"serial", deviceInfo.SerialNumber, "error", err)
+	} else {
+		deviceInfo.DefaultPasswordActive = &active
+	}
+
 	return deviceInfo, nil
 }
 
@@ -392,16 +402,19 @@ func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.Use
 }
 
 // credentialsFromSecret extracts username/password credentials from a secret
-// bundle. An empty bundle (or empty password) falls back to factory defaults so
+// bundle. A truly empty bundle (nil kind) falls back to factory defaults so
 // devices paired before the credentials switch — which have no stored
-// credentials — can still be reconstructed and reconnected.
+// credentials — can still be reconstructed and reconnected. An explicit
+// UsernamePassword with an empty password is rejected rather than silently
+// upgraded to the default, so callers can't establish a device with unusable
+// credentials.
 func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
 	switch kind := secret.Kind.(type) {
 	case nil:
 		return defaultCredentials[0], nil
 	case sdk.UsernamePassword:
 		if kind.Password == "" {
-			return defaultCredentials[0], nil
+			return sdk.UsernamePassword{}, fmt.Errorf("password is required in secret bundle")
 		}
 		return kind, nil
 	default:

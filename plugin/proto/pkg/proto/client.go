@@ -459,7 +459,11 @@ func (c *Client) SetCredentials(credentials sdk.UsernamePassword) error {
 
 // Authenticate verifies the configured credentials by logging in. Used during
 // pairing to confirm the rig accepts the credentials before they are persisted.
+// An empty password is rejected so pairing can't "succeed" without a real login.
 func (c *Client) Authenticate(ctx context.Context) error {
+	if !c.hasCredentials() {
+		return fmt.Errorf("password is required to authenticate")
+	}
 	_, err := c.ensureToken(ctx)
 	return err
 }

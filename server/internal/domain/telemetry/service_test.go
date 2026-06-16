@@ -3835,23 +3835,28 @@ func TestReconcileDefaultPasswordState(t *testing.T) {
 		mock.NewMockTelemetryDataStore(ctrl), mock.NewMockCachedMinerGetter(ctrl),
 		mock.NewMockUpdateScheduler(ctrl), mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 	ctx := t.Context()
+	ptr := func(b bool) *bool { return &b }
+
+	// An undetermined reading (nil) never writes — keeps the current status.
+	service.reconcileDefaultPasswordState(ctx, deviceID, nil)
 
 	// A non-default password on first sight seeds the cache without a write.
-	service.reconcileDefaultPasswordState(ctx, deviceID, false)
+	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
 
 	// Becoming default-password writes DEFAULT_PASSWORD once...
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
 		Return(nil)
-	service.reconcileDefaultPasswordState(ctx, deviceID, true)
-	// ...and is not rewritten while unchanged.
-	service.reconcileDefaultPasswordState(ctx, deviceID, true)
+	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(true))
+	// ...and is not rewritten while unchanged, nor demoted by an undetermined read.
+	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(true))
+	service.reconcileDefaultPasswordState(ctx, deviceID, nil)
 
 	// Clearing the default password demotes back to PAIRED.
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
 		Return(nil)
-	service.reconcileDefaultPasswordState(ctx, deviceID, false)
+	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
 
 	// Assert — gomock verifies each UpdateDevicePairingStatusByIdentifier ran exactly once.
 }

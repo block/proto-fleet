@@ -197,6 +197,30 @@ func TestCredentialManagement(t *testing.T) {
 	assert.Empty(t, client.accessToken, "Cached access token should be cleared")
 }
 
+// TestAuthenticate_EmptyPasswordRejected verifies pairing verification fails for
+// an empty password without contacting the rig's login endpoint.
+func TestAuthenticate_EmptyPasswordRejected(t *testing.T) {
+	// Arrange
+	var loginCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/auth/login" {
+			loginCalls++
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	client := newTestClient(t, server)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: ""}))
+
+	// Act
+	err := client.Authenticate(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "password is required")
+	assert.Equal(t, 0, loginCalls, "should not contact the login endpoint with an empty password")
+}
+
 // TestDoRequest_LazyLogin verifies the client logs in on the first authenticated
 // request and reuses the cached token on subsequent requests.
 func TestDoRequest_LazyLogin(t *testing.T) {

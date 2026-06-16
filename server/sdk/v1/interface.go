@@ -175,10 +175,12 @@ type DeviceMetrics struct {
 	Health       HealthStatus
 	HealthReason *string
 
-	// DefaultPasswordActive is true when the device still uses its factory
-	// default password and must be changed before mutating operations are
-	// allowed. Telemetry is unaffected.
-	DefaultPasswordActive bool
+	// DefaultPasswordActive is set only when the plugin determined the
+	// default-password state. Non-nil true means the device still uses its
+	// factory default password and must be changed before mutating operations
+	// are allowed (telemetry is unaffected); nil means undetermined (e.g. the
+	// status probe failed), and consumers must not change remediation state.
+	DefaultPasswordActive *bool
 
 	// Device-level aggregated metrics
 	HashrateHS   *MetricValue
@@ -343,6 +345,10 @@ type DeviceInfo struct {
 	Manufacturer    string // e.g., "Bitmain" (maps to proto 'manufacturer')
 	MacAddress      string // e.g., "00:1A:2B:3C:4D:5E" (maps to proto 'mac_address')
 	FirmwareVersion string // e.g., "1.2.3" (maps to proto 'firmware_version')
+	// DefaultPasswordActive is set by PairDevice when the plugin determined the
+	// default-password state at pairing time. Non-nil true means the device is
+	// paired but still on its factory password; nil means undetermined.
+	DefaultPasswordActive *bool
 }
 
 // HealthStatus represents the health status of a device

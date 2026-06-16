@@ -617,7 +617,7 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
@@ -626,6 +626,7 @@ class DeviceInfo(_message.Message):
     MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
     MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     url_scheme: str
@@ -634,7 +635,8 @@ class DeviceInfo(_message.Message):
     manufacturer: str
     mac_address: str
     firmware_version: str
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+    default_password_active: bool
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")

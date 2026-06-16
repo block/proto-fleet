@@ -1778,27 +1778,29 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 // DeviceInfo conversion functions
 func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 	return &pb.DeviceInfo{
-		Host:            d.Host,
-		Port:            d.Port,
-		UrlScheme:       d.URLScheme,
-		SerialNumber:    d.SerialNumber,
-		Model:           d.Model,
-		Manufacturer:    d.Manufacturer,
-		MacAddress:      d.MacAddress,
-		FirmwareVersion: d.FirmwareVersion,
+		Host:                  d.Host,
+		Port:                  d.Port,
+		UrlScheme:             d.URLScheme,
+		SerialNumber:          d.SerialNumber,
+		Model:                 d.Model,
+		Manufacturer:          d.Manufacturer,
+		MacAddress:            d.MacAddress,
+		FirmwareVersion:       d.FirmwareVersion,
+		DefaultPasswordActive: d.DefaultPasswordActive,
 	}
 }
 
 func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
 	return DeviceInfo{
-		Host:            p.Host,
-		Port:            p.Port,
-		URLScheme:       p.UrlScheme,
-		SerialNumber:    p.SerialNumber,
-		Model:           p.Model,
-		Manufacturer:    p.Manufacturer,
-		MacAddress:      p.MacAddress,
-		FirmwareVersion: p.FirmwareVersion,
+		Host:                  p.Host,
+		Port:                  p.Port,
+		URLScheme:             p.UrlScheme,
+		SerialNumber:          p.SerialNumber,
+		Model:                 p.Model,
+		Manufacturer:          p.Manufacturer,
+		MacAddress:            p.MacAddress,
+		FirmwareVersion:       p.FirmwareVersion,
+		DefaultPasswordActive: p.DefaultPasswordActive,
 	}
 }
 

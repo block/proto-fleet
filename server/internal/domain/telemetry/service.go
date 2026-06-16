@@ -1152,7 +1152,17 @@ func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, 
 // means authentication worked, so the device is PAIRED or DEFAULT_PASSWORD (never
 // AUTHENTICATION_NEEDED) and toggling between those two is safe. An in-memory
 // cache limits writes to actual transitions.
-func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, deviceID models.DeviceIdentifier, active bool) {
+//
+// activePtr is nil when the plugin could not determine the default-password state
+// (e.g. an older plugin or a failed status probe); in that case the current
+// pairing status is left untouched so a transient probe failure can't demote a
+// still-default-password device back to PAIRED.
+func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, deviceID models.DeviceIdentifier, activePtr *bool) {
+	if activePtr == nil {
+		return
+	}
+	active := *activePtr
+
 	prev, seen := s.lastDefaultPwActive.Load(deviceID)
 	prevActive, _ := prev.(bool)
 	if seen && prevActive == active {

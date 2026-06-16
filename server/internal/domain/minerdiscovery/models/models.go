@@ -23,6 +23,11 @@ type DiscoveredDevice struct {
 	// Non-nil when an agent reported the row; server-local pairing
 	// must not dial these IPs.
 	DiscoveredByFleetNodeID *int64
+	// DefaultPasswordActive is populated from the plugin's PairDevice response
+	// (transient, not persisted on the device row). Non-nil true means the device
+	// paired but is still on its factory password, so pairing records the
+	// DEFAULT_PASSWORD remediation state instead of PAIRED/ACTIVE.
+	DefaultPasswordActive *bool
 }
 
 // GetDeviceOrgIdentifier returns the device organization identifier
