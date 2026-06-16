@@ -20,13 +20,8 @@ func TestPairingStatusFiltersForSelector(t *testing.T) {
 		want        []sql.NullString
 	}{
 		{
-			name:        "normal commands keep query default",
+			name:        "normal commands include default password targets",
 			commandType: commandtype.Reboot,
-			want:        []sql.NullString{{}},
-		},
-		{
-			name:        "password update includes default password remediation targets",
-			commandType: commandtype.UpdateMinerPassword,
 			want: []sql.NullString{
 				{String: string(sqlc.PairingStatusEnumPAIRED), Valid: true},
 				{String: string(sqlc.PairingStatusEnumDEFAULTPASSWORD), Valid: true},

@@ -456,6 +456,22 @@ func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, curso
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter, sortConfig)
 }
 
+// ReconcileDefaultPasswordPairingStatusByIdentifier mocks base method.
+func (m *MockDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier, pairingStatus string) (bool, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileDefaultPasswordPairingStatusByIdentifier", ctx, deviceIdentifier, pairingStatus)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReconcileDefaultPasswordPairingStatusByIdentifier indicates an expected call of ReconcileDefaultPasswordPairingStatusByIdentifier.
+func (mr *MockDeviceStoreMockRecorder) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, deviceIdentifier, pairingStatus any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileDefaultPasswordPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileDefaultPasswordPairingStatusByIdentifier), ctx, deviceIdentifier, pairingStatus)
+}
+
 // SetDevicePairingAuthNeededIfNotPaired mocks base method.
 func (m *MockDeviceStore) SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pairingv1.Device, orgID int64) (bool, error) {
 	m.ctrl.T.Helper()

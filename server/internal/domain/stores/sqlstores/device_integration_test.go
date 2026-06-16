@@ -2210,6 +2210,109 @@ func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
 	require.Equal(t, "default-pw-device", pairedDevice.DeviceIdentifier)
 }
 
+func TestReconcileDefaultPasswordPairingStatusByIdentifier_OnlyPairedLikeStates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	q := sqlc.New(conn)
+	tests := []struct {
+		name          string
+		initialStatus sqlc.PairingStatusEnum
+		targetStatus  sqlc.PairingStatusEnum
+		wantEligible  bool
+		wantUpdated   bool
+		wantFinal     sqlc.PairingStatusEnum
+	}{
+		{
+			name:          "paired promotes to default password",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumDEFAULTPASSWORD,
+		},
+		{
+			name:          "default password clears to paired",
+			initialStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumPAIRED,
+		},
+		{
+			name:          "paired no-op remains eligible",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumPAIRED,
+		},
+		{
+			name:          "unpaired not promoted by stale clear sample",
+			initialStatus: sqlc.PairingStatusEnumUNPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumUNPAIRED,
+		},
+		{
+			name:          "auth needed not promoted",
+			initialStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discoveredID := int64(5200 + i)
+			deviceID := int64(6200 + i)
+			deviceIdentifier := fmt.Sprintf("default-password-reconcile-%d", i)
+
+			_, err := conn.ExecContext(ctx, `
+				INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+				VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.30', '443', 'https', TRUE)
+			`, discoveredID, deviceIdentifier)
+			require.NoError(t, err)
+
+			_, err = conn.ExecContext(ctx, `
+				INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+				VALUES ($1, 1, $2, $3, $4)
+			`, deviceID, discoveredID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02X", i+10))
+			require.NoError(t, err)
+
+			_, err = conn.ExecContext(ctx, `
+				INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+				VALUES ($1, $2, NOW())
+			`, deviceID, tt.initialStatus)
+			require.NoError(t, err)
+
+			eligible, updated, err := store.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, deviceIdentifier, string(tt.targetStatus))
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEligible, eligible)
+			require.Equal(t, tt.wantUpdated, updated)
+
+			finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantFinal, finalStatus)
+		})
+	}
+}
+
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

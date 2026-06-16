@@ -453,6 +453,16 @@ func (c *Client) SetCredentials(credentials sdk.UsernamePassword) error {
 	return nil
 }
 
+// SetBearerToken seeds a fleet-issued bearer token for asymmetric-auth callers.
+// The server no longer uses this as a fallback for Proto rows without stored credentials.
+func (c *Client) SetBearerToken(token sdk.BearerToken) error {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	c.credentials = sdk.UsernamePassword{}
+	c.accessToken = token.Token
+	return nil
+}
+
 // Authenticate verifies the configured credentials by logging in. An empty
 // password is rejected so pairing can't "succeed" without a real login.
 func (c *Client) Authenticate(ctx context.Context) error {
@@ -473,48 +483,86 @@ func (c *Client) hasCredentials() bool {
 // no credentials are set, so public endpoints (e.g. discovery) work unauthenticated.
 func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	c.authMu.Lock()
-	defer c.authMu.Unlock()
 	if c.accessToken != "" {
-		return c.accessToken, nil
+		token := c.accessToken
+		c.authMu.Unlock()
+		return token, nil
 	}
-	if c.credentials.Password == "" {
+	credentials := c.credentials
+	c.authMu.Unlock()
+
+	if credentials.Password == "" {
 		return "", nil
 	}
-	return c.loginLocked(ctx)
+	return c.loginAndCache(ctx, credentials, "")
 }
 
 // refreshToken re-logs in after a token is rejected, reusing a token another
 // goroutine may have already refreshed (i.e. when it differs from oldToken).
 func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, error) {
 	c.authMu.Lock()
-	defer c.authMu.Unlock()
 	if c.accessToken != "" && c.accessToken != oldToken {
-		return c.accessToken, nil
+		token := c.accessToken
+		c.authMu.Unlock()
+		return token, nil
 	}
-	return c.loginLocked(ctx)
+	credentials := c.credentials
+	c.authMu.Unlock()
+
+	if credentials.Password == "" {
+		return "", nil
+	}
+	return c.loginAndCache(ctx, credentials, oldToken)
 }
 
-// refreshTokenForStreamingUpload forces a login before non-replayable streamed
-// uploads. Unlike JSON requests, firmware uploads cannot retry after a 401
-// because the multipart body is streamed from the caller's reader.
-func (c *Client) refreshTokenForStreamingUpload(ctx context.Context) (string, error) {
+// freshToken logs in immediately before non-replayable operations such as
+// streamed firmware uploads. Bearer-only legacy clients cannot refresh, so they
+// reuse the seeded token.
+func (c *Client) freshToken(ctx context.Context) (string, error) {
+	c.authMu.Lock()
+	credentials := c.credentials
+	oldToken := c.accessToken
+	c.authMu.Unlock()
+
+	if credentials.Password == "" {
+		return oldToken, nil
+	}
+	return c.loginAndCache(ctx, credentials, oldToken)
+}
+
+func (c *Client) loginAndCache(ctx context.Context, credentials sdk.UsernamePassword, oldToken string) (string, error) {
+	token, err := c.loginWithPassword(ctx, credentials.Password)
+	if err != nil {
+		if errors.Is(err, errInvalidCredentials) {
+			return "", fmt.Errorf("login failed: %w", grpcstatus.Error(codes.Unauthenticated, "invalid credentials"))
+		}
+		return "", fmt.Errorf("login failed: %w", err)
+	}
+
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
-	if c.credentials.Password == "" {
-		return c.accessToken, nil
+	if c.credentials != credentials {
+		if c.accessToken != "" {
+			return c.accessToken, nil
+		}
+		return "", fmt.Errorf("credentials changed during login")
 	}
-	c.accessToken = ""
-	return c.loginLocked(ctx)
-}
-
-// loginLocked logs in and caches the token. The caller must hold authMu.
-func (c *Client) loginLocked(ctx context.Context) (string, error) {
-	token, err := c.loginWithPassword(ctx, c.credentials.Password)
-	if err != nil {
-		return "", fmt.Errorf("login failed: %w", err)
+	if oldToken != "" && c.accessToken != "" && c.accessToken != oldToken {
+		return c.accessToken, nil
 	}
 	c.accessToken = token
 	return token, nil
+}
+
+func (c *Client) clearTokenIfCurrent(token string) {
+	if token == "" {
+		return
+	}
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.accessToken == token {
+		c.accessToken = ""
+	}
 }
 
 // Close closes the client and cleans up resources.
@@ -1279,12 +1327,14 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 	ctx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
 	defer cancel()
 
-	parts, err := multipartFirmwareParts(firmware)
+	// Log in proactively with a fresh credential token: the streamed body can't
+	// be replayed for a 401 retry.
+	token, err := c.freshToken(ctx)
 	if err != nil {
 		return err
 	}
 
-	token, err := c.refreshTokenForStreamingUpload(ctx)
+	parts, err := multipartFirmwareParts(firmware)
 	if err != nil {
 		return err
 	}
@@ -1336,7 +1386,8 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		}
 		return nil
 	case http.StatusUnauthorized:
-		return fmt.Errorf("firmware upload unauthorized: %s", withDetail("check bearer token", detail))
+		c.clearTokenIfCurrent(token)
+		return grpcstatus.Errorf(codes.Unauthenticated, "firmware upload unauthorized: %s", withDetail("check bearer token", detail))
 	case http.StatusConflict:
 		return fmt.Errorf("firmware update already in progress: %s", withDetail("try again later", detail))
 	case http.StatusBadRequest:

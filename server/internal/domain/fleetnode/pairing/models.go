@@ -11,6 +11,7 @@ import (
 const (
 	StatusPaired               = domainpairing.StatusPaired
 	StatusAuthenticationNeeded = domainpairing.StatusAuthenticationNeeded
+	StatusDefaultPassword      = domainpairing.StatusDefaultPassword
 	StatusFailed               = domainpairing.StatusFailed
 )
 

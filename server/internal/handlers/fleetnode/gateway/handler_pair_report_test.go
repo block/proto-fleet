@@ -121,10 +121,16 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 	<-stream.Outgoing
 	ctx := authn.SetInfo(context.Background(), &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-race"})
 
-	// Act: a stale AUTH_NEEDED for the already-paired device.
+	// Act: a stale AUTH_NEEDED for the already-paired device. The raw default
+	// flag is ignored because the persisted state is PAIRED.
+	defaultPasswordActive := true
 	_, err = h.handler.ReportPairedDevices(ctx, connect.NewRequest(&pb.ReportPairedDevicesRequest{
 		CommandId: "race-cmd",
-		Results:   []*pb.FleetNodePairResult{{DeviceIdentifier: "mac:race", Outcome: pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED}},
+		Results: []*pb.FleetNodePairResult{{
+			DeviceIdentifier:      "mac:race",
+			Outcome:               pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED,
+			DefaultPasswordActive: &defaultPasswordActive,
+		}},
 	}))
 	require.NoError(t, err)
 
@@ -134,6 +140,7 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 	case ev := <-session.Events():
 		require.Len(t, ev.PairResults, 1)
 		assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, ev.PairResults[0].GetOutcome())
+		assert.False(t, ev.PairResults[0].GetDefaultPasswordActive())
 	case <-time.After(time.Second):
 		t.Fatal("expected forwarded pair result")
 	}

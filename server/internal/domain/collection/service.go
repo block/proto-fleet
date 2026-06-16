@@ -8,7 +8,6 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
-	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
@@ -1297,11 +1296,7 @@ func (s *Service) GetCollectionStats(ctx context.Context, req *pb.GetCollectionS
 			continue
 		}
 		filter := &interfaces.MinerFilter{
-			PairingStatuses: []fm.PairingStatus{
-				fm.PairingStatus_PAIRING_STATUS_PAIRED,
-				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-			},
+			PairingStatuses: interfaces.FleetVisiblePairingStatuses(),
 		}
 		if collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
 			filter.RackIDs = []int64{collectionID}

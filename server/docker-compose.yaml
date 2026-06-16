@@ -105,7 +105,9 @@ services:
       dockerfile: server/fake-proto-rig/Dockerfile
     environment:
       HTTP_PORT: "8080"
-      FAKE_RIG_PASSWORD: "proto"
+      # Replica fleet starts on factory credentials so default-password
+      # remediation is visible in local fleet testing.
+      FAKE_RIG_DEFAULT_PASSWORD: "proto"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s

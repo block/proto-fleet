@@ -110,7 +110,7 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 				for _, r := range results {
 					res := &pb.DevicePairingResult{
 						DeviceIdentifier: r.GetDeviceIdentifier(),
-						PairingStatus:    pairOutcomeStatus(r.GetOutcome()),
+						PairingStatus:    pairResultStatus(r),
 					}
 					if res.PairingStatus != fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED {
 						res.Error = r.GetErrorMessage()
@@ -126,11 +126,14 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 		})
 }
 
-// pairOutcomeStatus maps a node pair outcome to the operator-facing enum, matching
-// what PersistFleetNodePairResult records.
-func pairOutcomeStatus(outcome gatewaypb.PairOutcome) fleetmanagementv1.PairingStatus {
-	switch outcome {
+// pairResultStatus maps a persisted node pair result to the operator-facing enum,
+// matching what PersistFleetNodePairResult records.
+func pairResultStatus(result *gatewaypb.FleetNodePairResult) fleetmanagementv1.PairingStatus {
+	switch result.GetOutcome() {
 	case gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED:
+		if result.GetDefaultPasswordActive() {
+			return fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
+		}
 		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED
 	case gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED:
 		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED

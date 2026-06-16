@@ -238,8 +238,19 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.org_id = $1
   AND d.deleted_at IS NULL
-  AND dp.pairing_status = 'PAIRED'
+  AND (
+      dp.pairing_status = 'PAIRED'
+      OR (
+          $2::boolean
+          AND dp.pairing_status = 'DEFAULT_PASSWORD'
+      )
+  )
 `
+
+type GetAllDeviceInfoForCapabilityCheckParams struct {
+	OrgID                  int64
+	IncludeDefaultPassword bool
+}
 
 type GetAllDeviceInfoForCapabilityCheckRow struct {
 	ID               int64
@@ -250,10 +261,10 @@ type GetAllDeviceInfoForCapabilityCheckRow struct {
 	DriverName       string
 }
 
-// Returns device information for all paired devices in an organization.
+// Returns command-eligible device information for an organization.
 // Used when checking capabilities for "select all" operations.
-func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID int64) ([]GetAllDeviceInfoForCapabilityCheckRow, error) {
-	rows, err := q.query(ctx, q.getAllDeviceInfoForCapabilityCheckStmt, getAllDeviceInfoForCapabilityCheck, orgID)
+func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, arg GetAllDeviceInfoForCapabilityCheckParams) ([]GetAllDeviceInfoForCapabilityCheckRow, error) {
+	rows, err := q.query(ctx, q.getAllDeviceInfoForCapabilityCheckStmt, getAllDeviceInfoForCapabilityCheck, arg.OrgID, arg.IncludeDefaultPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -576,12 +587,19 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.device_identifier = ANY($1::text[])
   AND d.deleted_at IS NULL
   AND d.org_id = $2
-  AND dp.pairing_status = 'PAIRED'
+  AND (
+      dp.pairing_status = 'PAIRED'
+      OR (
+          $3::boolean
+          AND dp.pairing_status = 'DEFAULT_PASSWORD'
+      )
+  )
 `
 
 type GetDeviceInfoForCapabilityCheckParams struct {
-	DeviceIdentifiers []string
-	OrgID             int64
+	DeviceIdentifiers      []string
+	OrgID                  int64
+	IncludeDefaultPassword bool
 }
 
 type GetDeviceInfoForCapabilityCheckRow struct {
@@ -593,10 +611,10 @@ type GetDeviceInfoForCapabilityCheckRow struct {
 	DriverName       string
 }
 
-// Returns device information needed for capability checking.
+// Returns command-eligible device information needed for capability checking.
 // Used when checking if specific devices support a command.
 func (q *Queries) GetDeviceInfoForCapabilityCheck(ctx context.Context, arg GetDeviceInfoForCapabilityCheckParams) ([]GetDeviceInfoForCapabilityCheckRow, error) {
-	rows, err := q.query(ctx, q.getDeviceInfoForCapabilityCheckStmt, getDeviceInfoForCapabilityCheck, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	rows, err := q.query(ctx, q.getDeviceInfoForCapabilityCheckStmt, getDeviceInfoForCapabilityCheck, pq.Array(arg.DeviceIdentifiers), arg.OrgID, arg.IncludeDefaultPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -1845,6 +1863,49 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 		return nil, err
 	}
 	return items, nil
+}
+
+const reconcileDefaultPasswordPairingStatusByIdentifier = `-- name: ReconcileDefaultPasswordPairingStatusByIdentifier :one
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = $1
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND $2::pairing_status_enum IN ('PAIRED', 'DEFAULT_PASSWORD')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = $2::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IS DISTINCT FROM $2::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated
+`
+
+type ReconcileDefaultPasswordPairingStatusByIdentifierParams struct {
+	DeviceIdentifier string
+	PairingStatus    PairingStatusEnum
+}
+
+type ReconcileDefaultPasswordPairingStatusByIdentifierRow struct {
+	Eligible bool
+	Updated  bool
+}
+
+// Telemetry reconciles only the paired-like factory-password state machine.
+// Late samples must not resurrect devices moved to UNPAIRED,
+// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
+func (q *Queries) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, reconcileDefaultPasswordPairingStatusByIdentifier, arg.DeviceIdentifier, arg.PairingStatus)
+	var i ReconcileDefaultPasswordPairingStatusByIdentifierRow
+	err := row.Scan(&i.Eligible, &i.Updated)
+	return i, err
 }
 
 const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows

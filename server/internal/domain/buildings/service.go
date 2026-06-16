@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"sort"
 
-	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
@@ -843,13 +842,9 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// We never hold (or fan out to state/telemetry queries with) more
 	// than cap+1 rows even for a pathological building.
 	devFilter := &interfaces.MinerFilter{
-		BuildingIDs: []int64{buildingID},
-		PairingStatuses: []fm.PairingStatus{
-			fm.PairingStatus_PAIRING_STATUS_PAIRED,
-			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-		},
-		Limit: MaxDevicesPerStatsResponse + 1,
+		BuildingIDs:     []int64{buildingID},
+		PairingStatuses: interfaces.FleetVisiblePairingStatuses(),
+		Limit:           MaxDevicesPerStatsResponse + 1,
 	}
 	if expectedSiteID != nil {
 		devFilter.SiteIDs = []int64{*expectedSiteID}

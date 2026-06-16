@@ -16,6 +16,7 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const (
@@ -53,11 +54,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 		return err
 	}
 
-	filter.PairingStatuses = []pb.PairingStatus{
-		pb.PairingStatus_PAIRING_STATUS_PAIRED,
-		pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-		pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-	}
+	filter.PairingStatuses = interfaces.FleetVisiblePairingStatuses()
 	// Export uses default name-ASC order for cross-page consistency.
 	temperatureUnit := normalizeCSVTemperatureUnit(req.TemperatureUnit)
 

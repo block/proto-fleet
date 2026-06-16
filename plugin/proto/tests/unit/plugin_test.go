@@ -73,6 +73,22 @@ func TestNewDevice_WrongSecretKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "expected UsernamePassword")
 }
 
+// TestNewDevice_MissingCredentialsRejected verifies an empty secret bundle is
+// rejected rather than silently upgraded to factory-default credentials.
+func TestNewDevice_MissingCredentialsRejected(t *testing.T) {
+	// Arrange
+	d, err := driver.New(443)
+	require.NoError(t, err)
+	deviceInfo := sdk.DeviceInfo{Host: "192.168.1.100", Port: 443, URLScheme: "https", SerialNumber: "PROTO123"}
+
+	// Act
+	_, err = d.NewDevice(t.Context(), deviceInfo.SerialNumber, deviceInfo, sdk.SecretBundle{})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credentials are required")
+}
+
 // TestNewDevice_EmptyPasswordRejected verifies an explicit empty password is
 // rejected rather than silently upgraded to the factory default.
 func TestNewDevice_EmptyPasswordRejected(t *testing.T) {

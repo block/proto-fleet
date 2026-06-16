@@ -83,6 +83,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	persisted := StatusAuthenticationNeeded
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 		persisted = StatusPaired
+		if result.GetDefaultPasswordActive() {
+			persisted = StatusDefaultPassword
+		}
 	}
 	conflict := false
 	var boundDeviceID int64
@@ -174,8 +177,8 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 				return err
 			}
 		}
-		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, StatusPaired); err != nil {
-			return fleeterror.LogInternal(component, "set paired", clientErrPair, err)
+		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, persisted); err != nil {
+			return fleeterror.LogInternal(component, "set pairing status", clientErrPair, err)
 		}
 		// Reachable during pairing, so seed an ACTIVE status.
 		if err := s.deviceStore.UpsertDeviceStatus(ctx, minermodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""); err != nil {

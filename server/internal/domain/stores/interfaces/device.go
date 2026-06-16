@@ -79,6 +79,14 @@ type MinerFilter struct {
 	Limit int
 }
 
+func FleetVisiblePairingStatuses() []fm.PairingStatus {
+	return []fm.PairingStatus{
+		fm.PairingStatus_PAIRING_STATUS_PAIRED,
+		fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+	}
+}
+
 // MinerStateCounts holds fleet health state counts for a collection.
 type MinerStateCounts struct {
 	HashingCount  int32
@@ -165,6 +173,7 @@ type DeviceStore interface {
 	// unless already PAIRED; returns false when a PAIRED row blocked the write.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error)
 	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
+	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error)
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceSiteID(ctx context.Context, identifier string, orgID int64) (*int64, error)

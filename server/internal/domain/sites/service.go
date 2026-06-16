@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
@@ -907,13 +906,9 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	// we never hold a slice larger than that even for an unboundedly-sized
 	// site.
 	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
-		SiteIDs: []int64{siteID},
-		PairingStatuses: []fm.PairingStatus{
-			fm.PairingStatus_PAIRING_STATUS_PAIRED,
-			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-		},
-		Limit: MaxDevicesPerSiteStatsRequest + 1,
+		SiteIDs:         []int64{siteID},
+		PairingStatuses: interfaces.FleetVisiblePairingStatuses(),
+		Limit:           MaxDevicesPerSiteStatsRequest + 1,
 	})
 	if err != nil {
 		return nil, err

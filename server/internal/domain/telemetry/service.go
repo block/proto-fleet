@@ -161,7 +161,7 @@ type TelemetryDataStore interface {
 }
 
 type MinerGetter interface {
-	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
+	GetMinerForTelemetry(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -1108,7 +1108,7 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 		return
 	}
 
-	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+	miner, err := s.minerManager.GetMinerForTelemetry(ctx, device.ID)
 	if err != nil {
 		slog.Debug("failed to get miner for error polling", "deviceID", device.ID, "error", err)
 		return
@@ -1166,16 +1166,25 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 	if active {
 		status = pairing.StatusDefaultPassword
 	}
-	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), status); err != nil {
+	eligible, updated, err := s.deviceStore.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, string(deviceID), status)
+	if err != nil {
 		slog.Error("failed to reconcile default-password pairing status",
 			"device_id", deviceID, "default_password_active", active, "error", err)
 		return
+	}
+	if !eligible {
+		slog.Debug("skipping default-password pairing reconciliation for non paired-like device",
+			"device_id", deviceID, "default_password_active", active, "target_status", status)
+		return
+	}
+	if updated {
+		s.minerManager.InvalidateMiner(deviceID)
 	}
 	s.lastDefaultPwActive.Store(deviceID, active)
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
-	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+	miner, err := s.minerManager.GetMinerForTelemetry(ctx, device.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1227,7 +1236,7 @@ func healthStatusToMinerStatus(health modelsV2.HealthStatus) (mm.MinerStatus, bo
 // Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, orgID, driver, nil).
 // Only non-connection errors (e.g., authentication failures) return an error.
 func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, int64, string, int64, error) {
-	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, deviceID)
+	miner, err := s.minerManager.GetMinerForTelemetry(ctx, deviceID)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
 			orgID, driverName, siteID := s.resolveTrustedDeviceMetadata(ctx, deviceID)

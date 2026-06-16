@@ -158,8 +158,8 @@ secret := sdk.SecretBundle{
 }
 ```
 
-Devices paired before the credentials switch have no stored credentials; the
-plugin falls back to the factory defaults so they reconnect. Proto firmware gates
+Proto devices without stored credentials are treated as needing authentication
+and are repaired by the normal failed-poll remediation flow. Proto firmware gates
 operational endpoints behind a default-password lockout — change the password via
 `UpdateMinerPassword` to clear it.
 

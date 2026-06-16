@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
@@ -38,6 +39,7 @@ const (
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForCredentialRemediation(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -443,8 +445,11 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 // id along with the execution error (if any). It does NOT mark queue message
 // status — the caller is responsible for that.
 func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, int64, error) {
-	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
+	minerInfo, err := es.resolveMinerForCommand(ctx, commandType, message.DeviceID)
 	if err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return message.OrgID, 0, err
+		}
 		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
@@ -586,6 +591,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf(
 				"device %d password changed on-device but credential persistence failed: %v",
 				message.DeviceID, dbErr)
+			es.minerService.InvalidateMiner(minerInfo.GetID())
 			break
 		}
 
@@ -609,6 +615,26 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64) (interfaces.Miner, error) {
+	if commandType == commandtype.UpdateMinerPassword {
+		miner, err := es.minerService.GetMinerForCredentialRemediation(ctx, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := miner.(*remotenode.Miner); ok {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"device %d is paired through a fleet node; password update remediation is not supported through fleet nodes yet",
+				deviceID,
+			)
+		}
+		return miner, nil
+	}
+	if commandType == commandtype.Unpair {
+		return es.minerService.GetMinerForCredentialRemediation(ctx, deviceID)
+	}
+	return es.minerService.GetMiner(ctx, deviceID)
 }
 
 func (es *ExecutionService) applyMinerNameToPoolUsernames(
@@ -1156,13 +1182,13 @@ func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, mine
 
 // protoDefaultUsername is the nominal username stored for Proto credentials; Proto
 // authenticates by password only, so it's cosmetic and used only when inserting a
-// row for a Proto device that has none (legacy key-based pairings stored none).
+// defensive row for a Proto device that reached password persistence without one.
 const protoDefaultUsername = "admin"
 
 var errMinerCredentialsMissing = errors.New("no miner credentials row for device")
 
-// persistMinerPassword updates the device's stored password, inserting a row for
-// legacy Proto devices that have none.
+// persistMinerPassword updates the device's stored password, inserting a defensive
+// row for Proto if the command reached persistence before credentials existed.
 func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID int64, driverName, password string) error {
 	err := es.updateMinerPasswordInDB(ctx, deviceID, password)
 	if errors.Is(err, errMinerCredentialsMissing) && driverName == models.DriverNameProto {

@@ -638,7 +638,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 	}
 }
 
-func pairingStatusFiltersForSelector(filter *pb.DeviceFilter, commandType commandtype.Type) []sql.NullString {
+func pairingStatusFiltersForSelector(filter *pb.DeviceFilter, _ commandtype.Type) []sql.NullString {
 	if filter != nil && len(filter.PairingStatus) > 0 {
 		return []sql.NullString{{
 			String: string(sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0])),
@@ -646,14 +646,10 @@ func pairingStatusFiltersForSelector(filter *pb.DeviceFilter, commandType comman
 		}}
 	}
 
-	if commandType == commandtype.UpdateMinerPassword {
-		return []sql.NullString{
-			{String: string(sqlc.PairingStatusEnumPAIRED), Valid: true},
-			{String: string(sqlc.PairingStatusEnumDEFAULTPASSWORD), Valid: true},
-		}
+	return []sql.NullString{
+		{String: string(sqlc.PairingStatusEnumPAIRED), Valid: true},
+		{String: string(sqlc.PairingStatusEnumDEFAULTPASSWORD), Valid: true},
 	}
-
-	return []sql.NullString{{}}
 }
 
 // resolveIdentifiersToDeviceIDs converts post-filter identifiers for the queue.
@@ -1048,8 +1044,9 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 
 	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
 		return q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
-			DeviceIdentifiers: identifiers,
-			OrgID:             info.OrganizationID,
+			DeviceIdentifiers:      identifiers,
+			OrgID:                  info.OrganizationID,
+			IncludeDefaultPassword: true,
 		})
 	})
 	if err != nil {

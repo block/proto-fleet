@@ -57,6 +57,21 @@ func (mr *MockMinerGetterMockRecorder) GetMiner(ctx, deviceID any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiner", reflect.TypeOf((*MockMinerGetter)(nil).GetMiner), ctx, deviceID)
 }
 
+// GetMinerForCredentialRemediation mocks base method.
+func (m *MockMinerGetter) GetMinerForCredentialRemediation(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerForCredentialRemediation", ctx, deviceID)
+	ret0, _ := ret[0].(interfaces.Miner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerForCredentialRemediation indicates an expected call of GetMinerForCredentialRemediation.
+func (mr *MockMinerGetterMockRecorder) GetMinerForCredentialRemediation(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForCredentialRemediation", reflect.TypeOf((*MockMinerGetter)(nil).GetMinerForCredentialRemediation), ctx, deviceID)
+}
+
 // MockCachedMinerGetter is a mock of CachedMinerGetter interface.
 type MockCachedMinerGetter struct {
 	ctrl     *gomock.Controller
@@ -94,6 +109,21 @@ func (m *MockCachedMinerGetter) GetMiner(ctx context.Context, deviceID int64) (i
 func (mr *MockCachedMinerGetterMockRecorder) GetMiner(ctx, deviceID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiner", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMiner), ctx, deviceID)
+}
+
+// GetMinerForCredentialRemediation mocks base method.
+func (m *MockCachedMinerGetter) GetMinerForCredentialRemediation(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerForCredentialRemediation", ctx, deviceID)
+	ret0, _ := ret[0].(interfaces.Miner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerForCredentialRemediation indicates an expected call of GetMinerForCredentialRemediation.
+func (mr *MockCachedMinerGetterMockRecorder) GetMinerForCredentialRemediation(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForCredentialRemediation", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMinerForCredentialRemediation), ctx, deviceID)
 }
 
 // InvalidateMiner mocks base method.

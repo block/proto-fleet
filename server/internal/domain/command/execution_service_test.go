@@ -1496,13 +1496,14 @@ func TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand(t *testin
 	require.NoError(t, err)
 	message := queue.Message{ID: 7, DeviceID: 50, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
 
-	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMinerForCredentialRemediation(gomock.Any(), int64(50)).Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("dev-50")).AnyTimes()
 	// On-device password change succeeds.
 	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), gomock.Any()).Return(nil)
+	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier("dev-50"))
 
 	svc := NewExecutionService(t.Context(), &Config{
 		MaxWorkers:             5,

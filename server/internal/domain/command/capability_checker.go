@@ -71,7 +71,10 @@ func (c *CapabilityChecker) CheckCapabilities(
 		return nil, fleeterror.NewInvalidArgumentErrorf("unknown or unsupported command type: %v", cmdType)
 	}
 
-	devices, err := c.getDeviceInfo(ctx, selector, orgID)
+	// DEFAULT_PASSWORD miners are command-eligible in Fleet; the miner firmware
+	// or driver decides whether a specific operation is currently allowed.
+	includeDefaultPassword := true
+	devices, err := c.getDeviceInfo(ctx, selector, orgID, includeDefaultPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -84,21 +87,25 @@ func (c *CapabilityChecker) getDeviceInfo(
 	ctx context.Context,
 	selector *pb.DeviceSelector,
 	orgID int64,
+	includeDefaultPassword bool,
 ) ([]deviceInfo, error) {
 	switch x := selector.SelectionType.(type) {
 	case *pb.DeviceSelector_AllDevices:
-		return c.getAllDeviceInfo(ctx, orgID)
+		return c.getAllDeviceInfo(ctx, orgID, includeDefaultPassword)
 	case *pb.DeviceSelector_IncludeDevices:
-		return c.getDeviceInfoByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers, orgID)
+		return c.getDeviceInfoByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers, orgID, includeDefaultPassword)
 	default:
 		return nil, fleeterror.NewInternalErrorf("unknown device selector type: %T", x)
 	}
 }
 
-// getAllDeviceInfo retrieves info for all paired devices in the organization.
-func (c *CapabilityChecker) getAllDeviceInfo(ctx context.Context, orgID int64) ([]deviceInfo, error) {
+// getAllDeviceInfo retrieves info for command-eligible devices in the organization.
+func (c *CapabilityChecker) getAllDeviceInfo(ctx context.Context, orgID int64, includeDefaultPassword bool) ([]deviceInfo, error) {
 	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) ([]deviceInfo, error) {
-		rows, err := q.GetAllDeviceInfoForCapabilityCheck(ctx, orgID)
+		rows, err := q.GetAllDeviceInfoForCapabilityCheck(ctx, sqlc.GetAllDeviceInfoForCapabilityCheckParams{
+			OrgID:                  orgID,
+			IncludeDefaultPassword: includeDefaultPassword,
+		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error getting device info: %v", err)
 		}
@@ -116,6 +123,7 @@ func (c *CapabilityChecker) getDeviceInfoByDeviceIdentifiers(
 	ctx context.Context,
 	deviceIdentifiers []string,
 	orgID int64,
+	includeDefaultPassword bool,
 ) ([]deviceInfo, error) {
 	if len(deviceIdentifiers) == 0 {
 		return []deviceInfo{}, nil
@@ -123,8 +131,9 @@ func (c *CapabilityChecker) getDeviceInfoByDeviceIdentifiers(
 
 	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) ([]deviceInfo, error) {
 		rows, err := q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
-			DeviceIdentifiers: deviceIdentifiers,
-			OrgID:             orgID,
+			DeviceIdentifiers:      deviceIdentifiers,
+			OrgID:                  orgID,
+			IncludeDefaultPassword: includeDefaultPassword,
 		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error getting device info: %v", err)

@@ -279,6 +279,21 @@ func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Conte
 	return nil
 }
 
+// ReconcileDefaultPasswordPairingStatusByIdentifier reconciles only the
+// paired-like PAIRED <-> DEFAULT_PASSWORD state machine. eligible=false means
+// the current row was deleted, missing, or in a non paired-like state; updated
+// says whether the status actually changed.
+func (s *SQLDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error) {
+	row, err := s.getQueries(ctx).ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, sqlc.ReconcileDefaultPasswordPairingStatusByIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		PairingStatus:    sqlc.PairingStatusEnum(pairingStatus),
+	})
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to reconcile default-password pairing status for device %s: %v", deviceIdentifier, err)
+	}
+	return row.Eligible, row.Updated, nil
+}
+
 func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
 	device, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,
@@ -391,7 +406,9 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
 // for a paired device. site_id is 0 when the device is not assigned to a site.
 func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error) {
-	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceIdentifier))
+	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierParams{
+		DeviceIdentifier: string(deviceIdentifier),
+	})
 	if err != nil {
 		return 0, "", 0, handleQueryError(err,
 			fmt.Sprintf("device not found with identifier=%s", deviceIdentifier),
@@ -1143,26 +1160,26 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 SELECT
     COALESCE(SUM(CASE
         WHEN filtered.status = 'OFFLINE'
-             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `)
         THEN 1 ELSE 0
     END), 0)::bigint AS offline_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
-             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `
         THEN 1 ELSE 0
     END), 0)::bigint AS sleeping_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `)
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `)
              AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR filtered.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR filtered.pairing_status IN ` + credentialRemediationPairingStatusList + `
                   OR filtered.has_open_error)
         THEN 1 ELSE 0
     END), 0)::bigint AS broken_count,
     COALESCE(SUM(CASE
         WHEN filtered.status = 'ACTIVE'
-             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `
              AND NOT filtered.has_open_error
         THEN 1 ELSE 0
     END), 0)::bigint AS hashing_count
@@ -1179,7 +1196,7 @@ FROM (
 LEFT JOIN open_errors ON device.id = open_errors.device_id`)
 	sb.WriteString(minerWhereClause)
 	sb.WriteString(`
-    AND device_pairing.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')`)
+    AND ` + actionablePairingStatusesExpr("device_pairing"))
 
 	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
 	sb.WriteString(`
@@ -1396,29 +1413,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`)
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`)
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`)
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN `+credentialRemediationPairingStatusList+`
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
     END), 0)::int AS hashing_count
@@ -1442,7 +1459,7 @@ WHERE dcm.device_set_id = ANY($2::bigint[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+  AND `+actionablePairingStatusesExpr("dp")+`
 GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))

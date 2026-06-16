@@ -417,9 +417,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
 	}
-	if q.getDeviceWithCredentialsAndIPByIDStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByID: %w", err)
-	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByDeviceIdentifier: %w", err)
 	}
@@ -896,6 +893,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.reassignRacksUnderBuildingsBulkStmt, err = db.PrepareContext(ctx, reassignRacksUnderBuildingsBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query ReassignRacksUnderBuildingsBulk: %w", err)
+	}
+	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
 	}
 	if q.removeAllDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeAllDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromDeviceSet: %w", err)
@@ -1893,11 +1893,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
-	if q.getDeviceWithCredentialsAndIPByIDStmt != nil {
-		if cerr := q.getDeviceWithCredentialsAndIPByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByIDStmt: %w", cerr)
-		}
-	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt != nil {
 		if cerr := q.getDiscoveredDeviceByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDiscoveredDeviceByDeviceIdentifierStmt: %w", cerr)
@@ -2693,6 +2688,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reassignRacksUnderBuildingsBulkStmt: %w", cerr)
 		}
 	}
+	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt != nil {
+		if cerr := q.reconcileDefaultPasswordPairingStatusByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
+		}
+	}
 	if q.removeAllDevicesFromDeviceSetStmt != nil {
 		if cerr := q.removeAllDevicesFromDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeAllDevicesFromDeviceSetStmt: %w", cerr)
@@ -3423,7 +3423,6 @@ type Queries struct {
 	getDeviceStatusForDeviceIdentifiersStmt               *sql.Stmt
 	getDeviceStatusHourlyAggregatesStmt                   *sql.Stmt
 	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt   *sql.Stmt
-	getDeviceWithCredentialsAndIPByIDStmt                 *sql.Stmt
 	getDiscoveredDeviceByDeviceIdentifierStmt             *sql.Stmt
 	getDiscoveredDeviceByIDStmt                           *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                    *sql.Stmt
@@ -3583,6 +3582,7 @@ type Queries struct {
 	reassignDevicesUnderBuildingsBulkStmt                 *sql.Stmt
 	reassignRacksUnderBuildingStmt                        *sql.Stmt
 	reassignRacksUnderBuildingsBulkStmt                   *sql.Stmt
+	reconcileDefaultPasswordPairingStatusByIdentifierStmt *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                     *sql.Stmt
 	removeDevicesFromAnyRackStmt                          *sql.Stmt
 	removeDevicesFromDeviceSetStmt                        *sql.Stmt
@@ -3832,7 +3832,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceStatusForDeviceIdentifiersStmt:               q.getDeviceStatusForDeviceIdentifiersStmt,
 		getDeviceStatusHourlyAggregatesStmt:                   q.getDeviceStatusHourlyAggregatesStmt,
 		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt:   q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
-		getDeviceWithCredentialsAndIPByIDStmt:                 q.getDeviceWithCredentialsAndIPByIDStmt,
 		getDiscoveredDeviceByDeviceIdentifierStmt:             q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                           q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                    q.getDiscoveredDeviceByIPAndPortStmt,
@@ -3992,6 +3991,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reassignDevicesUnderBuildingsBulkStmt:                 q.reassignDevicesUnderBuildingsBulkStmt,
 		reassignRacksUnderBuildingStmt:                        q.reassignRacksUnderBuildingStmt,
 		reassignRacksUnderBuildingsBulkStmt:                   q.reassignRacksUnderBuildingsBulkStmt,
+		reconcileDefaultPasswordPairingStatusByIdentifierStmt: q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
 		removeAllDevicesFromDeviceSetStmt:                     q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                          q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                        q.removeDevicesFromDeviceSetStmt,

@@ -10,12 +10,8 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-
-	"github.com/block/proto-fleet/server/internal/domain/token"
-
-	"github.com/block/proto-fleet/server/internal/infrastructure/files"
-
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
@@ -23,7 +19,9 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
+	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -39,6 +37,13 @@ const (
 	// minerCacheSize is the maximum number of miner handles to cache.
 	// Sized to cover very large fleets without meaningful memory overhead.
 	minerCacheSize = 10_000
+)
+
+type minerResolutionMode string
+
+const (
+	minerResolutionPairedOnly minerResolutionMode = "paired"
+	minerResolutionPairedLike minerResolutionMode = "paired-like"
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}
@@ -109,6 +114,14 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 // It performs a lightweight identifier lookup then delegates to
 // GetMinerFromDeviceIdentifier so both lookup paths share the same cache.
 func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+	return s.getMinerByDatabaseID(ctx, deviceID, minerResolutionPairedLike)
+}
+
+func (s *Service) GetMinerForCredentialRemediation(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+	return s.getMinerByDatabaseID(ctx, deviceID, minerResolutionPairedLike)
+}
+
+func (s *Service) getMinerByDatabaseID(ctx context.Context, deviceID int64, mode minerResolutionMode) (interfaces.Miner, error) {
 	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -116,15 +129,24 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 		}
 		return nil, fmt.Errorf("failed to get device identifier: %w", err)
 	}
-	return s.GetMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier))
+	return s.getMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier), mode)
 }
 
 func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+	return s.getMinerFromDeviceIdentifier(ctx, deviceID, minerResolutionPairedLike)
+}
+
+func (s *Service) GetMinerForTelemetry(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+	return s.getMinerFromDeviceIdentifier(ctx, deviceID, minerResolutionPairedLike)
+}
+
+func (s *Service) getMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier, mode minerResolutionMode) (interfaces.Miner, error) {
 	if deviceID == "" {
 		return nil, fmt.Errorf("device ID cannot be empty")
 	}
 
-	if m, ok := s.cache.Get(string(deviceID)); ok {
+	cacheKey := minerCacheKey(mode, deviceID)
+	if m, ok := s.cache.Get(cacheKey); ok {
 		return m, nil
 	}
 
@@ -132,13 +154,16 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 	// fall through. Deliberately NOT cached: tryFleetNodeMiner re-resolves per command so
 	// an unpair/revoke takes effect immediately (the remote miner holds no live connection,
 	// so re-resolving is cheap).
-	if m, ok, err := s.tryFleetNodeMiner(ctx, deviceID); err != nil {
+	if m, ok, err := s.tryFleetNodeMiner(ctx, deviceID, mode); err != nil {
 		return nil, err
 	} else if ok {
 		return m, nil
 	}
 
-	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
+	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierParams{
+		DeviceIdentifier:       string(deviceID),
+		IncludeDefaultPassword: mode == minerResolutionPairedLike,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewNotFoundErrorf("device not found: %s", deviceID)
@@ -180,18 +205,21 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		return nil, err
 	}
 
-	s.cache.Add(string(deviceID), m)
+	s.cache.Add(cacheKey, m)
 	return m, nil
 }
 
 // tryFleetNodeMiner returns a remote-node Miner if the device is paired to an active
 // fleet node. ok=false (nil error) means not fleet-node paired (or routing disabled),
 // so the caller dials directly.
-func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, bool, error) {
+func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceIdentifier, mode minerResolutionMode) (interfaces.Miner, bool, error) {
 	if s.commandSender == nil {
 		return nil, false, nil
 	}
-	row, err := s.GetQueries(ctx).GetActiveFleetNodeForDevice(ctx, string(deviceID))
+	row, err := s.GetQueries(ctx).GetActiveFleetNodeForDevice(ctx, sqlc.GetActiveFleetNodeForDeviceParams{
+		DeviceIdentifier:       string(deviceID),
+		IncludeDefaultPassword: mode == minerResolutionPairedLike,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, nil
@@ -227,7 +255,8 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 // Call this on auth errors, credential changes, and device lifecycle events
 // (unpair, delete).
 func (s *Service) InvalidateMiner(deviceIdentifier models.DeviceIdentifier) {
-	s.cache.Remove(string(deviceIdentifier))
+	s.cache.Remove(minerCacheKey(minerResolutionPairedOnly, deviceIdentifier))
+	s.cache.Remove(minerCacheKey(minerResolutionPairedLike, deviceIdentifier))
 }
 
 // InvalidateMinerByID evicts the cached handle for a device id (resolving its identifier
@@ -244,7 +273,11 @@ func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
 			"device_id", deviceID, "err", err)
 		return
 	}
-	s.cache.Remove(identifier)
+	s.InvalidateMiner(models.DeviceIdentifier(identifier))
+}
+
+func minerCacheKey(mode minerResolutionMode, deviceID models.DeviceIdentifier) string {
+	return string(mode) + ":" + string(deviceID)
 }
 
 func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {

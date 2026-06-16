@@ -107,6 +107,31 @@ WHERE device_pairing.device_id = d.id
   AND d.deleted_at IS NULL
   AND device_pairing.pairing_status IS DISTINCT FROM $1;
 
+-- name: ReconcileDefaultPasswordPairingStatusByIdentifier :one
+-- Telemetry reconciles only the paired-like factory-password state machine.
+-- Late samples must not resurrect devices moved to UNPAIRED,
+-- AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND sqlc.arg('pairing_status')::pairing_status_enum IN ('PAIRED', 'DEFAULT_PASSWORD')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = sqlc.arg('pairing_status')::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IS DISTINCT FROM sqlc.arg('pairing_status')::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated;
+
 -- name: GetDeviceByID :one
 SELECT *
 FROM device
@@ -729,7 +754,7 @@ WHERE d.org_id = sqlc.arg('org_id')
 ORDER BY d.device_identifier;
 
 -- name: GetDeviceInfoForCapabilityCheck :many
--- Returns device information needed for capability checking.
+-- Returns command-eligible device information needed for capability checking.
 -- Used when checking if specific devices support a command.
 SELECT
     d.id,
@@ -744,10 +769,16 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.deleted_at IS NULL
   AND d.org_id = sqlc.arg('org_id')
-  AND dp.pairing_status = 'PAIRED';
+  AND (
+      dp.pairing_status = 'PAIRED'
+      OR (
+          sqlc.arg('include_default_password')::boolean
+          AND dp.pairing_status = 'DEFAULT_PASSWORD'
+      )
+  );
 
 -- name: GetAllDeviceInfoForCapabilityCheck :many
--- Returns device information for all paired devices in an organization.
+-- Returns command-eligible device information for an organization.
 -- Used when checking capabilities for "select all" operations.
 SELECT
     d.id,
@@ -759,9 +790,15 @@ SELECT
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-WHERE d.org_id = $1
+WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
-  AND dp.pairing_status = 'PAIRED';
+  AND (
+      dp.pairing_status = 'PAIRED'
+      OR (
+          sqlc.arg('include_default_password')::boolean
+          AND dp.pairing_status = 'DEFAULT_PASSWORD'
+      )
+  );
 
 -- name: SoftDeleteDevices :execrows
 -- Soft-deletes devices by setting deleted_at timestamp.

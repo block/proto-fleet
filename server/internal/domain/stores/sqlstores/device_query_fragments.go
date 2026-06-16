@@ -88,10 +88,11 @@ func minerBaseQueryWithSortValue(sortValueExpr string) string {
 // 1=CRITICAL, 2=MAJOR, 3=MINOR, 4=INFO. Excludes UNSPECIFIED (0), which is normalized
 // to a real severity at ingestion by miner_error_mapper.
 const (
-	actionableErrorSeverityList      = "(1, 2, 3, 4)"
-	actionableErrorComponentTypeList = "(1, 2, 3, 4)"
-	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')"
-	actionableErrorSeverities        = "errors.severity IN " + actionableErrorSeverityList
+	actionableErrorSeverityList            = "(1, 2, 3, 4)"
+	actionableErrorComponentTypeList       = "(1, 2, 3, 4)"
+	actionablePairingStatusList            = "('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')"
+	credentialRemediationPairingStatusList = "('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')"
+	actionableErrorSeverities              = "errors.severity IN " + actionableErrorSeverityList
 )
 
 func actionableErrorSeveritiesExpr(alias string) string {
@@ -104,6 +105,10 @@ func actionableErrorComponentTypesExpr(alias string) string {
 
 func actionablePairingStatusesExpr(alias string) string {
 	return fmt.Sprintf("%s.pairing_status IN %s", alias, actionablePairingStatusList)
+}
+
+func credentialRemediationPairingStatusesExpr(alias string) string {
+	return fmt.Sprintf("%s.pairing_status IN %s", alias, credentialRemediationPairingStatusList)
 }
 
 // nonActionableStatuses defines device statuses where errors should not trigger

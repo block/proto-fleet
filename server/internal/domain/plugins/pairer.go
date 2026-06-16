@@ -107,8 +107,8 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 				return p.pairWithDefaultCredentials(ctx, plugin, discoveredDevice, defaultCreds)
 			}
 		}
-		// Devices that advertise CapabilityAsymmetricAuth (e.g. Proto devices) use public key
-		// based authentication managed by the plugin/SDK instead of username/password.
+		// Legacy asymmetric-auth drivers use public key based authentication
+		// managed by the plugin/SDK instead of username/password.
 		if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
 			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
 		}
@@ -627,11 +627,11 @@ func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *disco
 		return sdk.SecretBundle{}, err
 	}
 
-	if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
-		return p.createSecretBundle(ctx, device.OrgID, plugin.Caps, credentials)
+	if plugin.Caps[sdk.CapabilityAsymmetricAuth] {
+		return p.createProtoBearerSecretBundle(ctx, device)
 	}
 
-	return p.createProtoBearerSecretBundle(ctx, device)
+	return p.createSecretBundle(ctx, device.OrgID, plugin.Caps, credentials)
 }
 
 // createProtoBearerSecretBundle issues a JWT bearer token for proto devices so that runtime
