@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import FilterRow from "../components/FilterRow";
 import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -39,6 +39,17 @@ const FleetSitesPage = () => {
     const selected = new Set(selectedSiteIds);
     return visibleSiteScopes.filter((site) => selected.has(site.id.toString()));
   }, [selectedSiteIds, visibleSiteScopes]);
+  useEffect(() => {
+    const visible =
+      activeSite.kind === "all" ? new Set(visibleSiteScopes.map((site) => site.id.toString())) : new Set<string>();
+    // Keep selection scoped to the active SitePicker branch, including
+    // branches below that unmount SiteList.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- selection mirrors externally controlled visible rows.
+    setSelectedSiteIds((prev) => {
+      const next = prev.filter((id) => visible.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [activeSite.kind, visibleSiteScopes]);
   const handleSelectAllVisibleSites = useCallback(
     () => setSelectedSiteIds(visibleSiteScopes.map((site) => site.id.toString())),
     [visibleSiteScopes],
