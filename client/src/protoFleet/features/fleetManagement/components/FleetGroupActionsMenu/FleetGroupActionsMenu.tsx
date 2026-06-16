@@ -8,6 +8,7 @@ import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   MinerListFilterSchema,
   type MinerStateSnapshot,
+  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
@@ -106,6 +107,10 @@ const ACTION_ICON: Record<WiredActionKey, ReactElement> = {
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
+type ScopedMinerLookupResult = {
+  deviceIdentifiers: string[];
+  includesUnauthenticatedMiner: boolean;
+};
 
 const pluralizeScopeKind = (kind: GroupScope["kind"], count: number) => {
   if (count === 1) return kind;
@@ -182,7 +187,7 @@ const FleetGroupActionsMenu = ({
     return allowed;
   }, [permissions]);
 
-  const fetchDeviceIds = useCallback(async (): Promise<string[]> => {
+  const fetchDeviceIds = useCallback(async (): Promise<ScopedMinerLookupResult> => {
     if (scopeIds.length === 0) {
       throw new Error("No fleet groups selected.");
     }
@@ -220,7 +225,12 @@ const FleetGroupActionsMenu = ({
     idsLoadedRef.current = true;
     setIds(collected);
     setMinerSnapshots(snapshotMap);
-    return collected;
+    return {
+      deviceIdentifiers: collected,
+      includesUnauthenticatedMiner: Object.values(snapshotMap).some(
+        (miner) => miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED,
+      ),
+    };
   }, [scopeIds, scopeKind, scopeLabel]);
 
   useEffect(() => {
@@ -247,9 +257,9 @@ const FleetGroupActionsMenu = ({
         status: STATUSES.loading,
         longRunning: true,
       });
-      let deviceIdentifiers: string[];
+      let lookupResult: ScopedMinerLookupResult;
       try {
-        deviceIdentifiers = await fetchDeviceIds();
+        lookupResult = await fetchDeviceIds();
       } catch (err) {
         const message = err instanceof Error && err.message ? err.message : `Couldn't load miners for ${scopeLabel}.`;
         updateToast(loadingToast, { message, status: STATUSES.error });
@@ -259,8 +269,16 @@ const FleetGroupActionsMenu = ({
       }
       removeToast(loadingToast);
       setIsBusy(false);
-      if (deviceIdentifiers.length === 0) {
+      if (lookupResult.deviceIdentifiers.length === 0) {
         pushToast({ message: emptyScopeMessage, status: STATUSES.error });
+        onActionComplete?.();
+        return;
+      }
+      if (key !== deviceActions.unpair && lookupResult.includesUnauthenticatedMiner) {
+        pushToast({
+          message: `Some miners in ${scopeLabel} need authentication before this action can run. Unpair those miners or authenticate them first.`,
+          status: STATUSES.error,
+        });
         onActionComplete?.();
         return;
       }

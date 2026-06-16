@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deviceActions, performanceActions, settingsActions } from "../MinerActionsMenu/constants";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // Hoisted mocks — vi.mock factories are pulled above the file's top
 // level, so the mock fns they capture must come from vi.hoisted.
@@ -236,6 +237,13 @@ const buildPopoverActions = () => [
     actionHandler: vi.fn(),
     requiresConfirmation: false,
   },
+  {
+    action: deviceActions.unpair,
+    title: "Unpair",
+    icon: null,
+    actionHandler: vi.fn(),
+    requiresConfirmation: false,
+  },
 ];
 
 const makeMinerActions = () => ({
@@ -436,6 +444,65 @@ describe("FleetGroupActionsMenu", () => {
     expect(mockListMinerStateSnapshots).not.toHaveBeenCalled();
     expect(onActionStart).toHaveBeenCalledOnce();
     expect(onActionComplete).toHaveBeenCalledOnce();
+  });
+
+  it("blocks non-unpair actions when scoped miners need authentication", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+      cursor: "",
+    });
+    const onActionComplete = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Reboot miners"));
+
+    await waitFor(() => {
+      expect(mockPushToast).toHaveBeenLastCalledWith({
+        message:
+          "Some miners in Alpha need authentication before this action can run. Unpair those miners or authenticate them first.",
+        status: "error",
+      });
+    });
+    const reboot = mockUseMinerActions.mock.results
+      .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+      .find((entry) => entry.action === deviceActions.reboot);
+    expect(reboot?.actionHandler).not.toHaveBeenCalled();
+    expect(onActionComplete).toHaveBeenCalledOnce();
+  });
+
+  it("allows unpair when scoped miners need authentication", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+      cursor: "",
+    });
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Unpair miners"));
+
+    await waitFor(() => {
+      const unpair = mockUseMinerActions.mock.results
+        .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+        .find((entry) => entry.action === deviceActions.unpair);
+      expect(unpair?.actionHandler).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPushToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("need authentication") }),
+    );
   });
 
   it("combines same-kind scopes into one snapshot filter and hides row-only extras", async () => {
