@@ -245,6 +245,40 @@ describe("activeCurtailmentData", () => {
     );
   });
 
+  it("preserves a mutation-backed event after selecting another active curtailment", async () => {
+    const activeEvent = curtailmentEvent("active-event", CurtailmentEventState.ACTIVE, { reason: "Still active" });
+    const selectedEvent = curtailmentEvent("selected-event", CurtailmentEventState.ACTIVE, { reason: "Selected" });
+    const restoringEvent = curtailmentEvent("active-event", CurtailmentEventState.RESTORING, { reason: "Stopping" });
+    applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(selectedEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(restoringEvent, { mergeActiveEvents: true, preserveAgainstStaleRefresh: true });
+    applyActiveCurtailmentEvent(selectedEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments
+      .mockResolvedValueOnce({ events: [selectedEvent, activeEvent] })
+      .mockResolvedValueOnce({ events: [selectedEvent, restoringEvent] });
+
+    await refreshActiveCurtailmentData();
+
+    let snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.eventUuid).toBe("selected-event");
+    expect(snapshot.events.find((event) => event.eventUuid === "active-event")).toEqual(
+      expect.objectContaining({
+        reason: "Stopping",
+        state: CurtailmentEventState.RESTORING,
+      }),
+    );
+
+    await refreshActiveCurtailmentData();
+
+    snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.events.find((event) => event.eventUuid === "active-event")).toEqual(
+      expect.objectContaining({
+        reason: "Stopping",
+        state: CurtailmentEventState.RESTORING,
+      }),
+    );
+  });
+
   it("hydrates only the selected active curtailment before committing the active list", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
@@ -461,7 +495,7 @@ describe("activeCurtailmentData", () => {
 
   it("clears a restoring curtailment after an empty active response", async () => {
     applyActiveCurtailmentEvent(curtailmentEvent("restoring", CurtailmentEventState.RESTORING));
-    mockListActiveCurtailments.mockResolvedValue({ event: undefined });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: undefined });
 
     await refreshActiveCurtailmentData();
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
@@ -475,7 +509,7 @@ describe("activeCurtailmentData", () => {
           resolveStaleRefresh = resolve;
         }),
       )
-      .mockResolvedValue({ event: undefined });
+      .mockResolvedValueOnce({ event: undefined });
 
     const staleRefresh = fetchActiveCurtailmentData();
     applyActiveCurtailmentEvent(curtailmentEvent("restoring", CurtailmentEventState.RESTORING));

@@ -768,6 +768,7 @@ describe("useCurtailmentApi", () => {
     applyActiveCurtailmentEvent(selectedActiveEvent, { mergeActiveEvents: true });
     mockListActiveCurtailments
       .mockResolvedValueOnce({ events: [selectedActiveEvent] })
+      .mockResolvedValueOnce({ events: [selectedActiveEvent] })
       .mockResolvedValueOnce({ events: [selectedActiveEvent] });
     mockListCurtailmentEvents
       .mockResolvedValueOnce({ events: [], nextPageToken: "" })
@@ -788,6 +789,10 @@ describe("useCurtailmentApi", () => {
       "curt-vanished-restoring",
     ]);
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-vanished-restoring"]);
+
+    await act(async () => {
+      await refreshActiveCurtailmentData();
+    });
 
     await act(async () => {
       await result.current.refreshCurtailment();

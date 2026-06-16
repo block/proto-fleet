@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import {
+  type ActiveCurtailmentSnapshot,
   applyActiveCurtailmentEvent,
   dismissActiveCurtailmentEvent,
   fetchActiveCurtailmentData,
@@ -288,6 +289,42 @@ function getVanishedRestoringEventsToPreserve(
   );
 }
 
+function hasTerminalHistoryEventId(eventUuid: string, historyEvents: CurtailmentHistoryEvent[]): boolean {
+  const matchingHistoryEvent = historyEvents.find((event) => event.id === eventUuid);
+  return Boolean(matchingHistoryEvent && historyTerminalCurtailmentEventStates.has(matchingHistoryEvent.state));
+}
+
+function getActiveSnapshotForReconciliation(
+  currentSnapshot: ActiveCurtailmentSnapshot,
+  previousSnapshot: ActiveCurtailmentSnapshot,
+  historyEvents: CurtailmentHistoryEvent[],
+): ActiveCurtailmentSnapshot {
+  const currentEventUuids = new Set(currentSnapshot.events.map((event) => event.eventUuid));
+  if (currentSnapshot.event) {
+    currentEventUuids.add(currentSnapshot.event.eventUuid);
+  }
+  const vanishedRestoringEvents = previousSnapshot.events.filter(
+    (event) =>
+      event.state === ProtoCurtailmentEventState.RESTORING &&
+      !currentEventUuids.has(event.eventUuid) &&
+      !hasTerminalHistoryEventId(event.eventUuid, historyEvents),
+  );
+  const event =
+    previousSnapshot.event?.state === ProtoCurtailmentEventState.RESTORING &&
+    !currentEventUuids.has(previousSnapshot.event.eventUuid) &&
+    !hasTerminalHistoryEventId(previousSnapshot.event.eventUuid, historyEvents)
+      ? previousSnapshot.event
+      : currentSnapshot.event;
+
+  return {
+    event,
+    events:
+      vanishedRestoringEvents.length > 0
+        ? [...currentSnapshot.events, ...vanishedRestoringEvents]
+        : currentSnapshot.events,
+  };
+}
+
 function getActiveHistoryEvents(
   activeEvents: ProtoCurtailmentEvent[],
   selectedActiveEvent: ProtoCurtailmentEvent | undefined,
@@ -503,6 +540,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const historyStatusFiltersRef = useRef(historyStatusFilters);
   const latestRefreshRequestIdRef = useRef(0);
   const foregroundRefreshCountRef = useRef(0);
+  const activeReconciliationSnapshotRef = useRef<ActiveCurtailmentSnapshot>(getActiveCurtailmentSnapshot());
 
   const updateSnapshot = useCallback(
     (snapshotUpdater: CurtailmentSnapshot | ((current: CurtailmentSnapshot) => CurtailmentSnapshot)) => {
@@ -542,6 +580,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
         mergeActiveEvents: true,
         preserveAgainstStaleRefresh: true,
       });
+      activeReconciliationSnapshotRef.current = activeSnapshot;
       const nextActiveSnapshotEvent = activeSnapshot.event;
       const nextActiveEvent = getActiveSnapshotEvent(nextActiveSnapshotEvent);
       const activeStatusFilters = historyStatusFiltersRef.current;
@@ -701,7 +740,11 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
       return (async () => {
         try {
-          const fallbackActiveSnapshot = getActiveCurtailmentSnapshot();
+          const fallbackActiveSnapshot = getActiveSnapshotForReconciliation(
+            getActiveCurtailmentSnapshot(),
+            activeReconciliationSnapshotRef.current,
+            snapshotRef.current.historyEvents,
+          );
           const fallbackActiveEvent = fallbackActiveSnapshot.event;
           const fallbackActiveEvents = fallbackActiveSnapshot.events;
           const [activeRefresh, historyPageResponse] = await Promise.all([
@@ -709,8 +752,13 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             listCurtailmentEventsPage(pageToken ?? "", knownPageTokens, stateFilters, signal),
           ]);
           assertNotAborted(signal);
-          const currentActiveEvent = getActiveCurtailmentSnapshot().event ?? fallbackActiveEvent;
-          const previewActiveSnapshot = activeRefresh ?? getActiveCurtailmentSnapshot();
+          const currentActiveSnapshot = getActiveSnapshotForReconciliation(
+            getActiveCurtailmentSnapshot(),
+            activeReconciliationSnapshotRef.current,
+            snapshotRef.current.historyEvents,
+          );
+          const currentActiveEvent = currentActiveSnapshot.event ?? fallbackActiveEvent;
+          const previewActiveSnapshot = activeRefresh ?? currentActiveSnapshot;
           const previewActiveEvents = previewActiveSnapshot.events;
           const reconciliationBaseEvent = getRestoringEventForTerminalReconciliation(
             previewActiveSnapshot.event,
@@ -765,6 +813,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           if (activeEvent !== activeSnapshot.event) {
             applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
           }
+          activeReconciliationSnapshotRef.current = { event: activeEvent, events: activeEvents };
           const nextSnapshot =
             activeEvent === previewActiveEvent && preservedRestoringEvents.length === 0
               ? previewSnapshot
@@ -864,6 +913,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     async (eventUuid: string, { signal }: Pick<RefreshCurtailmentOptions, "signal"> = {}) => {
       try {
         const activeSnapshot = await selectActiveCurtailmentEvent(eventUuid, { signal });
+        activeReconciliationSnapshotRef.current = activeSnapshot;
         const activeSnapshotFields = getActiveSnapshotFields(activeSnapshot.event);
         const activeStatusFilters = historyStatusFiltersRef.current;
         updateSnapshot((current) => ({
@@ -978,7 +1028,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   );
 
   const dismissTerminalCurtailment = useCallback(() => {
-    dismissActiveCurtailmentEvent(activeCurtailmentEvent?.eventUuid);
+    activeReconciliationSnapshotRef.current = dismissActiveCurtailmentEvent(activeCurtailmentEvent?.eventUuid);
   }, [activeCurtailmentEvent]);
 
   const activeSnapshotFields = useMemo(() => getActiveSnapshotFields(activeCurtailmentEvent), [activeCurtailmentEvent]);

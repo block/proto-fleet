@@ -23,6 +23,7 @@ export interface RefreshActiveCurtailmentOptions {
 export interface ApplyActiveCurtailmentEventOptions {
   mergeActiveEvents?: boolean;
   preserveAgainstStaleRefresh?: boolean;
+  preserveEventUuid?: string;
 }
 
 export interface PendingActiveCurtailmentRefresh extends ActiveCurtailmentSnapshot {
@@ -49,6 +50,7 @@ interface ActiveCurtailmentResponseSnapshot {
 interface SetActiveCurtailmentSnapshotOptions {
   fromActiveRefresh?: boolean;
   preserveAgainstStaleRefresh?: boolean;
+  preserveEventUuid?: string;
 }
 
 const activeCurtailmentDetailTargetPageSize = 1000;
@@ -217,7 +219,8 @@ function shouldPreserveMutationBackedSnapshot(
   next: ActiveCurtailmentSnapshot,
   writeVersion: number,
 ): boolean {
-  if (!mutationBackedEventUuid || !current.event || current.event.eventUuid !== mutationBackedEventUuid) {
+  const currentMutationBackedEvent = getMutationBackedEventFromSnapshot(current);
+  if (!mutationBackedEventUuid || !currentMutationBackedEvent) {
     return preservedMutationBackedRefreshWriteVersions.has(writeVersion);
   }
 
@@ -230,11 +233,11 @@ function shouldPreserveMutationBackedSnapshot(
     return true;
   }
 
-  if (equals(CurtailmentEventSchema, current.event, nextMutationBackedEvent)) {
+  if (equals(CurtailmentEventSchema, currentMutationBackedEvent, nextMutationBackedEvent)) {
     return false;
   }
 
-  return getMutationStateRank(nextMutationBackedEvent) < getMutationStateRank(current.event);
+  return getMutationStateRank(nextMutationBackedEvent) < getMutationStateRank(currentMutationBackedEvent);
 }
 
 function clearMutationBackedPreservation(): void {
@@ -245,7 +248,11 @@ function clearMutationBackedPreservation(): void {
 function setActiveCurtailmentSnapshot(
   snapshot: ActiveCurtailmentSnapshot,
   writeVersion = getNextWriteVersion(),
-  { fromActiveRefresh = false, preserveAgainstStaleRefresh = false }: SetActiveCurtailmentSnapshotOptions = {},
+  {
+    fromActiveRefresh = false,
+    preserveAgainstStaleRefresh = false,
+    preserveEventUuid,
+  }: SetActiveCurtailmentSnapshotOptions = {},
 ): ActiveCurtailmentSnapshot {
   if (writeVersion < appliedWriteVersion) {
     return getActiveCurtailmentSnapshot();
@@ -259,10 +266,10 @@ function setActiveCurtailmentSnapshot(
     return currentSnapshot;
   }
 
-  if (preserveAgainstStaleRefresh && snapshot.event) {
-    mutationBackedEventUuid = snapshot.event.eventUuid;
+  if (preserveAgainstStaleRefresh && preserveEventUuid) {
+    mutationBackedEventUuid = preserveEventUuid;
     preservedMutationBackedRefreshWriteVersions = new Set<number>();
-  } else if (fromActiveRefresh || !snapshot.event || snapshot.event.eventUuid !== mutationBackedEventUuid) {
+  } else if (fromActiveRefresh || (mutationBackedEventUuid && !getMutationBackedEventFromSnapshot(snapshot))) {
     clearMutationBackedPreservation();
   }
 
@@ -308,7 +315,10 @@ export function applyActiveCurtailmentEvent(
       events,
     },
     undefined,
-    options,
+    {
+      ...options,
+      preserveEventUuid: options.preserveAgainstStaleRefresh ? event.eventUuid : options.preserveEventUuid,
+    },
   );
 }
 
