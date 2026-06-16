@@ -363,6 +363,19 @@ describe("activeCurtailmentData", () => {
     expect(snapshot.events.map((event) => event.reason)).toEqual(["Summary A", "Summary B"]);
   });
 
+  it("surfaces auth failures from selected active detail hydration", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    applyActiveCurtailmentEvent(curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Current A" }), {
+      mergeActiveEvents: true,
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary] });
+    mockGetCurtailmentEvent.mockRejectedValueOnce(new ConnectError("permission denied", Code.PermissionDenied));
+
+    await expect(refreshActiveCurtailmentData()).rejects.toMatchObject({ code: Code.PermissionDenied });
+
+    expect(getActiveCurtailmentSnapshot().event?.reason).toBe("Current A");
+  });
+
   it("does not keep partial selected targets during active polling detail hydration", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {

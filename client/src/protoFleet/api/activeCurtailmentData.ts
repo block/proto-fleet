@@ -9,7 +9,7 @@ import {
   ListActiveCurtailmentsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { assertNotAborted, isAbortError } from "@/protoFleet/api/requestErrors";
+import { assertNotAborted, isAbortError, isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
 
 export interface ActiveCurtailmentSnapshot {
   event: ProtoCurtailmentEvent | undefined;
@@ -544,6 +544,9 @@ async function requestActiveCurtailmentResponseSnapshot(
     detailedSelectedEvent = await requestActiveCurtailmentDetail(selectedEvent.eventUuid, { signal });
   } catch (error) {
     if (isAbortError(error, signal)) {
+      throw error;
+    }
+    if (isAuthOrPermissionError(error)) {
       throw error;
     }
   }

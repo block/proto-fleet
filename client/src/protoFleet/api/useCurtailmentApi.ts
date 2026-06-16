@@ -30,7 +30,7 @@ import {
   CurtailmentEventState as ProtoCurtailmentEventState,
   StopCurtailmentRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
+import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   type CurtailmentEventState,
@@ -63,6 +63,11 @@ interface CurtailmentSnapshot {
 interface CurtailmentHistoryPage {
   events: ProtoCurtailmentEvent[];
   nextPageToken: string;
+}
+
+interface ReadableRestoringEvents {
+  eventIds: Set<string>;
+  terminalEvents: ProtoCurtailmentEvent[];
 }
 
 interface CurtailmentHistoryPaginationState {
@@ -147,12 +152,7 @@ const activeReconciliationHistoryStateFilters: CurtailmentEventState[] = [
   "cancelled",
   "failed",
 ];
-const activeCurtailmentClearErrorCodes = new Set<Code>([Code.Unauthenticated, Code.PermissionDenied]);
 const vanishedRestoringUnreadableErrorCodes = new Set<Code>([Code.NotFound, Code.PermissionDenied]);
-
-function shouldClearActiveCurtailmentOnError(error: unknown): boolean {
-  return error instanceof ConnectError && activeCurtailmentClearErrorCodes.has(error.code);
-}
 
 function isVanishedRestoringUnreadableError(error: unknown): boolean {
   return error instanceof ConnectError && vanishedRestoringUnreadableErrorCodes.has(error.code);
@@ -272,6 +272,21 @@ function getActiveEventInputs(
 
 function isRestoringCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
   return event.state === ProtoCurtailmentEventState.RESTORING;
+}
+
+function isTerminalProtoCurtailmentEvent(event: ProtoCurtailmentEvent): boolean {
+  return historyTerminalCurtailmentEventStates.has(mapCurtailmentEventState(event.state));
+}
+
+function mergeUniqueCurtailmentEvents(
+  preferredEvents: ProtoCurtailmentEvent[],
+  events: ProtoCurtailmentEvent[],
+): ProtoCurtailmentEvent[] {
+  if (preferredEvents.length === 0) {
+    return events;
+  }
+  const preferredEventIds = new Set(preferredEvents.map((event) => event.eventUuid));
+  return [...preferredEvents, ...events.filter((event) => !preferredEventIds.has(event.eventUuid))];
 }
 
 function hasTerminalHistoryEvent(event: ProtoCurtailmentEvent, historyEvents: ProtoCurtailmentEvent[]): boolean {
@@ -682,11 +697,14 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
     [listCurtailmentEventsPage],
   );
 
-  const findReadableRestoringEventIds = useCallback(
-    async (events: ProtoCurtailmentEvent[], signal?: AbortSignal): Promise<Set<string>> => {
-      const readableEventIds = new Set<string>();
+  const findReadableRestoringEvents = useCallback(
+    async (events: ProtoCurtailmentEvent[], signal?: AbortSignal): Promise<ReadableRestoringEvents> => {
+      const readableEvents: ReadableRestoringEvents = {
+        eventIds: new Set<string>(),
+        terminalEvents: [],
+      };
       if (events.length === 0) {
-        return readableEventIds;
+        return readableEvents;
       }
 
       await Promise.all(
@@ -701,7 +719,10 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             );
             assertNotAborted(signal);
             if (response.event?.state === ProtoCurtailmentEventState.RESTORING) {
-              readableEventIds.add(event.eventUuid);
+              readableEvents.eventIds.add(event.eventUuid);
+            } else if (response.event && isTerminalProtoCurtailmentEvent(response.event)) {
+              readableEvents.eventIds.add(event.eventUuid);
+              readableEvents.terminalEvents.push(response.event);
             }
           } catch (error) {
             if (isAbortError(error, signal)) {
@@ -715,7 +736,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
         }),
       );
 
-      return readableEventIds;
+      return readableEvents;
     },
     [],
   );
@@ -795,7 +816,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       return (async () => {
         try {
           const currentActiveDataSnapshot = getActiveCurtailmentSnapshot();
-          const readableFallbackRestoringEventIds = await findReadableRestoringEventIds(
+          const readableFallbackRestoringEvents = await findReadableRestoringEvents(
             getVanishedRestoringEvents(
               activeReconciliationSnapshotRef.current.events,
               currentActiveDataSnapshot.events,
@@ -806,7 +827,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             currentActiveDataSnapshot,
             activeReconciliationSnapshotRef.current,
             snapshotRef.current.historyEvents,
-            readableFallbackRestoringEventIds,
+            readableFallbackRestoringEvents.eventIds,
           );
           const fallbackActiveEvent = fallbackActiveSnapshot.event;
           const fallbackActiveEvents = fallbackActiveSnapshot.events;
@@ -819,7 +840,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             getActiveCurtailmentSnapshot(),
             activeReconciliationSnapshotRef.current,
             snapshotRef.current.historyEvents,
-            readableFallbackRestoringEventIds,
+            readableFallbackRestoringEvents.eventIds,
           );
           const currentActiveEvent = currentActiveSnapshot.event ?? fallbackActiveEvent;
           const previewActiveSnapshot = activeRefresh ?? currentActiveSnapshot;
@@ -831,12 +852,11 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
           const fallbackNonSelectedActiveEvents = reconciliationBaseEvent
             ? fallbackActiveEvents.filter((event) => event.eventUuid !== reconciliationBaseEvent.eventUuid)
             : fallbackActiveEvents;
-          const reconciliationEvents = await getHistoryEventsForActiveReconciliation(
-            reconciliationBaseEvent,
-            historyPageResponse.events,
-            signal,
+          const reconciliationEvents = mergeUniqueCurtailmentEvents(
+            readableFallbackRestoringEvents.terminalEvents,
+            await getHistoryEventsForActiveReconciliation(reconciliationBaseEvent, historyPageResponse.events, signal),
           );
-          const activeReconciliationEvents = await getHistoryEventsForVanishedRestoringReconciliation(
+          let activeReconciliationEvents = await getHistoryEventsForVanishedRestoringReconciliation(
             fallbackNonSelectedActiveEvents,
             previewActiveSnapshot.events,
             reconciliationEvents,
@@ -868,12 +888,20 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
             activeSnapshot.events,
             activeReconciliationEvents,
           );
-          const readablePreservedRestoringEventIds = await findReadableRestoringEventIds(
+          const readablePreservedRestoringEvents = await findReadableRestoringEvents(
             preservedRestoringCandidates,
             signal,
           );
+          assertNotAborted(signal);
+          if (requestId !== latestRefreshRequestIdRef.current) {
+            return previewSnapshot;
+          }
+          activeReconciliationEvents = mergeUniqueCurtailmentEvents(
+            readablePreservedRestoringEvents.terminalEvents,
+            activeReconciliationEvents,
+          );
           const preservedRestoringEvents = preservedRestoringCandidates.filter((event) =>
-            readablePreservedRestoringEventIds.has(event.eventUuid),
+            readablePreservedRestoringEvents.eventIds.has(event.eventUuid),
           );
           const activeEvents =
             preservedRestoringEvents.length > 0
@@ -914,7 +942,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
 
           const resolvedError = handleFailure(error, "Failed to load curtailment data.");
           if (requestId === latestRefreshRequestIdRef.current) {
-            if (shouldClearActiveCurtailmentOnError(error)) {
+            if (isAuthOrPermissionError(error)) {
               activeReconciliationSnapshotRef.current = applyActiveCurtailmentEvent(undefined);
             }
             setLoadError(resolvedError.message);
@@ -924,7 +952,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       })();
     },
     [
-      findReadableRestoringEventIds,
+      findReadableRestoringEvents,
       getHistoryEventsForVanishedRestoringReconciliation,
       getHistoryEventsForActiveReconciliation,
       handleFailure,
@@ -1019,7 +1047,7 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
         }
 
         const resolvedError = handleFailure(error, "Failed to load curtailment detail.");
-        if (shouldClearActiveCurtailmentOnError(error)) {
+        if (isAuthOrPermissionError(error)) {
           activeReconciliationSnapshotRef.current = applyActiveCurtailmentEvent(undefined);
         }
         setLoadError(resolvedError.message);

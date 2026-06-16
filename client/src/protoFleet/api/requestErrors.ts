@@ -2,6 +2,8 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 
+const authOrPermissionErrorCodes = new Set<Code>([Code.Unauthenticated, Code.PermissionDenied]);
+
 export function toError(error: unknown, fallbackMessage: string): Error {
   const message = getErrorMessage(error);
   if (message) {
@@ -27,4 +29,8 @@ export function isAbortError(error: unknown, signal?: AbortSignal): boolean {
   }
 
   return error instanceof ConnectError && error.code === Code.Canceled && Boolean(signal?.aborted);
+}
+
+export function isAuthOrPermissionError(error: unknown): boolean {
+  return error instanceof ConnectError && authOrPermissionErrorCodes.has(error.code);
 }

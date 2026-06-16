@@ -370,11 +370,41 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- Org-scoped list of every non-terminal event. Multiple can be active when
 -- they target disjoint device scopes (e.g. per-site curtailment). Most-recent
 -- first by effective time (started_at, or created_at for pending), id tiebreak.
-SELECT *
+--
+-- Active summaries intentionally omit the persisted decision snapshot. Polling
+-- runs frequently and the response shape never exposes the snapshot; detail
+-- callers use GetCurtailmentEventDetailByUUID instead.
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    curtail_batch_size, curtail_batch_interval_sec,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    '{}'::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active', 'restoring')
 ORDER BY COALESCE(started_at, created_at) DESC, id DESC;
+
+-- name: ListCurtailmentTargetSiteIDsByEvent :many
+-- Distinct current site contexts for the devices selected by one event.
+-- Used only for authorization of explicit-device scopes; whole-org remains
+-- org-scoped and site-scoped events use their immutable scope_jsonb site.
+SELECT DISTINCT d.site_id::BIGINT
+FROM curtailment_event ce
+JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+JOIN device d ON d.org_id = ce.org_id
+    AND d.device_identifier = ct.device_identifier
+    AND d.deleted_at IS NULL
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.event_uuid = sqlc.arg('event_uuid')
+    AND d.site_id IS NOT NULL
+ORDER BY d.site_id;
 
 -- name: BulkInsertCurtailmentTargets :execrows
 -- Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB

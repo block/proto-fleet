@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Code, ConnectError } from "@connectrpc/connect";
 
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
@@ -10,7 +9,7 @@ import {
   useActiveCurtailmentEvents,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
-import { isAbortError } from "@/protoFleet/api/requestErrors";
+import { isAbortError, isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 
 export interface UseCurtailmentPillDataResult {
@@ -19,11 +18,6 @@ export interface UseCurtailmentPillDataResult {
 
 const idlePollIntervalMs = 30_000;
 const activeCurtailmentPollIntervalMs = 3_000;
-const activeCurtailmentClearErrorCodes = new Set<Code>([Code.Unauthenticated, Code.PermissionDenied]);
-
-function shouldClearActiveCurtailmentOnError(error: unknown): boolean {
-  return error instanceof ConnectError && activeCurtailmentClearErrorCodes.has(error.code);
-}
 
 export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
@@ -73,7 +67,7 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
             return;
           }
 
-          if (shouldClearActiveCurtailmentOnError(error)) {
+          if (isAuthOrPermissionError(error)) {
             applyActiveCurtailmentEvent(undefined);
           }
 

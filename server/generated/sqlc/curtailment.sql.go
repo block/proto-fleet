@@ -917,25 +917,79 @@ func (q *Queries) ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int
 }
 
 const listActiveCurtailmentEvents = `-- name: ListActiveCurtailmentEvents :many
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    curtail_batch_size, curtail_batch_interval_sec,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    '{}'::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
 ORDER BY COALESCE(started_at, created_at) DESC, id DESC
 `
 
+type ListActiveCurtailmentEventsRow struct {
+	ID                      int64
+	EventUuid               uuid.UUID
+	OrgID                   int64
+	State                   string
+	Mode                    string
+	Strategy                string
+	Level                   string
+	Priority                string
+	LoopType                string
+	ScopeType               string
+	ScopeJsonb              json.RawMessage
+	ModeParamsJsonb         json.RawMessage
+	CurtailBatchSize        sql.NullInt32
+	CurtailBatchIntervalSec int32
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	EffectiveBatchSize      sql.NullInt32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      sql.NullInt32
+	AllowUnbounded          bool
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	DecisionSnapshotJsonb   json.RawMessage
+	SourceActorType         string
+	SourceActorID           sql.NullString
+	ExternalSource          sql.NullString
+	ExternalReference       sql.NullString
+	IdempotencyKey          sql.NullString
+	SupersedesEventID       sql.NullInt64
+	Reason                  string
+	ScheduledStartAt        sql.NullTime
+	StartedAt               sql.NullTime
+	EndedAt                 sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	CreatedByUserID         int64
+}
+
 // Org-scoped list of every non-terminal event. Multiple can be active when
 // they target disjoint device scopes (e.g. per-site curtailment). Most-recent
 // first by effective time (started_at, or created_at for pending), id tiebreak.
-func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) ([]CurtailmentEvent, error) {
+//
+// Active summaries intentionally omit the persisted decision snapshot. Polling
+// runs frequently and the response shape never exposes the snapshot; detail
+// callers use GetCurtailmentEventDetailByUUID instead.
+func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) ([]ListActiveCurtailmentEventsRow, error) {
 	rows, err := q.query(ctx, q.listActiveCurtailmentEventsStmt, listActiveCurtailmentEvents, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CurtailmentEvent
+	var items []ListActiveCurtailmentEventsRow
 	for rows.Next() {
-		var i CurtailmentEvent
+		var i ListActiveCurtailmentEventsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventUuid,
@@ -949,6 +1003,8 @@ func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) 
 			&i.ScopeType,
 			&i.ScopeJsonb,
 			&i.ModeParamsJsonb,
+			&i.CurtailBatchSize,
+			&i.CurtailBatchIntervalSec,
 			&i.RestoreBatchSize,
 			&i.RestoreBatchIntervalSec,
 			&i.EffectiveBatchSize,
@@ -971,8 +1027,6 @@ func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedByUserID,
-			&i.CurtailBatchSize,
-			&i.CurtailBatchIntervalSec,
 		); err != nil {
 			return nil, err
 		}
@@ -1251,6 +1305,50 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCurtailmentTargetSiteIDsByEvent = `-- name: ListCurtailmentTargetSiteIDsByEvent :many
+SELECT DISTINCT d.site_id::BIGINT
+FROM curtailment_event ce
+JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+JOIN device d ON d.org_id = ce.org_id
+    AND d.device_identifier = ct.device_identifier
+    AND d.deleted_at IS NULL
+WHERE ce.org_id = $1
+    AND ce.event_uuid = $2
+    AND d.site_id IS NOT NULL
+ORDER BY d.site_id
+`
+
+type ListCurtailmentTargetSiteIDsByEventParams struct {
+	OrgID     int64
+	EventUuid uuid.UUID
+}
+
+// Distinct current site contexts for the devices selected by one event.
+// Used only for authorization of explicit-device scopes; whole-org remains
+// org-scoped and site-scoped events use their immutable scope_jsonb site.
+func (q *Queries) ListCurtailmentTargetSiteIDsByEvent(ctx context.Context, arg ListCurtailmentTargetSiteIDsByEventParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.listCurtailmentTargetSiteIDsByEventStmt, listCurtailmentTargetSiteIDsByEvent, arg.OrgID, arg.EventUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var d_site_id int64
+		if err := rows.Scan(&d_site_id); err != nil {
+			return nil, err
+		}
+		items = append(items, d_site_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

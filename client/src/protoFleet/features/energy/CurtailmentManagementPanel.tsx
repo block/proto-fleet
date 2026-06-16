@@ -456,10 +456,16 @@ function CurtailmentManagementPanel({
       return;
     }
 
+    const currentEvent = activeEvents.find((event) => event.id === pendingStopConfirmation.eventId);
+    if (!currentEvent || !nonTerminalActiveEventStates.has(currentEvent.state)) {
+      setPendingStopConfirmation(null);
+      return;
+    }
+
     void stopCurtailment(pendingStopConfirmation.eventId)
       .then(() => setPendingStopConfirmation(null))
       .catch(() => {});
-  }, [canManageCurtailment, pendingStopConfirmation, stopCurtailment]);
+  }, [activeEvents, canManageCurtailment, pendingStopConfirmation, stopCurtailment]);
 
   const handleEditStopCurtailment = useCallback(() => {
     const editEventId = editSession?.eventId ?? activeEventId;

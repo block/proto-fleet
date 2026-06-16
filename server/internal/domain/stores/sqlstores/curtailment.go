@@ -738,7 +738,7 @@ func (s *SQLCurtailmentStore) ListActiveEvents(ctx context.Context, orgID int64)
 	}
 	events := make([]*models.Event, len(rows))
 	for i, row := range rows {
-		events[i] = convertEventRow(row)
+		events[i] = convertActiveEventRow(row)
 	}
 	return events, nil
 }
@@ -1032,6 +1032,17 @@ func (s *SQLCurtailmentStore) ListTargetsByEventPage(ctx context.Context, params
 		targets = append(targets, convertTargetRow(row))
 	}
 	return targets, nextToken, nil
+}
+
+func (s *SQLCurtailmentStore) ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, error) {
+	siteIDs, err := s.GetQueries(ctx).ListCurtailmentTargetSiteIDsByEvent(ctx, sqlc.ListCurtailmentTargetSiteIDsByEventParams{
+		OrgID:     orgID,
+		EventUuid: eventUUID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment target site IDs: %v", err)
+	}
+	return siteIDs, nil
 }
 
 func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
@@ -1421,6 +1432,47 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 }
 
 func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event {
+	return convertEventFields(
+		row.ID,
+		row.EventUuid,
+		row.OrgID,
+		row.State,
+		row.Mode,
+		row.Strategy,
+		row.Level,
+		row.Priority,
+		row.LoopType,
+		row.ScopeType,
+		row.ScopeJsonb,
+		row.ModeParamsJsonb,
+		row.CurtailBatchSize,
+		row.CurtailBatchIntervalSec,
+		row.RestoreBatchSize,
+		row.RestoreBatchIntervalSec,
+		row.EffectiveBatchSize,
+		row.MinCurtailedDurationSec,
+		row.MaxDurationSeconds,
+		row.AllowUnbounded,
+		row.IncludeMaintenance,
+		row.ForceIncludeMaintenance,
+		row.DecisionSnapshotJsonb,
+		row.SourceActorType,
+		row.SourceActorID,
+		row.ExternalSource,
+		row.ExternalReference,
+		row.IdempotencyKey,
+		row.SupersedesEventID,
+		row.Reason,
+		row.ScheduledStartAt,
+		row.StartedAt,
+		row.EndedAt,
+		row.CreatedByUserID,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Event {
 	return convertEventFields(
 		row.ID,
 		row.EventUuid,

@@ -130,6 +130,10 @@ func (s *startStubStore) ListTargetsByEventPage(context.Context, interfaces.List
 	panic("ListTargetsByEventPage not exercised by handler Start tests")
 }
 
+func (s *startStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, error) {
+	panic("ListTargetSiteIDsByEvent not exercised by handler Start tests")
+}
+
 func (s *startStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by handler Start tests")
 }

@@ -24,6 +24,8 @@ import (
 // admin-only override checks that run after the curtailment:manage gate.
 const actionSupplyOverrideFields = "supply curtailment override fields"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
+const listCurtailmentEventsDefaultPageSize int32 = 50
+const listCurtailmentEventsMaxPageSize int32 = 200
 
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
@@ -216,7 +218,7 @@ func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	events, err = filterEventsByPermission(ctx, authz.PermCurtailmentRead, events)
+	events, err = h.filterEventsByPermission(ctx, info.OrganizationID, authz.PermCurtailmentRead, events)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +237,7 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	events, nextToken, err := h.service.ListEvents(ctx, listReq)
+	events, nextToken, err := h.listPermittedEvents(ctx, listReq)
 	if err != nil {
 		return nil, err
 	}
@@ -353,11 +355,11 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	if err != nil {
 		return nil, nil, err
 	}
-	rc, err := eventResourceContext(event)
+	siteContexts, err := h.eventSiteResourceContexts(ctx, info.OrganizationID, event)
 	if err != nil {
 		return nil, nil, err
 	}
-	if rc.SiteID != nil {
+	for _, rc := range siteContexts {
 		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
 		if err != nil {
 			return nil, nil, err
@@ -367,30 +369,70 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	return info, event, nil
 }
 
-func filterEventsByPermission(
+func (h *Handler) filterEventsByPermission(
 	ctx context.Context,
+	orgID int64,
 	permission string,
 	events []*models.Event,
 ) ([]*models.Event, error) {
 	filtered := make([]*models.Event, 0, len(events))
 	for _, event := range events {
-		rc, err := eventResourceContext(event)
+		siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
 		if err != nil {
 			return nil, err
 		}
-		if rc.SiteID == nil {
-			filtered = append(filtered, event)
-			continue
-		}
-		if _, err := middleware.RequirePermission(ctx, permission, rc); err != nil {
-			if fleeterror.IsForbiddenError(err) {
-				continue
+		permitted := true
+		for _, rc := range siteContexts {
+			if _, err := middleware.RequirePermission(ctx, permission, rc); err != nil {
+				if fleeterror.IsForbiddenError(err) {
+					permitted = false
+					break
+				}
+				return nil, err
 			}
-			return nil, err
 		}
-		filtered = append(filtered, event)
+		if permitted {
+			filtered = append(filtered, event)
+		}
 	}
 	return filtered, nil
+}
+
+func (h *Handler) listPermittedEvents(
+	ctx context.Context,
+	req curtailment.ListEventsRequest,
+) ([]*models.Event, string, error) {
+	pageSize := normalizedListCurtailmentEventsPageSize(req.PageSize)
+	filtered := make([]*models.Event, 0, pageSize)
+	nextReq := req
+	nextReq.PageSize = pageSize
+
+	for {
+		nextReq.PageSize = int32(int(pageSize) - len(filtered))
+		events, nextToken, err := h.service.ListEvents(ctx, nextReq)
+		if err != nil {
+			return nil, "", err
+		}
+		permitted, err := h.filterEventsByPermission(ctx, req.OrgID, authz.PermCurtailmentRead, events)
+		if err != nil {
+			return nil, "", err
+		}
+		filtered = append(filtered, permitted...)
+		if len(filtered) == int(pageSize) || nextToken == "" {
+			return filtered, nextToken, nil
+		}
+		nextReq.PageToken = nextToken
+	}
+}
+
+func normalizedListCurtailmentEventsPageSize(pageSize int32) int32 {
+	if pageSize <= 0 {
+		return listCurtailmentEventsDefaultPageSize
+	}
+	if pageSize > listCurtailmentEventsMaxPageSize {
+		return listCurtailmentEventsMaxPageSize
+	}
+	return pageSize
 }
 
 func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {
@@ -422,6 +464,33 @@ func eventResourceContext(event *models.Event) (authz.ResourceContext, error) {
 		)
 	}
 	return authz.ResourceContext{SiteID: &payload.SiteID}, nil
+}
+
+func (h *Handler) eventSiteResourceContexts(
+	ctx context.Context,
+	orgID int64,
+	event *models.Event,
+) ([]authz.ResourceContext, error) {
+	rc, err := eventResourceContext(event)
+	if err != nil || rc.SiteID != nil {
+		if rc.SiteID == nil {
+			return nil, err
+		}
+		return []authz.ResourceContext{rc}, err
+	}
+	if event == nil || event.ScopeType == "" || event.ScopeType == models.ScopeTypeWholeOrg {
+		return nil, nil
+	}
+	siteIDs, err := h.service.ListTargetSiteIDsByEvent(ctx, orgID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+	contexts := make([]authz.ResourceContext, 0, len(siteIDs))
+	for _, siteID := range siteIDs {
+		siteID := siteID
+		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
+	}
+	return contexts, nil
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin

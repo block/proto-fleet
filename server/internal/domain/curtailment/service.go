@@ -886,6 +886,16 @@ func (s *Service) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID
 	return s.store.ListTargetsByEvent(ctx, orgID, eventUUID)
 }
 
+func (s *Service) ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if eventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	return s.store.ListTargetSiteIDsByEvent(ctx, orgID, eventUUID)
+}
+
 // runSelector runs the org-config → scope → candidate → classify →
 // build-plan pipeline shared by Preview and Start. Returns the resolved
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start

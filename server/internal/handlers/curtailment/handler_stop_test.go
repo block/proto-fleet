@@ -74,6 +74,9 @@ func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([
 func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by Stop handler tests")
 }
+func (s *stopStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, error) {
+	panic("ListTargetSiteIDsByEvent not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Stop handler tests")
 }

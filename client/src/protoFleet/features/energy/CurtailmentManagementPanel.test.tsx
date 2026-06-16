@@ -424,6 +424,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent,
+        activeEvents: [{ ...historyEvent, state: "active" }],
         activeEventId: "curt-1",
         historyEvents: [historyEvent],
       }),
@@ -445,6 +446,38 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Stop history event" }));
 
     expect(mocks.stopCurtailment).toHaveBeenLastCalledWith("curt-1");
+  });
+
+  it("does not submit stale stop confirmations for events that are no longer active", async () => {
+    const user = userEvent.setup();
+    const staleEvent = { ...historyEvent, state: "active" } as CurtailmentHistoryEvent;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEvents: [staleEvent],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    const { rerender } = render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop" }));
+    expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument();
+
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: null,
+        activeEvents: [],
+        activeEventId: null,
+        historyEvents: [{ ...historyEvent, state: "completed" }],
+      }),
+    );
+    rerender(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
+
+    expect(mocks.stopCurtailment).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "stopCurtailment confirmation" })).not.toBeInTheDocument();
   });
 
   it("dismisses terminal active curtailments from the active status card", async () => {

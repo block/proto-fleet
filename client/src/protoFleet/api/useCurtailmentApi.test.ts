@@ -879,6 +879,37 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-selected-active"]);
   });
 
+  it("reconciles a vanished restoring event from a terminal keyed probe", async () => {
+    const restoringEvent = curtailmentEvent({
+      eventUuid: "curt-terminal-probe",
+      reason: "Restoring event",
+      state: CurtailmentEventState.RESTORING,
+    });
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-terminal-probe",
+      reason: "Restoring event",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    applyActiveCurtailmentEvent(restoringEvent);
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: undefined });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+    mockGetCurtailmentEvent.mockImplementation(({ eventUuid }: { eventUuid: string }) =>
+      eventUuid === restoringEvent.eventUuid ? { event: completedEvent } : undefined,
+    );
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["restoring"]);
+    });
+
+    expect(result.current.activeEventId).toBe("curt-terminal-probe");
+    expect(result.current.activeEvent?.state).toBe("completed");
+    expect(result.current.historyStatusFilters).toEqual(["restoring"]);
+    expect(result.current.historyEvents).toEqual([]);
+  });
+
   it("drops a mutation-backed vanished restoring event when history confirms terminal state", async () => {
     const selectedActiveEvent = curtailmentEvent({
       eventUuid: "curt-selected-active",
@@ -1138,6 +1169,58 @@ describe("useCurtailmentApi", () => {
         state: "active",
       }),
     );
+  });
+
+  it("does not commit preserved restoring state from superseded refreshes", async () => {
+    const staleActiveEvent = curtailmentEvent({ eventUuid: "curt-selected", reason: "Stale selected" });
+    const freshActiveEvent = curtailmentEvent({ eventUuid: "curt-selected", reason: "Fresh selected" });
+    const vanishedRestoringEvent = curtailmentEvent({
+      eventUuid: "curt-vanished",
+      reason: "Vanished restoring",
+      state: CurtailmentEventState.RESTORING,
+    });
+    let resolveStaleProbe: (value: { event: CurtailmentEvent }) => void = () => undefined;
+    let vanishedProbeCalls = 0;
+    mockGetCurtailmentEvent.mockImplementation(({ eventUuid }: { eventUuid: string }) => {
+      if (eventUuid !== vanishedRestoringEvent.eventUuid) {
+        return undefined;
+      }
+      vanishedProbeCalls += 1;
+      if (vanishedProbeCalls === 1) {
+        return new Promise<{ event: CurtailmentEvent }>((resolve) => {
+          resolveStaleProbe = resolve;
+        });
+      }
+      throw new ConnectError("permission denied", Code.PermissionDenied);
+    });
+    applyActiveCurtailmentEvent(vanishedRestoringEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(staleActiveEvent, { mergeActiveEvents: true });
+    mockListActiveCurtailments
+      .mockResolvedValueOnce({ events: [staleActiveEvent] })
+      .mockResolvedValueOnce({ events: [freshActiveEvent] });
+    mockListCurtailmentEvents
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [freshActiveEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    let staleRefresh!: Promise<unknown>;
+    act(() => {
+      staleRefresh = result.current.refreshCurtailment();
+    });
+    await vi.waitFor(() => expect(vanishedProbeCalls).toBe(1));
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    resolveStaleProbe({ event: vanishedRestoringEvent });
+    await act(async () => {
+      await staleRefresh;
+    });
+
+    expect(result.current.activeEvent?.reason).toBe("Fresh selected");
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-selected"]);
   });
 
   it("uses the shared active curtailment snapshot for active fields and current history", async () => {
