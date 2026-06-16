@@ -9,6 +9,7 @@ import {
   type SiteWithCounts,
 } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { createSiteColConfig } from "@/protoFleet/features/fleetManagement/components/SiteList/siteColConfig";
+import { siteTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { ArrowRight, Edit } from "@/shared/assets/icons";
 import List, { type SelectionMode } from "@/shared/components/List";
@@ -31,8 +32,6 @@ export type SiteColumn =
   | "power"
   | "temperature"
   | "health";
-
-const INACTIVE_PLACEHOLDER = "—";
 
 const COL_TITLES: ColTitles<SiteColumn> = {
   name: "Name",
@@ -100,13 +99,13 @@ const SiteList = ({
         {
           label: "View buildings",
           icon: <ArrowRight />,
-          onClick: () => navigate(`/fleet/buildings?site=${item.id}`),
+          onClick: () => navigate(siteTabHref("buildings", item.id)),
         },
-        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(`/racks?site=${item.id}`) },
+        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(siteTabHref("racks", item.id)) },
         {
           label: "View miners",
           icon: <ArrowRight />,
-          onClick: () => navigate(`/miners?site=${item.id}`),
+          onClick: () => navigate(siteTabHref("miners", item.id)),
           showGroupDivider: true,
         },
         {
