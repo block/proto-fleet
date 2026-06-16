@@ -32,7 +32,11 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ListBuildings(ctx, toListFilter(req.Msg, info.OrganizationID))
+	filter := toListFilter(req.Msg, info.OrganizationID)
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err == nil {
+		filter.IncludeStats = true
+	}
+	rows, err := h.service.ListBuildings(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

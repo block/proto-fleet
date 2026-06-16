@@ -3,6 +3,7 @@ syntax = "proto3";
 package buildings.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/fleet_list_stats.proto";
 import "google/protobuf/timestamp.proto";
 
 // BuildingService is the admin surface for buildings: per-building
@@ -106,6 +107,9 @@ message BuildingWithCounts {
     Building building = 1;
     int64 rack_count = 2;
     int64 device_count = 3;
+    // Lightweight list/table rollup. Omitted when the caller is not
+    // authorized for telemetry stats.
+    common.v1.FleetListStats list_stats = 4;
 }
 
 // ListBuildings

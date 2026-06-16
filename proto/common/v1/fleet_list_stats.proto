@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package common.v1;
+
+// FleetListStats is the lightweight telemetry + health rollup used by
+// list/table rows. It intentionally excludes detail-only payloads such
+// as device identifiers, rack floor-plan health, and slot statuses.
+message FleetListStats {
+    int32  building_count    = 1;
+    int32  rack_count        = 2;
+    int32  device_count      = 3;
+    int32  reporting_count   = 4;
+    double total_hashrate_ths = 5;
+    double avg_efficiency_jth = 6;
+    double total_power_kw     = 7;
+    int32  hashing_count     = 8;
+    int32  broken_count      = 9;
+    int32  offline_count     = 10;
+    int32  sleeping_count    = 11;
+    int32  hashrate_reporting_count    = 12;
+    int32  efficiency_reporting_count  = 13;
+    int32  power_reporting_count       = 14;
+    double min_temperature_c           = 15;
+    double max_temperature_c           = 16;
+    int32  temperature_reporting_count = 17;
+    int32  control_board_issue_count   = 18;
+    int32  fan_issue_count             = 19;
+    int32  hash_board_issue_count      = 20;
+    int32  psu_issue_count             = 21;
+}

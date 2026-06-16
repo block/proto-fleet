@@ -3,10 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type RowAction } from "../RowActionsMenu";
-import {
-  type BuildingWithCounts,
-  type GetBuildingStatsResponse,
-} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
 import { buildingTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
@@ -19,7 +17,7 @@ export type BuildingListItem = {
   id: string;
   building: BuildingWithCounts;
   siteName: string;
-  stats?: GetBuildingStatsResponse;
+  stats?: FleetListStats;
 };
 
 export type BuildingColumn =
@@ -66,7 +64,6 @@ interface BuildingListProps {
   buildings: BuildingWithCounts[];
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
-  statsMap?: Map<bigint, GetBuildingStatsResponse>;
   onEditBuilding?: (building: BuildingWithCounts) => void;
   onAddBuildingToSite?: (building: BuildingWithCounts) => void;
   selectedIds?: string[];
@@ -81,7 +78,6 @@ const BuildingList = ({
   onAddBuildingToSite,
   selectedIds,
   onSelectedIdsChange,
-  statsMap = EMPTY_STATS_MAP,
 }: BuildingListProps) => {
   const navigate = useNavigate();
   const temperatureUnit = useTemperatureUnit();
@@ -106,9 +102,9 @@ const BuildingList = ({
           const siteName = siteId
             ? (siteNameById.get(siteId.toString()) ?? INACTIVE_PLACEHOLDER)
             : INACTIVE_PLACEHOLDER;
-          return { id, building, siteName, stats: statsMap.get(buildingId) };
+          return { id, building, siteName, stats: building.listStats };
         }),
-    [buildings, siteNameById, statsMap],
+    [buildings, siteNameById],
   );
 
   const buildExtraActions = useCallback(
@@ -198,7 +194,5 @@ const BuildingList = ({
 
   return <List<BuildingListItem, string, BuildingColumn> {...commonProps} />;
 };
-
-const EMPTY_STATS_MAP = new Map<bigint, GetBuildingStatsResponse>();
 
 export default BuildingList;

@@ -48,6 +48,7 @@ type BuildingWithCounts struct {
 	Building    Building
 	RackCount   int64
 	DeviceCount int64
+	ListStats   *FleetListStats
 }
 
 // CreateParams is the input shape for the building create flow.
@@ -93,6 +94,7 @@ type ListFilter struct {
 	OrgID          int64
 	SiteID         *int64
 	UnassignedOnly bool
+	IncludeStats   bool
 }
 
 // DeleteResult carries the cascade-unassign rack count for the
@@ -169,6 +171,33 @@ type BuildingStats struct {
 	// over. Returned so FE telemetry consumers can scope themselves
 	// without a separate ListMinerStateSnapshots pagination.
 	DeviceIdentifiers []string
+}
+
+// FleetListStats is the lightweight rollup attached to list rows. It
+// intentionally excludes BuildingStats detail fields such as RackHealth
+// and DeviceIdentifiers.
+type FleetListStats struct {
+	BuildingCount             int32
+	RackCount                 int32
+	DeviceCount               int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	AvgEfficiencyJth          float64
+	TotalPowerKw              float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ControlBoardIssueCount    int32
+	FanIssueCount             int32
+	HashBoardIssueCount       int32
+	PsuIssueCount             int32
 }
 
 // BuildingRackHealth is the per-rack rollup returned alongside

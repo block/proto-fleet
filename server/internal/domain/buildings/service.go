@@ -15,7 +15,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // Event type constants for buildings activity logs.
@@ -133,7 +135,17 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter) (
 	if filter.SiteID != nil && *filter.SiteID > 0 && filter.UnassignedOnly {
 		return nil, fleeterror.NewInvalidArgumentError("site_id and unassigned_only are mutually exclusive")
 	}
-	return s.store.ListBuildings(ctx, filter)
+	rows, err := s.store.ListBuildings(ctx, filter)
+	if err != nil || !filter.IncludeStats {
+		return rows, err
+	}
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings stats requires deviceQueryer and telemetry")
+	}
+	if err := s.populateListStats(ctx, filter.OrgID, rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // UpdateBuilding mutates the building's mutable fields. Site
@@ -867,4 +879,106 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	}
 
 	return stats, nil
+}
+
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	buildingIDs := make([]int64, 0, len(rows))
+	deviceIDsByBuilding := make(map[int64][]string, len(rows))
+	uniqueDeviceIDs := make(map[string]struct{})
+	for i := range rows {
+		buildingID := rows[i].Building.ID
+		buildingIDs = append(buildingIDs, buildingID)
+		rows[i].ListStats = &models.FleetListStats{
+			RackCount: int32(rows[i].RackCount), //nolint:gosec // bounded by org capacity
+		}
+
+		filter := &interfaces.MinerFilter{
+			BuildingIDs: []int64{buildingID},
+			PairingStatuses: []fm.PairingStatus{
+				fm.PairingStatus_PAIRING_STATUS_PAIRED,
+				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			},
+			Limit: MaxDevicesPerStatsResponse + 1,
+		}
+		if rows[i].Building.SiteID != nil {
+			filter.SiteIDs = []int64{*rows[i].Building.SiteID}
+		} else {
+			filter.IncludeUnassigned = true
+		}
+
+		deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, filter)
+		if err != nil {
+			return err
+		}
+		if len(deviceIDs) > MaxDevicesPerStatsResponse {
+			return fleeterror.NewInternalErrorf("building %d exceeded the %d device cap", buildingID, MaxDevicesPerStatsResponse)
+		}
+		deviceIDsByBuilding[buildingID] = deviceIDs
+		for _, id := range deviceIDs {
+			uniqueDeviceIDs[id] = struct{}{}
+		}
+	}
+
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeBuildings,
+		IDs:  buildingIDs,
+	})
+	if err != nil {
+		return err
+	}
+
+	var metrics map[minerModels.DeviceIdentifier]telemetrymodels.DeviceMetrics
+	if len(uniqueDeviceIDs) > 0 {
+		uniqueTelemetryIDs := make([]string, 0, len(uniqueDeviceIDs))
+		for id := range uniqueDeviceIDs {
+			uniqueTelemetryIDs = append(uniqueTelemetryIDs, id)
+		}
+		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to fetch building list telemetry: %v", err)
+		}
+	}
+
+	for i := range rows {
+		stats := rows[i].ListStats
+		if stats == nil {
+			continue
+		}
+		buildingID := rows[i].Building.ID
+		deviceIDs := deviceIDsByBuilding[buildingID]
+		stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
+		if len(deviceIDs) > 0 {
+			counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+			if err != nil {
+				return err
+			}
+			stats.HashingCount = counts.HashingCount
+			stats.BrokenCount = counts.BrokenCount
+			stats.OfflineCount = counts.OfflineCount
+			stats.SleepingCount = counts.SleepingCount
+
+			telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+			rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+			stats.ReportingCount = rollup.ReportingCount
+			stats.HashrateReportingCount = rollup.HashrateReportingCount
+			stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+			stats.PowerReportingCount = rollup.PowerReportingCount
+			stats.TemperatureReportingCount = rollup.TemperatureReportingCount
+			stats.TotalHashrateThs = rollup.TotalHashrateThs
+			stats.TotalPowerKw = rollup.TotalPowerKw
+			stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+			stats.MinTemperatureC = rollup.MinTemperatureC
+			stats.MaxTemperatureC = rollup.MaxTemperatureC
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+	}
+	return nil
 }

@@ -3,6 +3,7 @@ syntax = "proto3";
 package sites.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/fleet_list_stats.proto";
 import "google/protobuf/timestamp.proto";
 
 // SiteService is the admin surface for sites: physical locations that
@@ -107,6 +108,9 @@ message SiteWithCounts {
     int64 device_count = 2;
     int64 building_count = 3;
     int64 rack_count = 4;
+    // Lightweight list/table rollup. Omitted when the caller is not
+    // authorized for telemetry stats.
+    common.v1.FleetListStats list_stats = 5;
 }
 
 // ListSites

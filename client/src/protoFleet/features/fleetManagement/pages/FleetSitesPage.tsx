@@ -9,7 +9,6 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
-import { useSiteListState } from "@/protoFleet/hooks/useSiteListState";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -22,11 +21,6 @@ const FleetSitesPage = () => {
   const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
-  // UserInfo.permissions is a flat union across scopes. This is only an
-  // optimistic page-level gate; useSiteListState drops per-row
-  // PermissionDenied responses so scoped grants leave unauthorized rows blank.
-  const canReadSiteStats = useHasPermission("fleet:read");
-  const { statsMap, statsError, refetchStats } = useSiteListState(sites, { enabled: canReadSiteStats });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
@@ -107,16 +101,6 @@ const FleetSitesPage = () => {
         buttonOnClick={refetchSites}
         testId="fleet-sites-inline-error"
       />
-    ) : canReadSiteStats && statsError ? (
-      <Callout
-        intent="danger"
-        prefixIcon={<Alert />}
-        title="Couldn't refresh site telemetry"
-        subtitle={statsError}
-        buttonText="Retry"
-        buttonOnClick={refetchStats}
-        testId="fleet-sites-stats-error"
-      />
     ) : null;
 
   const addSiteButton: ReactNode = canManageSites ? (
@@ -187,7 +171,6 @@ const FleetSitesPage = () => {
         <div className={LIST_WRAPPER}>
           <SiteList
             sites={sites}
-            statsMap={statsMap}
             onEditSite={canManageSites ? modals.openManageEdit : undefined}
             selectedIds={selectedSiteIds}
             onSelectedIdsChange={handleSelectedSiteIdsChange}

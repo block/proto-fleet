@@ -17,8 +17,10 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // Event type constants for sites activity logs.
@@ -182,8 +184,18 @@ func (s *Service) UpdateSite(ctx context.Context, params models.UpdateSiteParams
 
 // ListSites returns sites with attachment counts for the delete-confirm
 // dialog impact numbers.
-func (s *Service) ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error) {
-	return s.store.ListSites(ctx, orgID)
+func (s *Service) ListSites(ctx context.Context, orgID int64, includeStats bool) ([]models.SiteWithCounts, error) {
+	rows, err := s.store.ListSites(ctx, orgID)
+	if err != nil || !includeStats {
+		return rows, err
+	}
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("sites.ListSites stats requires deviceQueryer and telemetry")
+	}
+	if err := s.populateListStats(ctx, orgID, rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // DeleteSite soft-deletes the site and cascade-unassigns or deletes its
@@ -923,4 +935,99 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.MaxTemperatureC = rollup.MaxTemperatureC
 
 	return stats, nil
+}
+
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	siteIDs := make([]int64, 0, len(rows))
+	deviceIDsBySite := make(map[int64][]string, len(rows))
+	uniqueDeviceIDs := make(map[string]struct{})
+	for i := range rows {
+		siteID := rows[i].Site.ID
+		siteIDs = append(siteIDs, siteID)
+		rows[i].ListStats = &models.FleetListStats{
+			BuildingCount: int32(rows[i].BuildingCount), //nolint:gosec // bounded by org capacity
+			RackCount:     int32(rows[i].RackCount),     //nolint:gosec // bounded by org capacity
+		}
+		deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
+			SiteIDs: []int64{siteID},
+			PairingStatuses: []fm.PairingStatus{
+				fm.PairingStatus_PAIRING_STATUS_PAIRED,
+				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			},
+			Limit: MaxDevicesPerSiteStatsRequest + 1,
+		})
+		if err != nil {
+			return err
+		}
+		if len(deviceIDs) > MaxDevicesPerSiteStatsRequest {
+			return fleeterror.NewInternalErrorf("site %d exceeded the %d device cap", siteID, MaxDevicesPerSiteStatsRequest)
+		}
+		deviceIDsBySite[siteID] = deviceIDs
+		for _, id := range deviceIDs {
+			uniqueDeviceIDs[id] = struct{}{}
+		}
+	}
+
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeSites,
+		IDs:  siteIDs,
+	})
+	if err != nil {
+		return err
+	}
+
+	var metrics map[minerModels.DeviceIdentifier]telemetrymodels.DeviceMetrics
+	if len(uniqueDeviceIDs) > 0 {
+		uniqueTelemetryIDs := make([]string, 0, len(uniqueDeviceIDs))
+		for id := range uniqueDeviceIDs {
+			uniqueTelemetryIDs = append(uniqueTelemetryIDs, id)
+		}
+		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to fetch site list telemetry: %v", err)
+		}
+	}
+
+	for i := range rows {
+		stats := rows[i].ListStats
+		if stats == nil {
+			continue
+		}
+		siteID := rows[i].Site.ID
+		deviceIDs := deviceIDsBySite[siteID]
+		stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
+		if len(deviceIDs) > 0 {
+			counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+			if err != nil {
+				return err
+			}
+			stats.HashingCount = counts.HashingCount
+			stats.BrokenCount = counts.BrokenCount
+			stats.OfflineCount = counts.OfflineCount
+			stats.SleepingCount = counts.SleepingCount
+
+			telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+			rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+			stats.ReportingCount = rollup.ReportingCount
+			stats.HashrateReportingCount = rollup.HashrateReportingCount
+			stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+			stats.PowerReportingCount = rollup.PowerReportingCount
+			stats.TemperatureReportingCount = rollup.TemperatureReportingCount
+			stats.TotalHashrateThs = rollup.TotalHashrateThs
+			stats.TotalPowerKw = rollup.TotalPowerKw
+			stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+			stats.MinTemperatureC = rollup.MinTemperatureC
+			stats.MaxTemperatureC = rollup.MaxTemperatureC
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, siteID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+	}
+	return nil
 }

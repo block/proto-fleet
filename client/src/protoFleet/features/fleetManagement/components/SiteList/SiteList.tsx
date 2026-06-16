@@ -3,11 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type RowAction } from "../RowActionsMenu";
-import {
-  type GetSiteStatsResponse,
-  type Site,
-  type SiteWithCounts,
-} from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
+import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { createSiteColConfig } from "@/protoFleet/features/fleetManagement/components/SiteList/siteColConfig";
 import { siteTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
@@ -18,7 +15,7 @@ import { type ColTitles } from "@/shared/components/List/types";
 export type SiteListItem = {
   id: string;
   site: SiteWithCounts;
-  stats?: GetSiteStatsResponse;
+  stats?: FleetListStats;
 };
 
 export type SiteColumn =
@@ -62,20 +59,12 @@ const ACTIVE_COLS: SiteColumn[] = [
 interface SiteListProps {
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
-  statsMap?: Map<bigint, GetSiteStatsResponse>;
   onEditSite?: (site: Site) => void;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
 }
 
-const SiteList = ({
-  sites,
-  emptyStateRow,
-  statsMap = EMPTY_STATS_MAP,
-  onEditSite,
-  selectedIds,
-  onSelectedIdsChange,
-}: SiteListProps) => {
+const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIdsChange }: SiteListProps) => {
   const navigate = useNavigate();
   const temperatureUnit = useTemperatureUnit();
 
@@ -85,9 +74,9 @@ const SiteList = ({
         .sort((a, b) => (a.site?.name ?? "").localeCompare(b.site?.name ?? ""))
         .map((site) => {
           const siteId = site.site?.id ?? 0n;
-          return { id: siteId.toString(), site, stats: statsMap.get(siteId) };
+          return { id: siteId.toString(), site, stats: site.listStats };
         }),
-    [sites, statsMap],
+    [sites],
   );
 
   const buildExtraActions = useCallback(
@@ -178,7 +167,5 @@ const SiteList = ({
 
   return <List<SiteListItem, string, SiteColumn> {...commonProps} />;
 };
-
-const EMPTY_STATS_MAP = new Map<bigint, GetSiteStatsResponse>();
 
 export default SiteList;
