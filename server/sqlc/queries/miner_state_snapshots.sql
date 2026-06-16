@@ -14,17 +14,17 @@ SELECT
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
             THEN 0
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
             THEN 1
         WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-             OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
+             OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
              OR open_errors.device_id IS NOT NULL
             THEN 2
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
              AND open_errors.device_id IS NULL
             THEN 3
         ELSE 4
@@ -42,7 +42,7 @@ LEFT JOIN (
 WHERE d.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED');
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
 
 -- name: GetMinerStateSnapshots :many
 -- DISTINCT ON keeps one state per device per bucket so summed counts always

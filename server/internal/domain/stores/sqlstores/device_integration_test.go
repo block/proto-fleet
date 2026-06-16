@@ -1000,6 +1000,33 @@ func TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus(t *testing.T)
 	require.Equal(t, int32(0), c.HashingCount, "no hashing devices")
 }
 
+// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken verifies the
+// site/building stats query (by device IDs) buckets a DEFAULT_PASSWORD device as
+// broken/needs-attention rather than dropping it from every state bucket.
+func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	devices := []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active → broken
+		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},           // active paired → hashing
+	}
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	c, err := store.GetMinerStateCountsByDeviceIDs(ctx, 1, []string{"device-001", "device-002"})
+	require.NoError(t, err)
+
+	require.Equal(t, int32(1), c.BrokenCount, "default-password device should be broken, not dropped from buckets")
+	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
+	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
+	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
+}
+
 // TestCountMinersByState_ExcludesSoftDeletedDiscoveredDevice verifies that
 // soft-deleted discovered_device rows are excluded from the dashboard counts,
 // matching the scope used by GetTotalMinerStateSnapshots and
@@ -2138,6 +2165,49 @@ func TestGetPairedDeviceByMACAddress_LegacyDashFormat(t *testing.T) {
 	require.Equal(t, "legacy-mac-device", pairedDevice.DeviceIdentifier)
 	require.Equal(t, "AA:BB:CC:DD:EE:FF", pairedDevice.MacAddress)
 	require.Equal(t, int64(401), pairedDevice.DiscoveredDeviceID)
+}
+
+// TestGetPairedDeviceByMACAddress_DefaultPasswordDevice verifies a device paired
+// in the DEFAULT_PASSWORD state is still found by MAC reconciliation, so a
+// rediscovery after an IP/subnet move reconnects to the existing row instead of
+// failing on a duplicate insert.
+func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES (402, 1, 'default-pw-device', 'test-model', 'Proto', 'proto', '192.168.10.20', '443', 'https', TRUE)
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES (402, 1, 402, 'default-pw-device', 'AA:BB:CC:DD:EE:02')
+	`)
+	require.NoError(t, err)
+
+	_, err = conn.Exec(`
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES (402, 'DEFAULT_PASSWORD', NOW())
+	`)
+	require.NoError(t, err)
+
+	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:02", 1)
+	require.NoError(t, err)
+	require.Equal(t, "default-pw-device", pairedDevice.DeviceIdentifier)
 }
 
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
