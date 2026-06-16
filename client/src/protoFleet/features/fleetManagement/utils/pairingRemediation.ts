@@ -1,8 +1,9 @@
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
-// Pairing states that block telemetry until the operator acts. Both surface as
-// "needs attention" and suppress live metrics, but their remediation differs:
-// AUTHENTICATION_NEEDED needs credentials, DEFAULT_PASSWORD needs a password change.
+// Pairing states that surface as "needs attention". They differ in telemetry and
+// remediation: AUTHENTICATION_NEEDED suppresses live metrics (bad credentials block
+// telemetry) and needs credentials; DEFAULT_PASSWORD keeps telemetry flowing and
+// only needs a password change.
 
 export const needsAuthentication = (status: PairingStatus): boolean => status === PairingStatus.AUTHENTICATION_NEEDED;
 
