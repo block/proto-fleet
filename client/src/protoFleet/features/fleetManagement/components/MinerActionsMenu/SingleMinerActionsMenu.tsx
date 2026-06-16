@@ -40,6 +40,7 @@ interface SingleMinerActionsMenuProps {
   onActionStart?: () => void;
   onActionComplete?: () => void;
   needsAuthentication?: boolean;
+  allowSecurityAction?: boolean;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
   onRefreshMinersComplete?: () => void;
@@ -57,6 +58,7 @@ const SingleMinerActionsMenu = ({
   onActionStart,
   onActionComplete,
   needsAuthentication = false,
+  allowSecurityAction = false,
   miners,
   onRefetchMiners,
   onRefreshMinersComplete,
@@ -419,8 +421,13 @@ const SingleMinerActionsMenu = ({
 
   const visibleActions = useMemo(
     () =>
-      needsAuthentication ? permittedActions.filter((a) => unauthenticatedActions.has(a.action)) : permittedActions,
-    [permittedActions, needsAuthentication],
+      needsAuthentication
+        ? permittedActions.filter(
+            (a) =>
+              unauthenticatedActions.has(a.action) || (allowSecurityAction && a.action === settingsActions.security),
+          )
+        : permittedActions,
+    [allowSecurityAction, permittedActions, needsAuthentication],
   );
 
   const handleAction = useCallback((action: BulkAction<SingleMinerAction>) => {

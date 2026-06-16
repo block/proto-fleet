@@ -9,8 +9,10 @@ import * as useNeedsAttentionModule from "@/shared/hooks/useNeedsAttention";
 
 vi.mock("@/shared/hooks/useNeedsAttention");
 
+const singleMinerActionsMenuMock = vi.hoisted(() => vi.fn((_props: Record<string, unknown>) => null));
+
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu", () => ({
-  default: () => <div data-testid="actions-menu">Actions Menu</div>,
+  default: singleMinerActionsMenuMock,
 }));
 
 function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
@@ -88,6 +90,18 @@ describe("MinerName", () => {
     render(<MinerName miner={miner} errors={[]} isActionLoading={false} onOpenStatusFlow={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: /view issues/i })).not.toBeInTheDocument();
+  });
+
+  it("restricts row actions while keeping security available when password change is required", () => {
+    const miner = createMockMiner({ pairingStatus: PairingStatus.DEFAULT_PASSWORD });
+
+    render(<MinerName miner={miner} errors={[]} isActionLoading={false} onOpenStatusFlow={vi.fn()} />);
+
+    const lastCall = singleMinerActionsMenuMock.mock.calls[singleMinerActionsMenuMock.mock.calls.length - 1];
+    expect(lastCall?.[0]).toMatchObject({
+      needsAuthentication: true,
+      allowSecurityAction: true,
+    });
   });
 
   it("hides alert icon when no attention is needed", () => {

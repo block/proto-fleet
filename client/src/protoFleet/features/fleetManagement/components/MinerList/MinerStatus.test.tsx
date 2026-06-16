@@ -241,6 +241,23 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Offline")).toBeInTheDocument();
       expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
     });
+
+    it("lets default-password remediation override sleeping status", async () => {
+      const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
+      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
+      vi.mocked(useNeedsAttention).mockReturnValue(true);
+      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
+
+      const miner = createMockMiner({
+        pairingStatus: PairingStatus.DEFAULT_PASSWORD,
+        deviceStatus: DeviceStatus.INACTIVE,
+      });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(useMinerStatus).toHaveBeenLastCalledWith(false, false, true);
+      expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    });
   });
 
   describe("Status after pool assignment", () => {

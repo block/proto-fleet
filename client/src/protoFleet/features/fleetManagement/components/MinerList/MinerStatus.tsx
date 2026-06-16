@@ -41,23 +41,24 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
 
   // Compute status flags
   const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const needsPasswordChange = miner.pairingStatus === PairingStatus.DEFAULT_PASSWORD;
+  const needsRemediation = needsAuthentication || needsPasswordChange;
   const isPaired = miner.pairingStatus === PairingStatus.PAIRED;
   // Paired miners with UNSPECIFIED device_status (typically freshly paired, not yet polled)
   // are treated as offline — this matches the Fleet Health dashboard and Offline filter.
   const isOffline =
     deviceStatusFromStore === DeviceStatus.OFFLINE || (deviceStatusFromStore === DeviceStatus.UNSPECIFIED && isPaired);
-  // When authentication is needed, we can't trust INACTIVE/MAINTENANCE status
-  // (could be sleeping OR showing as inactive because we can't authenticate)
+  // Password remediation should outrank a sleeping/maintenance device status.
   const isSleeping =
     (deviceStatusFromStore === DeviceStatus.INACTIVE || deviceStatusFromStore === DeviceStatus.MAINTENANCE) &&
-    !needsAuthentication;
+    !needsRemediation;
   const needsMiningPool = deviceStatusFromStore === DeviceStatus.NEEDS_MINING_POOL;
   const hasDeviceError = deviceStatusFromStore === DeviceStatus.ERROR;
   const isUpdating = deviceStatusFromStore === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatusFromStore === DeviceStatus.REBOOT_REQUIRED;
 
   const needsAttention = useNeedsAttention(
-    needsAuthentication,
+    needsRemediation,
     needsMiningPool,
     errors,
     hasDeviceError,
@@ -68,8 +69,8 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const status = useMinerStatus(isOffline, isSleeping, needsAttention);
 
   // Determine StatusCircle visual indicator based on flags
-  // Priority: offline > sleeping > needs attention > normal
-  // Note: isSleeping is already filtered to exclude auth-needed devices
+  // Priority: (offline | sleeping) > needs attention > normal
+  // Note: isSleeping is already filtered to exclude remediation statuses
   const circleStatus = useMemo(() => {
     if (isOffline) {
       return statuses.inactive;
