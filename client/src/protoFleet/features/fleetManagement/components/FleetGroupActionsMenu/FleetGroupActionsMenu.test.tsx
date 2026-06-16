@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deviceActions, performanceActions, settingsActions } from "../MinerActionsMenu/constants";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // Hoisted mocks — vi.mock factories are pulled above the file's top
 // level, so the mock fns they capture must come from vi.hoisted.
@@ -22,6 +23,10 @@ const {
   mockHandleFleetAuthenticated,
   mockHandleMiningPoolError,
   mockHandleMiningPoolWarning,
+  mockPushToast,
+  mockRemoveToast,
+  mockUpdateToast,
+  mockUsePermissions,
 } = vi.hoisted(() => ({
   mockListMinerStateSnapshots: vi.fn(),
   mockUseMinerActions: vi.fn(),
@@ -38,6 +43,10 @@ const {
   mockHandleFleetAuthenticated: vi.fn(),
   mockHandleMiningPoolError: vi.fn(),
   mockHandleMiningPoolWarning: vi.fn(),
+  mockPushToast: vi.fn(),
+  mockRemoveToast: vi.fn(),
+  mockUpdateToast: vi.fn(),
+  mockUsePermissions: vi.fn(),
 }));
 
 vi.mock("@/shared/components/Popover", () => ({
@@ -76,36 +85,21 @@ vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => 
   }),
 }));
 
-// Grant every permission the menu consults so the wired entries
-// render in tests. Production filtering is verified by the live
-// permission catalog plus the server gate; the menu's job here is
-// only to surface what the role can invoke. Partial-mock so the
-// surrounding store hooks (useAuthErrors, useBatch*, ...) stay live.
+vi.mock(import("@/shared/features/toaster"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    pushToast: mockPushToast,
+    removeToast: mockRemoveToast,
+    updateToast: mockUpdateToast,
+  };
+});
+
 vi.mock(import("@/protoFleet/store"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    usePermissions: () => [
-      "miner:read",
-      "miner:blink_led",
-      "miner:download_logs",
-      "miner:firmware_update",
-      "miner:reboot",
-      "miner:stop_mining",
-      "miner:start_mining",
-      "miner:delete",
-      "miner:set_power_target",
-      "miner:set_cooling_mode",
-      "miner:rename",
-      "miner:update_worker_names",
-      "miner:update_password",
-      "miner:update_pools",
-      "pool:read",
-      "rack:read",
-      "rack:manage",
-      "site:read",
-      "site:manage",
-    ],
+    usePermissions: () => mockUsePermissions(),
   };
 });
 
@@ -151,6 +145,28 @@ vi.mock("../BulkActions/UnsupportedMinersModal", () => ({ default: () => null })
 
 // eslint-disable-next-line import-x/order -- import must come after vi.mock calls
 import FleetGroupActionsMenu from "./FleetGroupActionsMenu";
+
+const DEFAULT_PERMISSIONS = [
+  "miner:read",
+  "miner:blink_led",
+  "miner:download_logs",
+  "miner:firmware_update",
+  "miner:reboot",
+  "miner:stop_mining",
+  "miner:start_mining",
+  "miner:delete",
+  "miner:set_power_target",
+  "miner:set_cooling_mode",
+  "miner:rename",
+  "miner:update_worker_names",
+  "miner:update_password",
+  "miner:update_pools",
+  "pool:read",
+  "rack:read",
+  "rack:manage",
+  "site:read",
+  "site:manage",
+] as const;
 
 const buildPopoverActions = () => [
   {
@@ -220,6 +236,13 @@ const buildPopoverActions = () => [
     actionHandler: vi.fn(),
     requiresConfirmation: false,
   },
+  {
+    action: deviceActions.unpair,
+    title: "Unpair",
+    icon: null,
+    actionHandler: vi.fn(),
+    requiresConfirmation: false,
+  },
 ];
 
 const makeMinerActions = () => ({
@@ -254,6 +277,8 @@ const makeMinerActions = () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUsePermissions.mockReturnValue([...DEFAULT_PERMISSIONS]);
+  mockPushToast.mockReturnValue(1);
   mockListMinerStateSnapshots.mockResolvedValue({
     miners: [{ deviceIdentifier: "miner-a" }, { deviceIdentifier: "miner-b" }, { deviceIdentifier: "miner-c" }],
     cursor: "",
@@ -265,7 +290,7 @@ describe("FleetGroupActionsMenu", () => {
   it("renders the wired bulk actions plus extras", () => {
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "building", id: 42n, name: "Alpha" }}
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
         extraActions={[{ label: "View racks", onClick: vi.fn() }]}
@@ -288,10 +313,35 @@ describe("FleetGroupActionsMenu", () => {
     }
   });
 
+  it("hides scoped miner actions without miner read but keeps row extras", () => {
+    mockUsePermissions.mockReturnValue(DEFAULT_PERMISSIONS.filter((permission) => permission !== "miner:read"));
+    const onViewRacks = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        extraActions={[{ label: "View racks", onClick: onViewRacks }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+
+    expect(screen.getByText("View racks")).toBeInTheDocument();
+    expect(screen.queryByText("Reboot miners")).not.toBeInTheDocument();
+    expect(screen.queryByText("Add to group")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("View racks"));
+
+    expect(onViewRacks).toHaveBeenCalledOnce();
+    expect(mockListMinerStateSnapshots).not.toHaveBeenCalled();
+  });
+
   it("fires the hook's Sleep handler after the device IDs land", async () => {
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "building", id: 42n, name: "Alpha" }}
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
       />,
@@ -320,7 +370,7 @@ describe("FleetGroupActionsMenu", () => {
   it("Site scope filters listMinerStateSnapshots by siteIds", async () => {
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "site", id: 7n, name: "North" }}
+        scopes={[{ kind: "site", id: 7n, name: "North" }]}
         ariaLabel="Actions for North"
         testIdPrefix="north"
       />,
@@ -337,13 +387,15 @@ describe("FleetGroupActionsMenu", () => {
     });
   });
 
-  it("toasts when the scope has no miners and skips the dispatch", async () => {
+  it("warns when the scope has no miners and skips the dispatch", async () => {
     mockListMinerStateSnapshots.mockResolvedValueOnce({ miners: [], cursor: "" });
+    const onActionComplete = vi.fn();
     render(
       <FleetGroupActionsMenu
-        scope={{ kind: "building", id: 42n, name: "Alpha" }}
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
         ariaLabel="Actions for Alpha"
         testIdPrefix="alpha"
+        onActionComplete={onActionComplete}
       />,
     );
     fireEvent.click(screen.getByTestId("alpha-trigger"));
@@ -357,5 +409,196 @@ describe("FleetGroupActionsMenu", () => {
         .find((entry) => entry.action === deviceActions.shutdown);
       expect(fired?.actionHandler).not.toHaveBeenCalled();
     });
+    expect(mockPushToast).toHaveBeenLastCalledWith({
+      message: "Building Alpha contains no miners.",
+      status: "error",
+    });
+    expect(onActionComplete).toHaveBeenCalledOnce();
+  });
+
+  it("starts the action boundary before loading scoped miners", async () => {
+    let resolveLookup: (value: { miners: { deviceIdentifier: string }[]; cursor: string }) => void = () => {};
+    mockListMinerStateSnapshots.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLookup = resolve;
+      }),
+    );
+    const onActionStart = vi.fn();
+    const onActionComplete = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        onActionStart={onActionStart}
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Sleep miners"));
+
+    expect(onActionStart).toHaveBeenCalledOnce();
+    expect(onActionComplete).not.toHaveBeenCalled();
+
+    resolveLookup({ miners: [], cursor: "" });
+
+    await waitFor(() => {
+      expect(onActionComplete).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("fails fast when no scopes are selected", async () => {
+    const onActionStart = vi.fn();
+    const onActionComplete = vi.fn();
+    render(
+      <FleetGroupActionsMenu
+        scopes={[]}
+        ariaLabel="Bulk actions for selected sites"
+        testIdPrefix="empty"
+        onActionStart={onActionStart}
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("empty-trigger"));
+    fireEvent.click(screen.getByText("Sleep miners"));
+
+    await waitFor(() => {
+      expect(mockUpdateToast).toHaveBeenCalledWith(1, { message: "No fleet groups selected.", status: "error" });
+    });
+    expect(mockListMinerStateSnapshots).not.toHaveBeenCalled();
+    expect(onActionStart).toHaveBeenCalledOnce();
+    expect(onActionComplete).toHaveBeenCalledOnce();
+  });
+
+  it("blocks non-unpair actions when scoped miners need authentication", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+      cursor: "",
+    });
+    const onActionComplete = vi.fn();
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+        onActionComplete={onActionComplete}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Reboot miners"));
+
+    await waitFor(() => {
+      expect(mockPushToast).toHaveBeenLastCalledWith({
+        message:
+          "Some miners in Alpha need authentication before this action can run. Unpair those miners or authenticate them first.",
+        status: "error",
+      });
+    });
+    const reboot = mockUseMinerActions.mock.results
+      .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+      .find((entry) => entry.action === deviceActions.reboot);
+    expect(reboot?.actionHandler).not.toHaveBeenCalled();
+    expect(onActionComplete).toHaveBeenCalledOnce();
+  });
+
+  it("allows unpair when scoped miners need authentication", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "miner-a", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+      cursor: "",
+    });
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[{ kind: "building", id: 42n, name: "Alpha" }]}
+        ariaLabel="Actions for Alpha"
+        testIdPrefix="alpha"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("alpha-trigger"));
+    fireEvent.click(screen.getByText("Unpair miners"));
+
+    await waitFor(() => {
+      const unpair = mockUseMinerActions.mock.results
+        .flatMap((result) => (result.value as ReturnType<typeof makeMinerActions>).popoverActions)
+        .find((entry) => entry.action === deviceActions.unpair);
+      expect(unpair?.actionHandler).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPushToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("need authentication") }),
+    );
+  });
+
+  it("combines same-kind scopes into one snapshot filter and hides row-only extras", async () => {
+    render(
+      <FleetGroupActionsMenu
+        scopes={[
+          { kind: "site", id: 7n, name: "North" },
+          { kind: "site", id: 8n, name: "South" },
+        ]}
+        ariaLabel="Bulk actions for selected sites"
+        testIdPrefix="sites"
+        extraActions={[{ label: "View site", onClick: vi.fn() }]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("sites-trigger"));
+    expect(screen.queryByText("View site")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Reboot miners"));
+
+    await waitFor(() => {
+      expect(mockListMinerStateSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ siteIds: [7n, 8n] }),
+        }),
+      );
+    });
+  });
+
+  it("renders Reboot and More controls in bulk presentation", async () => {
+    render(
+      <FleetGroupActionsMenu
+        scopes={[
+          { kind: "rack", id: 11n, name: "Rack A" },
+          { kind: "rack", id: 12n, name: "Rack B" },
+        ]}
+        ariaLabel="Bulk actions for selected racks"
+        testIdPrefix="racks"
+        presentation="bulk"
+      />,
+    );
+
+    expect(screen.getByTestId(`racks-quick-${deviceActions.reboot}`)).toHaveTextContent("Reboot");
+    expect(screen.getByTestId("racks-trigger")).toHaveTextContent("More");
+
+    fireEvent.click(screen.getByTestId(`racks-quick-${deviceActions.reboot}`));
+
+    await waitFor(() => {
+      expect(mockListMinerStateSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ rackIds: [11n, 12n] }),
+        }),
+      );
+    });
+  });
+
+  it("hides bulk controls without miner read", () => {
+    mockUsePermissions.mockReturnValue(DEFAULT_PERMISSIONS.filter((permission) => permission !== "miner:read"));
+
+    render(
+      <FleetGroupActionsMenu
+        scopes={[
+          { kind: "rack", id: 11n, name: "Rack A" },
+          { kind: "rack", id: 12n, name: "Rack B" },
+        ]}
+        ariaLabel="Bulk actions for selected racks"
+        testIdPrefix="racks"
+        presentation="bulk"
+      />,
+    );
+
+    expect(screen.queryByTestId(`racks-quick-${deviceActions.reboot}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("racks-trigger")).not.toBeInTheDocument();
   });
 });

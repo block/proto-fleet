@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
+import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -28,6 +29,8 @@ const FleetBuildingsPage = () => {
   const { listAllBuildings } = useBuildings();
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
+  const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
+  const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
@@ -85,6 +88,46 @@ const FleetBuildingsPage = () => {
     }
     return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
   }, [buildings, activeSite, urlSiteIds]);
+  const visibleBuildingScopes = useMemo(
+    () =>
+      visibleBuildings.flatMap((building) => {
+        if (!building.building || building.building.id === 0n) return [];
+        return [
+          {
+            kind: "building" as const,
+            id: building.building.id,
+            name: building.building.name,
+          },
+        ];
+      }),
+    [visibleBuildings],
+  );
+  const selectedBuildingScopes = useMemo(() => {
+    const selected = new Set(selectedBuildingIds);
+    return visibleBuildingScopes.filter((building) => selected.has(building.id.toString()));
+  }, [selectedBuildingIds, visibleBuildingScopes]);
+  useEffect(() => {
+    const visible = new Set(visibleBuildingScopes.map((building) => building.id.toString()));
+    // Keep selection scoped to the active site / URL filter even when the
+    // filtered-empty branch below unmounts BuildingList.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- selection mirrors externally controlled visible rows.
+    setSelectedBuildingIds((prev) => {
+      const next = prev.filter((id) => visible.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [visibleBuildingScopes]);
+  const handleSelectAllVisibleBuildings = useCallback(
+    () => setSelectedBuildingIds(visibleBuildingScopes.map((building) => building.id.toString())),
+    [visibleBuildingScopes],
+  );
+  const handleClearBuildingSelection = useCallback(() => setSelectedBuildingIds([]), []);
+  const handleSelectedBuildingIdsChange = useCallback(
+    (ids: string[]) => {
+      if (isBulkActionBusy) return;
+      setSelectedBuildingIds(ids);
+    },
+    [isBulkActionBusy],
+  );
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
 
@@ -156,83 +199,102 @@ const FleetBuildingsPage = () => {
     />
   ) : null;
 
-  if (buildings.length === 0) {
-    return (
-      <>
-        <FilterRow testId="fleet-buildings-page">
-          <div className="flex items-center justify-end">{addBuildingButton}</div>
-          <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
-            <Header title="No buildings yet" titleSize="text-heading-200" />
-            <p className="text-300 text-text-primary-70">
-              {!canManageBuildings
-                ? "No buildings have been added to this fleet yet."
-                : hasSites
-                  ? "Add a building to start organizing racks."
-                  : "Create a site first, then add buildings to organize racks."}
-            </p>
-          </div>
-        </FilterRow>
-        <BuildingModals modals={buildingModals} sites={sites} />
-      </>
-    );
-  }
+  const inlineErrors = (
+    <>
+      {sitesError ? (
+        <Callout
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Couldn't load sites for the Site column"
+          subtitle={sitesError}
+          buttonText="Retry"
+          buttonOnClick={refetchSites}
+          testId="fleet-buildings-sites-error"
+        />
+      ) : null}
+      {buildingsError ? (
+        <Callout
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Couldn't refresh buildings"
+          subtitle={buildingsError}
+          buttonText="Retry"
+          buttonOnClick={fetchBuildings}
+          testId="fleet-buildings-inline-error"
+        />
+      ) : null}
+    </>
+  );
 
-  if (visibleBuildings.length === 0) {
+  const bulkActionBar =
+    selectedBuildingScopes.length > 0 || isBulkActionBusy ? (
+      <FleetGroupListActionBar
+        selectedScopes={selectedBuildingScopes}
+        kind="building"
+        onClearSelection={handleClearBuildingSelection}
+        onSelectAllVisible={handleSelectAllVisibleBuildings}
+        onActionBusyChange={setIsBulkActionBusy}
+      />
+    ) : null;
+
+  let pageContent: ReactNode;
+  if (buildings.length === 0) {
+    pageContent = (
+      <FilterRow testId="fleet-buildings-page">
+        <div className="flex items-center justify-end">{addBuildingButton}</div>
+        <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
+          <Header title="No buildings yet" titleSize="text-heading-200" />
+          <p className="text-300 text-text-primary-70">
+            {!canManageBuildings
+              ? "No buildings have been added to this fleet yet."
+              : hasSites
+                ? "Add a building to start organizing racks."
+                : "Create a site first, then add buildings to organize racks."}
+          </p>
+        </div>
+      </FilterRow>
+    );
+  } else if (visibleBuildings.length === 0) {
     const message =
       activeSite.kind === "unassigned"
         ? "No buildings without a site. Switch the picker to All Sites to see every building."
         : "No buildings in this site yet.";
-    return (
+    pageContent = (
+      <FilterRow testId="fleet-buildings-page">
+        <div className="flex items-center justify-end">{addBuildingButton}</div>
+        <div
+          className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+          data-testid="fleet-buildings-filter-empty"
+        >
+          {message}
+        </div>
+      </FilterRow>
+    );
+  } else {
+    pageContent = (
       <>
         <FilterRow testId="fleet-buildings-page">
+          {inlineErrors}
           <div className="flex items-center justify-end">{addBuildingButton}</div>
-          <div
-            className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
-            data-testid="fleet-buildings-filter-empty"
-          >
-            {message}
-          </div>
         </FilterRow>
-        <BuildingModals modals={buildingModals} sites={sites} />
+        <div className={LIST_WRAPPER}>
+          <BuildingList
+            buildings={visibleBuildings}
+            sites={sites}
+            onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
+            onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
+            selectedIds={selectedBuildingIds}
+            onSelectedIdsChange={handleSelectedBuildingIdsChange}
+          />
+        </div>
       </>
     );
   }
 
   return (
     <>
-      <FilterRow testId="fleet-buildings-page">
-        {sitesError ? (
-          <Callout
-            intent="danger"
-            prefixIcon={<Alert />}
-            title="Couldn't load sites for the Site column"
-            subtitle={sitesError}
-            buttonText="Retry"
-            buttonOnClick={refetchSites}
-            testId="fleet-buildings-sites-error"
-          />
-        ) : null}
-        {buildingsError ? (
-          <Callout
-            intent="danger"
-            prefixIcon={<Alert />}
-            title="Couldn't refresh buildings"
-            subtitle={buildingsError}
-            buttonText="Retry"
-            buttonOnClick={fetchBuildings}
-            testId="fleet-buildings-inline-error"
-          />
-        ) : null}
-        <div className="flex items-center justify-end">{addBuildingButton}</div>
-      </FilterRow>
-      <div className={LIST_WRAPPER}>
-        <BuildingList
-          buildings={visibleBuildings}
-          sites={sites}
-          onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
-          onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
-        />
-      </div>
+      {pageContent}
+      {bulkActionBar}
       <BuildingModals modals={buildingModals} sites={sites} />
       {reparentTarget?.building ? (
         <ParentPickerModal

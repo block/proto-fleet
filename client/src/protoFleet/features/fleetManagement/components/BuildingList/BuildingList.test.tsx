@@ -97,7 +97,15 @@ const PathProbe = () => {
 
 type EditBuildingCallback = (building: BuildingWithCounts) => void;
 
-const renderList = ({ onEditBuilding }: { onEditBuilding?: EditBuildingCallback } = {}) =>
+const renderList = ({
+  onEditBuilding,
+  selectedIds,
+  onSelectedIdsChange,
+}: {
+  onEditBuilding?: EditBuildingCallback;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+} = {}) =>
   render(
     <MemoryRouter initialEntries={["/fleet/buildings"]}>
       <Routes>
@@ -109,6 +117,8 @@ const renderList = ({ onEditBuilding }: { onEditBuilding?: EditBuildingCallback 
                 buildings={[makeBuilding(42, "Alpha", 7)]}
                 sites={[makeSite(7, "North")]}
                 onEditBuilding={onEditBuilding}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={onSelectedIdsChange}
               />
               <PathProbe />
             </>
@@ -178,5 +188,15 @@ describe("BuildingList row actions menu", () => {
     renderList();
     fireEvent.click(trigger());
     expect(screen.queryByText("Edit building")).not.toBeInTheDocument();
+  });
+
+  it("shows controlled row checkboxes when selection props are supplied", () => {
+    const onSelectedIdsChange = vi.fn();
+    renderList({ selectedIds: [], onSelectedIdsChange });
+
+    const checkbox = screen.getByTestId("list-body").querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["42"]);
   });
 });

@@ -2,7 +2,7 @@ import { Fragment, type ReactNode, useCallback, useEffect, useState } from "reac
 
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
@@ -27,6 +27,10 @@ interface RowActionsMenuProps {
   // Falls back to `${testIdPrefix}-trigger` / `row-actions-menu-trigger`.
   triggerTestId?: string;
   disabled?: boolean;
+  triggerLabel?: string;
+  triggerClassName?: string;
+  triggerVariant?: ButtonVariant;
+  triggerSuffixIcon?: ReactNode;
 }
 
 const RowActionsMenu = ({
@@ -35,6 +39,10 @@ const RowActionsMenu = ({
   testIdPrefix,
   triggerTestId,
   disabled,
+  triggerLabel,
+  triggerClassName,
+  triggerVariant,
+  triggerSuffixIcon,
 }: RowActionsMenuProps) => (
   <PopoverProvider>
     <RowActionsMenuInner
@@ -43,6 +51,10 @@ const RowActionsMenu = ({
       testIdPrefix={testIdPrefix}
       triggerTestId={triggerTestId}
       disabled={disabled}
+      triggerLabel={triggerLabel}
+      triggerClassName={triggerClassName}
+      triggerVariant={triggerVariant}
+      triggerSuffixIcon={triggerSuffixIcon}
     />
   </PopoverProvider>
 );
@@ -53,8 +65,21 @@ const RowActionsMenuInner = ({
   testIdPrefix,
   triggerTestId,
   disabled,
+  triggerLabel,
+  triggerClassName,
+  triggerVariant,
+  triggerSuffixIcon,
 }: Required<Pick<RowActionsMenuProps, "actions" | "ariaLabel">> &
-  Pick<RowActionsMenuProps, "testIdPrefix" | "triggerTestId" | "disabled">) => {
+  Pick<
+    RowActionsMenuProps,
+    | "testIdPrefix"
+    | "triggerTestId"
+    | "disabled"
+    | "triggerLabel"
+    | "triggerClassName"
+    | "triggerVariant"
+    | "triggerSuffixIcon"
+  >) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -83,15 +108,20 @@ const RowActionsMenuInner = ({
   return (
     <div className="relative" ref={triggerRef}>
       <Button
-        className="-my-[10px] !p-[14px]"
+        className={triggerClassName ?? "-my-[10px] !p-[14px]"}
         size={sizes.compact}
-        variant={variants.textOnly}
-        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        variant={triggerVariant ?? variants.textOnly}
+        prefixIcon={triggerLabel ? undefined : <Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        suffixIcon={triggerSuffixIcon}
         ariaLabel={ariaLabel}
+        ariaHasPopup="menu"
+        ariaExpanded={open}
         testId={resolvedTriggerTestId}
         disabled={disabled}
         onClick={() => setIsOpen((prev) => !prev)}
-      />
+      >
+        {triggerLabel}
+      </Button>
       {open ? (
         <Popover
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"

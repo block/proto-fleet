@@ -17,6 +17,7 @@ import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
+import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
@@ -86,6 +87,8 @@ const RacksPage = () => {
   // for the empty-filter sentinel below.
   const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
+  const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
+  const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
   // listDeviceSets has no native siteIds filter, so we resolve
   // site → buildings client-side and pipe through buildingIds.
@@ -239,6 +242,7 @@ const RacksPage = () => {
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
+      setSelectedRackIds([]);
       if (key === "zone") {
         setSelectedZones(values);
         selectedZonesRef.current = values;
@@ -290,8 +294,33 @@ const RacksPage = () => {
     selectedZones.length > 0 ||
     selectedIssues.length > 0 ||
     urlSiteIds.size > 0;
+  const visibleRackScopes = useMemo(
+    () =>
+      racks.flatMap((rack) => {
+        if (rack.id === 0n) return [];
+        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)" }];
+      }),
+    [racks],
+  );
+  const selectedRackScopes = useMemo(() => {
+    const selected = new Set(selectedRackIds);
+    return visibleRackScopes.filter((rack) => selected.has(rack.id.toString()));
+  }, [selectedRackIds, visibleRackScopes]);
+  const handleSelectAllVisibleRacks = useCallback(
+    () => setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString())),
+    [visibleRackScopes],
+  );
+  const handleClearRackSelection = useCallback(() => setSelectedRackIds([]), []);
+  const handleSelectedRackIdsChange = useCallback(
+    (ids: string[]) => {
+      if (isBulkActionBusy) return;
+      setSelectedRackIds(ids);
+    },
+    [isBulkActionBusy],
+  );
 
   const handleClearFilters = useCallback(() => {
+    setSelectedRackIds([]);
     // Snapshot before state changes — these flags drive the "ride the
     // URL-change effect" branch below.
     const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
@@ -429,7 +458,7 @@ const RacksPage = () => {
           </button>
           {rack.id !== undefined && rack.id !== 0n ? (
             <FleetGroupActionsMenu
-              scope={{ kind: "rack", id: rack.id, name: label }}
+              scopes={[{ kind: "rack", id: rack.id, name: label }]}
               ariaLabel={`Actions for ${label}`}
               testIdPrefix={`rack-list-row-${rack.id.toString()}-actions`}
               extraActions={buildRackExtraActions(rack)}
@@ -479,13 +508,40 @@ const RacksPage = () => {
   }, [hasCompletedInitialFetch, isModalOpen, refreshCurrentPage]);
 
   // Sort dropdown handler for grid view
+  const handleRackSort: typeof handleSort = useCallback(
+    (field, direction) => {
+      setSelectedRackIds([]);
+      handleSort(field, direction);
+    },
+    [handleSort],
+  );
+
   const handleSortSelect = useCallback(
     (selected: string[]) => {
       const nextSort = getNextSortFromSelection(selected, currentSort);
-      handleSort(nextSort.field, nextSort.direction);
+      handleRackSort(nextSort.field, nextSort.direction);
     },
-    [currentSort, handleSort],
+    [currentSort, handleRackSort],
   );
+
+  const handleRacksViewModeSelect = useCallback(
+    (key: string) => {
+      const nextViewMode = key === "list" ? "list" : "grid";
+      if (nextViewMode === "grid") setSelectedRackIds([]);
+      setRacksViewMode(nextViewMode);
+    },
+    [setRacksViewMode],
+  );
+
+  const handleRackNextPage = useCallback(() => {
+    setSelectedRackIds([]);
+    handleNextPage();
+  }, [handleNextPage]);
+
+  const handleRackPrevPage = useCallback(() => {
+    setSelectedRackIds([]);
+    handlePrevPage();
+  }, [handlePrevPage]);
 
   // Grid pagination
   const firstItemIndex = currentPage * DEFAULT_PAGE_SIZE + 1;
@@ -573,7 +629,7 @@ const RacksPage = () => {
                 { key: "list", title: "View list" },
               ]}
               initialSegmentKey={racksViewMode}
-              onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
+              onSelect={handleRacksViewModeSelect}
             />
           </div>
           {/* Desktop layout — single row with toggle + filters left, buttons right */}
@@ -586,7 +642,7 @@ const RacksPage = () => {
                 { key: "list", title: "View list" },
               ]}
               initialSegmentKey={racksViewMode}
-              onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
+              onSelect={handleRacksViewModeSelect}
             />
             <FilterChipsBar
               filters={filterChipsBarFilters}
@@ -644,7 +700,7 @@ const RacksPage = () => {
             renderBuilding={renderBuilding}
             columns={insideFleetShell && MULTI_SITE_ENABLED ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
-            onSort={handleSort}
+            onSort={handleRackSort}
             itemName={{ singular: "rack", plural: "racks" }}
             total={totalCount}
             loading={isLoading}
@@ -652,9 +708,11 @@ const RacksPage = () => {
             currentPage={currentPage}
             hasPreviousPage={currentPage > 0}
             hasNextPage={hasNextPage}
-            onNextPage={handleNextPage}
-            onPrevPage={handlePrevPage}
+            onNextPage={handleRackNextPage}
+            onPrevPage={handleRackPrevPage}
             emptyStateRow={emptyStateRow}
+            selectedIds={selectedRackIds}
+            onSelectedIdsChange={handleSelectedRackIdsChange}
           />
         </div>
       ) : (
@@ -704,7 +762,7 @@ const RacksPage = () => {
                   size={sizes.compact}
                   ariaLabel="Previous page"
                   prefixIcon={<ChevronDown className="rotate-90" />}
-                  onClick={handlePrevPage}
+                  onClick={handleRackPrevPage}
                   disabled={currentPage === 0}
                 />
                 <Button
@@ -712,7 +770,7 @@ const RacksPage = () => {
                   size={sizes.compact}
                   ariaLabel="Next page"
                   prefixIcon={<ChevronDown className="rotate-270" />}
-                  onClick={handleNextPage}
+                  onClick={handleRackNextPage}
                   disabled={!hasNextPage}
                 />
               </div>
@@ -720,6 +778,15 @@ const RacksPage = () => {
           ) : null}
         </div>
       )}
+      {selectedRackScopes.length > 0 || isBulkActionBusy ? (
+        <FleetGroupListActionBar
+          selectedScopes={selectedRackScopes}
+          kind="rack"
+          onClearSelection={handleClearRackSelection}
+          onSelectAllVisible={handleSelectAllVisibleRacks}
+          onActionBusyChange={setIsBulkActionBusy}
+        />
+      ) : null}
       {showRackSettingsModal ? (
         <RackSettingsModal
           show={showRackSettingsModal}
