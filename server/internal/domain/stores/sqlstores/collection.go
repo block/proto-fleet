@@ -530,7 +530,7 @@ func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID
 		TargetRackID:      targetRackID,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to remove devices from rack: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to remove devices from rack: %w", err)
 	}
 	return count, nil
 }

@@ -281,6 +281,19 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 	return &out, nil
 }
 
+// assignDevicesToSiteTx carries the per-attempt counters out of the
+// RunInTxWithResult closure. Declared at package scope so a tx retry
+// (SQLTransactor serialization / deadlock failure) starts each attempt
+// from zero — the closure constructs a fresh struct on every call.
+// forceClearedIDs is populated when the force-clear branch fired so
+// the post-commit audit log can record the rack-detachment side
+// effect; the regular conflicts surface via txConflicts.
+type assignDevicesToSiteTx struct {
+	rowsAffected    int64
+	txConflicts     []models.PerDeviceConflict
+	forceClearedIDs []string
+}
+
 // AssignDevicesToSite enforces the cross-collection invariant and,
 // on success, bulk-updates device.site_id for every identifier in one
 // transaction. Per the plan, the entire batch rejects if *any* device
@@ -293,12 +306,13 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 		return 0, nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
 	}
 
-	var (
-		rowsAffected int64
-		txConflicts  []models.PerDeviceConflict
-		targetSiteID = params.TargetSiteID
-	)
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+	targetSiteID := params.TargetSiteID
+	// Per-attempt state lives inside the RunInTxWithResult closure so a
+	// SQLTransactor retry (serialization / deadlock failure on the first
+	// attempt) starts from zero on every attempt. The returned struct
+	// reflects only the COMMITTED attempt's totals.
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		attempt := assignDevicesToSiteTx{}
 		// Lock the target site BEFORE the device rows so this flow uses
 		// the same site→device order as AssignBuildingToSite and
 		// DeleteSite. Inverting the order can deadlock when a concurrent
@@ -307,66 +321,129 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 		// target=nil/0 (Unassigned) needs no site lock.
 		if targetSiteID != nil && *targetSiteID > 0 {
 			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *targetSiteID); err != nil {
-				return err
+				return attempt, err
 			}
 		}
 		// Row-lock the devices so the conflict check sees a stable snapshot.
 		if err := s.store.LockDevicesForReassign(txCtx, params.OrgID, identifiers); err != nil {
-			return err
+			return attempt, err
 		}
 		conflicts, err := s.computeReassignConflicts(txCtx, params.OrgID, targetSiteID, identifiers)
 		if err != nil {
-			return err
+			return attempt, err
+		}
+		// When the caller opted into the force-clear branch, treat
+		// DEVICE_IN_RACK_AT_OTHER_SITE conflicts as a cascade-clear
+		// signal instead of a rejection. DEVICE_NOT_FOUND still aborts
+		// — the caller can't move what doesn't exist. Partition
+		// conflicts: only identifiers whose blocker is rack-at-other-
+		// site get their rack memberships cleared. Devices already at
+		// the target site (no conflict) keep their rack rows, so we
+		// don't cascade-delete unrelated rack_slot rows.
+		if params.ForceClearConflictingRackMembership && len(conflicts) > 0 {
+			var (
+				clearableIDs []string
+				residual     []models.PerDeviceConflict
+			)
+			for _, c := range conflicts {
+				if c.Reason == models.ReasonDeviceInRackAtOtherSite {
+					clearableIDs = append(clearableIDs, c.DeviceIdentifier)
+					continue
+				}
+				residual = append(residual, c)
+			}
+			// Abort BEFORE any deletion when residual non-clearable
+			// conflicts remain. Otherwise the tx would commit the
+			// rack-membership delete for clearable devices and then
+			// return without the site move, leaving rack-stripped
+			// devices on their old site.
+			if len(residual) > 0 {
+				attempt.txConflicts = residual
+				return attempt, nil
+			}
+			if len(clearableIDs) > 0 {
+				if s.collectionStore == nil {
+					return attempt, fleeterror.NewInternalErrorf("force-clear branch requires a collection store")
+				}
+				// Clear only the rack memberships for devices that
+				// actually had the cross-site conflict. targetRackID=0
+				// means "exclude nothing", i.e. drop every rack row
+				// for the listed devices.
+				if _, err := s.collectionStore.RemoveDevicesFromAnyRack(txCtx, params.OrgID, clearableIDs, 0); err != nil {
+					return attempt, err
+				}
+				attempt.forceClearedIDs = clearableIDs
+				conflicts = nil
+			}
 		}
 		if len(conflicts) > 0 {
 			// Don't return a sentinel error — SQLTransactor wraps non-
 			// FleetError errors as Internal, which would surface as a
 			// 500 in prod. Stash conflicts and commit the lock+reads
 			// tx without writes.
-			txConflicts = conflicts
-			return nil
+			attempt.txConflicts = conflicts
+			return attempt, nil
 		}
 		n, txErr := s.store.AssignDevicesToSite(txCtx, params.OrgID, targetSiteID, identifiers)
 		if txErr != nil {
-			return txErr
+			return attempt, txErr
 		}
-		rowsAffected = n
-		return nil
+		attempt.rowsAffected = n
+		return attempt, nil
 	})
 	if err != nil {
 		return 0, nil, err
 	}
-	if len(txConflicts) > 0 {
-		return 0, txConflicts, nil
+	committed, _ := result.(assignDevicesToSiteTx)
+	if len(committed.txConflicts) > 0 {
+		return 0, committed.txConflicts, nil
 	}
 
 	// Only fire when the write happened (no conflicts; rowsAffected
 	// reflects the SQL UPDATE row count).
-	if rowsAffected > 0 {
+	if committed.rowsAffected > 0 {
 		orgIDVal := params.OrgID
 		idents := identifiers
 		if len(idents) > maxDeviceIdentifiersInMetadata {
 			idents = idents[:maxDeviceIdentifiersInMetadata]
+		}
+		metadata := map[string]any{
+			"target_site_id":     targetSiteID,
+			"device_count":       committed.rowsAffected,
+			"device_identifiers": idents,
+		}
+		description := fmt.Sprintf(
+			"Reassigned %d device(s) to site %s",
+			committed.rowsAffected, formatSiteIDForDescription(targetSiteID),
+		)
+		// Record the rack-detachment side effect alongside the site move
+		// so the audit log makes the cascade visible. Truncate the
+		// identifier list to the same cap the regular field uses.
+		if len(committed.forceClearedIDs) > 0 {
+			clearedCount := len(committed.forceClearedIDs)
+			clearedIdents := committed.forceClearedIDs
+			if len(clearedIdents) > maxDeviceIdentifiersInMetadata {
+				clearedIdents = clearedIdents[:maxDeviceIdentifiersInMetadata]
+			}
+			metadata["force_cleared_rack_membership_count"] = clearedCount
+			metadata["force_cleared_device_identifiers"] = clearedIdents
+			description = fmt.Sprintf(
+				"%s (%d rack membership(s) force-cleared)",
+				description, clearedCount,
+			)
 		}
 		event := activitymodels.Event{
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventDevicesReassignedToSite,
 			OrganizationID: &orgIDVal,
 			SiteID:         targetSiteID,
-			Description: fmt.Sprintf(
-				"Reassigned %d device(s) to site %s",
-				rowsAffected, formatSiteIDForDescription(targetSiteID),
-			),
-			Metadata: map[string]any{
-				"target_site_id":     targetSiteID,
-				"device_count":       rowsAffected,
-				"device_identifiers": idents,
-			},
+			Description:    description,
+			Metadata:       metadata,
 		}
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)
 	}
-	return rowsAffected, nil, nil
+	return committed.rowsAffected, nil, nil
 }
 
 // assignBuildingsTx carries the per-attempt counters out of the

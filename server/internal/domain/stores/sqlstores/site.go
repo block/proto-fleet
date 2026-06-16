@@ -223,7 +223,7 @@ func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, 
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to lock devices for reassign: %v", err)
+		return fleeterror.NewInternalErrorf("failed to lock devices for reassign: %w", err)
 	}
 	return nil
 }
