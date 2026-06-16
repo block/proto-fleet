@@ -183,7 +183,14 @@ const Fleet = () => {
   // Chrome-level coordination: CompleteSetup lives in FleetLayout and pulses
   // these timestamps. We forward our pairing completion up, and refetch when
   // an in-banner flow (e.g. pool assignment) signals the miner list is stale.
-  const { notifyPairingCompleted, minersChangedAt } = useFleetOutletContext();
+  const { notifyPairingCompleted, minersChangedAt, publishViewFilterContext } = useFleetOutletContext();
+
+  // Push our DeviceSet metadata up to FleetLayout so the saved-view modal
+  // (mounted in the top tab strip) can show human-readable labels for any
+  // group/rack ids referenced by an active filter.
+  useEffect(() => {
+    publishViewFilterContext({ availableGroups, availableRacks });
+  }, [publishViewFilterContext, availableGroups, availableRacks]);
 
   const refetchAll = useCallback(() => {
     refetch();

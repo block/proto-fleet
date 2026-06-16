@@ -3,18 +3,21 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Code } from "@connectrpc/connect";
 
 import { type FleetOutletContext } from "./outletContext";
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
+import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
+import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
+import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
-import { useHasPermission } from "@/protoFleet/store";
+import { useHasPermission, useUsername } from "@/protoFleet/store";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
-
-type FleetTabId = "sites" | "buildings" | "racks" | "miners";
 
 const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED ? ["sites", "buildings", "racks", "miners"] : ["racks", "miners"];
 // Absolute last-resort fallback when TAB_ORDER somehow contains no visible
@@ -47,6 +50,8 @@ const tabFromPath = (pathname: string): FleetTabId | undefined => {
 const FleetLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const username = useUsername();
+  const viewsState = useFleetViews(username);
   const [lastTab, setLastTab] = useReactiveLocalStorage<FleetTabId | undefined>(LAST_TAB_KEY, undefined);
 
   // ListSites and ListBuildings both sit behind PermSiteRead server-side.
@@ -163,6 +168,31 @@ const FleetLayout = () => {
     [navigate],
   );
 
+  const [viewFilterContext, setViewFilterContext] = useState<{
+    availableGroups: DeviceSet[];
+    availableRacks: DeviceSet[];
+    availableBuildings: FilterLabelSource[];
+    availableSites: FilterLabelSource[];
+  }>({ availableGroups: [], availableRacks: [], availableBuildings: [], availableSites: [] });
+  // Partial publish: a child tab only overwrites the keys it knows about,
+  // so racks publishing buildings doesn't clobber miners' group/rack lists.
+  const publishViewFilterContext = useCallback<FleetOutletContext["publishViewFilterContext"]>((ctx) => {
+    setViewFilterContext((prev) => {
+      const next = {
+        availableGroups: ctx.availableGroups ?? prev.availableGroups,
+        availableRacks: ctx.availableRacks ?? prev.availableRacks,
+        availableBuildings: ctx.availableBuildings ?? prev.availableBuildings,
+        availableSites: ctx.availableSites ?? prev.availableSites,
+      };
+      const unchanged =
+        next.availableGroups === prev.availableGroups &&
+        next.availableRacks === prev.availableRacks &&
+        next.availableBuildings === prev.availableBuildings &&
+        next.availableSites === prev.availableSites;
+      return unchanged ? prev : next;
+    });
+  }, []);
+
   // Pairing/refetch coordination with the Miners tab. The chrome-level
   // CompleteSetup banner outlives any single tab, so the timestamp pulses
   // live here and surface to tab children via outlet context.
@@ -179,14 +209,25 @@ const FleetLayout = () => {
       refetchSites: fetchSites,
       notifyPairingCompleted,
       minersChangedAt,
+      publishViewFilterContext,
     }),
-    [sites, sitesError, sitesLoaded, fetchSites, notifyPairingCompleted, minersChangedAt],
+    [sites, sitesError, sitesLoaded, fetchSites, notifyPairingCompleted, minersChangedAt, publishViewFilterContext],
   );
+
+  // Mobile docks the views selector beside the Fleet heading to keep the
+  // tab nav uncluttered on narrow widths. Desktop lifts it into the
+  // TabStrip's trailing slot so it sits right-aligned across from the
+  // section tabs. Mounting twice (each gated by a `laptop:` visibility
+  // class) keeps the DOM simple — only one is interactive at a time.
+  const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
 
   return (
     <div className="flex h-full flex-col" data-testid="fleet-layout">
       <div className="sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10">
-        <h1 className="text-heading-300 text-text-primary">Fleet</h1>
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="text-heading-300 text-text-primary">Fleet</h1>
+          <div className="laptop:hidden">{viewTabs}</div>
+        </div>
         {canReadMiners ? (
           <CompleteSetup
             lastPairingCompletedAt={lastPairingCompletedAt}
@@ -194,7 +235,12 @@ const FleetLayout = () => {
             onRefetchMiners={notifyMinersChanged}
           />
         ) : null}
-        <TabStrip activeId={currentTab} onSelect={onSelect} ariaLabel="Fleet sections">
+        <TabStrip
+          activeId={currentTab}
+          onSelect={onSelect}
+          ariaLabel="Fleet sections"
+          trailing={<div className="hidden pb-2 laptop:block">{viewTabs}</div>}
+        >
           {visibleTabs.map((tab) => (
             <TabStripItem key={tab} id={tab} label={tabLabel[tab]} testId={`fleet-tab-${tab}`} />
           ))}

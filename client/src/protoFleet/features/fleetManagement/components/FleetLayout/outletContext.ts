@@ -1,6 +1,8 @@
 import { useOutletContext } from "react-router-dom";
 
+import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 
 export interface FleetOutletContext {
   sites: SiteWithCounts[] | undefined;
@@ -18,6 +20,26 @@ export interface FleetOutletContext {
   // instead of waiting for the next poll tick.
   notifyPairingCompleted: () => void;
   minersChangedAt: number;
+  /**
+   * Child tabs publish their filter metadata up to FleetLayout so the
+   * saved-view modal can render human-readable labels for filter ids. Tabs
+   * without filters skip the call. Each child publishes only the keys it
+   * knows about — defaults fill the rest.
+   */
+  publishViewFilterContext: (ctx: {
+    availableGroups?: DeviceSet[];
+    availableRacks?: DeviceSet[];
+    availableBuildings?: FilterLabelSource[];
+    availableSites?: FilterLabelSource[];
+  }) => void;
 }
 
 export const useFleetOutletContext = (): FleetOutletContext => useOutletContext<FleetOutletContext>();
+
+/**
+ * Like `useFleetOutletContext` but tolerates being rendered outside the
+ * FleetLayout shell — returns undefined for routes (e.g. standalone `/racks`)
+ * that mount the same page without a parent Outlet.
+ */
+export const useOptionalFleetOutletContext = (): FleetOutletContext | undefined =>
+  useOutletContext<FleetOutletContext | undefined>();

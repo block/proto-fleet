@@ -1,8 +1,12 @@
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
+import type { FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import {
+  diffDisplaySummaries,
   diffFilterSummaries,
   diffSortSummaries,
+  type DisplayDiff,
+  type DisplaySummary,
   type FilterDiff,
   type FilterDiffEntry,
   type FilterSummaryEntry,
@@ -15,13 +19,15 @@ import Modal from "@/shared/components/Modal";
 import Switch from "@/shared/components/Switch";
 
 export type ViewModalMode =
-  | { kind: "create" }
+  | { kind: "create"; tab: FleetTabId }
   | {
       kind: "update";
       viewId: string;
+      tab: FleetTabId;
       currentName: string;
       savedFilters: FilterSummaryEntry[];
       savedSort: SortSummary | undefined;
+      savedDisplay: DisplaySummary | undefined;
     };
 
 export type ViewModalState =
@@ -32,13 +38,14 @@ export type ViewModalState =
       defaultName: string;
       currentFilters: FilterSummaryEntry[];
       currentSort: SortSummary | undefined;
+      currentDisplay: DisplaySummary | undefined;
     };
 
 type ViewModalProps = {
   state: ViewModalState;
   existingNames: string[];
   onDismiss: () => void;
-  onSubmit: (input: { name: string; includeSort: boolean }) => void;
+  onSubmit: (input: { name: string; includeSort: boolean; includeDisplay: boolean }) => void;
 };
 
 const CHANGE_LABELS: Record<FilterDiffEntry["change"], string | undefined> = {
@@ -165,14 +172,61 @@ const SortSection = ({
   );
 };
 
+const displayDescription = (display: DisplaySummary | undefined) => display?.label ?? "No display mode set";
+
+const DisplaySection = ({
+  current,
+  diff,
+  includeDisplay,
+  setIncludeDisplay,
+}: {
+  current: DisplaySummary | undefined;
+  diff: DisplayDiff | undefined;
+  includeDisplay: boolean;
+  setIncludeDisplay: (checked: boolean | ((prev: boolean) => boolean)) => void;
+}) => {
+  const renderBadge = (): ReactNode => {
+    switch (diff?.change) {
+      case "added":
+      case "changed":
+        return <ChangeBadge change={diff.change} />;
+      case "removed":
+        return (
+          <span
+            className="rounded-md bg-intent-critical-10 px-1.5 py-0.5 text-200 text-intent-critical-fill"
+            data-testid="view-summary-display-change-removed"
+          >
+            Removed
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-4" data-testid="view-summary-include-display">
+      <div className="flex flex-col">
+        <span className="text-emphasis-300 text-text-primary">Include display mode</span>
+        <span className="inline-flex items-center gap-2 text-300 text-text-primary-70">
+          <span>{displayDescription(current)}</span>
+          {renderBadge()}
+        </span>
+      </div>
+      <Switch checked={includeDisplay} setChecked={setIncludeDisplay} disabled={!current} />
+    </div>
+  );
+};
+
 const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps) => {
   const open = state.open;
   const defaultName = state.open ? state.defaultName : "";
-  const mode: ViewModalMode = state.open ? state.mode : { kind: "create" };
+  const modeKind = state.open ? state.mode.kind : "create";
 
   const [name, setName] = useState(defaultName);
   const [error, setError] = useState<string | undefined>(undefined);
   const [includeSort, setIncludeSort] = useState(true);
+  const [includeDisplay, setIncludeDisplay] = useState(true);
 
   const [prevOpen, setPrevOpen] = useState(open);
   if (prevOpen !== open) {
@@ -180,6 +234,7 @@ const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps
     setName(defaultName);
     setError(undefined);
     setIncludeSort(true);
+    setIncludeDisplay(true);
   }
 
   const filterDiff = useMemo<FilterDiff | undefined>(() => {
@@ -190,6 +245,11 @@ const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps
   const sortDiff = useMemo<SortDiff | undefined>(() => {
     if (!state.open || state.mode.kind !== "update") return undefined;
     return diffSortSummaries(state.currentSort, state.mode.savedSort);
+  }, [state]);
+
+  const displayDiff = useMemo<DisplayDiff | undefined>(() => {
+    if (!state.open || state.mode.kind !== "update") return undefined;
+    return diffDisplaySummaries(state.currentDisplay, state.mode.savedDisplay);
   }, [state]);
 
   const handleSubmit = useCallback(() => {
@@ -203,15 +263,23 @@ const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps
       setError("A view with this name already exists");
       return;
     }
-    onSubmit({ name: trimmed, includeSort });
-  }, [name, existingNames, onSubmit, includeSort]);
+    onSubmit({ name: trimmed, includeSort, includeDisplay });
+  }, [name, existingNames, onSubmit, includeSort, includeDisplay]);
 
-  const isUpdate = mode.kind === "update";
+  const isUpdate = modeKind === "update";
   const title = isUpdate ? "Update view" : "New view";
   const description = isUpdate
     ? "Replace the saved filters and sort with the current set."
     : "Save the current filters and sort as a view.";
   const submitText = isUpdate ? "Update" : "Save";
+
+  // Only surface the display toggle on tabs that publish a `display` URL
+  // value (racks today, sites once it lands). If `currentDisplay` is
+  // undefined the section would just disable the switch and read "No
+  // display mode set" — that's noise on miners/buildings, so hide it.
+  const currentDisplay = state.open ? state.currentDisplay : undefined;
+  const savedDisplay = state.open && state.mode.kind === "update" ? state.mode.savedDisplay : undefined;
+  const showDisplaySection = currentDisplay !== undefined || savedDisplay !== undefined;
 
   return (
     <Modal
@@ -252,6 +320,15 @@ const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps
           includeSort={includeSort}
           setIncludeSort={setIncludeSort}
         />
+
+        {showDisplaySection ? (
+          <DisplaySection
+            current={currentDisplay}
+            diff={displayDiff}
+            includeDisplay={includeDisplay}
+            setIncludeDisplay={setIncludeDisplay}
+          />
+        ) : null}
       </div>
     </Modal>
   );

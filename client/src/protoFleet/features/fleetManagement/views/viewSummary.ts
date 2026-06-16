@@ -3,7 +3,11 @@ import {
   TELEMETRY_FILTER_BOUNDS,
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
+import type { FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import { formatNumericRangeCondition, formatTextareaListCondition } from "@/shared/utils/filterChipFormatting";
+
+/** Lightweight {id, label} record — covers buildings/sites without dragging in their full proto types. */
+export type FilterLabelSource = { id: string; label: string };
 
 const STATUS_LABELS: Record<string, string> = {
   hashing: "Hashing",
@@ -46,6 +50,30 @@ export type SortSummary = {
   direction: "asc" | "desc";
 };
 
+export type DisplayMode = "grid" | "list";
+
+export type DisplaySummary = {
+  mode: DisplayMode;
+  /** Humanized label for the segmented option, e.g. "Grid view". */
+  label: string;
+};
+
+const DISPLAY_LABELS: Record<DisplayMode, string> = {
+  grid: "Grid view",
+  list: "List view",
+};
+
+export const URL_DISPLAY_PARAM = "display";
+
+export const isDisplayMode = (value: unknown): value is DisplayMode => value === "grid" || value === "list";
+
+export type FilterSummaryContext = {
+  availableGroups: DeviceSet[];
+  availableRacks: DeviceSet[];
+  availableBuildings: FilterLabelSource[];
+  availableSites: FilterLabelSource[];
+};
+
 const lookupDeviceSetLabels = (ids: string[], deviceSets: DeviceSet[]): string[] => {
   const labelById = new Map<string, string>();
   deviceSets.forEach((set) => {
@@ -54,15 +82,17 @@ const lookupDeviceSetLabels = (ids: string[], deviceSets: DeviceSet[]): string[]
   return ids.map((id) => labelById.get(id) ?? `#${id}`);
 };
 
+const lookupNamedLabels = (ids: string[], items: FilterLabelSource[]): string[] => {
+  const labelById = new Map<string, string>(items.map((item) => [item.id, item.label]));
+  return ids.map((id) => labelById.get(id) ?? `#${id}`);
+};
+
 const dedupedSorted = (params: URLSearchParams, key: string): string[] =>
   Array.from(new Set(params.getAll(key)))
     .filter((value) => value !== "")
     .sort();
 
-export const summarizeFilters = (
-  params: URLSearchParams,
-  context: { availableGroups: DeviceSet[]; availableRacks: DeviceSet[] },
-): FilterSummaryEntry[] => {
+const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
   const entries: FilterSummaryEntry[] = [];
 
   const statusValues = dedupedSorted(params, "status").map((value) => STATUS_LABELS[value] ?? value);
@@ -85,10 +115,15 @@ export const summarizeFilters = (
 
   const rackValues = dedupedSorted(params, "rack");
   if (rackValues.length) {
+    entries.push({ key: "rack", label: "Racks", values: lookupDeviceSetLabels(rackValues, context.availableRacks) });
+  }
+
+  const buildingValues = dedupedSorted(params, "building");
+  if (buildingValues.length) {
     entries.push({
-      key: "rack",
-      label: "Racks",
-      values: lookupDeviceSetLabels(rackValues, context.availableRacks),
+      key: "building",
+      label: "Buildings",
+      values: lookupNamedLabels(buildingValues, context.availableBuildings),
     });
   }
 
@@ -132,6 +167,52 @@ export const summarizeFilters = (
   return entries;
 };
 
+const summarizeRackFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
+  const entries: FilterSummaryEntry[] = [];
+
+  const buildingValues = dedupedSorted(params, "building");
+  if (buildingValues.length) {
+    entries.push({
+      key: "building",
+      label: "Buildings",
+      values: lookupNamedLabels(buildingValues, context.availableBuildings),
+    });
+  }
+
+  const siteValues = dedupedSorted(params, "site");
+  if (siteValues.length) {
+    entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
+  }
+
+  // `zone` and `issues` are component-local state on RacksPage today, so they
+  // won't appear here yet. Included anyway so saved views remain forward-
+  // compatible once those filters move into the URL.
+  const zoneValues = dedupedSorted(params, "zone");
+  if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
+
+  const issueValues = dedupedSorted(params, "issues").map((value) => ISSUE_LABELS[value] ?? value);
+  if (issueValues.length) entries.push({ key: "issues", label: "Issues", values: issueValues });
+
+  return entries;
+};
+
+export const summarizeFilters = (
+  params: URLSearchParams,
+  tab: FleetTabId,
+  context: FilterSummaryContext,
+): FilterSummaryEntry[] => {
+  switch (tab) {
+    case "miners":
+      return summarizeMinerFilters(params, context);
+    case "racks":
+      return summarizeRackFilters(params, context);
+    case "buildings":
+    case "sites":
+      // No filter surface in URL yet on these tabs.
+      return [];
+  }
+};
+
 export const summarizeSort = (params: URLSearchParams): SortSummary | undefined => {
   const sortField = params.get("sort");
   if (!sortField) return undefined;
@@ -150,6 +231,41 @@ export const stripSortFromSearchParams = (searchParams: string): string => {
   params.delete("sort");
   params.delete("dir");
   return params.toString();
+};
+
+export const summarizeDisplay = (params: URLSearchParams): DisplaySummary | undefined => {
+  const raw = params.get(URL_DISPLAY_PARAM);
+  if (!isDisplayMode(raw)) return undefined;
+  return { mode: raw, label: DISPLAY_LABELS[raw] };
+};
+
+/**
+ * Strips the `display` key from a canonical search-params string. Used when
+ * the "Include display mode" toggle is off in the view-save modal.
+ */
+export const stripDisplayFromSearchParams = (searchParams: string): string => {
+  const params = new URLSearchParams(searchParams);
+  params.delete(URL_DISPLAY_PARAM);
+  return params.toString();
+};
+
+export type DisplayChange = "unchanged" | "added" | "changed" | "removed";
+
+export type DisplayDiff = {
+  current: DisplaySummary | undefined;
+  saved: DisplaySummary | undefined;
+  change: DisplayChange;
+};
+
+export const diffDisplaySummaries = (
+  current: DisplaySummary | undefined,
+  saved: DisplaySummary | undefined,
+): DisplayDiff => {
+  if (!current && !saved) return { current, saved, change: "unchanged" };
+  if (current && !saved) return { current, saved, change: "added" };
+  if (!current && saved) return { current, saved, change: "removed" };
+  if (current && saved && current.mode === saved.mode) return { current, saved, change: "unchanged" };
+  return { current, saved, change: "changed" };
 };
 
 export type FilterChange = "unchanged" | "added" | "changed";

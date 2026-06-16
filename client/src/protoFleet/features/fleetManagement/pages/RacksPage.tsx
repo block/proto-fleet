@@ -18,6 +18,7 @@ import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
+import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
@@ -79,8 +80,15 @@ const RacksPage = () => {
   const { pathname } = useLocation();
   const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
-  const [selectedZones, setSelectedZones] = useState<string[]>([]);
-  const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
+  // Zones + issues are URL-driven so saved views can capture them.
+  const selectedZones = useMemo(() => {
+    const values = searchParams.getAll("zone").flatMap((raw) => raw.split(","));
+    return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
+  }, [searchParams]);
+  const selectedIssues = useMemo(() => {
+    const values = searchParams.getAll("issues").flatMap((raw) => raw.split(","));
+    return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
+  }, [searchParams]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
   // Distinguishes "buildings still loading" from "site has zero buildings"
@@ -132,8 +140,25 @@ const RacksPage = () => {
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
 
-  const selectedZonesRef = useRef<string[]>([]);
+  // Seed the refs with the URL-derived initial values so the first
+  // useDeviceSetListState fetch picks up filters from a `?issues=` /
+  // `?zone=` deep link (or a saved view's restored URL). The useEffects
+  // below keep them in sync on subsequent URL changes.
+  const selectedZonesRef = useRef<string[]>(selectedZones);
   const getZones = useCallback(() => selectedZonesRef.current, []);
+  // Mirror the same one-shot seed for the issue ref provided by
+  // useIssueFilter — without this the initial fetch would miss any
+  // `?issues=` URL state. Render-time write is intentional; the
+  // companion useEffect below handles subsequent updates.
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; initial mount only
+  selectedIssuesRef.current = selectedIssues;
+
+  useEffect(() => {
+    selectedZonesRef.current = selectedZones;
+  }, [selectedZones, selectedZonesRef]);
+  useEffect(() => {
+    selectedIssuesRef.current = selectedIssues;
+  }, [selectedIssues, selectedIssuesRef]);
 
   const {
     deviceSets: racks,
@@ -153,9 +178,50 @@ const RacksPage = () => {
     refreshCurrentPage,
   } = useDeviceSetListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones, getBuildingIds);
 
-  const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
-  const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
+  const storedRacksViewMode = useFleetStore((s) => s.ui.racksViewMode);
+  const setStoredRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
   const temperatureUnit = useFleetStore((s) => s.ui.temperatureUnit);
+
+  // URL is the source of truth for the segmented control so a saved view's
+  // `display` param can dictate grid vs. list. Falls back to the persisted
+  // Zustand preference when the param is absent so default sessions keep
+  // the operator's last choice.
+  const urlRacksViewMode: "grid" | "list" | undefined = (() => {
+    const raw = searchParams.get("display");
+    return raw === "grid" || raw === "list" ? raw : undefined;
+  })();
+  const racksViewMode = urlRacksViewMode ?? storedRacksViewMode;
+
+  // Sync the effective view mode into the URL when it isn't already there
+  // so saved-view capture can see it. Runs once per absence — guarded by
+  // `urlRacksViewMode === undefined` so it doesn't loop after the write.
+  useEffect(() => {
+    if (urlRacksViewMode !== undefined) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("display", storedRacksViewMode);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [urlRacksViewMode, storedRacksViewMode, setSearchParams]);
+  const setRacksViewMode = useCallback(
+    (mode: "grid" | "list") => {
+      // Mirror to both: URL for view-snapshot capture, Zustand so the
+      // preference survives navigating away from a `?display=...` URL.
+      setStoredRacksViewMode(mode);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("display", mode);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setStoredRacksViewMode, setSearchParams],
+  );
 
   // Fetch all rack zones once on mount
   const zonesRequestId = useRef(0);
@@ -211,6 +277,19 @@ const RacksPage = () => {
   const siteNameById = useMemo(() => new Map(allSites.map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
 
+  // Surface buildings + sites to FleetLayout so the saved-view modal can
+  // render human-readable labels when a view captures `building=` or
+  // `site=` params. Guarded — RacksPage also mounts at standalone /racks
+  // where there is no parent Outlet.
+  const outletContext = useOptionalFleetOutletContext();
+  const buildingSources = useMemo(() => allBuildings.map(({ id, label }) => ({ id, label })), [allBuildings]);
+  useEffect(() => {
+    outletContext?.publishViewFilterContext({
+      availableBuildings: buildingSources,
+      availableSites: allSites,
+    });
+  }, [outletContext, buildingSources, allSites]);
+
   const setBuildingFilter = useCallback(
     (ids: string[]) => {
       setSearchParams(
@@ -240,27 +319,56 @@ const RacksPage = () => {
     prevBuildingKey.current = effectiveBuildingKey;
   }, [effectiveBuildingKey, resetAndFetch]);
 
+  const writeMultiParam = useCallback(
+    (key: string, values: string[]) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete(key);
+          values.forEach((v) => {
+            const trimmed = v.trim();
+            if (trimmed) next.append(key, trimmed);
+          });
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
       setSelectedRackIds([]);
       if (key === "zone") {
-        setSelectedZones(values);
-        selectedZonesRef.current = values;
-        resetAndFetch();
+        writeMultiParam("zone", values);
         return;
       }
       if (key === "issues") {
-        setSelectedIssues(values);
-        selectedIssuesRef.current = values;
-        resetAndFetch();
+        writeMultiParam("issues", values);
         return;
       }
       if (key === "building") {
         setBuildingFilter(values);
       }
     },
-    [resetAndFetch, selectedIssuesRef, selectedZonesRef, setBuildingFilter],
+    [setBuildingFilter, writeMultiParam],
   );
+
+  // Zone + issues live in the URL now, so they're not tracked by the
+  // building/site effect's prevBuildingKey path. Trigger refetch when
+  // either of those URL keys changes.
+  const zonesIssuesKey = useMemo(
+    () => `${selectedZones.join(",")}|${selectedIssues.join(",")}`,
+    [selectedZones, selectedIssues],
+  );
+  const prevZonesIssuesKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevZonesIssuesKey.current !== null && prevZonesIssuesKey.current !== zonesIssuesKey) {
+      resetAndFetch();
+    }
+    prevZonesIssuesKey.current = zonesIssuesKey;
+  }, [zonesIssuesKey, resetAndFetch]);
 
   const filterChipsBarFilters = useMemo(
     () => [
@@ -321,35 +429,31 @@ const RacksPage = () => {
 
   const handleClearFilters = useCallback(() => {
     setSelectedRackIds([]);
-    // Snapshot before state changes — these flags drive the "ride the
-    // URL-change effect" branch below.
-    const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
-    const hadSiteFilter = urlSiteIds.size > 0;
-    setSelectedZones([]);
-    selectedZonesRef.current = [];
-    setSelectedIssues([]);
-    selectedIssuesRef.current = [];
-    // Single setSearchParams call so the second writer doesn't see a
-    // stale `prev` (react-router resolves the updater against the
-    // current location, not the value set by an earlier call in the
-    // same render).
-    if (hadBuildingFilter || hadSiteFilter) {
+    // All four URL-driven filter keys cleared in a single updater so they
+    // batch into one history entry (react-router resolves the prev against
+    // the current location, not a value set by an earlier call this render).
+    const hadAny =
+      selectedBuildingIdStrings.length > 0 ||
+      urlSiteIds.size > 0 ||
+      selectedZones.length > 0 ||
+      selectedIssues.length > 0;
+    if (hadAny) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("site");
           next.delete(BUILDING_URL_PARAM);
+          next.delete("zone");
+          next.delete("issues");
           return next;
         },
         { replace: true },
       );
-    }
-    // URL changes trigger refetch via prevBuildingKey effect; call
-    // manually only when there's no URL transition to avoid double-fetch.
-    if (!hadBuildingFilter && !hadSiteFilter) {
+    } else {
+      // No URL transition → manually kick the refetch (URL effects skip).
       resetAndFetch();
     }
-  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setSearchParams, urlSiteIds]);
+  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssues, selectedZones, setSearchParams, urlSiteIds]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;

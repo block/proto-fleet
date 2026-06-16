@@ -3,8 +3,8 @@ import {
   canonicalizeSearchParams,
   createDefaultSavedViewsRecord,
   createUserView,
+  type FleetTabId,
   getSavedViewsStorageKey,
-  isBuiltInViewId,
   isSavedViewsRecordDefault,
   normalizeSavedViewsRecord,
   type SavedView,
@@ -40,18 +40,16 @@ type RecordState = {
   record: SavedViewsRecord;
 };
 
-export type UseMinerViewsResult = {
+export type UseFleetViewsResult = {
   record: SavedViewsRecord;
-  addUserView: (input: { name: string; searchParams: string }) => SavedView;
+  addUserView: (input: { name: string; tab: FleetTabId; searchParams: string }) => SavedView;
   renameUserView: (id: string, name: string) => void;
   updateUserViewParams: (id: string, searchParams: string) => void;
   deleteUserView: (id: string) => void;
   reorderUserViews: (orderedIds: string[]) => void;
-  dismissBuiltInView: (id: string) => void;
-  restoreBuiltInView: (id: string) => void;
 };
 
-const useMinerViews = (username: string): UseMinerViewsResult => {
+const useFleetViews = (username: string): UseFleetViewsResult => {
   const storageKey = useMemo(() => getSavedViewsStorageKey(username), [username]);
   const [recordState, setRecordState] = useState<RecordState>(() => ({
     storageKey,
@@ -82,9 +80,9 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     [storageKey],
   );
 
-  const addUserView = useCallback<UseMinerViewsResult["addUserView"]>(
-    ({ name, searchParams }) => {
-      const view = createUserView({ name, searchParams });
+  const addUserView = useCallback<UseFleetViewsResult["addUserView"]>(
+    ({ name, tab, searchParams }) => {
+      const view = createUserView({ name, tab, searchParams });
       commit((current) => ({
         ...current,
         views: [...current.views, view],
@@ -94,7 +92,7 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     [commit],
   );
 
-  const renameUserView = useCallback<UseMinerViewsResult["renameUserView"]>(
+  const renameUserView = useCallback<UseFleetViewsResult["renameUserView"]>(
     (id, name) => {
       const trimmed = name.trim();
       if (!trimmed) return;
@@ -110,12 +108,13 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     [commit],
   );
 
-  const updateUserViewParams = useCallback<UseMinerViewsResult["updateUserViewParams"]>(
+  const updateUserViewParams = useCallback<UseFleetViewsResult["updateUserViewParams"]>(
     (id, searchParams) => {
-      const canonical = canonicalizeSearchParams(searchParams);
       commit((current) => {
         const target = current.views.find((view) => view.id === id);
-        if (!target || target.searchParams === canonical) return current;
+        if (!target) return current;
+        const canonical = canonicalizeSearchParams(searchParams, target.tab);
+        if (target.searchParams === canonical) return current;
         return {
           ...current,
           views: current.views.map((view) => (view.id === id ? { ...view, searchParams: canonical } : view)),
@@ -125,7 +124,7 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     [commit],
   );
 
-  const deleteUserView = useCallback<UseMinerViewsResult["deleteUserView"]>(
+  const deleteUserView = useCallback<UseFleetViewsResult["deleteUserView"]>(
     (id) => {
       commit((current) => {
         if (!current.views.some((view) => view.id === id)) return current;
@@ -135,7 +134,7 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     [commit],
   );
 
-  const reorderUserViews = useCallback<UseMinerViewsResult["reorderUserViews"]>(
+  const reorderUserViews = useCallback<UseFleetViewsResult["reorderUserViews"]>(
     (orderedIds) => {
       const indexById = new Map(orderedIds.map((id, index) => [id, index]));
       commit((current) => {
@@ -152,29 +151,6 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     [commit],
   );
 
-  const dismissBuiltInView = useCallback<UseMinerViewsResult["dismissBuiltInView"]>(
-    (id) => {
-      if (!isBuiltInViewId(id)) return;
-      commit((current) =>
-        current.deletedBuiltInIds.includes(id)
-          ? current
-          : { ...current, deletedBuiltInIds: [...current.deletedBuiltInIds, id] },
-      );
-    },
-    [commit],
-  );
-
-  const restoreBuiltInView = useCallback<UseMinerViewsResult["restoreBuiltInView"]>(
-    (id) => {
-      commit((current) =>
-        current.deletedBuiltInIds.includes(id)
-          ? { ...current, deletedBuiltInIds: current.deletedBuiltInIds.filter((entry) => entry !== id) }
-          : current,
-      );
-    },
-    [commit],
-  );
-
   return {
     record,
     addUserView,
@@ -182,9 +158,7 @@ const useMinerViews = (username: string): UseMinerViewsResult => {
     updateUserViewParams,
     deleteUserView,
     reorderUserViews,
-    dismissBuiltInView,
-    restoreBuiltInView,
   };
 };
 
-export default useMinerViews;
+export default useFleetViews;
