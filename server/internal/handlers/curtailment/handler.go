@@ -212,21 +212,18 @@ func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	event, err := h.service.GetActive(ctx, info.OrganizationID)
+	events, err := h.service.ListActive(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
+	events, err = filterEventsByPermission(ctx, authz.PermCurtailmentRead, events)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &pb.GetActiveCurtailmentResponse{}
-	if event != nil {
-		rc, err := eventResourceContext(event)
-		if err != nil {
-			return nil, err
-		}
-		if rc.SiteID != nil {
-			if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, rc); err != nil {
-				return nil, err
-			}
-		}
+	if len(events) > 0 {
+		event := events[0]
 		targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
 		if err != nil {
 			return nil, err

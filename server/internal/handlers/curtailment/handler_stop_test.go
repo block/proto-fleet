@@ -30,6 +30,7 @@ type stopStubStore struct {
 	targets []*models.Target
 
 	activeEvent       *models.Event
+	activeEvents      []*models.Event
 	getActiveErr      error
 	getEventErr       error
 	listTargetsErr    error
@@ -71,7 +72,16 @@ func (s *stopStubStore) GetActiveEvent(_ context.Context, _ int64) (*models.Even
 	return s.activeEvent, nil
 }
 func (s *stopStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
-	panic("ListActiveEvents not exercised by Stop handler tests")
+	if s.getActiveErr != nil {
+		return nil, s.getActiveErr
+	}
+	if s.activeEvents != nil {
+		return s.activeEvents, nil
+	}
+	if s.activeEvent != nil {
+		return []*models.Event{s.activeEvent}, nil
+	}
+	return nil, nil
 }
 func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	if s.listTargetsErr != nil {

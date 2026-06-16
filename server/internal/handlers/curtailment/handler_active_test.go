@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -65,11 +66,12 @@ func TestHandler_GetActiveCurtailment_UsesSiteScopedEventPermission(t *testing.T
 		name        string
 		assignments []authz.Assignment
 		wantCode    connect.Code
+		wantEvent   bool
 	}{
-		{"org permission without site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead)}, 0},
-		{"matching site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(siteID, authz.PermCurtailmentRead)}, 0},
-		{"site-only permission denies read", []authz.Assignment{testSiteAssignment(siteID, authz.PermCurtailmentRead)}, connect.CodePermissionDenied},
-		{"site narrowing without read denies read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(siteID)}, connect.CodePermissionDenied},
+		{"org permission without site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead)}, 0, true},
+		{"matching site narrowing allows read", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(siteID, authz.PermCurtailmentRead)}, 0, true},
+		{"site-only permission denies read", []authz.Assignment{testSiteAssignment(siteID, authz.PermCurtailmentRead)}, connect.CodePermissionDenied, false},
+		{"site narrowing without read filters event", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(siteID)}, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -90,8 +92,12 @@ func TestHandler_GetActiveCurtailment_UsesSiteScopedEventPermission(t *testing.T
 
 			if tc.wantCode == 0 {
 				require.NoError(t, err)
-				require.NotNil(t, resp.Msg.Event)
-				assert.Equal(t, store.event.EventUUID.String(), resp.Msg.Event.EventUuid)
+				if tc.wantEvent {
+					require.NotNil(t, resp.Msg.Event)
+					assert.Equal(t, store.event.EventUUID.String(), resp.Msg.Event.EventUuid)
+				} else {
+					assert.Nil(t, resp.Msg.Event)
+				}
 			} else {
 				require.Error(t, err)
 				var fleetErr fleeterror.FleetError
@@ -100,6 +106,40 @@ func TestHandler_GetActiveCurtailment_UsesSiteScopedEventPermission(t *testing.T
 			}
 		})
 	}
+}
+
+func TestHandler_GetActiveCurtailment_ReturnsFirstReadableActiveEvent(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		deniedSite  = int64(7)
+		allowedSite = int64(8)
+	)
+	store := newStopStubStore()
+	deniedEvent := *store.event
+	deniedEvent.EventUUID = uuid.New()
+	deniedEvent.OrgID = orgID
+	deniedEvent.ScopeType = models.ScopeTypeSite
+	deniedEvent.ScopeJSON = siteScopeJSON(t, deniedSite)
+	allowedEvent := *store.event
+	allowedEvent.EventUUID = uuid.New()
+	allowedEvent.OrgID = orgID
+	allowedEvent.ScopeType = models.ScopeTypeSite
+	allowedEvent.ScopeJSON = siteScopeJSON(t, allowedSite)
+	store.activeEvents = []*models.Event{&deniedEvent, &allowedEvent}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(deniedSite), testSiteAssignment(allowedSite, authz.PermCurtailmentRead))
+
+	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.Equal(t, allowedEvent.EventUUID.String(), resp.Msg.Event.EventUuid)
 }
 
 func TestHandler_GetActiveCurtailment_ReturnsEmptyWhenNoActiveEvent(t *testing.T) {
