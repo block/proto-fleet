@@ -343,7 +343,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
+		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
 	}
 
 	// Record default-password state at pair time so the server can flag remediation
