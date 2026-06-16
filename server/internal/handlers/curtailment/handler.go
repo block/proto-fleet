@@ -235,6 +235,10 @@ func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request
 	if err != nil {
 		return nil, err
 	}
+	events, err = filterEventsByPermission(ctx, authz.PermCurtailmentRead, events)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(toListActiveCurtailmentsResponse(events)), nil
 }
 
@@ -380,6 +384,32 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 		info = checkedInfo
 	}
 	return info, event, nil
+}
+
+func filterEventsByPermission(
+	ctx context.Context,
+	permission string,
+	events []*models.Event,
+) ([]*models.Event, error) {
+	filtered := make([]*models.Event, 0, len(events))
+	for _, event := range events {
+		rc, err := eventResourceContext(event)
+		if err != nil {
+			return nil, err
+		}
+		if rc.SiteID == nil {
+			filtered = append(filtered, event)
+			continue
+		}
+		if _, err := middleware.RequirePermission(ctx, permission, rc); err != nil {
+			if fleeterror.IsForbiddenError(err) {
+				continue
+			}
+			return nil, err
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered, nil
 }
 
 func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {

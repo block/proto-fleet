@@ -297,6 +297,79 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	assert.Empty(t, resp.Msg.Events[0].IdempotencyKey)
 }
 
+func TestHandler_ListActiveCurtailments_FiltersSiteScopedEvents(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	orgScopedUUID := uuid.New()
+	allowedSiteUUID := uuid.New()
+	deniedSiteUUID := uuid.New()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:                      1,
+				EventUUID:               orgScopedUUID,
+				OrgID:                   orgID,
+				State:                   models.EventStateActive,
+				Mode:                    models.ModeFixedKw,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "org-scoped",
+			},
+			{
+				ID:                      2,
+				EventUUID:               allowedSiteUUID,
+				OrgID:                   orgID,
+				State:                   models.EventStateActive,
+				Mode:                    models.ModeFixedKw,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "allowed-site",
+				ScopeType:               models.ScopeTypeSite,
+				ScopeJSON:               siteScopeJSON(t, allowedSite),
+			},
+			{
+				ID:                      3,
+				EventUUID:               deniedSiteUUID,
+				OrgID:                   orgID,
+				State:                   models.EventStateActive,
+				Mode:                    models.ModeFixedKw,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "denied-site",
+				ScopeType:               models.ScopeTypeSite,
+				ScopeJSON:               siteScopeJSON(t, deniedSite),
+			},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead), testSiteAssignment(deniedSite))
+
+	resp, err := h.ListActiveCurtailments(ctx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Events, 2)
+	assert.Equal(t, orgScopedUUID.String(), resp.Msg.Events[0].EventUuid)
+	assert.Equal(t, allowedSiteUUID.String(), resp.Msg.Events[1].EventUuid)
+}
+
 func TestHandler_GetCurtailmentEvent_ReturnsTargetsWithPhaseSummaries(t *testing.T) {
 	t.Parallel()
 	eventUUID := uuid.New()
