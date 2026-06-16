@@ -268,13 +268,18 @@ func performanceCommand() *cli.Command {
 					&cli.StringSliceFlag{Name: "metric", Usage: "Metric types to request", Value: defaultPerformanceMetrics},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
+					req, err := buildCombinedMetricsRequest(cmd)
+					if err != nil {
+						return err
+					}
+
 					client, _, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
 					defer func() { _ = client.Close() }()
 
-					resp, err := client.GetCombinedMetrics(ctx, buildCombinedMetricsRequest(cmd))
+					resp, err := client.GetCombinedMetrics(ctx, req)
 					if err != nil {
 						return err
 					}
@@ -327,15 +332,19 @@ func normalizeEnum(value string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "-", "_"))
 }
 
-func buildCombinedMetricsRequest(cmd *cli.Command) *telemetryv1.GetCombinedMetricsRequest {
+func buildCombinedMetricsRequest(cmd *cli.Command) (*telemetryv1.GetCombinedMetricsRequest, error) {
 	end := time.Now().UTC()
 	start := end.Add(-cmd.Duration("window"))
+	measurementTypes, err := parseMeasurementTypes(cmd.StringSlice("metric"))
+	if err != nil {
+		return nil, err
+	}
 
 	return &telemetryv1.GetCombinedMetricsRequest{
 		DeviceSelector: &telemetryv1.DeviceSelector{
 			SelectorValue: &telemetryv1.DeviceSelector_AllDevices{AllDevices: true},
 		},
-		MeasurementTypes: parseMeasurementTypes(cmd.StringSlice("metric")),
+		MeasurementTypes: measurementTypes,
 		Aggregations: []telemetryv1.AggregationType{
 			telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE,
 			telemetryv1.AggregationType_AGGREGATION_TYPE_MIN,
@@ -346,21 +355,36 @@ func buildCombinedMetricsRequest(cmd *cli.Command) *telemetryv1.GetCombinedMetri
 		StartTime:   timestamppb.New(start),
 		EndTime:     timestamppb.New(end),
 		PageSize:    cmd.Int32("page-size"),
-	}
+	}, nil
 }
 
-func parseMeasurementTypes(values []string) []telemetryv1.MeasurementType {
+func parseMeasurementTypes(values []string) ([]telemetryv1.MeasurementType, error) {
 	if len(values) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	result := make([]telemetryv1.MeasurementType, 0, len(values))
+	unknown := make([]string, 0)
 	for _, value := range values {
-		if measurementType, ok := measurementTypeByMetric[value]; ok {
+		if measurementType, ok := measurementTypeByMetric[normalizeEnum(value)]; ok {
 			result = append(result, measurementType)
+			continue
 		}
+		unknown = append(unknown, value)
 	}
-	return result
+	if len(unknown) > 0 {
+		return nil, fmt.Errorf("invalid value for metric: %s. Valid options: %s", strings.Join(unknown, ", "), strings.Join(supportedMetricNames(), ", "))
+	}
+	return result, nil
+}
+
+func supportedMetricNames() []string {
+	names := make([]string, 0, len(measurementTypeByMetric))
+	for name := range measurementTypeByMetric {
+		names = append(names, strings.ReplaceAll(name, "_", "-"))
+	}
+	sort.Strings(names)
+	return names
 }
 
 func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetricsResponse) any {
