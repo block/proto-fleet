@@ -595,6 +595,55 @@ func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
 	}
 }
 
+// TestAssignDevicesToSite_forceClearWithUnassignedTarget pins the
+// semantic that "Unassigned" (target_site_id == nil) + force_clear
+// also strips rack memberships when devices live in racks at any
+// site. No site lock is taken (no target). The cascade-clear branch
+// fires for the conflicting devices and the site write applies a
+// nil target.
+func TestAssignDevicesToSite_forceClearWithUnassignedTarget(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+
+	identifiers := []string{"d1", "d2"}
+	conflictingSite := int64(30)
+
+	// No LockSiteForWrite — target is nil (Unassigned).
+	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": conflictingSite,
+		"d2": conflictingSite,
+	}, nil)
+	// Both devices have rack-at-other-site conflicts; force-clear drops
+	// their rack rows.
+	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, identifiers, int64(0)).Return(int64(2), nil)
+	// Site write with nil target (unassign).
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(2), nil)
+
+	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
+		OrgID:                               testOrgID,
+		TargetSiteID:                        nil,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 rows updated, got %d", count)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected zero conflicts on cascade-clear success, got %v", conflicts)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx run, got %d", tx.calls)
+	}
+}
+
 // TestAssignDevicesToSite_forceClearAuditLogsCascade pins the audit
 // trail: when force-clear actually deletes rack memberships, the
 // activity event records the cascade side effect alongside the site
