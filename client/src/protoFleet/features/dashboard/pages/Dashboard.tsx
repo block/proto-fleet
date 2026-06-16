@@ -13,9 +13,10 @@ import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHe
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import ActiveNotificationsCard from "@/protoFleet/features/notifications/components/ActiveNotificationsCard";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useStickyState } from "@/shared/hooks/useStickyState";
@@ -35,6 +36,7 @@ const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
   const duration = useDuration();
   const setDuration = useSetDuration();
+  const canViewNotifications = useHasPermission("notification:read");
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
@@ -108,6 +110,7 @@ const Dashboard = () => {
                 hashboardErrors={hashboardErrors}
                 psuErrors={psuErrors}
               />
+              {canViewNotifications ? <ActiveNotificationsCard /> : null}
             </div>
           </section>
 

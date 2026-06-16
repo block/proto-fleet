@@ -123,6 +123,12 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredPermission: "apikey:manage",
   },
   {
+    path: "/settings/notifications",
+    label: "Notifications",
+    parent: "/settings",
+    requiredPermission: "notification:read",
+  },
+  {
     path: "/settings/server-logs",
     label: "Server Logs",
     parent: "/settings",
