@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 )
 
 const insertNotificationHistory = `-- name: InsertNotificationHistory :exec
@@ -59,7 +60,6 @@ type InsertNotificationHistoryParams struct {
 	Annotations    json.RawMessage
 }
 
-// Persist one notification delivered by the Grafana alertmanager webhook receiver.
 func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotificationHistoryParams) error {
 	_, err := q.exec(ctx, q.insertNotificationHistoryStmt, insertNotificationHistory,
 		arg.AlertName,
@@ -77,4 +77,102 @@ func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotif
 		arg.Annotations,
 	)
 	return err
+}
+
+const listNotificationHistory = `-- name: ListNotificationHistory :many
+SELECT
+    nh.id,
+    nh.received_at,
+    nh.alert_name,
+    nh.status,
+    nh.severity,
+    nh.rule_group,
+    nh.fingerprint,
+    nh.organization_id,
+    nh.device_id,
+    COALESCE(
+        TRIM(COALESCE(
+            NULLIF(d.custom_name, ''),
+            COALESCE(dd.manufacturer, '') || ' ' || COALESCE(dd.model, '')
+        )),
+        ''
+    )::text AS device_name,
+    COALESCE(d.mac_address, '') AS device_mac,
+    nh.template,
+    nh.summary,
+    nh.starts_at,
+    nh.ends_at
+FROM notification_history nh
+LEFT JOIN device d
+    ON d.device_identifier = nh.device_id
+    AND d.org_id = nh.organization_id
+    AND d.deleted_at IS NULL
+LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE nh.organization_id = $1
+  AND ($2::bigint IS NULL OR nh.id < $2)
+ORDER BY nh.id DESC
+LIMIT $3
+`
+
+type ListNotificationHistoryParams struct {
+	OrganizationID sql.NullInt64
+	BeforeID       sql.NullInt64
+	PageLimit      int32
+}
+
+type ListNotificationHistoryRow struct {
+	ID             int64
+	ReceivedAt     time.Time
+	AlertName      string
+	Status         string
+	Severity       string
+	RuleGroup      string
+	Fingerprint    string
+	OrganizationID sql.NullInt64
+	DeviceID       string
+	DeviceName     string
+	DeviceMac      string
+	Template       string
+	Summary        string
+	StartsAt       sql.NullTime
+	EndsAt         sql.NullTime
+}
+
+func (q *Queries) ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error) {
+	rows, err := q.query(ctx, q.listNotificationHistoryStmt, listNotificationHistory, arg.OrganizationID, arg.BeforeID, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNotificationHistoryRow
+	for rows.Next() {
+		var i ListNotificationHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ReceivedAt,
+			&i.AlertName,
+			&i.Status,
+			&i.Severity,
+			&i.RuleGroup,
+			&i.Fingerprint,
+			&i.OrganizationID,
+			&i.DeviceID,
+			&i.DeviceName,
+			&i.DeviceMac,
+			&i.Template,
+			&i.Summary,
+			&i.StartsAt,
+			&i.EndsAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

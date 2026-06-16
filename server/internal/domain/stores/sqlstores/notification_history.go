@@ -21,6 +21,7 @@ func NewSQLNotificationHistoryStore(conn *sql.DB) *SQLNotificationHistoryStore {
 }
 
 var _ notificationhistory.Store = (*SQLNotificationHistoryStore)(nil)
+var _ notificationhistory.Lister = (*SQLNotificationHistoryStore)(nil)
 
 func (s *SQLNotificationHistoryStore) Insert(ctx context.Context, n *notificationhistory.Notification) error {
 	marshalJSONMap := func(m map[string]string) (json.RawMessage, error) {
@@ -54,4 +55,38 @@ func (s *SQLNotificationHistoryStore) Insert(ctx context.Context, n *notificatio
 		Labels:         labels,
 		Annotations:    annotations,
 	})
+}
+
+func (s *SQLNotificationHistoryStore) List(ctx context.Context, organizationID int64, beforeID *int64, limit int32) ([]notificationhistory.StoredNotification, error) {
+	rows, err := s.GetQueries(ctx).ListNotificationHistory(ctx, sqlc.ListNotificationHistoryParams{
+		OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true},
+		BeforeID:       ptrToNullInt64(beforeID),
+		PageLimit:      limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list notification history: %w", err)
+	}
+	out := make([]notificationhistory.StoredNotification, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, notificationhistory.StoredNotification{
+			ID:         row.ID,
+			ReceivedAt: row.ReceivedAt,
+			DeviceName: row.DeviceName,
+			DeviceMAC:  row.DeviceMac,
+			Notification: notificationhistory.Notification{
+				AlertName:      row.AlertName,
+				Status:         row.Status,
+				Severity:       row.Severity,
+				RuleGroup:      row.RuleGroup,
+				Fingerprint:    row.Fingerprint,
+				OrganizationID: nullInt64ToPtr(row.OrganizationID),
+				DeviceID:       row.DeviceID,
+				Template:       row.Template,
+				Summary:        row.Summary,
+				StartsAt:       nullTimeToPtr(row.StartsAt),
+				EndsAt:         nullTimeToPtr(row.EndsAt),
+			},
+		})
+	}
+	return out, nil
 }
