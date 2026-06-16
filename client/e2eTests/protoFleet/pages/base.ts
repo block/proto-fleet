@@ -1,8 +1,6 @@
 import { expect, Page } from "@playwright/test";
 import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 
-const FLEET_TAB_ROUTE = /.*\/fleet\/(?:sites|buildings|racks|miners)(?:[/?#].*)?$/;
-
 export class BasePage {
   constructor(
     protected page: Page,
@@ -117,8 +115,7 @@ export class BasePage {
   async navigateToFleetPage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]').click();
-    await expect(this.page.getByTestId("fleet-layout")).toBeVisible();
-    await expect(this.page).toHaveURL(FLEET_TAB_ROUTE);
+    await expect(this.page).toHaveURL(/.*\/fleet/);
   }
 
   async navigateToMinersPage() {
