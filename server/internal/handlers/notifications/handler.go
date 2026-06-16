@@ -121,9 +121,13 @@ func (h *Handler) TestChannel(ctx context.Context, req *connect.Request[notifica
 	if err != nil {
 		return nil, err
 	}
-	dom, err := protoToChannel(req.Msg.GetId(), "", req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSmtp(), req.Msg.GetSlack())
-	if err != nil {
-		return nil, err
+	// A saved-channel test needs only the id; TestChannel loads the stored contact point and ignores kind/config.
+	dom := notifications.Channel{ID: req.Msg.GetId()}
+	if dom.ID == "" {
+		dom, err = protoToChannel("", "", req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSmtp(), req.Msg.GetSlack())
+		if err != nil {
+			return nil, err
+		}
 	}
 	ok, code, errMsg, err := h.svc.TestChannel(ctx, orgID, dom)
 	if err != nil {
