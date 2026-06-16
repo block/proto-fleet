@@ -197,7 +197,7 @@ describe("activeCurtailmentData", () => {
     expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
   });
 
-  it("preserves mutation-backed fields through one stale same-event active refresh", async () => {
+  it("accepts same-state mutation-backed active polling once the event is visible", async () => {
     applyActiveCurtailmentEvent(
       curtailmentEvent("updated-event", CurtailmentEventState.ACTIVE, { reason: "Updated" }),
       {
@@ -210,7 +210,39 @@ describe("activeCurtailmentData", () => {
 
     await refreshActiveCurtailmentData();
 
-    expect(getActiveCurtailmentSnapshot().event?.reason).toBe("Updated");
+    expect(getActiveCurtailmentSnapshot().event?.reason).toBe("Previous");
+  });
+
+  it("rejects same-event active polling that would move a mutation-backed event backward", async () => {
+    applyActiveCurtailmentEvent(
+      curtailmentEvent("stopping-event", CurtailmentEventState.RESTORING, { reason: "Stopping" }),
+      {
+        preserveAgainstStaleRefresh: true,
+      },
+    );
+    mockListActiveCurtailments
+      .mockResolvedValueOnce({
+        event: curtailmentEvent("stopping-event", CurtailmentEventState.ACTIVE, { reason: "Still active" }),
+      })
+      .mockResolvedValueOnce({
+        event: curtailmentEvent("stopping-event", CurtailmentEventState.RESTORING, { reason: "Server caught up" }),
+      });
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toEqual(
+      expect.objectContaining({
+        reason: "Stopping",
+        state: CurtailmentEventState.RESTORING,
+      }),
+    );
+
+    await refreshActiveCurtailmentData();
+    expect(getActiveCurtailmentSnapshot().event).toEqual(
+      expect.objectContaining({
+        reason: "Server caught up",
+        state: CurtailmentEventState.RESTORING,
+      }),
+    );
   });
 
   it("hydrates only the selected active curtailment before committing the active list", async () => {

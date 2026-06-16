@@ -111,6 +111,24 @@ function shouldSelectActiveCurtailmentEvent(event: ProtoCurtailmentEvent): boole
   return isListedActiveCurtailmentEvent(event) || shouldPreserveSelectedActiveCurtailmentEvent(event);
 }
 
+function getMutationStateRank(event: ProtoCurtailmentEvent): number {
+  switch (event.state) {
+    case CurtailmentEventState.PENDING:
+      return 1;
+    case CurtailmentEventState.ACTIVE:
+      return 2;
+    case CurtailmentEventState.RESTORING:
+      return 3;
+    case CurtailmentEventState.COMPLETED:
+    case CurtailmentEventState.COMPLETED_WITH_FAILURES:
+    case CurtailmentEventState.CANCELLED:
+    case CurtailmentEventState.FAILED:
+      return 4;
+    default:
+      return 0;
+  }
+}
+
 function mergeActiveCurtailmentEventList(
   events: ProtoCurtailmentEvent[],
   event: ProtoCurtailmentEvent,
@@ -182,6 +200,18 @@ function filterDismissedActiveCurtailmentEvent(
   };
 }
 
+function getMutationBackedEventFromSnapshot(snapshot: ActiveCurtailmentSnapshot): ProtoCurtailmentEvent | undefined {
+  if (!mutationBackedEventUuid) {
+    return undefined;
+  }
+
+  if (snapshot.event?.eventUuid === mutationBackedEventUuid) {
+    return snapshot.event;
+  }
+
+  return snapshot.events.find((event) => event.eventUuid === mutationBackedEventUuid);
+}
+
 function shouldPreserveMutationBackedSnapshot(
   current: ActiveCurtailmentSnapshot,
   next: ActiveCurtailmentSnapshot,
@@ -195,7 +225,16 @@ function shouldPreserveMutationBackedSnapshot(
     return true;
   }
 
-  return !next.event || !equals(CurtailmentEventSchema, current.event, next.event);
+  const nextMutationBackedEvent = getMutationBackedEventFromSnapshot(next);
+  if (!nextMutationBackedEvent) {
+    return true;
+  }
+
+  if (equals(CurtailmentEventSchema, current.event, nextMutationBackedEvent)) {
+    return false;
+  }
+
+  return getMutationStateRank(nextMutationBackedEvent) < getMutationStateRank(current.event);
 }
 
 function clearMutationBackedPreservation(): void {

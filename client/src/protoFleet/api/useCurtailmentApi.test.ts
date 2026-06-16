@@ -771,38 +771,45 @@ describe("useCurtailmentApi", () => {
       .mockResolvedValueOnce({ events: [selectedActiveEvent] });
     mockListCurtailmentEvents
       .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
+      .mockResolvedValueOnce({ events: [], nextPageToken: "" })
       .mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
 
     const { result } = renderHook(() => useCurtailmentApi());
 
     await act(async () => {
-      await result.current.refreshCurtailment();
+      await result.current.setHistoryStatusFilters(["restoring"]);
     });
 
     expect(result.current.activeEventId).toBe("curt-selected-active");
+    expect(result.current.historyStatusFilters).toEqual(["restoring"]);
     expect(result.current.activeEvents.map((event) => event.id)).toEqual([
       "curt-selected-active",
       "curt-vanished-restoring",
     ]);
-    expect(result.current.historyEvents.map((event) => event.id)).toEqual([
-      "curt-selected-active",
-      "curt-vanished-restoring",
-    ]);
+    expect(result.current.historyEvents.map((event) => event.id)).toEqual(["curt-vanished-restoring"]);
 
     await act(async () => {
       await result.current.refreshCurtailment();
     });
 
     expect(result.current.activeEvents.map((event) => event.id)).toEqual(["curt-selected-active"]);
-    expect(result.current.historyEvents).toEqual([
-      expect.objectContaining({
-        id: "curt-selected-active",
-        state: "active",
-      }),
-      expect.objectContaining({
-        id: "curt-vanished-restoring",
-        state: "completed",
-      }),
+    expect(result.current.historyEvents).toEqual([]);
+    expect(mockListCurtailmentEvents.mock.calls.map(([request]) => request.stateFilters)).toEqual([
+      [CurtailmentEventState.RESTORING],
+      [
+        CurtailmentEventState.COMPLETED,
+        CurtailmentEventState.COMPLETED_WITH_FAILURES,
+        CurtailmentEventState.CANCELLED,
+        CurtailmentEventState.FAILED,
+      ],
+      [CurtailmentEventState.RESTORING],
+      [
+        CurtailmentEventState.COMPLETED,
+        CurtailmentEventState.COMPLETED_WITH_FAILURES,
+        CurtailmentEventState.CANCELLED,
+        CurtailmentEventState.FAILED,
+      ],
     ]);
   });
 
