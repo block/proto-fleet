@@ -58,7 +58,10 @@ describe("SitePicker", () => {
   it("renders the retry affordance when ListSites failed", () => {
     const onRetry = vi.fn();
     renderPicker({ sites: [], error: "network down", onRetry });
-    expect(screen.getByTestId("site-picker-error")).toHaveTextContent("Sites unavailable");
+    const error = screen.getByTestId("site-picker-error");
+    expect(error).toHaveClass("max-w-full", "min-w-0");
+    expect(screen.getByText("Sites unavailable")).toHaveClass("min-w-0", "truncate");
+    expect(screen.getByTestId("site-picker-retry")).toHaveClass("shrink-0");
     fireEvent.click(screen.getByTestId("site-picker-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

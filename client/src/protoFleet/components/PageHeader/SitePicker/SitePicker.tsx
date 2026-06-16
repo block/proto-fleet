@@ -62,12 +62,16 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
   // shouldn't silently swallow the picker entirely.
   if (sites.length === 0 && error != null) {
     return (
-      <div className="flex items-center gap-2 text-300 text-text-primary-70" data-testid="site-picker-error">
-        <span>Sites unavailable</span>
+      <div
+        className="flex max-w-full min-w-0 items-center gap-2 text-300 text-text-primary-70"
+        data-testid="site-picker-error"
+      >
+        <span className="min-w-0 truncate">Sites unavailable</span>
         {onRetry ? (
           <Button
             variant={variants.secondary}
             size={sizes.compact}
+            className="shrink-0"
             text="Retry"
             onClick={onRetry}
             testId="site-picker-retry"
