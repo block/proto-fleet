@@ -426,6 +426,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
 	}
+	if q.getEnabledCurtailmentAutomationRuleByEventStmt, err = db.PrepareContext(ctx, getEnabledCurtailmentAutomationRuleByEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query GetEnabledCurtailmentAutomationRuleByEvent: %w", err)
+	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
 	}
@@ -1867,6 +1870,11 @@ func (q *Queries) Close() error {
 	if q.getDistinctScopeTypesStmt != nil {
 		if cerr := q.getDistinctScopeTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
+		}
+	}
+	if q.getEnabledCurtailmentAutomationRuleByEventStmt != nil {
+		if cerr := q.getEnabledCurtailmentAutomationRuleByEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getEnabledCurtailmentAutomationRuleByEventStmt: %w", cerr)
 		}
 	}
 	if q.getErrorByErrorIDStmt != nil {
@@ -3322,6 +3330,7 @@ type Queries struct {
 	getDistinctActivityUsersStmt                          *sql.Stmt
 	getDistinctEventTypesStmt                             *sql.Stmt
 	getDistinctScopeTypesStmt                             *sql.Stmt
+	getEnabledCurtailmentAutomationRuleByEventStmt        *sql.Stmt
 	getErrorByErrorIDStmt                                 *sql.Stmt
 	getErrorByIDStmt                                      *sql.Stmt
 	getFilteredDeviceIdentifiersStmt                      *sql.Stmt
@@ -3718,6 +3727,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDistinctActivityUsersStmt:                          q.getDistinctActivityUsersStmt,
 		getDistinctEventTypesStmt:                             q.getDistinctEventTypesStmt,
 		getDistinctScopeTypesStmt:                             q.getDistinctScopeTypesStmt,
+		getEnabledCurtailmentAutomationRuleByEventStmt:        q.getEnabledCurtailmentAutomationRuleByEventStmt,
 		getErrorByErrorIDStmt:                                 q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                      q.getErrorByIDStmt,
 		getFilteredDeviceIdentifiersStmt:                      q.getFilteredDeviceIdentifiersStmt,

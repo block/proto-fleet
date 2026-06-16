@@ -74,6 +74,40 @@ WHERE r.mqtt_source_id = sqlc.arg('mqtt_source_id')
   AND r.enabled = TRUE
 ORDER BY r.id;
 
+-- name: GetEnabledCurtailmentAutomationRuleByEvent :one
+SELECT
+    r.*,
+    src.source_name AS mqtt_source_name,
+    st.last_signal,
+    st.last_signal_at,
+    st.active_event_uuid,
+    st.last_started_at,
+    st.last_restored_at,
+    st.last_error,
+    st.last_error_at,
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
+FROM curtailment_automation_rule r
+JOIN curtailment_mqtt_source_config src
+    ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
+JOIN curtailment_response_profile profile
+    ON profile.id = r.response_profile_id
+    AND profile.org_id = r.org_id
+LEFT JOIN curtailment_automation_rule_state st
+    ON st.rule_id = r.id
+WHERE r.org_id = sqlc.arg('org_id')
+  AND r.enabled = TRUE
+  AND (
+      st.active_event_uuid = sqlc.arg('event_uuid')
+      OR (
+          sqlc.narg('external_reference')::text IS NOT NULL
+          AND r.id::text = sqlc.narg('external_reference')::text
+      )
+  )
+ORDER BY r.id
+LIMIT 1;
+
 -- name: InsertCurtailmentAutomationRule :one
 INSERT INTO curtailment_automation_rule (
     org_id,

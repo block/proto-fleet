@@ -190,6 +190,96 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 	return i, err
 }
 
+const getEnabledCurtailmentAutomationRuleByEvent = `-- name: GetEnabledCurtailmentAutomationRuleByEvent :one
+SELECT
+    r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,
+    src.source_name AS mqtt_source_name,
+    st.last_signal,
+    st.last_signal_at,
+    st.active_event_uuid,
+    st.last_started_at,
+    st.last_restored_at,
+    st.last_error,
+    st.last_error_at,
+    profile.profile_name AS response_profile_name,
+    profile.site_id AS response_profile_site_id
+FROM curtailment_automation_rule r
+JOIN curtailment_mqtt_source_config src
+    ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
+JOIN curtailment_response_profile profile
+    ON profile.id = r.response_profile_id
+    AND profile.org_id = r.org_id
+LEFT JOIN curtailment_automation_rule_state st
+    ON st.rule_id = r.id
+WHERE r.org_id = $1
+  AND r.enabled = TRUE
+  AND (
+      st.active_event_uuid = $2
+      OR (
+          $3::text IS NOT NULL
+          AND r.id::text = $3::text
+      )
+  )
+ORDER BY r.id
+LIMIT 1
+`
+
+type GetEnabledCurtailmentAutomationRuleByEventParams struct {
+	OrgID             int64
+	EventUuid         uuid.NullUUID
+	ExternalReference sql.NullString
+}
+
+type GetEnabledCurtailmentAutomationRuleByEventRow struct {
+	ID                    int64
+	OrgID                 int64
+	RuleName              string
+	TriggerType           string
+	MqttSourceID          int64
+	ResponseProfileID     int64
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	MqttSourceName        string
+	LastSignal            sql.NullString
+	LastSignalAt          sql.NullTime
+	ActiveEventUuid       uuid.NullUUID
+	LastStartedAt         sql.NullTime
+	LastRestoredAt        sql.NullTime
+	LastError             sql.NullString
+	LastErrorAt           sql.NullTime
+	ResponseProfileName   string
+	ResponseProfileSiteID sql.NullInt64
+}
+
+func (q *Queries) GetEnabledCurtailmentAutomationRuleByEvent(ctx context.Context, arg GetEnabledCurtailmentAutomationRuleByEventParams) (GetEnabledCurtailmentAutomationRuleByEventRow, error) {
+	row := q.queryRow(ctx, q.getEnabledCurtailmentAutomationRuleByEventStmt, getEnabledCurtailmentAutomationRuleByEvent, arg.OrgID, arg.EventUuid, arg.ExternalReference)
+	var i GetEnabledCurtailmentAutomationRuleByEventRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.RuleName,
+		&i.TriggerType,
+		&i.MqttSourceID,
+		&i.ResponseProfileID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.MqttSourceName,
+		&i.LastSignal,
+		&i.LastSignalAt,
+		&i.ActiveEventUuid,
+		&i.LastStartedAt,
+		&i.LastRestoredAt,
+		&i.LastError,
+		&i.LastErrorAt,
+		&i.ResponseProfileName,
+		&i.ResponseProfileSiteID,
+	)
+	return i, err
+}
+
 const insertCurtailmentAutomationRule = `-- name: InsertCurtailmentAutomationRule :one
 INSERT INTO curtailment_automation_rule (
     org_id,

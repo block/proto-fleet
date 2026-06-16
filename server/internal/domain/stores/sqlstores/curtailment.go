@@ -364,6 +364,26 @@ func (s *SQLCurtailmentStore) CountAutomationRulesByMQTTSource(ctx context.Conte
 	return count, nil
 }
 
+func (s *SQLCurtailmentStore) GetEnabledAutomationRuleForEvent(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	externalReference *string,
+) (*models.AutomationRule, error) {
+	row, err := s.GetQueries(ctx).GetEnabledCurtailmentAutomationRuleByEvent(ctx, sqlc.GetEnabledCurtailmentAutomationRuleByEventParams{
+		OrgID:             orgID,
+		EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+		ExternalReference: nullStringFromPtr(externalReference),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("enabled curtailment automation rule not found for event: %s", eventUUID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get enabled curtailment automation rule for event: %v", err)
+	}
+	return automationRuleFromEventRow(row), nil
+}
+
 func (s *SQLCurtailmentStore) RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error {
 	if err := s.GetQueries(ctx).UpsertCurtailmentAutomationSignalState(ctx, sqlc.UpsertCurtailmentAutomationSignalStateParams{
 		RuleID:       ruleID,
@@ -466,6 +486,30 @@ func automationRuleFromGetRow(row sqlc.GetCurtailmentAutomationRuleByOrgRow) *mo
 }
 
 func automationRuleFromEnabledMQTTRow(row sqlc.ListEnabledCurtailmentAutomationRulesByMQTTSourceRow) *models.AutomationRule {
+	return automationRuleFromFields(
+		row.ID,
+		row.OrgID,
+		row.RuleName,
+		row.TriggerType,
+		row.MqttSourceID,
+		row.MqttSourceName,
+		row.ResponseProfileID,
+		row.ResponseProfileName,
+		row.ResponseProfileSiteID,
+		row.Enabled,
+		row.LastSignal,
+		row.LastSignalAt,
+		row.ActiveEventUuid,
+		row.LastStartedAt,
+		row.LastRestoredAt,
+		row.LastError,
+		row.LastErrorAt,
+		row.CreatedAt,
+		row.UpdatedAt,
+	)
+}
+
+func automationRuleFromEventRow(row sqlc.GetEnabledCurtailmentAutomationRuleByEventRow) *models.AutomationRule {
 	return automationRuleFromFields(
 		row.ID,
 		row.OrgID,

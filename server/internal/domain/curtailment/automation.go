@@ -284,8 +284,9 @@ func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.Autom
 		return nil
 	}
 	_, err = s.curtailment.Stop(ctx, StopRequest{
-		OrgID:     rule.OrgID,
-		EventUUID: event.EventUUID,
+		OrgID:             rule.OrgID,
+		EventUUID:         event.EventUUID,
+		AutomationRestore: true,
 	})
 	if err != nil {
 		return err

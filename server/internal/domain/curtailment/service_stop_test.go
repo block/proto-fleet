@@ -140,6 +140,82 @@ func TestService_Stop_ForceBypassesMinDuration(t *testing.T) {
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
+func TestService_Stop_RejectsAutomationOwnedEventWhileOffAsserted(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOff
+	f.store.automationRulesByEventUUID[f.event.EventUUID] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "failed_precondition", fleetErr.GRPCCode.String())
+	assert.Contains(t, fleetErr.DebugMessage, "OFF asserted")
+	assert.Equal(t, 1, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 0, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_AllowsAutomationOwnedEventWhenLatestSignalIsOn(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOn
+	f.store.automationRulesByEventUUID[f.event.EventUUID] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_ForceBypassesAutomationOffDemandGuard(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOff
+	f.store.automationRulesByEventUUID[f.event.EventUUID] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID, Force: true})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
 func TestService_Stop_EmergencyPriorityNoLongerBypasses(t *testing.T) {
 	t.Parallel()
 	// Pre-existing EMERGENCY events still go through the min-duration gate;

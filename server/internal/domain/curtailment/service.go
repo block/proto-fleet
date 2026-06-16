@@ -98,6 +98,15 @@ type Service struct {
 	audit   AuditLogger
 }
 
+type automationDemandStore interface {
+	GetEnabledAutomationRuleForEvent(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+		externalReference *string,
+	) (*models.AutomationRule, error)
+}
+
 // ServiceOption configures a Service at construction time.
 type ServiceOption func(*Service)
 
@@ -1566,7 +1575,10 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 type StopRequest struct {
 	OrgID     int64
 	EventUUID uuid.UUID
-	Force     bool // admin-gated upstream; bypasses min_curtailed_duration_sec
+	Force     bool // admin-gated upstream; bypasses min_curtailed_duration_sec and automation demand guard
+	// AutomationRestore is set only by the automation executor while handling
+	// an ON signal from the owning source.
+	AutomationRestore bool
 }
 
 // Adaptive batch-sizing constants. [10, 100] is the inrush envelope, computed
@@ -1600,6 +1612,10 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 	if event.State == models.EventStateRestoring {
 		// Idempotent re-Stop.
 		return event, nil
+	}
+
+	if err := s.checkAutomationDemandStopGate(ctx, event, req); err != nil {
+		return nil, err
 	}
 
 	if err := checkMinCurtailedDurationGate(event, req.Force, time.Now()); err != nil {
@@ -1636,6 +1652,37 @@ func validateStopRequest(req StopRequest) error {
 		return fleeterror.NewInvalidArgumentError("event_uuid must be set")
 	}
 	return nil
+}
+
+func (s *Service) checkAutomationDemandStopGate(ctx context.Context, event *models.Event, req StopRequest) error {
+	if event == nil || req.Force || req.AutomationRestore || !isAutomationOwnedEvent(event) {
+		return nil
+	}
+	store, ok := s.store.(automationDemandStore)
+	if !ok {
+		return fleeterror.NewInternalError("automation demand guard is not configured")
+	}
+	rule, err := store.GetEnabledAutomationRuleForEvent(ctx, event.OrgID, event.EventUUID, event.ExternalReference)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil
+		}
+		return err
+	}
+	if rule == nil || rule.LastSignal == nil || *rule.LastSignal != models.AutomationSignalOff {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"cannot restore automation-owned curtailment event %s while automation rule %q still has OFF asserted; use force=true to override",
+		event.EventUUID,
+		rule.RuleName,
+	)
+}
+
+func isAutomationOwnedEvent(event *models.Event) bool {
+	return event != nil &&
+		event.ExternalSource != nil &&
+		*event.ExternalSource == automationExternalSource
 }
 
 // checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec`

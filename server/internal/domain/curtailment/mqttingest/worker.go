@@ -359,6 +359,9 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
+	if shouldAssertRepeatedOff(prior, canonical, alreadyProcessed) {
+		direction = EdgeOnToOff
+	}
 
 	// Each target value may be processed once per seconds-precision publisher
 	// timestamp. This keeps a real same-second flip, but suppresses a later QoS
@@ -567,12 +570,20 @@ func (w *sourceWorker) settlePendingEdge(
 ) SourceState {
 	state := prior
 	state.PendingEdge = nil
-	state.LastEdgeAt = pending.ReceivedAt
+	if !isRepeatedOffAssertion(prior, pending) {
+		state.LastEdgeAt = pending.ReceivedAt
+	}
 	state.LastReceivedAt = pending.ReceivedAt
 	state.LastReceivedBroker = pending.ReceivedBroker
 	state.LastTarget = target
 	recordProcessedTarget(&state, pending.canonical())
 	return state
+}
+
+func isRepeatedOffAssertion(prior SourceState, pending *PendingEdge) bool {
+	return pending != nil &&
+		pending.Target == TargetOff &&
+		prior.LastTarget == TargetOff
 }
 
 func (w *sourceWorker) persistState(ctx context.Context, s SourceState) bool {
@@ -653,6 +664,12 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 		}
 	}
 	return c.Target == prior.LastProcessedTarget
+}
+
+func shouldAssertRepeatedOff(prior SourceState, c CanonicalState, alreadyProcessed bool) bool {
+	return c.Target == TargetOff &&
+		prior.LastTarget == TargetOff &&
+		!alreadyProcessed
 }
 
 func recordProcessedTarget(state *SourceState, c CanonicalState) {

@@ -114,19 +114,28 @@ type fakeStore struct {
 	lastGetByExternalRefRef       string
 	getByIdempotencyKeyErr        error
 	getByExternalRefErr           error
+
+	// Automation demand fakes used by Stop's automation-owned restore guard.
+	automationRulesByEventUUID       map[uuid.UUID]*models.AutomationRule
+	automationRulesByExternalRef     map[string]*models.AutomationRule
+	getAutomationRuleForEventCalls   int
+	lastAutomationRuleForEventUUID   uuid.UUID
+	lastAutomationRuleExternalRefPtr *string
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		orgConfigByOrg:       map[int64]*models.OrgConfig{},
-		activeDevicesByOrg:   map[int64][]string{},
-		cooldownDevicesByOrg: map[int64][]string{},
-		candidatesByOrg:      map[int64][]*models.Candidate{},
-		candidatesBySite:     map[int64]map[int64][]*models.Candidate{},
-		sitesByOrg:           map[int64]map[int64]bool{},
-		eventsByUUID:         map[uuid.UUID]*models.Event{},
-		targetsByEventUUID:   map[uuid.UUID][]*models.Target{},
-		nextEventID:          1,
+		orgConfigByOrg:               map[int64]*models.OrgConfig{},
+		activeDevicesByOrg:           map[int64][]string{},
+		cooldownDevicesByOrg:         map[int64][]string{},
+		candidatesByOrg:              map[int64][]*models.Candidate{},
+		candidatesBySite:             map[int64]map[int64][]*models.Candidate{},
+		sitesByOrg:                   map[int64]map[int64]bool{},
+		eventsByUUID:                 map[uuid.UUID]*models.Event{},
+		targetsByEventUUID:           map[uuid.UUID][]*models.Target{},
+		automationRulesByEventUUID:   map[uuid.UUID]*models.AutomationRule{},
+		automationRulesByExternalRef: map[string]*models.AutomationRule{},
+		nextEventID:                  1,
 	}
 }
 
@@ -302,6 +311,26 @@ func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, exte
 		return nil, nil
 	}
 	return filterNonTerminalReplayEvent(f.eventsByExternalRef[externalSource+"|"+externalReference]), nil
+}
+
+func (f *fakeStore) GetEnabledAutomationRuleForEvent(
+	_ context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	externalReference *string,
+) (*models.AutomationRule, error) {
+	f.getAutomationRuleForEventCalls++
+	f.lastAutomationRuleForEventUUID = eventUUID
+	f.lastAutomationRuleExternalRefPtr = externalReference
+	if rule := f.automationRulesByEventUUID[eventUUID]; rule != nil && rule.OrgID == orgID && rule.Enabled {
+		return rule, nil
+	}
+	if externalReference != nil {
+		if rule := f.automationRulesByExternalRef[*externalReference]; rule != nil && rule.OrgID == orgID && rule.Enabled {
+			return rule, nil
+		}
+	}
+	return nil, fleeterror.NewNotFoundErrorf("enabled curtailment automation rule not found for event: %s", eventUUID)
 }
 
 func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
