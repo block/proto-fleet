@@ -127,6 +127,8 @@ describe("PageHeader", () => {
     const mobileWidgets = screen.getByTestId("page-header-mobile-widgets");
 
     expect(within(inlineWidgets).getByText("Curtailment pill")).toBeVisible();
+    expect(inlineWidgets).toHaveClass("min-w-0");
+    expect(inlineWidgets).not.toHaveClass("shrink-0");
     expect(within(mobileWidgets).queryByText("Curtailment pill")).not.toBeInTheDocument();
     expect(within(mobileWidgets).getByText("Night reboot")).toBeVisible();
     expect(within(mobileWidgets).getByText("Continue setup")).toBeVisible();

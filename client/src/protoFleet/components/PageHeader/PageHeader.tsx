@@ -202,7 +202,7 @@ function PageHeader({
           ) : null}
           {inlineFirstPhoneWidget ? (
             <HeaderWidgets
-              className="ml-3 shrink-0"
+              className="ml-3 min-w-0 justify-end"
               testId="page-header-inline-widgets"
               widgets={phoneTopWidgetKinds}
               {...headerWidgetsProps}

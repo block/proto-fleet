@@ -130,8 +130,8 @@ const Button = ({
     >
       {prefix}
       {(text || children) && prefix ? <div className={gap} /> : null}
-      <div className="flex flex-col">
-        <div className={clsx({ "mb-[2px] group-hover:mb-0": textOnly && textOnlyUnderlineOnHover })}>
+      <div className="flex min-w-0 flex-col">
+        <div className={clsx("min-w-0", { "mb-[2px] group-hover:mb-0": textOnly && textOnlyUnderlineOnHover })}>
           {text}
           {children}
         </div>
