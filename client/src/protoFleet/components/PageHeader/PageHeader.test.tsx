@@ -118,6 +118,7 @@ describe("PageHeader", () => {
             scopeLabel: "Whole fleet",
             selectedMiners: 48,
             estimatedReductionKw: 126.4,
+            targetMetricsAvailable: true,
           }}
         />
       </MemoryRouter>,
