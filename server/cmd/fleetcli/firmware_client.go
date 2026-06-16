@@ -16,8 +16,6 @@ import (
 // rather than protobuf RPCs, so these helpers sit next to the RPC client
 // instead of going through invoke().
 
-const firmwareAPIPrefix = "api/v1/firmware"
-
 const (
 	contentTypeJSON        = "application/json"
 	contentTypeOctetStream = "application/octet-stream"
@@ -73,10 +71,27 @@ type firmwareUploadResponse struct {
 	FirmwareFileID string `json:"firmware_file_id"`
 }
 
-// firmwareURL builds an endpoint URL under the firmware HTTP API, which lives
-// next to the RPC root on the same normalized base URL.
+// firmwareURL builds an endpoint URL under the firmware HTTP API. Firmware
+// endpoints live at the server origin, not under the normalized RPC base path.
 func (c *Client) firmwareURL(parts ...string) *url.URL {
-	return c.baseURL.JoinPath(append([]string{firmwareAPIPrefix}, parts...)...)
+	u := *c.baseURL
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+
+	segments := make([]string, 0, 3+len(parts))
+	segments = append(segments, "api", "v1", "firmware")
+	segments = append(segments, parts...)
+	rawSegments := make([]string, 0, len(segments))
+	escapedSegments := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		rawSegments = append(rawSegments, segment)
+		escapedSegments = append(escapedSegments, url.PathEscape(segment))
+	}
+	u.Path = "/" + strings.Join(rawSegments, "/")
+	u.RawPath = "/" + strings.Join(escapedSegments, "/")
+	return &u
 }
 
 // ensureFirmwareSession wraps ensureSession with a firmware-specific message:
@@ -116,9 +131,7 @@ type firmwareRequest struct {
 }
 
 func (c *Client) doFirmware(ctx context.Context, r firmwareRequest) error {
-	// JoinPath keeps the path relative when the base URL has none, so strip
-	// the base prefix and re-anchor to render a stable "GET /api/v1/..." label.
-	method := r.method + " /" + strings.TrimPrefix(strings.TrimPrefix(r.url.Path, c.baseURL.Path), "/")
+	method := r.method + " " + r.url.EscapedPath()
 
 	if err := c.ensureFirmwareSession(ctx); err != nil {
 		return err
@@ -225,7 +238,7 @@ func (c *Client) FirmwareList(ctx context.Context) (*firmwareListResponse, error
 func (c *Client) FirmwareDelete(ctx context.Context, fileID string) error {
 	return c.doFirmware(ctx, firmwareRequest{
 		method: http.MethodDelete,
-		url:    c.firmwareURL("files", url.PathEscape(fileID)),
+		url:    c.firmwareURL("files", fileID),
 	})
 }
 

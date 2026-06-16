@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/urfave/cli/v3"
 )
 
@@ -78,6 +79,122 @@ func TestNormalizeEnum(t *testing.T) {
 		if got := normalizeEnum(tt.in); got != tt.want {
 			t.Errorf("normalizeEnum(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func assertMeasurementTypes(t *testing.T, got, want []telemetryv1.MeasurementType) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("measurement types = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("measurement types = %v, want %v", got, want)
+		}
+	}
+}
+
+func buildCombinedMetricsRequestFromArgs(t *testing.T, args ...string) (*telemetryv1.GetCombinedMetricsRequest, error) {
+	t.Helper()
+
+	var req *telemetryv1.GetCombinedMetricsRequest
+	var buildErr error
+	cmd := performanceCommand().Commands[0]
+	cmd.Action = func(_ context.Context, cmd *cli.Command) error {
+		req, buildErr = buildCombinedMetricsRequest(cmd)
+		return nil
+	}
+	if err := cmd.Run(context.Background(), append([]string{"get"}, args...)); err != nil {
+		t.Fatalf("run performance get flag harness: %v", err)
+	}
+	return req, buildErr
+}
+
+func TestParseMeasurementTypes(t *testing.T) {
+	t.Run("valid and normalized metrics", func(t *testing.T) {
+		got, err := parseMeasurementTypes([]string{"hashrate", "FAN-SPEED", " error-rate "})
+		if err != nil {
+			t.Fatalf("parseMeasurementTypes() error = %v", err)
+		}
+		assertMeasurementTypes(t, got, []telemetryv1.MeasurementType{
+			telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE,
+			telemetryv1.MeasurementType_MEASUREMENT_TYPE_FAN_SPEED,
+			telemetryv1.MeasurementType_MEASUREMENT_TYPE_ERROR_RATE,
+		})
+	})
+
+	t.Run("single unknown metric rejected", func(t *testing.T) {
+		_, err := parseMeasurementTypes([]string{"hashrat"})
+		if err == nil || !strings.Contains(err.Error(), "invalid value for metric: hashrat") {
+			t.Fatalf("parseMeasurementTypes() error = %v, want invalid metric error", err)
+		}
+		if !strings.Contains(err.Error(), "fan-speed") || !strings.Contains(err.Error(), "hashrate") {
+			t.Errorf("error should list supported metrics, got: %v", err)
+		}
+	})
+
+	t.Run("mixed valid and unknown metric rejected", func(t *testing.T) {
+		_, err := parseMeasurementTypes([]string{"hashrate", "bogus"})
+		if err == nil || !strings.Contains(err.Error(), "invalid value for metric: bogus") {
+			t.Fatalf("parseMeasurementTypes() error = %v, want invalid metric error", err)
+		}
+	})
+}
+
+func TestBuildCombinedMetricsRequestMetrics(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		req, err := buildCombinedMetricsRequestFromArgs(t)
+		if err != nil {
+			t.Fatalf("buildCombinedMetricsRequest() error = %v", err)
+		}
+		want, err := parseMeasurementTypes(defaultPerformanceMetrics)
+		if err != nil {
+			t.Fatalf("parse default metrics: %v", err)
+		}
+		assertMeasurementTypes(t, req.GetMeasurementTypes(), want)
+	})
+
+	t.Run("explicit normalized metrics", func(t *testing.T) {
+		req, err := buildCombinedMetricsRequestFromArgs(t, "--metric", "FAN-SPEED", "--metric", "error-rate")
+		if err != nil {
+			t.Fatalf("buildCombinedMetricsRequest() error = %v", err)
+		}
+		assertMeasurementTypes(t, req.GetMeasurementTypes(), []telemetryv1.MeasurementType{
+			telemetryv1.MeasurementType_MEASUREMENT_TYPE_FAN_SPEED,
+			telemetryv1.MeasurementType_MEASUREMENT_TYPE_ERROR_RATE,
+		})
+	})
+
+	t.Run("unknown metric rejected", func(t *testing.T) {
+		_, err := buildCombinedMetricsRequestFromArgs(t, "--metric", "hashrate", "--metric", "bogus")
+		if err == nil || !strings.Contains(err.Error(), "invalid value for metric: bogus") {
+			t.Fatalf("buildCombinedMetricsRequest() error = %v, want invalid metric error", err)
+		}
+	})
+}
+
+func TestPerformanceGetRejectsUnknownMetricBeforeRequest(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "unexpected request", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"performance", "get", "--metric", "hashrat",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid value for metric: hashrat") {
+		t.Fatalf("performance get error = %v, want invalid metric error", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
 	}
 }
 

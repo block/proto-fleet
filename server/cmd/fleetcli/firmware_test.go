@@ -98,6 +98,37 @@ func TestFileSHA256(t *testing.T) {
 	}
 }
 
+func TestFirmwareURLUsesOriginPath(t *testing.T) {
+	tests := []struct {
+		name   string
+		server string
+		want   string
+	}{
+		{
+			name:   "bare host ignores normalized api proxy path",
+			server: "https://fleet.example.com",
+			want:   "https://fleet.example.com/api/v1/firmware/config",
+		},
+		{
+			name:   "explicit rpc path query and fragment ignored",
+			server: "https://fleet.example.com/custom?debug=true#section",
+			want:   "https://fleet.example.com/api/v1/firmware/config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := New(context.Background(), Options{Server: tt.server})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if got := client.firmwareURL("config").String(); got != tt.want {
+				t.Fatalf("firmwareURL(config) = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHasAllowedExtension(t *testing.T) {
 	allowed := []string{".swu", ".tar.gz", ".zip"}
 	tests := []struct {
@@ -434,15 +465,22 @@ func TestFirmwareDeleteHitsFileEndpoint(t *testing.T) {
 		fileID string
 	}{
 		{name: "uuid id", fileID: "550e8400-e29b-41d4-a716-446655440000"},
-		{name: "id requiring escaping", fileID: "abc def"},
+		{name: "id with space", fileID: "abc def"},
+		{name: "id with percent", fileID: "abc%def"},
+		{name: "id with slash", fileID: "abc/def"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotID, gotEscapedPath string
 			mux := http.NewServeMux()
-			mux.HandleFunc("DELETE /api/v1/firmware/files/{fileID}", func(w http.ResponseWriter, r *http.Request) {
-				gotID = r.PathValue("fileID")
+			mux.HandleFunc("DELETE /api/v1/firmware/files/", func(w http.ResponseWriter, r *http.Request) {
 				gotEscapedPath = r.URL.EscapedPath()
+				escapedID := strings.TrimPrefix(gotEscapedPath, "/api/v1/firmware/files/")
+				var err error
+				gotID, err = url.PathUnescape(escapedID)
+				if err != nil {
+					t.Errorf("unescape file id %q: %v", escapedID, err)
+				}
 				w.WriteHeader(http.StatusNoContent)
 			})
 			client := newFirmwareTestServer(t, mux)
