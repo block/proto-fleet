@@ -638,6 +638,7 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
       headerClassName="items-start bg-surface-elevated-base px-6 pt-6 pb-0"
       titleClassName="truncate text-emphasis-300 leading-5 font-semibold text-text-primary"
       bodyClassName="px-6 pt-0 pb-1"
+      testId="response-profile-card"
       headerAction={
         <Button
           variant={variants.secondary}

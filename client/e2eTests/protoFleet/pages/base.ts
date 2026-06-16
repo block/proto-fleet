@@ -211,6 +211,14 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
   }
 
+  async navigateToCurtailmentSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
+  }
+
   async navigateToServerLogsSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
