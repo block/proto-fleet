@@ -6,7 +6,7 @@ import { type RowAction } from "../RowActionsMenu";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { ArrowRight, Edit, Plus } from "@/shared/assets/icons";
-import List from "@/shared/components/List";
+import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
 
 type BuildingListItem = {
@@ -58,9 +58,19 @@ interface BuildingListProps {
   emptyStateRow?: ReactNode;
   onEditBuilding?: (building: BuildingWithCounts) => void;
   onAddBuildingToSite?: (building: BuildingWithCounts) => void;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
 }
 
-const BuildingList = ({ buildings, sites, emptyStateRow, onEditBuilding, onAddBuildingToSite }: BuildingListProps) => {
+const BuildingList = ({
+  buildings,
+  sites,
+  emptyStateRow,
+  onEditBuilding,
+  onAddBuildingToSite,
+  selectedIds,
+  onSelectedIdsChange,
+}: BuildingListProps) => {
   const navigate = useNavigate();
 
   const siteNameById = useMemo(() => {
@@ -126,7 +136,7 @@ const BuildingList = ({ buildings, sites, emptyStateRow, onEditBuilding, onAddBu
               <span className="truncate text-emphasis-300">{buildingName}</span>
               {buildingId !== undefined && buildingId !== 0n ? (
                 <FleetGroupActionsMenu
-                  scope={{ kind: "building", id: buildingId, name: buildingName }}
+                  scopes={[{ kind: "building", id: buildingId, name: buildingName }]}
                   ariaLabel={`Actions for ${buildingName}`}
                   testIdPrefix={`building-list-row-${item.id}-actions`}
                   extraActions={buildExtraActions(item)}
@@ -153,20 +163,40 @@ const BuildingList = ({ buildings, sites, emptyStateRow, onEditBuilding, onAddBu
   );
 
   const handleRowClick = useCallback((item: BuildingListItem) => navigate(`/buildings/${item.id}`), [navigate]);
+  const isSelectableBuilding = useCallback((item: BuildingListItem) => {
+    const buildingId = item.building.building?.id;
+    return buildingId !== undefined && buildingId !== 0n;
+  }, []);
+  const handleSelectionModeChange = useCallback(() => undefined, []);
+  const commonProps = {
+    activeCols: ACTIVE_COLS,
+    colTitles: COL_TITLES,
+    colConfig,
+    items,
+    itemKey: "id" as const,
+    hideTotal: true,
+    onRowClick: handleRowClick,
+    emptyStateRow,
+    paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+  };
 
-  return (
-    <List<BuildingListItem, string, BuildingColumn>
-      activeCols={ACTIVE_COLS}
-      colTitles={COL_TITLES}
-      colConfig={colConfig}
-      items={items}
-      itemKey="id"
-      hideTotal
-      onRowClick={handleRowClick}
-      emptyStateRow={emptyStateRow}
-      paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
-    />
-  );
+  if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
+    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
+    return (
+      <List<BuildingListItem, string, BuildingColumn>
+        {...commonProps}
+        itemSelectable
+        customSelectedItems={selectedIds}
+        customSetSelectedItems={onSelectedIdsChange}
+        customSelectionMode={selectionMode}
+        onSelectionModeChange={handleSelectionModeChange}
+        pageScopedSelection
+        isRowSelectable={isSelectableBuilding}
+      />
+    );
+  }
+
+  return <List<BuildingListItem, string, BuildingColumn> {...commonProps} />;
 };
 
 export default BuildingList;

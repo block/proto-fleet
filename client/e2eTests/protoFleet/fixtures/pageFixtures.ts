@@ -16,6 +16,7 @@ import { RacksPage } from "../pages/racks";
 import { ServerLogsPage } from "../pages/serverLogs";
 import { SettingsPage } from "../pages/settings";
 import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
+import { SettingsCurtailmentPage } from "../pages/settingsCurtailment";
 import { SettingsFirmwarePage } from "../pages/settingsFirmware";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
@@ -33,6 +34,7 @@ type PageFixtures = {
   addMinersPage: AddMinersPage;
   settingsPage: SettingsPage;
   settingsFirmwarePage: SettingsFirmwarePage;
+  settingsCurtailmentPage: SettingsCurtailmentPage;
   settingsApiKeysPage: SettingsApiKeysPage;
   settingsSchedulesPage: SettingsSchedulesPage;
   settingsSecurityPage: SettingsSecurityPage;
@@ -75,6 +77,9 @@ export const test = base.extend<PageFixtures>({
   },
   settingsFirmwarePage: async ({ page, isMobile }, use) => {
     await use(new SettingsFirmwarePage(page, isMobile));
+  },
+  settingsCurtailmentPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsCurtailmentPage(page, isMobile));
   },
   settingsApiKeysPage: async ({ page, isMobile }, use) => {
     await use(new SettingsApiKeysPage(page, isMobile));

@@ -1,5 +1,3 @@
-// Package notificationhistory models notifications received from Grafana's
-// alertmanager webhook and persisted to the notification_history table.
 package notificationhistory
 
 import (
@@ -7,7 +5,6 @@ import (
 	"time"
 )
 
-// Notification is one row destined for notification_history.
 type Notification struct {
 	AlertName      string
 	Status         string
@@ -24,7 +21,19 @@ type Notification struct {
 	Annotations    map[string]string
 }
 
-// Store persists Notification rows.
 type Store interface {
 	Insert(ctx context.Context, n *Notification) error
+}
+
+type StoredNotification struct {
+	ID         int64
+	ReceivedAt time.Time
+	DeviceName string
+	DeviceMAC  string
+	Notification
+}
+
+// beforeID is the keyset cursor, nil for the first page.
+type Lister interface {
+	List(ctx context.Context, organizationID int64, beforeID *int64, limit int32) ([]StoredNotification, error)
 }

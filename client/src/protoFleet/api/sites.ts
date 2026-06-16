@@ -119,6 +119,12 @@ interface AssignDevicesToSiteProps {
   // always supplies a target so this is typically set in practice.
   targetSiteId?: bigint;
   deviceIdentifiers: string[];
+  // When true, the server clears any conflicting rack memberships
+  // inside the same transaction as the site write. Lets cross-site
+  // reparent skip the client-side remove-from-rack loop and the
+  // orphan window it created. When false/unset the server returns
+  // DEVICE_IN_RACK_AT_OTHER_SITE conflicts (today's behavior).
+  forceClearConflictingRackMembership?: boolean;
   signal?: AbortSignal;
   onSuccess?: (reassignedCount: bigint) => void;
   // conflicts is populated when the server rejects the batch on
@@ -147,6 +153,11 @@ interface AssignRacksToSiteProps {
   signal?: AbortSignal;
   // onSuccess args: device cascade count, count of racks whose
   // building was auto-cleared because the move crossed sites.
+  // TODO(issue-420 follow-up): consumers must surface clearedBuildingCount
+  // to the operator (toast or modal) — buildings belong to a single site,
+  // so crossing sites silently clears the rack's building. No UI consumer
+  // of this RPC exists yet; when one is wired, push a toast on
+  // clearedBuildingCount > 0 directing the operator to reassign.
   onSuccess?: (reassignedDeviceCount: bigint, clearedBuildingCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -282,12 +293,21 @@ const useSites = () => {
   );
 
   const assignDevicesToSite = useCallback(
-    async ({ targetSiteId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToSiteProps) => {
+    async ({
+      targetSiteId,
+      deviceIdentifiers,
+      forceClearConflictingRackMembership,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: AssignDevicesToSiteProps) => {
       try {
         const response = await sitesClient.assignDevicesToSite(
           {
             targetSiteId,
             deviceIdentifiers,
+            forceClearConflictingRackMembership,
           },
           { signal },
         );

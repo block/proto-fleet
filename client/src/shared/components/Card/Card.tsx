@@ -12,6 +12,7 @@ interface CardProps {
   headerAction?: ReactNode;
   headerClassName?: string;
   headerTone?: "neutral" | "status";
+  testId?: string;
   titleClassName?: string;
 }
 
@@ -22,12 +23,13 @@ const Card = ({
   headerAction,
   headerClassName,
   headerTone = "status",
+  testId,
   title,
   titleClassName,
   type,
 }: CardProps) => {
   return (
-    <div className={clsx("rounded-xl shadow-50", className)}>
+    <div className={clsx("rounded-xl shadow-50", className)} data-testid={testId}>
       <div
         className={clsx(
           "flex items-center justify-between gap-4 rounded-t-xl px-4 py-2",

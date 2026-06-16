@@ -753,6 +753,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listNonTerminalCurtailmentEventsStmt, err = db.PrepareContext(ctx, listNonTerminalCurtailmentEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNonTerminalCurtailmentEvents: %w", err)
 	}
+	if q.listNotificationHistoryStmt, err = db.PrepareContext(ctx, listNotificationHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query ListNotificationHistory: %w", err)
+	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
 	}
@@ -2411,6 +2414,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listNonTerminalCurtailmentEventsStmt: %w", cerr)
 		}
 	}
+	if q.listNotificationHistoryStmt != nil {
+		if cerr := q.listNotificationHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listNotificationHistoryStmt: %w", cerr)
+		}
+	}
 	if q.listOrganizationsStmt != nil {
 		if cerr := q.listOrganizationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
@@ -3423,6 +3431,7 @@ type Queries struct {
 	listMQTTSourceStatesByOrgStmt                         *sql.Stmt
 	listMinerStateSnapshotsStmt                           *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                  *sql.Stmt
+	listNotificationHistoryStmt                           *sql.Stmt
 	listOrganizationsStmt                                 *sql.Stmt
 	listPermissionsStmt                                   *sql.Stmt
 	listPoolsStmt                                         *sql.Stmt
@@ -3818,6 +3827,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMQTTSourceStatesByOrgStmt:                         q.listMQTTSourceStatesByOrgStmt,
 		listMinerStateSnapshotsStmt:                           q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                  q.listNonTerminalCurtailmentEventsStmt,
+		listNotificationHistoryStmt:                           q.listNotificationHistoryStmt,
 		listOrganizationsStmt:                                 q.listOrganizationsStmt,
 		listPermissionsStmt:                                   q.listPermissionsStmt,
 		listPoolsStmt:                                         q.listPoolsStmt,

@@ -7,7 +7,11 @@ interface LocationSelectorProps {
 
 const LocationSelector = ({ location, loading }: LocationSelectorProps) => {
   // TODO implement selector with options
-  return <div className="text-300 text-text-primary">{loading ? <SkeletonBar className="w-20" /> : location}</div>;
+  return (
+    <div className="min-w-0 truncate text-300 text-text-primary">
+      {loading ? <SkeletonBar className="w-20" /> : location}
+    </div>
+  );
 };
 
 export default LocationSelector;

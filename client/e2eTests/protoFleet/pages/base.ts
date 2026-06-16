@@ -1,6 +1,8 @@
 import { expect, Page } from "@playwright/test";
 import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 
+const FLEET_TAB_ROUTE = /.*\/fleet\/(?:sites|buildings|racks|miners)(?:[/?#].*)?$/;
+
 export class BasePage {
   constructor(
     protected page: Page,
@@ -115,7 +117,8 @@ export class BasePage {
   async navigateToFleetPage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]').click();
-    await expect(this.page).toHaveURL(/.*\/fleet/);
+    await expect(this.page.getByTestId("fleet-layout")).toBeVisible();
+    await expect(this.page).toHaveURL(FLEET_TAB_ROUTE);
   }
 
   async navigateToMinersPage() {
@@ -206,6 +209,14 @@ export class BasePage {
     await this.navigateSettingsIfDesktop();
     await this.page.getByTestId("secondary-nav").locator('a[href="/settings/schedules"]').click();
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
+  }
+
+  async navigateToCurtailmentSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
   }
 
   async navigateToServerLogsSettings() {

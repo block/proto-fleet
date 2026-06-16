@@ -91,6 +91,15 @@ func (h *Handler) AssignDevicesToSite(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
+	// force_clear_conflicting_rack_membership deletes device_set_membership
+	// rows as a side effect — the same write sibling rack RPCs gate on
+	// rack:manage. Require both keys when the caller opts into the
+	// cascade so site-only operators can't bypass rack auth via this flag.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	count, conflicts, err := h.service.AssignDevicesToSite(ctx, toAssignDevicesParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err

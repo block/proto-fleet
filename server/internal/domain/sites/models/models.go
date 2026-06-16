@@ -97,10 +97,19 @@ type PerDeviceConflict struct {
 
 // AssignDevicesToSiteParams is the input shape for the bulk assign
 // flow. TargetSiteID == nil means "Unassigned".
+//
+// When ForceClearConflictingRackMembership is true the service, inside
+// the same transaction as the site write, drops any existing rack
+// membership for the listed devices before applying the site update.
+// This closes the cross-site reparent orphan window the client-side
+// remove-then-reassign loop in MinerReparentPicker had. When false
+// (default), a device sitting in a rack at a different site rejects
+// the whole batch with PerDeviceConflict[].
 type AssignDevicesToSiteParams struct {
-	OrgID             int64
-	TargetSiteID      *int64
-	DeviceIdentifiers []string
+	OrgID                               int64
+	TargetSiteID                        *int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
 }
 
 // AssignBuildingsToSiteParams is the input shape for the bulk

@@ -38,17 +38,18 @@ function PageHeaderPopoverPillContent({
   }
 
   return (
-    <div className={`${triggerClassName} relative`} ref={triggerRef}>
+    <div className={`${triggerClassName} relative min-w-0`} ref={triggerRef}>
       <Button
         variant={variants.secondary}
         size={sizes.compact}
+        className="max-w-full min-w-0"
         ariaHasPopup={true}
         ariaExpanded={isPopoverOpen}
         ariaLabel={ariaLabel}
         onClick={handleTriggerClick}
         prefixIcon={<span className={clsx("h-2.5 w-2.5 rounded-full", dotClassName)} />}
       >
-        <span className="block max-w-56 truncate">{triggerLabel}</span>
+        <span className="block max-w-56 min-w-0 truncate">{triggerLabel}</span>
       </Button>
 
       {isPopoverOpen ? (

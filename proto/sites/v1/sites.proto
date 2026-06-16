@@ -204,6 +204,18 @@ message AssignDevicesToSiteRequest {
         max_items: 10000
         items: {string: {min_len: 1, max_len: 256}}
     }];
+    // When true, the server — inside the same transaction as the site
+    // write — removes any conflicting rack memberships for the listed
+    // devices before applying the site assignment. This closes the
+    // cross-site reparent orphan window the client-side
+    // remove-then-assign loop in MinerReparentPicker had: a transport
+    // failure between the per-rack unassign and the site reassign
+    // would leave miners rack-less but still pinned to the old site.
+    //
+    // When false (default), preserves today's behavior: any device
+    // currently in a rack at a different site rejects the whole batch
+    // with a PerDeviceConflict[] of DEVICE_IN_RACK_AT_OTHER_SITE.
+    optional bool force_clear_conflicting_rack_membership = 3;
 }
 
 // PerDeviceConflictReason enumerates the reasons a device can be

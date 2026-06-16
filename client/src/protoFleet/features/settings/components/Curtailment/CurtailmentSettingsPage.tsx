@@ -107,8 +107,12 @@ const curtailmentSourcesTableClassName = [
   "mb-2 w-full",
   "phone:table-fixed",
   "[&_thead_th]:text-text-primary-50",
-  "phone:[&_thead_th:last-child]:w-9",
-  "phone:[&_thead_th:last-child>div]:w-9",
+  "phone:[&_thead_th:last-child]:w-14",
+  "phone:[&_thead_th:last-child>div]:w-14",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:box-border",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:flex",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:justify-end",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:w-14",
 ].join(" ");
 
 const sourceHealthDotClassName: Record<CurtailmentHealth, string> = {
@@ -573,7 +577,7 @@ function SourcesEmptyState(): ReactElement {
 function SourcesLoadingState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full items-center justify-center py-14">
-      <ProgressCircular indeterminate />
+      <ProgressCircular indeterminate dataTestId="curtailment-sources-loading" />
     </div>
   );
 }
@@ -605,7 +609,7 @@ function ResponseProfilesEmptyState(): ReactElement {
 function ResponseProfilesLoadingState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full items-center justify-center py-14">
-      <ProgressCircular indeterminate />
+      <ProgressCircular indeterminate dataTestId="curtailment-response-profiles-loading" />
     </div>
   );
 }
@@ -631,13 +635,14 @@ type ResponseProfileCardProps = {
 function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): ReactElement {
   return (
     <Card
-      title={profile.name}
+      title={<span data-testid="response-profile-name">{profile.name}</span>}
       type={cardType.default}
       className="curtailment-response-profile-card bg-surface-elevated-base shadow-100"
       headerTone="neutral"
       headerClassName="items-start bg-surface-elevated-base px-6 pt-6 pb-0"
       titleClassName="truncate text-emphasis-300 leading-5 font-semibold text-text-primary"
       bodyClassName="px-6 pt-0 pb-1"
+      testId="response-profile-card"
       headerAction={
         <Button
           variant={variants.secondary}
@@ -1042,7 +1047,7 @@ function createCurtailmentSourceColConfig({
     },
     [curtailmentSourceCols.lastSignalUpdate]: {
       component: (source) => <span className="truncate text-text-primary">{source.lastSeen}</span>,
-      width: "w-[23.5%] phone:w-auto",
+      width: "w-[23.5%] phone:hidden",
     },
     [curtailmentSourceCols.health]: {
       component: (source) => (
@@ -1069,7 +1074,7 @@ function createCurtailmentSourceColConfig({
           />
         </div>
       ),
-      width: "w-[6%] phone:w-9",
+      width: "w-[6%] phone:w-14",
     },
   };
 }

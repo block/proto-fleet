@@ -5,7 +5,7 @@ import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type RowAction } from "../RowActionsMenu";
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { ArrowRight, Edit } from "@/shared/assets/icons";
-import List from "@/shared/components/List";
+import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
 
 type SiteListItem = {
@@ -43,9 +43,11 @@ interface SiteListProps {
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
   onEditSite?: (site: Site) => void;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
 }
 
-const SiteList = ({ sites, emptyStateRow, onEditSite }: SiteListProps) => {
+const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIdsChange }: SiteListProps) => {
   const navigate = useNavigate();
 
   const items: SiteListItem[] = useMemo(
@@ -96,7 +98,7 @@ const SiteList = ({ sites, emptyStateRow, onEditSite }: SiteListProps) => {
               <span className="truncate text-emphasis-300">{siteName}</span>
               {siteId !== undefined && siteId !== 0n ? (
                 <FleetGroupActionsMenu
-                  scope={{ kind: "site", id: siteId, name: siteName }}
+                  scopes={[{ kind: "site", id: siteId, name: siteName }]}
                   ariaLabel={`Actions for ${siteName}`}
                   testIdPrefix={`site-list-row-${item.id}-actions`}
                   extraActions={buildExtraActions(item)}
@@ -122,20 +124,40 @@ const SiteList = ({ sites, emptyStateRow, onEditSite }: SiteListProps) => {
   );
 
   const handleRowClick = useCallback((item: SiteListItem) => navigate(`/sites/${item.id}`), [navigate]);
+  const isSelectableSite = useCallback((item: SiteListItem) => {
+    const siteId = item.site.site?.id;
+    return siteId !== undefined && siteId !== 0n;
+  }, []);
+  const handleSelectionModeChange = useCallback(() => undefined, []);
+  const commonProps = {
+    activeCols: ACTIVE_COLS,
+    colTitles: COL_TITLES,
+    colConfig,
+    items,
+    itemKey: "id" as const,
+    hideTotal: true,
+    onRowClick: handleRowClick,
+    emptyStateRow,
+    paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+  };
 
-  return (
-    <List<SiteListItem, string, SiteColumn>
-      activeCols={ACTIVE_COLS}
-      colTitles={COL_TITLES}
-      colConfig={colConfig}
-      items={items}
-      itemKey="id"
-      hideTotal
-      onRowClick={handleRowClick}
-      emptyStateRow={emptyStateRow}
-      paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
-    />
-  );
+  if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
+    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
+    return (
+      <List<SiteListItem, string, SiteColumn>
+        {...commonProps}
+        itemSelectable
+        customSelectedItems={selectedIds}
+        customSetSelectedItems={onSelectedIdsChange}
+        customSelectionMode={selectionMode}
+        onSelectionModeChange={handleSelectionModeChange}
+        pageScopedSelection
+        isRowSelectable={isSelectableSite}
+      />
+    );
+  }
+
+  return <List<SiteListItem, string, SiteColumn> {...commonProps} />;
 };
 
 export default SiteList;

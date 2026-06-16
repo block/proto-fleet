@@ -93,7 +93,15 @@ const PathProbe = () => {
 
 type EditSiteCallback = (site: Site) => void;
 
-const renderList = ({ onEditSite }: { onEditSite?: EditSiteCallback } = {}) =>
+const renderList = ({
+  onEditSite,
+  selectedIds,
+  onSelectedIdsChange,
+}: {
+  onEditSite?: EditSiteCallback;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
+} = {}) =>
   render(
     <MemoryRouter initialEntries={["/fleet/sites"]}>
       <Routes>
@@ -101,7 +109,12 @@ const renderList = ({ onEditSite }: { onEditSite?: EditSiteCallback } = {}) =>
           path="/fleet/sites"
           element={
             <>
-              <SiteList sites={[makeSite(7, "North")]} onEditSite={onEditSite} />
+              <SiteList
+                sites={[makeSite(7, "North")]}
+                onEditSite={onEditSite}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={onSelectedIdsChange}
+              />
               <PathProbe />
             </>
           }
@@ -179,5 +192,15 @@ describe("SiteList row actions menu", () => {
     renderList();
     fireEvent.click(trigger());
     expect(screen.queryByText("Edit site")).not.toBeInTheDocument();
+  });
+
+  it("shows controlled row checkboxes when selection props are supplied", () => {
+    const onSelectedIdsChange = vi.fn();
+    renderList({ selectedIds: [], onSelectedIdsChange });
+
+    const checkbox = screen.getByTestId("list-body").querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["7"]);
   });
 });

@@ -77,6 +77,45 @@ These are the rules that recur in code review and that contributors most often m
 - After a PR merges, do not reuse that branch for follow-up work — cut a
   fresh branch from the updated `main`.
 
+## PR descriptions
+
+When opening a PR, write the description so a reviewer can judge the
+architecture and technical decisions **without reading the low-level code**.
+Inspect the actual diff, commits, and changed files first; describe what the
+code does, not the decisions made getting there. Structure it as:
+
+1. **Summary** — 2-4 sentences: what this PR delivers and why. Lead with the
+   user- or operator-facing capability, not the implementation. For a PR in a
+   series (stacked on a parent, has descendant PRs, or marked `N/M`), add a
+   short *Stack* note: the full chain with PR links (ancestors, this PR, and any
+   PRs stacked on top), that the diff is relative to the immediate base when it
+   has ancestors, the load-bearing context from upstream PRs
+   a reviewer needs to judge this change, and what is intentionally out of scope
+   here and where the remaining work lands (from descendant PRs, the plan docs,
+   or tracking issues, since later phases may not be open as PRs yet).
+2. **How it works** — the end-to-end mechanism in plain language. Walk the
+   primary flow(s): who triggers it, what crosses each boundary, where state
+   is persisted, what comes back. Explain workflows, not language syntax.
+3. **Diagrams** — mermaid in fenced code blocks labeled `mermaid` so they render on
+   GitHub. At least a component/flow diagram of the main path; add a state or
+   sequence diagram where lifecycle or ordering matters. Keep syntax
+   GitHub-safe: quote labels with special characters, avoid fragile edge styles.
+4. **Areas of the code involved** — a table mapping each changed area to its
+   role so reviewers know where to focus: `| Area / package / file | What
+   changed | Why it matters for review |`. Group by subsystem (`proto/`,
+   `server/`, domain logic, migrations, `client/`, `plugin/`); flag generated
+   code as "generated — skip".
+5. **Key technical decisions & trade-offs** — the choices a reviewer should
+   scrutinize (new abstractions, data-model/migration changes, security or
+   validation boundaries, backward-compat or rollout concerns). One line each:
+   the decision and the alternative it was chosen over.
+6. **Testing & validation** — how correctness was verified and what is
+   explicitly not covered.
+
+Keep it concise: tables and diagrams over long paragraphs, no filler praise,
+no narration of rejected approaches. Claude Code users can generate this with
+`/pr-describe`.
+
 ## Verification
 
 - Don't pin versions, package versions, or upstream behaviors from training
@@ -129,6 +168,7 @@ stays private.
 
 - `/regen` — run `just gen`, surface what changed, flag generated files to commit
 - `/pr-ready` — lint + targeted tests + diff summary suitable for a PR description
+- `/pr-describe` — write/update a PR description (high-level mechanism, mermaid diagrams, code-area map) per the "PR descriptions" standard above
 - `/release-notes <version>` — draft release notes from commits since the previous tag
 - `/triage-pr <#>` — fetch PR status, summarize failing CI, propose next action
 - `/plan <title>` — scaffold a new TDD, PRD, or plan under `docs/plans/`

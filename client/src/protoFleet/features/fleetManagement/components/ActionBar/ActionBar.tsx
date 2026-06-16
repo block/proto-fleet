@@ -9,6 +9,10 @@ interface ActionBarProps {
   className?: string;
   /** IDs of currently selected items (used for count display in "subset" mode) */
   selectedItems: string[];
+  itemNoun?: {
+    singular: string;
+    plural: string;
+  };
   /**
    * How items were selected:
    * - "all": user clicked "Select All" with no filters (targets entire fleet)
@@ -30,6 +34,7 @@ interface ActionBarProps {
 const ActionBar = ({
   className,
   selectedItems,
+  itemNoun = { singular: "miner", plural: "miners" },
   selectionMode = "subset",
   totalCount,
   selectionControls,
@@ -46,8 +51,8 @@ const ActionBar = ({
 
   const selectionText = useMemo(() => {
     const count = selectionMode === "all" ? (totalCount ?? selectedItems.length) : selectedItems.length;
-    return `${count} miner${count === 1 ? "" : "s"} selected`;
-  }, [selectionMode, selectedItems.length, totalCount]);
+    return `${count} ${count === 1 ? itemNoun.singular : itemNoun.plural} selected`;
+  }, [itemNoun.plural, itemNoun.singular, selectionMode, selectedItems.length, totalCount]);
 
   const handleClose = () => {
     setShow(false);
