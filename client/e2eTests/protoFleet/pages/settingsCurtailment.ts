@@ -121,7 +121,7 @@ export class SettingsCurtailmentPage extends BasePage {
     const profileNames: string[] = [];
 
     for (const card of cards) {
-      const name = (await card.locator("div").first().textContent())?.trim();
+      const name = (await card.getByTestId("response-profile-name").textContent())?.trim();
       if (name?.startsWith(prefix)) {
         profileNames.push(name);
       }

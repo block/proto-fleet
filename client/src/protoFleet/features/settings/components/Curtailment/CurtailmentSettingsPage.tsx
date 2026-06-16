@@ -631,7 +631,7 @@ type ResponseProfileCardProps = {
 function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): ReactElement {
   return (
     <Card
-      title={profile.name}
+      title={<span data-testid="response-profile-name">{profile.name}</span>}
       type={cardType.default}
       className="curtailment-response-profile-card bg-surface-elevated-base shadow-100"
       headerTone="neutral"
