@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { mapCurtailmentPillEvent } from "./curtailmentPillMapper";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import {
+  applyActiveCurtailmentEvent,
   refreshActiveCurtailmentData,
   useActiveCurtailmentEvent,
   useActiveCurtailmentEvents,
@@ -17,6 +19,11 @@ export interface UseCurtailmentPillDataResult {
 
 const idlePollIntervalMs = 30_000;
 const activeCurtailmentPollIntervalMs = 3_000;
+const activeCurtailmentClearErrorCodes = new Set<Code>([Code.Unauthenticated, Code.PermissionDenied]);
+
+function shouldClearActiveCurtailmentOnError(error: unknown): boolean {
+  return error instanceof ConnectError && activeCurtailmentClearErrorCodes.has(error.code);
+}
 
 export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
@@ -64,6 +71,10 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
         } catch (error) {
           if (isAbortError(error, signal)) {
             return;
+          }
+
+          if (shouldClearActiveCurtailmentOnError(error)) {
+            applyActiveCurtailmentEvent(undefined);
           }
 
           handleAuthErrors({ error });

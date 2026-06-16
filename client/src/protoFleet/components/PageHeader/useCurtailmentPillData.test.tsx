@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { applyActiveCurtailmentEvent, resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
@@ -232,6 +233,29 @@ describe("useCurtailmentPillData", () => {
     });
 
     expect(result.current.activeEvent?.reason).toBe("Grid peak call");
+    expect(mockHandleAuthErrors).toHaveBeenCalledOnce();
+  });
+
+  it("clears the cached active event when a refresh loses curtailment read permission", async () => {
+    mockListActiveCurtailments
+      .mockResolvedValueOnce({ event: curtailmentEvent() })
+      .mockRejectedValueOnce(new ConnectError("access denied", Code.PermissionDenied));
+
+    const { result } = renderHook(() => useCurtailmentPillData());
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {});
+
+    expect(result.current.activeEvent?.reason).toBe("Grid peak call");
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
+      await Promise.resolve();
+    });
+
+    expect(result.current.activeEvent).toBeNull();
     expect(mockHandleAuthErrors).toHaveBeenCalledOnce();
   });
 
