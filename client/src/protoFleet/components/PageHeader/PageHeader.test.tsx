@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PageHeader from "./PageHeader";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
@@ -78,6 +78,7 @@ describe("PageHeader", () => {
     vi.clearAllMocks();
     mockListSites.mockReturnValue(undefined);
     mockUseWindowDimensions.mockReturnValue({
+      width: 375,
       isPhone: true,
       isTablet: false,
     });
@@ -85,7 +86,7 @@ describe("PageHeader", () => {
     vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
-  it("shows the phone widget row when schedules are available even if setup is not dismissed", () => {
+  it("shows the phone header widget when schedules are available even if setup is not dismissed", () => {
     const schedulePillData = createSchedulePillData({
       hasVisibleSchedules: true,
       pillSchedule: createPillSchedule("Night reboot"),
@@ -98,6 +99,40 @@ describe("PageHeader", () => {
     );
 
     expect(screen.getByText("Night reboot")).toBeVisible();
+  });
+
+  it("places the first phone widget in the top row and stacks the remaining widgets", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    const schedulePillData = createSchedulePillData({
+      hasVisibleSchedules: true,
+      pillSchedule: createPillSchedule("Night reboot"),
+    });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={schedulePillData}
+          activeCurtailmentEvent={{
+            reason: "Grid peak call",
+            state: "curtailing",
+            scopeLabel: "Whole fleet",
+            selectedMiners: 48,
+            estimatedReductionKw: 126.4,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    const inlineWidgets = screen.getByTestId("page-header-inline-widgets");
+    const mobileWidgets = screen.getByTestId("page-header-mobile-widgets");
+
+    expect(within(inlineWidgets).getByText("Curtailment pill")).toBeVisible();
+    expect(within(mobileWidgets).queryByText("Curtailment pill")).not.toBeInTheDocument();
+    expect(within(mobileWidgets).getByText("Night reboot")).toBeVisible();
+    expect(within(mobileWidgets).getByText("Continue setup")).toBeVisible();
+    expect(mobileWidgets).toHaveClass("flex-col", "items-end", "gap-2");
+    expect(mobileWidgets).not.toHaveClass("gap-3");
+    expect(screen.getByTestId("phone-header-widget-row")).toHaveClass("h-[80px]");
   });
 
   it("keeps the phone widget row hidden when neither setup nor schedules need space", () => {

@@ -4,10 +4,19 @@ import clsx from "clsx";
 import NavigationMenu from "../NavigationMenu";
 import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
+import {
+  getPhoneHeaderWidgetOffsetClass,
+  getPhoneHeaderWidgetRowCount,
+  getVisibleHeaderWidgetCount,
+  PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS,
+  shouldInlineFirstPhoneHeaderWidget,
+  shouldStackPhoneHeaderWidgets,
+} from "@/protoFleet/components/PageHeader/headerWidgetLayout";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { useHasPermission } from "@/protoFleet/store";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
@@ -23,10 +32,18 @@ const AppLayoutContent = ({ children }: Props) => {
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
-  const hasActiveCurtailmentEvent = activeCurtailmentEvent !== null;
+  const canReadCurtailment = useHasPermission("curtailment:read");
+  const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const headerWidgetCount = getVisibleHeaderWidgetCount({
+    hasDismissedSetup,
+    hasVisibleCurtailmentPill,
+    hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
+  });
+  const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
+  const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
+  const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
-  const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasActiveCurtailmentEvent);
+  const showPhoneWidgets = isPhone && phoneRowWidgetCount > 0;
 
   return (
     <div className={clsx("absolute top-0 right-0 bottom-0 left-0", bgClass)}>
@@ -49,7 +66,9 @@ const AppLayoutContent = ({ children }: Props) => {
         className={clsx(
           "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 overflow-auto laptop:top-[calc(theme(spacing.1)*15)] laptop:left-16 desktop:left-50",
           bgClass,
-          showPhoneWidgets ? "phone:top-[calc(theme(spacing.1)*12+57px)]" : "phone:top-[calc(theme(spacing.1)*12)]",
+          showPhoneWidgets
+            ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)
+            : PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS,
         )}
       >
         {children}

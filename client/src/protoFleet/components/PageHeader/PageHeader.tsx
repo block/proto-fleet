@@ -3,6 +3,13 @@ import clsx from "clsx";
 
 import CurtailmentPill from "./CurtailmentPill";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
+import {
+  getPhoneHeaderWidgetRowCount,
+  getPhoneHeaderWidgetRowHeightClass,
+  getVisibleHeaderWidgetCount,
+  shouldInlineFirstPhoneHeaderWidget,
+  shouldStackPhoneHeaderWidgets,
+} from "./headerWidgetLayout";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
@@ -26,41 +33,74 @@ interface PageHeaderProps {
 
 interface HeaderWidgetsProps {
   activeCurtailmentEvent: CurtailmentPillEvent | null;
+  align?: "start" | "end";
   canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
   onContinueSetup: () => void;
   schedulePillData: UseSchedulePillDataResult;
+  stacked?: boolean;
+  testId?: string;
+  widgets: HeaderWidgetKind[];
 }
 
 const headerWidgetEnabled = true;
+type HeaderWidgetKind = "curtailment" | "schedule" | "setup";
 
 function HeaderWidgets({
   activeCurtailmentEvent,
+  align = "start",
   canReadCurtailment,
   className,
   dismissedSetup,
   onContinueSetup,
   schedulePillData,
+  stacked = false,
+  testId,
+  widgets,
 }: HeaderWidgetsProps): ReactElement {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
+  const alignEnd = align === "end";
 
   return (
-    <div className={clsx("flex space-x-3", className)}>
-      {activeCurtailmentEvent && canReadCurtailment ? (
-        <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" />
-      ) : null}
-      {pillSchedule ? (
-        <SchedulePill
-          pillSchedule={pillSchedule}
-          sections={sections}
-          pendingScheduleId={pendingScheduleId}
-          onToggleScheduleStatus={onToggleScheduleStatus}
-        />
-      ) : null}
-      {dismissedSetup ? (
-        <Button variant={variants.secondary} size={sizes.compact} text="Continue setup" onClick={onContinueSetup} />
-      ) : null}
+    <div
+      className={clsx(
+        "flex",
+        stacked ? "flex-col gap-2" : "items-center gap-3",
+        alignEnd && !stacked && "justify-end",
+        stacked && (alignEnd ? "items-end" : "items-start"),
+        className,
+      )}
+      data-testid={testId}
+    >
+      {widgets.map((widget) => {
+        switch (widget) {
+          case "curtailment":
+            return activeCurtailmentEvent && canReadCurtailment ? (
+              <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath="/energy" />
+            ) : null;
+          case "schedule":
+            return pillSchedule ? (
+              <SchedulePill
+                key={widget}
+                pillSchedule={pillSchedule}
+                sections={sections}
+                pendingScheduleId={pendingScheduleId}
+                onToggleScheduleStatus={onToggleScheduleStatus}
+              />
+            ) : null;
+          case "setup":
+            return dismissedSetup ? (
+              <Button
+                key={widget}
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="Continue setup"
+                onClick={onContinueSetup}
+              />
+            ) : null;
+        }
+      })}
     </div>
   );
 }
@@ -120,8 +160,22 @@ function PageHeader({
     schedulePillData,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
-  const showPhoneWidgets =
-    isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules || hasVisibleCurtailmentPill);
+  const headerWidgetKinds: HeaderWidgetKind[] = [
+    ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
+    ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
+    ...(hasDismissedSetup ? (["setup"] as const) : []),
+  ];
+  const headerWidgetCount = getVisibleHeaderWidgetCount({
+    hasDismissedSetup,
+    hasVisibleCurtailmentPill,
+    hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
+  });
+  const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
+  const phoneTopWidgetKinds = inlineFirstPhoneWidget ? headerWidgetKinds.slice(0, 1) : [];
+  const phoneRowWidgetKinds = inlineFirstPhoneWidget ? headerWidgetKinds.slice(1) : headerWidgetKinds;
+  const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
+  const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
+  const showPhoneWidgets = isPhone && phoneRowWidgetCount > 0;
 
   return (
     <>
@@ -143,12 +197,35 @@ function PageHeader({
               <LocationSelector />
             )}
           </div>
-          {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
+          {!isPhone && headerWidgetEnabled ? (
+            <HeaderWidgets testId="page-header-desktop-widgets" widgets={headerWidgetKinds} {...headerWidgetsProps} />
+          ) : null}
+          {inlineFirstPhoneWidget ? (
+            <HeaderWidgets
+              className="ml-3 shrink-0"
+              testId="page-header-inline-widgets"
+              widgets={phoneTopWidgetKinds}
+              {...headerWidgetsProps}
+            />
+          ) : null}
         </div>
       </div>
       {showPhoneWidgets ? (
-        <div className={clsx("flex h-[57px] items-center", bgClass)}>
-          <HeaderWidgets className="ml-5" {...headerWidgetsProps} />
+        <div
+          className={clsx(
+            "flex items-start justify-end px-4",
+            getPhoneHeaderWidgetRowHeightClass(phoneRowWidgetCount, stackPhoneWidgets),
+            bgClass,
+          )}
+          data-testid="phone-header-widget-row"
+        >
+          <HeaderWidgets
+            align="end"
+            stacked={stackPhoneWidgets}
+            testId="page-header-mobile-widgets"
+            widgets={phoneRowWidgetKinds}
+            {...headerWidgetsProps}
+          />
         </div>
       ) : null}
     </>

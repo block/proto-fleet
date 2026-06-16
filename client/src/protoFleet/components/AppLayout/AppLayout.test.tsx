@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "./AppLayout";
 import type { CurtailmentPillEvent } from "@/protoFleet/components/PageHeader/CurtailmentPill";
 import type { UseSchedulePillDataResult } from "@/protoFleet/components/PageHeader/useSchedulePillData";
+import { useHasPermission } from "@/protoFleet/store";
 
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
@@ -42,6 +43,10 @@ vi.mock("@/shared/hooks/useReactiveLocalStorage", () => ({
   useReactiveLocalStorage: () => mockUseReactiveLocalStorage(),
 }));
 
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: vi.fn(),
+}));
+
 const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = {}): UseSchedulePillDataResult => ({
   hasVisibleSchedules: false,
   pillSchedule: null,
@@ -62,14 +67,16 @@ const activeCurtailmentEvent: CurtailmentPillEvent = {
 describe("AppLayout", () => {
   beforeEach(() => {
     mockUseWindowDimensions.mockReturnValue({
+      width: 375,
       isPhone: true,
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
+    vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
-  it("offsets the phone content when schedules make the header widgets visible", () => {
+  it("keeps the base phone content offset when the only schedule widget fits inline", () => {
     mockUseSchedulePillData.mockReturnValue(
       createSchedulePillData({
         hasVisibleSchedules: true,
@@ -84,10 +91,49 @@ describe("AppLayout", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+57px)]");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
   });
 
-  it("offsets the phone content when an active curtailment makes the header widgets visible", () => {
+  it("uses the two-widget phone content offset when all three header widgets are visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(
+      createSchedulePillData({
+        hasVisibleSchedules: true,
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+80px)]");
+  });
+
+  it("uses the single-widget phone content offset when one widget remains below the header", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseSchedulePillData.mockReturnValue(
+      createSchedulePillData({
+        hasVisibleSchedules: true,
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+40px)]");
+  });
+
+  it("keeps the base phone content offset when the only curtailment widget fits inline", () => {
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
 
     render(
@@ -98,6 +144,21 @@ describe("AppLayout", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+57px)]");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
+  });
+
+  it("does not offset the phone content for active curtailment without read permission", () => {
+    vi.mocked(useHasPermission).mockReturnValue(false);
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
   });
 });

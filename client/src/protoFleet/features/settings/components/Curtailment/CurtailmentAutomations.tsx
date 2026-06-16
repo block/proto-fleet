@@ -60,8 +60,12 @@ const automationTableClassName = [
   "mb-2 w-full",
   "phone:table-fixed",
   "[&_thead_th]:text-text-primary-50",
-  "phone:[&_thead_th:last-child]:w-9",
-  "phone:[&_thead_th:last-child>div]:w-9",
+  "phone:[&_thead_th:last-child]:w-14",
+  "phone:[&_thead_th:last-child>div]:w-14",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:box-border",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:flex",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:justify-end",
+  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:w-14",
 ].join(" ");
 
 const emptyAutomations: AutomationRule[] = [];
@@ -510,7 +514,7 @@ function createAutomationColConfig(
           <Switch checked={rule.enabled} setChecked={() => onToggle(rule.id)} disabled={updatingRuleIds.has(rule.id)} />
         </div>
       ),
-      width: "w-[6%] phone:w-9",
+      width: "w-[6%] phone:w-14",
     },
   };
 }
