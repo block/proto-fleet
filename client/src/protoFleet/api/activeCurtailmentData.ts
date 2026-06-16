@@ -405,6 +405,20 @@ function getSelectedActiveCurtailmentWithCurrentDetail(
   });
 }
 
+function getSelectedActiveCurtailmentWithCurrentTargets(
+  selectedEvent: ProtoCurtailmentEvent,
+): ProtoCurtailmentEvent | undefined {
+  const currentEvent = getActiveCurtailmentSnapshot().event;
+  if (currentEvent?.eventUuid !== selectedEvent.eventUuid) {
+    return undefined;
+  }
+
+  return createMessage(CurtailmentEventSchema, {
+    ...selectedEvent,
+    targets: currentEvent.targets,
+  });
+}
+
 function getSelectedActiveCurtailmentEventToPreserve(
   events: ProtoCurtailmentEvent[],
 ): ProtoCurtailmentEvent | undefined {
@@ -453,7 +467,7 @@ async function requestActiveCurtailmentDetail(
       // target-derived metrics do not look complete, but do not downgrade an
       // already fully hydrated selected detail snapshot.
       return detailedEvent
-        ? (getSelectedActiveCurtailmentWithCurrentDetail(detailedEvent) ??
+        ? (getSelectedActiveCurtailmentWithCurrentTargets(detailedEvent) ??
             createMessage(CurtailmentEventSchema, { ...detailedEvent, targets: [] }))
         : undefined;
     }

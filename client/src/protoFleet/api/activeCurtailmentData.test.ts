@@ -15,6 +15,7 @@ import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
   CurtailmentEventState,
+  CurtailmentTargetRollupSchema,
   CurtailmentTargetSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
@@ -391,6 +392,11 @@ describe("activeCurtailmentData", () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const firstPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
       reason: "Detail A",
+      decisionSnapshot: {
+        estimated_reduction_kw: 5,
+        selected_count: 2,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, { total: 2, dispatched: 1 }),
       targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1" })],
     });
     const secondPageDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
@@ -399,6 +405,11 @@ describe("activeCurtailmentData", () => {
     });
     const pollingDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
       reason: "Polling Detail A",
+      decisionSnapshot: {
+        estimated_reduction_kw: 3,
+        selected_count: 4,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, { total: 4, confirmed: 3 }),
       targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-3" })],
     });
     applyActiveCurtailmentEvent(activeSummary, { mergeActiveEvents: true });
@@ -413,6 +424,11 @@ describe("activeCurtailmentData", () => {
 
     const snapshot = getActiveCurtailmentSnapshot();
     expect(snapshot.event?.reason).toBe("Polling Detail A");
+    expect(snapshot.event?.decisionSnapshot).toEqual({
+      estimated_reduction_kw: 3,
+      selected_count: 4,
+    });
+    expect(snapshot.event?.targetRollup).toEqual(create(CurtailmentTargetRollupSchema, { total: 4, confirmed: 3 }));
     expect(snapshot.event?.targets.map((target) => target.deviceIdentifier)).toEqual(["miner-1", "miner-2"]);
   });
 
