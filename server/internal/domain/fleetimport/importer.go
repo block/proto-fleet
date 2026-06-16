@@ -389,7 +389,13 @@ func (imp *Importer) createGroupsAndRacks(ctx context.Context, orgID int64, data
 				if err != nil {
 					slog.Warn("failed to assign devices to rack", "rack", r.Name, "error", err)
 				} else {
-					devicesAssigned += int32(resp.AssignedCount) //nolint:gosec // bounded by device count
+					// NewlyAssignedCount (not AssignedCount) matches the
+					// pre-PR AddDevicesToCollection.AddedCount semantics —
+					// re-imports over devices already assigned to this rack
+					// otherwise overstate devices_assigned by the size of
+					// the overlap, which then flows into the activity log
+					// and the user-visible import summary.
+					devicesAssigned += int32(resp.NewlyAssignedCount) //nolint:gosec // bounded by device count
 				}
 			}
 		} else {
@@ -424,7 +430,7 @@ func (imp *Importer) createGroupsAndRacks(ctx context.Context, orgID int64, data
 					}); addErr != nil {
 						slog.Warn("failed to assign devices to rack after duplicate", "rack", r.Name, "error", addErr)
 					} else {
-						devicesAssigned += int32(addResp.AssignedCount) //nolint:gosec // bounded by device count
+						devicesAssigned += int32(addResp.NewlyAssignedCount) //nolint:gosec // bounded by device count
 					}
 				}
 				continue

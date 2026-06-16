@@ -865,8 +865,19 @@ type AssignDevicesToRackParams struct {
 
 // AssignDevicesToRackResult carries the per-step row counts the
 // activity log + handler response surface.
+//
+// AssignedCount is "devices whose membership now points at the target
+// rack" — includes devices that were already in the target before this
+// call. NewlyAssignedCount is the subset that were newly inserted on
+// this call (i.e. excludes prior-target membership rows preserved by the
+// excludeRackID predicate in RemoveDevicesFromAnyRack). Callers that
+// surface user-facing "how many were added" metrics — e.g. the bulk
+// importer — must use NewlyAssignedCount; re-imports over already-
+// assigned devices would otherwise overstate the count by the size of
+// the overlap.
 type AssignDevicesToRackResult struct {
 	AssignedCount       int64
+	NewlyAssignedCount  int64
 	RemovedCount        int64
 	SiteReassignedCount int64
 }
@@ -889,6 +900,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 
 	type txOut struct {
 		assigned       int64
+		newlyAssigned  int64
 		removed        int64
 		siteReassigned int64
 		targetLabel    string
@@ -939,6 +951,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 
 		var (
 			assigned       int64
+			newlyAssigned  int64
 			siteReassigned int64
 		)
 		if params.TargetRackID != nil {
@@ -951,10 +964,17 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			// excludeRackID predicate). Missing devices (not present in
 			// our DB at all) are silently skipped by the store layer,
 			// matching pre-PR behavior; we count the unique requested
-			// identifiers as the defensible approximation.
-			if _, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers); err != nil {
+			// identifiers as the defensible approximation. The store's
+			// return value — only newly-inserted rows — is the
+			// "newly added" half of the contract, exposed separately for
+			// callers that need to match the old AddDevicesToCollection
+			// semantics (e.g. the bulk importer's devices_assigned
+			// counter, which would otherwise inflate on re-imports).
+			added, err := s.collectionStore.AddDevicesToCollection(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
+			if err != nil {
 				return nil, err
 			}
+			newlyAssigned = added
 			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
 			if targetSiteID != nil {
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
@@ -967,6 +987,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 
 		return &txOut{
 			assigned:       assigned,
+			newlyAssigned:  newlyAssigned,
 			removed:        removed,
 			siteReassigned: siteReassigned,
 			targetLabel:    targetLabel,
@@ -1021,6 +1042,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 
 	return &AssignDevicesToRackResult{
 		AssignedCount:       out.assigned,
+		NewlyAssignedCount:  out.newlyAssigned,
 		RemovedCount:        out.removed,
 		SiteReassignedCount: out.siteReassigned,
 	}, nil
