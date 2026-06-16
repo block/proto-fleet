@@ -1,6 +1,7 @@
 package pairing_test
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
@@ -118,6 +119,24 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	pairs, err = pairing.ListDevicesForFleetNode(ctx, fleetNodeID, orgID)
 	require.NoError(t, err)
 	assert.Len(t, pairs, 0)
+}
+
+func TestPairUnpairInvalidatesMinerCache(t *testing.T) {
+	// Arrange: record the device ids whose miner cache gets invalidated.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-invalidate")
+	deviceID := insertDevice(t, db, orgID)
+	var invalidated []int64
+	pairing.WithMinerInvalidator(func(_ context.Context, id int64) { invalidated = append(invalidated, id) })
+
+	// Act
+	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, nil))
+	require.NoError(t, pairing.UnpairDevice(ctx, deviceID, orgID))
+
+	// Assert: both transitions evict the device's (possibly stale direct) miner handle
+	// so routing re-resolves instead of dialing a cached handle until the cache TTL.
+	assert.Equal(t, []int64{deviceID, deviceID}, invalidated)
 }
 
 func TestPairRejectsDeviceAlreadyPaired(t *testing.T) {

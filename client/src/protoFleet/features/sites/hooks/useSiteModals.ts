@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues, siteFormValuesFromSite, useSites } from "@/protoFleet/api/sites";
@@ -74,6 +74,15 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   // the `saving` prop driving the button's `disabled` lags one render behind
   // the click — a double-click would otherwise reach the dispatch path twice.
   const savingRef = useRef(false);
+  // Mirror of the modal state for synchronous reads inside async
+  // handlers. setState updaters can't be used as "reads" — React
+  // treats them as pure functions and may defer or replay them, so a
+  // ref synced after each commit is the right shape for guards that
+  // need to check the *current* state at dispatch time.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const { createSite, updateSite, deleteSite } = useSites();
   const setActiveSite = useFleetStore((store) => store.ui.setActiveSite);
@@ -144,8 +153,15 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   const detailsSaveEdit = useCallback(
     async (values: SiteFormValues) => {
       if (savingRef.current) return;
-      if (state.kind !== "manageEditEditingDetails") return;
-      const id = state.site.id;
+      // Read the current modal state synchronously via the ref. A
+      // captured `state` from the click-time render can be stale by
+      // dispatch time if a concurrent dismiss transitions the modal.
+      // Functional setState updaters are not a substitute for a
+      // synchronous read — React treats them as pure and may defer
+      // or replay them.
+      const current = stateRef.current;
+      if (current.kind !== "manageEditEditingDetails") return;
+      const id = current.site.id;
       savingRef.current = true;
       setSaving(true);
       await new Promise<void>((resolve) => {
@@ -180,7 +196,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
         });
       });
     },
-    [state, updateSite, refetchSites],
+    [updateSite, refetchSites],
   );
 
   const manageEditDetails = useCallback(() => {
@@ -252,7 +268,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
           },
         });
         // TODO(phase-1b #199): once the miner picker ships, follow this
-        // CreateSite call with `reassignDevicesToSite({ targetSiteId: site.id,
+        // CreateSite call with `assignDevicesToSite({ targetSiteId: site.id,
         // deviceIdentifiers: pendingDeviceIds })` inside the onSuccess branch
         // (and gate setSaving(false) on the inner onFinally). Partial-failure
         // toast wording is already drafted in PR #292 review.

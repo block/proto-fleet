@@ -19,6 +19,7 @@ const {
   mockUpdateWorkerNameDialog,
   mockUseMinerCommand,
   mockUseMinerActions,
+  mockRefreshMiners,
   mockUseUpdateWorkerNames,
 } = vi.hoisted(() => {
   const mockWithCapabilityCheck = vi.fn(async (_action: string, onProceed: (...args: unknown[]) => void) => {
@@ -26,6 +27,7 @@ const {
   });
   const mockUpdateSingleWorkerName = vi.fn();
   const mockStreamCommandBatchUpdates = vi.fn();
+  const mockRefreshMiners = vi.fn();
 
   return {
     mockAuthenticateFleetModal: vi.fn(() => null),
@@ -36,6 +38,7 @@ const {
     mockStreamCommandBatchUpdates,
     mockUpdateSingleWorkerName,
     mockUpdateToast: vi.fn(),
+    mockRefreshMiners,
     mockUpdateWorkerNameDialog: vi.fn(() => null),
     mockUseMinerCommand: vi.fn(() => ({
       streamCommandBatchUpdates: mockStreamCommandBatchUpdates,
@@ -112,6 +115,13 @@ vi.mock("@/protoFleet/api/useUpdateWorkerNames", () => ({
 
 vi.mock("@/protoFleet/api/useMinerCommand", () => ({
   useMinerCommand: mockUseMinerCommand,
+}));
+
+vi.mock("@/protoFleet/api/useRefreshMiners", () => ({
+  default: () => ({
+    refreshMiners: mockRefreshMiners,
+    refreshing: new Set<string>(),
+  }),
 }));
 
 vi.mock("@/protoFleet/store/hooks/useFleet", () => ({
@@ -195,6 +205,7 @@ describe("SingleMinerActionsMenu", () => {
     vi.clearAllMocks();
     mockPushToast.mockReturnValue(1);
     mockStreamCommandBatchUpdates.mockResolvedValue(undefined);
+    mockRefreshMiners.mockResolvedValue({ snapshots: [], errors: {} });
   });
 
   it("renders 'Update worker name' when pool editing is available", () => {
@@ -288,6 +299,45 @@ describe("SingleMinerActionsMenu", () => {
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
 
     expect(mockWindowOpen).toHaveBeenCalledWith(minerUrl, "_blank", "noopener,noreferrer");
+  });
+
+  it("refreshes a row without calling the full miner refetch callback", async () => {
+    const refreshedSnapshot = { deviceIdentifier: "test-device-123" };
+    const onActionComplete = vi.fn();
+    const onMergeMiners = vi.fn();
+    const onRefreshMinersComplete = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onMinerRefreshStateChange = vi.fn();
+    mockRefreshMiners.mockResolvedValue({
+      snapshots: [refreshedSnapshot],
+      errors: {},
+    });
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="test-device-123"
+        minerName="Test miner"
+        onActionComplete={onActionComplete}
+        onMergeMiners={onMergeMiners}
+        onMinerRefreshStateChange={onMinerRefreshStateChange}
+        onRefreshMinersComplete={onRefreshMinersComplete}
+        onRefetchMiners={onRefetchMiners}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+    fireEvent.click(screen.getByTestId("refreshStatus-popover-button"));
+
+    await waitFor(() => {
+      expect(mockRefreshMiners).toHaveBeenCalledWith(["test-device-123"]);
+    });
+
+    expect(onMergeMiners).toHaveBeenCalledWith([refreshedSnapshot]);
+    expect(onRefreshMinersComplete).toHaveBeenCalledTimes(1);
+    expect(onRefetchMiners).not.toHaveBeenCalled();
+    expect(onMinerRefreshStateChange).toHaveBeenNthCalledWith(1, "test-device-123", true);
+    expect(onMinerRefreshStateChange).toHaveBeenNthCalledWith(2, "test-device-123", false);
+    expect(onActionComplete).toHaveBeenCalledTimes(1);
   });
 
   it("authenticates before updating a single worker name", async () => {
@@ -658,6 +708,7 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
       expect(screen.queryByText("View miner")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
     it("shows Unpair and View miner when needsAuthentication is true and minerUrl is set", () => {
@@ -670,6 +721,7 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
     it("does not disable the menu button when needsAuthentication is true", () => {

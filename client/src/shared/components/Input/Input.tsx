@@ -126,6 +126,7 @@ const Input = ({
   const showPasswordToggle = type === "password" && !hidePasswordToggle;
   const showTrailingIcon = showPasswordToggle || statusIcon !== undefined;
   const trailingAdornmentCount = [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length;
+  const canShowFocusState = !disabled && !readOnly;
 
   useEffect(() => {
     if (error) return;
@@ -190,10 +191,13 @@ const Input = ({
               "border border-border-5": !error && !compact,
             },
             {
-              "focus:border-border-20 focus:ring-4 focus:ring-core-primary-5": !error && !compact && !disabled,
+              "focus:border-border-20 focus:ring-4 focus:ring-core-primary-5": !error && !compact && canShowFocusState,
             },
             {
-              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20": error,
+              "border border-intent-critical-50": error,
+            },
+            {
+              "focus:ring-4 focus:ring-intent-critical-20": error && canShowFocusState,
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
@@ -204,6 +208,7 @@ const Input = ({
             { "h-6": compact },
             { "no-spinner": type === "number" },
             { uppercase: type === "date" },
+            { "cursor-default": readOnly },
             className,
           )}
           onChange={handleChange}
@@ -253,7 +258,7 @@ const Input = ({
           htmlFor={id}
           className={clsx(
             "absolute text-text-primary-50",
-            { "cursor-text": !disabled },
+            { "cursor-text": canShowFocusState },
             { "text-300": !hasFloatingLabel },
             { "left-0": compact },
             { "left-[17px]": !compact },
@@ -263,9 +268,10 @@ const Input = ({
             { "top-0": !hasFloatingLabel && compact },
             { "top-[7px] text-200": hasFloatingLabel },
             {
-              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200": !hideLabelOnFocus,
+              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
+                !hideLabelOnFocus && canShowFocusState,
             },
-            { "peer-focus:invisible": hideLabelOnFocus },
+            { "peer-focus:invisible": hideLabelOnFocus && canShowFocusState },
             { invisible: hideLabelOnFocus && hasFloatingLabel },
           )}
         >

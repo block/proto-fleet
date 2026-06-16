@@ -185,7 +185,7 @@ func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
 	}
 }
 
-// Helper: assemble the full mock set for AssignRackToBuilding tests.
+// Helper: assemble the full mock set for AssignRacksToBuilding tests.
 type assignHarness struct {
 	store           *mocks.MockBuildingStore
 	siteStore       *mocks.MockSiteStore
@@ -213,7 +213,7 @@ func newAssignHarness(t *testing.T) *assignHarness {
 
 // Assign with a grid cell: lock building, lock rack, write placement,
 // write grid cell, no site cascade because target site matches current.
-func TestAssignRackToBuilding_placesRackWithGridCell(t *testing.T) {
+func TestAssignRacksToBuilding_placesRackWithGridCell(t *testing.T) {
 	h := newAssignHarness(t)
 	buildingID := int64(11)
 	rackID := int64(99)
@@ -228,15 +228,22 @@ func TestAssignRackToBuilding_placesRackWithGridCell(t *testing.T) {
 		h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &siteID, &buildingID, "").Return(nil),
 		// siteChanged is true (nil -> &siteID); cascade fires.
 		h.collectionStore.EXPECT().CascadeRackDeviceSites(inTxCtx, rackID, testOrgID, &siteID).Return(int64(2), nil),
+		// Pass-1 vacate (NULL, NULL) — fires for every rack in the
+		// batch so pass-2 can claim cells without colliding on the
+		// partial unique index.
+		h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, gomock.Nil(), gomock.Nil()).Return(nil),
+		// Pass-2 place — real (aisle, position) for racks that supplied one.
 		h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, ptrInt32(1), ptrInt32(2)).Return(nil),
 	)
 
-	out, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:           testOrgID,
-		RackID:          rackID,
-		BuildingID:      &buildingID,
-		AisleIndex:      ptrInt32(1),
-		PositionInAisle: ptrInt32(2),
+	out, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks: []models.RackPlacementParam{{
+			RackID:          rackID,
+			AisleIndex:      ptrInt32(1),
+			PositionInAisle: ptrInt32(2),
+		}},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -253,7 +260,7 @@ func TestAssignRackToBuilding_placesRackWithGridCell(t *testing.T) {
 // SetRackBuildingPosition(nil, nil). The explicit clear is what makes
 // same-building unplace work — without it, UpdateRackPlacement's CASE
 // preserves the old position whenever building_id doesn't change.
-func TestAssignRackToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
+func TestAssignRacksToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 	h := newAssignHarness(t)
 	buildingID := int64(11)
 	rackID := int64(99)
@@ -267,10 +274,10 @@ func TestAssignRackToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &siteID, &buildingID, "").Return(nil)
 	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, (*int32)(nil), (*int32)(nil)).Return(nil)
 
-	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:      testOrgID,
-		RackID:     rackID,
-		BuildingID: &buildingID,
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -282,7 +289,7 @@ func TestAssignRackToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 // must fire with nil/nil so the prior (aisle, position) is cleared from
 // the rack row. Guards against the "unplace within building silently
 // no-ops" regression.
-func TestAssignRackToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
+func TestAssignRacksToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
 	h := newAssignHarness(t)
 	buildingID := int64(11)
 	rackID := int64(99)
@@ -299,10 +306,10 @@ func TestAssignRackToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
 	// Critical: explicit position clear fires.
 	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, (*int32)(nil), (*int32)(nil)).Return(nil)
 
-	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:      testOrgID,
-		RackID:     rackID,
-		BuildingID: &buildingID,
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -312,7 +319,7 @@ func TestAssignRackToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
 // Building-only unassign must preserve the rack's site_id — the cascade
 // from the device level was the bug this test guards against. siteChanged
 // is false, so CascadeRackDeviceSites must never be called.
-func TestAssignRackToBuilding_unassignPreservesSiteAndSkipsCascade(t *testing.T) {
+func TestAssignRacksToBuilding_unassignPreservesSiteAndSkipsCascade(t *testing.T) {
 	h := newAssignHarness(t)
 	const rackID = int64(99)
 	const priorBuildingID = int64(11)
@@ -325,10 +332,10 @@ func TestAssignRackToBuilding_unassignPreservesSiteAndSkipsCascade(t *testing.T)
 	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, rackID, testOrgID, &siteID, (*int64)(nil), "").Return(nil)
 	// CascadeRackDeviceSites must NOT fire.
 
-	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:      testOrgID,
-		RackID:     rackID,
-		BuildingID: nil,
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: nil,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -337,7 +344,7 @@ func TestAssignRackToBuilding_unassignPreservesSiteAndSkipsCascade(t *testing.T)
 
 // Cross-building move into a different site: zone clears, site cascade
 // runs with the new site.
-func TestAssignRackToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing.T) {
+func TestAssignRacksToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing.T) {
 	h := newAssignHarness(t)
 	targetBuildingID := int64(22)
 	priorBuildingID := int64(11)
@@ -357,10 +364,10 @@ func TestAssignRackToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing.
 	// position write confirms the new row carries no stale placement.
 	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, rackID, (*int32)(nil), (*int32)(nil)).Return(nil)
 
-	out, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:      testOrgID,
-		RackID:     rackID,
-		BuildingID: ptrInt64(targetBuildingID),
+	out, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: ptrInt64(targetBuildingID),
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -371,7 +378,7 @@ func TestAssignRackToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing.
 }
 
 // Grid cell out of bounds: validated after GetBuilding, before any write.
-func TestAssignRackToBuilding_rejectsOutOfBoundsAisle(t *testing.T) {
+func TestAssignRacksToBuilding_rejectsOutOfBoundsAisle(t *testing.T) {
 	h := newAssignHarness(t)
 	buildingID := int64(11)
 	rackID := int64(99)
@@ -382,12 +389,14 @@ func TestAssignRackToBuilding_rejectsOutOfBoundsAisle(t *testing.T) {
 	// Reach LockRackPlacementForWrite via the closure ordering, but no
 	// write or cascade fires because validation rejects first.
 
-	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:           testOrgID,
-		RackID:          rackID,
-		BuildingID:      ptrInt64(buildingID),
-		AisleIndex:      ptrInt32(2), // out of bounds (Aisles=2 means valid 0,1)
-		PositionInAisle: ptrInt32(0),
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: ptrInt64(buildingID),
+		Racks: []models.RackPlacementParam{{
+			RackID:          rackID,
+			AisleIndex:      ptrInt32(2), // out of bounds (Aisles=2 means valid 0,1)
+			PositionInAisle: ptrInt32(0),
+		}},
 	})
 	if err == nil {
 		t.Fatal("expected InvalidArgument, got nil")
@@ -395,13 +404,15 @@ func TestAssignRackToBuilding_rejectsOutOfBoundsAisle(t *testing.T) {
 }
 
 // Position pairing: aisle_index set, position_in_aisle absent.
-func TestAssignRackToBuilding_rejectsHalfSetPosition(t *testing.T) {
+func TestAssignRacksToBuilding_rejectsHalfSetPosition(t *testing.T) {
 	h := newAssignHarness(t)
-	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:      testOrgID,
-		RackID:     1,
-		BuildingID: ptrInt64(11),
-		AisleIndex: ptrInt32(0),
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: ptrInt64(11),
+		Racks: []models.RackPlacementParam{{
+			RackID:     1,
+			AisleIndex: ptrInt32(0),
+		}},
 	})
 	if err == nil {
 		t.Fatal("expected InvalidArgument for half-set position pair, got nil")
@@ -409,17 +420,98 @@ func TestAssignRackToBuilding_rejectsHalfSetPosition(t *testing.T) {
 }
 
 // Position-requires-building guard: grid cell set, building_id nil.
-func TestAssignRackToBuilding_rejectsPositionWithoutBuilding(t *testing.T) {
+func TestAssignRacksToBuilding_rejectsPositionWithoutBuilding(t *testing.T) {
 	h := newAssignHarness(t)
-	_, err := h.svc.AssignRackToBuilding(context.Background(), models.AssignRackToBuildingParams{
-		OrgID:           testOrgID,
-		RackID:          1,
-		BuildingID:      nil,
-		AisleIndex:      ptrInt32(0),
-		PositionInAisle: ptrInt32(0),
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: nil,
+		Racks: []models.RackPlacementParam{{
+			RackID:          1,
+			AisleIndex:      ptrInt32(0),
+			PositionInAisle: ptrInt32(0),
+		}},
 	})
 	if err == nil {
 		t.Fatal("expected InvalidArgument for grid cell without building_id, got nil")
+	}
+}
+
+// TestAssignRacksToBuilding_emptyRejected guards the len(Racks) == 0
+// pre-check so callers learn up front instead of getting a 0-row
+// response.
+func TestAssignRacksToBuilding_emptyRejected(t *testing.T) {
+	h := newAssignHarness(t)
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: ptrInt64(11),
+		Racks:            nil,
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for empty racks, got nil")
+	}
+	if h.tx.calls != 0 {
+		t.Fatalf("guard must reject before opening tx, got %d", h.tx.calls)
+	}
+}
+
+// TestAssignRacksToBuilding_rejectsDuplicateRackIDs covers F19: bulk
+// requests with the same rack id repeated must fail up-front so the
+// per-entry grid-cell write doesn't silently clobber an earlier entry.
+func TestAssignRacksToBuilding_rejectsDuplicateRackIDs(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks: []models.RackPlacementParam{
+			{RackID: 1, AisleIndex: ptrInt32(0), PositionInAisle: ptrInt32(0)},
+			{RackID: 1, AisleIndex: ptrInt32(0), PositionInAisle: ptrInt32(1)},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for duplicate rack_ids, got nil")
+	}
+	if h.tx.calls != 0 {
+		t.Fatalf("guard must reject before opening tx, got %d", h.tx.calls)
+	}
+}
+
+// TestAssignRacksToBuilding_bulkRollsBackOnLaterFailure pins the
+// rollback contract for the per-rack loop: the first rack's
+// placement + cascade writes happen, then the second rack's lock
+// errors and the whole tx aborts. The closure ran exactly once.
+func TestAssignRacksToBuilding_bulkRollsBackOnLaterFailure(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+	siteID := int64(3)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
+		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	// First rack: lock + placement update + cascade + position write.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(100), testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacement(inTxCtx, int64(100), testOrgID, &siteID, &buildingID, "").Return(nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceSites(inTxCtx, int64(100), testOrgID, &siteID).Return(int64(0), nil)
+	h.store.EXPECT().SetRackBuildingPosition(inTxCtx, testOrgID, int64(100), (*int32)(nil), (*int32)(nil)).Return(nil)
+	// Second rack: lock errors → tx aborts.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, int64(101), testOrgID).
+		Return(interfaces.RackPlacement{}, fleeterror.NewNotFoundErrorf("rack %d not found", 101))
+
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks: []models.RackPlacementParam{
+			{RackID: 100},
+			{RackID: 101},
+		},
+	})
+	if !fleeterror.IsNotFoundError(err) {
+		t.Fatalf("expected NotFound, got %v", err)
+	}
+	if h.tx.calls != 1 {
+		t.Fatalf("expected exactly 1 tx closure run, got %d", h.tx.calls)
 	}
 }
 

@@ -69,7 +69,7 @@ func newStatsHandler(t *testing.T) *statsHarness {
 	)
 	deviceQueryer := &fakeDeviceQueryer{}
 	telemetry := &fakeTelemetryCollector{}
-	svc := sites.NewService(siteStore, buildingStore, deviceQueryer, telemetry, tx, nil)
+	svc := sites.NewService(siteStore, buildingStore, nil, deviceQueryer, telemetry, tx, nil)
 	return &statsHarness{
 		handler:       NewHandler(svc),
 		siteStore:     siteStore,

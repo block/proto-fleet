@@ -129,10 +129,16 @@ describe("CurtailmentAutomationsContent", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId("automation-response-profile-select")).toHaveTextContent("Standard shed");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeEnabled();
+
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(screen.getByText("Enter a rule name.")).toBeVisible());
+    expect(screen.queryByText("High LMP spike")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "High LMP spike" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(screen.getByLabelText("Rule name"), { key: "Enter", code: "Enter" });
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 

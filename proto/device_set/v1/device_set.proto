@@ -68,6 +68,20 @@ service DeviceSetService {
     // Atomically creates or updates a rack with its membership and slot assignments.
     // All operations (metadata, membership, slot positions) are applied in a single transaction.
     rpc SaveRack(SaveRackRequest) returns (SaveRackResponse);
+
+    // AssignDevicesToRack atomically moves devices into the target rack
+    // in one transaction: removes any existing rack membership for each
+    // device, inserts new membership at target_rack_id, and cascades
+    // device.site_id when the target rack's site differs from the
+    // device's current site. target_rack_id unset clears rack
+    // membership without re-assigning (site/building stay intact).
+    //
+    // Closes the orphan window where a client-side
+    // RemoveDevicesFromDeviceSet + AddDevicesToDeviceSet pair could
+    // leave devices without rack membership on transport failure between
+    // the two calls, and the cross-rack rename race where the source
+    // rack's id resolution drifts between the resolve and the remove.
+    rpc AssignDevicesToRack(AssignDevicesToRackRequest) returns (AssignDevicesToRackResponse);
 }
 
 // Type of device set
@@ -241,14 +255,12 @@ message UpdateDeviceSetRequest {
 
     // New label (optional, 1-100 characters if provided)
     optional string label = 2 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         string: { min_len: 1, max_len: 100 }
     }];
 
     // New description (optional, max 500 characters if provided).
     // Omit the field to leave unchanged; set to empty string to clear.
     optional string description = 3 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         string: { max_len: 500 }
     }];
 
@@ -595,7 +607,6 @@ message ListRackTypesResponse {
 message SaveRackRequest {
     // ID of an existing rack to update. Omit to create a new rack.
     optional int64 device_set_id = 1 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         int64: { gt: 0 }
     }];
 
@@ -628,4 +639,33 @@ message SaveRackResponse {
 
     // Number of devices whose site_id was rewritten by the cascade.
     int32 site_reassigned_count = 3;
+}
+
+// AssignDevicesToRack
+
+message AssignDevicesToRackRequest {
+    // Unset = clear rack membership without re-assigning. When
+    // present, must be > 0.
+    optional int64 target_rack_id = 1 [(buf.validate.field).int64.gt = 0];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+}
+
+message AssignDevicesToRackResponse {
+    // Number of devices whose rack membership now points at
+    // target_rack_id. When target_rack_id is unset, this is 0 and
+    // removed_count carries the cleared-rack count.
+    int64 assigned_count = 1;
+    // Number of devices whose site_id was rewritten by the cascade
+    // because the target rack's site differed from the device's prior
+    // site. Zero on unassign and on same-site moves.
+    int64 site_reassigned_count = 2;
+    // Number of devices whose prior rack membership was cleared. On
+    // unassign (target_rack_id unset) this equals the number of devices
+    // that were in a rack. On a re-assign this counts the prior rack
+    // membership rows that were deleted before the new ones inserted.
+    int64 removed_count = 3;
 }

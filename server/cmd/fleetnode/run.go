@@ -32,6 +32,8 @@ type RunCmd struct {
 	signals       []os.Signal                                                              `kong:"-"`
 	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 	discoverer    discoverer                                                               `kong:"-"`
+	driverGetter  driverGetter                                                             `kong:"-"`
+	minerSecrets  secretProvider                                                           `kong:"-"`
 	pairer        pairer                                                                   `kong:"-"`
 	nmapPath      string                                                                   `kong:"-"`
 	resolver      ipResolver                                                               `kong:"-"`
@@ -147,6 +149,14 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		}
 		defer cleanup()
 		r.discoverer = disc
+		// Same plugin manager powers discovery, command execution, and pairing; don't
+		// load plugins twice.
+		if r.driverGetter == nil {
+			r.driverGetter = disc.svc.GetManager()
+		}
+		if r.minerSecrets == nil {
+			r.minerSecrets = nodeSecretProvider{}
+		}
 		r.pairer = prr
 	}
 

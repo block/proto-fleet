@@ -95,27 +95,44 @@ type PerDeviceConflict struct {
 	ConflictingSiteID int64
 }
 
-// ReassignDevicesToSiteParams is the input shape for the bulk reassign
+// AssignDevicesToSiteParams is the input shape for the bulk assign
 // flow. TargetSiteID == nil means "Unassigned".
-type ReassignDevicesToSiteParams struct {
+type AssignDevicesToSiteParams struct {
 	OrgID             int64
 	TargetSiteID      *int64
 	DeviceIdentifiers []string
 }
 
-// AssignBuildingToSiteParams is the input shape for the building site
-// reassignment flow. TargetSiteID == nil means "Unassigned".
-type AssignBuildingToSiteParams struct {
+// AssignBuildingsToSiteParams is the input shape for the bulk
+// building→site assignment flow. TargetSiteID == nil means "Unassigned";
+// the entire batch is applied in one transaction.
+type AssignBuildingsToSiteParams struct {
 	OrgID        int64
-	BuildingID   int64
+	BuildingIDs  []int64
 	TargetSiteID *int64
 }
 
-// AssignBuildingToSiteResult is the cascade-impact tally for the
-// building → site move.
-type AssignBuildingToSiteResult struct {
+// AssignBuildingsToSiteResult is the aggregate cascade-impact tally
+// across every building in the batch.
+type AssignBuildingsToSiteResult struct {
 	ReassignedRackCount   int64
 	ReassignedDeviceCount int64
+}
+
+// AssignRacksToSiteParams is the input shape for the bulk rack→site
+// partial-update flow. TargetSiteID == nil means "Unassigned"; the
+// entire batch applies in one transaction.
+type AssignRacksToSiteParams struct {
+	OrgID        int64
+	RackIDs      []int64
+	TargetSiteID *int64
+}
+
+// AssignRacksToSiteResult carries cascade impact + the count of racks
+// whose building_id was cleared on the site transition.
+type AssignRacksToSiteResult struct {
+	ReassignedDeviceCount int64
+	ClearedBuildingCount  int64
 }
 
 // SiteNetworkConfigEntry is a (name, network_config) tuple used by the

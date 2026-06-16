@@ -228,6 +228,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum++
 	}
 
+	if fp.deviceIdentifiersFilter.Valid {
+		fmt.Fprintf(sb, " AND device.device_identifier = ANY($%d::text[])", argNum)
+		args = append(args, pq.Array(fp.deviceIdentifierValues))
+		argNum++
+	}
+
 	if fp.statusFilter.Valid {
 		// Start outer AND group for status filter with optional needs attention
 		fmt.Fprintf(sb,

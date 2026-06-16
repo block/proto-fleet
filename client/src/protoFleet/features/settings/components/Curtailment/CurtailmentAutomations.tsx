@@ -1,6 +1,7 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
+import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import type {
   AutomationRule,
   AutomationRuleFormValues,
@@ -88,6 +89,8 @@ type AutomationModalProps = {
   onDelete?: () => Promise<void>;
 };
 
+type AutomationFormErrors = Partial<Record<keyof AutomationRuleFormValues, string>>;
+
 type InfoToggleContentProps = {
   ariaLabel: string;
   description: string;
@@ -174,8 +177,20 @@ function createOption(entry: CurtailmentSource | ResponseProfile): SelectOption 
   };
 }
 
-function isAutomationFormValid(values: AutomationRuleFormValues): boolean {
-  return values.name.trim() !== "" && values.sourceId !== "" && values.responseProfileId !== "";
+function validateAutomationFormValues(values: AutomationRuleFormValues): AutomationFormErrors {
+  const errors: AutomationFormErrors = {};
+
+  if (values.name.trim() === "") {
+    errors.name = "Enter a rule name.";
+  }
+  if (values.sourceId === "") {
+    errors.sourceId = "Select a trigger.";
+  }
+  if (values.responseProfileId === "") {
+    errors.responseProfileId = "Select a response profile.";
+  }
+
+  return errors;
 }
 
 function InfoToggleContent({ ariaLabel, description, testId, triggerClassName }: InfoToggleContentProps): ReactElement {
@@ -291,10 +306,14 @@ function AutomationModal({
 }: AutomationModalProps): ReactElement {
   const [values, setValues] = useState<AutomationRuleFormValues>(() => initialValues);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const sourceOptions = useMemo(() => sources.map(createOption), [sources]);
   const responseProfileOptions = useMemo(() => responseProfiles.map(createOption), [responseProfiles]);
   const isBusy = saving || deleting;
-  const canSave = isAutomationFormValid(values) && !isLoadingSources && !isLoadingResponseProfiles && !isBusy;
+  const validationErrors = useMemo(() => validateAutomationFormValues(values), [values]);
+  const visibleValidationErrors = showValidationErrors ? validationErrors : {};
+  const hasValidationErrors = Object.keys(validationErrors).length > 0;
+  const isSaveUnavailable = isLoadingSources || isLoadingResponseProfiles || isBusy;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency options can load after the modal opens
@@ -310,7 +329,12 @@ function AutomationModal({
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!canSave) {
+    if (isSaveUnavailable) {
+      return;
+    }
+
+    if (hasValidationErrors) {
+      setShowValidationErrors(true);
       return;
     }
 
@@ -321,7 +345,19 @@ function AutomationModal({
     } catch (error) {
       setSaveError(error instanceof Error && error.message ? error.message : "Failed to save automation.");
     }
-  }, [canSave, onDismiss, onSave, values]);
+  }, [hasValidationErrors, isSaveUnavailable, onDismiss, onSave, values]);
+
+  const handleFormKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!isInputEnterSaveEvent(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleSave();
+    },
+    [handleSave],
+  );
 
   const handleDelete = useCallback(async () => {
     if (!onDelete || isBusy) {
@@ -353,7 +389,7 @@ function AutomationModal({
     {
       text: "Save",
       variant: variants.primary,
-      disabled: !canSave,
+      disabled: isSaveUnavailable,
       loading: saving,
       dismissModalOnClick: false,
       onClick: () => void handleSave(),
@@ -372,11 +408,17 @@ function AutomationModal({
       buttons={modalButtons}
       bodyClassName="text-text-primary"
     >
-      <div className="grid gap-6 pb-2">
+      <div className="grid gap-6 pb-2" onKeyDown={handleFormKeyDown}>
         {saveError ? (
           <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{saveError}</div>
         ) : null}
-        <Input id="automation-rule-name" label="Rule name" initValue={values.name} onChange={handleNameChange} />
+        <Input
+          id="automation-rule-name"
+          label="Rule name"
+          initValue={values.name}
+          error={visibleValidationErrors.name}
+          onChange={handleNameChange}
+        />
 
         <div className="grid gap-3">
           <div className="text-200 font-semibold tracking-[0.08em] text-text-primary-50 uppercase">When</div>
@@ -388,6 +430,7 @@ function AutomationModal({
               value={values.sourceId}
               onChange={(sourceId) => setValues((currentValues) => ({ ...currentValues, sourceId }))}
               disabled={isLoadingSources || sourceOptions.length === 0}
+              error={visibleValidationErrors.sourceId}
               testId="automation-trigger-source-select"
               forceBelow
             />
@@ -425,6 +468,7 @@ function AutomationModal({
               value={values.responseProfileId}
               onChange={(responseProfileId) => setValues((currentValues) => ({ ...currentValues, responseProfileId }))}
               disabled={isLoadingResponseProfiles || responseProfileOptions.length === 0}
+              error={visibleValidationErrors.responseProfileId}
               testId="automation-response-profile-select"
               forceBelow
             />

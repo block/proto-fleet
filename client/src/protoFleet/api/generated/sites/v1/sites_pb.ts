@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_sites_v1_sites: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRzaXRlcy92MS9zaXRlcy5wcm90bxIIc2l0ZXMudjEi4gIKBFNpdGUSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRIVCg1sb2NhdGlvbl9jaXR5GAQgASgJEhYKDmxvY2F0aW9uX3N0YXRlGAUgASgJEhAKCHRpbWV6b25lGAYgASgJEhkKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBEhYKDm5ldHdvcmtfY29uZmlnGAggASgJEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB2FkZHJlc3MYCyABKAkSEwoLcG9zdGFsX2NvZGUYDSABKAkSDwoHY291bnRyeRgOIAEoCRINCgVub3RlcxgPIAEoCUoECAMQBEoECAwQDVILZGVzY3JpcHRpb25SDWFkZHJlc3NfbGluZTIicAoOU2l0ZVdpdGhDb3VudHMSHAoEc2l0ZRgBIAEoCzIOLnNpdGVzLnYxLlNpdGUSFAoMZGV2aWNlX2NvdW50GAIgASgDEhYKDmJ1aWxkaW5nX2NvdW50GAMgASgDEhIKCnJhY2tfY291bnQYBCABKAMiEgoQTGlzdFNpdGVzUmVxdWVzdCI8ChFMaXN0U2l0ZXNSZXNwb25zZRInCgVzaXRlcxgBIAMoCzIYLnNpdGVzLnYxLlNpdGVXaXRoQ291bnRzIu0CChFDcmVhdGVTaXRlUmVxdWVzdBIYCgRuYW1lGAEgASgJQgq6SAdyBRABGP8BEh8KDWxvY2F0aW9uX2NpdHkYAyABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAQgASgJQgi6SAVyAxj/ARIZCgh0aW1lem9uZRgFIAEoCUIHukgEcgIYQBIpChFwb3dlcl9jYXBhY2l0eV9tdxgGIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYByABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAggASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgKIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAsgASgJQge6SARyAhgCEhcKBW5vdGVzGAwgASgJQgi6SAVyAxiAIEoECAIQA0oECAkQClILZGVzY3JpcHRpb25SDWFkZHJlc3NfbGluZTIiUwoSQ3JlYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIoIDChFVcGRhdGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh8KDWxvY2F0aW9uX2NpdHkYBCABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAUgASgJQgi6SAVyAxj/ARIZCgh0aW1lem9uZRgGIAEoCUIHukgEcgIYQBIpChFwb3dlcl9jYXBhY2l0eV9tdxgHIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYCCABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAkgASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgLIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAwgASgJQge6SARyAhgCEhcKBW5vdGVzGA0gASgJQgi6SAVyAxiAIEoECAMQBEoECAoQC1ILZGVzY3JpcHRpb25SDWFkZHJlc3NfbGluZTIiUwoSVXBkYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIigKEURlbGV0ZVNpdGVSZXF1ZXN0EhMKAmlkGAEgASgDQge6SAQiAiAAInQKEkRlbGV0ZVNpdGVSZXNwb25zZRIfChd1bmFzc2lnbmVkX2RldmljZV9jb3VudBgBIAEoAxIeChZkZWxldGVkX2J1aWxkaW5nX2NvdW50GAIgASgDEh0KFXVuYXNzaWduZWRfcmFja19jb3VudBgDIAEoAyKJAQocUmVhc3NpZ25EZXZpY2VzVG9TaXRlUmVxdWVzdBIkCg50YXJnZXRfc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAiAEBEjAKEmRldmljZV9pZGVudGlmaWVycxgCIAMoCUIUukgRkgEOCAEQkE4iB3IFEAEYgAJCEQoPX3RhcmdldF9zaXRlX2lkIn4KEVBlckRldmljZUNvbmZsaWN0EhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEjEKBnJlYXNvbhgCIAEoDjIhLnNpdGVzLnYxLlBlckRldmljZUNvbmZsaWN0UmVhc29uEhsKE2NvbmZsaWN0aW5nX3NpdGVfaWQYAyABKAMiaQodUmVhc3NpZ25EZXZpY2VzVG9TaXRlUmVzcG9uc2USGAoQcmVhc3NpZ25lZF9jb3VudBgBIAEoAxIuCgljb25mbGljdHMYAiADKAsyGy5zaXRlcy52MS5QZXJEZXZpY2VDb25mbGljdCJ0ChtBc3NpZ25CdWlsZGluZ1RvU2l0ZVJlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAASJAoOdGFyZ2V0X3NpdGVfaWQYAiABKANCB7pIBCICIABIAIgBAUIRCg9fdGFyZ2V0X3NpdGVfaWQiXgocQXNzaWduQnVpbGRpbmdUb1NpdGVSZXNwb25zZRIdChVyZWFzc2lnbmVkX3JhY2tfY291bnQYASABKAMSHwoXcmVhc3NpZ25lZF9kZXZpY2VfY291bnQYAiABKAMiLwoTR2V0U2l0ZVN0YXRzUmVxdWVzdBIYCgdzaXRlX2lkGAEgASgDQge6SAQiAiAAIv8CChRHZXRTaXRlU3RhdHNSZXNwb25zZRIPCgdzaXRlX2lkGAEgASgDEhYKDmJ1aWxkaW5nX2NvdW50GAIgASgFEhQKDGRldmljZV9jb3VudBgDIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYBCABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAUgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgGIAEoARIWCg50b3RhbF9wb3dlcl9rdxgHIAEoARIVCg1oYXNoaW5nX2NvdW50GAggASgFEhQKDGJyb2tlbl9jb3VudBgJIAEoBRIVCg1vZmZsaW5lX2NvdW50GAogASgFEhYKDnNsZWVwaW5nX2NvdW50GAsgASgFEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgMIAEoBRIiChplZmZpY2llbmN5X3JlcG9ydGluZ19jb3VudBgNIAEoBRIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYDiABKAUqswEKF1BlckRldmljZUNvbmZsaWN0UmVhc29uEioKJlBFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX1VOU1BFQ0lGSUVEEAASLworUEVSX0RFVklDRV9DT05GTElDVF9SRUFTT05fREVWSUNFX05PVF9GT1VORBABEjsKN1BFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9JTl9SQUNLX0FUX09USEVSX1NJVEUQAjLOBAoLU2l0ZVNlcnZpY2USRAoJTGlzdFNpdGVzEhouc2l0ZXMudjEuTGlzdFNpdGVzUmVxdWVzdBobLnNpdGVzLnYxLkxpc3RTaXRlc1Jlc3BvbnNlEkcKCkNyZWF0ZVNpdGUSGy5zaXRlcy52MS5DcmVhdGVTaXRlUmVxdWVzdBocLnNpdGVzLnYxLkNyZWF0ZVNpdGVSZXNwb25zZRJHCgpVcGRhdGVTaXRlEhsuc2l0ZXMudjEuVXBkYXRlU2l0ZVJlcXVlc3QaHC5zaXRlcy52MS5VcGRhdGVTaXRlUmVzcG9uc2USRwoKRGVsZXRlU2l0ZRIbLnNpdGVzLnYxLkRlbGV0ZVNpdGVSZXF1ZXN0Ghwuc2l0ZXMudjEuRGVsZXRlU2l0ZVJlc3BvbnNlEmgKFVJlYXNzaWduRGV2aWNlc1RvU2l0ZRImLnNpdGVzLnYxLlJlYXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QaJy5zaXRlcy52MS5SZWFzc2lnbkRldmljZXNUb1NpdGVSZXNwb25zZRJlChRBc3NpZ25CdWlsZGluZ1RvU2l0ZRIlLnNpdGVzLnYxLkFzc2lnbkJ1aWxkaW5nVG9TaXRlUmVxdWVzdBomLnNpdGVzLnYxLkFzc2lnbkJ1aWxkaW5nVG9TaXRlUmVzcG9uc2USTQoMR2V0U2l0ZVN0YXRzEh0uc2l0ZXMudjEuR2V0U2l0ZVN0YXRzUmVxdWVzdBoeLnNpdGVzLnYxLkdldFNpdGVTdGF0c1Jlc3BvbnNlQqABCgxjb20uc2l0ZXMudjFCClNpdGVzUHJvdG9QAVpDZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvc2l0ZXMvdjE7c2l0ZXN2MaICA1NYWKoCCFNpdGVzLlYxygIIU2l0ZXNcVjHiAhRTaXRlc1xWMVxHUEJNZXRhZGF0YeoCCVNpdGVzOjpWMWIGcHJvdG8z",
+    "ChRzaXRlcy92MS9zaXRlcy5wcm90bxIIc2l0ZXMudjEi4gIKBFNpdGUSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRIVCg1sb2NhdGlvbl9jaXR5GAQgASgJEhYKDmxvY2F0aW9uX3N0YXRlGAUgASgJEhAKCHRpbWV6b25lGAYgASgJEhkKEXBvd2VyX2NhcGFjaXR5X213GAcgASgBEhYKDm5ldHdvcmtfY29uZmlnGAggASgJEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB2FkZHJlc3MYCyABKAkSEwoLcG9zdGFsX2NvZGUYDSABKAkSDwoHY291bnRyeRgOIAEoCRINCgVub3RlcxgPIAEoCUoECAMQBEoECAwQDVILZGVzY3JpcHRpb25SDWFkZHJlc3NfbGluZTIicAoOU2l0ZVdpdGhDb3VudHMSHAoEc2l0ZRgBIAEoCzIOLnNpdGVzLnYxLlNpdGUSFAoMZGV2aWNlX2NvdW50GAIgASgDEhYKDmJ1aWxkaW5nX2NvdW50GAMgASgDEhIKCnJhY2tfY291bnQYBCABKAMiEgoQTGlzdFNpdGVzUmVxdWVzdCI8ChFMaXN0U2l0ZXNSZXNwb25zZRInCgVzaXRlcxgBIAMoCzIYLnNpdGVzLnYxLlNpdGVXaXRoQ291bnRzIu0CChFDcmVhdGVTaXRlUmVxdWVzdBIYCgRuYW1lGAEgASgJQgq6SAdyBRABGP8BEh8KDWxvY2F0aW9uX2NpdHkYAyABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAQgASgJQgi6SAVyAxj/ARIZCgh0aW1lem9uZRgFIAEoCUIHukgEcgIYQBIpChFwb3dlcl9jYXBhY2l0eV9tdxgGIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYByABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAggASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgKIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAsgASgJQge6SARyAhgCEhcKBW5vdGVzGAwgASgJQgi6SAVyAxiAIEoECAIQA0oECAkQClILZGVzY3JpcHRpb25SDWFkZHJlc3NfbGluZTIiUwoSQ3JlYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIoIDChFVcGRhdGVTaXRlUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh8KDWxvY2F0aW9uX2NpdHkYBCABKAlCCLpIBXIDGP8BEiAKDmxvY2F0aW9uX3N0YXRlGAUgASgJQgi6SAVyAxj/ARIZCgh0aW1lem9uZRgGIAEoCUIHukgEcgIYQBIpChFwb3dlcl9jYXBhY2l0eV9tdxgHIAEoAUIOukgLEgkpAAAAAAAAAAASIQoObmV0d29ya19jb25maWcYCCABKAlCCbpIBnIEKICAARIZCgdhZGRyZXNzGAkgASgJQgi6SAVyAxj/ARIcCgtwb3N0YWxfY29kZRgLIAEoCUIHukgEcgIYIBIYCgdjb3VudHJ5GAwgASgJQge6SARyAhgCEhcKBW5vdGVzGA0gASgJQgi6SAVyAxiAIEoECAMQBEoECAoQC1ILZGVzY3JpcHRpb25SDWFkZHJlc3NfbGluZTIiUwoSVXBkYXRlU2l0ZVJlc3BvbnNlEhwKBHNpdGUYASABKAsyDi5zaXRlcy52MS5TaXRlEh8KF25ldHdvcmtfY29uZmlnX3dhcm5pbmdzGAIgAygJIigKEURlbGV0ZVNpdGVSZXF1ZXN0EhMKAmlkGAEgASgDQge6SAQiAiAAInQKEkRlbGV0ZVNpdGVSZXNwb25zZRIfChd1bmFzc2lnbmVkX2RldmljZV9jb3VudBgBIAEoAxIeChZkZWxldGVkX2J1aWxkaW5nX2NvdW50GAIgASgDEh0KFXVuYXNzaWduZWRfcmFja19jb3VudBgDIAEoAyKHAQoaQXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QSJAoOdGFyZ2V0X3NpdGVfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACQhEKD190YXJnZXRfc2l0ZV9pZCJ+ChFQZXJEZXZpY2VDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCgZyZWFzb24YAiABKA4yIS5zaXRlcy52MS5QZXJEZXZpY2VDb25mbGljdFJlYXNvbhIbChNjb25mbGljdGluZ19zaXRlX2lkGAMgASgDImcKG0Fzc2lnbkRldmljZXNUb1NpdGVSZXNwb25zZRIYChByZWFzc2lnbmVkX2NvdW50GAEgASgDEi4KCWNvbmZsaWN0cxgCIAMoCzIbLnNpdGVzLnYxLlBlckRldmljZUNvbmZsaWN0IoABChxBc3NpZ25CdWlsZGluZ3NUb1NpdGVSZXF1ZXN0EicKDGJ1aWxkaW5nX2lkcxgBIAMoA0IRukgOkgELCAEQ6AciBCICIAASJAoOdGFyZ2V0X3NpdGVfaWQYAiABKANCB7pIBCICIABIAIgBAUIRCg9fdGFyZ2V0X3NpdGVfaWQiXwodQXNzaWduQnVpbGRpbmdzVG9TaXRlUmVzcG9uc2USHQoVcmVhc3NpZ25lZF9yYWNrX2NvdW50GAEgASgDEh8KF3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAIgASgDIngKGEFzc2lnblJhY2tzVG9TaXRlUmVxdWVzdBIjCghyYWNrX2lkcxgBIAMoA0IRukgOkgELCAEQ6AciBCICIAASJAoOdGFyZ2V0X3NpdGVfaWQYAiABKANCB7pIBCICIABIAIgBAUIRCg9fdGFyZ2V0X3NpdGVfaWQiXAoZQXNzaWduUmFja3NUb1NpdGVSZXNwb25zZRIfChdyZWFzc2lnbmVkX2RldmljZV9jb3VudBgBIAEoAxIeChZjbGVhcmVkX2J1aWxkaW5nX2NvdW50GAIgASgDIi8KE0dldFNpdGVTdGF0c1JlcXVlc3QSGAoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgACL/AgoUR2V0U2l0ZVN0YXRzUmVzcG9uc2USDwoHc2l0ZV9pZBgBIAEoAxIWCg5idWlsZGluZ19jb3VudBgCIAEoBRIUCgxkZXZpY2VfY291bnQYAyABKAUSFwoPcmVwb3J0aW5nX2NvdW50GAQgASgFEhoKEnRvdGFsX2hhc2hyYXRlX3RocxgFIAEoARIaChJhdmdfZWZmaWNpZW5jeV9qdGgYBiABKAESFgoOdG90YWxfcG93ZXJfa3cYByABKAESFQoNaGFzaGluZ19jb3VudBgIIAEoBRIUCgxicm9rZW5fY291bnQYCSABKAUSFQoNb2ZmbGluZV9jb3VudBgKIAEoBRIWCg5zbGVlcGluZ19jb3VudBgLIAEoBRIgChhoYXNocmF0ZV9yZXBvcnRpbmdfY291bnQYDCABKAUSIgoaZWZmaWNpZW5jeV9yZXBvcnRpbmdfY291bnQYDSABKAUSHQoVcG93ZXJfcmVwb3J0aW5nX2NvdW50GA4gASgFKrMBChdQZXJEZXZpY2VDb25mbGljdFJlYXNvbhIqCiZQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEi8KK1BFUl9ERVZJQ0VfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9OT1RfRk9VTkQQARI7CjdQRVJfREVWSUNFX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfSU5fUkFDS19BVF9PVEhFUl9TSVRFEAIyqQUKC1NpdGVTZXJ2aWNlEkQKCUxpc3RTaXRlcxIaLnNpdGVzLnYxLkxpc3RTaXRlc1JlcXVlc3QaGy5zaXRlcy52MS5MaXN0U2l0ZXNSZXNwb25zZRJHCgpDcmVhdGVTaXRlEhsuc2l0ZXMudjEuQ3JlYXRlU2l0ZVJlcXVlc3QaHC5zaXRlcy52MS5DcmVhdGVTaXRlUmVzcG9uc2USRwoKVXBkYXRlU2l0ZRIbLnNpdGVzLnYxLlVwZGF0ZVNpdGVSZXF1ZXN0Ghwuc2l0ZXMudjEuVXBkYXRlU2l0ZVJlc3BvbnNlEkcKCkRlbGV0ZVNpdGUSGy5zaXRlcy52MS5EZWxldGVTaXRlUmVxdWVzdBocLnNpdGVzLnYxLkRlbGV0ZVNpdGVSZXNwb25zZRJiChNBc3NpZ25EZXZpY2VzVG9TaXRlEiQuc2l0ZXMudjEuQXNzaWduRGV2aWNlc1RvU2l0ZVJlcXVlc3QaJS5zaXRlcy52MS5Bc3NpZ25EZXZpY2VzVG9TaXRlUmVzcG9uc2USaAoVQXNzaWduQnVpbGRpbmdzVG9TaXRlEiYuc2l0ZXMudjEuQXNzaWduQnVpbGRpbmdzVG9TaXRlUmVxdWVzdBonLnNpdGVzLnYxLkFzc2lnbkJ1aWxkaW5nc1RvU2l0ZVJlc3BvbnNlElwKEUFzc2lnblJhY2tzVG9TaXRlEiIuc2l0ZXMudjEuQXNzaWduUmFja3NUb1NpdGVSZXF1ZXN0GiMuc2l0ZXMudjEuQXNzaWduUmFja3NUb1NpdGVSZXNwb25zZRJNCgxHZXRTaXRlU3RhdHMSHS5zaXRlcy52MS5HZXRTaXRlU3RhdHNSZXF1ZXN0Gh4uc2l0ZXMudjEuR2V0U2l0ZVN0YXRzUmVzcG9uc2VCoAEKDGNvbS5zaXRlcy52MUIKU2l0ZXNQcm90b1ABWkNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9zaXRlcy92MTtzaXRlc3YxogIDU1hYqgIIU2l0ZXMuVjHKAghTaXRlc1xWMeICFFNpdGVzXFYxXEdQQk1ldGFkYXRh6gIJU2l0ZXM6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -414,9 +414,9 @@ export const DeleteSiteResponseSchema: GenMessage<DeleteSiteResponse> =
   messageDesc(file_sites_v1_sites, 9);
 
 /**
- * @generated from message sites.v1.ReassignDevicesToSiteRequest
+ * @generated from message sites.v1.AssignDevicesToSiteRequest
  */
-export type ReassignDevicesToSiteRequest = Message<"sites.v1.ReassignDevicesToSiteRequest"> & {
+export type AssignDevicesToSiteRequest = Message<"sites.v1.AssignDevicesToSiteRequest"> & {
   /**
    * Unset = move to the "Unassigned" bucket. When present, must be > 0.
    *
@@ -431,16 +431,16 @@ export type ReassignDevicesToSiteRequest = Message<"sites.v1.ReassignDevicesToSi
 };
 
 /**
- * Describes the message sites.v1.ReassignDevicesToSiteRequest.
- * Use `create(ReassignDevicesToSiteRequestSchema)` to create a new message.
+ * Describes the message sites.v1.AssignDevicesToSiteRequest.
+ * Use `create(AssignDevicesToSiteRequestSchema)` to create a new message.
  */
-export const ReassignDevicesToSiteRequestSchema: GenMessage<ReassignDevicesToSiteRequest> =
+export const AssignDevicesToSiteRequestSchema: GenMessage<AssignDevicesToSiteRequest> =
   /*@__PURE__*/
   messageDesc(file_sites_v1_sites, 10);
 
 /**
  * PerDeviceConflict carries the per-device error details surfaced
- * when ReassignDevicesToSite rejects. The whole batch is rejected;
+ * when AssignDevicesToSite rejects. The whole batch is rejected;
  * no rows are mutated.
  *
  * @generated from message sites.v1.PerDeviceConflict
@@ -474,9 +474,9 @@ export const PerDeviceConflictSchema: GenMessage<PerDeviceConflict> =
   messageDesc(file_sites_v1_sites, 11);
 
 /**
- * @generated from message sites.v1.ReassignDevicesToSiteResponse
+ * @generated from message sites.v1.AssignDevicesToSiteResponse
  */
-export type ReassignDevicesToSiteResponse = Message<"sites.v1.ReassignDevicesToSiteResponse"> & {
+export type AssignDevicesToSiteResponse = Message<"sites.v1.AssignDevicesToSiteResponse"> & {
   /**
    * @generated from field: int64 reassigned_count = 1;
    */
@@ -491,24 +491,24 @@ export type ReassignDevicesToSiteResponse = Message<"sites.v1.ReassignDevicesToS
 };
 
 /**
- * Describes the message sites.v1.ReassignDevicesToSiteResponse.
- * Use `create(ReassignDevicesToSiteResponseSchema)` to create a new message.
+ * Describes the message sites.v1.AssignDevicesToSiteResponse.
+ * Use `create(AssignDevicesToSiteResponseSchema)` to create a new message.
  */
-export const ReassignDevicesToSiteResponseSchema: GenMessage<ReassignDevicesToSiteResponse> =
+export const AssignDevicesToSiteResponseSchema: GenMessage<AssignDevicesToSiteResponse> =
   /*@__PURE__*/
   messageDesc(file_sites_v1_sites, 12);
 
 /**
- * @generated from message sites.v1.AssignBuildingToSiteRequest
+ * @generated from message sites.v1.AssignBuildingsToSiteRequest
  */
-export type AssignBuildingToSiteRequest = Message<"sites.v1.AssignBuildingToSiteRequest"> & {
+export type AssignBuildingsToSiteRequest = Message<"sites.v1.AssignBuildingsToSiteRequest"> & {
   /**
-   * @generated from field: int64 building_id = 1;
+   * @generated from field: repeated int64 building_ids = 1;
    */
-  buildingId: bigint;
+  buildingIds: bigint[];
 
   /**
-   * Unset = move building to "Unassigned". When present, must be > 0.
+   * Unset = move buildings to "Unassigned". When present, must be > 0.
    *
    * @generated from field: optional int64 target_site_id = 2;
    */
@@ -516,20 +516,21 @@ export type AssignBuildingToSiteRequest = Message<"sites.v1.AssignBuildingToSite
 };
 
 /**
- * Describes the message sites.v1.AssignBuildingToSiteRequest.
- * Use `create(AssignBuildingToSiteRequestSchema)` to create a new message.
+ * Describes the message sites.v1.AssignBuildingsToSiteRequest.
+ * Use `create(AssignBuildingsToSiteRequestSchema)` to create a new message.
  */
-export const AssignBuildingToSiteRequestSchema: GenMessage<AssignBuildingToSiteRequest> =
+export const AssignBuildingsToSiteRequestSchema: GenMessage<AssignBuildingsToSiteRequest> =
   /*@__PURE__*/
   messageDesc(file_sites_v1_sites, 13);
 
 /**
- * @generated from message sites.v1.AssignBuildingToSiteResponse
+ * @generated from message sites.v1.AssignBuildingsToSiteResponse
  */
-export type AssignBuildingToSiteResponse = Message<"sites.v1.AssignBuildingToSiteResponse"> & {
+export type AssignBuildingsToSiteResponse = Message<"sites.v1.AssignBuildingsToSiteResponse"> & {
   /**
    * Cascade impact: how many racks and devices were re-stamped with
-   * the new site_id in the same transaction.
+   * the new site_id in the same transaction, aggregated across every
+   * building in the batch.
    *
    * @generated from field: int64 reassigned_rack_count = 1;
    */
@@ -542,12 +543,68 @@ export type AssignBuildingToSiteResponse = Message<"sites.v1.AssignBuildingToSit
 };
 
 /**
- * Describes the message sites.v1.AssignBuildingToSiteResponse.
- * Use `create(AssignBuildingToSiteResponseSchema)` to create a new message.
+ * Describes the message sites.v1.AssignBuildingsToSiteResponse.
+ * Use `create(AssignBuildingsToSiteResponseSchema)` to create a new message.
  */
-export const AssignBuildingToSiteResponseSchema: GenMessage<AssignBuildingToSiteResponse> =
+export const AssignBuildingsToSiteResponseSchema: GenMessage<AssignBuildingsToSiteResponse> =
   /*@__PURE__*/
   messageDesc(file_sites_v1_sites, 14);
+
+/**
+ * @generated from message sites.v1.AssignRacksToSiteRequest
+ */
+export type AssignRacksToSiteRequest = Message<"sites.v1.AssignRacksToSiteRequest"> & {
+  /**
+   * @generated from field: repeated int64 rack_ids = 1;
+   */
+  rackIds: bigint[];
+
+  /**
+   * Unset = move racks to "Unassigned" (site_id NULL). When present,
+   * must be > 0.
+   *
+   * @generated from field: optional int64 target_site_id = 2;
+   */
+  targetSiteId?: bigint | undefined;
+};
+
+/**
+ * Describes the message sites.v1.AssignRacksToSiteRequest.
+ * Use `create(AssignRacksToSiteRequestSchema)` to create a new message.
+ */
+export const AssignRacksToSiteRequestSchema: GenMessage<AssignRacksToSiteRequest> =
+  /*@__PURE__*/
+  messageDesc(file_sites_v1_sites, 15);
+
+/**
+ * @generated from message sites.v1.AssignRacksToSiteResponse
+ */
+export type AssignRacksToSiteResponse = Message<"sites.v1.AssignRacksToSiteResponse"> & {
+  /**
+   * Cascade impact: how many devices had their site_id re-stamped
+   * across every rack in the batch.
+   *
+   * @generated from field: int64 reassigned_device_count = 1;
+   */
+  reassignedDeviceCount: bigint;
+
+  /**
+   * Number of racks whose building_id was cleared because the move
+   * crossed site boundaries. UI can use this to prompt for
+   * re-assignment to a building in the new site.
+   *
+   * @generated from field: int64 cleared_building_count = 2;
+   */
+  clearedBuildingCount: bigint;
+};
+
+/**
+ * Describes the message sites.v1.AssignRacksToSiteResponse.
+ * Use `create(AssignRacksToSiteResponseSchema)` to create a new message.
+ */
+export const AssignRacksToSiteResponseSchema: GenMessage<AssignRacksToSiteResponse> =
+  /*@__PURE__*/
+  messageDesc(file_sites_v1_sites, 16);
 
 /**
  * @generated from message sites.v1.GetSiteStatsRequest
@@ -565,7 +622,7 @@ export type GetSiteStatsRequest = Message<"sites.v1.GetSiteStatsRequest"> & {
  */
 export const GetSiteStatsRequestSchema: GenMessage<GetSiteStatsRequest> =
   /*@__PURE__*/
-  messageDesc(file_sites_v1_sites, 15);
+  messageDesc(file_sites_v1_sites, 17);
 
 /**
  * GetSiteStatsResponse mirrors device_set.v1.DeviceSetStats for the
@@ -661,11 +718,11 @@ export type GetSiteStatsResponse = Message<"sites.v1.GetSiteStatsResponse"> & {
  */
 export const GetSiteStatsResponseSchema: GenMessage<GetSiteStatsResponse> =
   /*@__PURE__*/
-  messageDesc(file_sites_v1_sites, 16);
+  messageDesc(file_sites_v1_sites, 18);
 
 /**
  * PerDeviceConflictReason enumerates the reasons a device can be
- * rejected by ReassignDevicesToSite.
+ * rejected by AssignDevicesToSite.
  *
  * @generated from enum sites.v1.PerDeviceConflictReason
  */
@@ -751,31 +808,50 @@ export const SiteService: GenService<{
     output: typeof DeleteSiteResponseSchema;
   };
   /**
-   * ReassignDevicesToSite is an all-or-nothing bulk update of
+   * AssignDevicesToSite is an all-or-nothing bulk update of
    * device.site_id. If any device is in a rack whose site_id differs
    * from the target, the entire batch rejects with per-device error
    * details and no row is touched. Omit target_site_id (or leave it
    * unset) to move devices to the "Unassigned" bucket.
    *
-   * @generated from rpc sites.v1.SiteService.ReassignDevicesToSite
+   * @generated from rpc sites.v1.SiteService.AssignDevicesToSite
    */
-  reassignDevicesToSite: {
+  assignDevicesToSite: {
     methodKind: "unary";
-    input: typeof ReassignDevicesToSiteRequestSchema;
-    output: typeof ReassignDevicesToSiteResponseSchema;
+    input: typeof AssignDevicesToSiteRequestSchema;
+    output: typeof AssignDevicesToSiteResponseSchema;
   };
   /**
-   * AssignBuildingToSite moves a building to a different site
-   * (or to "Unassigned" when target_site_id is unset). The same
-   * transaction cascades site_id down to the building's racks and
-   * their devices. Returns the cascade counts.
+   * AssignBuildingsToSite moves one or more buildings to a target site
+   * (or to "Unassigned" when target_site_id is unset). All updates run
+   * in a single transaction; if any building fails, the batch rolls
+   * back. The same transaction cascades site_id down to each
+   * building's racks and their devices. Returns the aggregate cascade
+   * counts across every building in the batch.
    *
-   * @generated from rpc sites.v1.SiteService.AssignBuildingToSite
+   * @generated from rpc sites.v1.SiteService.AssignBuildingsToSite
    */
-  assignBuildingToSite: {
+  assignBuildingsToSite: {
     methodKind: "unary";
-    input: typeof AssignBuildingToSiteRequestSchema;
-    output: typeof AssignBuildingToSiteResponseSchema;
+    input: typeof AssignBuildingsToSiteRequestSchema;
+    output: typeof AssignBuildingsToSiteResponseSchema;
+  };
+  /**
+   * AssignRacksToSite moves one or more racks to a target site (or
+   * to "Unassigned" when target_site_id is unset) as a partial
+   * update — the rack's label, layout, members, and slot
+   * assignments stay untouched, only site_id changes. building_id is
+   * auto-cleared on any site transition since a building belongs to
+   * a single site; the response carries the count of racks whose
+   * building was cleared so the UI can prompt for re-assignment.
+   * Same transaction cascades device.site_id for every rack member.
+   *
+   * @generated from rpc sites.v1.SiteService.AssignRacksToSite
+   */
+  assignRacksToSite: {
+    methodKind: "unary";
+    input: typeof AssignRacksToSiteRequestSchema;
+    output: typeof AssignRacksToSiteResponseSchema;
   };
   /**
    * GetSiteStats returns server-rolled telemetry + miner-state counts

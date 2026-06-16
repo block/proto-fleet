@@ -1,9 +1,12 @@
 package fleetmanagement_test
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,16 +20,100 @@ import (
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsv2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+type deadlineRefreshTelemetryCollector struct{}
+
+func (deadlineRefreshTelemetryCollector) RemoveDevices(_ context.Context, _ ...minermodels.DeviceIdentifier) error {
+	return nil
+}
+
+func (deadlineRefreshTelemetryCollector) GetLatestDeviceMetrics(
+	_ context.Context,
+	_ []minermodels.DeviceIdentifier,
+) (map[minermodels.DeviceIdentifier]modelsv2.DeviceMetrics, error) {
+	return nil, nil
+}
+
+func (deadlineRefreshTelemetryCollector) RefreshDevice(ctx context.Context, _ telemetrymodels.Device) error {
+	<-ctx.Done()
+	return ctx.Err() //nolint:wrapcheck
+}
+
+func (deadlineRefreshTelemetryCollector) RefreshDeviceTimeout() time.Duration {
+	return 10 * time.Millisecond
+}
+
+type failingRefreshTelemetryCollector struct {
+	err error
+}
+
+func (f failingRefreshTelemetryCollector) RemoveDevices(_ context.Context, _ ...minermodels.DeviceIdentifier) error {
+	return nil
+}
+
+func (f failingRefreshTelemetryCollector) GetLatestDeviceMetrics(
+	_ context.Context,
+	_ []minermodels.DeviceIdentifier,
+) (map[minermodels.DeviceIdentifier]modelsv2.DeviceMetrics, error) {
+	return nil, nil
+}
+
+func (f failingRefreshTelemetryCollector) RefreshDevice(_ context.Context, _ telemetrymodels.Device) error {
+	return f.err
+}
+
+func (f failingRefreshTelemetryCollector) RefreshDeviceTimeout() time.Duration {
+	return 10 * time.Second
+}
+
+type recordingRefreshTelemetryCollector struct {
+	mu        sync.Mutex
+	refreshed []string
+}
+
+func (r *recordingRefreshTelemetryCollector) RemoveDevices(_ context.Context, _ ...minermodels.DeviceIdentifier) error {
+	return nil
+}
+
+func (r *recordingRefreshTelemetryCollector) GetLatestDeviceMetrics(
+	_ context.Context,
+	_ []minermodels.DeviceIdentifier,
+) (map[minermodels.DeviceIdentifier]modelsv2.DeviceMetrics, error) {
+	return nil, nil
+}
+
+func (r *recordingRefreshTelemetryCollector) RefreshDevice(_ context.Context, device telemetrymodels.Device) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.refreshed = append(r.refreshed, string(device.ID))
+	return nil
+}
+
+func (r *recordingRefreshTelemetryCollector) RefreshDeviceTimeout() time.Duration {
+	return 10 * time.Second
+}
+
+func (r *recordingRefreshTelemetryCollector) Refreshed() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.refreshed...)
+}
 
 func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	if testing.Short() {
@@ -84,6 +171,273 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	assert.Len(t, resp.Miners, 4, "Should return both paired and unpaired devices")
 	assert.Equal(t, int32(4), resp.TotalMiners)
 	assert.Empty(t, resp.Cursor) // No more pages
+}
+
+func TestService_RefreshMiners_ShouldReturnErrorWithoutSnapshotWhenRefreshTimesOut(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB),
+		deadlineRefreshTelemetryCollector{},
+		testContext.ServiceProvider.MinerService,
+		testContext.ServiceProvider.PluginService,
+		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
+		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
+		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
+		testContext.ServiceProvider.CommandService,
+		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: deviceIDs})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.Snapshots)
+	require.Contains(t, resp.Errors, deviceIDs[0])
+	assert.Equal(t, "refresh timed out", resp.Errors[deviceIDs[0]])
+}
+
+func TestService_RefreshMiners_ShouldTrimDeviceIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+
+	collector := &recordingRefreshTelemetryCollector{}
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	service := fleetmanagement.NewService(
+		sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB),
+		collector,
+		testContext.ServiceProvider.MinerService,
+		testContext.ServiceProvider.PluginService,
+		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
+		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
+		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
+		testContext.ServiceProvider.CommandService,
+		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{"  " + deviceIDs[0] + "  "}})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	assert.Empty(t, resp.Errors)
+	assert.Equal(t, []string{deviceIDs[0]}, collector.Refreshed())
+}
+
+func TestService_RefreshMiners_ShouldReturnMixedSuccessAndNotFoundErrors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := testContext.ServiceProvider.FleetManagementService.RefreshMiners(ctx, &pb.RefreshMinersRequest{
+		DeviceIds: []string{deviceIDs[0], "missing-device"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	require.Contains(t, resp.Errors, "missing-device")
+	assert.Equal(t, "not found", resp.Errors["missing-device"])
+}
+
+func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) {
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
+	service := fleetmanagement.NewService(
+		nil,
+		nil,
+		fleetmanagement.NewMockTelemetryCollector(),
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{
+		DeviceIds: []string{"   "},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collector := &recordingRefreshTelemetryCollector{}
+
+	const (
+		deviceID = "node-owned-device"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetDeviceByDeviceIdentifier(gomock.Any(), deviceID, orgID).
+		Return(&pairingpb.Device{DeviceIdentifier: deviceID}, nil)
+	deviceStore.EXPECT().
+		IsDeviceOwnedByFleetNode(gomock.Any(), deviceID, orgID).
+		Return(true, nil)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		nil,
+		collector,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{deviceID}})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.Snapshots)
+	require.Contains(t, resp.Errors, deviceID)
+	assert.Contains(t, resp.Errors[deviceID], "fleet-node-owned miners are not supported")
+	assert.Empty(t, collector.Refreshed())
+}
+
+func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		deviceID = "refresh-error-device"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetDeviceByDeviceIdentifier(gomock.Any(), deviceID, orgID).
+		Return(&pairingpb.Device{DeviceIdentifier: deviceID}, nil)
+	deviceStore.EXPECT().
+		IsDeviceOwnedByFleetNode(gomock.Any(), deviceID, orgID).
+		Return(false, nil)
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		nil,
+		failingRefreshTelemetryCollector{err: errors.New("secret database host: db.internal")},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{deviceID}})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.Snapshots)
+	require.Contains(t, resp.Errors, deviceID)
+	assert.Equal(t, "refresh failed", resp.Errors[deviceID])
+	assert.NotContains(t, resp.Errors[deviceID], "secret")
+}
+
+func TestService_RefreshMinerResourceContexts_ShouldResolveHiddenDeviceSites(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		visibleID = "visible-device"
+		hiddenID  = "hidden-device"
+		missingID = "missing-device"
+		orgID     = int64(123)
+		siteID    = int64(456)
+	)
+	hiddenSiteID := int64(789)
+
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(3), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		DoAndReturn(func(
+			_ context.Context,
+			_ int64,
+			_ string,
+			_ int32,
+			filter *interfaces.MinerFilter,
+			_ *interfaces.SortConfig,
+		) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+			assert.ElementsMatch(t, []string{visibleID, hiddenID, missingID}, filter.DeviceIdentifiers)
+			return []sqlc.ListMinerStateSnapshotsRow{{
+				DeviceIdentifier: visibleID,
+				PairingStatus:    "UNPAIRED",
+				SiteID:           sql.NullInt64{Int64: siteID, Valid: true},
+			}}, "", 1, nil
+		})
+	deviceStore.EXPECT().
+		GetDeviceSiteID(gomock.Any(), hiddenID, orgID).
+		Return(&hiddenSiteID, nil)
+	deviceStore.EXPECT().
+		GetDeviceSiteID(gomock.Any(), missingID, orgID).
+		Return(nil, fleeterror.NewNotFoundErrorf("device not found with identifier=%s org_id=%d", missingID, orgID))
+
+	service := fleetmanagement.NewService(
+		deviceStore,
+		nil,
+		fleetmanagement.NewMockTelemetryCollector(),
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	contexts, err := service.RefreshMinerResourceContexts(ctx, &pb.RefreshMinersRequest{
+		DeviceIds: []string{visibleID, hiddenID, missingID},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, contexts, 3)
+	require.NotNil(t, contexts[visibleID].SiteID)
+	assert.Equal(t, siteID, *contexts[visibleID].SiteID)
+	require.NotNil(t, contexts[hiddenID].SiteID)
+	assert.Equal(t, hiddenSiteID, *contexts[hiddenID].SiteID)
+	assert.Equal(t, authz.ResourceContext{}, contexts[missingID])
 }
 
 func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.T) {

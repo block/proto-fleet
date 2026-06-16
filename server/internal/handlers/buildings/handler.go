@@ -113,16 +113,16 @@ func (h *Handler) ListBuildingRacks(ctx context.Context, req *connect.Request[pb
 	return connect.NewResponse(toListBuildingRacksResponse(racks, nextPageToken)), nil
 }
 
-func (h *Handler) AssignRackToBuilding(ctx context.Context, req *connect.Request[pb.AssignRackToBuildingRequest]) (*connect.Response[pb.AssignRackToBuildingResponse], error) {
+func (h *Handler) AssignRacksToBuilding(ctx context.Context, req *connect.Request[pb.AssignRacksToBuildingRequest]) (*connect.Response[pb.AssignRacksToBuildingResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.AssignRackToBuilding(ctx, toAssignRackToBuildingParams(req.Msg, info.OrganizationID))
+	out, err := h.service.AssignRacksToBuilding(ctx, toAssignRacksToBuildingParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.AssignRackToBuildingResponse{
+	return connect.NewResponse(&pb.AssignRacksToBuildingResponse{
 		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
 	}), nil
 }
@@ -172,7 +172,7 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 	}
 	// Pass the building's site as we saw it at authz time. The service
 	// re-reads the building and rejects with NotFound if a concurrent
-	// AssignBuildingToSite moved it — otherwise a site-scoped caller
+	// AssignBuildingsToSite moved it — otherwise a site-scoped caller
 	// could end up with telemetry for a site they're not authorized for.
 	out, err := h.service.GetBuildingStats(ctx, info.OrganizationID, req.Msg.GetBuildingId(), building.SiteID)
 	if err != nil {

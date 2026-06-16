@@ -18,6 +18,7 @@ import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { type ColConfig } from "@/shared/components/List/types";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 
 type CreateMinerColConfigParams = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
@@ -28,7 +29,15 @@ type CreateMinerColConfigParams = {
   /** Ref to avoid recreating the column config on every callback change. Read at render time. */
   onRefetchMinersRef: MutableRefObject<(() => void) | undefined>;
   /** Ref to avoid recreating the column config on every callback change. Read at render time. */
+  onRefreshMinersCompleteRef: MutableRefObject<(() => void) | undefined>;
+  /** Ref to avoid recreating the column config on every callback change. Read at render time. */
   onWorkerNameUpdatedRef: MutableRefObject<((deviceIdentifier: string, workerName: string) => void) | undefined>;
+  /** Ref to avoid recreating the column config on every callback change. Read at render time. */
+  onMergeMinersRef: MutableRefObject<((snapshots: MinerStateSnapshot[]) => void) | undefined>;
+  /** Ref to avoid recreating the column config on every callback change. Read at render time. */
+  onMinerRefreshStateChangeRef: MutableRefObject<
+    ((deviceIdentifier: string, isRefreshing: boolean) => void) | undefined
+  >;
 };
 
 const createMinerColConfig = ({
@@ -37,7 +46,10 @@ const createMinerColConfig = ({
   errorsLoaded,
   minersRef,
   onRefetchMinersRef,
+  onRefreshMinersCompleteRef,
   onWorkerNameUpdatedRef,
+  onMergeMinersRef,
+  onMinerRefreshStateChangeRef,
 }: CreateMinerColConfigParams): ColConfig<DeviceListItem, string, MinerColumn> => ({
   [minerCols.name]: {
     component: (device: DeviceListItem) => {
@@ -51,7 +63,10 @@ const createMinerColConfig = ({
           onOpenStatusFlow={onOpenStatusFlow}
           miners={minersRef.current}
           onRefetchMiners={onRefetchMinersRef.current}
+          onRefreshMinersComplete={onRefreshMinersCompleteRef.current}
           onWorkerNameUpdated={onWorkerNameUpdatedRef.current}
+          onMergeMiners={onMergeMinersRef.current}
+          onMinerRefreshStateChange={onMinerRefreshStateChangeRef.current}
         />
       );
     },
@@ -59,7 +74,8 @@ const createMinerColConfig = ({
   },
   [minerCols.workerName]: {
     component: (device: DeviceListItem) => <MinerWorkerName miner={device.miner} />,
-    width: "w-[120px]",
+    width: "w-[176px]",
+    allowOverflow: true,
   },
   [minerCols.model]: {
     component: (device: DeviceListItem) => <MinerModel miner={device.miner} />,
@@ -75,7 +91,12 @@ const createMinerColConfig = ({
   },
   [minerCols.status]: {
     component: (device: DeviceListItem) => (
-      <MinerStatusCell device={device} errorsLoaded={errorsLoaded} onOpenStatusFlow={onOpenStatusFlow} />
+      <MinerStatusCell
+        device={device}
+        errorsLoaded={errorsLoaded}
+        onOpenStatusFlow={onOpenStatusFlow}
+        isRefreshing={device.isRefreshing}
+      />
     ),
     width: "w-[200px]",
   },
@@ -86,19 +107,23 @@ const createMinerColConfig = ({
     width: "w-[200px]",
   },
   [minerCols.hashrate]: {
-    component: (device: DeviceListItem) => <MinerHashrate miner={device.miner} />,
+    component: (device: DeviceListItem) =>
+      device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerHashrate miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.efficiency]: {
-    component: (device: DeviceListItem) => <MinerEfficiency miner={device.miner} />,
+    component: (device: DeviceListItem) =>
+      device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerEfficiency miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.powerUsage]: {
-    component: (device: DeviceListItem) => <MinerPowerUsage miner={device.miner} />,
+    component: (device: DeviceListItem) =>
+      device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerPowerUsage miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.temperature]: {
-    component: (device: DeviceListItem) => <MinerTemperature miner={device.miner} />,
+    component: (device: DeviceListItem) =>
+      device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerTemperature miner={device.miner} />,
     width: "w-[80px]",
   },
   [minerCols.firmware]: {

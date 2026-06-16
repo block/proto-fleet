@@ -15,7 +15,10 @@ type MinerNameProps = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
+  onRefreshMinersComplete?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
+  onMergeMiners?: (snapshots: MinerStateSnapshot[]) => void;
+  onMinerRefreshStateChange?: (deviceIdentifier: string, isRefreshing: boolean) => void;
 };
 
 const MinerName = ({
@@ -25,7 +28,10 @@ const MinerName = ({
   onOpenStatusFlow,
   miners,
   onRefetchMiners,
+  onRefreshMinersComplete,
   onWorkerNameUpdated,
+  onMergeMiners,
+  onMinerRefreshStateChange,
 }: MinerNameProps) => {
   const deviceIdentifier = miner.deviceIdentifier;
   const name = miner.name || deviceIdentifier;
@@ -62,7 +68,10 @@ const MinerName = ({
           needsAuthentication={needsAuthentication}
           miners={miners}
           onRefetchMiners={onRefetchMiners}
+          onRefreshMinersComplete={onRefreshMinersComplete}
           onWorkerNameUpdated={onWorkerNameUpdated}
+          onMergeMiners={onMergeMiners}
+          onMinerRefreshStateChange={onMinerRefreshStateChange}
         />
       </div>
     </div>

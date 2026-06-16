@@ -962,7 +962,10 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("");
 
     const saveButtons = screen.getAllByRole("button", { name: "Save profile" });
-    expect(saveButtons.every((button) => button instanceof HTMLButtonElement && button.disabled)).toBe(true);
+    expect(saveButtons.every((button) => button instanceof HTMLButtonElement && !button.disabled)).toBe(true);
+
+    fireEvent.click(getEnabledButton("Save profile"));
+    await waitFor(() => expect(screen.getByText("Enter a profile name.")).toBeVisible());
 
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "25" } });
@@ -1058,12 +1061,19 @@ describe("CurtailmentSettingsPage", () => {
     const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(testConnectionButton).toBeDisabled();
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
     expect(testConnectionButton.compareDocumentPosition(saveButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-    fireEvent.click(testConnectionButton);
+    fireEvent.click(saveButton);
 
     expect(screen.getByTestId("curtailment-source-modal")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Enter a configuration name.")).toBeVisible());
+    expect(screen.getByText("Enter broker host 1.")).toBeVisible();
+    expect(screen.getByText("Enter broker host 2.")).toBeVisible();
+    expect(screen.getByText("Enter a port.")).toBeVisible();
+    expect(screen.getByText("Enter a topic.")).toBeVisible();
+    expect(screen.getByText("Enter a username.")).toBeVisible();
+    expect(screen.getByText("Enter a password.")).toBeVisible();
 
     fillSourceForm();
 
@@ -1087,7 +1097,7 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add source" }));
     fillSourceForm();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(screen.getByLabelText("Password"), { key: "Enter", code: "Enter" });
 
     await waitFor(() => expect(createSourceMock).toHaveBeenCalledWith(testSourceFormValues));
     await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
@@ -1200,6 +1210,51 @@ describe("CurtailmentSettingsPage", () => {
         password: "updated-secret",
       }),
     );
+  });
+
+  it("clears the saved-password placeholder when testing an edited source requires a password", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockSourcesApi({ sources: apiSources });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
+
+    const passwordInput = screen.getByLabelText("Password");
+    expect(passwordInput).toHaveValue("......");
+
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(screen.getByText("Enter a password.")).toBeVisible());
+    expect(passwordInput).toHaveValue("");
+    expect(testConnectionMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the saved-password placeholder when saving an edited source requires a password", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockSourcesApi({ sources: apiSources });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
+
+    const passwordInput = screen.getByLabelText("Password");
+    expect(passwordInput).toHaveValue("......");
+
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "updated-alpha" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByText("Enter a password.")).toBeVisible());
+    expect(passwordInput).toHaveValue("");
+    expect(updateSourceMock).not.toHaveBeenCalled();
   });
 
   it("updates a source through the API hook from the routed page", async () => {

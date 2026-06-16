@@ -42,6 +42,13 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
+	// RunInTxWithResult fake: same inline behavior for the per-attempt
+	// counter pattern used by AssignRacksToBuilding.
+	tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+			return fn(ctx)
+		},
+	)
 	// GetBuildingStats isn't exercised here; pass nil for stats-only deps.
 	svc := buildings.NewService(buildingStore, siteStore, collectionStore, nil, nil, tx, nil)
 	return &testHarness{
@@ -363,17 +370,17 @@ func TestHandler_ListBuildingRacks_happy(t *testing.T) {
 	assert.Equal(t, "next-rack-page", resp.Msg.GetNextPageToken())
 }
 
-// AssignRackToBuilding requires PermSiteManage — callers without it
+// AssignRacksToBuilding requires PermSiteManage — callers without it
 // are rejected before the service is touched.
-func TestHandler_AssignRackToBuilding_rejectsCallerWithoutSiteManage(t *testing.T) {
+func TestHandler_AssignRacksToBuilding_rejectsCallerWithoutSiteManage(t *testing.T) {
 	t.Parallel()
 	h := NewHandler(nil)
 	// PermSiteRead alone does NOT satisfy PermSiteManage.
 	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteRead)
 	buildingID := int64(11)
-	_, err := h.AssignRackToBuilding(ctx, connect.NewRequest(&pb.AssignRackToBuildingRequest{
-		RackId:     99,
-		BuildingId: &buildingID,
+	_, err := h.AssignRacksToBuilding(ctx, connect.NewRequest(&pb.AssignRacksToBuildingRequest{
+		Racks:            []*pb.RackPlacement{{RackId: 99}},
+		TargetBuildingId: &buildingID,
 	}))
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
@@ -381,10 +388,10 @@ func TestHandler_AssignRackToBuilding_rejectsCallerWithoutSiteManage(t *testing.
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-// AssignRackToBuilding: PermSiteManage clears the gate and request
+// AssignRacksToBuilding: PermSiteManage clears the gate and request
 // fields thread through to service params; response carries
 // SiteReassignedDeviceCount.
-func TestHandler_AssignRackToBuilding_happy(t *testing.T) {
+func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
@@ -401,17 +408,25 @@ func TestHandler_AssignRackToBuilding_happy(t *testing.T) {
 			Return(nil),
 		h.collectionStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(99), int64(7), &siteID).
 			Return(int64(3), nil),
+		// Pass-1 NULL vacate + pass-2 real place — splitting the
+		// position write into two passes lets swaps and move-into-
+		// occupied-cell requests commit without tripping the partial
+		// unique index mid-loop.
+		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), gomock.Nil(), gomock.Nil()).
+			Return(nil),
 		h.buildingStore.EXPECT().SetRackBuildingPosition(gomock.Any(), int64(7), int64(99), ptrInt32t(1), ptrInt32t(2)).
 			Return(nil),
 	)
 
 	aisle := int32(1)
 	pos := int32(2)
-	resp, err := h.handler.AssignRackToBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRackToBuildingRequest{
-		RackId:          99,
-		BuildingId:      &buildingID,
-		AisleIndex:      &aisle,
-		PositionInAisle: &pos,
+	resp, err := h.handler.AssignRacksToBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToBuildingRequest{
+		TargetBuildingId: &buildingID,
+		Racks: []*pb.RackPlacement{{
+			RackId:          99,
+			AisleIndex:      &aisle,
+			PositionInAisle: &pos,
+		}},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), resp.Msg.GetSiteReassignedDeviceCount())

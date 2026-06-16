@@ -28,7 +28,7 @@ type BuildingStore interface {
 	ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error)
 
 	// UpdateBuilding mutates the row's mutable fields (excluding
-	// site_id — that lives on SiteService.AssignBuildingToSite for
+	// site_id — that lives on SiteService.AssignBuildingsToSite for
 	// cross-collection enforcement). Returns NotFound when row gone.
 	UpdateBuilding(ctx context.Context, params models.UpdateParams) (*models.Building, error)
 

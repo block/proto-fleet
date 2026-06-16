@@ -114,7 +114,7 @@ interface DeleteSiteProps {
   onFinally?: () => void;
 }
 
-interface ReassignDevicesToSiteProps {
+interface AssignDevicesToSiteProps {
   // Unset routes the devices to the "Unassigned" bucket; the create flow
   // always supplies a target so this is typically set in practice.
   targetSiteId?: bigint;
@@ -128,12 +128,26 @@ interface ReassignDevicesToSiteProps {
   onFinally?: () => void;
 }
 
-interface AssignBuildingToSiteProps {
-  buildingId: bigint;
-  // Unset moves the building to "Unassigned".
+interface AssignBuildingsToSiteProps {
+  // Bulk-friendly. Pass a single-element array for the singular case.
+  buildingIds: bigint[];
+  // Unset moves the buildings to "Unassigned".
   targetSiteId?: bigint;
   signal?: AbortSignal;
   onSuccess?: (reassignedRackCount: bigint, reassignedDeviceCount: bigint) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+interface AssignRacksToSiteProps {
+  // Bulk-friendly. Pass a single-element array for the singular case.
+  rackIds: bigint[];
+  // Unset moves the racks to "Unassigned".
+  targetSiteId?: bigint;
+  signal?: AbortSignal;
+  // onSuccess args: device cascade count, count of racks whose
+  // building was auto-cleared because the move crossed sites.
+  onSuccess?: (reassignedDeviceCount: bigint, clearedBuildingCount: bigint) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -267,10 +281,10 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  const reassignDevicesToSite = useCallback(
-    async ({ targetSiteId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: ReassignDevicesToSiteProps) => {
+  const assignDevicesToSite = useCallback(
+    async ({ targetSiteId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToSiteProps) => {
       try {
-        const response = await sitesClient.reassignDevicesToSite(
+        const response = await sitesClient.assignDevicesToSite(
           {
             targetSiteId,
             deviceIdentifiers,
@@ -298,12 +312,12 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  const assignBuildingToSite = useCallback(
-    async ({ buildingId, targetSiteId, signal, onSuccess, onError, onFinally }: AssignBuildingToSiteProps) => {
+  const assignBuildingsToSite = useCallback(
+    async ({ buildingIds, targetSiteId, signal, onSuccess, onError, onFinally }: AssignBuildingsToSiteProps) => {
       try {
-        const response = await sitesClient.assignBuildingToSite(
+        const response = await sitesClient.assignBuildingsToSite(
           {
-            buildingId,
+            buildingIds,
             targetSiteId,
           },
           { signal },
@@ -325,7 +339,42 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
-  return { listSites, createSite, updateSite, deleteSite, reassignDevicesToSite, assignBuildingToSite };
+  const assignRacksToSite = useCallback(
+    async ({ rackIds, targetSiteId, signal, onSuccess, onError, onFinally }: AssignRacksToSiteProps) => {
+      try {
+        const response = await sitesClient.assignRacksToSite(
+          {
+            rackIds,
+            targetSiteId,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        onSuccess?.(response.reassignedDeviceCount, response.clearedBuildingCount);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  return {
+    listSites,
+    createSite,
+    updateSite,
+    deleteSite,
+    assignDevicesToSite,
+    assignBuildingsToSite,
+    assignRacksToSite,
+  };
 };
 
 export { useSites };

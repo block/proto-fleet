@@ -233,14 +233,12 @@ message UpdateCollectionRequest {
 
     // New label (optional, 1-100 characters if provided)
     optional string label = 2 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         string: { min_len: 1, max_len: 100 }
     }];
 
     // New description (optional, max 500 characters if provided).
     // Omit the field to leave unchanged; set to empty string to clear.
     optional string description = 3 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         string: { max_len: 500 }
     }];
 
@@ -545,7 +543,6 @@ message ListRackTypesResponse {
 message SaveRackRequest {
     // ID of an existing rack to update. Omit to create a new rack.
     optional int64 collection_id = 1 [(buf.validate.field) = {
-        ignore: IGNORE_IF_UNPOPULATED
         int64: { gt: 0 }
     }];
 

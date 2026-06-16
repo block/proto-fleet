@@ -2,6 +2,7 @@ package fleetmanagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -60,6 +62,13 @@ const (
 	// above any plausible scan time on a healthy DB (target p99 < 250ms)
 	// so a slow-but-valid query is not artificially capped.
 	fleetOptionsFetchTimeout = 60 * time.Second
+
+	refreshMinersMaxDevices = 50
+	// Default fallback used only if a telemetry collector returns an invalid
+	// timeout. Production collectors derive this from telemetry configuration.
+	refreshMinersPerDeviceTimeout = 10 * time.Second
+	refreshMinersSnapshotTimeout  = 2 * time.Second
+	refreshMinersConcurrencyLimit = 10
 )
 
 // bracketIPv6Host wraps bare IPv6 addresses in brackets for use in URLs.
@@ -134,6 +143,9 @@ type Service struct {
 	// across all delete operations. Shared at the service level so that multiple
 	// concurrent DeleteMiners calls don't exceed the limit.
 	clearAuthKeySem chan struct{}
+
+	// refreshMinerSem bounds row refresh network fanout across all callers.
+	refreshMinerSem chan struct{}
 }
 
 func NewService(
@@ -164,6 +176,7 @@ func NewService(
 		deviceResolver:        deviceresolver.New(deviceStore),
 		optionsCache:          fleetoptions.NewCache(fleetoptions.DefaultTTL, 1024),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
+		refreshMinerSem:       make(chan struct{}, refreshMinersConcurrencyLimit),
 	}
 }
 
@@ -245,6 +258,212 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 	sortConfig := parseSortConfig(req.Sort)
 
 	return s.buildSnapshot(ctx, info.OrganizationID, req.PageSize, req.Cursor, req.Filter, sortConfig)
+}
+
+func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersRequest) (*pb.RefreshMinersResponse, error) {
+	deviceIDs, err := normalizeRefreshMinerIDs(req)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, refreshMinersRequestTimeout(len(deviceIDs), s.telemetry.RefreshDeviceTimeout()))
+	defer cancel()
+
+	resp := &pb.RefreshMinersResponse{
+		Snapshots: []*pb.MinerStateSnapshot{},
+		Errors:    map[string]string{},
+	}
+
+	type refreshResult struct {
+		snapshot *pb.MinerStateSnapshot
+		id       string
+		errMsg   string
+	}
+
+	results := make(chan refreshResult, len(deviceIDs))
+	var wg sync.WaitGroup
+
+	for _, id := range deviceIDs {
+		deviceID := id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case s.refreshMinerSem <- struct{}{}:
+				defer func() { <-s.refreshMinerSem }()
+			case <-refreshCtx.Done():
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(refreshCtx.Err())}
+				return
+			}
+
+			device, err := s.deviceStore.GetDeviceByDeviceIdentifier(refreshCtx, deviceID, info.OrganizationID)
+			if err != nil {
+				if fleeterror.IsNotFoundError(err) {
+					results <- refreshResult{id: deviceID, errMsg: "not found"}
+					return
+				}
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
+				return
+			}
+
+			ownedByFleetNode, err := s.deviceStore.IsDeviceOwnedByFleetNode(refreshCtx, deviceID, info.OrganizationID)
+			if err != nil {
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
+				return
+			}
+			if ownedByFleetNode {
+				results <- refreshResult{id: deviceID, errMsg: "fleet-node-owned miners are not supported by row refresh yet"}
+				return
+			}
+
+			if err := s.telemetry.RefreshDevice(refreshCtx, telemetryModels.Device{
+				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
+			}); err != nil {
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
+				return
+			}
+
+			snapshotCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersSnapshotTimeout)
+			defer cancel()
+
+			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID})
+			if err != nil {
+				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
+				return
+			}
+			if len(snapshots) == 0 {
+				results <- refreshResult{id: deviceID, errMsg: "not found"}
+				return
+			}
+
+			results <- refreshResult{id: deviceID, snapshot: snapshots[0]}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	for result := range results {
+		if result.errMsg != "" {
+			resp.Errors[result.id] = result.errMsg
+		}
+		if result.snapshot != nil {
+			resp.Snapshots = append(resp.Snapshots, result.snapshot)
+		}
+	}
+
+	return resp, nil
+}
+
+func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.RefreshMinersRequest) (map[string]authz.ResourceContext, error) {
+	deviceIDs, err := normalizeRefreshMinerIDs(req)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, deviceIDs)
+	if err != nil {
+		return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
+	}
+
+	contexts := make(map[string]authz.ResourceContext, len(deviceIDs))
+	snapshotDeviceIDs := make(map[string]struct{}, len(snapshots))
+	for _, snapshot := range snapshots {
+		snapshotDeviceIDs[snapshot.DeviceIdentifier] = struct{}{}
+		if snapshot.SiteId == nil {
+			contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{}
+			continue
+		}
+
+		siteID := *snapshot.SiteId
+		contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{SiteID: &siteID}
+	}
+
+	for _, deviceID := range deviceIDs {
+		if _, ok := snapshotDeviceIDs[deviceID]; ok {
+			continue
+		}
+
+		siteID, err := s.deviceStore.GetDeviceSiteID(ctx, deviceID, info.OrganizationID)
+		if err != nil {
+			if fleeterror.IsNotFoundError(err) {
+				contexts[deviceID] = authz.ResourceContext{}
+				continue
+			}
+			return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
+		}
+		if siteID == nil {
+			contexts[deviceID] = authz.ResourceContext{}
+			continue
+		}
+
+		resolvedSiteID := *siteID
+		contexts[deviceID] = authz.ResourceContext{SiteID: &resolvedSiteID}
+	}
+
+	return contexts, nil
+}
+
+func normalizeRefreshMinerIDs(req *pb.RefreshMinersRequest) ([]string, error) {
+	if len(req.DeviceIds) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("device_ids must contain at least one device identifier")
+	}
+	if len(req.DeviceIds) > refreshMinersMaxDevices {
+		return nil, fleeterror.NewInvalidArgumentErrorf("device_ids must contain at most %d device identifiers", refreshMinersMaxDevices)
+	}
+
+	deviceIDs := make([]string, 0, len(req.DeviceIds))
+	for _, id := range req.DeviceIds {
+		trimmedID := strings.TrimSpace(id)
+		if trimmedID == "" {
+			return nil, fleeterror.NewInvalidArgumentError("device_ids cannot contain empty device identifiers")
+		}
+		deviceIDs = append(deviceIDs, trimmedID)
+	}
+
+	return deviceIDs, nil
+}
+
+func sanitizeRefreshMinerError(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, context.DeadlineExceeded):
+		return "refresh timed out"
+	case errors.Is(err, context.Canceled):
+		return "refresh cancelled"
+	case fleeterror.IsNotFoundError(err):
+		return "not found"
+	case fleeterror.IsAuthenticationError(err):
+		return "authentication required"
+	case fleeterror.IsConnectionError(err):
+		return "miner is offline"
+	default:
+		return "refresh failed"
+	}
+}
+
+func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Duration) time.Duration {
+	if refreshDeviceTimeout <= 0 {
+		refreshDeviceTimeout = refreshMinersPerDeviceTimeout
+	}
+	perWaveTimeout := 2*refreshDeviceTimeout + refreshMinersSnapshotTimeout
+	if deviceCount <= 0 {
+		return perWaveTimeout
+	}
+	waves := (deviceCount + refreshMinersConcurrencyLimit - 1) / refreshMinersConcurrencyLimit
+	return time.Duration(waves) * perWaveTimeout
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
@@ -352,6 +571,29 @@ func (s *Service) buildSnapshot(
 		Models:           options.Models,
 		FirmwareVersions: options.FirmwareVersions,
 	}, nil
+}
+
+func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, deviceIDs []string) ([]*pb.MinerStateSnapshot, error) {
+	if len(deviceIDs) == 0 {
+		return nil, nil
+	}
+
+	pageSize := min(len(deviceIDs), math.MaxInt32)
+
+	// #nosec G115 -- Capped to math.MaxInt32 on the line above, safe for int32.
+	snapshots, _, _, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, "", int32(pageSize), &interfaces.MinerFilter{
+		DeviceIdentifiers: deviceIDs,
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
+	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
+	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
+
+	return snapshots, nil
 }
 
 // getCachedFleetOptions returns the per-org option arrays surfaced by

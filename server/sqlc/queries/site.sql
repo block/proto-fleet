@@ -189,7 +189,7 @@ FOR UPDATE;
 
 -- name: LockBuildingForWrite :one
 -- Row-locks a specific building so concurrent mutations (DeleteSite,
--- AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+-- AssignBuildingsToSite, DeleteBuilding) serialize. Returns the building
 -- id when alive; sql.ErrNoRows when soft-deleted or missing.
 SELECT id FROM building
 WHERE id = sqlc.arg('id')
@@ -200,7 +200,7 @@ FOR UPDATE;
 -- name: LockBuildingsBySiteForWrite :many
 -- Row-locks every live building under the given site so DeleteSite's
 -- cascade can rewrite their racks without a concurrent
--- AssignBuildingToSite slipping a building out from under it. Returns
+-- AssignBuildingsToSite slipping a building out from under it. Returns
 -- the locked ids (result is informational; the FOR UPDATE side-effect
 -- is what matters).
 SELECT id FROM building
@@ -209,7 +209,7 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
 FOR UPDATE;
 
--- name: ReassignDevicesToSite :execrows
+-- name: AssignDevicesToSite :execrows
 -- Bulk update of device.site_id for the given identifiers within the
 -- org. Caller is expected to have already validated that no device is
 -- in a rack at a different site (see FindDeviceSiteConflicts).
@@ -261,7 +261,7 @@ WHERE d.org_id = sqlc.arg('org_id')
 -- name: ListExistingDeviceIdentifiers :many
 -- Filters the requested identifier list down to those that actually
 -- exist as live devices in the org. Used to surface "device_not_found"
--- conflicts in ReassignDevicesToSite without an N+1 lookup.
+-- conflicts in AssignDevicesToSite without an N+1 lookup.
 SELECT device_identifier
 FROM device
 WHERE org_id = sqlc.arg('org_id')

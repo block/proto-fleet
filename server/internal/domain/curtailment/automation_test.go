@@ -64,6 +64,31 @@ func TestAutomationService_CreateRejectsCrossOrgSource(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err))
+	assert.Contains(t, err.Error(), "MaestroOS source not found")
+	assert.Equal(t, 0, h.rules.createCalls)
+}
+
+func TestAutomationService_CreateRejectsUnsupportedTriggerType(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.sources.configs[h.source.ID] = h.source
+	h.profiles.profiles = []*models.ResponseProfile{h.profile}
+
+	_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			OrgID:             h.orgID,
+			RuleName:          "MaestroOS curtailment",
+			TriggerType:       models.AutomationTriggerType("marketPriceAbove"),
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), `trigger_type "marketPriceAbove" is not supported`)
+	assert.Contains(t, err.Error(), "only MQTT (MaestroOS source) is supported")
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
@@ -264,6 +289,12 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, int32(15), h.curtailments.lastInsertEvent.CurtailBatchIntervalSec)
 	assert.Equal(t, int32(50), h.curtailments.lastInsertEvent.RestoreBatchSize)
 	assert.Equal(t, int32(5), h.curtailments.lastInsertEvent.RestoreBatchIntervalSec)
+	expectedReason := `Automation "MaestroOS curtailment" from MaestroOS source "` + h.source.SourceName + `"`
+	assert.Equal(
+		t,
+		expectedReason,
+		h.curtailments.lastInsertEvent.Reason,
+	)
 	assert.Equal(t, models.SourceActorAutomation, h.curtailments.lastInsertEvent.SourceActorType)
 	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
 	assert.Equal(t, automationExternalSource, *h.curtailments.lastInsertEvent.ExternalSource)

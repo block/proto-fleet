@@ -325,3 +325,19 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 		SiteReassignedCount: result.SiteReassignedCount,
 	}), nil
 }
+
+func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[dspb.AssignDevicesToRackRequest]) (*connect.Response[dspb.AssignDevicesToRackResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AssignDevicesToRack(ctx, toAssignDevicesToRackParams(r.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&dspb.AssignDevicesToRackResponse{
+		AssignedCount:       result.AssignedCount,
+		RemovedCount:        result.RemovedCount,
+		SiteReassignedCount: result.SiteReassignedCount,
+	}), nil
+}

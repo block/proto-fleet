@@ -29,7 +29,7 @@ service BuildingService {
 
     // UpdateBuilding mutates name, description, capacity, layout
     // defaults. Site assignment is *not* changed by UpdateBuilding —
-    // use AssignBuildingToSite (SiteService) for that, since it has
+    // use AssignBuildingsToSite (SiteService) for that, since it has
     // cross-collection enforcement.
     rpc UpdateBuilding(UpdateBuildingRequest) returns (UpdateBuildingResponse);
 
@@ -45,15 +45,17 @@ service BuildingService {
     // grid placement.
     rpc ListBuildingRacks(ListBuildingRacksRequest) returns (ListBuildingRacksResponse);
 
-    // AssignRackToBuilding sets the rack's building_id and optionally
+    // AssignRacksToBuilding sets each rack's building_id and optionally
     // positions it at (aisle_index, position_in_aisle) inside the
-    // building's grid. Leaving building_id unset unassigns the rack
-    // from any building. Position fields must be set together or
-    // both unset; the server clears them automatically on any
-    // building_id transition. Runs the same site-cascade for
-    // descendant device.site_id that SaveRack runs when the rack's
-    // site changes.
-    rpc AssignRackToBuilding(AssignRackToBuildingRequest) returns (AssignRackToBuildingResponse);
+    // target building's grid. Leaving target_building_id unset
+    // unassigns every rack in the batch from any building. Each entry
+    // carries its own optional placement; entries with unset placement
+    // have their grid cell cleared (single-call mix of placed + cleared
+    // racks is supported). The entire batch runs in one transaction; if
+    // any rack fails validation or its update, no row is touched. Runs
+    // the same site-cascade for descendant device.site_id that SaveRack
+    // runs when a rack's site changes.
+    rpc AssignRacksToBuilding(AssignRacksToBuildingRequest) returns (AssignRacksToBuildingResponse);
 
     // GetBuildingStats returns server-rolled telemetry + miner-state
     // counts for every device whose rack lives in the building, plus a
@@ -245,18 +247,19 @@ message ListBuildingRacksResponse {
     string next_page_token = 2;
 }
 
-// AssignRackToBuilding
+// AssignRacksToBuilding
 
-message AssignRackToBuildingRequest {
+// RackPlacement carries one rack's identity plus its optional grid
+// placement inside the target building. Used by AssignRacksToBuilding
+// for bulk updates that mix placed + cleared positions in one call.
+message RackPlacement {
     int64 rack_id = 1 [(buf.validate.field).int64.gt = 0];
-    // Unset = unassign rack from any building. When present, must be > 0.
-    optional int64 building_id = 2 [(buf.validate.field).int64.gt = 0];
     // Optional grid placement inside the target building. Must be set
     // together or both unset (a half-set position would be ambiguous).
     // Upper bounds are validated server-side against the target
     // building's aisles / racks_per_aisle.
-    optional int32 aisle_index = 3 [(buf.validate.field).int32.gte = 0];
-    optional int32 position_in_aisle = 4 [(buf.validate.field).int32.gte = 0];
+    optional int32 aisle_index = 2 [(buf.validate.field).int32.gte = 0];
+    optional int32 position_in_aisle = 3 [(buf.validate.field).int32.gte = 0];
 
     // aisle_index and position_in_aisle must be set together or both
     // unset. Setting one without the other is an invalid request.
@@ -267,10 +270,19 @@ message AssignRackToBuildingRequest {
     };
 }
 
-message AssignRackToBuildingResponse {
-    // Cascade impact: how many descendant devices had their site_id
-    // re-stamped to the target building's site_id (or NULL when the
-    // rack moved to unassigned). Zero when no cascade was needed.
+message AssignRacksToBuildingRequest {
+    repeated RackPlacement racks = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 1000
+    }];
+    // Unset = unassign racks from any building. When present, must be > 0.
+    optional int64 target_building_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+message AssignRacksToBuildingResponse {
+    // Cascade impact: aggregate descendant devices that had their
+    // site_id re-stamped across every rack in the batch. Zero when no
+    // cascade was needed.
     int64 site_reassigned_device_count = 1;
 }
 

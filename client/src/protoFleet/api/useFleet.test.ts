@@ -135,4 +135,43 @@ describe("useFleet", () => {
 
     expect(result.current.miners["miner-1"]?.workerName).toBe("worker-new");
   });
+
+  it("merges refreshed miner snapshots by device identifier", async () => {
+    vi.mocked(fleetManagementClient.listMinerStateSnapshots).mockResolvedValue(
+      makeListResponse([makeMiner("miner-1", "worker-old")]),
+    );
+
+    const { result } = renderHook(() => useFleet({ pageSize: 10 }));
+
+    await waitFor(() => {
+      expect(result.current.miners["miner-1"]?.workerName).toBe("worker-old");
+    });
+
+    act(() => {
+      result.current.mergeMiners([makeMiner("miner-1", "worker-new"), makeMiner("miner-2", "worker-added")]);
+    });
+
+    expect(result.current.miners["miner-1"]?.workerName).toBe("worker-new");
+    expect(result.current.miners["miner-2"]?.workerName).toBe("worker-added");
+  });
+
+  it("does not update miner state when refreshed snapshots are unchanged", async () => {
+    vi.mocked(fleetManagementClient.listMinerStateSnapshots).mockResolvedValue(
+      makeListResponse([makeMiner("miner-1", "worker-old")]),
+    );
+
+    const { result } = renderHook(() => useFleet({ pageSize: 10 }));
+
+    await waitFor(() => {
+      expect(result.current.miners["miner-1"]?.workerName).toBe("worker-old");
+    });
+
+    const before = result.current.miners;
+
+    act(() => {
+      result.current.mergeMiners([makeMiner("miner-1", "worker-old")]);
+    });
+
+    expect(result.current.miners).toBe(before);
+  });
 });

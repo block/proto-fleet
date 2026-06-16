@@ -165,6 +165,17 @@ interface ClearRackSlotPositionProps {
   onFinally?: () => void;
 }
 
+interface AssignDevicesToRackProps {
+  // Unset clears rack membership without re-assigning (site/building
+  // stay intact).
+  targetRackId?: bigint;
+  deviceIdentifiers: string[];
+  signal?: AbortSignal;
+  onSuccess?: (assignedCount: bigint, siteReassignedCount: bigint, removedCount: bigint) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 interface SaveRackProps {
   deviceSetId?: bigint;
   label: string;
@@ -601,6 +612,40 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
+  // assignDevicesToRack wraps the atomic rack-reassignment RPC.
+  // Replaces the old client-side remove + add orchestration so a
+  // server error / network blip between the two calls can't orphan
+  // miners from rack assignment (issue #420). Pass targetRackId
+  // unset to clear rack membership without re-assigning.
+  const assignDevicesToRack = useCallback(
+    async ({ targetRackId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
+      try {
+        const response = await deviceSetClient.assignDevicesToRack(
+          {
+            targetRackId,
+            deviceIdentifiers,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        onSuccess?.(response.assignedCount, response.siteReassignedCount, response.removedCount);
+      } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            onError?.(getErrorMessage(err));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   const removeDevicesFromDeviceSet = useCallback(
     async ({
       deviceSetId,
@@ -848,6 +893,7 @@ const useDeviceSets = () => {
     listGroupMembers,
     getDeviceSetStats,
     addDevicesToDeviceSet,
+    assignDevicesToRack,
     removeDevicesFromDeviceSet,
     getRackSlots,
     setRackSlotPosition,

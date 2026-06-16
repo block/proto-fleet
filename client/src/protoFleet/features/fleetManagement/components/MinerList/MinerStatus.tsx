@@ -32,10 +32,11 @@ type MinerStatusProps = {
   errors: ErrorMessage[];
   activeBatches: BatchOperation[];
   errorsLoaded: boolean;
+  isRefreshing?: boolean;
   onClick?: () => void;
 };
 
-const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: MinerStatusProps) => {
+const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing, onClick }: MinerStatusProps) => {
   const deviceStatusFromStore = miner.deviceStatus;
 
   // Compute status flags
@@ -82,6 +83,16 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
   // Check for active batch operations FIRST (highest priority)
   const activeBatch = activeBatches[0];
   const batchLoadingMessage = activeBatch ? statusColumnLoadingMessages[activeBatch.action] : null;
+
+  if (isRefreshing) {
+    return (
+      <StatusWrapper onClick={onClick}>
+        <StatusCircle status={statuses.pending} variant="simple" width="w-[6px]" testId="miner-status-indicator" />
+        <ProgressCircular size={14} indeterminate />
+        <span className="text-text-primary-50">Refreshing</span>
+      </StatusWrapper>
+    );
+  }
 
   if (isActionLoading(activeBatch, deviceStatusFromStore)) {
     const content = (

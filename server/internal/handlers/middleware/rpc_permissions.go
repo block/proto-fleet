@@ -89,15 +89,15 @@ var ProcedurePermissions = map[string]string{
 	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
 
 	// Buildings CRUD — site:read for reads, site:manage for writes.
-	// ListBuildingRacks is a building-scoped read; AssignRackToBuilding
+	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
 	// mutates the rack's building/site/zone/grid placement.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:        authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:          authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:    authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure:       authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:       authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:       authz.PermSiteManage,
-	buildingsv1connect.BuildingServiceAssignRackToBuildingProcedure: authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:         authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:           authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,
 	// GetBuildingStats also calls RequirePermission(PermFleetRead) and
 	// RequirePermission(PermMinerRead) inline — those gate the telemetry
 	// rollup and the device_identifiers surface respectively. The map
@@ -176,6 +176,7 @@ var ProcedurePermissions = map[string]string{
 	device_setv1connect.DeviceSetServiceAddDevicesToDeviceSetProcedure:      authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceRemoveDevicesFromDeviceSetProcedure: authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSaveRackProcedure:                   authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceAssignDevicesToRackProcedure:        authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSetRackSlotPositionProcedure:        authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceClearRackSlotPositionProcedure:      authz.PermRackManage,
 
@@ -189,6 +190,7 @@ var ProcedurePermissions = map[string]string{
 	// FleetManagementService — list/read against fleet/miner reads,
 	// mutations against matching miner action keys.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure: authz.PermMinerRead,
+	fleetmanagementv1connect.FleetManagementServiceRefreshMinersProcedure:           authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerPoolAssignmentsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerCoolingModeProcedure:     authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerStateCountsProcedure:     authz.PermFleetRead,
@@ -287,8 +289,9 @@ var ProcedurePermissions = map[string]string{
 	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceReassignDevicesToSiteProcedure: authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignBuildingToSiteProcedure:  authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:   authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure: authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:     authz.PermSiteManage,
 	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to
 	// cover the aggregate telemetry surface (matching the gate on
 	// telemetry.GetCombinedMetrics). The map entry is the primary gate.

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -334,6 +335,13 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				return fleeterror.NewInternalErrorf("control stream recv: %v", r.err)
 			}
 			if ack := r.msg.GetAck(); ack != nil {
+				// Trust boundary for node input: drop a malformed/oversized ack rather than
+				// routing it into the command error path (the waiting command times out).
+				if vErr := protovalidate.Validate(ack); vErr != nil {
+					slog.Warn("dropping invalid ControlAck from fleet node",
+						"fleet_node_id", subject.FleetNodeID, "err", vErr)
+					continue
+				}
 				regHandle.PublishAck(ack)
 			}
 		}

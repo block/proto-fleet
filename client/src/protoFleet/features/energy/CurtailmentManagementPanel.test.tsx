@@ -393,8 +393,10 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
-    expect(screen.getByTestId("modal-response-profile-values")).not.toHaveTextContent('"scopeType"');
-    expect(screen.getByTestId("modal-response-profile-values")).not.toHaveTextContent('"deviceIdentifiers"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"site"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeId":"Austin, TX"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteId":"101"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"deviceIdentifiers":[]');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
   });
 
@@ -508,6 +510,34 @@ describe("CurtailmentManagementPanel", () => {
       expect(pollingSignals).toHaveLength(2);
       expect(pollingSignals[0].aborted).toBe(false);
       expect(pollingSignals[1].aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps polling while visible history has a non-terminal event after active clears", async () => {
+    vi.useFakeTimers();
+    const restoringHistoryEvent = {
+      ...historyEvent,
+      state: "restoring",
+    } as CurtailmentHistoryEvent;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: null,
+        activeEventId: null,
+        historyEvents: [restoringHistoryEvent],
+      }),
+    );
+
+    try {
+      render(<CurtailmentManagementPanel />);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(mocks.refreshCurtailment).toHaveBeenCalledWith({
+        background: true,
+        signal: expect.any(AbortSignal),
+      });
     } finally {
       vi.useRealTimers();
     }

@@ -48,6 +48,8 @@ type Service struct {
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	encryptService        *encrypt.Service
 	dispatcher            control.Sender
+
+	invalidateMiner func(context.Context, int64)
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -65,6 +67,13 @@ func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDev
 	return s
 }
 
+// WithMinerInvalidator wires the miner-cache invalidator so pair/unpair evicts a stale
+// direct handle. Without it a newly-bound device keeps direct-dialing until the cache TTL,
+// since the cache lookup short-circuits before the fleet-node check.
+func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) {
+	s.invalidateMiner = invalidate
+}
+
 func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
 	exists, err := s.store.DeviceExistsInOrg(ctx, deviceID, orgID)
 	if err != nil {
@@ -73,9 +82,16 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 	if !exists {
 		return fleeterror.NewNotFoundError("device not found")
 	}
-	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		return s.pairDeviceLocked(ctx, fleetNodeID, deviceID, orgID, assignedBy)
-	})
+	}); err != nil {
+		return err
+	}
+	// Evict any stale direct handle so the next command re-resolves over the ControlStream.
+	if s.invalidateMiner != nil {
+		s.invalidateMiner(ctx, deviceID)
+	}
+	return nil
 }
 
 // pairDeviceLocked binds a device to a fleet node within the caller's transaction:
@@ -120,6 +136,9 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {
 	if _, err := s.store.UnpairDevice(ctx, deviceID, orgID); err != nil {
 		return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+	}
+	if s.invalidateMiner != nil {
+		s.invalidateMiner(ctx, deviceID)
 	}
 	return nil
 }

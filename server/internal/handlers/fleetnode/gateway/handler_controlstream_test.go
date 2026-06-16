@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,46 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 		assert.True(t, ev.Ack.GetSucceeded())
 	case <-time.After(time.Second):
 		t.Fatal("expected ack on events channel")
+	}
+}
+
+func TestControlStream_DropsInvalidAck(t *testing.T) {
+	// Arrange
+	h := newControlHarness(t)
+	client := startControlServer(t, h)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+	first, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, first.GetAccepted())
+
+	session := waitForSend(t, h.registry, h.fleetNodeID, "cmd-1", []byte("payload"))
+	defer session.Close()
+	got, err := stream.Receive()
+	require.NoError(t, err)
+	require.Equal(t, "cmd-1", got.GetCommand().GetCommandId())
+
+	// Act: the node sends an ack whose error_message exceeds the 4096-byte cap, then a valid ack.
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
+		CommandId: "cmd-1", ErrorMessage: strings.Repeat("x", 5000),
+	}}}))
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
+		CommandId: "cmd-1", Succeeded: true,
+	}}}))
+
+	// Assert: the gateway dropped the invalid ack; only the valid ack is routed to the operator.
+	select {
+	case ev := <-session.Events():
+		require.NotNil(t, ev.Ack)
+		assert.True(t, ev.Ack.GetSucceeded(), "oversized ack must be dropped, only the valid ack delivered")
+		assert.Empty(t, ev.Ack.GetErrorMessage())
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the valid ack on the events channel")
 	}
 }
 

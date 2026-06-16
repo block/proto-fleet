@@ -36,6 +36,37 @@ func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Reques
 	return connect.NewResponse(result), nil
 }
 
+func (h *Handler) RefreshMiners(ctx context.Context, r *connect.Request[pb.RefreshMinersRequest]) (*connect.Response[pb.RefreshMinersResponse], error) {
+	resourceContexts, err := h.fleetMgmtSvc.RefreshMinerResourceContexts(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := requireRefreshMinerRead(ctx, resourceContexts); err != nil {
+		return nil, err
+	}
+
+	result, err := h.fleetMgmtSvc.RefreshMiners(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}
+
+func requireRefreshMinerRead(ctx context.Context, resourceContexts map[string]authz.ResourceContext) error {
+	if len(resourceContexts) == 0 {
+		_, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{})
+		return err
+	}
+	for _, resourceContext := range resourceContexts {
+		if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, resourceContext); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.ExportMinerListCsvRequest], stream *connect.ServerStream[pb.ExportMinerListCsvResponse]) error {
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerExportCSV, authz.ResourceContext{}); err != nil {
 		return err

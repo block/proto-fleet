@@ -23,7 +23,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
     createSite: vi.fn(),
     updateSite: vi.fn(),
     deleteSite: vi.fn(),
-    reassignDevicesToSite: vi.fn(),
+    assignDevicesToSite: vi.fn(),
   },
 }));
 

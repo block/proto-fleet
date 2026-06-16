@@ -86,33 +86,48 @@ func (h *Handler) DeleteSite(ctx context.Context, req *connect.Request[pb.Delete
 	}), nil
 }
 
-func (h *Handler) ReassignDevicesToSite(ctx context.Context, req *connect.Request[pb.ReassignDevicesToSiteRequest]) (*connect.Response[pb.ReassignDevicesToSiteResponse], error) {
+func (h *Handler) AssignDevicesToSite(ctx context.Context, req *connect.Request[pb.AssignDevicesToSiteRequest]) (*connect.Response[pb.AssignDevicesToSiteResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	count, conflicts, err := h.service.ReassignDevicesToSite(ctx, toReassignParams(req.Msg, info.OrganizationID))
+	count, conflicts, err := h.service.AssignDevicesToSite(ctx, toAssignDevicesParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.ReassignDevicesToSiteResponse{
+	return connect.NewResponse(&pb.AssignDevicesToSiteResponse{
 		ReassignedCount: count,
 		Conflicts:       toProtoConflicts(conflicts),
 	}), nil
 }
 
-func (h *Handler) AssignBuildingToSite(ctx context.Context, req *connect.Request[pb.AssignBuildingToSiteRequest]) (*connect.Response[pb.AssignBuildingToSiteResponse], error) {
+func (h *Handler) AssignBuildingsToSite(ctx context.Context, req *connect.Request[pb.AssignBuildingsToSiteRequest]) (*connect.Response[pb.AssignBuildingsToSiteResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.AssignBuildingToSite(ctx, toAssignBuildingParams(req.Msg, info.OrganizationID))
+	out, err := h.service.AssignBuildingsToSite(ctx, toAssignBuildingsParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.AssignBuildingToSiteResponse{
+	return connect.NewResponse(&pb.AssignBuildingsToSiteResponse{
 		ReassignedRackCount:   out.ReassignedRackCount,
 		ReassignedDeviceCount: out.ReassignedDeviceCount,
+	}), nil
+}
+
+func (h *Handler) AssignRacksToSite(ctx context.Context, req *connect.Request[pb.AssignRacksToSiteRequest]) (*connect.Response[pb.AssignRacksToSiteResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	out, err := h.service.AssignRacksToSite(ctx, toAssignRacksToSiteParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AssignRacksToSiteResponse{
+		ReassignedDeviceCount: out.ReassignedDeviceCount,
+		ClearedBuildingCount:  out.ClearedBuildingCount,
 	}), nil
 }
 

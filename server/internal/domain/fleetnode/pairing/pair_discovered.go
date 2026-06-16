@@ -85,6 +85,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		persisted = StatusPaired
 	}
 	conflict := false
+	var boundDeviceID int64
 	txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		dd, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
 		if err != nil {
@@ -167,6 +168,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		if err := s.pairDeviceLocked(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
 			return err
 		}
+		boundDeviceID = deviceID
 		if creds := nodeUsedCredentials(result); creds != nil {
 			if err := s.saveMinerCredentials(ctx, &dd.Device, orgID, creds); err != nil {
 				return err
@@ -192,6 +194,11 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	}
 	if txErr != nil {
 		return "", txErr
+	}
+	// Evict any stale direct handle so the next command re-resolves over the ControlStream
+	// (mirrors PairDevice). boundDeviceID is set only on the true PAIRED bind path.
+	if boundDeviceID != 0 && s.invalidateMiner != nil {
+		s.invalidateMiner(ctx, boundDeviceID)
 	}
 	return persisted, nil
 }

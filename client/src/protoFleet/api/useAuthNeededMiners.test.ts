@@ -26,6 +26,7 @@ describe("useAuthNeededMiners", () => {
     refetch: vi.fn(),
     refreshCurrentPage: vi.fn(),
     updateMinerWorkerName: vi.fn(),
+    mergeMiners: vi.fn(),
     availableModels: [],
     availableFirmwareVersions: [],
   };

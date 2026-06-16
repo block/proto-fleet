@@ -211,6 +211,22 @@ DELETE FROM device_set_membership
 WHERE device_set_id = $1
   AND org_id = $2;
 
+-- name: RemoveDevicesFromAnyRack :execrows
+-- Removes the given devices from whatever rack they're currently in,
+-- EXCEPT the target rack (@target_rack_id). AssignDevicesToRack uses
+-- this to clear prior rack membership inside the same transaction as
+-- the new-rack insert, closing the orphan window the client-side
+-- remove + add orchestration had. Skipping the target rack preserves
+-- the existing membership row (and its rack_slot child) when a device
+-- is reassigned to the same rack it's already in -- otherwise the
+-- DELETE would cascade rack_slot rows that we'd silently lose. Pass
+-- 0 for an unconditional clear (caller intends to unassign).
+DELETE FROM device_set_membership
+WHERE org_id = $1
+  AND device_identifier = ANY(@device_identifiers::text[])
+  AND device_set_type = 'rack'
+  AND device_set_id != @target_rack_id::bigint;
+
 -- name: RemoveDevicesFromDeviceSet :execrows
 DELETE FROM device_set_membership
 WHERE device_set_id = $1

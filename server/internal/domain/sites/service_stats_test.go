@@ -64,7 +64,7 @@ func TestGetSiteStats_notFoundWhenSiteMissing(t *testing.T) {
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(99)).Return(false, nil)
 
-	svc := NewService(store, mocks.NewMockBuildingStore(ctrl), &fakeDeviceQueryer{}, &fakeTelemetryCollector{}, &fakeTransactor{}, nil)
+	svc := NewService(store, mocks.NewMockBuildingStore(ctrl), nil, &fakeDeviceQueryer{}, &fakeTelemetryCollector{}, &fakeTransactor{}, nil)
 	_, err := svc.GetSiteStats(context.Background(), testOrgID, 99)
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeNotFound {
@@ -108,7 +108,7 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 		},
 	}
 
-	svc := NewService(store, buildingStore, devices, telemetry, &fakeTransactor{}, nil)
+	svc := NewService(store, buildingStore, nil, devices, telemetry, &fakeTransactor{}, nil)
 	stats, err := svc.GetSiteStats(context.Background(), testOrgID, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -150,7 +150,7 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	devices := &fakeDeviceQueryer{deviceIDs: nil} // no devices → telemetry not called
-	svc := NewService(store, buildingStore, devices, &fakeTelemetryCollector{}, &fakeTransactor{}, nil)
+	svc := NewService(store, buildingStore, nil, devices, &fakeTelemetryCollector{}, &fakeTransactor{}, nil)
 	_, err := svc.GetSiteStats(context.Background(), testOrgID, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -194,7 +194,7 @@ func TestGetSiteStats_failsFastOverCap(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("should not be called")}
 	devices := &fakeDeviceQueryer{deviceIDs: overCap}
 
-	svc := NewService(store, buildingStore, devices, telemetry, &fakeTransactor{}, nil)
+	svc := NewService(store, buildingStore, nil, devices, telemetry, &fakeTransactor{}, nil)
 	_, err := svc.GetSiteStats(context.Background(), testOrgID, 1)
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
@@ -214,7 +214,7 @@ func TestGetSiteStats_emptyDevicesShortCircuits(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("should not be called")}
 	devices := &fakeDeviceQueryer{deviceIDs: nil}
 
-	svc := NewService(store, buildingStore, devices, telemetry, &fakeTransactor{}, nil)
+	svc := NewService(store, buildingStore, nil, devices, telemetry, &fakeTransactor{}, nil)
 	stats, err := svc.GetSiteStats(context.Background(), testOrgID, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -228,7 +228,7 @@ func TestGetSiteStats_internalErrorWhenStatsDepsMissing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	// Nil deviceQueryer should short-circuit before any store call.
-	svc := NewService(store, nil, nil, nil, &fakeTransactor{}, nil)
+	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, nil)
 	_, err := svc.GetSiteStats(context.Background(), testOrgID, 1)
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,10 +15,13 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -346,4 +350,102 @@ func TestListRackZoneRefs_StoreError(t *testing.T) {
 
 	_, err := h.handler.ListRackZoneRefs(testCtx(t), connect.NewRequest(&dspb.ListRackZoneRefsRequest{}))
 	require.Error(t, err)
+}
+
+// ctxWithPerms builds an auth context with an explicit permission set
+// so we can assert AssignDevicesToRack's PermRackManage gate.
+func ctxWithPerms(perms ...string) context.Context {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		SessionID:      "test-session-id",
+		OrganizationID: testOrgID,
+		UserID:         testUserID,
+	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}}))
+}
+
+func ptrInt64Local(v int64) *int64 { return &v }
+
+// TestAssignDevicesToRack_PermissionRequired confirms the
+// PermRackManage gate rejects callers without rack:manage. No store
+// calls should fire.
+func TestAssignDevicesToRack_PermissionRequired(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Caller has *some* permission but not PermRackManage.
+	ctx := ctxWithPerms(authz.PermSiteRead)
+	req := connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:      ptrInt64Local(42),
+		DeviceIdentifiers: []string{"d1"},
+	})
+
+	_, err := h.handler.AssignDevicesToRack(ctx, req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestAssignDevicesToRack_HappyPathAssigns covers the assign branch:
+// target_rack_id set, devices flow through the lock → label-read →
+// remove → add → cascade chain, and the handler round-trips the
+// per-step counts onto the wire response.
+func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
+	h := newTestHandler(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(7)
+	deviceIDs := []string{"d1", "d2"}
+
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
+		h.collectionStore.EXPECT().
+			GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&collectionpb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		h.collectionStore.EXPECT().
+			RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return(int64(2), nil),
+		h.collectionStore.EXPECT().
+			AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+			Return(int64(2), nil),
+		h.collectionStore.EXPECT().
+			CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+			Return(int64(1), nil),
+	)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.Msg.AssignedCount)
+	assert.Equal(t, int64(2), resp.Msg.RemovedCount)
+	assert.Equal(t, int64(1), resp.Msg.SiteReassignedCount)
+}
+
+// TestAssignDevicesToRack_UnassignBranch covers target_rack_id unset:
+// clears prior rack membership, no Get/Lock/Add/Cascade.
+// RemoveDevicesFromAnyRack is called with targetRackID = 0 (sentinel
+// meaning "don't exclude any rack").
+func TestAssignDevicesToRack_UnassignBranch(t *testing.T) {
+	h := newTestHandler(t)
+
+	deviceIDs := []string{"d1"}
+	h.collectionStore.EXPECT().
+		RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(0)).
+		Return(int64(1), nil)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:      nil,
+		DeviceIdentifiers: deviceIDs,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), resp.Msg.AssignedCount)
+	assert.Equal(t, int64(1), resp.Msg.RemovedCount)
+	assert.Equal(t, int64(0), resp.Msg.SiteReassignedCount)
 }

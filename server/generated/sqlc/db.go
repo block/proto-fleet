@@ -42,6 +42,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
+	if q.assignDevicesToSiteStmt, err = db.PrepareContext(ctx, assignDevicesToSite); err != nil {
+		return nil, fmt.Errorf("error preparing query AssignDevicesToSite: %w", err)
+	}
 	if q.assignPermissionToRoleStmt, err = db.PrepareContext(ctx, assignPermissionToRole); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignPermissionToRole: %w", err)
 	}
@@ -233,6 +236,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getActiveCurtailmentEventStmt, err = db.PrepareContext(ctx, getActiveCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveCurtailmentEvent: %w", err)
+	}
+	if q.getActiveFleetNodeForDeviceStmt, err = db.PrepareContext(ctx, getActiveFleetNodeForDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query GetActiveFleetNodeForDevice: %w", err)
 	}
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
@@ -648,6 +654,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.isBatchProcessingStmt, err = db.PrepareContext(ctx, isBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchProcessing: %w", err)
 	}
+	if q.isDeviceOwnedByFleetNodeStmt, err = db.PrepareContext(ctx, isDeviceOwnedByFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query IsDeviceOwnedByFleetNode: %w", err)
+	}
 	if q.listActiveCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailedDevicesByOrg: %w", err)
 	}
@@ -855,9 +864,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.reapStuckProcessingMessagesStmt, err = db.PrepareContext(ctx, reapStuckProcessingMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ReapStuckProcessingMessages: %w", err)
 	}
-	if q.reassignDevicesToSiteStmt, err = db.PrepareContext(ctx, reassignDevicesToSite); err != nil {
-		return nil, fmt.Errorf("error preparing query ReassignDevicesToSite: %w", err)
-	}
 	if q.reassignDevicesUnderBuildingStmt, err = db.PrepareContext(ctx, reassignDevicesUnderBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query ReassignDevicesUnderBuilding: %w", err)
 	}
@@ -866,6 +872,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.removeAllDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeAllDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromDeviceSet: %w", err)
+	}
+	if q.removeDevicesFromAnyRackStmt, err = db.PrepareContext(ctx, removeDevicesFromAnyRack); err != nil {
+		return nil, fmt.Errorf("error preparing query RemoveDevicesFromAnyRack: %w", err)
 	}
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
@@ -1217,6 +1226,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing assignBuildingToSiteStmt: %w", cerr)
 		}
 	}
+	if q.assignDevicesToSiteStmt != nil {
+		if cerr := q.assignDevicesToSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing assignDevicesToSiteStmt: %w", cerr)
+		}
+	}
 	if q.assignPermissionToRoleStmt != nil {
 		if cerr := q.assignPermissionToRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing assignPermissionToRoleStmt: %w", cerr)
@@ -1535,6 +1549,11 @@ func (q *Queries) Close() error {
 	if q.getActiveCurtailmentEventStmt != nil {
 		if cerr := q.getActiveCurtailmentEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getActiveCurtailmentEventStmt: %w", cerr)
+		}
+	}
+	if q.getActiveFleetNodeForDeviceStmt != nil {
+		if cerr := q.getActiveFleetNodeForDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getActiveFleetNodeForDeviceStmt: %w", cerr)
 		}
 	}
 	if q.getActiveSchedulesStmt != nil {
@@ -2227,6 +2246,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing isBatchProcessingStmt: %w", cerr)
 		}
 	}
+	if q.isDeviceOwnedByFleetNodeStmt != nil {
+		if cerr := q.isDeviceOwnedByFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing isDeviceOwnedByFleetNodeStmt: %w", cerr)
+		}
+	}
 	if q.listActiveCurtailedDevicesByOrgStmt != nil {
 		if cerr := q.listActiveCurtailedDevicesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveCurtailedDevicesByOrgStmt: %w", cerr)
@@ -2572,11 +2596,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reapStuckProcessingMessagesStmt: %w", cerr)
 		}
 	}
-	if q.reassignDevicesToSiteStmt != nil {
-		if cerr := q.reassignDevicesToSiteStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing reassignDevicesToSiteStmt: %w", cerr)
-		}
-	}
 	if q.reassignDevicesUnderBuildingStmt != nil {
 		if cerr := q.reassignDevicesUnderBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reassignDevicesUnderBuildingStmt: %w", cerr)
@@ -2590,6 +2609,11 @@ func (q *Queries) Close() error {
 	if q.removeAllDevicesFromDeviceSetStmt != nil {
 		if cerr := q.removeAllDevicesFromDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeAllDevicesFromDeviceSetStmt: %w", cerr)
+		}
+	}
+	if q.removeDevicesFromAnyRackStmt != nil {
+		if cerr := q.removeDevicesFromAnyRackStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing removeDevicesFromAnyRackStmt: %w", cerr)
 		}
 	}
 	if q.removeDevicesFromDeviceSetStmt != nil {
@@ -3162,6 +3186,7 @@ type Queries struct {
 	adminTerminateCurtailmentEventStmt                    *sql.Stmt
 	allDevicesBelongToOrgStmt                             *sql.Stmt
 	assignBuildingToSiteStmt                              *sql.Stmt
+	assignDevicesToSiteStmt                               *sql.Stmt
 	assignPermissionToRoleStmt                            *sql.Stmt
 	assignRoleStmt                                        *sql.Stmt
 	beginCurtailmentRestorationStmt                       *sql.Stmt
@@ -3226,6 +3251,7 @@ type Queries struct {
 	ensureCurtailmentOrgConfigStmt                        *sql.Stmt
 	findDeviceSiteConflictsStmt                           *sql.Stmt
 	getActiveCurtailmentEventStmt                         *sql.Stmt
+	getActiveFleetNodeForDeviceStmt                       *sql.Stmt
 	getActiveSchedulesStmt                                *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                *sql.Stmt
 	getAddedDeviceSiteConflictsStmt                       *sql.Stmt
@@ -3364,6 +3390,7 @@ type Queries struct {
 	insertNotificationMetricSamplesStmt                   *sql.Stmt
 	isBatchFinishedStmt                                   *sql.Stmt
 	isBatchProcessingStmt                                 *sql.Stmt
+	isDeviceOwnedByFleetNodeStmt                          *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                   *sql.Stmt
 	listActiveCurtailmentEventsStmt                       *sql.Stmt
 	listActiveOrganizationIDsStmt                         *sql.Stmt
@@ -3433,10 +3460,10 @@ type Queries struct {
 	queryErrorsStmt                                       *sql.Stmt
 	reapStuckFirmwareUpdateMessagesStmt                   *sql.Stmt
 	reapStuckProcessingMessagesStmt                       *sql.Stmt
-	reassignDevicesToSiteStmt                             *sql.Stmt
 	reassignDevicesUnderBuildingStmt                      *sql.Stmt
 	reassignRacksUnderBuildingStmt                        *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                     *sql.Stmt
+	removeDevicesFromAnyRackStmt                          *sql.Stmt
 	removeDevicesFromDeviceSetStmt                        *sql.Stmt
 	resetCurtailmentTargetsForRecurtailStmt               *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                 *sql.Stmt
@@ -3554,6 +3581,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		adminTerminateCurtailmentEventStmt:                    q.adminTerminateCurtailmentEventStmt,
 		allDevicesBelongToOrgStmt:                             q.allDevicesBelongToOrgStmt,
 		assignBuildingToSiteStmt:                              q.assignBuildingToSiteStmt,
+		assignDevicesToSiteStmt:                               q.assignDevicesToSiteStmt,
 		assignPermissionToRoleStmt:                            q.assignPermissionToRoleStmt,
 		assignRoleStmt:                                        q.assignRoleStmt,
 		beginCurtailmentRestorationStmt:                       q.beginCurtailmentRestorationStmt,
@@ -3618,6 +3646,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		ensureCurtailmentOrgConfigStmt:                        q.ensureCurtailmentOrgConfigStmt,
 		findDeviceSiteConflictsStmt:                           q.findDeviceSiteConflictsStmt,
 		getActiveCurtailmentEventStmt:                         q.getActiveCurtailmentEventStmt,
+		getActiveFleetNodeForDeviceStmt:                       q.getActiveFleetNodeForDeviceStmt,
 		getActiveSchedulesStmt:                                q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAddedDeviceSiteConflictsStmt:                       q.getAddedDeviceSiteConflictsStmt,
@@ -3756,6 +3785,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertNotificationMetricSamplesStmt:                   q.insertNotificationMetricSamplesStmt,
 		isBatchFinishedStmt:                                   q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                                 q.isBatchProcessingStmt,
+		isDeviceOwnedByFleetNodeStmt:                          q.isDeviceOwnedByFleetNodeStmt,
 		listActiveCurtailedDevicesByOrgStmt:                   q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                       q.listActiveCurtailmentEventsStmt,
 		listActiveOrganizationIDsStmt:                         q.listActiveOrganizationIDsStmt,
@@ -3825,10 +3855,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryErrorsStmt:                                       q.queryErrorsStmt,
 		reapStuckFirmwareUpdateMessagesStmt:                   q.reapStuckFirmwareUpdateMessagesStmt,
 		reapStuckProcessingMessagesStmt:                       q.reapStuckProcessingMessagesStmt,
-		reassignDevicesToSiteStmt:                             q.reassignDevicesToSiteStmt,
 		reassignDevicesUnderBuildingStmt:                      q.reassignDevicesUnderBuildingStmt,
 		reassignRacksUnderBuildingStmt:                        q.reassignRacksUnderBuildingStmt,
 		removeAllDevicesFromDeviceSetStmt:                     q.removeAllDevicesFromDeviceSetStmt,
+		removeDevicesFromAnyRackStmt:                          q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                        q.removeDevicesFromDeviceSetStmt,
 		resetCurtailmentTargetsForRecurtailStmt:               q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:                 q.resetCurtailmentTargetsForRestoreStmt,

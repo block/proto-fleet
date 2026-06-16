@@ -13,6 +13,33 @@ import (
 	"github.com/lib/pq"
 )
 
+const assignDevicesToSite = `-- name: AssignDevicesToSite :execrows
+UPDATE device
+SET site_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $2
+  AND device_identifier = ANY($3::text[])
+  AND deleted_at IS NULL
+`
+
+type AssignDevicesToSiteParams struct {
+	TargetSiteID      sql.NullInt64
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Bulk update of device.site_id for the given identifiers within the
+// org. Caller is expected to have already validated that no device is
+// in a rack at a different site (see FindDeviceSiteConflicts).
+// target_site_id NULL = move to Unassigned.
+func (q *Queries) AssignDevicesToSite(ctx context.Context, arg AssignDevicesToSiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.assignDevicesToSiteStmt, assignDevicesToSite, arg.TargetSiteID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createSite = `-- name: CreateSite :one
 INSERT INTO site (
     org_id,
@@ -226,7 +253,7 @@ type ListExistingDeviceIdentifiersParams struct {
 
 // Filters the requested identifier list down to those that actually
 // exist as live devices in the org. Used to surface "device_not_found"
-// conflicts in ReassignDevicesToSite without an N+1 lookup.
+// conflicts in AssignDevicesToSite without an N+1 lookup.
 func (q *Queries) ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listExistingDeviceIdentifiersStmt, listExistingDeviceIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -412,7 +439,7 @@ type LockBuildingForWriteParams struct {
 }
 
 // Row-locks a specific building so concurrent mutations (DeleteSite,
-// AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+// AssignBuildingsToSite, DeleteBuilding) serialize. Returns the building
 // id when alive; sql.ErrNoRows when soft-deleted or missing.
 func (q *Queries) LockBuildingForWrite(ctx context.Context, arg LockBuildingForWriteParams) (int64, error) {
 	row := q.queryRow(ctx, q.lockBuildingForWriteStmt, lockBuildingForWrite, arg.ID, arg.OrgID)
@@ -436,7 +463,7 @@ type LockBuildingsBySiteForWriteParams struct {
 
 // Row-locks every live building under the given site so DeleteSite's
 // cascade can rewrite their racks without a concurrent
-// AssignBuildingToSite slipping a building out from under it. Returns
+// AssignBuildingsToSite slipping a building out from under it. Returns
 // the locked ids (result is informational; the FOR UPDATE side-effect
 // is what matters).
 func (q *Queries) LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error) {
@@ -523,33 +550,6 @@ func (q *Queries) LockSiteForWrite(ctx context.Context, arg LockSiteForWritePara
 	var id int64
 	err := row.Scan(&id)
 	return id, err
-}
-
-const reassignDevicesToSite = `-- name: ReassignDevicesToSite :execrows
-UPDATE device
-SET site_id = $1,
-    updated_at = CURRENT_TIMESTAMP
-WHERE org_id = $2
-  AND device_identifier = ANY($3::text[])
-  AND deleted_at IS NULL
-`
-
-type ReassignDevicesToSiteParams struct {
-	TargetSiteID      sql.NullInt64
-	OrgID             int64
-	DeviceIdentifiers []string
-}
-
-// Bulk update of device.site_id for the given identifiers within the
-// org. Caller is expected to have already validated that no device is
-// in a rack at a different site (see FindDeviceSiteConflicts).
-// target_site_id NULL = move to Unassigned.
-func (q *Queries) ReassignDevicesToSite(ctx context.Context, arg ReassignDevicesToSiteParams) (int64, error) {
-	result, err := q.exec(ctx, q.reassignDevicesToSiteStmt, reassignDevicesToSite, arg.TargetSiteID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 const reassignDevicesUnderBuilding = `-- name: ReassignDevicesUnderBuilding :execrows

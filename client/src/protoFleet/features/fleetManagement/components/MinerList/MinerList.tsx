@@ -196,8 +196,12 @@ type MinerListProps = {
   currentSortConfig?: SortConfig;
   /** Callback to trigger a miner list refresh (e.g., after rename or unpair). */
   onRefetchMiners?: () => void;
+  /** Callback after a row-level refresh completes without resetting pagination. */
+  onRefreshMinersComplete?: () => void;
   /** Callback to update a visible worker name immediately after a successful save. */
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
+  /** Callback to merge freshly refreshed miner snapshots into the visible table. */
+  onMergeMiners?: (snapshots: MinerStateSnapshot[]) => void;
   /** Callback to notify that pairing/auth completed (triggers pool polling in CompleteSetup). */
   onPairingCompleted?: () => void;
 };
@@ -485,7 +489,9 @@ const MinerList = ({
   currentFilter,
   currentSortConfig,
   onRefetchMiners,
+  onRefreshMinersComplete,
   onWorkerNameUpdated,
+  onMergeMiners,
   onPairingCompleted,
 }: MinerListProps) => {
   const navigate = useNavigate();
@@ -497,6 +503,7 @@ const MinerList = ({
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
+  const [refreshingMinerIds, setRefreshingMinerIds] = useState<Set<string>>(() => new Set());
 
   const topRef = useRef<HTMLDivElement>(null);
 
@@ -514,6 +521,18 @@ const MinerList = ({
     onPrevPage?.();
   }, [scrollToTop, onPrevPage]);
 
+  const handleMinerRefreshStateChange = useCallback((deviceIdentifier: string, isRefreshing: boolean) => {
+    setRefreshingMinerIds((current) => {
+      const next = new Set(current);
+      if (isRefreshing) {
+        next.add(deviceIdentifier);
+      } else {
+        next.delete(deviceIdentifier);
+      }
+      return next;
+    });
+  }, []);
+
   const deviceItems: DeviceListItem[] = useMemo(
     () =>
       minerIds
@@ -523,11 +542,12 @@ const MinerList = ({
           miner: miners[id],
           errors: errorsByDevice[id] ?? [],
           activeBatches: getActiveBatches(id),
+          isRefreshing: refreshingMinerIds.has(id),
         })),
     // getActiveBatches identity changes on every dispatch but batchStateVersion
     // is the canonical trigger — suppress the lint warning for the unstable callback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [minerIds, miners, errorsByDevice, batchStateVersion],
+    [minerIds, miners, errorsByDevice, batchStateVersion, refreshingMinerIds],
   );
 
   const disabledMinerIdSet = useMemo(
@@ -549,13 +569,22 @@ const MinerList = ({
   // stale `miners` map / stale callbacks) after each poll.
   const minersRef = useRef(miners);
   const onRefetchMinersRef = useRef(onRefetchMiners);
+  const onRefreshMinersCompleteRef = useRef(onRefreshMinersComplete);
   const onWorkerNameUpdatedRef = useRef(onWorkerNameUpdated);
+  const onMergeMinersRef = useRef(onMergeMiners);
+  const onMinerRefreshStateChangeRef = useRef(handleMinerRefreshStateChange);
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
   minersRef.current = miners;
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
   onRefetchMinersRef.current = onRefetchMiners;
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  onRefreshMinersCompleteRef.current = onRefreshMinersComplete;
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
   onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  onMergeMinersRef.current = onMergeMiners;
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  onMinerRefreshStateChangeRef.current = handleMinerRefreshStateChange;
 
   const closeModalFlow = useCallback(() => {
     setModalFlow({ kind: "closed" });
@@ -624,7 +653,10 @@ const MinerList = ({
         errorsLoaded,
         minersRef,
         onRefetchMinersRef,
+        onRefreshMinersCompleteRef,
         onWorkerNameUpdatedRef,
+        onMergeMinersRef,
+        onMinerRefreshStateChangeRef,
       }),
     // handleOpenStatusFlow is stable (reads from minersRef) — only recreate for groups/errors changes
     // eslint-disable-next-line react-hooks/exhaustive-deps

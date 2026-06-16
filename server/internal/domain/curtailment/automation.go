@@ -343,7 +343,7 @@ func (s *AutomationService) validateAndNormalize(
 		rule.TriggerType = models.AutomationTriggerTypeMQTT
 	}
 	if rule.TriggerType != models.AutomationTriggerTypeMQTT {
-		return models.AutomationRule{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MQTT", rule.TriggerType)
+		return models.AutomationRule{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MQTT (MaestroOS source) is supported", rule.TriggerType)
 	}
 	if rule.MQTTSourceID <= 0 {
 		return models.AutomationRule{}, fleeterror.NewInvalidArgumentError("mqtt_source_id must be set")
@@ -409,7 +409,7 @@ func validateAutomationRuleName(name string) error {
 
 func mqttSourceLookupError(err error) error {
 	if errors.Is(err, mqttingest.ErrSourceConfigNotFound) {
-		return fleeterror.NewNotFoundError("mqtt source not found")
+		return fleeterror.NewNotFoundError("MaestroOS source not found")
 	}
 	return err
 }
@@ -417,13 +417,13 @@ func mqttSourceLookupError(err error) error {
 func automationSignalFromMQTTTarget(target mqttingest.Target) (models.AutomationSignal, error) {
 	switch target {
 	case mqttingest.TargetUnknown:
-		return "", fleeterror.NewInvalidArgumentError("unsupported MQTT target \"unknown\"")
+		return "", fleeterror.NewInvalidArgumentError("unsupported MaestroOS target \"unknown\"")
 	case mqttingest.TargetOff:
 		return models.AutomationSignalOff, nil
 	case mqttingest.TargetOn:
 		return models.AutomationSignalOn, nil
 	default:
-		return "", fleeterror.NewInvalidArgumentErrorf("unsupported MQTT target %q", target.String())
+		return "", fleeterror.NewInvalidArgumentErrorf("unsupported MaestroOS target %q", target.String())
 	}
 }
 
@@ -436,7 +436,7 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 	toleranceKW := float64Value(profile.ToleranceKW)
 	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
 	sourceActorID := externalReference
-	reason := fmt.Sprintf("Automation %q from MQTT source %q", rule.RuleName, signal.Source.SourceName)
+	reason := fmt.Sprintf("Automation %q from MaestroOS source %q", rule.RuleName, signal.Source.SourceName)
 	return StartRequest{
 		PreviewRequest: PreviewRequest{
 			OrgID:                   rule.OrgID,

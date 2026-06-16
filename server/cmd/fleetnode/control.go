@@ -265,6 +265,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	switch k := env.GetCommand().(type) {
 	case *pairingpb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
+	case *pairingpb.AgentCommand_MinerCommand:
+		r.handleMinerCommand(ctx, stream, commandID, k.MinerCommand, logger)
 	case *pairingpb.AgentCommand_Pair:
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
 	default:

@@ -72,7 +72,7 @@ func TestGetBuildingStats_notFound(t *testing.T) {
 
 func TestGetBuildingStats_notFoundWhenSiteMovedDuringAuthz(t *testing.T) {
 	// Race: handler resolved the building at site A, but a concurrent
-	// AssignBuildingToSite moved it to site B before the service read.
+	// AssignBuildingsToSite moved it to site B before the service read.
 	// Expectation: surface NotFound rather than return stats the caller
 	// wasn't authorized for in the new site-scope.
 	ctrl := gomock.NewController(t)
@@ -93,7 +93,7 @@ func TestGetBuildingStats_notFoundWhenSiteMovedDuringAuthz(t *testing.T) {
 
 func TestGetBuildingStats_notFoundWhenSiteMovedAfterReads(t *testing.T) {
 	// Sharper race: handler + initial site read both saw site A, so the
-	// rollup proceeded. AssignBuildingToSite then commits to site B
+	// rollup proceeded. AssignBuildingsToSite then commits to site B
 	// before the service hits its post-read re-check. Expectation: the
 	// post-read guard catches the move and returns NotFound rather than
 	// handing the caller a snapshot built under stale authz.

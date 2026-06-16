@@ -17,6 +17,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -26,6 +27,8 @@ import (
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
 
 func discoverIPList(ips, ports []string) *pairingpb.DiscoverRequest {
@@ -884,6 +887,61 @@ func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
 	<-done
 }
 
+func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
+	// Arrange: every miner command blocks in its action, so each one the loop admits
+	// holds its pool slot. The pool slot is taken in the receive loop before the
+	// handler runs, so once commandPoolSize slots are held the next command must be
+	// rejected BUSY rather than queued.
+	ctrl := gomock.NewController(t)
+	release := make(chan struct{})
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Reboot(gomock.Any()).DoAndReturn(func(context.Context) error {
+		<-release
+		return nil
+	}).AnyTimes()
+	dev.EXPECT().Close(gomock.Any()).Return(nil).AnyTimes()
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: dev}, nil).AnyTimes()
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	state := &bootstrap.State{FleetNodeID: 7}
+
+	payload := mustMarshal(t, &pairingpb.AgentCommand{
+		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}},
+		)},
+	})
+	fake := &controlFakeGateway{}
+	for i := range commandPoolSize {
+		fake.queueWithID(fmt.Sprintf("cmd-%d", i), payload)
+	}
+	const overflowID = "cmd-overflow"
+	fake.queueWithID(overflowID, payload) // one past the pool ceiling
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+
+	// Assert: the command past the pool ceiling is rejected BUSY while the pool is full.
+	require.Eventually(t, func() bool {
+		for _, ack := range fake.acksCopy() {
+			if ack.GetCommandId() == overflowID {
+				return ack.GetCode() == pb.AckCode_ACK_CODE_BUSY && !ack.GetSucceeded()
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "command past the pool ceiling should be rejected BUSY")
+
+	// Cleanup: release the blocked handlers so the session can drain.
+	close(release)
+	cancel()
+	<-done
+}
+
 func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
 	// Arrange: probe blocks until ctx cancellation.
 	disc := newBlockingDiscoverer("10.0.0.99")
@@ -1148,6 +1206,34 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.helloCount() >= 2 }, 4*time.Second, 50*time.Millisecond)
 	cancel()
 	<-done
+}
+
+func TestDecodeAgentCommandLane(t *testing.T) {
+	// Arrange
+	discover := discoverPayload(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}},
+	})
+	minerCmd := mustMarshal(t, &pairingpb.AgentCommand{
+		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: &pairingpb.MinerCommand{
+			Target: &pairingpb.MinerConnectionDescriptor{
+				DeviceIdentifier: "d1", DriverName: "virtual", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http",
+			},
+			Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}},
+		}},
+	})
+
+	// Act
+	discoverEnv, discoverErr := decodeAgentCommand(discover)
+	minerEnv, minerErr := decodeAgentCommand(minerCmd)
+	_, malformedErr := decodeAgentCommand([]byte{0xFF, 0xFE})
+
+	// Assert: discovery takes the exclusive single-flight slot; per-miner commands
+	// and malformed payloads use the broader pool.
+	require.NoError(t, discoverErr)
+	assert.NotNil(t, discoverEnv.GetDiscover(), "discovery is report-bearing")
+	require.NoError(t, minerErr)
+	assert.Nil(t, minerEnv.GetDiscover(), "miner command uses the pool lane")
+	assert.Error(t, malformedErr, "malformed payload uses the pool lane")
 }
 
 func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {

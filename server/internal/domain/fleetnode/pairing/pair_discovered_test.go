@@ -1,6 +1,7 @@
 package pairing_test
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -466,6 +467,55 @@ func TestPersistFleetNodePairResult_ErrorPersistsNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "FAILED", status)
 	assert.False(t, deviceExists(t, db, orgID, "mac:p-error"), "an ERROR outcome persists nothing")
+}
+
+func deviceIDByIdentifier(t *testing.T, db *sql.DB, orgID int64, identifier string) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM device WHERE device_identifier=$1 AND org_id=$2 AND deleted_at IS NULL`,
+		identifier, orgID,
+	).Scan(&id))
+	return id
+}
+
+func TestPersistFleetNodePairResult_PairedInvalidatesMinerCache(t *testing.T) {
+	// Arrange: a node-discovered device and a recorder for cache invalidations.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-invalidate")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-invalidate")
+	var invalidated []int64
+	pairing.WithMinerInvalidator(func(_ context.Context, id int64) { invalidated = append(invalidated, id) })
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-invalidate", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+
+	// Assert: the node-reported pair evicts the device's stale direct handle so the next
+	// command re-resolves over the ControlStream instead of dialing the cached handle.
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusPaired, status)
+	assert.Equal(t, []int64{deviceIDByIdentifier(t, db, orgID, "mac:p-invalidate")}, invalidated)
+}
+
+func TestPersistFleetNodePairResult_AuthNeededDoesNotInvalidate(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-noinvalidate")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-noinvalidate")
+	var invalidated []int64
+	pairing.WithMinerInvalidator(func(_ context.Context, id int64) { invalidated = append(invalidated, id) })
+	assignedBy := int64(1)
+
+	// Act: a non-PAIRED outcome binds no device.
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-noinvalidate", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+
+	// Assert: nothing bound, so nothing is evicted.
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusAuthenticationNeeded, status)
+	assert.Empty(t, invalidated)
 }
 
 func TestResolvePairTargets(t *testing.T) {

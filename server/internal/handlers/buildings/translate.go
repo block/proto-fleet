@@ -121,22 +121,26 @@ func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken strin
 	return &pb.ListBuildingRacksResponse{Racks: out, NextPageToken: nextPageToken}
 }
 
-func toAssignRackToBuildingParams(req *pb.AssignRackToBuildingRequest, orgID int64) models.AssignRackToBuildingParams {
-	out := models.AssignRackToBuildingParams{
-		OrgID:  orgID,
-		RackID: req.GetRackId(),
+func toAssignRacksToBuildingParams(req *pb.AssignRacksToBuildingRequest, orgID int64) models.AssignRacksToBuildingParams {
+	out := models.AssignRacksToBuildingParams{
+		OrgID: orgID,
+		Racks: make([]models.RackPlacementParam, 0, len(req.GetRacks())),
 	}
-	if req.BuildingId != nil {
-		v := req.GetBuildingId()
-		out.BuildingID = &v
+	if req.TargetBuildingId != nil {
+		v := req.GetTargetBuildingId()
+		out.TargetBuildingID = &v
 	}
-	if req.AisleIndex != nil {
-		v := req.GetAisleIndex()
-		out.AisleIndex = &v
-	}
-	if req.PositionInAisle != nil {
-		v := req.GetPositionInAisle()
-		out.PositionInAisle = &v
+	for _, rp := range req.GetRacks() {
+		entry := models.RackPlacementParam{RackID: rp.GetRackId()}
+		if rp.AisleIndex != nil {
+			v := rp.GetAisleIndex()
+			entry.AisleIndex = &v
+		}
+		if rp.PositionInAisle != nil {
+			v := rp.GetPositionInAisle()
+			entry.PositionInAisle = &v
+		}
+		out.Racks = append(out.Racks, entry)
 	}
 	return out
 }
