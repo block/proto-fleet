@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
@@ -105,6 +105,16 @@ const FleetBuildingsPage = () => {
     const selected = new Set(selectedBuildingIds);
     return visibleBuildingScopes.filter((building) => selected.has(building.id.toString()));
   }, [selectedBuildingIds, visibleBuildingScopes]);
+  useEffect(() => {
+    const visible = new Set(visibleBuildingScopes.map((building) => building.id.toString()));
+    // Keep selection scoped to the active site / URL filter even when the
+    // filtered-empty branch below unmounts BuildingList.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- selection mirrors externally controlled visible rows.
+    setSelectedBuildingIds((prev) => {
+      const next = prev.filter((id) => visible.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [visibleBuildingScopes]);
   const handleSelectAllVisibleBuildings = useCallback(
     () => setSelectedBuildingIds(visibleBuildingScopes.map((building) => building.id.toString())),
     [visibleBuildingScopes],
