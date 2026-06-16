@@ -291,13 +291,14 @@ function CurtailmentManagementPanel({
       return;
     }
 
+    cancelManageSelection();
     setEditSession({
       eventId: activeEventId,
       initialValues: activeEventFormValues,
       preview: createActiveCurtailmentPreview(activeEvent, activeEventFormValues),
     });
     setModalMode("edit");
-  }, [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment]);
+  }, [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment, cancelManageSelection]);
 
   const openHistoryManageModal = useCallback(
     (event: CurtailmentHistoryEvent) => {
@@ -311,6 +312,7 @@ function CurtailmentManagementPanel({
         activeEventFormValues &&
         canUpdateCurtailmentEvent(activeEvent)
       ) {
+        cancelManageSelection();
         setEditSession({
           eventId: activeEventId,
           initialValues: activeEventFormValues,
@@ -359,7 +361,14 @@ function CurtailmentManagementPanel({
           }
         });
     },
-    [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment, selectActiveCurtailment],
+    [
+      activeEvent,
+      activeEventFormValues,
+      activeEventId,
+      canManageCurtailment,
+      cancelManageSelection,
+      selectActiveCurtailment,
+    ],
   );
 
   const openStopConfirmation = useCallback(

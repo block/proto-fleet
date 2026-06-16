@@ -311,6 +311,13 @@ function getSelectedActiveCurtailmentSummary(events: ProtoCurtailmentEvent[]): P
   return events.find((event) => event.eventUuid === currentEventUuid) ?? events[0];
 }
 
+function getCurrentSelectedActiveCurtailmentDetail(
+  selectedEvent: ProtoCurtailmentEvent,
+): ProtoCurtailmentEvent | undefined {
+  const currentEvent = getActiveCurtailmentSnapshot().event;
+  return currentEvent?.eventUuid === selectedEvent.eventUuid ? currentEvent : undefined;
+}
+
 function getSelectedActiveCurtailmentEventToPreserve(
   events: ProtoCurtailmentEvent[],
 ): ProtoCurtailmentEvent | undefined {
@@ -415,7 +422,10 @@ async function requestActiveCurtailmentResponseSnapshot(
     }
   }
 
-  return getActiveCurtailmentSnapshotFromResponse(detailedSelectedEvent ?? selectedEvent, response.events);
+  return getActiveCurtailmentSnapshotFromResponse(
+    detailedSelectedEvent ?? getCurrentSelectedActiveCurtailmentDetail(selectedEvent),
+    response.events,
+  );
 }
 
 function getInFlightActiveCurtailmentRequest(): InFlightActiveCurtailmentRequest {

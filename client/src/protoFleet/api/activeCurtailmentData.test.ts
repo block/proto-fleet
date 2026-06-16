@@ -196,7 +196,22 @@ describe("activeCurtailmentData", () => {
     );
   });
 
-  it("falls back to the selected summary when active detail hydration fails", async () => {
+  it("keeps the current selected detail when active detail hydration fails", async () => {
+    const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
+    const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
+    const currentDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Current Detail A" });
+    applyActiveCurtailmentEvent(currentDetail, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
+    mockGetCurtailmentEvent.mockRejectedValueOnce(new Error("detail unavailable"));
+
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.reason).toBe("Current Detail A");
+    expect(snapshot.events.map((event) => event.reason)).toEqual(["Current Detail A", "Summary B"]);
+  });
+
+  it("does not select an unhydrated active summary when active detail hydration fails", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
     mockListActiveCurtailments.mockResolvedValueOnce({ events: [activeSummary, otherSummary] });
@@ -205,7 +220,7 @@ describe("activeCurtailmentData", () => {
     await refreshActiveCurtailmentData();
 
     const snapshot = getActiveCurtailmentSnapshot();
-    expect(snapshot.event?.reason).toBe("Summary A");
+    expect(snapshot.event).toBeUndefined();
     expect(snapshot.events.map((event) => event.reason)).toEqual(["Summary A", "Summary B"]);
   });
 
