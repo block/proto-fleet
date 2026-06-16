@@ -63,7 +63,7 @@ func TestImporter_RackReimport_UsesNewlyAssignedCount(t *testing.T) {
 	mac1 := "aa:bb:cc:dd:ee:01"
 	mac2 := "aa:bb:cc:dd:ee:02"
 	mac3 := "aa:bb:cc:dd:ee:03"
-	norm := func(s string) string { return networking.NormalizeMAC(s) }
+	norm := networking.NormalizeMAC
 
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	deviceStore.EXPECT().
