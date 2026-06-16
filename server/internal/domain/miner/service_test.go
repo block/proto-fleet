@@ -142,7 +142,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 	tests := []struct {
 		deviceType string
 	}{
-		{"antminer"},
+		{"asicrs"},
 		{"proto"},
 		{"whatsminer"},
 		{"avalon"},
@@ -212,7 +212,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 
 	queries := sqlc.New(testContext.DatabaseService.DB)
 
-	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
+	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "asicrs")
 
 	// Create device without pairing record
 	dbDeviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
@@ -260,7 +260,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 
 	queries := sqlc.New(testContext.DatabaseService.DB)
 
-	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
+	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "asicrs")
 
 	// Create device with pairing but no credentials or token
 	dbDeviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{

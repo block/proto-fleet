@@ -5,17 +5,22 @@ use std::time::Duration;
 use asic_rs::MinerFactory;
 use asic_rs_core::config::pools::{PoolConfig, PoolGroupConfig};
 use asic_rs_core::config::tuning::TuningConfig;
+use asic_rs_core::data::firmware::FirmwareImage;
 use asic_rs_core::data::miner::{MinerData, MiningMode, TuningTarget};
 use asic_rs_core::data::pool::PoolURL;
-use asic_rs_core::traits::miner::{Miner, MinerAuth};
+use asic_rs_core::traits::miner::{ExposeSecret, Miner, MinerAuth};
+use digest_auth::{AuthContext, HttpMethod};
 use futures::FutureExt;
 use proto_fleet_plugin::capabilities::*;
+use reqwest::header::AUTHORIZATION;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use proto_fleet_plugin::pb;
 
-use crate::capabilities::{probe_capabilities, verify_identity, Capabilities};
+use crate::capabilities::{
+    detect_variant, display_model, probe_capabilities, verify_identity, Capabilities,
+};
 
 /// Minimum interval between reconnection attempts to avoid hammering offline miners.
 const RECONNECT_BACKOFF: Duration = Duration::from_secs(30);
@@ -27,6 +32,8 @@ const IDENTITY_TIMEOUT: Duration = Duration::from_secs(10);
 const TELEMETRY_TIMEOUT: Duration = Duration::from_secs(15);
 /// Timeout for individual miner control/query operations.
 const OP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Timeout for firmware upload/apply operations. Matches the legacy Go plugin.
+const FIRMWARE_UPDATE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Timeout for write validation probe.
 const WRITE_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Shorter timeout for the MiningMode attempt in set_power_target. asic-rs internally
@@ -56,7 +63,7 @@ pub struct AsicRsDevice {
     pre_full_curtail_mining: Mutex<FullCurtailMiningState>,
     last_connect_attempt: Mutex<Option<Instant>>,
     factory: Arc<MinerFactory>,
-    auth: Option<MinerAuth>,
+    auth: Mutex<Option<MinerAuth>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,7 +114,7 @@ impl AsicRsDevice {
             pre_full_curtail_mining: Mutex::new(FullCurtailMiningState::Unknown),
             last_connect_attempt: Mutex::new(None),
             factory,
-            auth,
+            auth: Mutex::new(auth),
         }
     }
 
@@ -147,8 +154,10 @@ impl AsicRsDevice {
         {
             *self.caps.lock().await = probe_capabilities(miner.as_ref());
             *self.probed.lock().await = true;
-            if !data.device_info.model.is_empty() {
-                *self.model.lock().await = data.device_info.model.clone();
+            let variant = detect_variant(&data.device_info.make, &data.device_info.firmware);
+            let model = display_model(&data.device_info.make, variant, &data.device_info.model);
+            if !model.is_empty() {
+                *self.model.lock().await = model;
             }
         }
     }
@@ -202,7 +211,8 @@ impl AsicRsDevice {
 
         // Apply auth BEFORE identity check -- miners that require auth for read
         // operations (e.g. get_data) will fail the identity probe without credentials.
-        if let Some(ref auth) = self.auth {
+        let auth = self.auth.lock().await.clone();
+        if let Some(ref auth) = auth {
             m.set_auth(auth.clone());
         }
 
@@ -219,11 +229,16 @@ impl AsicRsDevice {
                     let actual_serial = data.serial_number.as_deref().unwrap_or("");
                     let actual_mac = data.mac.as_ref().map(|m| m.to_string()).unwrap_or_default();
 
+                    let variant =
+                        detect_variant(&data.device_info.make, &data.device_info.firmware);
+                    let actual_model =
+                        display_model(&data.device_info.make, variant, &data.device_info.model);
+
                     verify_identity(
                         &self.info.model,
                         &self.info.serial_number,
                         &self.info.mac_address,
-                        &data.device_info.model,
+                        &actual_model,
                         actual_serial,
                         &actual_mac,
                     )
@@ -235,8 +250,8 @@ impl AsicRsDevice {
                     // Refresh capabilities and model from the live miner instance
                     *self.caps.lock().await = probe_capabilities(m.as_ref());
                     *self.probed.lock().await = true;
-                    if !data.device_info.model.is_empty() {
-                        *self.model.lock().await = data.device_info.model.clone();
+                    if !actual_model.is_empty() {
+                        *self.model.lock().await = actual_model;
                     }
                 }
                 Ok(Err(_)) => {
@@ -261,8 +276,10 @@ impl AsicRsDevice {
             {
                 *self.caps.lock().await = probe_capabilities(m.as_ref());
                 *self.probed.lock().await = true;
-                if !data.device_info.model.is_empty() {
-                    *self.model.lock().await = data.device_info.model.clone();
+                let variant = detect_variant(&data.device_info.make, &data.device_info.firmware);
+                let model = display_model(&data.device_info.make, variant, &data.device_info.model);
+                if !model.is_empty() {
+                    *self.model.lock().await = model;
                 }
             }
         }
@@ -771,6 +788,191 @@ impl AsicRsDevice {
         }
 
         Ok(())
+    }
+
+    pub async fn download_logs(&self) -> anyhow::Result<String> {
+        let guard = self.connected_miner().await?;
+        self.require_cap(CAP_LOGS_DOWNLOAD).await?;
+        let miner = guard.as_ref().unwrap();
+
+        let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.read_logs())).await?;
+        result
+            .map_err(|_| anyhow::anyhow!("download_logs timed out"))?
+            .map_err(|e| anyhow::anyhow!("download_logs failed: {e}"))
+    }
+
+    pub async fn update_miner_password(&self, new_password: &str) -> anyhow::Result<()> {
+        let mut guard = self.connected_miner().await?;
+        self.require_cap(CAP_UPDATE_MINER_PASSWORD).await?;
+        let miner = guard.as_mut().unwrap();
+
+        let result = catch_panic(tokio::time::timeout(
+            OP_TIMEOUT,
+            miner.change_password(new_password),
+        ))
+        .await?;
+        let ok = result
+            .map_err(|_| anyhow::anyhow!("update_miner_password timed out"))?
+            .map_err(|e| anyhow::anyhow!("update_miner_password failed: {e}"))?;
+        if !ok {
+            return Err(anyhow::anyhow!(
+                "update_miner_password command returned false"
+            ));
+        }
+
+        let new_auth = {
+            let auth = self.auth.lock().await;
+            auth.as_ref()
+                .map(|auth| MinerAuth::new(auth.username.clone(), new_password))
+        };
+        if let Some(auth) = new_auth {
+            miner.set_auth(auth.clone());
+            *self.auth.lock().await = Some(auth);
+        }
+
+        drop(guard);
+        self.invalidate_cache().await;
+        Ok(())
+    }
+
+    pub async fn update_firmware(&self, firmware: pb::FirmwareFileInfo) -> anyhow::Result<()> {
+        if firmware.file_path.is_empty() {
+            return Err(anyhow::anyhow!("firmware file path is required"));
+        }
+
+        self.ensure_connected().await?;
+        self.require_cap(CAP_MANUAL_UPLOAD).await?;
+
+        let mut image = FirmwareImage::from_file_async(&firmware.file_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to read firmware file: {e}"))?;
+        if !firmware.original_filename.is_empty() {
+            image.filename = firmware.original_filename;
+        }
+        let fallback_image = image.clone();
+
+        let guard = self.connected_miner().await?;
+        self.require_cap(CAP_MANUAL_UPLOAD).await?;
+        let miner = guard.as_ref().unwrap();
+        let result = catch_panic(tokio::time::timeout(
+            FIRMWARE_UPDATE_TIMEOUT,
+            miner.upgrade_firmware(image),
+        ))
+        .await?;
+        let ok = match result {
+            Err(_) => return Err(anyhow::anyhow!("update_firmware timed out")),
+            Ok(Ok(ok)) => ok,
+            Ok(Err(e)) if self.is_stock_antminer_device() => {
+                tracing::warn!(
+                    device_id = %self.id,
+                    error = %e,
+                    "ASIC-RS stock Antminer firmware upload failed; using one-shot digest upload fallback"
+                );
+                self.update_stock_antminer_firmware(fallback_image)
+                    .await
+                    .map_err(|fallback| {
+                        anyhow::anyhow!("update_firmware failed: {e}; fallback failed: {fallback}")
+                    })?
+            }
+            Ok(Err(e)) => return Err(anyhow::anyhow!("update_firmware failed: {e}")),
+        };
+        if !ok {
+            return Err(anyhow::anyhow!("update_firmware command returned false"));
+        }
+
+        drop(guard);
+        self.invalidate_connection().await;
+        Ok(())
+    }
+
+    fn is_stock_antminer_device(&self) -> bool {
+        self.info.manufacturer.eq_ignore_ascii_case("bitmain")
+            || self.info.manufacturer.eq_ignore_ascii_case("antminer")
+    }
+
+    async fn update_stock_antminer_firmware(&self, image: FirmwareImage) -> anyhow::Result<bool> {
+        let auth = self
+            .auth
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("stock Antminer firmware fallback requires auth"))?;
+
+        let host = &self.info.host;
+        let client = reqwest::Client::builder()
+            .timeout(FIRMWARE_UPDATE_TIMEOUT)
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to create firmware upload client: {e}"))?;
+
+        let challenge_url = format!("http://{host}:80/cgi-bin/get_system_info.cgi");
+        let challenge = client
+            .get(&challenge_url)
+            .timeout(OP_TIMEOUT)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("firmware auth challenge failed: {e}"))?;
+        let www_authenticate = challenge
+            .headers()
+            .get("www-authenticate")
+            .ok_or_else(|| anyhow::anyhow!("firmware auth challenge missing WWW-Authenticate"))?
+            .to_str()
+            .map_err(|e| anyhow::anyhow!("invalid firmware auth challenge header: {e}"))?;
+
+        let upload_path = "/cgi-bin/upgrade.cgi";
+        let mut prompt = digest_auth::parse(www_authenticate)
+            .map_err(|e| anyhow::anyhow!("invalid firmware auth challenge: {e}"))?;
+        let context = AuthContext::new_with_method(
+            &auth.username,
+            auth.password.expose_secret(),
+            upload_path,
+            None::<&[u8]>,
+            HttpMethod::POST,
+        );
+        let authorization = prompt
+            .respond(&context)
+            .map_err(|e| anyhow::anyhow!("failed to build firmware auth header: {e}"))?;
+
+        let FirmwareImage { filename, bytes } = image;
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(filename)
+            .mime_str("application/octet-stream")
+            .map_err(|e| anyhow::anyhow!("failed to build firmware upload part: {e}"))?;
+        let form = reqwest::multipart::Form::new().part("firmware", part);
+
+        let upload_url = format!("http://{host}:80{upload_path}");
+        let response = client
+            .post(upload_url)
+            .multipart(form)
+            .header(AUTHORIZATION, authorization.to_header_string())
+            .timeout(FIRMWARE_UPDATE_TIMEOUT)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("firmware upload HTTP request failed: {e}"))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to read firmware upload response body: {e}"))?;
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "firmware upload failed with status code {status}: {body}"
+            ));
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("invalid firmware upload response: {e}"))?;
+        let ok = parsed.get("code").and_then(|v| v.as_str()) == Some("U000")
+            && parsed.get("stats").and_then(|v| v.as_str()) == Some("success");
+        if !ok {
+            let message = parsed
+                .get("msg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            return Err(anyhow::anyhow!("firmware upload rejected: {message}"));
+        }
+
+        Ok(true)
     }
 
     pub async fn set_power_target(&self, mode: pb::PerformanceMode) -> anyhow::Result<()> {

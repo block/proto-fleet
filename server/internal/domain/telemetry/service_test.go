@@ -1609,7 +1609,7 @@ func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
 		deviceIdentifier: models.DeviceIdentifier("dev-B"),
 		status:           mm.MinerStatusOffline,
 		orgID:            99,
-		driverName:       "antminer",
+		driverName:       "asicrs",
 	}
 
 	require.Eventually(t, func() bool {
@@ -1640,7 +1640,7 @@ func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
 	devB, ok := byDevice["dev-B"]
 	require.True(t, ok, "expected an onDeviceStatus event for dev-B")
 	require.Equal(t, "99", devB.labels.OrganizationID)
-	require.Equal(t, "antminer", devB.labels.Driver)
+	require.Equal(t, "asicrs", devB.labels.Driver)
 	require.False(t, devB.online, "MinerStatusOffline should map to online=false")
 }
 
@@ -1725,7 +1725,7 @@ func TestStatusWriterRoutine_FirmwareUpdateGuardDoesNotSuppressOnlineMetric(t *t
 		deviceIdentifier: healthyDevice,
 		status:           mm.MinerStatusActive,
 		orgID:            42,
-		driverName:       "antminer",
+		driverName:       "asicrs",
 	}
 
 	// Give the writer goroutine time to drain statusResults into pendingUpdates
@@ -2980,7 +2980,7 @@ func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testi
 
 	mockDeviceStore.EXPECT().
 		GetDeviceOrgDriverAndSite(gomock.Any(), deviceID).
-		Return(int64(42), "antminer", int64(0), nil)
+		Return(int64(42), "asicrs", int64(0), nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2993,7 +2993,7 @@ func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, mm.MinerStatusOffline, status)
 	assert.Equal(t, int64(42), orgID, "trusted org_id from device store must label the offline sample")
-	assert.Equal(t, "antminer", driverName, "trusted driver_name from device store must label the offline sample")
+	assert.Equal(t, "asicrs", driverName, "trusted driver_name from device store must label the offline sample")
 }
 
 // TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGracefully

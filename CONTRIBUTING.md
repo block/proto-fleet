@@ -77,7 +77,6 @@ The pre-push hooks also run repository checks before a branch can be pushed:
 - `client`: TypeScript typechecking via `npm exec --no -- tsc --noEmit`
 - `server`: `golangci-lint run -c .golangci.yaml`
 - `plugin/proto`: `golangci-lint run -c .golangci.yaml`
-- `plugin/antminer`: `golangci-lint run -c .golangci.yaml`
 
 ## Git Workflow
 

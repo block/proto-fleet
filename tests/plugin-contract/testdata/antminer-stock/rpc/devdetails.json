@@ -1,0 +1,22 @@
+{
+  "STATUS": [
+    {
+      "STATUS": "S",
+      "When": 1741500000,
+      "Code": 69,
+      "Msg": "Device Details",
+      "Description": "bmminer"
+    }
+  ],
+  "DEVDETAILS": [
+    {
+      "DEVDETAILS": 0,
+      "Name": "SM",
+      "ID": 0,
+      "Driver": "bmminer",
+      "Kernel": "",
+      "Model": "Antminer S19"
+    }
+  ],
+  "id": 1
+}

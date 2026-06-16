@@ -46,16 +46,16 @@ func TestService_IsPluginAvailableByDriverName(t *testing.T) {
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
 	// Act + Assert - no plugins registered
-	assert.False(t, service.GetManager().HasPluginForDriverName("antminer"))
+	assert.False(t, service.GetManager().HasPluginForDriverName("asicrs"))
 
 	// Arrange
 	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
+		Name: "asicrs-plugin",
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Act + Assert
-	assert.True(t, service.GetManager().HasPluginForDriverName("antminer"))
+	assert.True(t, service.GetManager().HasPluginForDriverName("asicrs"))
 	assert.False(t, service.GetManager().HasPluginForDriverName("whatsminer"))
 }
 
@@ -136,7 +136,7 @@ func TestService_GetPluginCapabilitiesByDriverName(t *testing.T) {
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
 	// Act + Assert - no plugin
-	caps, err := service.GetPluginCapabilitiesByDriverName("antminer")
+	caps, err := service.GetPluginCapabilitiesByDriverName("asicrs")
 	assert.Nil(t, caps)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no plugin")
@@ -147,13 +147,13 @@ func TestService_GetPluginCapabilitiesByDriverName(t *testing.T) {
 		sdk.CapabilityPairing:   true,
 	}
 	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
+		Name: "asicrs-plugin",
 		Caps: mockCaps,
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Act + Assert
-	caps, err = service.GetPluginCapabilitiesByDriverName("antminer")
+	caps, err = service.GetPluginCapabilitiesByDriverName("asicrs")
 	require.NoError(t, err)
 	assert.Equal(t, mockCaps, caps)
 }
@@ -175,10 +175,10 @@ func TestService_GetDefaultDiscoveryPorts_ReturnsAllAdvertisedPorts(t *testing.T
 		},
 		DiscoveryPorts: []string{"443", "8080"},
 	}
-	manager.plugins["antminer-plugin"] = &LoadedPlugin{
-		Name: "antminer-plugin",
+	manager.plugins["asicrs-plugin"] = &LoadedPlugin{
+		Name: "asicrs-plugin",
 		Identifier: sdk.DriverIdentifier{
-			DriverName: "antminer",
+			DriverName: "asicrs",
 		},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,
@@ -206,7 +206,7 @@ func TestService_GetDefaultDiscoveryPorts_ReturnsAllAdvertisedPorts(t *testing.T
 		DiscoveryPorts: []string{"4028"},
 	}
 
-	assert.Equal(t, []string{"4028", "443", "8080"}, service.GetDefaultDiscoveryPorts(t.Context()))
+	assert.ElementsMatch(t, []string{"4028", "443", "8080"}, service.GetDefaultDiscoveryPorts(t.Context()))
 }
 
 func TestService_GetDiscoveryPorts(t *testing.T) {
@@ -226,10 +226,10 @@ func TestService_GetDiscoveryPorts(t *testing.T) {
 		},
 		DiscoveryPorts: []string{"443", "8080"},
 	}
-	manager.plugins["antminer-plugin"] = &LoadedPlugin{
-		Name: "antminer-plugin",
+	manager.plugins["asicrs-plugin"] = &LoadedPlugin{
+		Name: "asicrs-plugin",
 		Identifier: sdk.DriverIdentifier{
-			DriverName: "antminer",
+			DriverName: "asicrs",
 		},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,
@@ -343,7 +343,7 @@ func TestService_GetMinerCapabilitiesForDevice_NoPluginForDriverName(t *testing.
 	service := createTestServiceForServiceTest(t, ctrl, manager)
 
 	device := &pairingpb.Device{
-		DriverName:   "antminer",
+		DriverName:   "asicrs",
 		Model:        "Antminer S19",
 		Manufacturer: "Bitmain",
 	}
@@ -392,14 +392,14 @@ func TestService_GetMinerCapabilitiesForDevice_AntminerSuccess(t *testing.T) {
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
+		Name: "asicrs-plugin",
 		Caps: antminerCaps,
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-	manager.plugins["antminer-plugin"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
+	manager.plugins["asicrs-plugin"] = mockPlugin
 
 	device := &pairingpb.Device{
-		DriverName:   "antminer",
+		DriverName:   "asicrs",
 		Model:        "Antminer S19",
 		Manufacturer: "Bitmain",
 	}
@@ -508,15 +508,15 @@ func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name:   "antminer-plugin",
+		Name:   "asicrs-plugin",
 		Caps:   baseCaps,
 		Driver: combined,
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-	manager.plugins["antminer-plugin"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
+	manager.plugins["asicrs-plugin"] = mockPlugin
 
 	device := &pairingpb.Device{
-		DriverName:   "antminer",
+		DriverName:   "asicrs",
 		Model:        "Antminer S21",
 		Manufacturer: "Bitmain",
 	}

@@ -67,7 +67,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 					Port:       "50051",
 					UrlScheme:  "grpc",
 					MacAddress: "AA:BB:CC:DD:EE:02", // Second device moved here
-					DriverName: "antminer",
+					DriverName: "asicrs",
 				},
 			},
 		},

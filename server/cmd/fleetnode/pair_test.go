@@ -192,8 +192,8 @@ func TestControlLoop_PairAcksAndReportsResults(t *testing.T) {
 	fake.queue(pairCmd(t, &pairingpb.FleetNodePairRequest{
 		Credentials: &pairingpb.Credentials{Username: "root", Password: &pw},
 		Targets: []*pairingpb.FleetNodePairTarget{
-			{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"},
-			{DeviceIdentifier: "mac:bb", IpAddress: "10.0.0.6", Port: "80", DriverName: "antminer"},
+			{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "asicrs"},
+			{DeviceIdentifier: "mac:bb", IpAddress: "10.0.0.6", Port: "80", DriverName: "asicrs"},
 		},
 	}))
 
@@ -226,7 +226,7 @@ func TestControlLoop_PairPartialPersistAcksPartial(t *testing.T) {
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{pairRejected: 1})
 	fake.queue(pairCmd(t, &pairingpb.FleetNodePairRequest{
-		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"}},
+		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "asicrs"}},
 	}))
 
 	// Act
@@ -246,7 +246,7 @@ func TestControlLoop_PairAgentIncapableWithoutPairer(t *testing.T) {
 	cmd := &RunCmd{}
 	fake := &controlFakeGateway{}
 	fake.queue(pairCmd(t, &pairingpb.FleetNodePairRequest{
-		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"}},
+		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "asicrs"}},
 	}))
 
 	// Act
@@ -284,7 +284,7 @@ func TestControlLoop_PairReportFailureAcksReportFailed(t *testing.T) {
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{pairReportErr: connect.NewError(connect.CodeUnavailable, errors.New("upload boom"))})
 	fake.queue(pairCmd(t, &pairingpb.FleetNodePairRequest{
-		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"}},
+		Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "asicrs"}},
 	}))
 
 	// Act
@@ -334,7 +334,7 @@ func TestHandlePairCommand_BusyWhileAbandonedWorkersStillRunning(t *testing.T) {
 	acks := &recordingAcker{}
 	target := func(id, ip string) *pairingpb.FleetNodePairRequest {
 		return &pairingpb.FleetNodePairRequest{
-			Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: id, IpAddress: ip, Port: "80", DriverName: "antminer"}},
+			Targets: []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: id, IpAddress: ip, Port: "80", DriverName: "asicrs"}},
 		}
 	}
 
@@ -378,8 +378,8 @@ func TestControlLoop_PairSupervisorTruncatedAcksPartial(t *testing.T) {
 	fake := &controlFakeGateway{}
 	fake.queueWithID("pair-1", pairCmd(t, &pairingpb.FleetNodePairRequest{
 		Targets: []*pairingpb.FleetNodePairTarget{
-			{DeviceIdentifier: "mac:fast", IpAddress: "10.0.0.5", Port: "80", DriverName: "antminer"},
-			{DeviceIdentifier: "mac:stuck", IpAddress: "10.0.0.6", Port: "80", DriverName: "antminer"},
+			{DeviceIdentifier: "mac:fast", IpAddress: "10.0.0.5", Port: "80", DriverName: "asicrs"},
+			{DeviceIdentifier: "mac:stuck", IpAddress: "10.0.0.6", Port: "80", DriverName: "asicrs"},
 		},
 	}))
 	client := newControlClient(t, fake)

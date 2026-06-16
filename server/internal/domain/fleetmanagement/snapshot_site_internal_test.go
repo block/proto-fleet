@@ -24,14 +24,14 @@ func TestListMinerStateSnapshots_PopulatesSiteIDAndLabel(t *testing.T) {
 	rows := []sqlc.ListMinerStateSnapshotsRow{
 		{
 			DeviceIdentifier: "miner-a",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 			PairingStatus:    "UNPAIRED",
 			SiteID:           sql.NullInt64{Int64: 7, Valid: true},
 			SiteLabel:        "Site Alpha",
 		},
 		{
 			DeviceIdentifier: "miner-b",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 			PairingStatus:    "UNPAIRED",
 			// Site unset — snapshot.SiteId must remain nil and label empty.
 			SiteID:    sql.NullInt64{},

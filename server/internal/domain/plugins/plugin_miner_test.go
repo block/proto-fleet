@@ -270,7 +270,7 @@ func createTestPluginMinerWithDevice(device sdk.Device) *PluginMiner {
 		testOrgID,
 		int64(0),
 		models.DeviceIdentifier("test-device-123"),
-		"antminer",
+		"asicrs",
 		nil,
 		"SN123456",
 		*connInfo,
@@ -750,7 +750,7 @@ func TestPluginMiner_MinerInfo(t *testing.T) {
 	pm, _ := createTestPluginMiner()
 
 	assert.Equal(t, models.DeviceIdentifier("test-device-123"), pm.GetID())
-	assert.Equal(t, "antminer", pm.GetDriverName())
+	assert.Equal(t, "asicrs", pm.GetDriverName())
 	assert.Equal(t, "SN123456", pm.GetSerialNumber())
 	assert.NotNil(t, pm.GetConnectionInfo())
 }

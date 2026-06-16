@@ -146,7 +146,7 @@ func TestManager_GetPluginByDriverName(t *testing.T) {
 	manager := NewManager(&Config{})
 
 	// Act
-	plugin, exists := manager.GetPluginByDriverName("antminer")
+	plugin, exists := manager.GetPluginByDriverName("asicrs")
 
 	// Assert
 	assert.Nil(t, plugin)
@@ -154,12 +154,12 @@ func TestManager_GetPluginByDriverName(t *testing.T) {
 
 	// Arrange
 	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
+		Name: "asicrs-plugin",
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Act
-	plugin, exists = manager.GetPluginByDriverName("antminer")
+	plugin, exists = manager.GetPluginByDriverName("asicrs")
 
 	// Assert
 	assert.Equal(t, mockPlugin, plugin)
@@ -170,16 +170,16 @@ func TestManager_HasPluginForDriverName(t *testing.T) {
 	manager := NewManager(&Config{})
 
 	// Assert
-	assert.False(t, manager.HasPluginForDriverName("antminer"))
+	assert.False(t, manager.HasPluginForDriverName("asicrs"))
 
 	// Arrange
 	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
+		Name: "asicrs-plugin",
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Assert
-	assert.True(t, manager.HasPluginForDriverName("antminer"))
+	assert.True(t, manager.HasPluginForDriverName("asicrs"))
 	assert.False(t, manager.HasPluginForDriverName("whatsminer"))
 }
 

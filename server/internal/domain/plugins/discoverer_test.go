@@ -41,7 +41,7 @@ func TestMultiTypeDiscoverer_Discover_NoDiscoveryCapablePlugins(t *testing.T) {
 	// Add mock plugin without discovery capability
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true, // Has pairing but not discovery
 		},
@@ -123,7 +123,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			// Add mock plugin with discovery capability
 			mockPlugin := &LoadedPlugin{
 				Name:       "test-plugin",
-				Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+				Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 				Driver:     mockDriver,
 				Caps: sdk.Capabilities{
 					sdk.CapabilityDiscovery: true,
@@ -139,7 +139,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, device)
 
-			assert.Equal(t, "antminer", device.DriverName)
+			assert.Equal(t, "asicrs", device.DriverName)
 			assert.Equal(t, "192.168.1.100", device.IpAddress)
 			assert.Equal(t, "80", device.Port)
 			assert.Equal(t, tc.deviceInfo.SerialNumber, device.SerialNumber)
@@ -197,7 +197,7 @@ func TestMultiTypeDiscoverer_Discover_FirstPluginFails(t *testing.T) {
 	// Add successful plugin
 	successPlugin := &LoadedPlugin{
 		Name:       "success-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     successDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true,
@@ -238,7 +238,7 @@ func TestMultiTypeDiscoverer_Discover_AllPluginsFail(t *testing.T) {
 
 	manager.plugins["failing-plugin-1"] = &LoadedPlugin{
 		Name:       "failing-plugin-1",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     failingDriver1,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
 	}
@@ -308,7 +308,7 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_FastPluginWins(t *testin
 
 	manager.plugins["fast-plugin"] = &LoadedPlugin{
 		Name:       "fast-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     fastDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
 	}
@@ -355,7 +355,7 @@ func TestMultiTypeDiscoverer_Discover_ContextCancellation(t *testing.T) {
 
 	manager.plugins["blocking-plugin"] = &LoadedPlugin{
 		Name:       "blocking-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     blockingDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityDiscovery: true},
 	}

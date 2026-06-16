@@ -37,7 +37,6 @@ server/.fleetnode/
 ├── nmap         (symlink to system nmap, if present)
 └── plugins/
     ├── proto-plugin
-    ├── antminer-plugin
     ├── virtual-plugin
     └── asicrs-plugin
 ```

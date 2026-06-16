@@ -17,7 +17,7 @@ just rebuild-services # Clean rebuild of docker services only (reuses existing p
 just rebuild-fleet-api  # Rebuild just fleet-api
 ```
 
-From the repo root, `just rebuild-plugin <name>` rebuilds a single plugin (`proto`, `antminer`, `virtual`, or `asicrs`) without touching the others.
+From the repo root, `just rebuild-plugin <name>` rebuilds a single plugin (`proto`, `virtual`, or `asicrs`) without touching the others.
 
 ### Delve debugging
 

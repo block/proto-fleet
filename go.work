@@ -1,7 +1,6 @@
 go 1.25.4
 
 use (
-	./plugin/antminer
 	./plugin/proto
 	./plugin/virtual
 	./server

@@ -83,7 +83,7 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceMetrics(context.Background(), 7, 42, "antminer", "ant-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 7, 42, "asicrs", "ant-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-1",
 		HashrateHS:       metricVal(110e12), // 110 TH/s
 		Health:           modelsV2.HealthHealthyActive,
@@ -92,7 +92,7 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	require.Len(t, rec.hashrate, 1)
 	require.InDelta(t, 110.0, rec.hashrate[0].observedTHs, 1e-9)
 	require.Equal(t, "ant-1", rec.hashrate[0].labels.DeviceID)
-	require.Equal(t, "antminer", rec.hashrate[0].labels.Driver)
+	require.Equal(t, "asicrs", rec.hashrate[0].labels.Driver)
 	require.Equal(t, "7", rec.hashrate[0].labels.OrganizationID)
 	require.Equal(t, "42", rec.hashrate[0].labels.SiteID)
 }
@@ -192,7 +192,7 @@ func TestObserverPollResultIsClosedEnum(t *testing.T) {
 func TestObserverFallsBackToAggregatedTempWhenNoComponents(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, 0, "antminer", "ant-2", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "asicrs", "ant-2", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-2",
 		TempC:            metricVal(68.5),
 		Health:           modelsV2.HealthHealthyActive,
@@ -210,8 +210,8 @@ func TestObserverHandlesAllKnownDriversInFixture(t *testing.T) {
 		dm     modelsV2.DeviceMetrics
 	}{
 		{
-			name:   "antminer",
-			driver: "antminer",
+			name:   "asicrs",
+			driver: "asicrs",
 			dm: modelsV2.DeviceMetrics{
 				DeviceIdentifier: "ant-1",
 				HashrateHS:       metricVal(120e12),
@@ -302,7 +302,7 @@ func TestObserverDropsSampleWithMismatchedPluginDeviceID(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceMetrics(context.Background(), 1, 0, "antminer", "ant-1", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, 0, "asicrs", "ant-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-spoofed",
 		HashrateHS:       metricVal(110e12),
 		TempC:            metricVal(70),

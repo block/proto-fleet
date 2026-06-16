@@ -57,7 +57,7 @@ func TestEffectiveCapabilitiesForDeviceUsesDriverCapsWithModelOverrides(t *testi
 		},
 	}
 
-	caps := service.effectiveCapabilitiesForDevice(t.Context(), "antminer", "Bitmain", "Antminer S21")
+	caps := service.effectiveCapabilitiesForDevice(t.Context(), "asicrs", "Bitmain", "Antminer S21")
 
 	assert.Equal(t, "Bitmain", driver.seenManufacturer)
 	assert.Equal(t, "Antminer S21", driver.seenModel)
@@ -86,7 +86,7 @@ func TestEffectiveCapabilitiesForDeviceSkipsModelProviderWhenModelUnknown(t *tes
 		},
 	}
 
-	caps := service.effectiveCapabilitiesForDevice(t.Context(), "antminer", "Bitmain", "")
+	caps := service.effectiveCapabilitiesForDevice(t.Context(), "asicrs", "Bitmain", "")
 
 	assert.Equal(t, 0, driver.callCount)
 	assert.True(t, caps[sdk.CapabilityCurtailFull])

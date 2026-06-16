@@ -156,7 +156,7 @@ func TestDiscoverWithIPList(t *testing.T) {
 
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice1 := createMockDevice("192.168.1.10", "8080", "proto")
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", "antminer")
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "asicrs")
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -670,7 +670,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice1 := createMockDevice("192.168.1.10", "8080", "proto")
 		mockDevice2 := createMockDevice("192.168.1.11", "8080", "proto")
-		mockDevice3 := createMockDevice("192.168.1.12", "8080", "antminer")
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", "asicrs")
 
 		// Set up mock calls that signal completion through WaitGroup
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
@@ -723,7 +723,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice1 := createMockDevice("192.168.1.10", "8080", "proto")
 		mockDevice2 := createMockDevice("192.168.1.11", "8080", "proto")
-		mockDevice3 := createMockDevice("192.168.1.12", "8080", "antminer")
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", "asicrs")
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -895,7 +895,7 @@ func TestPairDevices(t *testing.T) {
 		portStr := "80"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "antminer")
+		mockDevice := createMockDevice(host, portStr, "asicrs")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns credentials required error
@@ -1604,7 +1604,7 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 		portStr := "80"
 
 		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "antminer")
+		mockDevice := createMockDevice(host, portStr, "asicrs")
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns credentials required error (sets AUTHENTICATION_NEEDED)

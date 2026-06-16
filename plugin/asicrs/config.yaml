@@ -10,7 +10,7 @@ miners:
 
   antminer:
     stock:
-      enabled: false  # Go plugin handles stock Antminers
+      enabled: true
     braiins:
       enabled: true
     vnish:

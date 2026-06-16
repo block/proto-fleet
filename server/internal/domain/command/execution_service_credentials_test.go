@@ -81,7 +81,7 @@ func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
 	}{
 		{
 			name:               "Antminer devices store credentials in DB after update",
-			deviceType:         "antminer",
+			deviceType:         "asicrs",
 			shouldStoreInDB:    true,
 			userProvidedPasswd: "currentpass",
 		},
@@ -100,7 +100,7 @@ func TestUpdateMinerPassword_DeviceTypeHandling(t *testing.T) {
 			// - Proto: credentials NOT stored (shouldStoreInDB = false, uses JWT)
 			// - All device types require user to provide current password
 
-			if tt.deviceType == "antminer" {
+			if tt.deviceType == "asicrs" {
 				assert.True(t, tt.shouldStoreInDB, "Antminer credentials should be stored after update")
 			} else if tt.deviceType == "proto" {
 				assert.False(t, tt.shouldStoreInDB, "Proto credentials should not be stored")
@@ -123,13 +123,13 @@ func TestUpdateMinerPassword_CurrentPasswordRequired(t *testing.T) {
 	}{
 		{
 			name:               "Antminer with current password succeeds",
-			deviceType:         "antminer",
+			deviceType:         "asicrs",
 			userProvidedPasswd: "currentpass",
 			shouldSucceed:      true,
 		},
 		{
 			name:               "Antminer without current password fails",
-			deviceType:         "antminer",
+			deviceType:         "asicrs",
 			userProvidedPasswd: "",
 			shouldSucceed:      false,
 		},
@@ -178,7 +178,7 @@ func (m *mockMinerForPassword) UpdateMinerPassword(ctx context.Context, payload 
 }
 
 // Implement MinerInfo interface
-func (m *mockMinerForPassword) GetDriverName() string          { return "antminer" }
+func (m *mockMinerForPassword) GetDriverName() string          { return "asicrs" }
 func (m *mockMinerForPassword) GetID() models.DeviceIdentifier { return "test-device" }
 func (m *mockMinerForPassword) GetOrgID() int64                { return 1 }
 func (m *mockMinerForPassword) GetSiteID() int64               { return 0 }

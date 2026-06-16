@@ -23,13 +23,13 @@ func TestReapOrphans_SkipsLivePluginsOfOtherAgents(t *testing.T) {
 		"100 1 fleetnode run",
 		"200 1 fleetnode run --state-dir /alt",
 		"500 100 /plugins/proto-plugin",
-		"600 200 /plugins/antminer-plugin",
+		"600 200 /plugins/asicrs-plugin",
 		"999 1 /plugins/leftover-plugin",
 		"",
 	}, "\n")
 	allowed := []string{
 		"/plugins/proto-plugin",
-		"/plugins/antminer-plugin",
+		"/plugins/asicrs-plugin",
 		"/plugins/leftover-plugin",
 	}
 

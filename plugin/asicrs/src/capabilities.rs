@@ -29,6 +29,8 @@ const DISPLAY_EPIC: &str = "ePIC";
 const DISPLAY_BRAIINS: &str = "Braiins";
 const DISPLAY_LUXOS: &str = "LuxOS";
 const DISPLAY_MARATHON: &str = "Marathon";
+const DISPLAY_BITMAIN: &str = "Bitmain";
+const DISPLAY_ANTMINER_MODEL_PREFIX: &str = "Antminer";
 
 /// Static base capabilities built once and cloned on use.
 static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
@@ -83,7 +85,9 @@ static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
     caps.insert(CAP_LOGS_DOWNLOAD.into(), false);
     caps.insert(CAP_OTA_UPDATE.into(), false);
     caps.insert(CAP_ASYMMETRIC_AUTH.into(), false);
+    caps.insert(CAP_UPDATE_FIRMWARE.into(), false);
     caps.insert(CAP_FIRMWARE.into(), false);
+    caps.insert(CAP_MANUAL_UPLOAD.into(), false);
 
     caps
 });
@@ -120,6 +124,11 @@ const PROBED_CAPS: &[&str] = &[
     CAP_GET_MINING_POOLS,
     CAP_UPDATE_MINING_POOLS,
     CAP_POWER_MODE_EFFICIENCY,
+    CAP_UPDATE_MINER_PASSWORD,
+    CAP_LOGS_DOWNLOAD,
+    CAP_UPDATE_FIRMWARE,
+    CAP_FIRMWARE,
+    CAP_MANUAL_UPLOAD,
 ];
 
 /// Probe capabilities from a live miner instance using asic-rs supports_*() methods.
@@ -148,8 +157,17 @@ pub fn probe_capabilities(miner: &dyn Miner) -> Capabilities {
         CAP_POWER_MODE_EFFICIENCY.into(),
         miner.supports_tuning_config(),
     );
-    // Do not advertise firmware updates until the update_firmware RPC is implemented.
-    caps.insert(CAP_FIRMWARE.into(), false);
+
+    // Maintenance -- from live miner introspection
+    caps.insert(
+        CAP_UPDATE_MINER_PASSWORD.into(),
+        miner.supports_change_password(),
+    );
+    caps.insert(CAP_LOGS_DOWNLOAD.into(), miner.supports_read_logs());
+    let firmware = miner.supports_upgrade_firmware();
+    caps.insert(CAP_UPDATE_FIRMWARE.into(), firmware);
+    caps.insert(CAP_FIRMWARE.into(), firmware);
+    caps.insert(CAP_MANUAL_UPLOAD.into(), firmware);
 
     caps
 }
@@ -166,6 +184,7 @@ pub fn make_to_family(make: &str) -> Option<&'static str> {
         (
             &[
                 FAMILY_ANTMINER,
+                DISPLAY_BITMAIN,
                 VARIANT_VNISH,
                 VARIANT_BRAIINS,
                 VARIANT_LUXOS,
@@ -264,6 +283,46 @@ pub fn firmware_manufacturer(variant: &str) -> Option<&'static str> {
     }
 }
 
+fn is_antminer_make(make: &str) -> bool {
+    make.eq_ignore_ascii_case(FAMILY_ANTMINER) || make.eq_ignore_ascii_case(DISPLAY_BITMAIN)
+}
+
+/// Map asic-rs make/firmware values to the manufacturer name Fleet historically exposed.
+pub fn display_manufacturer(make: &str, variant: &str) -> String {
+    if let Some(manufacturer) = firmware_manufacturer(variant) {
+        return manufacturer.to_string();
+    }
+    if is_antminer_make(make) {
+        DISPLAY_BITMAIN.to_string()
+    } else {
+        make.to_string()
+    }
+}
+
+/// Map asic-rs model values to the model name Fleet historically exposed for stock Antminers.
+pub fn display_model(make: &str, variant: &str, model: &str) -> String {
+    let model = model.trim();
+    if variant == VARIANT_STOCK
+        && is_antminer_make(make)
+        && !model.is_empty()
+        && !model
+            .get(..DISPLAY_ANTMINER_MODEL_PREFIX.len().min(model.len()))
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(DISPLAY_ANTMINER_MODEL_PREFIX))
+    {
+        format!("{DISPLAY_ANTMINER_MODEL_PREFIX} {model}")
+    } else {
+        model.to_string()
+    }
+}
+
+fn normalize_model_for_identity(model: &str) -> String {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized
+        .strip_prefix("antminer ")
+        .unwrap_or(&normalized)
+        .to_string()
+}
+
 /// Verify that a miner's identity matches expected values.
 /// Requires at least one strong identifier (serial or MAC) to match when available.
 /// Exception: if the discovery record never captured serial/MAC (both empty),
@@ -278,7 +337,11 @@ pub fn verify_identity(
     actual_mac: &str,
 ) -> Result<(), String> {
     // Check model (if available on both sides)
-    if !expected_model.is_empty() && !actual_model.is_empty() && actual_model != expected_model {
+    if !expected_model.is_empty()
+        && !actual_model.is_empty()
+        && normalize_model_for_identity(actual_model)
+            != normalize_model_for_identity(expected_model)
+    {
         return Err(format!(
             "model mismatch: expected '{}', got '{}'",
             expected_model, actual_model
@@ -463,6 +526,7 @@ mod tests {
         // Verify every supported family resolves correctly
         assert_eq!(make_to_family("WhatsMiner"), Some(FAMILY_WHATSMINER));
         assert_eq!(make_to_family("Antminer"), Some(FAMILY_ANTMINER));
+        assert_eq!(make_to_family("Bitmain"), Some(FAMILY_ANTMINER));
         assert_eq!(make_to_family("AvalonMiner"), Some(FAMILY_AVALONMINER));
         assert_eq!(make_to_family("BitAxe"), Some(FAMILY_BITAXE));
         assert_eq!(make_to_family("NerdAxe"), Some(FAMILY_NERDAXE));
@@ -483,5 +547,33 @@ mod tests {
         assert_eq!(make_to_family("Braiins"), Some(FAMILY_ANTMINER));
         assert_eq!(make_to_family("LuxOS"), Some(FAMILY_ANTMINER));
         assert_eq!(make_to_family("Marathon"), Some(FAMILY_ANTMINER));
+    }
+
+    #[test]
+    fn test_stock_antminer_display_names_preserve_legacy_shape() {
+        assert_eq!(
+            display_manufacturer("Antminer", VARIANT_STOCK),
+            DISPLAY_BITMAIN
+        );
+        assert_eq!(
+            display_model("Antminer", VARIANT_STOCK, "S19"),
+            "Antminer S19"
+        );
+    }
+
+    #[test]
+    fn test_aftermarket_display_names_remain_firmware_branded() {
+        assert_eq!(
+            display_manufacturer("Antminer", VARIANT_VNISH),
+            DISPLAY_VNISH
+        );
+        assert_eq!(display_model("Antminer", VARIANT_VNISH, "S21Pro"), "S21Pro");
+    }
+
+    #[test]
+    fn test_identity_accepts_stock_antminer_raw_and_display_model() {
+        let result = verify_identity("Antminer S19", "", "", "S19", "", "");
+
+        assert!(result.is_ok());
     }
 }

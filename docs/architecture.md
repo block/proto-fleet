@@ -23,9 +23,8 @@ The backend is a Go service that handles device pairing, telemetry collection, c
 Proto Fleet supports multiple miner integrations through plugins:
 
 - `plugin/proto/` for Proto miners
-- `plugin/antminer/` for Antminer devices
 - `plugin/virtual/` for the virtual miner simulator used in development and testing
-- `plugin/asicrs/` for Rust-based multi-manufacturer ASIC miner support
+- `plugin/asicrs/` for Rust-based multi-manufacturer ASIC miner support, including stock and aftermarket Antminers
 - `plugin/example-python/` for the example Python plugin (template for plugin authors)
 
 Shared RPC and message contracts live in `proto/`. Miner-hosted ProtoOS API definitions live in `proto-rig-api/`.

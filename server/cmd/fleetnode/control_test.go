@@ -52,10 +52,10 @@ func runControlLoopOnce(t *testing.T, cmd *RunCmd, fake *controlFakeGateway) {
 
 func TestControlLoop_AcksAndReports(t *testing.T) {
 	happyDisc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-		"10.0.0.5|4028":    {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"192.168.1.4|4028": {DeviceIdentifier: "auto:r1", IpAddress: "192.168.1.4", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"192.168.1.5|4028": {DeviceIdentifier: "auto:r2", IpAddress: "192.168.1.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+		"10.0.0.5|4028":    {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
+		"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
+		"192.168.1.4|4028": {DeviceIdentifier: "auto:r1", IpAddress: "192.168.1.4", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
+		"192.168.1.5|4028": {DeviceIdentifier: "auto:r2", IpAddress: "192.168.1.5", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
 	}}
 
 	tooManyIPs := make([]string, maxIPsPerCommand+1)
@@ -303,7 +303,7 @@ func TestControlLoop_PartialResultsSurviveScanDeadline(t *testing.T) {
 	// Arrange: first IP fast, later IPs block past commandTimeout.
 	disc := &delayingStubDiscoverer{
 		fast: map[string]*pb.DiscoveredDeviceReport{
-			"10.0.0.4|4028": {DeviceIdentifier: "auto:fast", IpAddress: "10.0.0.4", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+			"10.0.0.4|4028": {DeviceIdentifier: "auto:fast", IpAddress: "10.0.0.4", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
 		},
 		blockingIPs: map[string]bool{
 			"10.0.0.5": true,
@@ -678,8 +678,8 @@ func TestSynthesizeIdentifier(t *testing.T) {
 		dev  *discoverymodels.DiscoveredDevice
 		want string
 	}{
-		{name: "mac wins", dev: dev("aa:bb:cc:dd:ee:ff", "SN1", "antminer", "S19"), want: "mac:aa:bb:cc:dd:ee:ff"},
-		{name: "serial when no mac", dev: dev("", "SN1", "antminer", "S19"), want: "serial:SN1"},
+		{name: "mac wins", dev: dev("aa:bb:cc:dd:ee:ff", "SN1", "asicrs", "S19"), want: "mac:aa:bb:cc:dd:ee:ff"},
+		{name: "serial when no mac", dev: dev("", "SN1", "asicrs", "S19"), want: "serial:SN1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -697,7 +697,7 @@ func TestSynthesizeIdentifier(t *testing.T) {
 		t.Parallel()
 		// Driver left mac/serial blank: identity comes from the trusted probed
 		// endpoint passed in, so devices at different endpoints stay distinct.
-		blank := dev("", "", "antminer", "S19")
+		blank := dev("", "", "asicrs", "S19")
 
 		// Act
 		first := synthesizeIdentifier(blank, "10.0.0.7", "4028", 1)
@@ -714,7 +714,7 @@ func TestSynthesizeIdentifier(t *testing.T) {
 		// Two nodes on overlapping RFC1918 space probe the same endpoint for
 		// distinct miners; the synthesized auto: key must differ by node so the
 		// server's upsert guard doesn't silently drop the second node's device.
-		blank := dev("", "", "antminer", "S19")
+		blank := dev("", "", "asicrs", "S19")
 
 		// Act
 		node1 := synthesizeIdentifier(blank, "192.168.1.20", "80", 1)
@@ -755,7 +755,7 @@ func TestReportFromDiscovered(t *testing.T) {
 				IpAddress:       "10.0.0.5",
 				Port:            "4028",
 				UrlScheme:       "http",
-				DriverName:      "antminer",
+				DriverName:      "asicrs",
 				Model:           "S19",
 				Manufacturer:    "Bitmain",
 				FirmwareVersion: "v1",
@@ -765,7 +765,7 @@ func TestReportFromDiscovered(t *testing.T) {
 				IpAddress:        "10.0.0.5",
 				Port:             "4028",
 				UrlScheme:        "http",
-				DriverName:       "antminer",
+				DriverName:       "asicrs",
 				Model:            "S19",
 				Manufacturer:     "Bitmain",
 				FirmwareVersion:  "v1",
@@ -816,7 +816,7 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	}
 	select {
 	case <-release:
-		return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:" + ip, IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "antminer"}, nil
+		return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:" + ip, IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "asicrs"}, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
 	}
@@ -926,7 +926,7 @@ func TestFanOutProbes_SupervisorReturnsPartialOnStuckPlugin(t *testing.T) {
 	t.Cleanup(func() { close(stuck) })
 	probe := func(ctx context.Context, ip, _ string) (*pb.DiscoveredDeviceReport, error) {
 		if ip == "10.0.0.1" {
-			return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:fast", IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "antminer"}, nil
+			return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:fast", IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "asicrs"}, nil
 		}
 		<-stuck
 		return nil, nil
@@ -961,7 +961,7 @@ func TestFanOutProbes_DropsInvalidReportInsteadOfPoisoningBatch(t *testing.T) {
 				IpAddress:        ip,
 				Port:             "4028",
 				UrlScheme:        "http",
-				DriverName:       "antminer",
+				DriverName:       "asicrs",
 			}, nil
 		case "10.0.0.2":
 			return &pb.DiscoveredDeviceReport{
@@ -969,7 +969,7 @@ func TestFanOutProbes_DropsInvalidReportInsteadOfPoisoningBatch(t *testing.T) {
 				IpAddress:        ip,
 				Port:             "4028",
 				UrlScheme:        "http",
-				DriverName:       "antminer",
+				DriverName:       "asicrs",
 				Model:            strings.Repeat("X", 300), // exceeds max_len=255
 			}, nil
 		}
@@ -1000,7 +1000,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 	disc := &ctxIgnoringDiscoverer{
 		stuck: stuck,
 		fast: map[string]*pb.DiscoveredDeviceReport{
-			"10.0.0.1|4028": {DeviceIdentifier: "auto:fast", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+			"10.0.0.1|4028": {DeviceIdentifier: "auto:fast", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
 		},
 		stuckIPs: map[string]bool{"10.0.0.2": true},
 	}
@@ -1090,7 +1090,7 @@ func TestFanOutProbes_OverridesPluginSuppliedEndpoint(t *testing.T) {
 			IpAddress:        "203.0.113.99", // not what we scanned
 			Port:             "9999",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		}, nil
 	}
 
@@ -1157,7 +1157,7 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	// Queue a valid follow-up so we can prove via its ack that the loop
 	// kept running normally past the dropped command.
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-		"10.0.0.1|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+		"10.0.0.1|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
 	}}
 	cmd := &RunCmd{discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
@@ -1195,8 +1195,8 @@ func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 	// stream.Send. Using a fast (non-blocking) discoverer ensures the
 	// worker actually completes and emits its ack.
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-		"10.0.0.1|4028": {DeviceIdentifier: "auto:a", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"10.0.0.2|4028": {DeviceIdentifier: "auto:b", IpAddress: "10.0.0.2", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
+		"10.0.0.1|4028": {DeviceIdentifier: "auto:a", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
+		"10.0.0.2|4028": {DeviceIdentifier: "auto:b", IpAddress: "10.0.0.2", Port: "4028", UrlScheme: "http", DriverName: "asicrs"},
 	}}
 	cmd := &RunCmd{discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
