@@ -19,15 +19,26 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-// pairDevice marks a device PAIRED so it shows up in GetMinerModelGroups,
-// which scopes to PAIRED rows only.
+// pairDevice marks a device PAIRED so it shows up in GetMinerModelGroups.
 func pairDevice(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceStore, orgID int64, deviceIdentifier string) {
+	t.Helper()
+	setDevicePairingStatus(t, ctx, store, orgID, deviceIdentifier, sqlc.PairingStatusEnumPAIRED)
+}
+
+func setDevicePairingStatus(
+	t *testing.T,
+	ctx context.Context,
+	store *sqlstores.SQLDeviceStore,
+	orgID int64,
+	deviceIdentifier string,
+	status sqlc.PairingStatusEnum,
+) {
 	t.Helper()
 	require.NoError(t, store.UpsertDevicePairing(
 		ctx,
 		&pb.Device{DeviceIdentifier: deviceIdentifier},
 		orgID,
-		string(sqlc.PairingStatusEnumPAIRED),
+		string(status),
 	))
 }
 
@@ -47,6 +58,39 @@ func assertModalInvariant(t *testing.T, ctx context.Context, store *sqlstores.SQ
 	}
 	assert.Equal(t, listTotal, int64(groupTotal),
 		"bulk-password modal invariant: model-group counts must match filtered list total")
+}
+
+func TestGetMinerModelGroups_IncludesDefaultPasswordAndExcludesAuthNeeded(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	paired := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	defaultPassword := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	authNeeded := dbSvc.CreateDevice(user.OrganizationID, "proto")
+
+	pairDevice(t, ctx, deviceStore, user.OrganizationID, paired.ID)
+	setDevicePairingStatus(t, ctx, deviceStore, user.OrganizationID, defaultPassword.ID, sqlc.PairingStatusEnumDEFAULTPASSWORD)
+	setDevicePairingStatus(t, ctx, deviceStore, user.OrganizationID, authNeeded.ID, sqlc.PairingStatusEnumAUTHENTICATIONNEEDED)
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, nil)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(2), groups[0].Count, "PAIRED and DEFAULT_PASSWORD miners are eligible for password updates")
+
+	dynamicGroups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		IncludeUnassigned: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, dynamicGroups, 1)
+	assert.Equal(t, int32(2), dynamicGroups[0].Count, "dynamic filters must match the static password-update grouping")
 }
 
 // setDiscoveredDeviceModel patches discovered_device.model directly because

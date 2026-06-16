@@ -409,11 +409,11 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE dp.pairing_status = 'PAIRED'
+WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND d.deleted_at IS NULL
-  -- Match the list/count queries so the bulk-password modal invariant holds:
-  -- inactive or soft-deleted discovered_device rows are excluded from both
-  -- the filtered list total and the model-group counts.
+  -- Password updates can run for paired and default-password miners. Auth-needed
+  -- miners are intentionally excluded because they cannot be resolved for this
+  -- remediation path.
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
   AND d.org_id = @org_id

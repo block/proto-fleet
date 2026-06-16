@@ -537,9 +537,9 @@ func (s *SQLDeviceStore) executeModelGroupsDynamicQuery(ctx context.Context, org
 }
 
 // buildModelGroupsQuerySQL mirrors the static GetMinerModelGroups query's
-// shape (PAIRED-only, non-empty model, GROUP BY model+manufacturer) while
-// reusing appendFilterSQL so numeric/CIDR predicates and the OFFLINE-exclusion
-// rule stay consistent with the list query.
+// shape (password-update eligible, non-empty model, GROUP BY model+manufacturer)
+// while reusing appendFilterSQL so numeric/CIDR predicates and the
+// OFFLINE-exclusion rule stay consistent with the list query.
 func (s *SQLDeviceStore) buildModelGroupsQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
@@ -555,7 +555,7 @@ func (s *SQLDeviceStore) buildModelGroupsQuerySQL(orgID int64, fp minerFilterPar
 	}
 	sb.WriteString(minerWhereClause)
 	sb.WriteString(`
-    AND device_pairing.pairing_status = 'PAIRED'
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND discovered_device.model IS NOT NULL
     AND discovered_device.model != ''`)
 
