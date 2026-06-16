@@ -567,7 +567,7 @@ func (s *Service) RegisterFilter(f CommandFilter) {
 
 // resolveSelectorIdentifiers expands selectors to device_identifier strings for
 // preflight filtering.
-func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.DeviceSelector) ([]string, error) {
+func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.DeviceSelector, commandType commandtype.Type) ([]string, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
@@ -582,20 +582,12 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 
 		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]string, error) {
 			var deviceStatus sql.NullString
-			var pairingStatus sql.NullString
 			var modelFilter sql.NullString
 			var manufacturerFilter sql.NullString
 
 			if len(filter.DeviceStatus) > 0 {
 				deviceStatus = sql.NullString{
 					String: string(sqlstores.ProtoDeviceStatusToSQL(filter.DeviceStatus[0])),
-					Valid:  true,
-				}
-			}
-
-			if len(filter.PairingStatus) > 0 {
-				pairingStatus = sql.NullString{
-					String: string(sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0])),
 					Valid:  true,
 				}
 			}
@@ -614,13 +606,24 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 				}
 			}
 
-			return q.GetFilteredDeviceIdentifiers(ctx, sqlc.GetFilteredDeviceIdentifiersParams{
+			params := sqlc.GetFilteredDeviceIdentifiersParams{
 				OrgID:              info.OrganizationID,
 				DeviceStatus:       deviceStatus,
-				PairingStatus:      pairingStatus,
 				ModelFilter:        modelFilter,
 				ManufacturerFilter: manufacturerFilter,
-			})
+			}
+
+			pairingStatusFilters := pairingStatusFiltersForSelector(filter, commandType)
+			identifiers := make([]string, 0)
+			for _, pairingStatus := range pairingStatusFilters {
+				params.PairingStatus = pairingStatus
+				rows, err := q.GetFilteredDeviceIdentifiers(ctx, params)
+				if err != nil {
+					return nil, err
+				}
+				identifiers = append(identifiers, rows...)
+			}
+			return identifiers, nil
 		})
 	case *pb.DeviceSelector_IncludeDevices:
 		if x.IncludeDevices == nil {
@@ -633,6 +636,24 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 	default:
 		return nil, fleeterror.NewInternalErrorf("resolveSelectorIdentifiers called with unknown selector type: %v", x)
 	}
+}
+
+func pairingStatusFiltersForSelector(filter *pb.DeviceFilter, commandType commandtype.Type) []sql.NullString {
+	if filter != nil && len(filter.PairingStatus) > 0 {
+		return []sql.NullString{{
+			String: string(sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0])),
+			Valid:  true,
+		}}
+	}
+
+	if commandType == commandtype.UpdateMinerPassword {
+		return []sql.NullString{
+			{String: string(sqlc.PairingStatusEnumPAIRED), Valid: true},
+			{String: string(sqlc.PairingStatusEnumDEFAULTPASSWORD), Valid: true},
+		}
+	}
+
+	return []sql.NullString{{}}
 }
 
 // resolveIdentifiersToDeviceIDs converts post-filter identifiers for the queue.
@@ -717,7 +738,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
-	identifiers, err := s.resolveSelectorIdentifiers(ctx, command.deviceSelector)
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, command.deviceSelector, command.commandType)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
 	}
@@ -1016,7 +1037,7 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		return nil, nil, fleeterror.NewInternalErrorf("error getting session info for SV2 preflight: %v", err)
 	}
 
-	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector)
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector, commandtype.UpdateMiningPools)
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
 	}
