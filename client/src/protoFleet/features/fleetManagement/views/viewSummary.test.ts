@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { stripSortFromSearchParams, summarizeFilters, summarizeSort } from "./viewSummary";
+import {
+  diffDisplaySummaries,
+  stripDisplayFromSearchParams,
+  stripSortFromSearchParams,
+  summarizeDisplay,
+  summarizeFilters,
+  summarizeSort,
+} from "./viewSummary";
 import { type DeviceSet, DeviceSetSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 
 const makeDeviceSet = (id: bigint, label: string): DeviceSet => create(DeviceSetSchema, { id, label });
@@ -93,5 +100,62 @@ describe("stripSortFromSearchParams", () => {
 
   it("is a no-op when sort params are absent", () => {
     expect(stripSortFromSearchParams("model=S21")).toBe("model=S21");
+  });
+});
+
+describe("summarizeDisplay", () => {
+  it("returns undefined when no display param is set", () => {
+    expect(summarizeDisplay(new URLSearchParams(""))).toBeUndefined();
+  });
+
+  it("humanizes the grid mode", () => {
+    expect(summarizeDisplay(new URLSearchParams("display=grid"))).toEqual({ mode: "grid", label: "Grid view" });
+  });
+
+  it("humanizes the list mode", () => {
+    expect(summarizeDisplay(new URLSearchParams("display=list"))).toEqual({ mode: "list", label: "List view" });
+  });
+
+  it("ignores unknown display values", () => {
+    expect(summarizeDisplay(new URLSearchParams("display=carousel"))).toBeUndefined();
+  });
+});
+
+describe("diffDisplaySummaries", () => {
+  const grid = { mode: "grid" as const, label: "Grid view" };
+  const list = { mode: "list" as const, label: "List view" };
+
+  it("marks unchanged when current and saved match", () => {
+    expect(diffDisplaySummaries(grid, grid)).toEqual({ change: "unchanged", current: grid, saved: grid });
+  });
+
+  it("marks added when only current is present", () => {
+    expect(diffDisplaySummaries(grid, undefined)).toEqual({ change: "added", current: grid, saved: undefined });
+  });
+
+  it("marks removed when only saved is present", () => {
+    expect(diffDisplaySummaries(undefined, list)).toEqual({ change: "removed", current: undefined, saved: list });
+  });
+
+  it("marks changed when current differs from saved", () => {
+    expect(diffDisplaySummaries(grid, list)).toEqual({ change: "changed", current: grid, saved: list });
+  });
+
+  it("is undefined when both sides are absent", () => {
+    expect(diffDisplaySummaries(undefined, undefined)).toEqual({
+      change: "unchanged",
+      current: undefined,
+      saved: undefined,
+    });
+  });
+});
+
+describe("stripDisplayFromSearchParams", () => {
+  it("removes the display key, leaving the rest intact", () => {
+    expect(stripDisplayFromSearchParams("building=100&display=grid&zone=A")).toBe("building=100&zone=A");
+  });
+
+  it("is a no-op when display is absent", () => {
+    expect(stripDisplayFromSearchParams("building=100")).toBe("building=100");
   });
 });

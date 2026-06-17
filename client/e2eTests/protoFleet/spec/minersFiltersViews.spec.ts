@@ -226,9 +226,9 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
 
     await test.step("Rename the saved view", async () => {
       await minersPage.clickRenameViewAction(originalViewName);
-      await minersPage.validateViewModalOpened("Update view");
+      await minersPage.validateViewModalOpened("Rename view");
       await minersPage.inputViewName(renamedViewName);
-      await minersPage.updateSavedView();
+      await minersPage.confirmRenameView();
     });
 
     await test.step("Validate the renamed view is active and the old name is gone", async () => {

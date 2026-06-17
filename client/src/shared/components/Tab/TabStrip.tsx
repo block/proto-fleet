@@ -93,9 +93,10 @@ export type TabStripItemProps = {
    */
   tone?: TabStripItemTone;
   /**
-   * Force the active styling on regardless of `activeId`. Used when more than
-   * one tab in a strip needs to read as active — e.g. a section tab and a
-   * view tab that scopes that section.
+   * Force the active styling on regardless of `activeId`. Only `true`
+   * overrides the context — passing `false` (or omitting the prop) falls back
+   * to `id === activeId`. Used when more than one tab in a strip needs to
+   * read as active, e.g. a section tab and a view tab that scopes it.
    */
   active?: boolean;
   /** Forwarded to the tab cell wrapper — e.g. dnd-kit's `setNodeRef`. */
@@ -120,7 +121,7 @@ export const TabStripItem = ({
   wrapperStyle,
 }: TabStripItemProps) => {
   const { activeId, onSelect } = useTabStripContext();
-  const isActive = active ?? id === activeId;
+  const isActive = active === true || id === activeId;
   const activeTextClass = TONE_ACTIVE_TEXT[tone];
   const underlineClass = TONE_UNDERLINE[tone];
 

@@ -1233,7 +1233,7 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("fleet-view-tabs-popover-clear-view").click();
   }
 
-  async validateViewModalOpened(title: "New view" | "Update view") {
+  async validateViewModalOpened(title: "New view" | "Update view" | "Rename view") {
     const modal = this.page.getByTestId("view-modal");
     await expect(modal).toBeVisible();
     await expect(modal).toContainText(title);
@@ -1250,6 +1250,11 @@ export class MinersPage extends BasePage {
 
   async updateSavedView() {
     await this.page.getByTestId("view-modal").getByRole("button", { name: "Update", exact: true }).click();
+    await expect(this.page.getByTestId("view-modal")).toBeHidden();
+  }
+
+  async confirmRenameView() {
+    await this.page.getByTestId("view-modal").getByRole("button", { name: "Rename", exact: true }).click();
     await expect(this.page.getByTestId("view-modal")).toBeHidden();
   }
 

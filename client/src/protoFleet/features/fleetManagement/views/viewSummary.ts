@@ -184,9 +184,6 @@ const summarizeRackFilters = (params: URLSearchParams, context: FilterSummaryCon
     entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
   }
 
-  // `zone` and `issues` are component-local state on RacksPage today, so they
-  // won't appear here yet. Included anyway so saved views remain forward-
-  // compatible once those filters move into the URL.
   const zoneValues = dedupedSorted(params, "zone");
   if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
 

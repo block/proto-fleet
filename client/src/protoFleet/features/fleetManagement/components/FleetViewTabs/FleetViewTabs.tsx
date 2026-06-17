@@ -42,11 +42,20 @@ type KebabRowProps = {
   onClick: () => void;
   icon: ReactNode;
   label: string;
+  disabled?: boolean;
 };
 
-const KebabRow = ({ testId, onClick, icon, label }: KebabRowProps) => (
+const KebabRow = ({ testId, onClick, icon, label, disabled }: KebabRowProps) => (
   <div className="px-4">
-    <Row className="text-emphasis-300" testId={testId} onClick={onClick} compact divider={false} prefixIcon={icon}>
+    <Row
+      className="text-emphasis-300"
+      testId={testId}
+      onClick={onClick}
+      disabled={disabled}
+      compact
+      divider={false}
+      prefixIcon={icon}
+    >
       {label}
     </Row>
   </div>
@@ -167,9 +176,10 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
     navigate(`/fleet/${activeView.tab}?${buildUrlForView(activeView, searchParams)}`, { replace: true });
   }, [activeView, navigate, searchParams]);
 
-  // Clear view: drop the `view=` param AND every key the active tab's
-  // filter/sort whitelist owns, so the operator returns to the unfiltered
-  // tab. Unrelated URL state (anything outside the whitelist) is preserved.
+  // Clear view: navigate to the bare tab route, dropping every URL key
+  // (view=, the tab's filter/sort/display whitelist, and any unrelated
+  // state). "Clear view" reads to operators as a full reset of the
+  // section's URL, so a clean slate is intentional.
   const handleClearActiveView = useCallback(() => {
     if (!currentTab) return;
     navigate(`/fleet/${currentTab}`);
@@ -185,6 +195,7 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
       open: true,
       mode: {
         kind: "update",
+        intent: "update",
         viewId: activeView.id,
         tab: activeView.tab,
         currentName: activeView.name,
@@ -205,12 +216,14 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
     const viewFilters = summarizeFilters(savedParams, activeView.tab, filterContext);
     const viewSort = summarizeSort(savedParams);
     const viewDisplay = summarizeDisplay(savedParams);
-    // Rename launches the same modal with current = saved → no diff badges,
-    // user is just editing the name.
+    // Rename is a name-only edit. The saved params stay frozen regardless of
+    // current dirty state — handleSubmit branches on `intent === "rename"`
+    // and skips updateUserViewParams entirely.
     setModal({
       open: true,
       mode: {
         kind: "update",
+        intent: "rename",
         viewId: activeView.id,
         tab: activeView.tab,
         currentName: activeView.name,
@@ -256,10 +269,18 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
         return next;
       };
       if (modal.mode.kind === "update") {
-        const targetId = modal.mode.viewId;
-        const targetTab = modal.mode.tab;
+        const { intent, viewId: targetId, tab: targetTab } = modal.mode;
         const target = record.views.find((view) => view.id === targetId);
         if (!target) {
+          setModal({ open: false });
+          return;
+        }
+        if (intent === "rename") {
+          // Name-only edit; saved params are frozen and the URL is not
+          // touched. Dirty state — if any — persists, intentionally.
+          if (name !== target.name) {
+            renameUserView(targetId, name);
+          }
           setModal({ open: false });
           return;
         }
@@ -423,6 +444,7 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
           <KebabRow
             testId="fleet-view-tabs-popover-new-view"
             onClick={handleOpenNew}
+            disabled={!canSaveCurrentTab}
             icon={<Plus width={iconSizes.xSmall} />}
             label="New view"
           />
@@ -522,9 +544,9 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
  * TabStrip's `trailing` slot so it sits right-aligned across from the
  * section tabs.
  *
- * Visuals: trigger button matches the "Add miners" button style
- * (variant="secondary", size="compact"), so the views chrome reads as part
- * of the row's action set rather than a list of competing tabs.
+ * Visuals: trigger renders as a text-style button with tab-nav typography
+ * (`text-300`, color tokens that mirror TabStripItem). It reads as part of
+ * the tab row rather than as a competing action button.
  */
 const FleetViewTabs = (props: FleetViewTabsProps) => (
   <PopoverProvider>

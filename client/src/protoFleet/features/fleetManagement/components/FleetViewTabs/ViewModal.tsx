@@ -22,6 +22,12 @@ export type ViewModalMode =
   | { kind: "create"; tab: FleetTabId }
   | {
       kind: "update";
+      /**
+       * `update` replaces the saved filter/sort/display set with the current
+       * URL state. `rename` is a name-only edit and must NOT touch the saved
+       * params — even when the active view is dirty.
+       */
+      intent: "update" | "rename";
       viewId: string;
       tab: FleetTabId;
       currentName: string;
@@ -221,7 +227,6 @@ const DisplaySection = ({
 const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps) => {
   const open = state.open;
   const defaultName = state.open ? state.defaultName : "";
-  const modeKind = state.open ? state.mode.kind : "create";
 
   const [name, setName] = useState(defaultName);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -266,12 +271,16 @@ const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps
     onSubmit({ name: trimmed, includeSort, includeDisplay });
   }, [name, existingNames, onSubmit, includeSort, includeDisplay]);
 
-  const isUpdate = modeKind === "update";
-  const title = isUpdate ? "Update view" : "New view";
-  const description = isUpdate
-    ? "Replace the saved filters and sort with the current set."
-    : "Save the current filters and sort as a view.";
-  const submitText = isUpdate ? "Update" : "Save";
+  const intent = state.open && state.mode.kind === "update" ? state.mode.intent : undefined;
+  const isRename = intent === "rename";
+  const isUpdate = intent === "update";
+  const title = isRename ? "Rename view" : isUpdate ? "Update view" : "New view";
+  const description = isRename
+    ? "Update the view's name. Saved filters and sort are left unchanged."
+    : isUpdate
+      ? "Replace the saved filters and sort with the current set."
+      : "Save the current filters and sort as a view.";
+  const submitText = isRename ? "Rename" : isUpdate ? "Update" : "Save";
 
   // Only surface the display toggle on tabs that publish a `display` URL
   // value (racks today, sites once it lands). If `currentDisplay` is
@@ -309,25 +318,29 @@ const ViewModal = ({ state, existingNames, onDismiss, onSubmit }: ViewModalProps
           }}
         />
 
-        <div className="flex flex-col">
-          <span className="text-emphasis-300 text-text-primary">Filters</span>
-          <FilterSummaryRows entries={state.open ? state.currentFilters : []} diff={filterDiff} />
-        </div>
+        {!isRename ? (
+          <>
+            <div className="flex flex-col">
+              <span className="text-emphasis-300 text-text-primary">Filters</span>
+              <FilterSummaryRows entries={state.open ? state.currentFilters : []} diff={filterDiff} />
+            </div>
 
-        <SortSection
-          current={state.open ? state.currentSort : undefined}
-          diff={sortDiff}
-          includeSort={includeSort}
-          setIncludeSort={setIncludeSort}
-        />
+            <SortSection
+              current={state.open ? state.currentSort : undefined}
+              diff={sortDiff}
+              includeSort={includeSort}
+              setIncludeSort={setIncludeSort}
+            />
 
-        {showDisplaySection ? (
-          <DisplaySection
-            current={currentDisplay}
-            diff={displayDiff}
-            includeDisplay={includeDisplay}
-            setIncludeDisplay={setIncludeDisplay}
-          />
+            {showDisplaySection ? (
+              <DisplaySection
+                current={currentDisplay}
+                diff={displayDiff}
+                includeDisplay={includeDisplay}
+                setIncludeDisplay={setIncludeDisplay}
+              />
+            ) : null}
+          </>
         ) : null}
       </div>
     </Modal>
