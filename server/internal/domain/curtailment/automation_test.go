@@ -356,6 +356,32 @@ func TestAutomationService_HandleMQTTSignal_CoalescesRecentRepeatedOff(t *testin
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
+func TestAutomationService_HandleMQTTSignal_RepeatedOffRecurtailsRecentRestoringEvent(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: lastSignalAt.Add(10 * time.Second),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, activeEventUUID, h.curtailments.beginRecurtailLastEventID)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, activeEventUUID, h.rules.lastActiveEvent)
+}
+
 func TestAutomationService_HandleMQTTSignal_OnStartsRestoreAndKeepsActiveEventForRecurtail(t *testing.T) {
 	t.Parallel()
 

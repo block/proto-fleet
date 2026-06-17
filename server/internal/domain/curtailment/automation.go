@@ -217,7 +217,11 @@ func (s *AutomationService) handleRuleSignal(ctx context.Context, rule *models.A
 	if err != nil {
 		return err
 	}
-	if shouldCoalesceRepeatedOff(rule, signal, normalized, at) {
+	coalesce, err := s.shouldCoalesceRepeatedOff(ctx, rule, signal, normalized, at)
+	if err != nil {
+		return err
+	}
+	if coalesce {
 		return nil
 	}
 	if err := s.store.RecordAutomationSignal(ctx, rule.ID, normalized, at); err != nil {
@@ -233,12 +237,13 @@ func (s *AutomationService) handleRuleSignal(ctx context.Context, rule *models.A
 	}
 }
 
-func shouldCoalesceRepeatedOff(
+func (s *AutomationService) shouldCoalesceRepeatedOff(
+	ctx context.Context,
 	rule *models.AutomationRule,
 	signal mqttingest.SignalEdge,
 	normalized models.AutomationSignal,
 	at time.Time,
-) bool {
+) (bool, error) {
 	if rule == nil ||
 		signal.Direction != mqttingest.EdgeReassertOff ||
 		normalized != models.AutomationSignalOff ||
@@ -246,9 +251,19 @@ func shouldCoalesceRepeatedOff(
 		rule.LastSignal == nil ||
 		*rule.LastSignal != models.AutomationSignalOff ||
 		rule.LastSignalAt == nil {
-		return false
+		return false, nil
 	}
-	return at.Sub(*rule.LastSignalAt) < repeatedOffAutomationMinInterval
+	if at.Sub(*rule.LastSignalAt) >= repeatedOffAutomationMinInterval {
+		return false, nil
+	}
+	event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return event != nil && !event.State.IsTerminal() && event.State != models.EventStateRestoring, nil
 }
 
 func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.AutomationRule, signal mqttingest.SignalEdge, at time.Time) error {
