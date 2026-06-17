@@ -98,27 +98,39 @@ func TestFileSHA256(t *testing.T) {
 	}
 }
 
-func TestFirmwareURLUsesOriginPath(t *testing.T) {
+func TestFirmwareURLUsesBasePath(t *testing.T) {
 	tests := []struct {
-		name   string
-		server string
-		want   string
+		name     string
+		server   string
+		insecure bool
+		want     string
 	}{
 		{
-			name:   "bare host ignores normalized api proxy path",
+			name:   "bare host uses normalized api proxy path",
 			server: "https://fleet.example.com",
-			want:   "https://fleet.example.com/api/v1/firmware/config",
+			want:   "https://fleet.example.com/api-proxy/api/v1/firmware/config",
 		},
 		{
-			name:   "explicit rpc path query and fragment ignored",
+			name:   "explicit proxy path preserved",
+			server: "https://fleet.example.com/api-proxy",
+			want:   "https://fleet.example.com/api-proxy/api/v1/firmware/config",
+		},
+		{
+			name:     "explicit trailing slash keeps direct api root",
+			server:   "http://fleet.example.com:4000/",
+			insecure: true,
+			want:     "http://fleet.example.com:4000/api/v1/firmware/config",
+		},
+		{
+			name:   "explicit path preserved while query and fragment ignored",
 			server: "https://fleet.example.com/custom?debug=true#section",
-			want:   "https://fleet.example.com/api/v1/firmware/config",
+			want:   "https://fleet.example.com/custom/api/v1/firmware/config",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := New(context.Background(), Options{Server: tt.server})
+			client, err := New(context.Background(), Options{Server: tt.server, Insecure: tt.insecure})
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
