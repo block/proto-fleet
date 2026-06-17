@@ -73,6 +73,19 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err := s.validateDestination(ctx, &c); err != nil {
 		return nil, err
 	}
+	// Reject a duplicate name up front: Grafana would otherwise collapse the new
+	// contact point onto the existing receiver as a second integration (they share
+	// the org-prefixed name), which muddles per-channel test/delete semantics.
+	grafanaName := channelGrafanaName(orgID, c.Name)
+	existing, err := s.grafana.ListContactPoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, cp := range existing {
+		if cp.Name == grafanaName {
+			return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
+		}
+	}
 	c.OrganizationID = orgID
 	c.CreatedAt = s.now()
 	c.UpdatedAt = c.CreatedAt
@@ -83,7 +96,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 		return nil, err
 	}
 	cp := GrafanaContactPoint{
-		Name:     channelGrafanaName(orgID, c.Name),
+		Name:     grafanaName,
 		Type:     grafanaTypeFor(c.Kind),
 		Settings: settings,
 	}

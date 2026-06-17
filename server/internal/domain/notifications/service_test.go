@@ -127,6 +127,64 @@ func TestValidateDestination(t *testing.T) {
 	}
 }
 
+func TestCreateChannelRejectsDuplicateName(t *testing.T) {
+	listed := []GrafanaContactPoint{{
+		UID:      "cp-1",
+		Name:     "org-7-pager",
+		Type:     "webhook",
+		Settings: json.RawMessage(`{"url": "https://hooks.example.com/x"}`),
+	}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("POST /api/v1/provisioning/contact-points", func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("must not create a contact point when the name already exists")
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
+
+	_, err := svc.CreateChannel(context.Background(), 7, Channel{
+		Name:    "pager",
+		Kind:    ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://hooks.example.com/y"},
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "duplicate channel name must be rejected as already-exists")
+}
+
+func TestCreateChannelAllowsDuplicateNameInDifferentOrg(t *testing.T) {
+	// org 8 owns "pager"; org 7 creating "pager" is a different org-prefixed name.
+	listed := []GrafanaContactPoint{{UID: "cp-1", Name: "org-8-pager", Type: "webhook", Settings: json.RawMessage(`{"url":"https://x"}`)}}
+	var created bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("POST /api/v1/provisioning/contact-points", func(w http.ResponseWriter, r *http.Request) {
+		created = true
+		var cp GrafanaContactPoint
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&cp))
+		assert.Equal(t, "org-7-pager", cp.Name)
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(cp))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
+
+	_, err := svc.CreateChannel(context.Background(), 7, Channel{
+		Name:    "pager",
+		Kind:    ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://hooks.example.com/y"},
+	})
+	require.NoError(t, err)
+	assert.True(t, created, "a name owned only by another org must not block creation")
+}
+
 func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *Grafana {
 	t.Helper()
 	mux := http.NewServeMux()
