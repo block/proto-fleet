@@ -12,10 +12,10 @@ import "google/protobuf/timestamp.proto";
 // operators opt into buildings explicitly per the multi-site plan.
 service BuildingService {
     // ListBuildings returns every live building in the org with its
-    // rack_count. site_filter selects buildings under a specific
-    // site (when site_id > 0), the unassigned bucket (when
-    // unassigned_only is true), or all buildings in the org
-    // (default).
+    // rack_count. site_ids restricts the result to buildings under any
+    // of the given sites; include_unassigned adds the unassigned bucket
+    // (building.site_id IS NULL). Leaving both unset returns every
+    // building in the org.
     rpc ListBuildings(ListBuildingsRequest) returns (ListBuildingsResponse);
 
     // GetBuilding returns a single building by id. Returns NotFound if the
@@ -125,13 +125,17 @@ message BuildingWithCounts {
 
 // ListBuildings
 
-// SiteFilter selects which buildings to return. Exactly one filter
-// shape is allowed; unset = all buildings in the org.
+// Filter shape mirrors the rack and miner list filters: site_ids is an
+// OR across sites; include_unassigned is independently combinable.
+// Leaving both unset returns every building in the org.
 message ListBuildingsRequest {
-    oneof site_filter {
-        int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
-        bool  unassigned_only = 2;
-    }
+    // Filter by site (OR across IDs). Each entry must be > 0.
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated.items.int64.gt = 0];
+
+    // When true, buildings with site_id IS NULL are also included.
+    // Independent of site_ids — set only this for the unassigned
+    // bucket alone, set both to combine specific sites with unassigned.
+    bool include_unassigned = 2;
 }
 
 message ListBuildingsResponse {
