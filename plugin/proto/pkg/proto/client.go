@@ -1025,7 +1025,7 @@ func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPasswor
 	accessToken, err := c.loginWithPassword(ctx, currentPassword)
 	if err != nil {
 		if errors.Is(err, errInvalidCredentials) {
-			return fmt.Errorf("incorrect current password")
+			return fmt.Errorf("incorrect current password: %w", grpcstatus.Error(codes.FailedPrecondition, "incorrect current password"))
 		}
 		return err
 	}
