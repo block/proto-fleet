@@ -17,7 +17,8 @@ import {
 import DeviceSettingsModal from "@/protoFleet/features/infrastructure/components/InfraDeviceSettings/DeviceSettingsModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Row from "@/shared/components/Row";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
@@ -1205,19 +1206,27 @@ function CurtailmentStartModalContent({
                 title="Apply to"
                 subtext="Applies to all miners by default. Use the options below to narrow the scope."
               >
-                <div className="grid gap-2">
-                  <TargetSelectButton
-                    label={applyToTarget.label}
-                    value={applyToTarget.value}
-                    disabled={isLiveCurtailmentEditMode}
-                    onClick={() => setShowMinerSelectionModal(true)}
-                  />
-                  <TargetSelectButton
-                    label="Infrastructure devices"
-                    value="Configure fan behavior"
-                    disabled={isLiveCurtailmentEditMode}
-                    onClick={() => setShowFanBehaviorModal(true)}
-                  />
+                <div className="grid">
+                  <Row compact className="flex items-center justify-between gap-4">
+                    <span className="min-w-0 truncate text-emphasis-300">{applyToTarget.label}</span>
+                    <Button
+                      text={applyToTarget.value}
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      disabled={isLiveCurtailmentEditMode}
+                      onClick={() => setShowMinerSelectionModal(true)}
+                    />
+                  </Row>
+                  <Row compact className="flex items-center justify-between gap-4">
+                    <span className="min-w-0 truncate text-emphasis-300">Infrastructure devices</span>
+                    <Button
+                      text="Configure fan behavior"
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      disabled={isLiveCurtailmentEditMode}
+                      onClick={() => setShowFanBehaviorModal(true)}
+                    />
+                  </Row>
                 </div>
               </Section>
             ) : null}

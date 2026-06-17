@@ -4,15 +4,15 @@ import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import { mockTickets, CURRENT_USER } from "../../mockData";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, Dismiss, Info } from "@/shared/assets/icons";
+import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import SegmentedControl from "@/shared/components/SegmentedControl";
-
-import { Dismiss } from "@/shared/assets/icons";
 
 type TicketColumns = "urgent" | "issue" | "asset" | "location" | "status";
 
@@ -25,6 +25,7 @@ interface TicketItem {
   component: string;
   diagnosis: string;
   minerIdentifier: string | null;
+  minerType: string | null;
   assigneeName: string | null;
   siteName: string;
   buildingName: string;
@@ -82,7 +83,8 @@ const formatStatus = (status: string) => {
   }
 };
 
-const activeCols: TicketColumns[] = ["urgent", "issue", "asset", "location", "status"];
+const DESKTOP_COLS: TicketColumns[] = ["urgent", "issue", "asset", "location", "status"];
+const PHONE_COLS: TicketColumns[] = ["urgent", "issue", "status"];
 
 const colTitles: ColTitles<TicketColumns> = {
   urgent: "",
@@ -93,6 +95,8 @@ const colTitles: ColTitles<TicketColumns> = {
 };
 
 const TicketQueue = () => {
+  const { isPhone, isTablet } = useWindowDimensions();
+  const isCompact = isPhone || isTablet;
   const [tickets] = useState<TicketItem[]>(mockTickets);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("list");
@@ -104,13 +108,12 @@ const TicketQueue = () => {
   const colConfig: ColConfig<TicketItem, string, TicketColumns> = useMemo(
     () => ({
       urgent: {
-        component: (ticket) =>
-          ticket.urgent ? (
-            <div className="flex items-center justify-center text-text-critical">
-              <Alert width="w-4" />
-            </div>
-          ) : null,
-        width: "w-10",
+        component: (ticket) => (
+          <div className={`flex items-center justify-center ${getComponentIconColor(ticket.urgent)}`}>
+            {getComponentIcon(ticket.component, ticket.urgent)}
+          </div>
+        ),
+        width: isCompact ? "w-8" : "w-10",
       },
       issue: {
         component: (ticket) => (
@@ -121,15 +124,18 @@ const TicketQueue = () => {
             <span className="text-300 text-text-primary-70">{ticket.ticketNumber}</span>
           </div>
         ),
-        width: "w-72",
       },
       asset: {
         component: (ticket) => (
-          <span className="text-300">
-            {ticket.minerIdentifier ?? ticket.component}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-emphasis-300 font-medium">
+              {ticket.minerIdentifier ?? ticket.component}
+            </span>
+            <span className="text-200 text-text-primary-70">
+              {ticket.minerType ?? ticket.buildingName}
+            </span>
+          </div>
         ),
-        width: "w-40",
       },
       location: {
         component: (ticket) => (
@@ -144,27 +150,24 @@ const TicketQueue = () => {
             </span>
           </div>
         ),
-        width: "w-48",
       },
       status: {
         component: (ticket) => (
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <div className={`h-2 w-2 flex-shrink-0 rounded-full ${statusDotColor(ticket.status)}`} />
-              <span className="text-300">{formatStatus(ticket.status)}</span>
+          <div className="flex items-start gap-2">
+            <div className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${statusDotColor(ticket.status)}`} />
+            <div className="flex flex-col">
+              <span className="text-emphasis-300 font-medium">{formatStatus(ticket.status)}</span>
+              <span className="text-200 text-text-primary-70">{ticket.assigneeName ?? "Unassigned"}</span>
             </div>
-            {ticket.assigneeName && (
-              <span className="text-300 text-text-primary-70">{ticket.assigneeName}</span>
-            )}
           </div>
         ),
-        width: "w-40",
       },
     }),
-    [],
+    [isCompact],
   );
 
   const [myTicketsActive, setMyTicketsActive] = useState(false);
+  const [overdueDismissed, setOverdueDismissed] = useState(false);
   const [activeDropdownFilters, setActiveDropdownFilters] = useState<Record<string, string[]>>({});
 
   const chipFilters: FilterChipsBarFilter[] = useMemo(
@@ -312,7 +315,7 @@ const TicketQueue = () => {
         placeholder="Search"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        className="h-8 w-44 rounded-full border border-border-5 bg-transparent px-3 text-300 text-text-primary outline-none placeholder:text-text-primary-70 focus:border-border-20"
+        className={`h-8 rounded-full border border-border-5 bg-transparent px-3 text-300 text-text-primary outline-none placeholder:text-text-primary-70 focus:border-border-20 ${isCompact ? "flex-1" : "w-44"}`}
       />
       {searchQuery && (
         <button
@@ -328,18 +331,8 @@ const TicketQueue = () => {
 
   const queueStats = useMemo(() => {
     const active = tickets.filter((t) => t.status !== "completed");
-    const open = active.filter((t) => t.status === "open").length;
-    const inProgress = active.filter((t) => t.status === "in_progress").length;
-    const onHold = active.filter((t) => t.status === "on_hold").length;
-    const unassigned = active.filter((t) => !t.assigneeName).length;
     const overdue = active.filter((t) => t.age.includes("d") && parseInt(t.age) >= 3).length;
-    const ageHours = active.map((t) => {
-      if (t.age.includes("d")) return parseInt(t.age) * 24;
-      return parseInt(t.age) || 0;
-    });
-    const avg = ageHours.length ? Math.round(ageHours.reduce((s, h) => s + h, 0) / ageHours.length) : 0;
-    const avgAge = avg >= 24 ? `${Math.round(avg / 24)}d` : `${avg}h`;
-    return { open, inProgress, onHold, unassigned, overdue, avgAge, total: active.length };
+    return { overdue };
   }, [tickets]);
 
   const statusCounts = useMemo(() => {
@@ -351,35 +344,39 @@ const TicketQueue = () => {
   }, [tickets]);
 
   const toolbar = (
-    <div className="flex items-center gap-2 pb-4">
-      <SegmentedControl
-        key={viewMode}
-        className="shrink-0"
-        segments={[
-          { key: "list", title: "List" },
-          { key: "kanban", title: "Board" },
-        ]}
-        initialSegmentKey={viewMode}
-        onSelect={(key) => setViewMode(key as "list" | "kanban")}
-      />
-      <button
-        type="button"
-        className={`shrink-0 cursor-pointer rounded-full border px-3 py-1 text-300 transition-colors ${
-          myTicketsActive ? "border-core-primary-fill bg-core-primary-5 text-text-primary" : "border-border-5 text-text-primary hover:border-border-20"
-        }`}
-        onClick={() => setMyTicketsActive((v) => !v)}
-      >
-        My tickets
-      </button>
-      <FilterChipsBar
-        filters={chipFilters}
-        onChange={handleChipFilterChange}
-      />
-      <div className="ml-auto flex shrink-0 items-center gap-2">
+    <div className={`flex gap-2 pb-4 ${isCompact ? "flex-col" : "flex-wrap items-center"}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        {!isCompact && (
+          <SegmentedControl
+            key={viewMode}
+            className="shrink-0"
+            segments={[
+              { key: "list", title: "List" },
+              { key: "kanban", title: "Board" },
+            ]}
+            initialSegmentKey={viewMode}
+            onSelect={(key) => setViewMode(key as "list" | "kanban")}
+          />
+        )}
+        <button
+          type="button"
+          className={`shrink-0 cursor-pointer rounded-full border px-3 py-1 text-300 transition-colors ${
+            myTicketsActive ? "border-core-primary-fill bg-core-primary-5 text-text-primary" : "border-border-5 text-text-primary hover:border-border-20"
+          }`}
+          onClick={() => setMyTicketsActive((v) => !v)}
+        >
+          My tickets
+        </button>
+        <FilterChipsBar
+          filters={chipFilters}
+          onChange={handleChipFilterChange}
+        />
+      </div>
+      <div className={`flex items-center gap-2 ${isCompact ? "" : "ml-auto shrink-0"}`}>
         {searchPill}
         <Button
           text="Create ticket"
-          variant={variants.primary}
+          variant={variants.secondary}
           size={buttonSizes.compact}
           onClick={() => setShowCreateModal(true)}
         />
@@ -389,24 +386,44 @@ const TicketQueue = () => {
 
   return (
     <div className="flex flex-col">
-      <div className="flex pb-4">
-        <QueueStat label="Open" value={String(queueStats.open)} />
-        <QueueStat label="In progress" value={String(queueStats.inProgress)} />
-        <QueueStat label="Unassigned" value={String(queueStats.unassigned)} />
-        <QueueStat label="Avg age" value={queueStats.avgAge} />
-        <QueueStat label="Overdue" value={String(queueStats.overdue)} critical={queueStats.overdue > 0} />
-      </div>
+      {queueStats.overdue > 0 && !overdueDismissed && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-border-5 px-4 py-3">
+          <Info width="w-5" className="shrink-0 text-text-primary" />
+          <div className="flex flex-1 flex-col">
+            <span className="text-emphasis-300 font-medium">{queueStats.overdue} ticket{queueStats.overdue > 1 ? "s" : ""} overdue</span>
+            <span className="text-300 text-text-primary-70">These tickets have been open for more than 3 days.</span>
+          </div>
+          <Button
+            text="View"
+            variant={variants.secondary}
+            size={buttonSizes.compact}
+            onClick={() => {
+              setActiveDropdownFilters((prev) => ({ ...prev, status: ["open"] }));
+              setOverdueDismissed(true);
+            }}
+          />
+          <button
+            type="button"
+            className="shrink-0 cursor-pointer p-1 text-text-primary-70 hover:text-text-primary"
+            onClick={() => setOverdueDismissed(true)}
+            aria-label="Dismiss"
+          >
+            <Dismiss width="w-4" />
+          </button>
+        </div>
+      )}
       {toolbar}
       {viewMode === "list" ? (
         <List
           items={filteredTickets}
           itemKey="id"
-          activeCols={activeCols}
+          activeCols={isCompact ? PHONE_COLS : DESKTOP_COLS}
           colTitles={colTitles}
           colConfig={colConfig}
           actions={rowActions}
           itemSelectable
           stickyFirstColumn={false}
+          overflowContainer={false}
           total={filteredTickets.length}
           itemName={{ singular: "ticket", plural: "tickets" }}
           sortableColumns={new Set<TicketColumns>(["issue", "asset", "location", "status"])}
@@ -493,11 +510,9 @@ const TicketKanbanView = ({
                   >
                     <div className="flex w-full items-center justify-between pb-3">
                       <span className="text-200 text-text-primary-70">{ticket.ticketNumber}</span>
-                      {ticket.urgent && (
-                        <div className="text-text-critical">
-                          <Alert width="w-4" />
-                        </div>
-                      )}
+                      <div className={getComponentIconColor(ticket.urgent)}>
+                        {getComponentIcon(ticket.component, ticket.urgent)}
+                      </div>
                     </div>
                     <span className="pb-2 text-300 font-medium text-text-primary">
                       {ticket.diagnosis}
@@ -513,13 +528,6 @@ const TicketKanbanView = ({
         </div>
       );
     })}
-  </div>
-);
-
-const QueueStat = ({ label, value, critical }: { label: string; value: string; critical?: boolean }) => (
-  <div className="flex flex-1 flex-col gap-0.5">
-    <span className="text-200 text-text-primary-70">{label}</span>
-    <span className={`text-heading-200 ${critical ? "text-text-critical" : "text-text-primary"}`}>{value}</span>
   </div>
 );
 

@@ -1,9 +1,6 @@
 import { useCallback, useState } from "react";
 
-import { mockInventoryParts } from "../../mockData";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
-import Checkbox from "@/shared/components/Checkbox";
-import Radio from "@/shared/components/Radio";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
@@ -21,26 +18,29 @@ const RESOLUTION_OPTIONS = [
   { value: "no_action", label: "No action needed" },
 ];
 
+const LOCATION_OPTIONS = [
+  { value: "on_rack", label: "On-rack" },
+  { value: "repair_bench", label: "Repair bench" },
+];
+
+const PARTS_OPTIONS = [
+  { value: "fan_filter", label: "Fan Filter (120mm)" },
+  { value: "hashboard_s21", label: "Hashboard S21" },
+  { value: "apw12_psu", label: "APW12 PSU" },
+  { value: "control_board_s21", label: "Control Board S21" },
+  { value: "thermal_paste", label: "Thermal Paste (tube)" },
+  { value: "heatsink_s21", label: "Heatsink S21" },
+];
+
 const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: CompletionFormProps) => {
-  const [resolution, setResolution] = useState("");
+  const [resolution, setResolution] = useState("repaired");
   const [repairLocation, setRepairLocation] = useState("on_rack");
-  const [selectedParts, setSelectedParts] = useState<Set<string>>(new Set());
+  const [partsUsed, setPartsUsed] = useState("");
   const [notes, setNotes] = useState("");
 
   const handleSubmit = useCallback(() => {
     onSubmit();
   }, [onSubmit]);
-
-  const togglePart = useCallback((partId: string) => {
-    setSelectedParts((prev) => {
-      const next = new Set(prev);
-      if (next.has(partId)) next.delete(partId);
-      else next.add(partId);
-      return next;
-    });
-  }, []);
-
-  const availableParts = mockInventoryParts.filter((p) => p.onHand - p.allocated > 0);
 
   const submitText = (() => {
     switch (resolution) {
@@ -56,81 +56,46 @@ const CompletionForm = ({ isMinerTicket = true, onSubmit, onCancel }: Completion
   })();
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-4">
-      <span className="text-emphasis-300 font-medium">Complete Repair</span>
-
-      <Select
-        id="resolution"
-        label="Resolution"
-        options={RESOLUTION_OPTIONS}
-        value={resolution}
-        onChange={setResolution}
-      />
-
-      {isMinerTicket && (
-        <div className="flex flex-col gap-2">
-          <span className="text-300 text-text-primary-70">Repair location</span>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-300">
-              <Radio
-                selected={repairLocation === "on_rack"}
-                onChange={() => setRepairLocation("on_rack")}
-                name="repairLocation"
-                value="on_rack"
-              />
-              On-rack
-            </label>
-            <label className="flex items-center gap-2 text-300">
-              <Radio
-                selected={repairLocation === "repair_bench"}
-                onChange={() => setRepairLocation("repair_bench")}
-                name="repairLocation"
-                value="repair_bench"
-              />
-              Repair bench
-            </label>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2">
-        <span className="text-300 text-text-primary-70">Parts used</span>
-        <div className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg border border-border-5 p-2">
-          {availableParts.length === 0 ? (
-            <span className="py-2 text-center text-300 text-text-primary-70">No parts available</span>
-          ) : (
-            availableParts.map((part) => (
-              <label
-                key={part.id}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-300 hover:bg-surface-base"
-              >
-                <Checkbox
-                  checked={selectedParts.has(part.id)}
-                  onChange={() => togglePart(part.id)}
-                />
-                <span className="flex-1">{part.name}</span>
-                <span className="text-200 text-text-primary-70">
-                  {part.onHand - part.allocated} avail
-                </span>
-              </label>
-            ))
-          )}
-        </div>
-        {selectedParts.size > 0 && (
-          <span className="text-200 text-text-primary-70">{selectedParts.size} part{selectedParts.size > 1 ? "s" : ""} selected</span>
-        )}
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-3">
+        <Select
+          id="resolution"
+          label="Mark as"
+          options={RESOLUTION_OPTIONS}
+          value={resolution}
+          onChange={setResolution}
+          forceBelow
+        />
+        {isMinerTicket ? (
+          <Select
+            id="repair-location"
+            label="Repair location"
+            options={LOCATION_OPTIONS}
+            value={repairLocation}
+            onChange={setRepairLocation}
+            forceBelow
+          />
+        ) : <div />}
       </div>
 
-      <Textarea id="completion-notes" label="Notes" onChange={(value) => setNotes(value)} />
+      <Select
+        id="parts-used"
+        label="Parts used"
+        options={PARTS_OPTIONS}
+        value={partsUsed}
+        onChange={setPartsUsed}
+        forceBelow
+      />
 
-      <div className="flex justify-end gap-3">
+      <Textarea id="completion-notes" label="Notes (optional)" onChange={(value) => setNotes(value)} rows={3} />
+
+      <div className="flex justify-end gap-3 pt-1">
         <Button text="Cancel" variant={variants.secondary} size={buttonSizes.compact} onClick={onCancel} />
         <Button
           text={submitText}
           variant={variants.primary}
           size={buttonSizes.compact}
           onClick={handleSubmit}
-          disabled={!resolution}
         />
       </div>
     </div>

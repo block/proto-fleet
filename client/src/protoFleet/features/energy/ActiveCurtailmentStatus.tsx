@@ -9,7 +9,7 @@ import {
   getActiveCurtailmentDisplayState,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import { Alert, Success } from "@/shared/assets/icons";
+import { Alert, Fan, Fleet, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -28,6 +28,17 @@ export interface CurtailmentTargetRollup {
   count: number;
 }
 
+export type InfraSequence = "before_miners" | "with_miners" | "after_miners";
+
+export interface InfraCurtailmentState {
+  sequence: InfraSequence;
+  offsetMinutes: number;
+  totalDevices: number;
+  curtailedDevices: number;
+  restoredDevices: number;
+  progressPercent: number;
+}
+
 export interface ActiveCurtailmentEvent {
   reason: string;
   state: CurtailmentEventState;
@@ -41,6 +52,7 @@ export interface ActiveCurtailmentEvent {
   restoreBatchSize: number;
   restoreBatchIntervalSec: number;
   rollups: CurtailmentTargetRollup[];
+  infraState?: InfraCurtailmentState;
 }
 
 interface ActiveCurtailmentStatusProps {
@@ -431,6 +443,72 @@ function getActiveCurtailmentStatusIcon({
   return <ProgressCircular indeterminate className="text-core-primary-fill" />;
 }
 
+function getMinerProgressPercent(
+  displayFlags: ActiveCurtailmentDisplayFlags,
+  compliance: MinerCompliance,
+): number {
+  if (displayFlags.isRestored) return 100;
+  if (compliance.totalCount === 0) return 0;
+  if (displayFlags.isRestoreFlow) {
+    return Math.round((compliance.restoredCount / compliance.totalCount) * 100);
+  }
+  return Math.round((compliance.curtailedCount / compliance.totalCount) * 100);
+}
+
+function computeOverallProgress(event: ActiveCurtailmentEvent, compliance: MinerCompliance): number {
+  const minerPct = compliance.totalCount > 0
+    ? Math.round((compliance.curtailedCount / compliance.totalCount) * 100)
+    : 0;
+  if (!event.infraState) return minerPct;
+  return Math.round((minerPct + event.infraState.progressPercent) / 2);
+}
+
+function getSequenceLabel(target: "miners" | "infra", infraSequence: InfraSequence): string | undefined {
+  if (infraSequence === "with_miners") return undefined;
+  if (target === "miners") {
+    return infraSequence === "before_miners" ? "After infrastructure" : "Before infrastructure";
+  }
+  return infraSequence === "before_miners" ? "Before miners" : "After miners";
+}
+
+function ProgressRow({
+  icon,
+  label,
+  progressPercent,
+  detail,
+  sequenceLabel,
+}: {
+  icon: ReactNode;
+  label: string;
+  progressPercent: number;
+  detail: string;
+  sequenceLabel?: string;
+}): ReactElement {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="shrink-0 text-text-primary-70">{icon}</div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex items-baseline justify-between">
+          <div className="flex items-baseline gap-2">
+            <span className="text-emphasis-300 font-medium">{label}</span>
+            {sequenceLabel && (
+              <span className="text-200 text-text-primary-70">{sequenceLabel}</span>
+            )}
+          </div>
+          <span className="text-emphasis-300 font-medium">{progressPercent}%</span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-border-5">
+          <div
+            className="h-full rounded-full bg-core-primary-fill transition-all duration-500"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        <span className="text-200 text-text-primary-70">{detail}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function ActiveCurtailmentStatus({
   event,
   className,
@@ -527,6 +605,35 @@ export default function ActiveCurtailmentStatus({
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
             </>
           )}
+        </div>
+
+        {/* Staggered miner + infrastructure progress */}
+        <div className="mt-8 flex flex-col gap-3">
+          <div className="text-heading-200 text-text-primary">
+            {computeOverallProgress(event, compliance)}% complete
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {/* Miner progress */}
+            <ProgressRow
+              icon={<Fleet />}
+              label="Miners"
+              progressPercent={getMinerProgressPercent(displayFlags, compliance)}
+              detail={`${compliance.curtailedCount} of ${compliance.totalCount}`}
+              sequenceLabel={event.infraState ? getSequenceLabel("miners", event.infraState.sequence) : undefined}
+            />
+
+            {/* Infrastructure progress */}
+            {event.infraState && (
+              <ProgressRow
+                icon={<Fan />}
+                label="Infrastructure"
+                progressPercent={event.infraState.progressPercent}
+                detail={`${event.infraState.curtailedDevices} of ${event.infraState.totalDevices}`}
+                sequenceLabel={getSequenceLabel("infra", event.infraState.sequence)}
+              />
+            )}
+          </div>
         </div>
       </div>
     </section>

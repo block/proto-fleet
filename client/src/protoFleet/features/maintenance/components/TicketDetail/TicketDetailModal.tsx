@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import TicketComments from "./TicketComments";
 import { RmaSectionContent } from "./RmaSection";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import CompletionForm from "./CompletionForm";
 import { mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
-import { Alert, Asic, Edit, Racks, Info, Checkmark, Pause } from "@/shared/assets/icons";
+import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
+import { Alert, Edit, Fleet, Info, Checkmark, Pause, Racks } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
@@ -21,10 +23,12 @@ const STATUS_OPTIONS = ["Open", "In Progress", "On Hold", "Sent to Vendor", "Com
 const statusKey = (label: string) => label.toLowerCase().replace(/ /g, "_");
 
 const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModalProps) => {
+  const navigate = useNavigate();
   const [currentId, setCurrentId] = useState(ticketId);
   const [showCompletionForm, setShowCompletionForm] = useState(false);
   const [showAssignMenu, setShowAssignMenu] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [showCardAssign, setShowCardAssign] = useState(false);
 
   const ticket = useMemo(
     () => mockTickets.find((t) => t.id === currentId),
@@ -157,49 +161,73 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
         </>
       )}
       <div ref={scrollRef} className="flex flex-col gap-6">
-        {/* Urgent badge */}
-        {ticket.urgent && (
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-intent-critical-10">
-            <Alert width="w-5" className="text-text-critical" />
+        {/* Badge + Title lockup */}
+        <div className="flex flex-col gap-2">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${ticket.urgent ? "bg-intent-critical-10" : "bg-surface-5"}`}>
+            <div className={getComponentIconColor(ticket.urgent)}>
+              {getComponentIcon(ticket.component, ticket.urgent)}
+            </div>
           </div>
-        )}
-
-        {/* Title */}
-        <div className="flex flex-col gap-1">
           <h2 className="text-heading-300 text-text-primary">
             {ticket.component}: {ticket.diagnosis}
           </h2>
-          <span className="text-300 text-text-primary-70">
+          <span className="-mt-1 text-300 text-text-primary-70">
             {ticket.assigneeName ?? "unassigned"}
           </span>
         </div>
 
-        {showCompletionForm && (
-          <CompletionForm
-            isMinerTicket={isMinerTicket}
-            onSubmit={() => setShowCompletionForm(false)}
-            onCancel={() => setShowCompletionForm(false)}
-          />
-        )}
-
         {/* Card group — status, linked info, rack — all 4px gap */}
         <div className="flex flex-col gap-1">
-          {/* Status card */}
+          {/* Status card — expands to include completion form */}
           {statusBannerProps && (
-            <div className="flex items-center gap-3 rounded-xl bg-surface-5 p-4">
-              <div className="shrink-0 text-text-primary-70">{statusBannerProps.icon}</div>
-              <div className="flex flex-1 flex-col">
-                <span className="text-emphasis-300 font-medium">{statusBannerProps.title}</span>
-                <span className="text-200 text-text-primary-70">{statusBannerProps.subtitle}</span>
+            <div className="flex flex-col gap-4 rounded-xl bg-surface-5 p-4">
+              <div className="flex items-center gap-3">
+                <div className="shrink-0 text-text-primary-70">{statusBannerProps.icon}</div>
+                <div className="flex flex-1 flex-col">
+                  <span className="text-emphasis-300 font-medium">{statusBannerProps.title}</span>
+                  {!showCompletionForm && (
+                    <span className="text-200 text-text-primary-70">{statusBannerProps.subtitle}</span>
+                  )}
+                </div>
+                {statusBannerProps.buttonText && !showCompletionForm && (
+                  <div className="relative">
+                    <Button
+                      text={statusBannerProps.buttonText}
+                      variant={variants.secondary}
+                      size={buttonSizes.compact}
+                      onClick={() => {
+                        if (ticket.status === "open" && !ticket.assigneeName) {
+                          setShowCardAssign((v) => !v);
+                        } else if (ticket.status === "in_progress") {
+                          setShowCompletionForm(true);
+                        }
+                      }}
+                    />
+                    {showCardAssign && (
+                      <>
+                        <div className="fixed inset-0 z-30" onClick={() => setShowCardAssign(false)} />
+                        <div className="absolute top-full right-0 z-40 mt-1 w-48 rounded-2xl bg-surface-elevated-base py-2 shadow-300">
+                          {REPAIR_TECHNICIANS.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              className="w-full px-4 py-2 text-left text-emphasis-300 hover:bg-surface-base"
+                              onClick={() => setShowCardAssign(false)}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-              {statusBannerProps.buttonText && (
-                <Button
-                  text={statusBannerProps.buttonText}
-                  variant={variants.secondary}
-                  size={buttonSizes.compact}
-                  onClick={() => {
-                    if (ticket.status === "in_progress") setShowCompletionForm(true);
-                  }}
+              {showCompletionForm && (
+                <CompletionForm
+                  isMinerTicket={isMinerTicket}
+                  onSubmit={() => setShowCompletionForm(false)}
+                  onCancel={() => setShowCompletionForm(false)}
                 />
               )}
             </div>
@@ -211,8 +239,12 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
               <button
                 type="button"
                 className="flex items-center gap-3 rounded-xl bg-surface-5 p-4 text-left transition-colors hover:bg-surface-10"
+                onClick={() => {
+                  onDismiss();
+                  navigate(`/miners/${ticket.minerIdentifier}`);
+                }}
               >
-                <Asic width="w-5" className="shrink-0 text-text-primary-70" />
+                <Fleet width="w-5" className="shrink-0 text-text-primary-70" />
                 <div className="flex flex-col">
                   <span className="text-emphasis-300 font-medium">Miner {ticket.minerIdentifier}</span>
                   <span className="text-200 text-text-primary-70">809.7 TH/s</span>
@@ -240,8 +272,15 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
 
           {/* Rack visualization (miner tickets only) */}
           {isMinerTicket && ticket.rackLabel && (
-          <div className="flex flex-col gap-3 rounded-xl bg-surface-5 p-4">
-            <div className="flex items-center justify-between">
+          <button
+            type="button"
+            className="flex w-full flex-col gap-3 rounded-xl bg-surface-5 p-4 text-left transition-colors hover:bg-surface-10"
+            onClick={() => {
+              onDismiss();
+              navigate(`/racks/${ticket.rackLabel}`);
+            }}
+          >
+            <div className="flex w-full items-center justify-between">
               <div className="flex items-center gap-3">
                 <Racks width="w-5" className="shrink-0 text-text-primary-70" />
                 <span className="text-emphasis-300 font-medium">{ticket.rackLabel}, Slot {highlightSlot}</span>
@@ -271,7 +310,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
                 })}
               </div>
             </div>
-          </div>
+          </button>
         )}
         </div>
 

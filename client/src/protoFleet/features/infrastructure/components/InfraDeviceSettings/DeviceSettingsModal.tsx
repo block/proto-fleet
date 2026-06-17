@@ -20,29 +20,22 @@ const MODE_OPTIONS = [
   { value: "fixedKwReduction", label: "Fixed kW reduction" },
 ];
 
-const RESTORE_OPTIONS = [
-  { value: "automaticBatchRestore", label: "Batch restore" },
-  { value: "automaticImmediateRestore", label: "Immediate restore" },
-];
-
 const DeviceSettingsModal = ({ onDismiss }: DeviceSettingsModalProps) => {
-  // Curtail
   const [curtailSequence, setCurtailSequence] = useState("with_miners");
-  const [curtailOffsetMin, setCurtailOffsetMin] = useState("0");
+  const [curtailOffsetSec, setCurtailOffsetSec] = useState("0");
   const [curtailMode, setCurtailMode] = useState("fullFleet");
   const [curtailTargetKw, setCurtailTargetKw] = useState("500");
 
-  // Restore
   const [restoreSequence, setRestoreSequence] = useState("after_miners");
-  const [restoreOffsetMin, setRestoreOffsetMin] = useState("5");
-  const [restoreBehavior, setRestoreBehavior] = useState("automaticBatchRestore");
-  const [restoreBatchSize, setRestoreBatchSize] = useState("5");
-  const [restoreIntervalSec, setRestoreIntervalSec] = useState("30");
+  const [restoreOffsetSec, setRestoreOffsetSec] = useState("5");
 
-  const showCurtailOffset = curtailSequence !== "with_miners";
-  const showRestoreOffset = restoreSequence !== "with_miners";
-  const showCurtailTarget = curtailMode === "fixedKwReduction";
-  const showRestoreBatch = restoreBehavior === "automaticBatchRestore";
+  const curtailOffsetDisabled = curtailSequence === "with_miners";
+  const curtailTargetDisabled = curtailMode !== "fixedKwReduction";
+  const restoreOffsetDisabled = restoreSequence === "with_miners";
+
+  const curtailOffsetDisplay = curtailOffsetDisabled ? "0" : curtailOffsetSec;
+  const curtailTargetDisplay = curtailTargetDisabled ? "100%" : curtailTargetKw;
+  const restoreOffsetDisplay = restoreOffsetDisabled ? "0" : restoreOffsetSec;
 
   return (
     <Modal
@@ -70,15 +63,14 @@ const DeviceSettingsModal = ({ onDismiss }: DeviceSettingsModalProps) => {
               onChange={setCurtailSequence}
               forceBelow
             />
-            {showCurtailOffset ? (
-              <Input
-                id="curtail-offset"
-                label="Offset (minutes)"
-                initValue={curtailOffsetMin}
-                onChange={(v) => setCurtailOffsetMin(v)}
-                type="number"
-              />
-            ) : <div />}
+            <Input
+              id="curtail-offset"
+              label="Offset (seconds)"
+              initValue={curtailOffsetDisplay}
+              onChange={(v) => setCurtailOffsetSec(v)}
+              type={curtailOffsetDisabled ? "text" : "number"}
+              disabled={curtailOffsetDisabled}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Select
@@ -89,15 +81,14 @@ const DeviceSettingsModal = ({ onDismiss }: DeviceSettingsModalProps) => {
               onChange={setCurtailMode}
               forceBelow
             />
-            {showCurtailTarget ? (
-              <Input
-                id="curtail-target"
-                label="Target (kW)"
-                initValue={curtailTargetKw}
-                onChange={(v) => setCurtailTargetKw(v)}
-                type="number"
-              />
-            ) : <div />}
+            <Input
+              id="curtail-target"
+              label="Target (kW)"
+              initValue={curtailTargetDisplay}
+              onChange={(v) => setCurtailTargetKw(v)}
+              type={curtailTargetDisabled ? "text" : "number"}
+              disabled={curtailTargetDisabled}
+            />
           </div>
         </div>
 
@@ -114,47 +105,15 @@ const DeviceSettingsModal = ({ onDismiss }: DeviceSettingsModalProps) => {
               onChange={setRestoreSequence}
               forceBelow
             />
-            {showRestoreOffset ? (
-              <Input
-                id="restore-offset"
-                label="Offset (minutes)"
-                initValue={restoreOffsetMin}
-                onChange={(v) => setRestoreOffsetMin(v)}
-                type="number"
-              />
-            ) : <div />}
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              id="restore-behavior"
-              label="Behavior"
-              options={RESTORE_OPTIONS}
-              value={restoreBehavior}
-              onChange={setRestoreBehavior}
-              forceBelow
+            <Input
+              id="restore-offset"
+              label="Offset (seconds)"
+              initValue={restoreOffsetDisplay}
+              onChange={(v) => setRestoreOffsetSec(v)}
+              type={restoreOffsetDisabled ? "text" : "number"}
+              disabled={restoreOffsetDisabled}
             />
-            {showRestoreBatch ? (
-              <Input
-                id="restore-batch-size"
-                label="Batch size (devices)"
-                initValue={restoreBatchSize}
-                onChange={(v) => setRestoreBatchSize(v)}
-                type="number"
-              />
-            ) : <div />}
           </div>
-          {showRestoreBatch && (
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                id="restore-interval"
-                label="Batch interval (seconds)"
-                initValue={restoreIntervalSec}
-                onChange={(v) => setRestoreIntervalSec(v)}
-                type="number"
-              />
-              <div />
-            </div>
-          )}
         </div>
       </div>
     </Modal>
