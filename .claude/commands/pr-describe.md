@@ -73,11 +73,12 @@ describe what the code does, not the decisions made getting there.
      path.
    - **Current-branch path:** run
      `git diff "origin/<base>...HEAD" --numstat`.
-   - Exclude generated files (`**/generated/**`, `*.pb.go`, `*.pb.ts`), test
-     files (`*_test.go`, `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`,
-     `test/**`), and story files (`*.stories.*`, `*.story.*`, `stories/**`)
-     before summing. For renamed paths, exclude the row if either the old or
-     new path matches an excluded pattern.
+   - Exclude generated files (`**/generated/**`, `*.pb.go`, `*.pb.ts`,
+     `client/src/protoOS/api/generatedApi.ts`), test files (`*_test.go`,
+     `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`, `test/**`), and story
+     files (`*.stories.*`, `*.story.*`, `stories/**`) before summing. For
+     renamed paths, exclude the row if either the old or new path matches an
+     excluded pattern.
    - Sum the remaining numeric additions and deletions, and count the remaining
      files. Ignore binary-only rows with `-` additions/deletions in the line
      totals; if non-excluded binary files remain, append `; <N> binary files

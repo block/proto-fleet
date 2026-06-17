@@ -86,10 +86,11 @@ code does, not the decisions made getting there. Structure it as:
 
 1. `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).`
    The line count comes from the PR diff after excluding generated files
-   (`**/generated/**`, `*.pb.go`, `*.pb.ts`), test files (`*_test.go`,
+   (`**/generated/**`, `*.pb.go`, `*.pb.ts`,
+   `client/src/protoOS/api/generatedApi.ts`), test files (`*_test.go`,
    `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`, `test/**`), and story
-   files (`*.stories.*`, `*.story.*`, `stories/**`). Put this line first,
-   above Summary.
+   files (`*.stories.*`, `*.story.*`, `stories/**`). Put this line first, above
+   Summary.
 2. **Summary** — 2-4 sentences: what this PR delivers and why. Lead with the
    user- or operator-facing capability, not the implementation. For a PR in a
    series (stacked on a parent, has descendant PRs, or marked `N/M`), add a
