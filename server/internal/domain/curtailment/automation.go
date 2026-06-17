@@ -285,7 +285,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		case event == nil || event.State.IsTerminal():
 			// Stale state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
-			if eventMaxDurationElapsed(event, at) {
+			if eventMaxDurationElapsed(event, s.clock()) {
 				return nil
 			}
 			recurtailed, err := s.curtailment.Recurtail(ctx, RecurtailRequest{

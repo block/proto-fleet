@@ -431,6 +431,37 @@ func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailAfterMaxD
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
+func TestAutomationService_HandleMQTTSignal_ReplayedOffDoesNotBypassMaxDuration(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	now := time.Date(2026, 6, 11, 21, 0, 0, 0, time.UTC)
+	receivedAt := now.Add(-8 * time.Minute)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := receivedAt.Add(-time.Minute)
+	startedAt := now.Add(-10 * time.Minute)
+	maxDurationSeconds := int32(300)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+	h.curtailments.eventsByUUID[activeEventUUID].StartedAt = &startedAt
+	h.curtailments.eventsByUUID[activeEventUUID].MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: receivedAt,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, receivedAt, *h.rule.LastSignalAt)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
 func TestAutomationService_HandleMQTTSignal_OnStartsRestoreAndKeepsActiveEventForRecurtail(t *testing.T) {
 	t.Parallel()
 
