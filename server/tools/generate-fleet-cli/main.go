@@ -358,7 +358,7 @@ func buildGroups(
 		options := renderOptions{
 			CommandName:  chooseCommandName(ref.ServiceName, ref.Method.Name(), methodOverride),
 			Usage:        chooseUsage(ref.Method.Name(), methodOverride),
-			Auth:         chooseAuthMode(ref.ServiceOverride, methodOverride),
+			Auth:         chooseOverrideAuth(ref.ServiceOverride, methodOverride.Auth),
 			JSONOnly:     methodOverride.JSONOnly,
 			IgnoreFields: map[string]bool{},
 			FixedFields:  map[string]string{},
@@ -785,7 +785,7 @@ func buildFieldPlan(
 	if field.IsList() {
 		switch field.Kind() {
 		case protoreflect.StringKind:
-			usage = fieldUsage(field, nil)
+			usage = fieldUsage(field)
 			flag = fmt.Sprintf("&cli.StringSliceFlag{Name: %q, Usage: %q}", flagName, usage)
 			lines = append(lines,
 				fmt.Sprintf("if cmd.IsSet(%q) {", flagName),
@@ -794,7 +794,7 @@ func buildFieldPlan(
 			)
 			return flag, lines, needsFmt, nil
 		case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-			usage = fieldUsage(field, nil)
+			usage = fieldUsage(field)
 			flag = fmt.Sprintf("&cli.StringSliceFlag{Name: %q, Usage: %q}", flagName, usage)
 			lines = append(lines,
 				fmt.Sprintf("if cmd.IsSet(%q) {", flagName),
@@ -807,7 +807,7 @@ func buildFieldPlan(
 			)
 			return flag, lines, needsFmt, nil
 		case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-			usage = fieldUsage(field, nil)
+			usage = fieldUsage(field)
 			flag = fmt.Sprintf("&cli.StringSliceFlag{Name: %q, Usage: %q}", flagName, usage)
 			lines = append(lines,
 				fmt.Sprintf("if cmd.IsSet(%q) {", flagName),
@@ -834,31 +834,31 @@ func buildFieldPlan(
 
 	switch field.Kind() {
 	case protoreflect.StringKind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.StringFlag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("cmd.String(%q)", flagName))...)
 	case protoreflect.BoolKind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.BoolFlag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("cmd.Bool(%q)", flagName))...)
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.IntFlag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("int32(cmd.Int(%q))", flagName))...)
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.Int64Flag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("cmd.Int64(%q)", flagName))...)
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.UintFlag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("uint32(cmd.Uint(%q))", flagName))...)
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.Uint64Flag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("cmd.Uint64(%q)", flagName))...)
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		usage = fieldUsage(field, nil)
+		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.Float64Flag{Name: %q, Usage: %q}", flagName, usage)
 		expr := fmt.Sprintf("cmd.Float64(%q)", flagName)
 		if field.Kind() == protoreflect.FloatKind {
@@ -871,7 +871,7 @@ func buildFieldPlan(
 			return "", nil, false, fmt.Errorf("missing enum metadata for %s", field.Enum().FullName())
 		}
 		enumValues := renderableEnumValues(field.Enum())
-		usage = fieldUsage(field, enumValues.names())
+		usage = fieldUsageWithOptions(field, enumValues.names())
 		flag = fmt.Sprintf("&cli.StringFlag{Name: %q, Usage: %q}", flagName, usage)
 		lines = append(lines, fmt.Sprintf("if cmd.IsSet(%q) {", flagName))
 		lines = append(lines, fmt.Sprintf("\tswitch normalizeEnum(cmd.String(%q)) {", flagName))
@@ -931,7 +931,7 @@ func isPoolConfigField(field protoreflect.FieldDescriptor) bool {
 
 func buildStringValueFieldPlan(field protoreflect.FieldDescriptor) (string, []string) {
 	flagName := strings.ReplaceAll(string(field.Name()), "_", "-")
-	usage := fieldUsage(field, nil)
+	usage := fieldUsage(field)
 	goFieldName := toGoFieldName(field.Name())
 	flag := fmt.Sprintf("&cli.StringFlag{Name: %q, Usage: %q}", flagName, usage)
 	lines := []string{
@@ -953,7 +953,9 @@ func buildPoolConfigFieldPlan(field protoreflect.FieldDescriptor, messageInfo me
 	}
 	lines := []string{
 		`if cmd.IsSet("pool-name") || cmd.IsSet("url") || cmd.IsSet("username") || cmd.IsSet("password") {`,
-		fmt.Sprintf("\treq.%s = &%s{}", goFieldName, configType),
+		fmt.Sprintf("\tif req.%s == nil {", goFieldName),
+		fmt.Sprintf("\t\treq.%s = &%s{}", goFieldName, configType),
+		`	}`,
 		`	if cmd.IsSet("pool-name") {`,
 		fmt.Sprintf("\t\treq.%s.PoolName = cmd.String(\"pool-name\")", goFieldName),
 		`	}`,
@@ -1120,38 +1122,10 @@ func renderSimpleExpr(
 		buf.WriteString("\t\t}\n")
 	}
 	if analysis.minerSelectorField != "" {
-		if analysis.jsonFallback {
-			buf.WriteString("\t\tif cmd.IsSet(\"all-devices\") || cmd.IsSet(\"device\") || cmd.IsSet(\"group-id\") || cmd.IsSet(\"group\") || cmd.IsSet(\"rack-id\") || cmd.IsSet(\"rack\") {\n")
-			buf.WriteString("\t\t\tselector, err := generatedBuildMinerSelector(ctx, cmd, client)\n")
-			buf.WriteString("\t\t\tif err != nil {\n")
-			buf.WriteString("\t\t\t\treturn nil, err\n")
-			buf.WriteString("\t\t\t}\n")
-			buf.WriteString(fmt.Sprintf("\t\t\treq.%s = selector\n", analysis.minerSelectorField))
-			buf.WriteString("\t\t}\n")
-		} else {
-			buf.WriteString("\t\tselector, err := generatedBuildMinerSelector(ctx, cmd, client)\n")
-			buf.WriteString("\t\tif err != nil {\n")
-			buf.WriteString("\t\t\treturn nil, err\n")
-			buf.WriteString("\t\t}\n")
-			buf.WriteString(fmt.Sprintf("\t\treq.%s = selector\n", analysis.minerSelectorField))
-		}
+		writeSelectorAssignment(&buf, analysis.minerSelectorField, "generatedBuildMinerSelector(ctx, cmd, client)", "generatedMinerSelectorProvided(cmd)", analysis.jsonFallback)
 	}
 	if analysis.commonSelectorField != "" {
-		if analysis.jsonFallback {
-			buf.WriteString("\t\tif cmd.IsSet(\"all-devices\") || cmd.IsSet(\"device\") {\n")
-			buf.WriteString("\t\t\tselector, err := generatedBuildCommonSelector(cmd)\n")
-			buf.WriteString("\t\t\tif err != nil {\n")
-			buf.WriteString("\t\t\t\treturn nil, err\n")
-			buf.WriteString("\t\t\t}\n")
-			buf.WriteString(fmt.Sprintf("\t\t\treq.%s = selector\n", analysis.commonSelectorField))
-			buf.WriteString("\t\t}\n")
-		} else {
-			buf.WriteString("\t\tselector, err := generatedBuildCommonSelector(cmd)\n")
-			buf.WriteString("\t\tif err != nil {\n")
-			buf.WriteString("\t\t\treturn nil, err\n")
-			buf.WriteString("\t\t}\n")
-			buf.WriteString(fmt.Sprintf("\t\treq.%s = selector\n", analysis.commonSelectorField))
-		}
+		writeSelectorAssignment(&buf, analysis.commonSelectorField, "generatedBuildCommonSelector(cmd)", "generatedCommonSelectorProvided(cmd)", analysis.jsonFallback)
 	}
 	for _, line := range analysis.lines {
 		buf.WriteString("\t\t" + line + "\n")
@@ -1161,6 +1135,30 @@ func renderSimpleExpr(
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
 	buf.WriteString(")")
 	return strings.TrimSpace(buf.String())
+}
+
+// writeSelectorAssignment emits the code that builds a device selector and
+// assigns it to req.<field>. builderCall is the selector-builder expression and
+// providedCall is the runtime predicate reporting whether any selector flag was
+// set. When the command also accepts a --json request body (jsonFallback), the
+// assignment is guarded by providedCall so explicit selector flags override the
+// JSON while an absent selector leaves the JSON value intact.
+func writeSelectorAssignment(buf *bytes.Buffer, field, builderCall, providedCall string, jsonFallback bool) {
+	if jsonFallback {
+		buf.WriteString(fmt.Sprintf("\t\tif %s {\n", providedCall))
+		buf.WriteString(fmt.Sprintf("\t\t\tselector, err := %s\n", builderCall))
+		buf.WriteString("\t\t\tif err != nil {\n")
+		buf.WriteString("\t\t\t\treturn nil, err\n")
+		buf.WriteString("\t\t\t}\n")
+		buf.WriteString(fmt.Sprintf("\t\t\treq.%s = selector\n", field))
+		buf.WriteString("\t\t}\n")
+		return
+	}
+	buf.WriteString(fmt.Sprintf("\t\tselector, err := %s\n", builderCall))
+	buf.WriteString("\t\tif err != nil {\n")
+	buf.WriteString("\t\t\treturn nil, err\n")
+	buf.WriteString("\t\t}\n")
+	buf.WriteString(fmt.Sprintf("\t\treq.%s = selector\n", field))
 }
 
 // removeStaleGeneratedFiles deletes previously generated cmd_*.go files whose
@@ -1285,16 +1283,6 @@ func sortedImports(imports map[string]string) []importSpec {
 	return result
 }
 
-func hasMethodOverrides(overrides map[string]methodOverride, serviceKey string) bool {
-	prefix := serviceKey + "/"
-	for key := range overrides {
-		if strings.HasPrefix(key, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func chooseGroupName(serviceName protoreflect.Name, serviceOverride serviceOverride, methodOverride methodOverride) string {
 	if methodOverride.Group != "" {
 		return methodOverride.Group
@@ -1328,14 +1316,6 @@ func chooseUsage(methodName protoreflect.Name, override methodOverride) string {
 		return override.Usage
 	}
 	return humanizeMethod(string(methodName))
-}
-
-func chooseAuthMode(serviceOverride serviceOverride, methodOverride methodOverride) string {
-	auth := methodOverride.Auth
-	if auth == "" {
-		auth = serviceOverride.Auth
-	}
-	return authModeConst(auth)
 }
 
 func chooseOverrideAuth(serviceOverride serviceOverride, auth string) string {
@@ -1487,12 +1467,15 @@ func humanizeMethod(methodName string) string {
 	return strings.Join(words, " ")
 }
 
-func fieldUsage(field protoreflect.FieldDescriptor, enumValues []string) string {
-	label := strings.ReplaceAll(string(field.Name()), "_", " ")
+func fieldUsage(field protoreflect.FieldDescriptor) string {
+	return strings.ReplaceAll(string(field.Name()), "_", " ")
+}
+
+func fieldUsageWithOptions(field protoreflect.FieldDescriptor, enumValues []string) string {
 	if len(enumValues) == 0 {
-		return label
+		return fieldUsage(field)
 	}
-	return fmt.Sprintf("%s. Valid options: %s", label, strings.Join(enumValues, ", "))
+	return fmt.Sprintf("%s. Valid options: %s", fieldUsage(field), strings.Join(enumValues, ", "))
 }
 
 func sanitizeFileName(value string) string {

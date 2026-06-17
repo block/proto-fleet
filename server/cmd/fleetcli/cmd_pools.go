@@ -35,7 +35,9 @@ func generatedPoolsCommand() *cli.Command {
 						}
 					}
 					if cmd.IsSet("pool-name") || cmd.IsSet("url") || cmd.IsSet("username") || cmd.IsSet("password") {
-						req.PoolConfig = &poolsv1.PoolConfig{}
+						if req.PoolConfig == nil {
+							req.PoolConfig = &poolsv1.PoolConfig{}
+						}
 						if cmd.IsSet("pool-name") {
 							req.PoolConfig.PoolName = cmd.String("pool-name")
 						}

@@ -108,7 +108,7 @@ func authCommand() *cli.Command {
 				Name:  "login",
 				Usage: "Validate session credentials against the auth service",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, _, err := openClient(ctx, cmd)
+					client, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
@@ -142,7 +142,7 @@ func apiKeyCommand() *cli.Command {
 					&cli.StringFlag{Name: "expires-at", Usage: "Optional expiration timestamp in RFC3339 format"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, _, err := openClient(ctx, cmd)
+					client, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
@@ -172,7 +172,7 @@ func apiKeyCommand() *cli.Command {
 				Name:  "list",
 				Usage: "List active API keys",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, _, err := openClient(ctx, cmd)
+					client, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
@@ -196,7 +196,7 @@ func apiKeyCommand() *cli.Command {
 					&cli.StringFlag{Name: "key-id", Usage: "API key id to revoke", Required: true},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					client, _, err := openClient(ctx, cmd)
+					client, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
@@ -266,7 +266,7 @@ func performanceCommand() *cli.Command {
 						return err
 					}
 
-					client, _, err := openClient(ctx, cmd)
+					client, err := openClient(ctx, cmd)
 					if err != nil {
 						return err
 					}
@@ -451,7 +451,9 @@ func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetrics
 	}
 
 	var latestTemperature *temperatureSummary
-	if counts := newestTemperatureStatus(resp.GetTemperatureStatusCounts()); counts != nil {
+	if counts := newestByTimestamp(resp.GetTemperatureStatusCounts(), func(c *telemetryv1.TemperatureStatusCount) time.Time {
+		return c.GetTimestamp().AsTime()
+	}); counts != nil {
 		latestTemperature = &temperatureSummary{
 			Timestamp: counts.GetTimestamp().AsTime().UTC().Format(time.RFC3339),
 			Cold:      counts.GetColdCount(),
@@ -462,7 +464,9 @@ func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetrics
 	}
 
 	var latestUptime *uptimeSummary
-	if counts := newestUptimeStatus(resp.GetUptimeStatusCounts()); counts != nil {
+	if counts := newestByTimestamp(resp.GetUptimeStatusCounts(), func(c *telemetryv1.UptimeStatusCount) time.Time {
+		return c.GetTimestamp().AsTime()
+	}); counts != nil {
 		latestUptime = &uptimeSummary{
 			Timestamp:  counts.GetTimestamp().AsTime().UTC().Format(time.RFC3339),
 			Hashing:    counts.GetHashingCount(),
@@ -496,20 +500,12 @@ func float64Ptr(value float64) *float64 {
 	return &value
 }
 
-func newestTemperatureStatus(values []*telemetryv1.TemperatureStatusCount) *telemetryv1.TemperatureStatusCount {
-	var latest *telemetryv1.TemperatureStatusCount
+// newestByTimestamp returns the element with the latest timestamp, or nil when
+// values is empty.
+func newestByTimestamp[T any](values []*T, timestamp func(*T) time.Time) *T {
+	var latest *T
 	for _, value := range values {
-		if latest == nil || value.GetTimestamp().AsTime().After(latest.GetTimestamp().AsTime()) {
-			latest = value
-		}
-	}
-	return latest
-}
-
-func newestUptimeStatus(values []*telemetryv1.UptimeStatusCount) *telemetryv1.UptimeStatusCount {
-	var latest *telemetryv1.UptimeStatusCount
-	for _, value := range values {
-		if latest == nil || value.GetTimestamp().AsTime().After(latest.GetTimestamp().AsTime()) {
+		if latest == nil || timestamp(value).After(timestamp(latest)) {
 			latest = value
 		}
 	}
@@ -525,13 +521,8 @@ func compactMeasurementName(value telemetryv1.MeasurementType) string {
 	return value.String()
 }
 
-func openClient(ctx context.Context, cmd *cli.Command) (*Client, Options, error) {
-	opts := resolvedClientOptions(cmd)
-	client, err := New(ctx, opts)
-	if err != nil {
-		return nil, Options{}, err
-	}
-	return client, opts, nil
+func openClient(ctx context.Context, cmd *cli.Command) (*Client, error) {
+	return New(ctx, resolvedClientOptions(cmd))
 }
 
 func usernamePassword(cmd *cli.Command) (string, string, error) {

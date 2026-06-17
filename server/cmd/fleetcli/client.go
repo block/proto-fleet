@@ -191,10 +191,8 @@ func (c *Client) DiscoverDevices(ctx context.Context, req *pairingv1.DiscoverReq
 	}
 
 	// Discovery scans (nmap, IP ranges) can outlive the default per-request
-	// timeout, so the stream gets a client without an overall deadline; it
-	// shares the cookie jar and transport so session auth still applies.
-	streamHTTPClient := &http.Client{Jar: c.httpClient.Jar, Transport: c.httpClient.Transport}
-	stream, err := pairingv1connect.NewPairingServiceClient(streamHTTPClient, c.baseURL.String()).Discover(ctx, connectReq)
+	// timeout, so the stream gets a client without an overall deadline.
+	stream, err := pairingv1connect.NewPairingServiceClient(c.transferClient(), c.baseURL.String()).Discover(ctx, connectReq)
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %w", method, err)
 	}
@@ -244,6 +242,15 @@ func (c *Client) applyBearerAuth(ctx context.Context, header http.Header, method
 		return fmt.Errorf("api key or username/password is required for %s: %w", method, err)
 	}
 	return nil
+}
+
+// transferClient returns an HTTP client without an overall timeout, for
+// long-running transfers (large firmware uploads, discovery scans) that can
+// outlive the default per-request budget. It shares the cookie jar and
+// transport so session auth and TLS settings still apply; cancellation comes
+// from ctx.
+func (c *Client) transferClient() *http.Client {
+	return &http.Client{Jar: c.httpClient.Jar, Transport: c.httpClient.Transport}
 }
 
 func (c *Client) invoke(ctx context.Context, method string, req proto.Message, resp proto.Message, mode authMode) error {

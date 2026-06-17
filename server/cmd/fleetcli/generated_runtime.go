@@ -35,7 +35,7 @@ func generatedRequestCommand(
 		Usage: usage,
 		Flags: flags,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -82,22 +82,6 @@ func generatedJSONRequestCommand(
 	)
 }
 
-func generatedCallAndPrint(
-	ctx context.Context,
-	cmd *cli.Command,
-	auth generatedAuthMode,
-	method string,
-	req proto.Message,
-	resp proto.Message,
-) error {
-	client, _, err := openClient(ctx, cmd)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = client.Close() }()
-	return generatedCallAndPrintWithClient(ctx, client, auth, method, req, resp)
-}
-
 func generatedCallAndPrintWithClient(
 	ctx context.Context,
 	client *Client,
@@ -137,6 +121,20 @@ func generatedCommonSelectorFlags() []cli.Flag {
 		&cli.BoolFlag{Name: "all-devices", Usage: "Select all devices"},
 		&cli.StringSliceFlag{Name: "device", Usage: "Select one or more device identifiers"},
 	}
+}
+
+// generatedMinerSelectorProvided reports whether any miner selector flag was
+// set. It mirrors generatedMinerSelectorFlags so the set of selector flags
+// lives in one place, even when a command also accepts a --json request body.
+func generatedMinerSelectorProvided(cmd *cli.Command) bool {
+	return cmd.IsSet("all-devices") || cmd.IsSet("device") || cmd.IsSet("group-id") ||
+		cmd.IsSet("group") || cmd.IsSet("rack-id") || cmd.IsSet("rack")
+}
+
+// generatedCommonSelectorProvided reports whether any common selector flag was
+// set. It mirrors generatedCommonSelectorFlags.
+func generatedCommonSelectorProvided(cmd *cli.Command) bool {
+	return cmd.IsSet("all-devices") || cmd.IsSet("device")
 }
 
 func generatedBuildCommonSelector(cmd *cli.Command) (*commonv1.DeviceSelector, error) {

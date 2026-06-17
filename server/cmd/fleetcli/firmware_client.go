@@ -110,14 +110,6 @@ func (c *Client) ensureFirmwareSession(ctx context.Context) error {
 	return fmt.Errorf("establish firmware session: %w", err)
 }
 
-// firmwareTransferClient returns a client without an overall timeout for
-// firmware data transfer: a large upload (or a single chunk on a slow link)
-// can exceed the default 30s budget. It shares the cookie jar and transport
-// so session auth and TLS settings still apply; cancellation comes from ctx.
-func (c *Client) firmwareTransferClient() *http.Client {
-	return &http.Client{Jar: c.httpClient.Jar, Transport: c.httpClient.Transport}
-}
-
 // firmwareRequest describes one firmware REST call for doFirmware.
 type firmwareRequest struct {
 	method        string
@@ -154,7 +146,7 @@ func (c *Client) doFirmware(ctx context.Context, r firmwareRequest) error {
 
 	httpClient := c.httpClient
 	if r.transfer {
-		httpClient = c.firmwareTransferClient()
+		httpClient = c.transferClient()
 	}
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {

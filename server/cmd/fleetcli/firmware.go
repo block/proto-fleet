@@ -37,7 +37,7 @@ func firmwareConfigCommand() *cli.Command {
 		Name:  "config",
 		Usage: "Show firmware upload constraints (allowed extensions, size limits)",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -67,7 +67,7 @@ func firmwareCheckCommand() *cli.Command {
 				return err
 			}
 
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -97,7 +97,7 @@ func firmwareUploadCommand() *cli.Command {
 				return err
 			}
 
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -124,7 +124,7 @@ func firmwareListCommand() *cli.Command {
 		Name:  "list",
 		Usage: "List firmware files stored on the server",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -150,7 +150,7 @@ func firmwareDeleteCommand() *cli.Command {
 				return err
 			}
 
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -173,7 +173,7 @@ func firmwareDeleteAllCommand() *cli.Command {
 		Name:  "delete-all",
 		Usage: "Delete every firmware file stored on the server",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
