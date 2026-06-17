@@ -108,4 +108,21 @@ type BuildingStore interface {
 	// building is unassigned). Returns NotFound when the building is
 	// missing / soft-deleted / cross-org.
 	GetBuildingSiteID(ctx context.Context, orgID, buildingID int64) (*int64, error)
+
+	// ClearDeviceBuildingsByBuilding nulls device.building_id for every
+	// direct-FK device pointing at the given building. Called by
+	// DeleteBuilding's soft-delete cascade so device references don't
+	// outlive the soft-deleted row.
+	ClearDeviceBuildingsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error)
+
+	// ClearDeviceBuildingsBySite nulls device.building_id for every
+	// direct-FK device whose building belongs to the given site.
+	// Called by DeleteSite's cascade.
+	ClearDeviceBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
+	// CascadeDirectDeviceSitesByBuildings rewrites device.site_id to
+	// targetSiteID for devices joined to any building in buildingIDs
+	// via device.building_id. Mirror of ReassignDevicesUnderBuildingsBulk
+	// but for direct-FK devices (no rack involved).
+	CascadeDirectDeviceSitesByBuildings(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error)
 }

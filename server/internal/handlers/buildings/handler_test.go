@@ -354,6 +354,7 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 
 	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(1), nil)
 	h.buildingStore.EXPECT().UnassignRacksFromBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(5), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsByBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(0), nil)
 
 	resp, err := h.handler.DeleteBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteBuildingRequest{Id: 33}))
 	require.NoError(t, err)

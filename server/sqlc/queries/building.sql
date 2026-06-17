@@ -260,6 +260,51 @@ WHERE id = ANY(sqlc.arg('building_ids')::bigint[])
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: ClearDeviceBuildingsByBuilding :execrows
+-- Nulls device.building_id for every direct-FK device pointing at the
+-- given building. Used by DeleteBuilding's soft-delete cascade so a
+-- device.building_id can't outlive the building row it references.
+-- Rack-membership devices keep their building association through the
+-- rack itself; the rack-level cascade in DeleteBuilding handles them
+-- via UnassignRacksFromBuilding + the cascade peer below.
+UPDATE device
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = sqlc.arg('building_id')::bigint
+  AND deleted_at IS NULL;
+
+-- name: ClearDeviceBuildingsBySite :execrows
+-- Bulk peer of ClearDeviceBuildingsByBuilding scoped to a site: nulls
+-- device.building_id for every direct-FK device whose building belongs
+-- to the given site. Used by DeleteSite's soft-delete cascade so
+-- buildings that get cascade-soft-deleted don't leave orphan device
+-- references behind.
+UPDATE device d
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+FROM building b
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.building_id = b.id
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.site_id = sqlc.arg('site_id')::bigint
+  AND d.deleted_at IS NULL;
+
+-- name: CascadeDirectDeviceSitesByBuildings :execrows
+-- For devices with direct device.building_id pointing at any building
+-- in @building_ids, rewrite device.site_id to target_site_id. Mirrors
+-- ReassignDevicesUnderBuildingsBulk but for devices joined to the
+-- building via device.building_id instead of through rack membership.
+-- Used by AssignBuildingsToSite to keep direct-FK devices in lockstep
+-- when the building's site changes.
+UPDATE device
+SET site_id    = sqlc.narg('target_site_id'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = ANY(sqlc.arg('building_ids')::bigint[])
+  AND deleted_at IS NULL
+  AND site_id IS DISTINCT FROM sqlc.narg('target_site_id');
+
 -- name: AssignDevicesToBuilding :execrows
 -- Bulk update of device.building_id for the given identifiers within
 -- the org. Caller is expected to have already validated that no device

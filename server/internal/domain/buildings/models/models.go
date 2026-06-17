@@ -156,6 +156,12 @@ const (
 	// ReasonBuildingDeviceInRackAtOtherBuilding — device is in a rack
 	// whose building_id differs from the requested target.
 	ReasonBuildingDeviceInRackAtOtherBuilding PerDeviceBuildingConflictReason = 2
+	// ReasonBuildingDeviceInRackAtOtherSite — device is in a rack
+	// whose site_id differs from the target building's site. Covers
+	// the cross-site rack-without-building case the building-only
+	// conflict check misses. Cleared by the same force flag as
+	// IN_RACK_AT_OTHER_BUILDING.
+	ReasonBuildingDeviceInRackAtOtherSite PerDeviceBuildingConflictReason = 3
 )
 
 // PerDeviceBuildingConflict explains why a device was rejected by

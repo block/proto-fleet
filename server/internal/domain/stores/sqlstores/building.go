@@ -325,6 +325,43 @@ func (s *SQLBuildingStore) GetBuildingSiteID(ctx context.Context, orgID, buildin
 	return nullInt64ToPtr(siteID), nil
 }
 
+func (s *SQLBuildingStore) ClearDeviceBuildingsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).ClearDeviceBuildingsByBuilding(ctx, sqlc.ClearDeviceBuildingsByBuildingParams{
+		OrgID:      orgID,
+		BuildingID: buildingID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device buildings by building: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLBuildingStore) ClearDeviceBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).ClearDeviceBuildingsBySite(ctx, sqlc.ClearDeviceBuildingsBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device buildings by site: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLBuildingStore) CascadeDirectDeviceSitesByBuildings(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error) {
+	if len(buildingIDs) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeDirectDeviceSitesByBuildings(ctx, sqlc.CascadeDirectDeviceSitesByBuildingsParams{
+		OrgID:        orgID,
+		BuildingIds:  buildingIDs,
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade direct device sites by buildings: %w", err)
+	}
+	return n, nil
+}
+
 func buildingFromRow(row sqlc.Building) models.Building {
 	return models.Building{
 		ID:                    row.ID,

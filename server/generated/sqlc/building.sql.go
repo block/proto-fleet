@@ -185,6 +185,94 @@ func (q *Queries) CascadeDevicesSiteForBuilding(ctx context.Context, arg Cascade
 	return result.RowsAffected()
 }
 
+const cascadeDirectDeviceSitesByBuildings = `-- name: CascadeDirectDeviceSitesByBuildings :execrows
+UPDATE device
+SET site_id    = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $2
+  AND building_id = ANY($3::bigint[])
+  AND deleted_at IS NULL
+  AND site_id IS DISTINCT FROM $1
+`
+
+type CascadeDirectDeviceSitesByBuildingsParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingIds  []int64
+}
+
+// For devices with direct device.building_id pointing at any building
+// in @building_ids, rewrite device.site_id to target_site_id. Mirrors
+// ReassignDevicesUnderBuildingsBulk but for devices joined to the
+// building via device.building_id instead of through rack membership.
+// Used by AssignBuildingsToSite to keep direct-FK devices in lockstep
+// when the building's site changes.
+func (q *Queries) CascadeDirectDeviceSitesByBuildings(ctx context.Context, arg CascadeDirectDeviceSitesByBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeDirectDeviceSitesByBuildingsStmt, cascadeDirectDeviceSitesByBuildings, arg.TargetSiteID, arg.OrgID, pq.Array(arg.BuildingIds))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearDeviceBuildingsByBuilding = `-- name: ClearDeviceBuildingsByBuilding :execrows
+UPDATE device
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND building_id = $2::bigint
+  AND deleted_at IS NULL
+`
+
+type ClearDeviceBuildingsByBuildingParams struct {
+	OrgID      int64
+	BuildingID int64
+}
+
+// Nulls device.building_id for every direct-FK device pointing at the
+// given building. Used by DeleteBuilding's soft-delete cascade so a
+// device.building_id can't outlive the building row it references.
+// Rack-membership devices keep their building association through the
+// rack itself; the rack-level cascade in DeleteBuilding handles them
+// via UnassignRacksFromBuilding + the cascade peer below.
+func (q *Queries) ClearDeviceBuildingsByBuilding(ctx context.Context, arg ClearDeviceBuildingsByBuildingParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearDeviceBuildingsByBuildingStmt, clearDeviceBuildingsByBuilding, arg.OrgID, arg.BuildingID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearDeviceBuildingsBySite = `-- name: ClearDeviceBuildingsBySite :execrows
+UPDATE device d
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+FROM building b
+WHERE d.org_id = $1
+  AND d.building_id = b.id
+  AND b.org_id = $1
+  AND b.site_id = $2::bigint
+  AND d.deleted_at IS NULL
+`
+
+type ClearDeviceBuildingsBySiteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+// Bulk peer of ClearDeviceBuildingsByBuilding scoped to a site: nulls
+// device.building_id for every direct-FK device whose building belongs
+// to the given site. Used by DeleteSite's soft-delete cascade so
+// buildings that get cascade-soft-deleted don't leave orphan device
+// references behind.
+func (q *Queries) ClearDeviceBuildingsBySite(ctx context.Context, arg ClearDeviceBuildingsBySiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearDeviceBuildingsBySiteStmt, clearDeviceBuildingsBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createBuilding = `-- name: CreateBuilding :one
 INSERT INTO building (
     org_id,

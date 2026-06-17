@@ -1544,6 +1544,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			finalBuildingID *int64
 			finalZone       string
 			siteChanged     bool
+			buildingChanged bool
 		)
 
 		if isUpdate {
@@ -1556,6 +1557,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			finalBuildingID = res.finalBuildingID
 			finalZone = res.finalZone
 			siteChanged = res.siteChanged
+			buildingChanged = res.buildingChanged
 		} else {
 			res, err := s.saveRackCreate(ctx, info, req, rackInfo)
 			if err != nil {
@@ -1566,13 +1568,14 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			finalBuildingID = res.finalBuildingID
 			finalZone = res.finalZone
 			// Create path: every member is new, so cascade aligns them
-			// with the rack's site when one is stamped.
+			// with the rack's site/building when one is stamped.
 			siteChanged = finalSiteID != nil
+			buildingChanged = finalBuildingID != nil
 		}
 
 		// Cascade runs after membership replace so it touches only the
 		// final member set; removed devices keep their prior site_id.
-		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, finalBuildingID, siteChanged)
+		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, finalBuildingID, siteChanged, buildingChanged)
 		if err != nil {
 			return nil, err
 		}
@@ -1763,6 +1766,7 @@ type saveRackUpdatePathResult struct {
 	finalBuildingID *int64
 	finalZone       string
 	siteChanged     bool
+	buildingChanged bool
 }
 
 // saveRackUpdate runs the SaveRack update branch: validate ownership,
@@ -1846,6 +1850,7 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		finalBuildingID: newBuildingID,
 		finalZone:       finalZone,
 		siteChanged:     !int64PtrEqual(current.SiteID, newSiteID),
+		buildingChanged: !int64PtrEqual(current.BuildingID, newBuildingID),
 	}
 	return out, nil
 }
@@ -1862,7 +1867,7 @@ type rackCascadeOutcome struct {
 // writes the new set. Cascade runs AFTER membership replace so removed
 // devices keep their prior site_id and the per-device priors captured
 // here reflect the final member set.
-func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID, finalBuildingID *int64, siteChanged bool) (rackCascadeOutcome, error) {
+func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID, finalBuildingID *int64, siteChanged, buildingChanged bool) (rackCascadeOutcome, error) {
 	var out rackCascadeOutcome
 	if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, collectionID); err != nil {
 		return out, err
@@ -1872,6 +1877,14 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 	// transitioned. Both false means the rack stayed site-less; cascading
 	// NULL there would clobber direct device.site_id assignments.
 	cascadeFires := finalSiteID != nil || siteChanged
+	// Building cascade fires under the same rule: rack has a stamped
+	// building OR its building just transitioned (including a transition
+	// to NULL — clearing the rack's building on SaveRack must also clear
+	// member device.building_id). buildingChanged is the load-bearing
+	// signal that lets the cascade run with finalBuildingID = nil
+	// without nuking direct AssignDevicesToBuilding assignments on
+	// untouched racks.
+	buildingCascadeFires := finalBuildingID != nil || buildingChanged
 
 	if len(deviceIdentifiers) > 0 {
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
@@ -1889,12 +1902,7 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 			}
 			out.cascadeCount = n
 		}
-		// Building peer of the site cascade above. Same skip-on-nil
-		// rationale: cascading NULL would wipe direct
-		// AssignDevicesToBuilding assignments for the new members. We
-		// don't have a "buildingChanged" flag wired through, so we
-		// conservatively only fire when the rack has a stamped building.
-		if finalBuildingID != nil {
+		if buildingCascadeFires {
 			if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collectionID, orgID, finalBuildingID); err != nil {
 				return out, err
 			}

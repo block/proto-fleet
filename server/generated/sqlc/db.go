@@ -90,6 +90,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cascadeDevicesSiteForBuildingStmt, err = db.PrepareContext(ctx, cascadeDevicesSiteForBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeDevicesSiteForBuilding: %w", err)
 	}
+	if q.cascadeDirectDeviceSitesByBuildingsStmt, err = db.PrepareContext(ctx, cascadeDirectDeviceSitesByBuildings); err != nil {
+		return nil, fmt.Errorf("error preparing query CascadeDirectDeviceSitesByBuildings: %w", err)
+	}
 	if q.cascadeRackDeviceBuildingsStmt, err = db.PrepareContext(ctx, cascadeRackDeviceBuildings); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeRackDeviceBuildings: %w", err)
 	}
@@ -107,6 +110,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.clearCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, clearCurtailmentAutomationActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearCurtailmentAutomationActiveEvent: %w", err)
+	}
+	if q.clearDeviceBuildingsByBuildingStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsByBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsByBuilding: %w", err)
+	}
+	if q.clearDeviceBuildingsBySiteStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsBySite: %w", err)
 	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
@@ -1372,6 +1381,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cascadeDevicesSiteForBuildingStmt: %w", cerr)
 		}
 	}
+	if q.cascadeDirectDeviceSitesByBuildingsStmt != nil {
+		if cerr := q.cascadeDirectDeviceSitesByBuildingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cascadeDirectDeviceSitesByBuildingsStmt: %w", cerr)
+		}
+	}
 	if q.cascadeRackDeviceBuildingsStmt != nil {
 		if cerr := q.cascadeRackDeviceBuildingsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cascadeRackDeviceBuildingsStmt: %w", cerr)
@@ -1400,6 +1414,16 @@ func (q *Queries) Close() error {
 	if q.clearCurtailmentAutomationActiveEventStmt != nil {
 		if cerr := q.clearCurtailmentAutomationActiveEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearCurtailmentAutomationActiveEventStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceBuildingsByBuildingStmt != nil {
+		if cerr := q.clearDeviceBuildingsByBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceBuildingsByBuildingStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceBuildingsBySiteStmt != nil {
+		if cerr := q.clearDeviceBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceBuildingsBySiteStmt: %w", cerr)
 		}
 	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
@@ -3378,12 +3402,15 @@ type Queries struct {
 	cascadeAddedDeviceBuildingsStmt                       *sql.Stmt
 	cascadeAddedDeviceSitesStmt                           *sql.Stmt
 	cascadeDevicesSiteForBuildingStmt                     *sql.Stmt
+	cascadeDirectDeviceSitesByBuildingsStmt               *sql.Stmt
 	cascadeRackDeviceBuildingsStmt                        *sql.Stmt
 	cascadeRackDeviceBuildingsBulkStmt                    *sql.Stmt
 	cascadeRackDeviceSitesStmt                            *sql.Stmt
 	cascadeRackDeviceSitesBulkStmt                        *sql.Stmt
 	claimMessageForProcessingStmt                         *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt             *sql.Stmt
+	clearDeviceBuildingsByBuildingStmt                    *sql.Stmt
+	clearDeviceBuildingsBySiteStmt                        *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                   *sql.Stmt
 	clearRackSlotPositionStmt                             *sql.Stmt
 	clearRolePermissionsStmt                              *sql.Stmt
@@ -3795,12 +3822,15 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeAddedDeviceBuildingsStmt:                       q.cascadeAddedDeviceBuildingsStmt,
 		cascadeAddedDeviceSitesStmt:                           q.cascadeAddedDeviceSitesStmt,
 		cascadeDevicesSiteForBuildingStmt:                     q.cascadeDevicesSiteForBuildingStmt,
+		cascadeDirectDeviceSitesByBuildingsStmt:               q.cascadeDirectDeviceSitesByBuildingsStmt,
 		cascadeRackDeviceBuildingsStmt:                        q.cascadeRackDeviceBuildingsStmt,
 		cascadeRackDeviceBuildingsBulkStmt:                    q.cascadeRackDeviceBuildingsBulkStmt,
 		cascadeRackDeviceSitesStmt:                            q.cascadeRackDeviceSitesStmt,
 		cascadeRackDeviceSitesBulkStmt:                        q.cascadeRackDeviceSitesBulkStmt,
 		claimMessageForProcessingStmt:                         q.claimMessageForProcessingStmt,
 		clearCurtailmentAutomationActiveEventStmt:             q.clearCurtailmentAutomationActiveEventStmt,
+		clearDeviceBuildingsByBuildingStmt:                    q.clearDeviceBuildingsByBuildingStmt,
+		clearDeviceBuildingsBySiteStmt:                        q.clearDeviceBuildingsBySiteStmt,
 		clearRackPlacementForSoftDeleteStmt:                   q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                             q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                              q.clearRolePermissionsStmt,

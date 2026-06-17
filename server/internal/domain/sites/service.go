@@ -236,6 +236,14 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		if _, err := s.store.UnassignRacksFromBuildingsBySite(txCtx, orgID, id); err != nil {
 			return err
 		}
+		// Clear direct-FK device.building_id for any device whose
+		// building lives under this site, BEFORE the buildings get
+		// soft-deleted. Rack-membership devices are handled by the
+		// UnassignRacksFromBuildingsBySite call above; this covers
+		// the direct-assignment branch added in migration 000091.
+		if _, err := s.buildingStore.ClearDeviceBuildingsBySite(txCtx, orgID, id); err != nil {
+			return err
+		}
 		// Soft-delete buildings under the site.
 		deletedBuildings, err := s.store.SoftDeleteBuildingsBySite(txCtx, orgID, id)
 		if err != nil {
@@ -552,12 +560,21 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		rackCount = racks
 
 		// Phase B3: single bulk device cascade across every building
-		// in the batch.
+		// in the batch. Reaches devices via rack membership.
 		devices, err := s.store.ReassignDevicesUnderBuildingsBulk(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
 		if err != nil {
 			return nil, err
 		}
 		deviceCount = devices
+		// Phase B4: direct-FK device cascade. Devices with
+		// device.building_id pointing at any of the moved buildings
+		// (and no rack at all) wouldn't get touched by Phase B3's
+		// rack-path cascade — keep them in lockstep too.
+		directDevices, err := s.buildingStore.CascadeDirectDeviceSitesByBuildings(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
+		if err != nil {
+			return nil, err
+		}
+		deviceCount += directDevices
 		return assignBuildingsTx{rackCount: rackCount, deviceCount: deviceCount}, nil
 	})
 	if err != nil {

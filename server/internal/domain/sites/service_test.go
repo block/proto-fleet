@@ -108,10 +108,11 @@ func ptrInt64(v int64) *int64 { return &v }
 func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
 	// activitySvc is nil; the service's logActivity is nil-safe. Production
 	// wires a real *activity.Service from main.go.
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	gomock.InOrder(
 		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
@@ -121,6 +122,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 		// out of the cascade.
 		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(7), nil),
+		buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
 		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil),
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
 		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil),
@@ -143,8 +145,9 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	// LockSiteForWrite succeeds (row exists at start of tx) but the
 	// final SoftDeleteSite affects 0 rows because nothing matched the
@@ -153,6 +156,7 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
@@ -776,8 +780,9 @@ func contains(haystack, needle string) bool {
 func TestAssignBuildingsToSite_cascadeOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	target := int64(20)
 	// The TOCTOU fix moved the site-alive check inside the tx and
@@ -790,6 +795,9 @@ func TestAssignBuildingsToSite_cascadeOnSuccess(t *testing.T) {
 	store.EXPECT().AssignBuildingsToSiteBulk(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
 	store.EXPECT().ReassignRacksUnderBuildingsBulk(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	store.EXPECT().ReassignDevicesUnderBuildingsBulk(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
+	// Direct-FK device cascade — covers devices with device.building_id
+	// pointing at the moved building but no rack membership.
+	buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(inTxCtx, testOrgID, []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
 
 	out, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
 		OrgID:        testOrgID,
@@ -799,7 +807,8 @@ func TestAssignBuildingsToSite_cascadeOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.ReassignedRackCount != 3 || out.ReassignedDeviceCount != 15 {
+	// Aggregate counts both cascades: 15 via rack membership + 2 direct-FK.
+	if out.ReassignedRackCount != 3 || out.ReassignedDeviceCount != 17 {
 		t.Fatalf("unexpected cascade counts: %+v", out)
 	}
 }
@@ -1221,8 +1230,9 @@ func TestAssignRacksToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
 func TestAssignBuildingsToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	const N = 100
 	target := int64(20)
@@ -1238,6 +1248,7 @@ func TestAssignBuildingsToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	store.EXPECT().AssignBuildingsToSiteBulk(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(N), nil)
 	store.EXPECT().ReassignRacksUnderBuildingsBulk(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(300), nil)
 	store.EXPECT().ReassignDevicesUnderBuildingsBulk(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2000), nil)
+	buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(inTxCtx, testOrgID, buildingIDs, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	out, err := svc.AssignBuildingsToSite(context.Background(), models.AssignBuildingsToSiteParams{
 		OrgID:        testOrgID,

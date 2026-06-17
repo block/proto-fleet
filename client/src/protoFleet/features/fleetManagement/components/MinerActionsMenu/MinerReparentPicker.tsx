@@ -40,8 +40,13 @@ interface MinerReparentPickerProps {
 const MAX_SNAPSHOT_PAGES = 50;
 const SNAPSHOT_PAGE_SIZE = 1000;
 const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
-// Matches `max_items: 10000` on ReassignDevicesToSiteRequest.device_identifiers.
-const MAX_SITE_REASSIGN_BATCH = 10000;
+// Matches `max_items: 10000` on AssignDevicesToSiteRequest.device_identifiers
+// and AssignDevicesToBuildingRequest.device_identifiers — both flows have the
+// same server-side cap, so one constant covers both.
+const MAX_REASSIGN_BATCH = 10000;
+// Back-compat alias for the existing site-flow callsite. Folded into
+// MAX_REASSIGN_BATCH so the cap stays in one place.
+const MAX_SITE_REASSIGN_BATCH = MAX_REASSIGN_BATCH;
 
 // Capacity check for the bulk Add-to-rack path. Server-side
 // AddDevicesToDeviceSet doesn't enforce slot count, so an over-fill
@@ -427,11 +432,17 @@ const MinerReparentPicker = ({
             return;
           }
           if (conflicts.length > 0) {
-            const clearable = conflicts.filter(
-              (c) =>
-                (c.reason as PerDeviceBuildingConflictReason) ===
-                PerDeviceBuildingConflictReason.DEVICE_IN_RACK_AT_OTHER_BUILDING,
-            );
+            // Both IN_RACK_AT_OTHER_BUILDING and IN_RACK_AT_OTHER_SITE
+            // are clearable by force_clear_conflicting_rack_membership
+            // — the server drops the offending rack row in either case.
+            // DEVICE_NOT_FOUND is not clearable.
+            const clearable = conflicts.filter((c) => {
+              const reason = c.reason as PerDeviceBuildingConflictReason;
+              return (
+                reason === PerDeviceBuildingConflictReason.DEVICE_IN_RACK_AT_OTHER_BUILDING ||
+                reason === PerDeviceBuildingConflictReason.DEVICE_IN_RACK_AT_OTHER_SITE
+              );
+            });
             // Only raise the confirm dialog when every conflict can be
             // resolved by force-clear. Otherwise (e.g. DEVICE_NOT_FOUND
             // mixed in), Continue would re-run the RPC and still reject
@@ -467,6 +478,15 @@ const MinerReparentPicker = ({
   };
 
   const dispatchReparentToBuilding = async (targetBuildingId: bigint, ids: string[]) => {
+    // Same 10k cap as the site flow — server validation would reject
+    // anyway, but failing here keeps the message specific.
+    if (ids.length > MAX_REASSIGN_BATCH) {
+      pushToast({
+        message: `Can't move more than ${MAX_REASSIGN_BATCH} miners to a building at once. Filter the list and try again.`,
+        status: STATUSES.error,
+      });
+      return;
+    }
     const result = await dispatchBuildingReassign(targetBuildingId, ids, false);
     if (result.ok) return;
     // Server flagged cross-building conflicts that are all clearable.

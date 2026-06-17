@@ -58,6 +58,7 @@ func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	// Both calls happen inside RunInTx; assert via inTxCtx.
 	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(1), nil)
 	store.EXPECT().UnassignRacksFromBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(5), nil)
+	store.EXPECT().ClearDeviceBuildingsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(0), nil)
 
 	out, err := svc.DeleteBuilding(context.Background(), testOrgID, 33)
 	if err != nil {
@@ -854,6 +855,8 @@ func TestAssignDevicesToBuilding_writesAndCascadesOnSuccess(t *testing.T) {
 	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// Cross-site rack probe fires when target building has a site set.
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(2), nil)
 	// Cascade fires when target_building_id is set and has a site.
 	store.EXPECT().CascadeDevicesSiteForBuilding(inTxCtx, testOrgID, identifiers, &targetSite).Return(int64(2), nil)
@@ -967,6 +970,10 @@ func TestAssignDevicesToBuilding_forceClearCascadesRackMembership(t *testing.T) 
 	// d1 had the conflict — its rack memberships get cleared.
 	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d1"}, int64(0)).Return(int64(1), nil)
 	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(2), nil)
+	// Site cascade always fires when target_building_id is set, even when
+	// the building is site-less — cascades site_id to NULL so building/
+	// site stay in lockstep instead of leaving stale site_id values.
+	store.EXPECT().CascadeDevicesSiteForBuilding(inTxCtx, testOrgID, identifiers, gomock.Nil()).Return(int64(0), nil)
 
 	result, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
 		OrgID:                               testOrgID,

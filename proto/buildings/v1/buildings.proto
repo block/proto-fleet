@@ -330,6 +330,14 @@ enum PerDeviceBuildingConflictReason {
     PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED                       = 0;
     PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_NOT_FOUND                  = 1;
     PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_BUILDING  = 2;
+    // Device is in a rack whose site_id differs from the target
+    // building's site. Surfaces cross-site rack memberships that the
+    // building-only conflict check would otherwise miss (e.g. a rack
+    // at Site A with no building when the target building lives at
+    // Site B). Cleared the same way as IN_RACK_AT_OTHER_BUILDING:
+    // force_clear_conflicting_rack_membership drops the rack row in
+    // the same transaction.
+    PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_SITE      = 3;
 }
 
 // PerDeviceBuildingConflict carries the per-device error details
