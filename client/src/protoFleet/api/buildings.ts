@@ -19,6 +19,15 @@ interface ListBuildingsBySiteProps {
   onFinally?: () => void;
 }
 
+interface ListBuildingsProps {
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
+  signal?: AbortSignal;
+  onSuccess?: (buildings: BuildingWithCounts[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 interface ListAllBuildingsProps {
   signal?: AbortSignal;
   onSuccess?: (buildings: BuildingWithCounts[]) => void;
@@ -168,12 +177,14 @@ export const buildingFormValuesFromBuilding = (building: Building): BuildingForm
 const useBuildings = () => {
   const { handleAuthErrors } = useAuthErrors();
 
+  // Lists buildings under a specific site. Thin wrapper over the generic
+  // listBuildings that passes a single-element site_ids array.
   const listBuildingsBySite = useCallback(
     async ({ siteId, signal, onSuccess, onError, onFinally }: ListBuildingsBySiteProps) => {
       try {
         const response = await buildingsClient.listBuildings(
           {
-            siteFilter: { case: "siteId", value: siteId },
+            siteIds: [siteId],
           },
           { signal },
         );
@@ -194,10 +205,40 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
-  // Lists every building visible to the caller in one round-trip. Connect-RPC
-  // accepts an absent siteFilter oneof (case: undefined) and the server treats
-  // that as "all buildings". Used by /sites to avoid N+1 ListBuildings calls
-  // when rendering per-site overview sections.
+  // Generic list: optionally scope to one or more sites and/or the
+  // unassigned bucket. Both empty + false = every building in the org.
+  // Used by the Buildings tab to push the SitePicker selection
+  // server-side instead of client-filtering the full org list.
+  const listBuildings = useCallback(
+    async ({ siteIds, includeUnassigned, signal, onSuccess, onError, onFinally }: ListBuildingsProps = {}) => {
+      try {
+        const response = await buildingsClient.listBuildings(
+          {
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        onSuccess?.(response.buildings);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  // Lists every building visible to the caller in one round-trip. Used by
+  // /sites to avoid N+1 ListBuildings calls when rendering per-site overview
+  // sections.
   const listAllBuildings = useCallback(
     async ({ signal, onSuccess, onError, onFinally }: ListAllBuildingsProps = {}) => {
       try {
@@ -467,6 +508,7 @@ const useBuildings = () => {
 
   return {
     listBuildingsBySite,
+    listBuildings,
     listAllBuildings,
     getBuilding,
     listBuildingRacks,

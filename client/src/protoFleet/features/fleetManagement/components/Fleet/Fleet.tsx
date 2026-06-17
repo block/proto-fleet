@@ -9,11 +9,14 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { type MinerListFilter, MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { useFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -37,11 +40,37 @@ const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
   direction: SortDirection.ASC,
 });
 
+// Merge the SitePicker's active-site selection into the URL-derived
+// MinerListFilter. URL wins: when the URL already pins specific
+// site_ids or include_unassigned (e.g. saved-view chip), the topbar
+// selection is ignored — otherwise the picker scopes every query
+// (list, count, auth-needed gate, CSV export, "X of Y" denominator)
+// through to ListDevices.
+const mergeSiteFilter = (
+  urlFilter: MinerListFilter | undefined,
+  siteIds: bigint[],
+  includeUnassigned: boolean,
+): MinerListFilter | undefined => {
+  const urlHasSiteFilter = (urlFilter?.siteIds.length ?? 0) > 0 || (urlFilter?.includeUnassigned ?? false);
+  if (urlHasSiteFilter) return urlFilter;
+  if (siteIds.length === 0 && !includeUnassigned) return urlFilter;
+  return urlFilter
+    ? create(MinerListFilterSchema, { ...urlFilter, siteIds, includeUnassigned })
+    : create(MinerListFilterSchema, { siteIds, includeUnassigned });
+};
+
 const Fleet = () => {
   const navigate = useNavigate();
   const { listGroups, listRacks } = useDeviceSets();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
+  const { sites } = useFleetOutletContext();
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+  const { siteIds: activeSiteIds, includeUnassigned: activeIncludeUnassigned } = useMemo(
+    () => siteFilterFromActive(activeSite),
+    [activeSite],
+  );
 
   useEffect(() => {
     listGroups({
@@ -61,7 +90,13 @@ const Fleet = () => {
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
-  const currentFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
+  const urlFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
+  // currentFilter folds the SitePicker's active site into the URL filter so
+  // every downstream query (list, count, auth-needed, CSV) is scoped.
+  const currentFilter = useMemo(
+    () => mergeSiteFilter(urlFilter, activeSiteIds, activeIncludeUnassigned),
+    [urlFilter, activeSiteIds, activeIncludeUnassigned],
+  );
   const currentSortConfig = useMemo(() => parseSortFromURL(searchParams) ?? DEFAULT_SORT_CONFIG, [searchParams]);
 
   // Convert proto SortField to MinerColumn for UI component
@@ -96,8 +131,16 @@ const Fleet = () => {
   });
 
   // Fetch unfiltered total count for the "X of Y miners" header display.
+  // "Unfiltered" here means "no chip / saved-view filter applied"; the
+  // active-site scope still applies so Y reflects the current site
+  // (otherwise switching sites would leave Y stuck at the org-wide total).
+  const siteScopedTotalFilter = useMemo(
+    () => mergeSiteFilter(undefined, activeSiteIds, activeIncludeUnassigned),
+    [activeSiteIds, activeIncludeUnassigned],
+  );
   const { totalMiners: totalUnfilteredMiners, refreshCurrentPage: refreshUnfilteredCount } = useFleet({
     pageSize: 1,
+    filter: siteScopedTotalFilter,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
   });
 
