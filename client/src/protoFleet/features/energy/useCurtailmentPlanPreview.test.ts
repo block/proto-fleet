@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
@@ -94,10 +94,15 @@ function renderPreviewHook(initialValues: CurtailmentFormValues = baseValues) {
 
 describe("useCurtailmentPlanPreview", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockPreviewCurtailmentPlan.mockReset();
+    mockHandleAuthErrors.mockReset();
     mockHandleAuthErrors.mockImplementation(
       ({ error, onError }: { error: unknown; onError: (error: unknown) => void }) => onError(error),
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("builds supported fixed-kW preview requests", () => {
@@ -368,6 +373,7 @@ describe("useCurtailmentPlanPreview", () => {
   });
 
   it("ignores an older initial preview after a newer refresh completes", async () => {
+    vi.useFakeTimers();
     let resolveInitial: (response: ReturnType<typeof previewResponse>) => void = () => {};
     let resolveRefresh: (response: ReturnType<typeof previewResponse>) => void = () => {};
     const initialPromise = new Promise<ReturnType<typeof previewResponse>>((resolve) => {
@@ -391,17 +397,21 @@ describe("useCurtailmentPlanPreview", () => {
       },
     );
 
-    await waitFor(() => {
-      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       resolveRefresh(previewResponse(0));
       await refreshPromise;
     });
-    await waitFor(() => {
-      expect(result.current.previewError).toBe("No miners match this curtailment.");
-    });
+    expect(result.current.previewError).toBe("No miners match this curtailment.");
     rerender({ refreshIntervalMs: 0 });
 
     await act(async () => {
