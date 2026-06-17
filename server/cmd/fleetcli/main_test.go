@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -488,5 +490,61 @@ func TestPoolsValidateBearerWithLocalUsername(t *testing.T) {
 	}
 	if gotBody["url"] != "stratum+tcp://pool:3333" {
 		t.Errorf("request url = %v, want the pool url", gotBody["url"])
+	}
+}
+
+func TestPoolsCreateJSONPoolConfigFlagOverridePreservesFields(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	jsonPath := filepath.Join(t.TempDir(), "pool.json")
+	if err := os.WriteFile(jsonPath, []byte(`{
+		"pool_config": {
+			"pool_name": "old-name",
+			"url": "stratum+tcp://pool:3333",
+			"username": "pool-user",
+			"password": "pool-pass"
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("write pool json: %v", err)
+	}
+
+	var gotAuth string
+	var gotBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /pools.v1.PoolsService/CreatePool", func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode create pool request: %v", err)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"pools", "create", "--json", jsonPath, "--pool-name", "new-name",
+	})
+	if err != nil {
+		t.Fatalf("pools create with json override should succeed, got: %v", err)
+	}
+	if gotAuth != "Bearer test-key" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-key")
+	}
+	poolConfig, ok := gotBody["pool_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("pool_config = %#v, want object", gotBody["pool_config"])
+	}
+	want := map[string]string{
+		"pool_name": "new-name",
+		"url":       "stratum+tcp://pool:3333",
+		"username":  "pool-user",
+		"password":  "pool-pass",
+	}
+	for field, wantValue := range want {
+		if got := poolConfig[field]; got != wantValue {
+			t.Errorf("pool_config.%s = %v, want %q", field, got, wantValue)
+		}
 	}
 }

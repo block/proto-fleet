@@ -323,7 +323,7 @@ func generatedMinercommandCommand() *cli.Command {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("all-devices") || cmd.IsSet("device") || cmd.IsSet("group-id") || cmd.IsSet("group") || cmd.IsSet("rack-id") || cmd.IsSet("rack") {
+					if generatedMinerSelectorProvided(cmd) {
 						selector, err := generatedBuildMinerSelector(ctx, cmd, client)
 						if err != nil {
 							return nil, err

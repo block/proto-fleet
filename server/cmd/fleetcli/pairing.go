@@ -36,7 +36,7 @@ func pairingDiscoverCommand() *cli.Command {
 				return err
 			}
 
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func pairingPairCommand() *cli.Command {
 		Usage: "Pair discovered devices selected by device, group, or rack",
 		Flags: pairingPairFlags(),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			client, _, err := openClient(ctx, cmd)
+			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}

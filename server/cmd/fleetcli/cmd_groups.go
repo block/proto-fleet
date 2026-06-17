@@ -53,7 +53,7 @@ func generatedGroupsCommand() *cli.Command {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("all-devices") || cmd.IsSet("device") {
+					if generatedCommonSelectorProvided(cmd) {
 						selector, err := generatedBuildCommonSelector(cmd)
 						if err != nil {
 							return nil, err
@@ -237,7 +237,7 @@ func generatedGroupsCommand() *cli.Command {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("all-devices") || cmd.IsSet("device") {
+					if generatedCommonSelectorProvided(cmd) {
 						selector, err := generatedBuildCommonSelector(cmd)
 						if err != nil {
 							return nil, err
