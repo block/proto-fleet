@@ -118,7 +118,13 @@ type CollectionStore interface {
 	UpdateRackPlacementBulkForBuilding(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID, targetBuildingID *int64) (int64, error)
 
 	// UpdateRackPlacementBulkForSite stamps every rack in rackIDs with
-	// the target site, clears building_id + zone + grid placement.
+	// the target site, clears building_id + grid placement. Zone clears
+	// only for racks that were actually in a building (leaving or
+	// crossing a building) — matching the per-row UpdateRackPlacement
+	// semantics, since zone is building-scoped. Racks with building_id
+	// IS NULL preserve their zone so building-less zone metadata (which
+	// ListRackZoneRefs surfaces) isn't silently wiped, and NULL (not '')
+	// preserves the collection_sort.go "zone NULLS LAST" ordering.
 	// Caller is expected to pass only racks whose site is actually
 	// changing.
 	UpdateRackPlacementBulkForSite(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) error
