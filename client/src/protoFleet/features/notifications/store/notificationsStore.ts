@@ -13,6 +13,7 @@ interface NotificationsState {
 
   createChannel: (input: api.ChannelMutationInput) => Promise<Channel>;
   updateChannel: (input: api.ChannelMutationInput & { id: string }) => Promise<Channel>;
+  testChannel: (input: api.ChannelMutationInput) => Promise<api.TestChannelResult>;
   removeChannel: (id: string) => Promise<void>;
 }
 
@@ -61,6 +62,24 @@ export const useNotificationsStore = create<NotificationsState>()(
         state.channels = upsertById(state.channels, updated);
       });
       return updated;
+    },
+
+    testChannel: async (input) => {
+      const result = await api.testChannel(input);
+      // The server doesn't persist a per-channel validation state (a read can't
+      // recover it cheaply), so reflect the test outcome on the cached saved
+      // channel here; the badge stays "Not tested" until something is tested.
+      if (input.id) {
+        set((state) => {
+          const channel = state.channels.find((c) => c.id === input.id);
+          if (channel) {
+            channel.validation_state = result.ok ? "ok" : "failed";
+            channel.validation_error = result.ok ? undefined : result.error;
+            if (result.ok) channel.validated_at = new Date().toISOString();
+          }
+        });
+      }
+      return result;
     },
 
     removeChannel: async (id) => {

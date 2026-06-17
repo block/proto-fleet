@@ -3,7 +3,6 @@ import AddChannelModal from "./AddChannelModal";
 import ChannelEditableCell from "./ChannelEditableCell";
 import ChannelStatusBadge from "./ChannelStatusBadge";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { testChannel as testChannelApi } from "@/protoFleet/features/notifications/api/notificationsApi";
 import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
 import type { Channel } from "@/protoFleet/features/notifications/types";
 import { useHasPermission } from "@/protoFleet/store";
@@ -37,6 +36,7 @@ const destinationPlaceholder = (c: Channel) => {
 const ChannelsSection = () => {
   const channels = useNotificationsStore((s) => s.channels);
   const updateChannel = useNotificationsStore((s) => s.updateChannel);
+  const testChannel = useNotificationsStore((s) => s.testChannel);
   const removeChannel = useNotificationsStore((s) => s.removeChannel);
   const canManage = useHasPermission("notification:manage");
 
@@ -83,30 +83,33 @@ const ChannelsSection = () => {
     [updateChannel],
   );
 
-  const handleTest = useCallback(async (channel: Channel) => {
-    try {
-      const result = await testChannelApi({
-        id: channel.id,
-        name: channel.name,
-        kind: channel.kind,
-        webhook: channel.webhook,
-        slack: channel.slack,
-      });
-      if (result.ok) {
-        pushToast({ message: "Test delivery sent", status: STATUSES.success });
-      } else {
+  const handleTest = useCallback(
+    async (channel: Channel) => {
+      try {
+        const result = await testChannel({
+          id: channel.id,
+          name: channel.name,
+          kind: channel.kind,
+          webhook: channel.webhook,
+          slack: channel.slack,
+        });
+        if (result.ok) {
+          pushToast({ message: "Test delivery sent", status: STATUSES.success });
+        } else {
+          pushToast({
+            message: `Test failed (HTTP ${result.response_code}): ${result.error || "no detail"}`,
+            status: STATUSES.error,
+          });
+        }
+      } catch (error) {
         pushToast({
-          message: `Test failed (HTTP ${result.response_code}): ${result.error || "no detail"}`,
+          message: getErrorMessage(error, "Test delivery failed"),
           status: STATUSES.error,
         });
       }
-    } catch (error) {
-      pushToast({
-        message: getErrorMessage(error, "Test delivery failed"),
-        status: STATUSES.error,
-      });
-    }
-  }, []);
+    },
+    [testChannel],
+  );
 
   const handleDelete = useCallback(
     async (channel: Channel) => {

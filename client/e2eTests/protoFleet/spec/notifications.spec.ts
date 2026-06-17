@@ -78,11 +78,14 @@ test.describe("Proto Fleet - Notifications", () => {
     await test.step("Save the channel", async () => {
       await notificationsPage.saveChannel();
       await notificationsPage.validateChannelListed(channelName);
+      await notificationsPage.validateChannelStatus(channelName, "Not tested");
     });
 
     await test.step("Test the saved channel from its row action", async () => {
       await notificationsPage.testSavedChannel(channelName);
       await notificationsPage.validateTextInToast("Test delivery sent");
+      // A successful test must flip the row status badge, not leave it "Not tested".
+      await notificationsPage.validateChannelStatus(channelName, "Validated");
     });
 
     await test.step("Delete the channel", async () => {

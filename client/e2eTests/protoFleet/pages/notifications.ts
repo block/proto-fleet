@@ -40,6 +40,10 @@ export class NotificationsPage extends BasePage {
     await expect(this.channelRow(name)).toBeVisible();
   }
 
+  async validateChannelStatus(name: string, status: string) {
+    await expect(this.channelRow(name).getByText(status, { exact: true })).toBeVisible();
+  }
+
   private async openRowActions(name: string) {
     await this.channelRow(name).getByTestId("list-actions-trigger").click();
   }
