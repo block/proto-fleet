@@ -219,6 +219,14 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
   }
 
+  async navigateToNotificationsSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/notifications"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/notifications/);
+  }
+
   async navigateToServerLogsSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();

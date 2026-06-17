@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/google/uuid"
 )
 
 type Service struct {
@@ -199,40 +201,58 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 		return false, 0, "", err
 	}
 
-	var body map[string]any
 	if c.ID != "" {
-		// Test the stored settings (full URL + secure fields); the echoed-back payload is redacted and would probe the wrong target.
+		// Saved channel: the receiver already lives in Grafana, so test it by name
+		// with its stored settings (full URL + secure fields). The echoed-back
+		// payload is redacted and would probe the wrong target.
 		_, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
 		if err != nil {
 			return false, 0, "", err
 		}
-		body = map[string]any{
-			"name":     ownedCP.Name,
-			"type":     ownedCP.Type,
-			"settings": ownedCP.Settings,
-		}
-	} else {
-		if err := s.validateDestination(ctx, &c); err != nil {
-			return false, 0, "", err
-		}
-		c.OrganizationID = orgID
-		settings, err := encodeChannelSettings(&c)
+		res, err := s.grafana.TestReceiverIntegration(ctx, ownedCP.Name, ownedCP.Type, ownedCP.Settings)
 		if err != nil {
 			return false, 0, "", err
 		}
-		body = map[string]any{
-			"name":     channelGrafanaName(orgID, c.Name),
-			"type":     grafanaTypeFor(c.Kind),
-			"settings": settings,
-		}
+		return res.OK, testStatusCode(res.OK), res.Error, nil
 	}
 
-	code, err := s.grafana.TestContactPoint(ctx, body)
-	if err != nil {
-		return false, code, err.Error(), err
+	// Test-before-save: Grafana's receiver test API only addresses an existing
+	// receiver, so stand up a transient org-scoped contact point, test it, and
+	// tear it down. The temp name keeps the org prefix so isolation still holds.
+	if err := s.validateDestination(ctx, &c); err != nil {
+		return false, 0, "", err
 	}
-	ok := code >= 200 && code < 300
-	return ok, code, "", nil
+	c.OrganizationID = orgID
+	settings, err := encodeChannelSettings(&c)
+	if err != nil {
+		return false, 0, "", err
+	}
+	gType := grafanaTypeFor(c.Kind)
+	tmpName := channelGrafanaName(orgID, "test-"+uuid.NewString())
+	created, err := s.grafana.CreateContactPoint(ctx, GrafanaContactPoint{Name: tmpName, Type: gType, Settings: settings})
+	if err != nil {
+		return false, 0, "", err
+	}
+	defer func() {
+		if delErr := s.grafana.DeleteContactPoint(ctx, created.UID); delErr != nil {
+			slog.Warn("notifications.test_channel_cleanup_failed", "uid", created.UID, "err", delErr)
+		}
+	}()
+	res, err := s.grafana.TestReceiverIntegration(ctx, tmpName, gType, settings)
+	if err != nil {
+		return false, 0, "", err
+	}
+	return res.OK, testStatusCode(res.OK), res.Error, nil
+}
+
+// testStatusCode keeps the wire response_code field meaningful for the legacy
+// HTTP-status-shaped client: the receiver test API reports a boolean outcome, not
+// a destination status code, so map a successful delivery to 200.
+func testStatusCode(ok bool) int {
+	if ok {
+		return 200
+	}
+	return 0
 }
 
 // Returns the raw contact point too, needed to carry secret settings the decoded Channel drops.

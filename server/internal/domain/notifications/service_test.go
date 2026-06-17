@@ -2,10 +2,12 @@ package notifications
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -225,10 +227,14 @@ func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
 	})
-	mux.HandleFunc("POST /api/v1/provisioning/contact-points/test", func(w http.ResponseWriter, r *http.Request) {
-		testedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-	})
+	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
+		func(w http.ResponseWriter, r *http.Request) {
+			testedBody, _ = io.ReadAll(r.Body)
+			assert.Equal(t, base64.RawStdEncoding.EncodeToString([]byte("org-7-pager")), r.PathValue("name"),
+				"saved-channel test must address the receiver by base64(name)")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"success"}`))
+		})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
@@ -243,10 +249,64 @@ func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 	assert.True(t, ok)
 
 	var sent struct {
-		Settings map[string]any `json:"settings"`
+		Integration struct {
+			Settings map[string]any `json:"settings"`
+		} `json:"integration"`
 	}
 	require.NoError(t, json.Unmarshal(testedBody, &sent))
-	assert.Equal(t, fullURL, sent.Settings["url"], "saved-channel test must use the stored full URL, not the redacted host")
+	assert.Equal(t, fullURL, sent.Integration.Settings["url"], "saved-channel test must use the stored full URL, not the redacted host")
+}
+
+func TestTestChannelBeforeSaveUsesTransientReceiver(t *testing.T) {
+	var createdName, testedName, deletedUID string
+	var testedBody []byte
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/provisioning/contact-points", func(w http.ResponseWriter, r *http.Request) {
+		var cp GrafanaContactPoint
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&cp))
+		createdName = cp.Name
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"uid":"tmp-uid","name":"` + cp.Name + `"}`))
+	})
+	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
+		func(w http.ResponseWriter, r *http.Request) {
+			testedName = r.PathValue("name")
+			testedBody, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"success"}`))
+		})
+	mux.HandleFunc("DELETE /api/v1/provisioning/contact-points/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		deletedUID = r.PathValue("uid")
+		w.WriteHeader(http.StatusAccepted)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	// Allow the loopback destination so the SSRF pre-flight doesn't reject the test URL.
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
+
+	ok, code, _, err := svc.TestChannel(context.Background(), 7, Channel{
+		Name:    "pager",
+		Kind:    ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "http://127.0.0.1/hook"},
+	})
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, 200, code)
+
+	assert.True(t, strings.HasPrefix(createdName, "org-7-test-"),
+		"transient receiver must keep the org prefix so isolation holds, got %q", createdName)
+	assert.Equal(t, base64.RawStdEncoding.EncodeToString([]byte(createdName)), testedName,
+		"test must address the transient receiver by base64(name)")
+	assert.Equal(t, "tmp-uid", deletedUID, "the transient receiver must be torn down after the test")
+
+	var sent struct {
+		Integration struct {
+			Settings map[string]any `json:"settings"`
+		} `json:"integration"`
+	}
+	require.NoError(t, json.Unmarshal(testedBody, &sent))
+	assert.Equal(t, "http://127.0.0.1/hook", sent.Integration.Settings["url"])
 }
 
 func TestTestChannelRejectsForeignSavedChannel(t *testing.T) {
@@ -261,9 +321,10 @@ func TestTestChannelRejectsForeignSavedChannel(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
 	})
-	mux.HandleFunc("POST /api/v1/provisioning/contact-points/test", func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("test endpoint must not be called for a foreign channel")
-	})
+	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
+		func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("test endpoint must not be called for a foreign channel")
+		})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})

@@ -3,6 +3,7 @@ package notifications
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,14 +82,44 @@ func (g *Grafana) DeleteContactPoint(ctx context.Context, uid string) error {
 	return nil
 }
 
-func (g *Grafana) TestContactPoint(ctx context.Context, payload any) (int, error) {
-	resp, err := g.rawPost(ctx, "/api/v1/provisioning/contact-points/test", payload)
-	if err != nil {
-		return 0, fmt.Errorf("test contact point: %w", err)
+// ReceiverTestResult is the outcome of a Grafana "test contact point" call. The
+// receiver test endpoint answers HTTP 200 even when delivery to the destination
+// fails, so the real result lives in the decoded status/error, not the status code.
+type ReceiverTestResult struct {
+	OK    bool
+	Error string
+}
+
+// Grafana addresses an alerting receiver by base64(name) in its resource API.
+const grafanaAlertingNamespace = "default"
+
+// TestReceiverIntegration asks Grafana to deliver a synthetic alert to a single
+// integration and reports whether the destination accepted it.
+//
+// Grafana 13 removed both the legacy provisioning route
+// (POST /api/v1/provisioning/contact-points/test, now 404) and the old
+// Alertmanager route (POST /api/alertmanager/grafana/config/api/v1/receivers/test,
+// now 410). The live endpoint is the notifications.alerting.grafana.app resource
+// API: it addresses an existing receiver by base64(name) in the path and reads the
+// integration actually under test from the request body.
+func (g *Grafana) TestReceiverIntegration(ctx context.Context, receiverName, integrationType string, settings json.RawMessage) (ReceiverTestResult, error) {
+	name := base64.RawStdEncoding.EncodeToString([]byte(receiverName))
+	path := "/apis/notifications.alerting.grafana.app/v1beta1/namespaces/" + grafanaAlertingNamespace + "/receivers/" + name + "/test"
+	body := map[string]any{
+		"integration": map[string]any{
+			"type":     integrationType,
+			"version":  "",
+			"settings": settings,
+		},
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
+	var out struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	if err := g.do(ctx, http.MethodPost, path, body, &out); err != nil {
+		return ReceiverTestResult{}, fmt.Errorf("test receiver: %w", err)
+	}
+	return ReceiverTestResult{OK: out.Status == "success", Error: out.Error}, nil
 }
 
 func (g *Grafana) do(ctx context.Context, method, path string, body, out any) error {
@@ -132,10 +163,6 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
-}
-
-func (g *Grafana) rawPost(ctx context.Context, path string, body any) (*http.Response, error) {
-	return g.request(ctx, http.MethodPost, path, body)
 }
 
 // "url" is a secret: webhook URLs embed capability tokens.
@@ -210,20 +237,6 @@ func (g *Grafana) requestWithBytes(ctx context.Context, method, path string, bod
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 	return g.send(ctx, method, path, bodyReader, bodyBytes != nil)
-}
-
-func (g *Grafana) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	var bodyReader io.Reader
-	hasBody := false
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("marshal request body: %w", err)
-		}
-		bodyReader = bytes.NewReader(b)
-		hasBody = true
-	}
-	return g.send(ctx, method, path, bodyReader, hasBody)
 }
 
 func (g *Grafana) send(ctx context.Context, method, path string, bodyReader io.Reader, hasBody bool) (*http.Response, error) {
