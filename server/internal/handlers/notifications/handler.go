@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -30,6 +31,12 @@ var (
 	_ notificationsv1connect.ChannelServiceHandler           = (*Handler)(nil)
 	_ notificationsv1connect.RuleServiceHandler              = (*Handler)(nil)
 	_ notificationsv1connect.MaintenanceWindowServiceHandler = (*Handler)(nil)
+	_ notificationsv1connect.HistoryServiceHandler           = (*Handler)(nil)
+)
+
+const (
+	historyDefaultPageSize = 50
+	historyMaxPageSize     = 200
 )
 
 func (h *Handler) authorize(ctx context.Context, permission string) (int64, error) {
@@ -235,6 +242,44 @@ func (h *Handler) DeleteMaintenanceWindow(ctx context.Context, req *connect.Requ
 	return connect.NewResponse(&notificationsv1.DeleteMaintenanceWindowResponse{}), nil
 }
 
+func (h *Handler) ListNotifications(ctx context.Context, req *connect.Request[notificationsv1.ListNotificationsRequest]) (*connect.Response[notificationsv1.ListNotificationsResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
+	if err != nil {
+		return nil, err
+	}
+	limit := req.Msg.GetPageSize()
+	if limit <= 0 {
+		limit = historyDefaultPageSize
+	}
+	if limit > historyMaxPageSize {
+		limit = historyMaxPageSize
+	}
+	var beforeID *int64
+	if s := req.Msg.GetBeforeId(); s != "" {
+		v, parseErr := strconv.ParseInt(s, 10, 64)
+		if parseErr != nil {
+			return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
+		}
+		beforeID = &v
+	}
+	rows, err := h.history.List(ctx, orgID, beforeID, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	hasMore := len(rows) > int(limit)
+	if hasMore {
+		rows = rows[:limit]
+	}
+	out := make([]*notificationsv1.NotificationHistoryEntry, 0, len(rows))
+	for _, n := range rows {
+		out = append(out, historyEntryToProto(n))
+	}
+	return connect.NewResponse(&notificationsv1.ListNotificationsResponse{
+		Notifications: out,
+		HasMore:       hasMore,
+	}), nil
+}
+
 func channelToProto(c notifications.Channel) *notificationsv1.Channel {
 	out := &notificationsv1.Channel{
 		Id:              c.ID,
@@ -363,6 +408,30 @@ func protoToMaintenanceWindow(id string, scope *notificationsv1.MaintenanceWindo
 		dom.EndsAt = endsAt.AsTime()
 	}
 	return dom, nil
+}
+
+func historyEntryToProto(n notificationhistory.StoredNotification) *notificationsv1.NotificationHistoryEntry {
+	out := &notificationsv1.NotificationHistoryEntry{
+		Id:          strconv.FormatInt(n.ID, 10),
+		ReceivedAt:  timestamppb.New(n.ReceivedAt),
+		AlertName:   n.AlertName,
+		Status:      n.Status,
+		Severity:    n.Severity,
+		RuleGroup:   n.RuleGroup,
+		Fingerprint: n.Fingerprint,
+		DeviceId:    n.DeviceID,
+		DeviceName:  n.DeviceName,
+		DeviceMac:   n.DeviceMAC,
+		Template:    n.Template,
+		Summary:     n.Summary,
+	}
+	if n.StartsAt != nil {
+		out.StartsAt = timestamppb.New(*n.StartsAt)
+	}
+	if n.EndsAt != nil {
+		out.EndsAt = timestamppb.New(*n.EndsAt)
+	}
+	return out
 }
 
 func channelKindToProto(k notifications.ChannelKind) notificationsv1.ChannelKind {

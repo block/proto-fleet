@@ -6,6 +6,7 @@ import type {
   MaintenanceWindow,
   MaintenanceWindowScope,
   MaintenanceWindowWithActive,
+  NotificationHistoryEntry,
   Rule,
 } from "@/protoFleet/features/notifications/types";
 
@@ -14,10 +15,16 @@ interface NotificationsState {
   rules: Rule[];
   maintenanceWindows: MaintenanceWindowWithActive[];
 
+  history: NotificationHistoryEntry[];
+  historyHasMore: boolean;
+  historyLoading: boolean;
+
   loading: boolean;
   loaded: boolean;
 
   refresh: () => Promise<void>;
+  refreshHistory: () => Promise<void>;
+  loadMoreHistory: () => Promise<void>;
 
   createChannel: (input: api.ChannelMutationInput) => Promise<Channel>;
   updateChannel: (input: api.ChannelMutationInput & { id: string }) => Promise<Channel>;
@@ -46,11 +53,16 @@ const upsertById = <T extends { id: string }>(list: T[], next: T): T[] => {
   return copy;
 };
 
+const HISTORY_PAGE_SIZE = 50;
+
 export const useNotificationsStore = create<NotificationsState>()(
-  immer((set) => ({
+  immer((set, get) => ({
     channels: [],
     rules: [],
     maintenanceWindows: [],
+    history: [],
+    historyHasMore: false,
+    historyLoading: false,
     loading: false,
     loaded: false,
 
@@ -73,6 +85,45 @@ export const useNotificationsStore = create<NotificationsState>()(
       } finally {
         set((state) => {
           state.loading = false;
+        });
+      }
+    },
+
+    refreshHistory: async () => {
+      set((state) => {
+        state.historyLoading = true;
+      });
+      try {
+        const page = await api.listHistory({ page_size: HISTORY_PAGE_SIZE });
+        set((state) => {
+          state.history = page.notifications;
+          state.historyHasMore = page.has_more;
+        });
+      } finally {
+        set((state) => {
+          state.historyLoading = false;
+        });
+      }
+    },
+
+    loadMoreHistory: async () => {
+      const { history, historyHasMore, historyLoading } = get();
+      if (!historyHasMore || historyLoading || history.length === 0) return;
+      set((state) => {
+        state.historyLoading = true;
+      });
+      try {
+        const page = await api.listHistory({
+          before_id: history[history.length - 1].id,
+          page_size: HISTORY_PAGE_SIZE,
+        });
+        set((state) => {
+          state.history = [...state.history, ...page.notifications];
+          state.historyHasMore = page.has_more;
+        });
+      } finally {
+        set((state) => {
+          state.historyLoading = false;
         });
       }
     },

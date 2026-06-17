@@ -126,6 +126,7 @@ var SessionOnlyProcedures = []string{
 	notificationsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure,
 	notificationsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
 	notificationsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
+	notificationsv1connect.HistoryServiceListNotificationsProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
