@@ -185,6 +185,25 @@ func TestCreateChannelAllowsDuplicateNameInDifferentOrg(t *testing.T) {
 	assert.True(t, created, "a name owned only by another org must not block creation")
 }
 
+func TestReceiverTestErrorScrubsDestinationURL(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			// Grafana can echo the outbound URL in the error string.
+			_, _ = w.Write([]byte(`{"status":"failure","error":"Post \"https://hooks.slack.com/services/T1/B2/SECRET\": i/o timeout"}`))
+		})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	g := NewGrafana(GrafanaConfig{URL: srv.URL})
+
+	res, err := g.TestReceiverIntegration(context.Background(), "org-1-x", "slack", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.False(t, res.OK)
+	assert.NotContains(t, res.Error, "hooks.slack.com", "the destination URL must be scrubbed from the test error")
+	assert.Contains(t, res.Error, "[REDACTED-URL]")
+}
+
 func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *Grafana {
 	t.Helper()
 	mux := http.NewServeMux()

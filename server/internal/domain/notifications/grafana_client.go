@@ -121,7 +121,9 @@ func (g *Grafana) TestReceiverIntegration(ctx context.Context, receiverName, int
 	if err := g.do(ctx, http.MethodPost, path, body, &out); err != nil {
 		return ReceiverTestResult{}, fmt.Errorf("test receiver: %w", err)
 	}
-	return ReceiverTestResult{OK: out.Status == "success", Error: out.Error}, nil
+	// Grafana's error can quote the outbound URL (Go's `Post "https://..."`), which
+	// would leak the saved Slack/webhook capability URL through the response + toast.
+	return ReceiverTestResult{OK: out.Status == "success", Error: scrubSecretSubstrings(out.Error)}, nil
 }
 
 // TestStoredReceiver tests an already-saved receiver by replaying its stored
@@ -169,7 +171,9 @@ func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName, integrat
 	if err := g.do(ctx, http.MethodPost, base+"/test", body, &out); err != nil {
 		return ReceiverTestResult{}, fmt.Errorf("test receiver: %w", err)
 	}
-	return ReceiverTestResult{OK: out.Status == "success", Error: out.Error}, nil
+	// Grafana's error can quote the outbound URL (Go's `Post "https://..."`), which
+	// would leak the saved Slack/webhook capability URL through the response + toast.
+	return ReceiverTestResult{OK: out.Status == "success", Error: scrubSecretSubstrings(out.Error)}, nil
 }
 
 func (g *Grafana) do(ctx context.Context, method, path string, body, out any) error {
