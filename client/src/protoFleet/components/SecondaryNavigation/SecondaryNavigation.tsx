@@ -1,8 +1,8 @@
 import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
-import { type NavFeature, type SecondaryNavItem } from "@/protoFleet/config/navItems";
-import { useNotificationsEnabled } from "@/protoFleet/features/notifications/api/useNotificationsEnabled";
+import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePermissions } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
@@ -15,9 +15,7 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
   const permissions = usePermissions();
-  const featureEnabled: Record<NavFeature, boolean> = {
-    notifications: useNotificationsEnabled(),
-  };
+  const featureEnabled = useNavFeatureEnabled();
 
   // Hide on mobile and tablet since secondary nav items are shown in main menu
   if (isPhone || isTablet) return null;

@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { usePermissions } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
@@ -26,6 +27,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const logout = useLogoutAction();
   const { bg } = usePageBackground();
   const permissions = usePermissions();
+  const featureEnabled = useNavFeatureEnabled();
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const hasPermission = useCallback(
     (key: string | undefined) => key === undefined || permissions.includes(key),
@@ -202,6 +204,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                     {secondaryNavItems
                       .filter((nav) => nav.parent === "/settings")
                       .filter((nav) => hasPermission(nav.requiredPermission))
+                      .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature])
                       .map((nav) => (
                         <li key={nav.path} className="w-full">
                           <Link
