@@ -337,12 +337,14 @@ func TestUnassignDeviceSitesByRack_ClearsRackMembersOnly(t *testing.T) {
 }
 
 // TestLockRacksForReparent_ReturnsSourceAndTargetIDs pins the wrapper's
-// row-id surface across the post-regen LEFT JOIN to device_set_rack +
+// row-id surface across the inner join to device_set_rack +
 // FOR UPDATE OF ds, dsr. The added join aligns lock-acquisition order
 // with LockRackPlacementForWrite (which locks {device_set_rack,
 // device_set}); the regen must NOT change the wrapper's row shape —
 // callers still receive `[]int64` of distinct rack ids covering every
-// source rack owning a requested device + the target rack id.
+// source rack owning a requested device + the target rack id. Every
+// live rack has a device_set_rack row by lifecycle invariant, so the
+// inner join doesn't drop any real-world rows.
 func TestLockRacksForReparent_ReturnsSourceAndTargetIDs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -361,10 +363,10 @@ func TestLockRacksForReparent_ReturnsSourceAndTargetIDs(t *testing.T) {
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
 	require.NoError(t, err)
 
-	// Two source racks, each owning one of the requested devices, plus
-	// a separate target rack. The LEFT JOIN to device_set_rack means
-	// rows with no placement extension still surface (verified by
-	// rackNoExt below).
+	// Two source racks each owning one of the requested devices, plus
+	// a separate target rack. All three carry a device_set_rack row —
+	// the inner join requires it, and the rack lifecycle creates the
+	// extension alongside the device_set entry in production.
 	rackA, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "RackA", "")
 	require.NoError(t, err)
 	require.NoError(t, collectionStore.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
@@ -373,9 +375,12 @@ func TestLockRacksForReparent_ReturnsSourceAndTargetIDs(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, rackA.Id, deviceIDs[:1])
 	require.NoError(t, err)
 
-	rackNoExt, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "RackB", "")
+	rackB, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "RackB", "")
 	require.NoError(t, err)
-	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, rackNoExt.Id, deviceIDs[1:2])
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rackB.Id, Rows: 4, Columns: 8, Zone: "Z3", SiteID: &site.ID,
+	}))
+	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, rackB.Id, deviceIDs[1:2])
 	require.NoError(t, err)
 
 	target, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Target", "")
@@ -390,10 +395,9 @@ func TestLockRacksForReparent_ReturnsSourceAndTargetIDs(t *testing.T) {
 		if lockErr != nil {
 			return lockErr
 		}
-		// Must include both source racks (one with placement, one
-		// without — the LEFT JOIN keeps the latter) plus the target.
-		assert.ElementsMatch(t, []int64{rackA.Id, rackNoExt.Id, target.Id}, ids,
-			"wrapper must surface source + target ids regardless of device_set_rack presence")
+		// Must include both source racks plus the target rack.
+		assert.ElementsMatch(t, []int64{rackA.Id, rackB.Id, target.Id}, ids,
+			"wrapper must surface source + target ids in the lock set")
 		return nil
 	})
 	require.NoError(t, err)
