@@ -439,14 +439,43 @@ const ManageBuildingModal = ({
       // only applies within a single AssignRacksToBuilding tx, so a
       // >1000-rack save where chunk 2 still owns the cell chunk 1 is
       // trying to claim would trip uk_device_set_rack_building_position.
-      // Partition the in-building bucket into:
+      //
+      // Partition the in-building bucket so the vacate pass also clears
+      // the OLD cell of every mover — a rack with both a snapshot
+      // position and a new place entry. Otherwise a cross-chunk swap
+      // (rack A's new cell is rack B's old cell, A lands in chunk 1, B
+      // in chunk 2) would still trip the partial unique index because
+      // B's old cell wouldn't vacate until chunk 2 runs.
       //   - vacate entries (no aisle/position) — racks staying in the
-      //     building but clearing their cell.
+      //     building but clearing their cell. Includes:
+      //       * explicit cell-clear entries built above,
+      //       * a synthetic pre-place vacate for every mover, dedup'd by
+      //         rackId so we never send two clears for the same rack.
       //   - place entries (with aisle/position) — racks landing at a
       //     specific cell. These can only run after every vacate above
       //     (plus the unassign bucket) has committed.
-      const inBuildingVacate = inBuilding.filter((r) => r.aisleIndex === undefined || r.positionInAisle === undefined);
-      const inBuildingPlace = inBuilding.filter((r) => r.aisleIndex !== undefined && r.positionInAisle !== undefined);
+      const inBuildingVacate: RackPlacementInput[] = [];
+      const inBuildingPlace: RackPlacementInput[] = [];
+      const seenVacate = new Set<string>();
+      for (const entry of inBuilding) {
+        const idStr = entry.rackId.toString();
+        const prior = initial.get(idStr) ?? "missing";
+        const wasPlaced = prior !== "unplaced" && prior !== "missing";
+
+        if (entry.aisleIndex !== undefined && entry.positionInAisle !== undefined) {
+          // Mover (had a prior cell) → schedule a pre-place vacate so
+          // its old cell is free before any placement chunk runs.
+          if (wasPlaced && !seenVacate.has(idStr)) {
+            inBuildingVacate.push({ rackId: entry.rackId });
+            seenVacate.add(idStr);
+          }
+          inBuildingPlace.push(entry);
+        } else if (!seenVacate.has(idStr)) {
+          // Already a cell-clear-in-place entry.
+          inBuildingVacate.push({ rackId: entry.rackId });
+          seenVacate.add(idStr);
+        }
+      }
 
       try {
         // Pass 1: all vacates (unassign bucket + in-building cell-
