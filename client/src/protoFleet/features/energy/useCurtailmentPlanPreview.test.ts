@@ -367,6 +367,52 @@ describe("useCurtailmentPlanPreview", () => {
     expect(mockPreviewCurtailmentPlan.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("ignores an older initial preview after a newer refresh completes", async () => {
+    let resolveInitial: (response: ReturnType<typeof previewResponse>) => void = () => {};
+    let resolveRefresh: (response: ReturnType<typeof previewResponse>) => void = () => {};
+    const initialPromise = new Promise<ReturnType<typeof previewResponse>>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const refreshPromise = new Promise<ReturnType<typeof previewResponse>>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mockPreviewCurtailmentPlan.mockReturnValueOnce(initialPromise).mockReturnValueOnce(refreshPromise);
+
+    const { result, rerender } = renderHook(
+      ({ refreshIntervalMs }) =>
+        useCurtailmentPlanPreview({
+          open: true,
+          values: baseValues,
+          debounceMs: 0,
+          refreshIntervalMs,
+        }),
+      {
+        initialProps: { refreshIntervalMs: 5 },
+      },
+    );
+
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      resolveRefresh(previewResponse(0));
+      await refreshPromise;
+    });
+    await waitFor(() => {
+      expect(result.current.previewError).toBe("No miners match this curtailment.");
+    });
+    rerender({ refreshIntervalMs: 0 });
+
+    await act(async () => {
+      resolveInitial(previewResponse(3));
+      await initialPromise;
+    });
+
+    expect(result.current.preview).toBeUndefined();
+    expect(result.current.previewError).toBe("No miners match this curtailment.");
+  });
+
   it("updates local preview labels without refetching for batch edits", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 

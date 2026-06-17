@@ -1077,7 +1077,7 @@ func validateStartRequest(req StartRequest) error {
 				"external_source must be at most %d characters, got %d", startTextFieldMaxLen, n,
 			)
 		}
-		if *req.ExternalSource == automationExternalSource && req.SourceActorType != models.SourceActorAutomation {
+		if strings.TrimSpace(*req.ExternalSource) == automationExternalSource && req.SourceActorType != models.SourceActorAutomation {
 			return fleeterror.NewInvalidArgumentError("external_source is reserved for curtailment automation")
 		}
 	}

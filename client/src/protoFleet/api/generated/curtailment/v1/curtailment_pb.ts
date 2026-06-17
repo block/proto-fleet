@@ -1147,7 +1147,9 @@ export const UpdateCurtailmentEventResponseSchema: GenMessage<UpdateCurtailmentE
   messageDesc(file_curtailment_v1_curtailment, 18);
 
 /**
- * StopCurtailment starts restore; min duration may block normal priority.
+ * StopCurtailment starts restore. Normal stops can be blocked by
+ * min_curtailed_duration_sec or by an enabled MQTT automation rule that still
+ * has OFF demand asserted for an automation-owned event.
  *
  * @generated from message curtailment.v1.StopCurtailmentRequest
  */
@@ -1158,7 +1160,8 @@ export type StopCurtailmentRequest = Message<"curtailment.v1.StopCurtailmentRequ
   eventUuid: string;
 
   /**
-   * Admin-gated bypass of `min_curtailed_duration_sec`.
+   * Admin-gated bypass of min_curtailed_duration_sec and active automation
+   * OFF-demand restore guards.
    *
    * @generated from field: bool force = 3;
    */
@@ -1656,6 +1659,10 @@ export type MqttCurtailmentSourceStatus = Message<"curtailment.v1.MqttCurtailmen
   stale: boolean;
 
   /**
+   * Last signal fields are the operator-facing source signal. During a
+   * pending retry window they project the pending edge so clients can show
+   * the demand being retried instead of the last settled source state.
+   *
    * @generated from field: string last_target = 10;
    */
   lastTarget: string;

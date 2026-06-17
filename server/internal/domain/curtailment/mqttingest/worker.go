@@ -37,6 +37,12 @@ const observationChannelBuffer = 256
 const initialBrokerRetryMax = 30 * time.Second
 const edgeExecutorRetryMax = 5 * time.Minute
 
+// RepeatedOffMinInterval bounds fresh OFF heartbeat work while a source is
+// already OFF. Reassertions outside this window still reach automation so stale
+// or restoring events can be repaired without allowing per-second publisher
+// heartbeats to drive per-second executor/database work.
+const RepeatedOffMinInterval = 30 * time.Second
+
 func (w *sourceWorker) run(ctx context.Context) {
 	w.lastObs = make(map[BrokerRole]*Observation)
 
@@ -358,8 +364,11 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 
 	priorTarget := prior.LastTarget
 	priorEdgeAt := prior.LastEdgeAt
+	suppressRepeatedOff := shouldSuppressRepeatedOffReassert(prior, canonical, alreadyProcessed)
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
-	if shouldAssertRepeatedOff(prior, canonical, alreadyProcessed) {
+	if suppressRepeatedOff {
+		direction = EdgeNone
+	} else if shouldAssertRepeatedOff(prior, canonical, alreadyProcessed) {
 		direction = EdgeReassertOff
 	}
 
@@ -376,7 +385,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	// was live.
 	state = w.advanceLiveness(state, canonical, liveness)
 
-	if settled && direction == EdgeNone {
+	if settled && direction == EdgeNone && !suppressRepeatedOff {
 		recordProcessedTarget(&state, canonical)
 
 		// Failed settlements and debounced flips must not settle the source target.
@@ -670,6 +679,13 @@ func shouldAssertRepeatedOff(prior SourceState, c CanonicalState, alreadyProcess
 	return c.Target == TargetOff &&
 		prior.LastTarget == TargetOff &&
 		!alreadyProcessed
+}
+
+func shouldSuppressRepeatedOffReassert(prior SourceState, c CanonicalState, alreadyProcessed bool) bool {
+	if !shouldAssertRepeatedOff(prior, c, alreadyProcessed) || prior.LastTargetAt.IsZero() || c.PublishedAt.IsZero() {
+		return false
+	}
+	return c.PublishedAt.Sub(prior.LastTargetAt) < RepeatedOffMinInterval
 }
 
 func recordProcessedTarget(state *SourceState, c CanonicalState) {

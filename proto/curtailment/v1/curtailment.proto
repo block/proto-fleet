@@ -599,7 +599,9 @@ message UpdateCurtailmentEventResponse {
     CurtailmentEvent event = 1;
 }
 
-// StopCurtailment starts restore; min duration may block normal priority.
+// StopCurtailment starts restore. Normal stops can be blocked by
+// min_curtailed_duration_sec or by an enabled MQTT automation rule that still
+// has OFF demand asserted for an automation-owned event.
 message StopCurtailmentRequest {
     // Tag 2 / name was an early `restore_batch_size_override`; reserve
     // both so an old client's payload can't alias to `force=true`.
@@ -608,7 +610,8 @@ message StopCurtailmentRequest {
 
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Admin-gated bypass of `min_curtailed_duration_sec`.
+    // Admin-gated bypass of min_curtailed_duration_sec and active automation
+    // OFF-demand restore guards.
     bool force = 3;
 }
 
@@ -804,6 +807,9 @@ message MqttCurtailmentSourceStatus {
     int32 subscribed_broker_count = 4;
     bool stale = 5;
 
+    // Last signal fields are the operator-facing source signal. During a
+    // pending retry window they project the pending edge so clients can show
+    // the demand being retried instead of the last settled source state.
     string last_target = 10;
     google.protobuf.Timestamp last_target_at = 11;
     google.protobuf.Timestamp last_received_at = 12;

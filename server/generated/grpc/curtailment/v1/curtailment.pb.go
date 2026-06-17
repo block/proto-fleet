@@ -2764,11 +2764,14 @@ func (x *UpdateCurtailmentEventResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// StopCurtailment starts restore; min duration may block normal priority.
+// StopCurtailment starts restore. Normal stops can be blocked by
+// min_curtailed_duration_sec or by an enabled MQTT automation rule that still
+// has OFF demand asserted for an automation-owned event.
 type StopCurtailmentRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	EventUuid string                 `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
-	// Admin-gated bypass of `min_curtailed_duration_sec`.
+	// Admin-gated bypass of min_curtailed_duration_sec and active automation
+	// OFF-demand restore guards.
 	Force         bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3718,12 +3721,15 @@ type MqttCurtailmentSourceStatus struct {
 	RunningBrokerCount    int32                             `protobuf:"varint,3,opt,name=running_broker_count,json=runningBrokerCount,proto3" json:"running_broker_count,omitempty"`
 	SubscribedBrokerCount int32                             `protobuf:"varint,4,opt,name=subscribed_broker_count,json=subscribedBrokerCount,proto3" json:"subscribed_broker_count,omitempty"`
 	Stale                 bool                              `protobuf:"varint,5,opt,name=stale,proto3" json:"stale,omitempty"`
-	LastTarget            string                            `protobuf:"bytes,10,opt,name=last_target,json=lastTarget,proto3" json:"last_target,omitempty"`
-	LastTargetAt          *timestamppb.Timestamp            `protobuf:"bytes,11,opt,name=last_target_at,json=lastTargetAt,proto3" json:"last_target_at,omitempty"`
-	LastReceivedAt        *timestamppb.Timestamp            `protobuf:"bytes,12,opt,name=last_received_at,json=lastReceivedAt,proto3" json:"last_received_at,omitempty"`
-	LastReceivedBroker    string                            `protobuf:"bytes,13,opt,name=last_received_broker,json=lastReceivedBroker,proto3" json:"last_received_broker,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Last signal fields are the operator-facing source signal. During a
+	// pending retry window they project the pending edge so clients can show
+	// the demand being retried instead of the last settled source state.
+	LastTarget         string                 `protobuf:"bytes,10,opt,name=last_target,json=lastTarget,proto3" json:"last_target,omitempty"`
+	LastTargetAt       *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=last_target_at,json=lastTargetAt,proto3" json:"last_target_at,omitempty"`
+	LastReceivedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=last_received_at,json=lastReceivedAt,proto3" json:"last_received_at,omitempty"`
+	LastReceivedBroker string                 `protobuf:"bytes,13,opt,name=last_received_broker,json=lastReceivedBroker,proto3" json:"last_received_broker,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *MqttCurtailmentSourceStatus) Reset() {

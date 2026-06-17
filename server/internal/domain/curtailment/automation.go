@@ -19,8 +19,6 @@ const (
 	maxAutomationRuleNameLength = 64
 
 	automationExternalSource = "curtailment_automation"
-
-	repeatedOffAutomationMinInterval = 30 * time.Second
 )
 
 // AutomationService validates automation rule CRUD and executes MQTT trigger
@@ -253,7 +251,7 @@ func (s *AutomationService) shouldCoalesceRepeatedOff(
 		rule.LastSignalAt == nil {
 		return false, nil
 	}
-	if at.Sub(*rule.LastSignalAt) >= repeatedOffAutomationMinInterval {
+	if at.Sub(*rule.LastSignalAt) >= mqttingest.RepeatedOffMinInterval {
 		return false, nil
 	}
 	event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
@@ -323,6 +323,7 @@ export function useCurtailmentPlanPreview({
 }: UseCurtailmentPlanPreviewOptions): CurtailmentPlanPreviewResult {
   const { handleAuthErrors } = useAuthErrors();
   const [state, setState] = useState<CurtailmentPlanPreviewState>(emptyPreviewState);
+  const requestGenerationRef = useRef(0);
   const requestValues = useMemo<CurtailmentPlanPreviewRequestValues>(
     () => ({
       scopeType: values.scopeType,
@@ -373,6 +374,8 @@ export function useCurtailmentPlanPreview({
     let isActive = true;
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => {
+      const requestGeneration = requestGenerationRef.current + 1;
+      requestGenerationRef.current = requestGeneration;
       setState((current) => ({
         ...current,
         previewError: undefined,
@@ -383,7 +386,7 @@ export function useCurtailmentPlanPreview({
       void curtailmentClient
         .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
         .then((response) => {
-          if (!isActive) {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
             return;
           }
 
@@ -409,14 +412,14 @@ export function useCurtailmentPlanPreview({
           });
         })
         .catch((error) => {
-          if (!isActive) {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
             return;
           }
 
           handleAuthErrors({
             error,
             onError: (err) => {
-              if (!isActive) {
+              if (!isActive || requestGeneration !== requestGenerationRef.current) {
                 return;
               }
 
@@ -454,13 +457,15 @@ export function useCurtailmentPlanPreview({
       }
 
       refreshInFlight = true;
+      const requestGeneration = requestGenerationRef.current + 1;
+      requestGenerationRef.current = requestGeneration;
       const abortController = new AbortController();
       abortControllers.add(abortController);
 
       void curtailmentClient
         .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
         .then((response) => {
-          if (!isActive) {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
             return;
           }
 
@@ -486,14 +491,14 @@ export function useCurtailmentPlanPreview({
           });
         })
         .catch((error) => {
-          if (!isActive) {
+          if (!isActive || requestGeneration !== requestGenerationRef.current) {
             return;
           }
 
           handleAuthErrors({
             error,
             onError: (err) => {
-              if (!isActive) {
+              if (!isActive || requestGeneration !== requestGenerationRef.current) {
                 return;
               }
 

@@ -306,17 +306,27 @@ func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 
 func TestService_Start_RejectsReservedAutomationExternalSourceForManualActors(t *testing.T) {
 	t.Parallel()
-	svc := NewService(newFakeStore())
-	req := validStartRequest(1)
-	req.ExternalSource = stringPtr(automationExternalSource)
-	externalReference := "9001"
-	req.ExternalReference = &externalReference
 
-	_, err := svc.Start(t.Context(), req)
+	for _, externalSource := range []string{
+		automationExternalSource,
+		" " + automationExternalSource,
+		automationExternalSource + " ",
+	} {
+		t.Run(externalSource, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.ExternalSource = stringPtr(externalSource)
+			externalReference := "9001"
+			req.ExternalReference = &externalReference
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "external_source")
+			_, err := svc.Start(t.Context(), req)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "external_source")
+		})
+	}
 }
 
 // TestService_Start_RejectsMissingCreatedByUserID pins the service-level

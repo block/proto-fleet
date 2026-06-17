@@ -193,6 +193,45 @@ func TestSourceWorker_HandleMessageReassertsFreshRepeatedOff(t *testing.T) {
 	assert.Nil(t, persisted.PendingEdge)
 }
 
+func TestSourceWorker_HandleMessageSuppressesFrequentRepeatedOff(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	publishedAt := time.Unix(1781092800, 0).UTC()
+	nextPublishedAt := publishedAt.Add(10 * time.Second)
+	receivedAt := nextPublishedAt.Add(500 * time.Millisecond)
+	w := newTestSourceWorker(store, src, func() time.Time { return receivedAt })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+
+	state := w.handleMessage(context.Background(), SourceState{
+		SourceConfigID:       src.ID,
+		LastTarget:           TargetOff,
+		LastTargetAt:         publishedAt,
+		LastProcessedTarget:  TargetOff,
+		LastProcessedTargets: []Target{TargetOff},
+		LastReceivedAt:       publishedAt,
+		LastEdgeAt:           publishedAt,
+	}, observation{
+		broker:     src.BrokerPrimaryHost,
+		payload:    []byte(`{"target":0,"timestamp":1781092810}`),
+		receivedAt: receivedAt,
+	})
+
+	require.Equal(t, TargetOff, state.LastTarget)
+	assert.Equal(t, publishedAt, state.LastTargetAt)
+	assert.Equal(t, receivedAt, state.LastReceivedAt)
+	assert.Equal(t, publishedAt, state.LastEdgeAt)
+	assert.Nil(t, state.PendingEdge)
+	assert.Equal(t, 0, executor.calls)
+
+	persisted := store.state[src.ID]
+	assert.Equal(t, TargetOff, persisted.LastTarget)
+	assert.Equal(t, publishedAt, persisted.LastTargetAt)
+	assert.Nil(t, persisted.PendingEdge)
+}
+
 func TestSourceWorker_RepeatedOffDoesNotDebounceFollowingOn(t *testing.T) {
 	t.Parallel()
 
