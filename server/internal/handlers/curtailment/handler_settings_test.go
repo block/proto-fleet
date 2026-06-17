@@ -6,6 +6,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -26,7 +27,7 @@ func TestHandler_CurtailmentSettings(t *testing.T) {
 
 	updateResp, err := h.UpdateCurtailmentSettings(
 		ctx,
-		connect.NewRequest(&pb.UpdateCurtailmentSettingsRequest{PostEventCooldownSec: 0}),
+		connect.NewRequest(&pb.UpdateCurtailmentSettingsRequest{PostEventCooldownSec: proto.Uint32(0)}),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, uint32(0), updateResp.Msg.GetSettings().GetPostEventCooldownSec())
@@ -39,7 +40,8 @@ func TestHandler_CurtailmentSettings(t *testing.T) {
 func TestHandler_CurtailmentSettingsRequireManage(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(domainCurtailment.NewService(newStartStubStore()))
+	store := newStartStubStore()
+	h := NewHandler(domainCurtailment.NewService(store))
 	_, err := h.GetCurtailmentSettings(
 		sessionCtxWithPerms(42, authz.PermCurtailmentRead),
 		connect.NewRequest(&pb.GetCurtailmentSettingsRequest{}),
@@ -48,4 +50,27 @@ func TestHandler_CurtailmentSettingsRequireManage(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+	_, err = h.UpdateCurtailmentSettings(
+		sessionCtxWithPerms(42, authz.PermCurtailmentRead),
+		connect.NewRequest(&pb.UpdateCurtailmentSettingsRequest{PostEventCooldownSec: proto.Uint32(0)}),
+	)
+	require.Error(t, err)
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, int32(600), store.orgConfig.PostEventCooldownSec)
+}
+
+func TestHandler_UpdateCurtailmentSettingsRequiresCooldownPresence(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(domainCurtailment.NewService(newStartStubStore()))
+	_, err := h.UpdateCurtailmentSettings(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.UpdateCurtailmentSettingsRequest{}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 }

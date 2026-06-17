@@ -1096,16 +1096,17 @@ function CurtailmentSettingsSection({
   loadError = null,
   onSave,
 }: CurtailmentSettingsSectionProps): ReactElement {
-  const [cooldownValue, setCooldownValue] = useState(() =>
-    (settings ?? defaultCurtailmentSettings).postEventCooldownSec.toString(),
-  );
+  const resolvedSettings = settings ?? defaultCurtailmentSettings;
+  const hasLoadedSettings = settings != null;
+  const canEditSettings = hasLoadedSettings || !loadError;
+  const [cooldownValue, setCooldownValue] = useState(() => resolvedSettings.postEventCooldownSec.toString());
   const [actionError, setActionError] = useState<string | null>(null);
   const [showValidation, setShowValidation] = useState(false);
-  const persistedCooldownValue = (settings ?? defaultCurtailmentSettings).postEventCooldownSec.toString();
+  const persistedCooldownValue = resolvedSettings.postEventCooldownSec.toString();
   const validationError = getCooldownValidationError(cooldownValue);
   const visibleValidationError = showValidation ? validationError : undefined;
   const isDirty = cooldownValue.trim() !== persistedCooldownValue;
-  const canSave = isDirty && !isSaving && !isLoading;
+  const canSave = canEditSettings && isDirty && !isSaving && !isLoading && !loadError;
 
   const handleCooldownChange = useCallback((value: string) => {
     setCooldownValue(value);
@@ -1114,7 +1115,7 @@ function CurtailmentSettingsSection({
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (isSaving || isLoading) {
+    if (!canEditSettings || isSaving || isLoading || loadError) {
       return;
     }
 
@@ -1134,7 +1135,7 @@ function CurtailmentSettingsSection({
     } catch (error) {
       setActionError(getErrorMessage(error, "Failed to save curtailment settings."));
     }
-  }, [cooldownValue, isLoading, isSaving, onSave, validationError]);
+  }, [canEditSettings, cooldownValue, isLoading, isSaving, loadError, onSave, validationError]);
 
   return (
     <section className="curtailment-settings__section" data-testid="curtailment-settings-section">
@@ -1155,6 +1156,8 @@ function CurtailmentSettingsSection({
           <div className="flex min-h-24 items-center">
             <ProgressCircular indeterminate dataTestId="curtailment-settings-loading" />
           </div>
+        ) : !canEditSettings ? (
+          <p className="text-300 text-text-primary-70">Settings are unavailable until they load successfully.</p>
         ) : (
           <div className="grid gap-4 laptop:grid-cols-[minmax(0,18rem)_auto] laptop:items-start">
             <Input
@@ -1316,7 +1319,7 @@ export function CurtailmentSettingsContent({
   responseProfiles: controlledResponseProfiles,
   sources: controlledSources,
   automationRules: controlledAutomationRules,
-  settings = defaultCurtailmentSettings,
+  settings: controlledSettings,
   isLoadingResponseProfiles = false,
   loadResponseProfilesError = null,
   isLoadingSources = false,
@@ -1361,6 +1364,7 @@ export function CurtailmentSettingsContent({
   const [editingSource, setEditingSource] = useState<CurtailmentSource | null>(null);
   const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
+  const settings = controlledSettings ?? (loadSettingsError ? null : defaultCurtailmentSettings);
   const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
   const responseProfileModalInitialValues = useMemo(
     () =>

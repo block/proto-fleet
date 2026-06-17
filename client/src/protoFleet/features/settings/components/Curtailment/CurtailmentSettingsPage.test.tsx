@@ -600,6 +600,25 @@ describe("CurtailmentSettingsPage", () => {
     expect(await screen.findByText("Enter cooldown as a whole number of 0 or greater.")).toBeVisible();
   });
 
+  it("does not render editable curtailment settings after load failure", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockCurtailmentSettingsApi({
+      settings: null,
+      loadError: "Failed to load curtailment settings.",
+    });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Failed to load curtailment settings.")).toBeVisible();
+    expect(screen.getByText("Settings are unavailable until they load successfully.")).toBeVisible();
+    expect(screen.queryByLabelText("Post-event cooldown")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
+  });
+
   it("renders response profiles returned by the API hook", () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     mockResponseProfilesApi({ responseProfiles: testResponseProfiles });

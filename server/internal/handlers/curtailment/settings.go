@@ -40,6 +40,9 @@ func (h *Handler) UpdateCurtailmentSettings(ctx context.Context, req *connect.Re
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("UpdateCurtailmentSettings")
 	}
+	if req.Msg.PostEventCooldownSec == nil {
+		return nil, fleeterror.NewInvalidArgumentError("post_event_cooldown_sec must be set")
+	}
 	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", req.Msg.GetPostEventCooldownSec())
 	if err != nil {
 		return nil, err
@@ -60,7 +63,7 @@ func (h *Handler) UpdateCurtailmentSettings(ctx context.Context, req *connect.Re
 
 func toCurtailmentSettingsProto(settings *models.OrgConfig) (*pb.CurtailmentSettings, error) {
 	if settings == nil {
-		return nil, nil
+		return nil, fleeterror.NewInternalError("curtailment settings are missing")
 	}
 	if settings.PostEventCooldownSec < 0 {
 		return nil, fleeterror.NewInternalErrorf(

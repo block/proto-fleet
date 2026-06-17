@@ -21,8 +21,12 @@ export type UseCurtailmentSettingsResult = {
 };
 
 function mapApiSettings(settings?: ApiCurtailmentSettings): CurtailmentSettings {
+  if (!settings) {
+    throw new Error("Curtailment settings response was missing settings.");
+  }
+
   return {
-    postEventCooldownSec: settings?.postEventCooldownSec ?? 0,
+    postEventCooldownSec: settings.postEventCooldownSec,
   };
 }
 

@@ -1178,7 +1178,10 @@ message GetCurtailmentSettingsResponse {
 }
 
 message UpdateCurtailmentSettingsRequest {
-    uint32 post_event_cooldown_sec = 1 [(buf.validate.field).uint32.lte = 86400];
+    optional uint32 post_event_cooldown_sec = 1 [(buf.validate.field) = {
+        required: true
+        uint32: { lte: 86400 }
+    }];
 }
 
 message UpdateCurtailmentSettingsResponse {
