@@ -126,6 +126,11 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 			}
 			destinationChanged = c.Webhook.URL != stored
 		}
+	case ChannelKindSMTP:
+		// The SMTP server (host:port) is the credential's audience; recipient/name changes are not destination changes.
+		if c.SMTP != nil && owned.SMTP != nil {
+			destinationChanged = c.SMTP.Host != owned.SMTP.Host || c.SMTP.Port != owned.SMTP.Port
+		}
 	case ChannelKindSlack:
 		// Only keep the stored URL when this was already a Slack channel; otherwise carrySecretSettings would graft the prior kind's secret onto the new Slack contact point.
 		keepStoredSlackURL = owned.Kind == ChannelKindSlack && (c.Slack == nil || c.Slack.WebhookURL == "")
@@ -259,6 +264,8 @@ func (s *Service) requestHasNewSecret(c *Channel) bool {
 	switch c.Kind {
 	case ChannelKindWebhook:
 		return c.Webhook != nil && c.Webhook.BearerHeader != ""
+	case ChannelKindSMTP:
+		return c.SMTP != nil && c.SMTP.Password != ""
 	case ChannelKindSlack:
 		return c.Slack != nil && c.Slack.WebhookURL != ""
 	}
@@ -269,6 +276,8 @@ func secretSettingsKeyFor(kind ChannelKind) string {
 	switch kind {
 	case ChannelKindWebhook:
 		return "authorization_credentials"
+	case ChannelKindSMTP:
+		return "smtpPassword"
 	case ChannelKindSlack:
 		return "url"
 	}
@@ -313,6 +322,14 @@ func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
 			return fleeterror.NewInvalidArgumentError("slack webhook url is required")
 		}
 		return s.checkDestinationURL(ctx, c.Slack.WebhookURL, "slack webhook")
+	case ChannelKindSMTP:
+		if c.SMTP == nil || c.SMTP.Host == "" {
+			return fleeterror.NewInvalidArgumentError("smtp host is required")
+		}
+		if len(c.SMTP.To) == 0 {
+			return fleeterror.NewInvalidArgumentError("at least one smtp recipient is required")
+		}
+		return s.checkDestinationHost(ctx, c.SMTP.Host)
 	}
 	return nil
 }
@@ -410,6 +427,8 @@ func grafanaTypeFor(kind ChannelKind) string {
 	switch kind {
 	case ChannelKindWebhook:
 		return "webhook"
+	case ChannelKindSMTP:
+		return "email"
 	case ChannelKindSlack:
 		return "slack"
 	}
@@ -431,6 +450,28 @@ func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
 		b, err := json.Marshal(settings)
 		if err != nil {
 			return nil, fmt.Errorf("marshal webhook settings: %w", err)
+		}
+		return b, nil
+	case ChannelKindSMTP:
+		if c.SMTP == nil {
+			return nil, errors.New("smtp config is required")
+		}
+		settings := map[string]any{
+			"addresses":    strings.Join(c.SMTP.To, ";"),
+			"singleEmail":  false,
+			"smtpHost":     c.SMTP.Host,
+			"smtpPort":     c.SMTP.Port,
+			"smtpUsername": c.SMTP.Username,
+			"fromAddress":  c.SMTP.From,
+			"fromName":     "Proto Fleet Alerts",
+		}
+		if c.SMTP.Password != "" {
+			settings["smtpPassword"] = c.SMTP.Password
+		}
+		c.HasSecret = c.SMTP.Password != ""
+		b, err := json.Marshal(settings)
+		if err != nil {
+			return nil, fmt.Errorf("marshal smtp settings: %w", err)
 		}
 		return b, nil
 	case ChannelKindSlack:
@@ -501,6 +542,32 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 		if raw, ok := settings["authorization_credentials"]; ok && len(raw) > 0 && string(raw) != `""` {
 			out.HasSecret = true
 		}
+	case "email":
+		out.Kind = ChannelKindSMTP
+		smtp := &SMTPConfig{}
+		if raw, ok := settings["addresses"]; ok {
+			var addrs string
+			_ = json.Unmarshal(raw, &addrs)
+			if addrs != "" {
+				smtp.To = strings.Split(addrs, ";")
+			}
+		}
+		if raw, ok := settings["smtpHost"]; ok {
+			_ = json.Unmarshal(raw, &smtp.Host)
+		}
+		if raw, ok := settings["smtpPort"]; ok {
+			_ = json.Unmarshal(raw, &smtp.Port)
+		}
+		if raw, ok := settings["smtpUsername"]; ok {
+			_ = json.Unmarshal(raw, &smtp.Username)
+		}
+		if raw, ok := settings["fromAddress"]; ok {
+			_ = json.Unmarshal(raw, &smtp.From)
+		}
+		if raw, ok := settings["smtpPassword"]; ok && len(raw) > 0 && string(raw) != `""` {
+			out.HasSecret = true
+		}
+		out.SMTP = smtp
 	case "slack":
 		out.Kind = ChannelKindSlack
 		// The URL is the secret; expose presence only, not even the placeholder.

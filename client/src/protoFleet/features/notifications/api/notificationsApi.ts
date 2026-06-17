@@ -10,6 +10,7 @@ import type {
   Channel,
   ChannelKind,
   SlackConfig,
+  SmtpConfig,
   ValidationState,
   WebhookConfig,
 } from "@/protoFleet/features/notifications/types";
@@ -28,6 +29,8 @@ const channelKindToProto = (k: ChannelKind): ProtoChannelKind => {
   switch (k) {
     case "webhook":
       return ProtoChannelKind.WEBHOOK;
+    case "smtp":
+      return ProtoChannelKind.SMTP;
     case "slack":
       return ProtoChannelKind.SLACK;
   }
@@ -35,6 +38,8 @@ const channelKindToProto = (k: ChannelKind): ProtoChannelKind => {
 
 const channelKindFromProto = (k: ProtoChannelKind): ChannelKind => {
   switch (k) {
+    case ProtoChannelKind.SMTP:
+      return "smtp";
     case ProtoChannelKind.SLACK:
       return "slack";
     default:
@@ -58,6 +63,9 @@ const channelFromProto = (c: ProtoChannel): Channel => ({
   name: c.name,
   kind: channelKindFromProto(c.kind),
   webhook: c.webhook ? { url: c.webhook.url, bearer_header: null } : null,
+  smtp: c.smtp
+    ? { host: c.smtp.host, port: c.smtp.port, username: c.smtp.username, from: c.smtp.from, to: c.smtp.to }
+    : null,
   slack: c.slack ? {} : null,
   created_at: isoFromTs(c.createdAt),
   updated_at: isoFromTs(c.updatedAt),
@@ -69,10 +77,16 @@ const channelFromProto = (c: ProtoChannel): Channel => ({
 const webhookToProto = (w?: WebhookConfig | null) =>
   w ? { url: w.url, bearerHeader: w.bearer_header ?? "" } : undefined;
 
+const smtpToProto = (s?: SmtpConfig | null) =>
+  s
+    ? { host: s.host, port: s.port, username: s.username, from: s.from, to: s.to, password: s.password ?? "" }
+    : undefined;
+
 const slackToProto = (s?: SlackConfig | null) => (s ? { webhookUrl: s.webhook_url ?? "" } : undefined);
 const channelDestinationFields = (input: ChannelMutationInput) => ({
   kind: channelKindToProto(input.kind),
   webhook: webhookToProto(input.webhook),
+  smtp: smtpToProto(input.smtp),
   slack: slackToProto(input.slack),
 });
 
@@ -86,6 +100,7 @@ export interface ChannelMutationInput {
   name: string;
   kind: ChannelKind;
   webhook?: WebhookConfig | null;
+  smtp?: SmtpConfig | null;
   slack?: SlackConfig | null;
 }
 

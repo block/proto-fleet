@@ -7,6 +7,7 @@ type ChannelKind string
 
 const (
 	ChannelKindWebhook ChannelKind = "webhook"
+	ChannelKindSMTP    ChannelKind = "smtp"
 	ChannelKindSlack   ChannelKind = "slack"
 )
 
@@ -29,12 +30,23 @@ type SlackConfig struct {
 	WebhookURL string
 }
 
+// Password is write-only and zeroed on reads.
+type SMTPConfig struct {
+	Host     string
+	Port     int32
+	Username string
+	From     string
+	To       []string
+	Password string
+}
+
 type Channel struct {
 	ID              string
 	OrganizationID  int64
 	Name            string
 	Kind            ChannelKind
 	Webhook         *WebhookConfig
+	SMTP            *SMTPConfig
 	Slack           *SlackConfig
 	CreatedAt       time.Time
 	UpdatedAt       time.Time

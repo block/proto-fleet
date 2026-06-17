@@ -110,6 +110,34 @@ func TestValidateDestination(t *testing.T) {
 			channel: Channel{Kind: ChannelKindSlack, Slack: &SlackConfig{WebhookURL: "https://127.0.0.1/services/x"}},
 			wantErr: true,
 		},
+		{
+			name: "smtp public ip allowed",
+			channel: Channel{Kind: ChannelKindSMTP, SMTP: &SMTPConfig{
+				Host: "203.0.113.10", To: []string{"oncall@example.com"},
+			}},
+		},
+		{
+			name:    "smtp missing host",
+			channel: Channel{Kind: ChannelKindSMTP, SMTP: &SMTPConfig{To: []string{"oncall@example.com"}}},
+			wantErr: true,
+		},
+		{
+			name:    "smtp missing recipients",
+			channel: Channel{Kind: ChannelKindSMTP, SMTP: &SMTPConfig{Host: "203.0.113.10"}},
+			wantErr: true,
+		},
+		{
+			name:    "smtp private host rejected",
+			channel: Channel{Kind: ChannelKindSMTP, SMTP: &SMTPConfig{Host: "192.168.1.5", To: []string{"oncall@example.com"}}},
+			wantErr: true,
+		},
+		{
+			name:   "smtp private host allowed when policy opts in",
+			policy: DestinationPolicy{AllowPrivateDestinations: true},
+			channel: Channel{Kind: ChannelKindSMTP, SMTP: &SMTPConfig{
+				Host: "192.168.1.5", To: []string{"oncall@example.com"},
+			}},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -330,6 +358,38 @@ func TestUpdateChannelPreservesWebhookURLOnRename(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(putBody, &sent))
 	assert.Equal(t, fullURL, sent.Settings["url"], "rename must keep the stored full URL, not the redacted host")
+}
+
+func TestUpdateChannelPreservesSMTPSecret(t *testing.T) {
+	existing := []GrafanaContactPoint{{
+		UID:  "cp-2",
+		Name: "org-7-oncall-mail",
+		Type: "email",
+		Settings: json.RawMessage(`{
+			"addresses": "oncall@example.com",
+			"smtpHost": "smtp.example.com",
+			"smtpPort": 587,
+			"smtpPassword": "hunter2"
+		}`),
+	}}
+	var putBody []byte
+	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
+
+	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID:   "cp-2",
+		Name: "oncall-mail",
+		Kind: ChannelKindSMTP,
+		SMTP: &SMTPConfig{Host: "smtp.example.com", Port: 587, To: []string{"oncall@example.com"}},
+	})
+	require.NoError(t, err)
+	assert.True(t, updated.HasSecret)
+
+	var sent struct {
+		Settings map[string]any `json:"settings"`
+	}
+	require.NoError(t, json.Unmarshal(putBody, &sent))
+	assert.Equal(t, "hunter2", sent.Settings["smtpPassword"],
+		"update without a new password must carry the stored one")
 }
 
 func TestListChannelsHidesSlackURL(t *testing.T) {

@@ -26,12 +26,13 @@ const activeCols: ChannelColumns[] = ["name", "destination", "status"];
 
 const formatDestination = (c: Channel) => {
   if (c.kind === "webhook") return c.webhook?.url ?? "";
-  return c.has_secret ? "Slack webhook (hidden)" : "";
+  if (c.kind === "slack") return c.has_secret ? "Slack webhook (hidden)" : "";
+  return (c.smtp?.to ?? []).join(", ");
 };
 
 const destinationPlaceholder = (c: Channel) => {
   if (c.kind === "slack") return "https://hooks.slack.com/services/…";
-  return "https://hooks…";
+  return c.kind === "webhook" ? "https://hooks…" : "oncall@example.com";
 };
 
 const ChannelsSection = () => {
@@ -50,6 +51,7 @@ const ChannelsSection = () => {
           name: next,
           kind: channel.kind,
           webhook: channel.webhook,
+          smtp: channel.smtp,
           slack: channel.slack,
         });
         pushToast({ message: `Renamed: ${next}`, status: STATUSES.success });
@@ -69,8 +71,24 @@ const ChannelsSection = () => {
         const base = { id: channel.id, name: channel.name, kind: channel.kind };
         const input =
           channel.kind === "webhook"
-            ? { ...base, webhook: { url: next, bearer_header: null }, slack: null }
-            : { ...base, webhook: null, slack: { webhook_url: next } };
+            ? { ...base, webhook: { url: next, bearer_header: null }, smtp: null, slack: null }
+            : channel.kind === "slack"
+              ? { ...base, webhook: null, smtp: null, slack: { webhook_url: next } }
+              : {
+                  ...base,
+                  webhook: null,
+                  slack: null,
+                  smtp: {
+                    host: channel.smtp?.host ?? "",
+                    port: channel.smtp?.port ?? 587,
+                    username: channel.smtp?.username ?? "",
+                    from: channel.smtp?.from ?? "",
+                    to: next
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  },
+                };
         await updateChannel(input);
         pushToast({ message: "Destination updated", status: STATUSES.success });
       } catch (error) {
@@ -90,6 +108,7 @@ const ChannelsSection = () => {
         name: channel.name,
         kind: channel.kind,
         webhook: channel.webhook,
+        smtp: channel.smtp,
         slack: channel.slack,
       });
       if (result.ok) {
@@ -193,7 +212,7 @@ const ChannelsSection = () => {
         ) : null}
       </div>
       <p className="text-300 text-text-primary-50">
-        Webhook and Slack destinations for alert delivery. Saved channels are not yet attached to alert routing — "Test"
+        Webhook and email destinations for alert delivery. Saved channels are not yet attached to alert routing — "Test"
         sends a synthetic alert directly to the destination, but live alerts won't deliver here until routing ships.
       </p>
 
@@ -207,7 +226,7 @@ const ChannelsSection = () => {
         itemName={{ singular: "channel", plural: "channels" }}
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            No channels yet — add a webhook or Slack URL to start getting alerts.
+            No channels yet — add an SMTP relay or webhook URL to start getting alerts.
           </div>
         }
         actions={canManage ? actions : []}

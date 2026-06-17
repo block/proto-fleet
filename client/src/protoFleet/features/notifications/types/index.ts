@@ -1,9 +1,19 @@
-export type ChannelKind = "webhook" | "slack";
+export type ChannelKind = "webhook" | "smtp" | "slack";
 export type ValidationState = "ok" | "failed" | "pending";
 
 export interface WebhookConfig {
   url: string;
   bearer_header: string | null;
+}
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  username: string;
+  from: string;
+  to: string[];
+  // Write-only: present on requests, never on reads.
+  password?: string;
 }
 
 export interface SlackConfig {
@@ -17,6 +27,7 @@ export interface Channel {
   name: string;
   kind: ChannelKind;
   webhook: WebhookConfig | null;
+  smtp: SmtpConfig | null;
   slack: SlackConfig | null;
   created_at: string;
   updated_at: string;

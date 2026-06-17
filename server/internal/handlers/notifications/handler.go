@@ -67,7 +67,7 @@ func (h *Handler) CreateChannel(ctx context.Context, req *connect.Request[notifi
 	if err != nil {
 		return nil, err
 	}
-	dom, err := protoToChannel("", req.Msg.GetName(), req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSlack())
+	dom, err := protoToChannel("", req.Msg.GetName(), req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSmtp(), req.Msg.GetSlack())
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (h *Handler) UpdateChannel(ctx context.Context, req *connect.Request[notifi
 	if err != nil {
 		return nil, err
 	}
-	dom, err := protoToChannel(req.Msg.GetId(), req.Msg.GetName(), req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSlack())
+	dom, err := protoToChannel(req.Msg.GetId(), req.Msg.GetName(), req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSmtp(), req.Msg.GetSlack())
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (h *Handler) TestChannel(ctx context.Context, req *connect.Request[notifica
 	// A saved-channel test needs only the id; TestChannel loads the stored contact point and ignores kind/config.
 	dom := notifications.Channel{ID: req.Msg.GetId()}
 	if dom.ID == "" {
-		dom, err = protoToChannel("", "", req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSlack())
+		dom, err = protoToChannel("", "", req.Msg.GetKind(), req.Msg.GetWebhook(), req.Msg.GetSmtp(), req.Msg.GetSlack())
 		if err != nil {
 			return nil, err
 		}
@@ -147,6 +147,15 @@ func channelToProto(c notifications.Channel) *notificationsv1.Channel {
 	if c.Webhook != nil {
 		out.Webhook = &notificationsv1.WebhookConfig{Url: c.Webhook.URL}
 	}
+	if c.SMTP != nil {
+		out.Smtp = &notificationsv1.SmtpConfig{
+			Host:     c.SMTP.Host,
+			Port:     c.SMTP.Port,
+			Username: c.SMTP.Username,
+			From:     c.SMTP.From,
+			To:       c.SMTP.To,
+		}
+	}
 	if c.Slack != nil {
 		// webhook_url deliberately omitted: it's the secret.
 		out.Slack = &notificationsv1.SlackConfig{}
@@ -154,7 +163,7 @@ func channelToProto(c notifications.Channel) *notificationsv1.Channel {
 	return out
 }
 
-func protoToChannel(id, name string, kind notificationsv1.ChannelKind, wh *notificationsv1.WebhookConfig, slack *notificationsv1.SlackConfig) (notifications.Channel, error) {
+func protoToChannel(id, name string, kind notificationsv1.ChannelKind, wh *notificationsv1.WebhookConfig, smtp *notificationsv1.SmtpConfig, slack *notificationsv1.SlackConfig) (notifications.Channel, error) {
 	dk, err := protoToChannelKind(kind)
 	if err != nil {
 		return notifications.Channel{}, err
@@ -162,6 +171,16 @@ func protoToChannel(id, name string, kind notificationsv1.ChannelKind, wh *notif
 	dom := notifications.Channel{ID: id, Name: name, Kind: dk}
 	if wh != nil {
 		dom.Webhook = &notifications.WebhookConfig{URL: wh.GetUrl(), BearerHeader: wh.GetBearerHeader()}
+	}
+	if smtp != nil {
+		dom.SMTP = &notifications.SMTPConfig{
+			Host:     smtp.GetHost(),
+			Port:     smtp.GetPort(),
+			Username: smtp.GetUsername(),
+			From:     smtp.GetFrom(),
+			To:       smtp.GetTo(),
+			Password: smtp.GetPassword(),
+		}
 	}
 	if slack != nil {
 		dom.Slack = &notifications.SlackConfig{WebhookURL: slack.GetWebhookUrl()}
@@ -173,6 +192,8 @@ func channelKindToProto(k notifications.ChannelKind) notificationsv1.ChannelKind
 	switch k {
 	case notifications.ChannelKindWebhook:
 		return notificationsv1.ChannelKind_CHANNEL_KIND_WEBHOOK
+	case notifications.ChannelKindSMTP:
+		return notificationsv1.ChannelKind_CHANNEL_KIND_SMTP
 	case notifications.ChannelKindSlack:
 		return notificationsv1.ChannelKind_CHANNEL_KIND_SLACK
 	}
@@ -183,10 +204,11 @@ func protoToChannelKind(k notificationsv1.ChannelKind) (notifications.ChannelKin
 	switch k {
 	case notificationsv1.ChannelKind_CHANNEL_KIND_WEBHOOK:
 		return notifications.ChannelKindWebhook, nil
+	case notificationsv1.ChannelKind_CHANNEL_KIND_SMTP:
+		return notifications.ChannelKindSMTP, nil
 	case notificationsv1.ChannelKind_CHANNEL_KIND_SLACK:
 		return notifications.ChannelKindSlack, nil
-	// SMTP is not offered in this slice; it ships in the SMTP channel slice.
-	case notificationsv1.ChannelKind_CHANNEL_KIND_UNSPECIFIED, notificationsv1.ChannelKind_CHANNEL_KIND_SMTP:
+	case notificationsv1.ChannelKind_CHANNEL_KIND_UNSPECIFIED:
 	}
 	return "", fleeterror.NewInvalidArgumentErrorf("unknown channel kind: %s", k)
 }
