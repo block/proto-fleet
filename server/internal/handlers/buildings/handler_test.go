@@ -142,8 +142,8 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			assert.Nil(t, f.SiteID)
-			assert.False(t, f.UnassignedOnly)
+			assert.Empty(t, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
@@ -151,37 +151,54 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestHandler_ListBuildings_filterBySiteID(t *testing.T) {
+func TestHandler_ListBuildings_filterBySiteIDs(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			require.NotNil(t, f.SiteID)
-			assert.Equal(t, int64(42), *f.SiteID)
-			assert.False(t, f.UnassignedOnly)
+			assert.Equal(t, []int64{42, 99}, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
 	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
-		SiteFilter: &pb.ListBuildingsRequest_SiteId{SiteId: 42},
+		SiteIds: []int64{42, 99},
 	}))
 	require.NoError(t, err)
 }
 
-func TestHandler_ListBuildings_filterByUnassignedOnly(t *testing.T) {
+func TestHandler_ListBuildings_filterByIncludeUnassigned(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			assert.Nil(t, f.SiteID)
-			assert.True(t, f.UnassignedOnly)
+			assert.Empty(t, f.SiteIDs)
+			assert.True(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
 	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
-		SiteFilter: &pb.ListBuildingsRequest_UnassignedOnly{UnassignedOnly: true},
+		IncludeUnassigned: true,
+	}))
+	require.NoError(t, err)
+}
+
+func TestHandler_ListBuildings_filterCombined(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
+			assert.Equal(t, []int64{42}, f.SiteIDs)
+			assert.True(t, f.IncludeUnassigned)
+			return nil, nil
+		})
+
+	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
+		SiteIds:           []int64{42},
+		IncludeUnassigned: true,
 	}))
 	require.NoError(t, err)
 }

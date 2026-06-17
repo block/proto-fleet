@@ -141,11 +141,13 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 }
 
 // ListBuildings returns the filtered building list with rack counts.
+// SiteIDs and IncludeUnassigned compose additively; the store query
+// treats "both empty" as "no filter".
 func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
-	// The proto oneof enforces mutual exclusion structurally; this is
-	// a defense-in-depth guard for any non-proto caller.
-	if filter.SiteID != nil && *filter.SiteID > 0 && filter.UnassignedOnly {
-		return nil, fleeterror.NewInvalidArgumentError("site_id and unassigned_only are mutually exclusive")
+	for _, id := range filter.SiteIDs {
+		if id <= 0 {
+			return nil, fleeterror.NewInvalidArgumentError("site_ids entries must be > 0")
+		}
 	}
 	rows, err := s.store.ListBuildings(ctx, filter)
 	if err != nil || !filter.IncludeStats || includeStatsForSite == nil {

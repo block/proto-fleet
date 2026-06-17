@@ -61,10 +61,14 @@ func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*m
 }
 
 func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error) {
+	siteIDs := filter.SiteIDs
+	if siteIDs == nil {
+		siteIDs = []int64{}
+	}
 	rows, err := s.GetQueries(ctx).ListBuildingsByOrg(ctx, sqlc.ListBuildingsByOrgParams{
-		OrgID:          filter.OrgID,
-		SiteID:         ptrToNullInt64(filter.SiteID),
-		UnassignedOnly: sql.NullBool{Bool: filter.UnassignedOnly, Valid: filter.UnassignedOnly},
+		OrgID:             filter.OrgID,
+		SiteIds:           siteIDs,
+		IncludeUnassigned: filter.IncludeUnassigned,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list buildings: %v", err)

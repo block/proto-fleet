@@ -169,7 +169,7 @@ func TestCreateBuilding_withSiteLocksAndPersists(t *testing.T) {
 	}
 }
 
-func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
+func TestListBuildings_rejectsZeroSiteID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
@@ -177,9 +177,8 @@ func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	_, err := svc.ListBuildings(context.Background(), models.ListFilter{
-		OrgID:          testOrgID,
-		SiteID:         ptrInt64(5),
-		UnassignedOnly: true,
+		OrgID:   testOrgID,
+		SiteIDs: []int64{5, 0},
 	}, nil)
 	if err == nil {
 		t.Fatal("expected InvalidArgument error, got nil")

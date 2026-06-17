@@ -680,17 +680,18 @@ LEFT JOIN (
 ) d ON d.building_id = b.id
 WHERE b.org_id = $1
   AND b.deleted_at IS NULL
-  AND ($2::bigint IS NULL OR b.site_id = $2::bigint)
-  AND ($3::boolean IS NULL
-       OR $3::boolean = false
-       OR b.site_id IS NULL)
+  AND (
+       (cardinality($2::bigint[]) = 0 AND $3::boolean = false)
+    OR b.site_id = ANY($2::bigint[])
+    OR ($3::boolean AND b.site_id IS NULL)
+  )
 ORDER BY b.name
 `
 
 type ListBuildingsByOrgParams struct {
-	OrgID          int64
-	SiteID         sql.NullInt64
-	UnassignedOnly sql.NullBool
+	OrgID             int64
+	SiteIds           []int64
+	IncludeUnassigned bool
 }
 
 type ListBuildingsByOrgRow struct {
@@ -715,12 +716,12 @@ type ListBuildingsByOrgRow struct {
 }
 
 // Lists every live building in the org with its rack count. The site
-// filter is folded into the query via two narg flags rather than two
-// separate queries: pass `site_id` for "buildings under this site",
-// pass `unassigned_only=true` for "site_id IS NULL", or leave both
-// unset for "all buildings in org".
+// filter is additive: site_ids is an OR across sites, include_unassigned
+// additionally lets through buildings with site_id IS NULL. Both empty
+// and include_unassigned=false → no filter (return all live buildings
+// in the org).
 func (q *Queries) ListBuildingsByOrg(ctx context.Context, arg ListBuildingsByOrgParams) ([]ListBuildingsByOrgRow, error) {
-	rows, err := q.query(ctx, q.listBuildingsByOrgStmt, listBuildingsByOrg, arg.OrgID, arg.SiteID, arg.UnassignedOnly)
+	rows, err := q.query(ctx, q.listBuildingsByOrgStmt, listBuildingsByOrg, arg.OrgID, pq.Array(arg.SiteIds), arg.IncludeUnassigned)
 	if err != nil {
 		return nil, err
 	}

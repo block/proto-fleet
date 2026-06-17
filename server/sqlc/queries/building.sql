@@ -41,10 +41,10 @@ WHERE id = sqlc.arg('id')
 
 -- name: ListBuildingsByOrg :many
 -- Lists every live building in the org with its rack count. The site
--- filter is folded into the query via two narg flags rather than two
--- separate queries: pass `site_id` for "buildings under this site",
--- pass `unassigned_only=true` for "site_id IS NULL", or leave both
--- unset for "all buildings in org".
+-- filter is additive: site_ids is an OR across sites, include_unassigned
+-- additionally lets through buildings with site_id IS NULL. Both empty
+-- and include_unassigned=false → no filter (return all live buildings
+-- in the org).
 SELECT
     b.*,
     COALESCE(r.rack_count, 0)::bigint AS rack_count,
@@ -73,10 +73,11 @@ LEFT JOIN (
 ) d ON d.building_id = b.id
 WHERE b.org_id = sqlc.arg('org_id')
   AND b.deleted_at IS NULL
-  AND (sqlc.narg('site_id')::bigint IS NULL OR b.site_id = sqlc.narg('site_id')::bigint)
-  AND (sqlc.narg('unassigned_only')::boolean IS NULL
-       OR sqlc.narg('unassigned_only')::boolean = false
-       OR b.site_id IS NULL)
+  AND (
+       (cardinality(sqlc.arg('site_ids')::bigint[]) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
+    OR b.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+    OR (sqlc.arg('include_unassigned')::boolean AND b.site_id IS NULL)
+  )
 ORDER BY b.name;
 
 -- name: UpdateBuilding :exec

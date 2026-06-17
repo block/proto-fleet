@@ -9,15 +9,11 @@ import (
 )
 
 func toListFilter(req *pb.ListBuildingsRequest, orgID int64) models.ListFilter {
-	out := models.ListFilter{OrgID: orgID}
-	switch f := req.GetSiteFilter().(type) {
-	case *pb.ListBuildingsRequest_SiteId:
-		v := f.SiteId
-		out.SiteID = &v
-	case *pb.ListBuildingsRequest_UnassignedOnly:
-		out.UnassignedOnly = f.UnassignedOnly
+	return models.ListFilter{
+		OrgID:             orgID,
+		SiteIDs:           req.GetSiteIds(),
+		IncludeUnassigned: req.GetIncludeUnassigned(),
 	}
-	return out
 }
 
 func toCreateParams(req *pb.CreateBuildingRequest, orgID int64) models.CreateParams {

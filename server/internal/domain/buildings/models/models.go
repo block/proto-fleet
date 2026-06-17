@@ -86,15 +86,16 @@ type UpdateParams struct {
 	DefaultRackOrderIndex RackOrderIndex
 }
 
-// ListFilter selects which buildings to return. SiteID is nil when
-// the caller is not filtering by site; UnassignedOnly is true to
-// request the "site_id IS NULL" bucket. SiteID != nil and
-// UnassignedOnly are mutually exclusive (enforced by the proto oneof).
+// ListFilter selects which buildings to return. SiteIDs is an OR
+// across sites; IncludeUnassigned additionally lets through buildings
+// with site_id IS NULL. Both empty + IncludeUnassigned false means no
+// filter (every live building in the org). Mirrors the miner-list
+// filter shape from MinerListFilter (#197).
 type ListFilter struct {
-	OrgID          int64
-	SiteID         *int64
-	UnassignedOnly bool
-	IncludeStats   bool
+	OrgID             int64
+	SiteIDs           []int64
+	IncludeUnassigned bool
+	IncludeStats      bool
 }
 
 // DeleteResult carries the cascade-unassign rack count for the
