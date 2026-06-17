@@ -9,7 +9,7 @@ const statusColors = {
   warning: "text-intent-warning-fill",
   inactive: "text-grayscale-gray-50",
   pending: "text-intent-info-fill",
-  sleeping: "text-core-primary-20",
+  sleeping: "text-intent-info-fill",
 };
 
 const StatusCircle = ({

@@ -218,7 +218,7 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Needs attention")).toBeInTheDocument();
     });
 
-    it("should use the pending indicator for sleeping miners", async () => {
+    it("should use the sleeping indicator for sleeping miners", async () => {
       const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
       vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
 
@@ -227,7 +227,7 @@ describe("MinerStatus", () => {
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
 
       expect(screen.getByText("Sleeping")).toBeInTheDocument();
-      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "pending");
+      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "sleeping");
     });
   });
 

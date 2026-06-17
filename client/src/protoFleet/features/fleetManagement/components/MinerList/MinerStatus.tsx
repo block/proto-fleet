@@ -68,14 +68,14 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, isRefreshing,
   const status = useMinerStatus(isOffline, isSleeping, needsAttention);
 
   // Determine StatusCircle visual indicator based on flags
-  // Priority: (offline | sleeping) > needs attention > normal
+  // Priority: sleeping > offline > needs attention > normal
   // Note: isSleeping is already filtered to exclude auth-needed devices
   const circleStatus = useMemo(() => {
     if (isSleeping) {
-      return statuses.pending;
+      return statuses.sleeping;
     }
     if (isOffline) {
-      return statuses.sleeping;
+      return statuses.inactive;
     }
     if (needsAttention) {
       return statuses.error;
