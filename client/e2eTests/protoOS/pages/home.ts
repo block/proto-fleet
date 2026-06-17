@@ -2,6 +2,17 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class HomePage extends BasePage {
+  async validateNoMiningPoolsCallout() {
+    const callout = this.page.getByTestId("callout");
+    await expect(callout).toBeVisible();
+    await expect(callout.getByText("No mining pools configured.")).toBeVisible();
+    await expect(callout.getByRole("button", { name: "Add mining pools" })).toBeVisible();
+  }
+
+  async clickAddMiningPoolsInCallout() {
+    await this.page.getByTestId("callout").getByRole("button", { name: "Add mining pools" }).click();
+  }
+
   async clickTab(tabName: string) {
     await this.page.getByTestId(`tab-${tabName}`).click();
   }
