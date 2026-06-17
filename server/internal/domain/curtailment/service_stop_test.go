@@ -165,7 +165,7 @@ func TestService_Stop_RejectsAutomationOwnedEventWhileOffAsserted(t *testing.T) 
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, "failed_precondition", fleetErr.GRPCCode.String())
 	assert.Contains(t, fleetErr.DebugMessage, "OFF asserted")
-	assert.Equal(t, 1, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 1, f.store.automationDemandGuardCheckRuns)
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
@@ -190,7 +190,7 @@ func TestService_Stop_DoesNotTrustExternalAutomationAttribution(t *testing.T) {
 	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 0, f.store.automationDemandGuardCheckRuns)
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
@@ -215,7 +215,7 @@ func TestService_Stop_AllowsAutomationOwnedEventWhenLatestSignalIsOn(t *testing.
 	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 1, f.store.automationDemandGuardCheckRuns)
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
@@ -240,7 +240,7 @@ func TestService_Stop_ForceBypassesAutomationOffDemandGuard(t *testing.T) {
 	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID, Force: true})
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 0, f.store.automationDemandGuardCheckRuns)
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 

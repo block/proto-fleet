@@ -116,11 +116,9 @@ type fakeStore struct {
 	getByExternalRefErr           error
 
 	// Automation demand fakes used by Stop's automation-owned restore guard.
-	automationRulesByEventUUID       map[uuid.UUID]*models.AutomationRule
-	automationRulesByExternalRef     map[string]*models.AutomationRule
-	getAutomationRuleForEventCalls   int
-	lastAutomationRuleForEventUUID   uuid.UUID
-	lastAutomationRuleExternalRefPtr *string
+	automationRulesByEventUUID     map[uuid.UUID]*models.AutomationRule
+	automationRulesByExternalRef   map[string]*models.AutomationRule
+	automationDemandGuardCheckRuns int
 }
 
 func newFakeStore() *fakeStore {
@@ -313,26 +311,6 @@ func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, exte
 	return filterNonTerminalReplayEvent(f.eventsByExternalRef[externalSource+"|"+externalReference]), nil
 }
 
-func (f *fakeStore) GetEnabledAutomationRuleForEvent(
-	_ context.Context,
-	orgID int64,
-	eventUUID uuid.UUID,
-	externalReference *string,
-) (*models.AutomationRule, error) {
-	f.getAutomationRuleForEventCalls++
-	f.lastAutomationRuleForEventUUID = eventUUID
-	f.lastAutomationRuleExternalRefPtr = externalReference
-	if rule := f.automationRulesByEventUUID[eventUUID]; rule != nil && rule.OrgID == orgID && rule.Enabled {
-		return rule, nil
-	}
-	if externalReference != nil {
-		if rule := f.automationRulesByExternalRef[*externalReference]; rule != nil && rule.OrgID == orgID && rule.Enabled {
-			return rule, nil
-		}
-	}
-	return nil, fleeterror.NewNotFoundErrorf("enabled curtailment automation rule not found for event: %s", eventUUID)
-}
-
 func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	f.updateOperatorFieldsCalls++
 	f.lastUpdateOperatorFieldsID = eventID
@@ -446,14 +424,19 @@ func (f *fakeStore) guardAutomationDemandForRestore(eventUUID uuid.UUID, guard *
 	if guard == nil {
 		return nil
 	}
-	rule, err := f.GetEnabledAutomationRuleForEvent(context.Background(), f.eventsByUUID[eventUUID].OrgID, eventUUID, guard.ExternalReference)
-	if err != nil {
-		if fleeterror.IsNotFoundError(err) {
-			return nil
-		}
-		return err
+	f.automationDemandGuardCheckRuns++
+	ev := f.eventsByUUID[eventUUID]
+	if ev == nil {
+		return fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 	}
-	if rule == nil || rule.LastSignal == nil || *rule.LastSignal != models.AutomationSignalOff {
+	rule := f.automationRulesByEventUUID[eventUUID]
+	if (rule == nil || rule.OrgID != ev.OrgID || !rule.Enabled) && guard.ExternalReference != nil {
+		rule = f.automationRulesByExternalRef[*guard.ExternalReference]
+	}
+	if rule == nil || rule.OrgID != ev.OrgID || !rule.Enabled {
+		return nil
+	}
+	if rule.LastSignal == nil || *rule.LastSignal != models.AutomationSignalOff {
 		return nil
 	}
 	return fleeterror.NewFailedPreconditionErrorf(
