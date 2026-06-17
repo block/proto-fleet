@@ -248,7 +248,7 @@ func (s *SQLCollectionStore) UpdateRackPlacementBulkForBuilding(ctx context.Cont
 		OrgID:            orgID,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to bulk-update rack placement: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-update rack placement: %w", err)
 	}
 	return rowsAffected, nil
 }
@@ -262,7 +262,7 @@ func (s *SQLCollectionStore) UpdateRackPlacementBulkForSite(ctx context.Context,
 		RackIds:      rackIDs,
 		OrgID:        orgID,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to bulk-update rack placement (site): %v", err)
+		return fleeterror.NewInternalErrorf("failed to bulk-update rack placement (site): %w", err)
 	}
 	return nil
 }
@@ -300,7 +300,7 @@ func (s *SQLCollectionStore) CascadeRackDeviceSitesBulk(ctx context.Context, org
 		OrgID:        orgID,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to bulk-cascade rack device sites: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-cascade rack device sites: %w", err)
 	}
 	return n, nil
 }

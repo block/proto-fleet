@@ -245,7 +245,7 @@ func (s *SQLBuildingStore) SetRackBuildingPositionBulkClear(ctx context.Context,
 		RackIds: rackIDs,
 		OrgID:   orgID,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to bulk-clear rack building positions: %v", err)
+		return fleeterror.NewInternalErrorf("failed to bulk-clear rack building positions: %w", err)
 	}
 	return nil
 }
@@ -263,7 +263,7 @@ func (s *SQLBuildingStore) SetRackBuildingPositionBulkPlace(ctx context.Context,
 		AisleIndexes:     aisleIndexes,
 		PositionInAisles: positionInAisles,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("failed to bulk-place rack building positions: %v", err)
+		return fleeterror.NewInternalErrorf("failed to bulk-place rack building positions: %w", err)
 	}
 	return nil
 }

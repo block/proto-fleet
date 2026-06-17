@@ -298,7 +298,7 @@ func (s *SQLSiteStore) AssignBuildingsToSiteBulk(ctx context.Context, orgID int6
 		if isUniqueViolation(err) {
 			return 0, fleeterror.NewPlainError("a building with this name already exists in the target site", connect.CodeAlreadyExists).WithCallerStackTrace()
 		}
-		return 0, fleeterror.NewInternalErrorf("failed to bulk-assign buildings to site: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-assign buildings to site: %w", err)
 	}
 	return rowsAffected, nil
 }
@@ -325,7 +325,7 @@ func (s *SQLSiteStore) ReassignRacksUnderBuildingsBulk(ctx context.Context, orgI
 		BuildingIds:  buildingIDs,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign racks under buildings: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign racks under buildings: %w", err)
 	}
 	return rowsAffected, nil
 }
@@ -352,7 +352,7 @@ func (s *SQLSiteStore) ReassignDevicesUnderBuildingsBulk(ctx context.Context, or
 		BuildingIds:  buildingIDs,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign devices under buildings: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-reassign devices under buildings: %w", err)
 	}
 	return rowsAffected, nil
 }
