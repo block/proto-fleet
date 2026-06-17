@@ -219,13 +219,17 @@ func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
 	// Name chosen so std base64 yields a '/' ("b3JnLTctYWE/") — URL-safe encoding
 	// (which Grafana uses) must be applied so the receiver stays one path segment.
 	const grafanaName = "org-7-aa?"
+	// The contact-point uid the caller owns equals the integration uid.
 	listed := []GrafanaContactPoint{{
-		UID:      "cp-1",
+		UID:      "int-1",
 		Name:     grafanaName,
 		Type:     "slack",
 		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
 	}}
-	const storedIntegration = `{"type":"slack","version":"v1","uid":"int-1","settings":{},"secureFields":{"url":true}}`
+	// Two integrations share this receiver (same display name); the requested one
+	// ("int-1") is not first, so testing Integrations[0] would hit the wrong target.
+	const storedIntegrations = `{"type":"webhook","version":"v1","uid":"int-2","settings":{"url":"http://other.example.com"},"secureFields":{}},` +
+		`{"type":"slack","version":"v1","uid":"int-1","settings":{},"secureFields":{"url":true}}`
 	name := base64.RawURLEncoding.EncodeToString([]byte(grafanaName))
 	require.NotContains(t, name, "/", "receiver path segment must be URL-safe")
 
@@ -239,7 +243,7 @@ func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, name, r.PathValue("name"), "saved-channel test must address the receiver by base64(name)")
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"spec":{"integrations":[` + storedIntegration + `]}}`))
+			_, _ = w.Write([]byte(`{"spec":{"integrations":[` + storedIntegrations + `]}}`))
 		})
 	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
 		func(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +255,7 @@ func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
 
-	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{ID: "cp-1", Name: "pager", Kind: ChannelKindSlack})
+	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{ID: "int-1", Name: "pager", Kind: ChannelKindSlack})
 	require.NoError(t, err)
 	assert.True(t, ok)
 
@@ -263,7 +267,7 @@ func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
 		} `json:"integration"`
 	}
 	require.NoError(t, json.Unmarshal(testedBody, &sent))
-	assert.Equal(t, "int-1", sent.Integration.UID, "must replay the stored integration so its secrets are reused")
+	assert.Equal(t, "int-1", sent.Integration.UID, "must test the requested integration, not the first under the receiver")
 	assert.True(t, sent.Integration.SecureFields["url"], "the secret must be reused via secureFields, not sent as a redacted value")
 	assert.NotContains(t, sent.Integration.Settings, "url", "a redacted url must never be sent as the destination")
 }

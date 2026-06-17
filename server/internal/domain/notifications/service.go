@@ -210,7 +210,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 		if err != nil {
 			return false, 0, "", err
 		}
-		res, err := s.grafana.TestStoredReceiver(ctx, ownedCP.Name)
+		res, err := s.grafana.TestStoredReceiver(ctx, ownedCP.Name, ownedCP.UID)
 		if err != nil {
 			return false, 0, "", err
 		}

@@ -130,7 +130,11 @@ func (g *Grafana) TestReceiverIntegration(ctx context.Context, receiverName, int
 // because reads redact secrets (the Slack webhook url, a webhook bearer token),
 // and sending those redacted placeholders back makes delivery fail (e.g. an empty
 // url surfaces as "unsupported protocol scheme").
-func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName string) (ReceiverTestResult, error) {
+// integrationUID identifies which integration to test: a receiver can hold more
+// than one (two channels with the same display name collapse onto one receiver),
+// and the contact-point uid the caller verified ownership of equals the
+// integration uid, so we test that one rather than blindly the first.
+func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName, integrationUID string) (ReceiverTestResult, error) {
 	base := "/apis/notifications.alerting.grafana.app/v1beta1/namespaces/" + grafanaAlertingNamespace +
 		"/receivers/" + base64.RawURLEncoding.EncodeToString([]byte(receiverName))
 
@@ -142,11 +146,22 @@ func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName string) (
 	if err := g.do(ctx, http.MethodGet, base, nil, &receiver); err != nil {
 		return ReceiverTestResult{}, fmt.Errorf("load receiver: %w", err)
 	}
-	if len(receiver.Spec.Integrations) == 0 {
-		return ReceiverTestResult{}, fmt.Errorf("receiver %q has no integration to test", receiverName)
+
+	var integration json.RawMessage
+	for _, raw := range receiver.Spec.Integrations {
+		var meta struct {
+			UID string `json:"uid"`
+		}
+		if err := json.Unmarshal(raw, &meta); err == nil && meta.UID == integrationUID {
+			integration = raw
+			break
+		}
+	}
+	if integration == nil {
+		return ReceiverTestResult{}, fmt.Errorf("integration %q not found on receiver %q", integrationUID, receiverName)
 	}
 
-	body := map[string]any{"integration": receiver.Spec.Integrations[0]}
+	body := map[string]any{"integration": integration}
 	var out struct {
 		Status string `json:"status"`
 		Error  string `json:"error"`
