@@ -16,3 +16,14 @@
  * Override with `VITE_MULTI_SITE_ENABLED=true`.
  */
 export const MULTI_SITE_ENABLED = import.meta.env.VITE_MULTI_SITE_ENABLED === "true";
+
+/**
+ * Notifications settings (webhook/Slack delivery channels). When on, the
+ * `/settings/notifications` entry is discoverable in the settings subnav.
+ *
+ * Notifications require the Grafana sidecar, which only runs when the server is
+ * started with notifications enabled (`ENABLE_BETA_NOTIFICATIONS=true` →
+ * `just dev-notifs`). With the sidecar absent the page can't load anything, so
+ * the nav stays hidden by default. Override with `VITE_NOTIFICATIONS_ENABLED=true`.
+ */
+export const NOTIFICATIONS_ENABLED = import.meta.env.VITE_NOTIFICATIONS_ENABLED === "true";

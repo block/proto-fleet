@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 
+import { NOTIFICATIONS_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
@@ -122,12 +123,19 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     requiredPermission: "apikey:manage",
   },
-  {
-    path: "/settings/notifications",
-    label: "Notifications",
-    parent: "/settings",
-    requiredPermission: "notification:read",
-  },
+  // Behind a build-time flag: notifications need the Grafana sidecar, which is
+  // off in the default deployment. Without this the entry shows for any
+  // notification:read holder and the page fails against an absent sidecar.
+  ...(NOTIFICATIONS_ENABLED
+    ? [
+        {
+          path: "/settings/notifications",
+          label: "Notifications",
+          parent: "/settings",
+          requiredPermission: "notification:read",
+        },
+      ]
+    : []),
   {
     path: "/settings/server-logs",
     label: "Server Logs",
