@@ -103,7 +103,9 @@ const grafanaAlertingNamespace = "default"
 // API: it addresses an existing receiver by base64(name) in the path and reads the
 // integration actually under test from the request body.
 func (g *Grafana) TestReceiverIntegration(ctx context.Context, receiverName, integrationType string, settings json.RawMessage) (ReceiverTestResult, error) {
-	name := base64.RawStdEncoding.EncodeToString([]byte(receiverName))
+	// URL-safe base64 is how Grafana derives the receiver's k8s resource name, and
+	// it keeps the value free of '/'/'+' so it stays a single, unescaped path segment.
+	name := base64.RawURLEncoding.EncodeToString([]byte(receiverName))
 	path := "/apis/notifications.alerting.grafana.app/v1beta1/namespaces/" + grafanaAlertingNamespace + "/receivers/" + name + "/test"
 	body := map[string]any{
 		"integration": map[string]any{
@@ -130,7 +132,7 @@ func (g *Grafana) TestReceiverIntegration(ctx context.Context, receiverName, int
 // url surfaces as "unsupported protocol scheme").
 func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName string) (ReceiverTestResult, error) {
 	base := "/apis/notifications.alerting.grafana.app/v1beta1/namespaces/" + grafanaAlertingNamespace +
-		"/receivers/" + base64.RawStdEncoding.EncodeToString([]byte(receiverName))
+		"/receivers/" + base64.RawURLEncoding.EncodeToString([]byte(receiverName))
 
 	var receiver struct {
 		Spec struct {

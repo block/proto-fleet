@@ -235,7 +235,12 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 		return false, 0, "", err
 	}
 	defer func() {
-		if delErr := s.grafana.DeleteContactPoint(ctx, created.UID); delErr != nil {
+		// Fresh context: if the caller's ctx is already canceled (client gone or
+		// deadline hit during the test), reusing it would skip the delete and leave
+		// an org-<id>-test-* contact point that ListChannels would surface.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if delErr := s.grafana.DeleteContactPoint(cleanupCtx, created.UID); delErr != nil {
 			slog.Warn("notifications.test_channel_cleanup_failed", "uid", created.UID, "err", delErr)
 		}
 	}()

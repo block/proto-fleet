@@ -216,14 +216,18 @@ func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
 	// A read redacts the Slack url secret, so the saved-channel test can't rebuild
 	// the body from it — it must replay the stored integration (uid + secureFields)
 	// so Grafana reuses the secret. Sending the redacted value back fails delivery.
+	// Name chosen so std base64 yields a '/' ("b3JnLTctYWE/") — URL-safe encoding
+	// (which Grafana uses) must be applied so the receiver stays one path segment.
+	const grafanaName = "org-7-aa?"
 	listed := []GrafanaContactPoint{{
 		UID:      "cp-1",
-		Name:     "org-7-pager",
+		Name:     grafanaName,
 		Type:     "slack",
 		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
 	}}
 	const storedIntegration = `{"type":"slack","version":"v1","uid":"int-1","settings":{},"secureFields":{"url":true}}`
-	name := base64.RawStdEncoding.EncodeToString([]byte("org-7-pager"))
+	name := base64.RawURLEncoding.EncodeToString([]byte(grafanaName))
+	require.NotContains(t, name, "/", "receiver path segment must be URL-safe")
 
 	var testedBody []byte
 	mux := http.NewServeMux()
@@ -303,7 +307,7 @@ func TestTestChannelBeforeSaveUsesTransientReceiver(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(createdName, "org-7-test-"),
 		"transient receiver must keep the org prefix so isolation holds, got %q", createdName)
-	assert.Equal(t, base64.RawStdEncoding.EncodeToString([]byte(createdName)), testedName,
+	assert.Equal(t, base64.RawURLEncoding.EncodeToString([]byte(createdName)), testedName,
 		"test must address the transient receiver by base64(name)")
 	assert.Equal(t, "tmp-uid", deletedUID, "the transient receiver must be torn down after the test")
 
