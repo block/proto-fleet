@@ -210,7 +210,16 @@ export const summarizeFilters = (
   }
 };
 
-export const summarizeSort = (params: URLSearchParams): SortSummary | undefined => {
+/**
+ * Tabs that own `sort`/`dir` URL params. Other tabs may carry those keys as
+ * cross-navigation residue; surfacing them as a "sort summary" would offer
+ * an "Include sort" toggle that silently drops on save because the tab's
+ * canonicalization whitelist excludes the keys.
+ */
+const TABS_WITH_SORT: ReadonlySet<FleetTabId> = new Set(["miners", "racks"]);
+
+export const summarizeSort = (params: URLSearchParams, tab: FleetTabId): SortSummary | undefined => {
+  if (!TABS_WITH_SORT.has(tab)) return undefined;
   const sortField = params.get("sort");
   if (!sortField) return undefined;
 
@@ -230,7 +239,15 @@ export const stripSortFromSearchParams = (searchParams: string): string => {
   return params.toString();
 };
 
-export const summarizeDisplay = (params: URLSearchParams): DisplaySummary | undefined => {
+/**
+ * Tabs that own a `display` URL param. Miners has no grid/list toggle, so
+ * surfacing display on that tab would let the modal offer an "Include
+ * display mode" control whose value the canonicalization whitelist strips.
+ */
+const TABS_WITH_DISPLAY: ReadonlySet<FleetTabId> = new Set(["racks"]);
+
+export const summarizeDisplay = (params: URLSearchParams, tab: FleetTabId): DisplaySummary | undefined => {
+  if (!TABS_WITH_DISPLAY.has(tab)) return undefined;
   const raw = params.get(URL_DISPLAY_PARAM);
   if (!isDisplayMode(raw)) return undefined;
   return { mode: raw, label: DISPLAY_LABELS[raw] };

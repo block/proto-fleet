@@ -79,15 +79,35 @@ describe("summarizeFilters", () => {
 
 describe("summarizeSort", () => {
   it("returns undefined when no sort param is set", () => {
-    expect(summarizeSort(new URLSearchParams(""))).toBeUndefined();
+    expect(summarizeSort(new URLSearchParams(""), "miners")).toBeUndefined();
   });
 
   it("humanizes the field name and defaults direction to desc when missing", () => {
-    expect(summarizeSort(new URLSearchParams("sort=hashrate"))).toEqual({ fieldLabel: "Hashrate", direction: "desc" });
+    expect(summarizeSort(new URLSearchParams("sort=hashrate"), "miners")).toEqual({
+      fieldLabel: "Hashrate",
+      direction: "desc",
+    });
   });
 
   it("respects asc direction when present", () => {
-    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"))).toEqual({ fieldLabel: "Name", direction: "asc" });
+    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "miners")).toEqual({
+      fieldLabel: "Name",
+      direction: "asc",
+    });
+  });
+
+  it("surfaces sort on the racks tab", () => {
+    expect(summarizeSort(new URLSearchParams("sort=name&dir=desc"), "racks")).toEqual({
+      fieldLabel: "Name",
+      direction: "desc",
+    });
+  });
+
+  it("ignores sort params on tabs that don't own sort", () => {
+    // Cross-tab navigation can leave `?sort=` behind; tabs without a sort
+    // UI must not surface it as a saveable setting.
+    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "buildings")).toBeUndefined();
+    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "sites")).toBeUndefined();
   });
 });
 
@@ -105,19 +125,33 @@ describe("stripSortFromSearchParams", () => {
 
 describe("summarizeDisplay", () => {
   it("returns undefined when no display param is set", () => {
-    expect(summarizeDisplay(new URLSearchParams(""))).toBeUndefined();
+    expect(summarizeDisplay(new URLSearchParams(""), "racks")).toBeUndefined();
   });
 
-  it("humanizes the grid mode", () => {
-    expect(summarizeDisplay(new URLSearchParams("display=grid"))).toEqual({ mode: "grid", label: "Grid view" });
+  it("humanizes the grid mode on the racks tab", () => {
+    expect(summarizeDisplay(new URLSearchParams("display=grid"), "racks")).toEqual({
+      mode: "grid",
+      label: "Grid view",
+    });
   });
 
-  it("humanizes the list mode", () => {
-    expect(summarizeDisplay(new URLSearchParams("display=list"))).toEqual({ mode: "list", label: "List view" });
+  it("humanizes the list mode on the racks tab", () => {
+    expect(summarizeDisplay(new URLSearchParams("display=list"), "racks")).toEqual({
+      mode: "list",
+      label: "List view",
+    });
   });
 
   it("ignores unknown display values", () => {
-    expect(summarizeDisplay(new URLSearchParams("display=carousel"))).toBeUndefined();
+    expect(summarizeDisplay(new URLSearchParams("display=carousel"), "racks")).toBeUndefined();
+  });
+
+  it("ignores display params on tabs that don't own display", () => {
+    // Only racks has a grid/list toggle today; other tabs must not surface
+    // display as a saveable setting.
+    expect(summarizeDisplay(new URLSearchParams("display=grid"), "miners")).toBeUndefined();
+    expect(summarizeDisplay(new URLSearchParams("display=grid"), "buildings")).toBeUndefined();
+    expect(summarizeDisplay(new URLSearchParams("display=grid"), "sites")).toBeUndefined();
   });
 });
 

@@ -41,10 +41,9 @@ describe("savedViews helpers", () => {
     });
 
     it("scopes filter keys to the active tab — miner-only keys drop on the racks tab", () => {
-      // `status` is a miners-only filter; `sort`/`dir` are NOT whitelisted on
-      // racks (RacksPage keeps sort in component-local state). Only `zone`
-      // survives.
-      expect(canonicalizeSearchParams("status=offline&zone=DC1&sort=name", "racks")).toBe("zone=DC1");
+      // `status` is a miners-only filter; `zone` and `sort`/`dir` are
+      // racks-owned URL state, so they survive.
+      expect(canonicalizeSearchParams("status=offline&zone=DC1&sort=name", "racks")).toBe("sort=name&zone=DC1");
     });
 
     it("returns empty on tabs without a saveable surface", () => {

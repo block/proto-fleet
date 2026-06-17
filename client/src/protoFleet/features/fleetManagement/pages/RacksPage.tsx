@@ -10,7 +10,11 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
-import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
+import {
+  getNextSortFromSelection,
+  RACK_SORT_OPTIONS,
+  SORTABLE_COLUMNS,
+} from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
@@ -36,6 +40,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChipsBar from "@/shared/components/List/Filters/FilterChipsBar";
+import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -171,6 +176,22 @@ const RacksPage = () => {
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; selectedIssuesRef comes from useIssueFilter so we can't seed it via useRef init
   selectedIssuesRef.current = selectedIssues;
 
+  // Rack sort is URL-driven so saved views can capture and restore it (and so
+  // deep-links carrying `?sort=&dir=` land on the right ordering). Grid mode
+  // sets sort via the dropdown; list mode sets it via column headers; both
+  // resolve to the same `?sort=field&dir=asc|desc` URL state.
+  const urlRackSort = useMemo<{ field: DeviceSetColumn; direction: SortDirection } | undefined>(() => {
+    const fieldRaw = searchParams.get("sort");
+    if (!fieldRaw || !SORTABLE_COLUMNS.has(fieldRaw as DeviceSetColumn)) return undefined;
+    const dirRaw = searchParams.get("dir");
+    const direction: SortDirection = dirRaw === SORT_DESC ? SORT_DESC : SORT_ASC;
+    return { field: fieldRaw as DeviceSetColumn, direction };
+  }, [searchParams]);
+  // Capture-once initializer for the hook — only the value at mount matters,
+  // since subsequent URL changes flow through the sync effect below.
+  const initialSortRef = useRef(urlRackSort);
+  const getInitialRackSort = useCallback(() => initialSortRef.current ?? { field: "name", direction: SORT_ASC }, []);
+
   const {
     deviceSets: racks,
     statsMap,
@@ -187,7 +208,26 @@ const RacksPage = () => {
     handlePrevPage,
     resetAndFetch,
     refreshCurrentPage,
-  } = useDeviceSetListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones, getBuildingIds);
+  } = useDeviceSetListState(
+    listRacks,
+    DEFAULT_PAGE_SIZE,
+    getErrorComponentTypes,
+    getZones,
+    getBuildingIds,
+    getInitialRackSort,
+  );
+
+  // Propagate external URL sort changes (saved view activation, deep-link
+  // nav) into the hook. When the page itself drives the change via
+  // handleRackSort, currentSort and urlRackSort end up in sync on the same
+  // render and this effect no-ops.
+  useEffect(() => {
+    const urlField = urlRackSort?.field ?? "name";
+    const urlDirection = urlRackSort?.direction ?? SORT_ASC;
+    if (urlField !== currentSort.field || urlDirection !== currentSort.direction) {
+      handleSort(urlField, urlDirection);
+    }
+  }, [urlRackSort, currentSort, handleSort]);
 
   const storedRacksViewMode = useFleetStore((s) => s.ui.racksViewMode);
   const setStoredRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
@@ -612,13 +652,22 @@ const RacksPage = () => {
     return () => clearInterval(intervalId);
   }, [hasCompletedInitialFetch, isModalOpen, refreshCurrentPage]);
 
-  // Sort dropdown handler for grid view
+  // Sort handler shared by the grid dropdown and the list column headers.
+  // Writes the URL first; the sync effect above propagates to the hook.
   const handleRackSort: typeof handleSort = useCallback(
     (field, direction) => {
       setSelectedRackIds([]);
-      handleSort(field, direction);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("sort", field);
+          next.set("dir", direction);
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [handleSort],
+    [setSearchParams],
   );
 
   const handleSortSelect = useCallback(

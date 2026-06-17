@@ -137,8 +137,14 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
     () => (currentTab ? summarizeFilters(searchParams, currentTab, filterContext) : []),
     [searchParams, currentTab, filterContext],
   );
-  const sortSummary = useMemo(() => summarizeSort(searchParams), [searchParams]);
-  const displaySummary = useMemo(() => summarizeDisplay(searchParams), [searchParams]);
+  const sortSummary = useMemo(
+    () => (currentTab ? summarizeSort(searchParams, currentTab) : undefined),
+    [searchParams, currentTab],
+  );
+  const displaySummary = useMemo(
+    () => (currentTab ? summarizeDisplay(searchParams, currentTab) : undefined),
+    [searchParams, currentTab],
+  );
 
   const navigateToSavedView = useCallback(
     (view: SavedView, savedParams: string) => {
@@ -189,8 +195,8 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
     if (!activeView) return;
     const savedParams = new URLSearchParams(activeView.searchParams);
     const savedFilters = summarizeFilters(savedParams, activeView.tab, filterContext);
-    const savedSort = summarizeSort(savedParams);
-    const savedDisplay = summarizeDisplay(savedParams);
+    const savedSort = summarizeSort(savedParams, activeView.tab);
+    const savedDisplay = summarizeDisplay(savedParams, activeView.tab);
     setModal({
       open: true,
       mode: {
@@ -214,8 +220,8 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
     if (!activeView) return;
     const savedParams = new URLSearchParams(activeView.searchParams);
     const viewFilters = summarizeFilters(savedParams, activeView.tab, filterContext);
-    const viewSort = summarizeSort(savedParams);
-    const viewDisplay = summarizeDisplay(savedParams);
+    const viewSort = summarizeSort(savedParams, activeView.tab);
+    const viewDisplay = summarizeDisplay(savedParams, activeView.tab);
     // Rename is a name-only edit. The saved params stay frozen regardless of
     // current dirty state — handleSubmit branches on `intent === "rename"`
     // and skips updateUserViewParams entirely.

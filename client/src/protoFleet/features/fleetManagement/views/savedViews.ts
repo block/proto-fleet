@@ -32,17 +32,11 @@ const MINER_FILTER_KEYS: readonly string[] = [
   ...Object.keys(TELEMETRY_FILTER_BOUNDS).flatMap((key) => [`${key}_min`, `${key}_max`]),
 ];
 
-// Racks tab URL-tracks `building`, `site`, `zone`, `issues`, and `display`
-// (grid/list segmented control). `site` is a multi-site deep-link shortcut;
-// `zone` and `issues` were promoted from component-local state to URL params
-// in #398 so saved views can capture them; the rest are page filters /
-// view-mode toggles operators can capture into a saved view.
-//
-// Rack sort (`sort`/`dir`) is intentionally NOT whitelisted: `RacksPage`
-// keeps sort in `useDeviceSetListState` local state and does not read/write
-// the URL, so capturing those keys would let saved views appear to restore
-// sort while the visible list ignores them. Add `SORT_KEYS` here once rack
-// sort becomes URL-driven.
+// Racks tab URL-tracks `building`, `site`, `zone`, `issues`, `display`
+// (grid/list segmented control), and `sort`/`dir`. `site` is a multi-site
+// deep-link shortcut; the rest are page filters / view-mode toggles operators
+// can capture into a saved view. Sort is shared by the grid dropdown and the
+// list column headers — both write to the same `?sort=&dir=` URL state.
 const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display"];
 
 const SORT_KEYS: readonly string[] = ["sort", "dir"];
@@ -55,7 +49,7 @@ const SORT_KEYS: readonly string[] = ["sort", "dir"];
  */
 const FILTER_AND_SORT_KEYS_BY_TAB: Record<FleetTabId, ReadonlySet<string>> = {
   miners: new Set([...MINER_FILTER_KEYS, ...SORT_KEYS]),
-  racks: new Set([...RACK_FILTER_KEYS]),
+  racks: new Set([...RACK_FILTER_KEYS, ...SORT_KEYS]),
   buildings: new Set<string>(),
   sites: new Set<string>(),
 };
