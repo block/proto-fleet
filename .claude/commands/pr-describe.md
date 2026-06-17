@@ -103,9 +103,7 @@ describe what the code does, not the decisions made getting there.
 
 3. Draft the description in this structure:
 
-   1. `Reviewable diff: +<additions>/-<deletions> across <files> files
-      (excludes generated, test, and story files).` — the reviewable line diff
-      from step 2. This must be the first line of the PR description.
+   1. `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).` — the reviewable line diff from step 2. This must be the first line of the PR description.
    2. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
       Lead with the user- or operator-facing capability, not the implementation.
       If the PR is part of a series (step 1), follow the summary with a short
