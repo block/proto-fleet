@@ -453,6 +453,7 @@ SELECT id FROM building
 WHERE org_id = $1
   AND site_id = $2
   AND deleted_at IS NULL
+ORDER BY id ASC
 FOR UPDATE
 `
 

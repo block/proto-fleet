@@ -207,6 +207,7 @@ SELECT id FROM building
 WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL
+ORDER BY id ASC
 FOR UPDATE;
 
 -- name: AssignDevicesToSite :execrows
