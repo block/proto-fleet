@@ -301,13 +301,13 @@ type FindDeviceBuildingConflictsRow struct {
 	ConflictingBuildingID int64
 }
 
-// For every requested device, returns the building_id of its live rack
-// (NULL when the rack has no building or the device has no rack). The
-// JOIN on device_set with deleted_at IS NULL skips memberships pointing
-// at soft-deleted rack collections so a stale rack can't trigger a
-// false conflict rejection.
-// Service layer compares against the target building to surface
-// per-device conflicts.
+// Returns one row per device whose live rack has a non-NULL
+// building_id. Devices with no rack, devices in a rack without a
+// building, and devices in soft-deleted racks produce NO row at all
+// (filtered by the `dsr.building_id IS NOT NULL` predicate + the
+// `ds.deleted_at IS NULL` JOIN). The service layer compares each
+// returned building_id against the target — devices missing from the
+// result set have no conflict to report.
 func (q *Queries) FindDeviceBuildingConflicts(ctx context.Context, arg FindDeviceBuildingConflictsParams) ([]FindDeviceBuildingConflictsRow, error) {
 	rows, err := q.query(ctx, q.findDeviceBuildingConflictsStmt, findDeviceBuildingConflicts, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {

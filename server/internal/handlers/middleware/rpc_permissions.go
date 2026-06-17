@@ -99,6 +99,12 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,
+	// AssignDevicesToBuilding mirrors AssignDevicesToSite's gating: the
+	// map entry covers the site:manage primary check; the handler
+	// itself adds an inline rack:manage check when the caller opts
+	// into force_clear_conflicting_rack_membership, so site-only
+	// operators can't bypass rack auth via the force flag.
+	buildingsv1connect.BuildingServiceAssignDevicesToBuildingProcedure: authz.PermSiteManage,
 	// GetBuildingStats also calls RequirePermission(PermFleetRead) and
 	// RequirePermission(PermMinerRead) inline — those gate the telemetry
 	// rollup and the device_identifiers surface respectively. The map

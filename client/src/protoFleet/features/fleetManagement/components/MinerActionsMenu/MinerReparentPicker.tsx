@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
@@ -393,11 +394,18 @@ const MinerReparentPicker = ({
   // dispatchBuildingReassign performs the AssignDevicesToBuilding RPC.
   // When force=false we let the server enumerate per-device conflicts;
   // the caller raises a confirm dialog and re-dispatches with force=true.
+  //
+  // Conflicts come back in two flavors: DEVICE_IN_RACK_AT_OTHER_BUILDING
+  // (clearable with force=true) and DEVICE_NOT_FOUND (force does nothing
+  // — the device just doesn't exist in this org). Only the all-clearable
+  // case opens the confirm dialog; a mixed or unclearable response
+  // surfaces an error toast instead, since force-clear wouldn't unblock
+  // those identifiers.
   const dispatchBuildingReassign = (
     targetBuildingId: bigint,
     ids: string[],
     force: boolean,
-  ): Promise<{ ok: true } | { ok: false; conflictCount: number }> =>
+  ): Promise<{ ok: true } | { ok: false; clearableCount: number }> =>
     new Promise((resolve) => {
       void assignDevicesToBuilding({
         targetBuildingId,
@@ -419,7 +427,24 @@ const MinerReparentPicker = ({
             return;
           }
           if (conflicts.length > 0) {
-            resolve({ ok: false, conflictCount: conflicts.length });
+            const clearable = conflicts.filter(
+              (c) =>
+                (c.reason as PerDeviceBuildingConflictReason) ===
+                PerDeviceBuildingConflictReason.DEVICE_IN_RACK_AT_OTHER_BUILDING,
+            );
+            // Only raise the confirm dialog when every conflict can be
+            // resolved by force-clear. Otherwise (e.g. DEVICE_NOT_FOUND
+            // mixed in), Continue would re-run the RPC and still reject
+            // — surface as an error toast and don't retry.
+            if (clearable.length === conflicts.length) {
+              resolve({ ok: false, clearableCount: clearable.length });
+              return;
+            }
+            pushToast({
+              message: `Couldn't move miners: ${conflicts.length} device(s) flagged with non-clearable conflicts.`,
+              status: STATUSES.error,
+            });
+            resolve({ ok: true });
             return;
           }
           pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error });
@@ -444,10 +469,10 @@ const MinerReparentPicker = ({
   const dispatchReparentToBuilding = async (targetBuildingId: bigint, ids: string[]) => {
     const result = await dispatchBuildingReassign(targetBuildingId, ids, false);
     if (result.ok) return;
-    // Server flagged cross-building conflicts. Park onConfirm's
-    // promise on the dialog so ParentPickerModal only dismisses
-    // once the operator picks Continue (force-clear) or Cancel.
-    setBuildingMoveConfirmation({ targetBuildingId, ids, conflictCount: result.conflictCount });
+    // Server flagged cross-building conflicts that are all clearable.
+    // Park onConfirm's promise on the dialog so ParentPickerModal only
+    // dismisses once the operator picks Continue (force-clear) or Cancel.
+    setBuildingMoveConfirmation({ targetBuildingId, ids, conflictCount: result.clearableCount });
     await new Promise<void>((resolve) => {
       dialogResolveRef.current = resolve;
     });

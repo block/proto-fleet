@@ -900,8 +900,10 @@ func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID in
 	return conflicts, nil
 }
 
-// dedupeStrings collapses duplicates while preserving first-occurrence
-// order so per-device error reporting matches the operator's input.
+// dedupeStrings collapses duplicates from the operator's input list.
+// Caller is responsible for any downstream ordering — AssignDevicesToBuilding
+// sorts the result for deadlock-safe lock acquisition, and the conflict
+// response is sorted by identifier separately.
 func dedupeStrings(in []string) []string {
 	seen := make(map[string]struct{}, len(in))
 	out := make([]string, 0, len(in))

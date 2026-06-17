@@ -5,8 +5,6 @@
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
-import type { FleetListStats } from "../../common/v1/fleet_list_stats_pb";
-import { file_common_v1_fleet_list_stats } from "../../common/v1/fleet_list_stats_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -17,8 +15,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_buildings_v1_buildings: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChxidWlsZGluZ3MvdjEvYnVpbGRpbmdzLnByb3RvEgxidWlsZGluZ3MudjEioQMKCEJ1aWxkaW5nEgoKAmlkGAEgASgDEhQKB3NpdGVfaWQYAiABKANIAIgBARIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhAKCHBvd2VyX2t3GAUgASgBEhMKC292ZXJoZWFkX2t3GAYgASgBEg4KBmFpc2xlcxgHIAEoBRIbChNwaHlzaWNhbF9yYWNrX2NvdW50GAggASgFEhcKD3JhY2tzX3Blcl9haXNsZRgJIAEoBRIZChFkZWZhdWx0X3JhY2tfcm93cxgKIAEoBRIcChRkZWZhdWx0X3JhY2tfY29sdW1ucxgLIAEoBRI+ChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYDCABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXgSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQilwEKEkJ1aWxkaW5nV2l0aENvdW50cxIoCghidWlsZGluZxgBIAEoCzIWLmJ1aWxkaW5ncy52MS5CdWlsZGluZxISCgpyYWNrX2NvdW50GAIgASgDEhQKDGRldmljZV9jb3VudBgDIAEoAxItCgpsaXN0X3N0YXRzGAQgASgLMhkuY29tbW9uLnYxLkZsZWV0TGlzdFN0YXRzIlwKFExpc3RCdWlsZGluZ3NSZXF1ZXN0EhoKB3NpdGVfaWQYASABKANCB7pIBCICIABIABIZCg91bmFzc2lnbmVkX29ubHkYAiABKAhIAEINCgtzaXRlX2ZpbHRlciJMChVMaXN0QnVpbGRpbmdzUmVzcG9uc2USMwoJYnVpbGRpbmdzGAEgAygLMiAuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nV2l0aENvdW50cyIpChJHZXRCdWlsZGluZ1JlcXVlc3QSEwoCaWQYASABKANCB7pIBCICIAAiPwoTR2V0QnVpbGRpbmdSZXNwb25zZRIoCghidWlsZGluZxgBIAEoCzIWLmJ1aWxkaW5ncy52MS5CdWlsZGluZyLqBAoVQ3JlYXRlQnVpbGRpbmdSZXF1ZXN0Eh0KB3NpdGVfaWQYASABKANCB7pIBCICIABIAIgBARIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIgCghwb3dlcl9rdxgEIAEoAUIOukgLEgkpAAAAAAAAAAASIwoLb3ZlcmhlYWRfa3cYBSABKAFCDrpICxIJKQAAAAAAAAAAEhkKBmFpc2xlcxgGIAEoBUIJukgGGgQYZCgAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIgoPcmFja3NfcGVyX2Fpc2xlGAggASgFQgm6SAYaBBhkKAASIgoRZGVmYXVsdF9yYWNrX3Jvd3MYCSABKAVCB7pIBBoCKAASJQoUZGVmYXVsdF9yYWNrX2NvbHVtbnMYCiABKAVCB7pIBBoCKAASSAoYZGVmYXVsdF9yYWNrX29yZGVyX2luZGV4GAsgASgOMhwuYnVpbGRpbmdzLnYxLlJhY2tPcmRlckluZGV4Qgi6SAWCAQIQATqrAbpIpwEapAEKGGRlZmF1bHRfcmFja19kaW1zX3BhaXJlZBJFZGVmYXVsdF9yYWNrX3Jvd3MgYW5kIGRlZmF1bHRfcmFja19jb2x1bW5zIG11c3QgYm90aCBiZSAwIG9yIGJvdGggPiAwGkEodGhpcy5kZWZhdWx0X3JhY2tfcm93cyA9PSAwKSA9PSAodGhpcy5kZWZhdWx0X3JhY2tfY29sdW1ucyA9PSAwKUIKCghfc2l0ZV9pZCJCChZDcmVhdGVCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nItQEChVVcGRhdGVCdWlsZGluZ1JlcXVlc3QSEwoCaWQYASABKANCB7pIBCICIAASGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ARIdCgtkZXNjcmlwdGlvbhgDIAEoCUIIukgFcgMYgCASIAoIcG93ZXJfa3cYBCABKAFCDrpICxIJKQAAAAAAAAAAEiMKC292ZXJoZWFkX2t3GAUgASgBQg66SAsSCSkAAAAAAAAAABIZCgZhaXNsZXMYBiABKAVCCbpIBhoEGGQoABIkChNwaHlzaWNhbF9yYWNrX2NvdW50GAcgASgFQge6SAQaAigAEiIKD3JhY2tzX3Blcl9haXNsZRgIIAEoBUIJukgGGgQYZCgAEiIKEWRlZmF1bHRfcmFja19yb3dzGAkgASgFQge6SAQaAigAEiUKFGRlZmF1bHRfcmFja19jb2x1bW5zGAogASgFQge6SAQaAigAEkgKGGRlZmF1bHRfcmFja19vcmRlcl9pbmRleBgLIAEoDjIcLmJ1aWxkaW5ncy52MS5SYWNrT3JkZXJJbmRleEIIukgFggECEAE6qwG6SKcBGqQBChhkZWZhdWx0X3JhY2tfZGltc19wYWlyZWQSRWRlZmF1bHRfcmFja19yb3dzIGFuZCBkZWZhdWx0X3JhY2tfY29sdW1ucyBtdXN0IGJvdGggYmUgMCBvciBib3RoID4gMBpBKHRoaXMuZGVmYXVsdF9yYWNrX3Jvd3MgPT0gMCkgPT0gKHRoaXMuZGVmYXVsdF9yYWNrX2NvbHVtbnMgPT0gMCkiQgoWVXBkYXRlQnVpbGRpbmdSZXNwb25zZRIoCghidWlsZGluZxgBIAEoCzIWLmJ1aWxkaW5ncy52MS5CdWlsZGluZyIsChVEZWxldGVCdWlsZGluZ1JlcXVlc3QSEwoCaWQYASABKANCB7pIBCICIAAiNwoWRGVsZXRlQnVpbGRpbmdSZXNwb25zZRIdChV1bmFzc2lnbmVkX3JhY2tfY291bnQYASABKAMidQoYTGlzdEJ1aWxkaW5nUmFja3NSZXF1ZXN0EhwKC2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAAEh0KCXBhZ2Vfc2l6ZRgCIAEoBUIKukgHGgUY6AcoABIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiAECKTAQoMQnVpbGRpbmdSYWNrEg8KB3JhY2tfaWQYASABKAMSEgoKcmFja19sYWJlbBgCIAEoCRIYCgthaXNsZV9pbmRleBgDIAEoBUgAiAEBEh4KEXBvc2l0aW9uX2luX2Fpc2xlGAQgASgFSAGIAQFCDgoMX2Fpc2xlX2luZGV4QhQKEl9wb3NpdGlvbl9pbl9haXNsZSJfChlMaXN0QnVpbGRpbmdSYWNrc1Jlc3BvbnNlEikKBXJhY2tzGAEgAygLMhouYnVpbGRpbmdzLnYxLkJ1aWxkaW5nUmFjaxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkitQIKDVJhY2tQbGFjZW1lbnQSGAoHcmFja19pZBgBIAEoA0IHukgEIgIgABIhCgthaXNsZV9pbmRleBgCIAEoBUIHukgEGgIoAEgAiAEBEicKEXBvc2l0aW9uX2luX2Fpc2xlGAMgASgFQge6SAQaAigASAGIAQE6lwG6SJMBGpABChZwb3NpdGlvbl9wYWlyX3JlcXVpcmVkEkBhaXNsZV9pbmRleCBhbmQgcG9zaXRpb25faW5fYWlzbGUgbXVzdCBib3RoIGJlIHNldCBvciBib3RoIHVuc2V0GjRoYXModGhpcy5haXNsZV9pbmRleCkgPT0gaGFzKHRoaXMucG9zaXRpb25faW5fYWlzbGUpQg4KDF9haXNsZV9pbmRleEIUChJfcG9zaXRpb25faW5fYWlzbGUimAEKHEFzc2lnblJhY2tzVG9CdWlsZGluZ1JlcXVlc3QSNwoFcmFja3MYASADKAsyGy5idWlsZGluZ3MudjEuUmFja1BsYWNlbWVudEILukgIkgEFCAEQ6AcSKAoSdGFyZ2V0X2J1aWxkaW5nX2lkGAIgASgDQge6SAQiAiAASACIAQFCFQoTX3RhcmdldF9idWlsZGluZ19pZCJFCh1Bc3NpZ25SYWNrc1RvQnVpbGRpbmdSZXNwb25zZRIkChxzaXRlX3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAEgASgDIvUBCh5Bc3NpZ25EZXZpY2VzVG9CdWlsZGluZ1JlcXVlc3QSKAoSdGFyZ2V0X2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAASACIAQESMAoSZGV2aWNlX2lkZW50aWZpZXJzGAIgAygJQhS6SBGSAQ4IARCQTiIHcgUQARiAAhI0Cidmb3JjZV9jbGVhcl9jb25mbGljdGluZ19yYWNrX21lbWJlcnNoaXAYAyABKAhIAYgBAUIVChNfdGFyZ2V0X2J1aWxkaW5nX2lkQioKKF9mb3JjZV9jbGVhcl9jb25mbGljdGluZ19yYWNrX21lbWJlcnNoaXAilgEKGVBlckRldmljZUJ1aWxkaW5nQ29uZmxpY3QSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSPQoGcmVhc29uGAIgASgOMi0uYnVpbGRpbmdzLnYxLlBlckRldmljZUJ1aWxkaW5nQ29uZmxpY3RSZWFzb24SHwoXY29uZmxpY3RpbmdfYnVpbGRpbmdfaWQYAyABKAMinQEKH0Fzc2lnbkRldmljZXNUb0J1aWxkaW5nUmVzcG9uc2USGAoQcmVhc3NpZ25lZF9jb3VudBgBIAEoAxI6Cgljb25mbGljdHMYAiADKAsyJy5idWlsZGluZ3MudjEuUGVyRGV2aWNlQnVpbGRpbmdDb25mbGljdBIkChxzaXRlX3JlYXNzaWduZWRfZGV2aWNlX2NvdW50GAMgASgDIjcKF0dldEJ1aWxkaW5nU3RhdHNSZXF1ZXN0EhwKC2J1aWxkaW5nX2lkGAEgASgDQge6SAQiAiAAIqYFChhHZXRCdWlsZGluZ1N0YXRzUmVzcG9uc2USEwoLYnVpbGRpbmdfaWQYASABKAMSEgoKcmFja19jb3VudBgCIAEoBRIUCgxkZXZpY2VfY291bnQYAyABKAUSFwoPcmVwb3J0aW5nX2NvdW50GAQgASgFEhoKEnRvdGFsX2hhc2hyYXRlX3RocxgFIAEoARIaChJhdmdfZWZmaWNpZW5jeV9qdGgYBiABKAESFgoOdG90YWxfcG93ZXJfa3cYByABKAESFQoNaGFzaGluZ19jb3VudBgIIAEoBRIUCgxicm9rZW5fY291bnQYCSABKAUSFQoNb2ZmbGluZV9jb3VudBgKIAEoBRIWCg5zbGVlcGluZ19jb3VudBgLIAEoBRI1CgtyYWNrX2hlYWx0aBgMIAMoCzIgLmJ1aWxkaW5ncy52MS5CdWlsZGluZ1JhY2tIZWFsdGgSGgoSZGV2aWNlX2lkZW50aWZpZXJzGA0gAygJEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgOIAEoBRIiChplZmZpY2llbmN5X3JlcG9ydGluZ19jb3VudBgPIAEoBRIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYECABKAUSGQoRbWluX3RlbXBlcmF0dXJlX2MYESABKAESGQoRbWF4X3RlbXBlcmF0dXJlX2MYEiABKAESIwobdGVtcGVyYXR1cmVfcmVwb3J0aW5nX2NvdW50GBMgASgFEiEKGWNvbnRyb2xfYm9hcmRfaXNzdWVfY291bnQYFCABKAUSFwoPZmFuX2lzc3VlX2NvdW50GBUgASgFEh4KFmhhc2hfYm9hcmRfaXNzdWVfY291bnQYFiABKAUSFwoPcHN1X2lzc3VlX2NvdW50GBcgASgFIvUBChJCdWlsZGluZ1JhY2tIZWFsdGgSDwoHcmFja19pZBgBIAEoAxISCgpyYWNrX2xhYmVsGAIgASgJEhgKC2Fpc2xlX2luZGV4GAMgASgFSACIAQESHgoRcG9zaXRpb25faW5fYWlzbGUYBCABKAVIAYgBARIVCg1oYXNoaW5nX2NvdW50GAUgASgFEhQKDGJyb2tlbl9jb3VudBgGIAEoBRIVCg1vZmZsaW5lX2NvdW50GAcgASgFEhYKDnNsZWVwaW5nX2NvdW50GAggASgFQg4KDF9haXNsZV9pbmRleEIUChJfcG9zaXRpb25faW5fYWlzbGUqtgEKDlJhY2tPcmRlckluZGV4EiAKHFJBQ0tfT1JERVJfSU5ERVhfVU5TUEVDSUZJRUQQABIgChxSQUNLX09SREVSX0lOREVYX0JPVFRPTV9MRUZUEAESHQoZUkFDS19PUkRFUl9JTkRFWF9UT1BfTEVGVBACEiEKHVJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX1JJR0hUEAMSHgoaUkFDS19PUkRFUl9JTkRFWF9UT1BfUklHSFQQBCraAQofUGVyRGV2aWNlQnVpbGRpbmdDb25mbGljdFJlYXNvbhIzCi9QRVJfREVWSUNFX0JVSUxESU5HX0NPTkZMSUNUX1JFQVNPTl9VTlNQRUNJRklFRBAAEjgKNFBFUl9ERVZJQ0VfQlVJTERJTkdfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9OT1RfRk9VTkQQARJICkRQRVJfREVWSUNFX0JVSUxESU5HX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfSU5fUkFDS19BVF9PVEhFUl9CVUlMRElORxACMokHCg9CdWlsZGluZ1NlcnZpY2USWAoNTGlzdEJ1aWxkaW5ncxIiLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdzUmVxdWVzdBojLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdzUmVzcG9uc2USUgoLR2V0QnVpbGRpbmcSIC5idWlsZGluZ3MudjEuR2V0QnVpbGRpbmdSZXF1ZXN0GiEuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nUmVzcG9uc2USWwoOQ3JlYXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuQ3JlYXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USWwoOVXBkYXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuVXBkYXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLlVwZGF0ZUJ1aWxkaW5nUmVzcG9uc2USWwoORGVsZXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuRGVsZXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLkRlbGV0ZUJ1aWxkaW5nUmVzcG9uc2USZAoRTGlzdEJ1aWxkaW5nUmFja3MSJi5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nUmFja3NSZXF1ZXN0GicuYnVpbGRpbmdzLnYxLkxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2UScAoVQXNzaWduUmFja3NUb0J1aWxkaW5nEiouYnVpbGRpbmdzLnYxLkFzc2lnblJhY2tzVG9CdWlsZGluZ1JlcXVlc3QaKy5idWlsZGluZ3MudjEuQXNzaWduUmFja3NUb0J1aWxkaW5nUmVzcG9uc2USdgoXQXNzaWduRGV2aWNlc1RvQnVpbGRpbmcSLC5idWlsZGluZ3MudjEuQXNzaWduRGV2aWNlc1RvQnVpbGRpbmdSZXF1ZXN0Gi0uYnVpbGRpbmdzLnYxLkFzc2lnbkRldmljZXNUb0J1aWxkaW5nUmVzcG9uc2USYQoQR2V0QnVpbGRpbmdTdGF0cxIlLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1N0YXRzUmVxdWVzdBomLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1N0YXRzUmVzcG9uc2VCwAEKEGNvbS5idWlsZGluZ3MudjFCDkJ1aWxkaW5nc1Byb3RvUAFaS2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2J1aWxkaW5ncy92MTtidWlsZGluZ3N2MaICA0JYWKoCDEJ1aWxkaW5ncy5WMcoCDEJ1aWxkaW5nc1xWMeICGEJ1aWxkaW5nc1xWMVxHUEJNZXRhZGF0YeoCDUJ1aWxkaW5nczo6VjFiBnByb3RvMw",
-    [file_buf_validate_validate, file_common_v1_fleet_list_stats, file_google_protobuf_timestamp],
+    "ChxidWlsZGluZ3MvdjEvYnVpbGRpbmdzLnByb3RvEgxidWlsZGluZ3MudjEioQMKCEJ1aWxkaW5nEgoKAmlkGAEgASgDEhQKB3NpdGVfaWQYAiABKANIAIgBARIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhAKCHBvd2VyX2t3GAUgASgBEhMKC292ZXJoZWFkX2t3GAYgASgBEg4KBmFpc2xlcxgHIAEoBRIbChNwaHlzaWNhbF9yYWNrX2NvdW50GAggASgFEhcKD3JhY2tzX3Blcl9haXNsZRgJIAEoBRIZChFkZWZhdWx0X3JhY2tfcm93cxgKIAEoBRIcChRkZWZhdWx0X3JhY2tfY29sdW1ucxgLIAEoBRI+ChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYDCABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXgSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiUgoSQnVpbGRpbmdXaXRoQ291bnRzEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nEhIKCnJhY2tfY291bnQYAiABKAMiXAoUTGlzdEJ1aWxkaW5nc1JlcXVlc3QSGgoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAEhkKD3VuYXNzaWduZWRfb25seRgCIAEoCEgAQg0KC3NpdGVfZmlsdGVyIkwKFUxpc3RCdWlsZGluZ3NSZXNwb25zZRIzCglidWlsZGluZ3MYASADKAsyIC5idWlsZGluZ3MudjEuQnVpbGRpbmdXaXRoQ291bnRzIikKEkdldEJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI/ChNHZXRCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIuoEChVDcmVhdGVCdWlsZGluZ1JlcXVlc3QSHQoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAiAEBEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAyABKAlCCLpIBXIDGIAgEiAKCHBvd2VyX2t3GAQgASgBQg66SAsSCSkAAAAAAAAAABIjCgtvdmVyaGVhZF9rdxgFIAEoAUIOukgLEgkpAAAAAAAAAAASGQoGYWlzbGVzGAYgASgFQgm6SAYaBBhkKAASJAoTcGh5c2ljYWxfcmFja19jb3VudBgHIAEoBUIHukgEGgIoABIiCg9yYWNrc19wZXJfYWlzbGUYCCABKAVCCbpIBhoEGGQoABIiChFkZWZhdWx0X3JhY2tfcm93cxgJIAEoBUIHukgEGgIoABIlChRkZWZhdWx0X3JhY2tfY29sdW1ucxgKIAEoBUIHukgEGgIoABJIChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYCyABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXhCCLpIBYIBAhABOqsBukinARqkAQoYZGVmYXVsdF9yYWNrX2RpbXNfcGFpcmVkEkVkZWZhdWx0X3JhY2tfcm93cyBhbmQgZGVmYXVsdF9yYWNrX2NvbHVtbnMgbXVzdCBib3RoIGJlIDAgb3IgYm90aCA+IDAaQSh0aGlzLmRlZmF1bHRfcmFja19yb3dzID09IDApID09ICh0aGlzLmRlZmF1bHRfcmFja19jb2x1bW5zID09IDApQgoKCF9zaXRlX2lkIkIKFkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USKAoIYnVpbGRpbmcYASABKAsyFi5idWlsZGluZ3MudjEuQnVpbGRpbmci1AQKFVVwZGF0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIgCghwb3dlcl9rdxgEIAEoAUIOukgLEgkpAAAAAAAAAAASIwoLb3ZlcmhlYWRfa3cYBSABKAFCDrpICxIJKQAAAAAAAAAAEhkKBmFpc2xlcxgGIAEoBUIJukgGGgQYZCgAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIgoPcmFja3NfcGVyX2Fpc2xlGAggASgFQgm6SAYaBBhkKAASIgoRZGVmYXVsdF9yYWNrX3Jvd3MYCSABKAVCB7pIBBoCKAASJQoUZGVmYXVsdF9yYWNrX2NvbHVtbnMYCiABKAVCB7pIBBoCKAASSAoYZGVmYXVsdF9yYWNrX29yZGVyX2luZGV4GAsgASgOMhwuYnVpbGRpbmdzLnYxLlJhY2tPcmRlckluZGV4Qgi6SAWCAQIQATqrAbpIpwEapAEKGGRlZmF1bHRfcmFja19kaW1zX3BhaXJlZBJFZGVmYXVsdF9yYWNrX3Jvd3MgYW5kIGRlZmF1bHRfcmFja19jb2x1bW5zIG11c3QgYm90aCBiZSAwIG9yIGJvdGggPiAwGkEodGhpcy5kZWZhdWx0X3JhY2tfcm93cyA9PSAwKSA9PSAodGhpcy5kZWZhdWx0X3JhY2tfY29sdW1ucyA9PSAwKSJCChZVcGRhdGVCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIiwKFURlbGV0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI3ChZEZWxldGVCdWlsZGluZ1Jlc3BvbnNlEh0KFXVuYXNzaWduZWRfcmFja19jb3VudBgBIAEoAyJ1ChhMaXN0QnVpbGRpbmdSYWNrc1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAASHQoJcGFnZV9zaXplGAIgASgFQgq6SAcaBRjoBygAEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAQIpMBCgxCdWlsZGluZ1JhY2sSDwoHcmFja19pZBgBIAEoAxISCgpyYWNrX2xhYmVsGAIgASgJEhgKC2Fpc2xlX2luZGV4GAMgASgFSACIAQESHgoRcG9zaXRpb25faW5fYWlzbGUYBCABKAVIAYgBAUIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlIl8KGUxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2USKQoFcmFja3MYASADKAsyGi5idWlsZGluZ3MudjEuQnVpbGRpbmdSYWNrEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSK1AgoNUmFja1BsYWNlbWVudBIYCgdyYWNrX2lkGAEgASgDQge6SAQiAiAAEiEKC2Fpc2xlX2luZGV4GAIgASgFQge6SAQaAigASACIAQESJwoRcG9zaXRpb25faW5fYWlzbGUYAyABKAVCB7pIBBoCKABIAYgBATqXAbpIkwEakAEKFnBvc2l0aW9uX3BhaXJfcmVxdWlyZWQSQGFpc2xlX2luZGV4IGFuZCBwb3NpdGlvbl9pbl9haXNsZSBtdXN0IGJvdGggYmUgc2V0IG9yIGJvdGggdW5zZXQaNGhhcyh0aGlzLmFpc2xlX2luZGV4KSA9PSBoYXModGhpcy5wb3NpdGlvbl9pbl9haXNsZSlCDgoMX2Fpc2xlX2luZGV4QhQKEl9wb3NpdGlvbl9pbl9haXNsZSKYAQocQXNzaWduUmFja3NUb0J1aWxkaW5nUmVxdWVzdBI3CgVyYWNrcxgBIAMoCzIbLmJ1aWxkaW5ncy52MS5SYWNrUGxhY2VtZW50Qgu6SAiSAQUIARDoBxIoChJ0YXJnZXRfYnVpbGRpbmdfaWQYAiABKANCB7pIBCICIABIAIgBAUIVChNfdGFyZ2V0X2J1aWxkaW5nX2lkIkUKHUFzc2lnblJhY2tzVG9CdWlsZGluZ1Jlc3BvbnNlEiQKHHNpdGVfcmVhc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMi9QEKHkFzc2lnbkRldmljZXNUb0J1aWxkaW5nUmVxdWVzdBIoChJ0YXJnZXRfYnVpbGRpbmdfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACEjQKJ2ZvcmNlX2NsZWFyX2NvbmZsaWN0aW5nX3JhY2tfbWVtYmVyc2hpcBgDIAEoCEgBiAEBQhUKE190YXJnZXRfYnVpbGRpbmdfaWRCKgooX2ZvcmNlX2NsZWFyX2NvbmZsaWN0aW5nX3JhY2tfbWVtYmVyc2hpcCKWAQoZUGVyRGV2aWNlQnVpbGRpbmdDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRI9CgZyZWFzb24YAiABKA4yLS5idWlsZGluZ3MudjEuUGVyRGV2aWNlQnVpbGRpbmdDb25mbGljdFJlYXNvbhIfChdjb25mbGljdGluZ19idWlsZGluZ19pZBgDIAEoAyKdAQofQXNzaWduRGV2aWNlc1RvQnVpbGRpbmdSZXNwb25zZRIYChByZWFzc2lnbmVkX2NvdW50GAEgASgDEjoKCWNvbmZsaWN0cxgCIAMoCzInLmJ1aWxkaW5ncy52MS5QZXJEZXZpY2VCdWlsZGluZ0NvbmZsaWN0EiQKHHNpdGVfcmVhc3NpZ25lZF9kZXZpY2VfY291bnQYAyABKAMiNwoXR2V0QnVpbGRpbmdTdGF0c1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAAi1gMKGEdldEJ1aWxkaW5nU3RhdHNSZXNwb25zZRITCgtidWlsZGluZ19pZBgBIAEoAxISCgpyYWNrX2NvdW50GAIgASgFEhQKDGRldmljZV9jb3VudBgDIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYBCABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAUgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgGIAEoARIWCg50b3RhbF9wb3dlcl9rdxgHIAEoARIVCg1oYXNoaW5nX2NvdW50GAggASgFEhQKDGJyb2tlbl9jb3VudBgJIAEoBRIVCg1vZmZsaW5lX2NvdW50GAogASgFEhYKDnNsZWVwaW5nX2NvdW50GAsgASgFEjUKC3JhY2tfaGVhbHRoGAwgAygLMiAuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nUmFja0hlYWx0aBIaChJkZXZpY2VfaWRlbnRpZmllcnMYDSADKAkSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA4gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA8gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgQIAEoBSL1AQoSQnVpbGRpbmdSYWNrSGVhbHRoEg8KB3JhY2tfaWQYASABKAMSEgoKcmFja19sYWJlbBgCIAEoCRIYCgthaXNsZV9pbmRleBgDIAEoBUgAiAEBEh4KEXBvc2l0aW9uX2luX2Fpc2xlGAQgASgFSAGIAQESFQoNaGFzaGluZ19jb3VudBgFIAEoBRIUCgxicm9rZW5fY291bnQYBiABKAUSFQoNb2ZmbGluZV9jb3VudBgHIAEoBRIWCg5zbGVlcGluZ19jb3VudBgIIAEoBUIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlKrYBCg5SYWNrT3JkZXJJbmRleBIgChxSQUNLX09SREVSX0lOREVYX1VOU1BFQ0lGSUVEEAASIAocUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fTEVGVBABEh0KGVJBQ0tfT1JERVJfSU5ERVhfVE9QX0xFRlQQAhIhCh1SQUNLX09SREVSX0lOREVYX0JPVFRPTV9SSUdIVBADEh4KGlJBQ0tfT1JERVJfSU5ERVhfVE9QX1JJR0hUEAQq2gEKH1BlckRldmljZUJ1aWxkaW5nQ29uZmxpY3RSZWFzb24SMwovUEVSX0RFVklDRV9CVUlMRElOR19DT05GTElDVF9SRUFTT05fVU5TUEVDSUZJRUQQABI4CjRQRVJfREVWSUNFX0JVSUxESU5HX0NPTkZMSUNUX1JFQVNPTl9ERVZJQ0VfTk9UX0ZPVU5EEAESSApEUEVSX0RFVklDRV9CVUlMRElOR19DT05GTElDVF9SRUFTT05fREVWSUNFX0lOX1JBQ0tfQVRfT1RIRVJfQlVJTERJTkcQAjKJBwoPQnVpbGRpbmdTZXJ2aWNlElgKDUxpc3RCdWlsZGluZ3MSIi5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nc1JlcXVlc3QaIy5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nc1Jlc3BvbnNlElIKC0dldEJ1aWxkaW5nEiAuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nUmVxdWVzdBohLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1Jlc3BvbnNlElsKDkNyZWF0ZUJ1aWxkaW5nEiMuYnVpbGRpbmdzLnYxLkNyZWF0ZUJ1aWxkaW5nUmVxdWVzdBokLmJ1aWxkaW5ncy52MS5DcmVhdGVCdWlsZGluZ1Jlc3BvbnNlElsKDlVwZGF0ZUJ1aWxkaW5nEiMuYnVpbGRpbmdzLnYxLlVwZGF0ZUJ1aWxkaW5nUmVxdWVzdBokLmJ1aWxkaW5ncy52MS5VcGRhdGVCdWlsZGluZ1Jlc3BvbnNlElsKDkRlbGV0ZUJ1aWxkaW5nEiMuYnVpbGRpbmdzLnYxLkRlbGV0ZUJ1aWxkaW5nUmVxdWVzdBokLmJ1aWxkaW5ncy52MS5EZWxldGVCdWlsZGluZ1Jlc3BvbnNlEmQKEUxpc3RCdWlsZGluZ1JhY2tzEiYuYnVpbGRpbmdzLnYxLkxpc3RCdWlsZGluZ1JhY2tzUmVxdWVzdBonLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdSYWNrc1Jlc3BvbnNlEnAKFUFzc2lnblJhY2tzVG9CdWlsZGluZxIqLmJ1aWxkaW5ncy52MS5Bc3NpZ25SYWNrc1RvQnVpbGRpbmdSZXF1ZXN0GisuYnVpbGRpbmdzLnYxLkFzc2lnblJhY2tzVG9CdWlsZGluZ1Jlc3BvbnNlEnYKF0Fzc2lnbkRldmljZXNUb0J1aWxkaW5nEiwuYnVpbGRpbmdzLnYxLkFzc2lnbkRldmljZXNUb0J1aWxkaW5nUmVxdWVzdBotLmJ1aWxkaW5ncy52MS5Bc3NpZ25EZXZpY2VzVG9CdWlsZGluZ1Jlc3BvbnNlEmEKEEdldEJ1aWxkaW5nU3RhdHMSJS5idWlsZGluZ3MudjEuR2V0QnVpbGRpbmdTdGF0c1JlcXVlc3QaJi5idWlsZGluZ3MudjEuR2V0QnVpbGRpbmdTdGF0c1Jlc3BvbnNlQsABChBjb20uYnVpbGRpbmdzLnYxQg5CdWlsZGluZ3NQcm90b1ABWktnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9idWlsZGluZ3MvdjE7YnVpbGRpbmdzdjGiAgNCWFiqAgxCdWlsZGluZ3MuVjHKAgxCdWlsZGluZ3NcVjHiAhhCdWlsZGluZ3NcVjFcR1BCTWV0YWRhdGHqAg1CdWlsZGluZ3M6OlYxYgZwcm90bzM",
+    [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
 /**
@@ -108,8 +106,7 @@ export type Building = Message<"buildings.v1.Building"> & {
  * Describes the message buildings.v1.Building.
  * Use `create(BuildingSchema)` to create a new message.
  */
-export const BuildingSchema: GenMessage<Building> = /*@__PURE__*/
-  messageDesc(file_buildings_v1_buildings, 0);
+export const BuildingSchema: GenMessage<Building> = /*@__PURE__*/ messageDesc(file_buildings_v1_buildings, 0);
 
 /**
  * BuildingWithCounts pairs a Building with its rack_count for the
@@ -127,26 +124,14 @@ export type BuildingWithCounts = Message<"buildings.v1.BuildingWithCounts"> & {
    * @generated from field: int64 rack_count = 2;
    */
   rackCount: bigint;
-
-  /**
-   * @generated from field: int64 device_count = 3;
-   */
-  deviceCount: bigint;
-
-  /**
-   * Lightweight list/table rollup. Omitted when the caller is not
-   * authorized for telemetry stats.
-   *
-   * @generated from field: common.v1.FleetListStats list_stats = 4;
-   */
-  listStats?: FleetListStats | undefined;
 };
 
 /**
  * Describes the message buildings.v1.BuildingWithCounts.
  * Use `create(BuildingWithCountsSchema)` to create a new message.
  */
-export const BuildingWithCountsSchema: GenMessage<BuildingWithCounts> = /*@__PURE__*/
+export const BuildingWithCountsSchema: GenMessage<BuildingWithCounts> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 1);
 
 /**
@@ -159,26 +144,30 @@ export type ListBuildingsRequest = Message<"buildings.v1.ListBuildingsRequest"> 
   /**
    * @generated from oneof buildings.v1.ListBuildingsRequest.site_filter
    */
-  siteFilter: {
-    /**
-     * @generated from field: int64 site_id = 1;
-     */
-    value: bigint;
-    case: "siteId";
-  } | {
-    /**
-     * @generated from field: bool unassigned_only = 2;
-     */
-    value: boolean;
-    case: "unassignedOnly";
-  } | { case: undefined; value?: undefined };
+  siteFilter:
+    | {
+        /**
+         * @generated from field: int64 site_id = 1;
+         */
+        value: bigint;
+        case: "siteId";
+      }
+    | {
+        /**
+         * @generated from field: bool unassigned_only = 2;
+         */
+        value: boolean;
+        case: "unassignedOnly";
+      }
+    | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message buildings.v1.ListBuildingsRequest.
  * Use `create(ListBuildingsRequestSchema)` to create a new message.
  */
-export const ListBuildingsRequestSchema: GenMessage<ListBuildingsRequest> = /*@__PURE__*/
+export const ListBuildingsRequestSchema: GenMessage<ListBuildingsRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 2);
 
 /**
@@ -195,7 +184,8 @@ export type ListBuildingsResponse = Message<"buildings.v1.ListBuildingsResponse"
  * Describes the message buildings.v1.ListBuildingsResponse.
  * Use `create(ListBuildingsResponseSchema)` to create a new message.
  */
-export const ListBuildingsResponseSchema: GenMessage<ListBuildingsResponse> = /*@__PURE__*/
+export const ListBuildingsResponseSchema: GenMessage<ListBuildingsResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 3);
 
 /**
@@ -212,7 +202,8 @@ export type GetBuildingRequest = Message<"buildings.v1.GetBuildingRequest"> & {
  * Describes the message buildings.v1.GetBuildingRequest.
  * Use `create(GetBuildingRequestSchema)` to create a new message.
  */
-export const GetBuildingRequestSchema: GenMessage<GetBuildingRequest> = /*@__PURE__*/
+export const GetBuildingRequestSchema: GenMessage<GetBuildingRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 4);
 
 /**
@@ -229,7 +220,8 @@ export type GetBuildingResponse = Message<"buildings.v1.GetBuildingResponse"> & 
  * Describes the message buildings.v1.GetBuildingResponse.
  * Use `create(GetBuildingResponseSchema)` to create a new message.
  */
-export const GetBuildingResponseSchema: GenMessage<GetBuildingResponse> = /*@__PURE__*/
+export const GetBuildingResponseSchema: GenMessage<GetBuildingResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 5);
 
 /**
@@ -303,7 +295,8 @@ export type CreateBuildingRequest = Message<"buildings.v1.CreateBuildingRequest"
  * Describes the message buildings.v1.CreateBuildingRequest.
  * Use `create(CreateBuildingRequestSchema)` to create a new message.
  */
-export const CreateBuildingRequestSchema: GenMessage<CreateBuildingRequest> = /*@__PURE__*/
+export const CreateBuildingRequestSchema: GenMessage<CreateBuildingRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 6);
 
 /**
@@ -320,7 +313,8 @@ export type CreateBuildingResponse = Message<"buildings.v1.CreateBuildingRespons
  * Describes the message buildings.v1.CreateBuildingResponse.
  * Use `create(CreateBuildingResponseSchema)` to create a new message.
  */
-export const CreateBuildingResponseSchema: GenMessage<CreateBuildingResponse> = /*@__PURE__*/
+export const CreateBuildingResponseSchema: GenMessage<CreateBuildingResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 7);
 
 /**
@@ -391,7 +385,8 @@ export type UpdateBuildingRequest = Message<"buildings.v1.UpdateBuildingRequest"
  * Describes the message buildings.v1.UpdateBuildingRequest.
  * Use `create(UpdateBuildingRequestSchema)` to create a new message.
  */
-export const UpdateBuildingRequestSchema: GenMessage<UpdateBuildingRequest> = /*@__PURE__*/
+export const UpdateBuildingRequestSchema: GenMessage<UpdateBuildingRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 8);
 
 /**
@@ -408,7 +403,8 @@ export type UpdateBuildingResponse = Message<"buildings.v1.UpdateBuildingRespons
  * Describes the message buildings.v1.UpdateBuildingResponse.
  * Use `create(UpdateBuildingResponseSchema)` to create a new message.
  */
-export const UpdateBuildingResponseSchema: GenMessage<UpdateBuildingResponse> = /*@__PURE__*/
+export const UpdateBuildingResponseSchema: GenMessage<UpdateBuildingResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 9);
 
 /**
@@ -425,7 +421,8 @@ export type DeleteBuildingRequest = Message<"buildings.v1.DeleteBuildingRequest"
  * Describes the message buildings.v1.DeleteBuildingRequest.
  * Use `create(DeleteBuildingRequestSchema)` to create a new message.
  */
-export const DeleteBuildingRequestSchema: GenMessage<DeleteBuildingRequest> = /*@__PURE__*/
+export const DeleteBuildingRequestSchema: GenMessage<DeleteBuildingRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 10);
 
 /**
@@ -442,7 +439,8 @@ export type DeleteBuildingResponse = Message<"buildings.v1.DeleteBuildingRespons
  * Describes the message buildings.v1.DeleteBuildingResponse.
  * Use `create(DeleteBuildingResponseSchema)` to create a new message.
  */
-export const DeleteBuildingResponseSchema: GenMessage<DeleteBuildingResponse> = /*@__PURE__*/
+export const DeleteBuildingResponseSchema: GenMessage<DeleteBuildingResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 11);
 
 /**
@@ -481,7 +479,8 @@ export type ListBuildingRacksRequest = Message<"buildings.v1.ListBuildingRacksRe
  * Describes the message buildings.v1.ListBuildingRacksRequest.
  * Use `create(ListBuildingRacksRequestSchema)` to create a new message.
  */
-export const ListBuildingRacksRequestSchema: GenMessage<ListBuildingRacksRequest> = /*@__PURE__*/
+export const ListBuildingRacksRequestSchema: GenMessage<ListBuildingRacksRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 12);
 
 /**
@@ -517,8 +516,7 @@ export type BuildingRack = Message<"buildings.v1.BuildingRack"> & {
  * Describes the message buildings.v1.BuildingRack.
  * Use `create(BuildingRackSchema)` to create a new message.
  */
-export const BuildingRackSchema: GenMessage<BuildingRack> = /*@__PURE__*/
-  messageDesc(file_buildings_v1_buildings, 13);
+export const BuildingRackSchema: GenMessage<BuildingRack> = /*@__PURE__*/ messageDesc(file_buildings_v1_buildings, 13);
 
 /**
  * @generated from message buildings.v1.ListBuildingRacksResponse
@@ -544,7 +542,8 @@ export type ListBuildingRacksResponse = Message<"buildings.v1.ListBuildingRacksR
  * Describes the message buildings.v1.ListBuildingRacksResponse.
  * Use `create(ListBuildingRacksResponseSchema)` to create a new message.
  */
-export const ListBuildingRacksResponseSchema: GenMessage<ListBuildingRacksResponse> = /*@__PURE__*/
+export const ListBuildingRacksResponseSchema: GenMessage<ListBuildingRacksResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 14);
 
 /**
@@ -580,7 +579,8 @@ export type RackPlacement = Message<"buildings.v1.RackPlacement"> & {
  * Describes the message buildings.v1.RackPlacement.
  * Use `create(RackPlacementSchema)` to create a new message.
  */
-export const RackPlacementSchema: GenMessage<RackPlacement> = /*@__PURE__*/
+export const RackPlacementSchema: GenMessage<RackPlacement> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 15);
 
 /**
@@ -604,7 +604,8 @@ export type AssignRacksToBuildingRequest = Message<"buildings.v1.AssignRacksToBu
  * Describes the message buildings.v1.AssignRacksToBuildingRequest.
  * Use `create(AssignRacksToBuildingRequestSchema)` to create a new message.
  */
-export const AssignRacksToBuildingRequestSchema: GenMessage<AssignRacksToBuildingRequest> = /*@__PURE__*/
+export const AssignRacksToBuildingRequestSchema: GenMessage<AssignRacksToBuildingRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 16);
 
 /**
@@ -625,7 +626,8 @@ export type AssignRacksToBuildingResponse = Message<"buildings.v1.AssignRacksToB
  * Describes the message buildings.v1.AssignRacksToBuildingResponse.
  * Use `create(AssignRacksToBuildingResponseSchema)` to create a new message.
  */
-export const AssignRacksToBuildingResponseSchema: GenMessage<AssignRacksToBuildingResponse> = /*@__PURE__*/
+export const AssignRacksToBuildingResponseSchema: GenMessage<AssignRacksToBuildingResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 17);
 
 /**
@@ -664,7 +666,8 @@ export type AssignDevicesToBuildingRequest = Message<"buildings.v1.AssignDevices
  * Describes the message buildings.v1.AssignDevicesToBuildingRequest.
  * Use `create(AssignDevicesToBuildingRequestSchema)` to create a new message.
  */
-export const AssignDevicesToBuildingRequestSchema: GenMessage<AssignDevicesToBuildingRequest> = /*@__PURE__*/
+export const AssignDevicesToBuildingRequestSchema: GenMessage<AssignDevicesToBuildingRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 18);
 
 /**
@@ -698,7 +701,8 @@ export type PerDeviceBuildingConflict = Message<"buildings.v1.PerDeviceBuildingC
  * Describes the message buildings.v1.PerDeviceBuildingConflict.
  * Use `create(PerDeviceBuildingConflictSchema)` to create a new message.
  */
-export const PerDeviceBuildingConflictSchema: GenMessage<PerDeviceBuildingConflict> = /*@__PURE__*/
+export const PerDeviceBuildingConflictSchema: GenMessage<PerDeviceBuildingConflict> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 19);
 
 /**
@@ -732,7 +736,8 @@ export type AssignDevicesToBuildingResponse = Message<"buildings.v1.AssignDevice
  * Describes the message buildings.v1.AssignDevicesToBuildingResponse.
  * Use `create(AssignDevicesToBuildingResponseSchema)` to create a new message.
  */
-export const AssignDevicesToBuildingResponseSchema: GenMessage<AssignDevicesToBuildingResponse> = /*@__PURE__*/
+export const AssignDevicesToBuildingResponseSchema: GenMessage<AssignDevicesToBuildingResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 20);
 
 /**
@@ -749,7 +754,8 @@ export type GetBuildingStatsRequest = Message<"buildings.v1.GetBuildingStatsRequ
  * Describes the message buildings.v1.GetBuildingStatsRequest.
  * Use `create(GetBuildingStatsRequestSchema)` to create a new message.
  */
-export const GetBuildingStatsRequestSchema: GenMessage<GetBuildingStatsRequest> = /*@__PURE__*/
+export const GetBuildingStatsRequestSchema: GenMessage<GetBuildingStatsRequest> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 21);
 
 /**
@@ -864,48 +870,14 @@ export type GetBuildingStatsResponse = Message<"buildings.v1.GetBuildingStatsRes
    * @generated from field: int32 power_reporting_count = 16;
    */
   powerReportingCount: number;
-
-  /**
-   * @generated from field: double min_temperature_c = 17;
-   */
-  minTemperatureC: number;
-
-  /**
-   * @generated from field: double max_temperature_c = 18;
-   */
-  maxTemperatureC: number;
-
-  /**
-   * @generated from field: int32 temperature_reporting_count = 19;
-   */
-  temperatureReportingCount: number;
-
-  /**
-   * @generated from field: int32 control_board_issue_count = 20;
-   */
-  controlBoardIssueCount: number;
-
-  /**
-   * @generated from field: int32 fan_issue_count = 21;
-   */
-  fanIssueCount: number;
-
-  /**
-   * @generated from field: int32 hash_board_issue_count = 22;
-   */
-  hashBoardIssueCount: number;
-
-  /**
-   * @generated from field: int32 psu_issue_count = 23;
-   */
-  psuIssueCount: number;
 };
 
 /**
  * Describes the message buildings.v1.GetBuildingStatsResponse.
  * Use `create(GetBuildingStatsResponseSchema)` to create a new message.
  */
-export const GetBuildingStatsResponseSchema: GenMessage<GetBuildingStatsResponse> = /*@__PURE__*/
+export const GetBuildingStatsResponseSchema: GenMessage<GetBuildingStatsResponse> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 22);
 
 /**
@@ -962,7 +934,8 @@ export type BuildingRackHealth = Message<"buildings.v1.BuildingRackHealth"> & {
  * Describes the message buildings.v1.BuildingRackHealth.
  * Use `create(BuildingRackHealthSchema)` to create a new message.
  */
-export const BuildingRackHealthSchema: GenMessage<BuildingRackHealth> = /*@__PURE__*/
+export const BuildingRackHealthSchema: GenMessage<BuildingRackHealth> =
+  /*@__PURE__*/
   messageDesc(file_buildings_v1_buildings, 23);
 
 /**
@@ -1002,8 +975,7 @@ export enum RackOrderIndex {
 /**
  * Describes the enum buildings.v1.RackOrderIndex.
  */
-export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/
-  enumDesc(file_buildings_v1_buildings, 0);
+export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/ enumDesc(file_buildings_v1_buildings, 0);
 
 /**
  * PerDeviceBuildingConflictReason enumerates the reasons a device can be
@@ -1031,7 +1003,8 @@ export enum PerDeviceBuildingConflictReason {
 /**
  * Describes the enum buildings.v1.PerDeviceBuildingConflictReason.
  */
-export const PerDeviceBuildingConflictReasonSchema: GenEnum<PerDeviceBuildingConflictReason> = /*@__PURE__*/
+export const PerDeviceBuildingConflictReasonSchema: GenEnum<PerDeviceBuildingConflictReason> =
+  /*@__PURE__*/
   enumDesc(file_buildings_v1_buildings, 1);
 
 /**
@@ -1056,7 +1029,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof ListBuildingsRequestSchema;
     output: typeof ListBuildingsResponseSchema;
-  },
+  };
   /**
    * GetBuilding returns a single building by id. Returns NotFound if the
    * building does not exist or belongs to another org.
@@ -1067,7 +1040,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof GetBuildingRequestSchema;
     output: typeof GetBuildingResponseSchema;
-  },
+  };
   /**
    * CreateBuilding inserts a new building. Name must be unique
    * within the assigned site (when site_id is set); unassigned
@@ -1080,7 +1053,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof CreateBuildingRequestSchema;
     output: typeof CreateBuildingResponseSchema;
-  },
+  };
   /**
    * UpdateBuilding mutates name, description, capacity, layout
    * defaults. Site assignment is *not* changed by UpdateBuilding —
@@ -1093,7 +1066,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof UpdateBuildingRequestSchema;
     output: typeof UpdateBuildingResponseSchema;
-  },
+  };
   /**
    * DeleteBuilding soft-deletes the building and, in the same
    * transaction, sets device_set_rack.building_id = NULL on every
@@ -1105,7 +1078,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof DeleteBuildingRequestSchema;
     output: typeof DeleteBuildingResponseSchema;
-  },
+  };
   /**
    * ListBuildingRacks returns every rack currently assigned to the
    * building along with its grid placement (aisle_index,
@@ -1119,7 +1092,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof ListBuildingRacksRequestSchema;
     output: typeof ListBuildingRacksResponseSchema;
-  },
+  };
   /**
    * AssignRacksToBuilding sets each rack's building_id and optionally
    * positions it at (aisle_index, position_in_aisle) inside the
@@ -1138,7 +1111,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof AssignRacksToBuildingRequestSchema;
     output: typeof AssignRacksToBuildingResponseSchema;
-  },
+  };
   /**
    * AssignDevicesToBuilding is an all-or-nothing bulk update of
    * device.building_id. If any device is in a rack whose building_id
@@ -1155,7 +1128,7 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof AssignDevicesToBuildingRequestSchema;
     output: typeof AssignDevicesToBuildingResponseSchema;
-  },
+  };
   /**
    * GetBuildingStats returns server-rolled telemetry + miner-state
    * counts for every device whose rack lives in the building, plus a
@@ -1169,7 +1142,5 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof GetBuildingStatsRequestSchema;
     output: typeof GetBuildingStatsResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_buildings_v1_buildings, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_buildings_v1_buildings, 0);
