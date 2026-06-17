@@ -165,8 +165,9 @@ const RacksPage = () => {
   const { activeSite } = useActiveSite({ knownSiteIds });
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
-  // listDeviceSets has no native siteIds filter, so we resolve
-  // site → buildings client-side and pipe through buildingIds.
+  // `?site=` URL deep links carry one or more comma-separated site IDs.
+  // Forwarded server-side via the new ListDeviceSets.site_ids filter; the
+  // SitePicker drives when the URL doesn't pin a site.
   const urlSiteIds = useMemo(
     () =>
       new Set(
@@ -580,8 +581,7 @@ const RacksPage = () => {
   // Refetch on resolved site-filter change (URL `?site=` or SitePicker
   // selection). Same ref-read pattern as the building effect above.
   const effectiveSiteKey = useMemo(
-    () =>
-      `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}`,
+    () => `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}`,
     [effectiveSiteFilter],
   );
   const prevSiteKey = useRef<string | null>(null);

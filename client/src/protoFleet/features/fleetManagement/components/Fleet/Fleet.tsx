@@ -9,7 +9,10 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import { type MinerListFilter, MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  type MinerListFilter,
+  MinerListFilterSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
