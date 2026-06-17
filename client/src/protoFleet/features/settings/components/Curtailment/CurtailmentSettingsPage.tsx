@@ -22,6 +22,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
   type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
@@ -490,6 +491,8 @@ function validateSourceFormValues(values: CurtailmentSourceFormValues, passwordR
     errors.stalenessThresholdSec = "Enter a timeout.";
   } else if (!isPositiveInteger(values.stalenessThresholdSec)) {
     errors.stalenessThresholdSec = "Enter timeout as a whole number greater than 0.";
+  } else if (Number(values.stalenessThresholdSec) > MAX_SOURCE_STALENESS_THRESHOLD_SEC) {
+    errors.stalenessThresholdSec = `Enter timeout of ${MAX_SOURCE_STALENESS_THRESHOLD_SEC.toLocaleString()} seconds or less.`;
   }
 
   return errors;

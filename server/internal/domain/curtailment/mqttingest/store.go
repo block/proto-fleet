@@ -315,6 +315,7 @@ func isSourceConfigNameUniqueViolation(err error) bool {
 const (
 	defaultBrokerPort            int32 = 1883
 	defaultStalenessThresholdSec int32 = 240
+	maxStalenessThresholdSec     int32 = 24 * 60 * 60
 )
 
 func sourceConfigFromRow(r sqlc.CurtailmentMqttSourceConfig) SourceConfig {

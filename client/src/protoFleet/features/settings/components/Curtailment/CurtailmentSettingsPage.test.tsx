@@ -1307,6 +1307,24 @@ describe("CurtailmentSettingsPage", () => {
     });
   });
 
+  it("rejects oversized source no-signal timeout values", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockSourcesApi({ sources: apiSources, updateSource: updateSourceMock });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(getSourceRow("Site Alpha MQTT"));
+    fireEvent.change(screen.getByLabelText("No signal timeout"), { target: { value: "86401" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByText("Enter timeout of 86,400 seconds or less.")).toBeVisible());
+    expect(updateSourceMock).not.toHaveBeenCalled();
+  });
+
   it("deletes a source through the API hook from the routed page", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     deleteSourceMock.mockResolvedValue(undefined);

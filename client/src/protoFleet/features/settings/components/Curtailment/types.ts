@@ -2,6 +2,7 @@ export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | 
 export type AutomationTriggerType = "MQTT";
 
 export const DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC = 240;
+export const MAX_SOURCE_STALENESS_THRESHOLD_SEC = 24 * 60 * 60;
 
 export type CurtailmentSource = {
   id: string;

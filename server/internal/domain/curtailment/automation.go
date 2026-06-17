@@ -264,6 +264,17 @@ func (s *AutomationService) shouldCoalesceRepeatedOff(
 	return event != nil && !event.State.IsTerminal() && event.State != models.EventStateRestoring, nil
 }
 
+func eventMaxDurationElapsed(event *models.Event, now time.Time) bool {
+	if event == nil ||
+		event.AllowUnbounded ||
+		event.MaxDurationSeconds == nil ||
+		*event.MaxDurationSeconds <= 0 ||
+		event.StartedAt == nil {
+		return false
+	}
+	return now.Sub(*event.StartedAt) >= time.Duration(*event.MaxDurationSeconds)*time.Second
+}
+
 func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.AutomationRule, signal mqttingest.SignalEdge, at time.Time) error {
 	if rule.ActiveEventUUID != nil {
 		event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
@@ -274,6 +285,9 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		case event == nil || event.State.IsTerminal():
 			// Stale state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
+			if eventMaxDurationElapsed(event, at) {
+				return nil
+			}
 			recurtailed, err := s.curtailment.Recurtail(ctx, RecurtailRequest{
 				OrgID:     rule.OrgID,
 				EventUUID: event.EventUUID,

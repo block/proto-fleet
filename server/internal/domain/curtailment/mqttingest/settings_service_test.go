@@ -368,6 +368,24 @@ func TestSettingsService_CreateRejectsSourceNameLongerThanSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "source_name must be at most 64 characters")
 }
 
+func TestSettingsService_CreateRejectsOversizedStalenessThreshold(t *testing.T) {
+	t.Parallel()
+
+	svc, err := NewSettingsService(SettingsServiceConfig{Store: newFakeSettingsStore(), Cipher: &fakeSettingsCipher{}})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.StalenessThreshold = time.Duration(maxStalenessThresholdSec+1) * time.Second
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "staleness_threshold_sec")
+}
+
 func TestSourceConfigPersistErrorMapsDuplicateNameConstraint(t *testing.T) {
 	t.Parallel()
 

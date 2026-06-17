@@ -407,6 +407,9 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 	if source.StalenessThreshold <= 0 {
 		return fleeterror.NewInvalidArgumentError("staleness_threshold_sec must be greater than zero")
 	}
+	if source.StalenessThreshold > time.Duration(maxStalenessThresholdSec)*time.Second {
+		return fleeterror.NewInvalidArgumentErrorf("staleness_threshold_sec must be <= %d", maxStalenessThresholdSec)
+	}
 	return nil
 }
 

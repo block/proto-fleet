@@ -844,7 +844,7 @@ message CreateMqttCurtailmentSourceRequest {
     string mqtt_password = 8 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
 
     string payload_format = 11 [(buf.validate.field).string.max_len = 64];
-    uint32 staleness_threshold_sec = 13;
+    uint32 staleness_threshold_sec = 13 [(buf.validate.field).uint32.lte = 86400];
 }
 
 message CreateMqttCurtailmentSourceResponse {
@@ -868,7 +868,7 @@ message UpdateMqttCurtailmentSourceRequest {
     optional string mqtt_password = 9 [(buf.validate.field).string = { min_len: 1, max_len: 1024 }];
 
     optional string payload_format = 13 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
-    optional uint32 staleness_threshold_sec = 15;
+    optional uint32 staleness_threshold_sec = 15 [(buf.validate.field).uint32.lte = 86400];
     optional bool clear_staleness_threshold_sec = 16;
 }
 
