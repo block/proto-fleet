@@ -55,3 +55,57 @@ type Channel struct {
 	ValidationError string
 	HasSecret       bool
 }
+
+type RuleTemplate string
+
+const (
+	RuleTemplateOffline        RuleTemplate = "offline"
+	RuleTemplateHashrate       RuleTemplate = "hashrate"
+	RuleTemplateTemperature    RuleTemplate = "temperature"
+	RuleTemplatePool           RuleTemplate = "pool"
+	RuleTemplateCommandFailure RuleTemplate = "command_failure"
+	RuleTemplateTelemetryPoll  RuleTemplate = "telemetry-poll"
+)
+
+type Rule struct {
+	ID              string
+	OrganizationID  int64
+	Name            string
+	Template        RuleTemplate
+	Group           string
+	Severity        string
+	Summary         string
+	Description     string
+	DurationSeconds int32
+	Enabled         bool
+}
+
+type MaintenanceWindowScopeKind string
+
+const (
+	MaintenanceWindowScopeRule   MaintenanceWindowScopeKind = "rule"
+	MaintenanceWindowScopeGroup  MaintenanceWindowScopeKind = "group"
+	MaintenanceWindowScopeSite   MaintenanceWindowScopeKind = "site"
+	MaintenanceWindowScopeDevice MaintenanceWindowScopeKind = "device"
+)
+
+type MaintenanceWindowScope struct {
+	Kind      MaintenanceWindowScopeKind
+	RuleID    string
+	GroupID   string
+	SiteID    string
+	DeviceIDs []string
+}
+
+// Active is derived from Now() ∈ [StartsAt, EndsAt) at read time.
+type MaintenanceWindow struct {
+	ID             string
+	OrganizationID int64
+	Scope          MaintenanceWindowScope
+	StartsAt       time.Time
+	EndsAt         time.Time
+	Comment        string
+	CreatedBy      string
+	CreatedAt      time.Time
+	Active         bool
+}

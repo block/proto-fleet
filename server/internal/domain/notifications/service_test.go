@@ -14,6 +14,72 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+func TestValidateMaintenanceWindowScope(t *testing.T) {
+	cases := []struct {
+		name    string
+		scope   MaintenanceWindowScope
+		wantErr bool
+	}{
+		{"rule with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "r1"}, false},
+		{"rule without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule}, true},
+		{"group with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup, GroupID: "g1"}, false},
+		{"group without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup}, true},
+		{"site with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeSite, SiteID: "s1"}, false},
+		{"site without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeSite}, true},
+		{"device with targets", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"d1"}}, false},
+		{"device without targets", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice}, true},
+		{"device uuid and mac ids", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{
+			"550e8400-e29b-41d4-a716-446655440000", "aa:bb:cc:dd:ee:ff", "SN.001",
+		}}, false},
+		{"device id regex wildcard rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{".*"}}, true},
+		{"device id regex alternation rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"a|b"}}, true},
+		{"device id with anchors rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"^d1$"}}, true},
+		{"unknown kind", MaintenanceWindowScope{Kind: "everything"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMaintenanceWindowScope(tc.scope)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCreateMaintenanceWindowRejectsTargetlessScope(t *testing.T) {
+	svc := NewService(nil, DestinationPolicy{})
+	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		Scope: MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup},
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestDeviceScopeRegexCompilation(t *testing.T) {
+	sil := MaintenanceWindow{Scope: MaintenanceWindowScope{
+		Kind:      MaintenanceWindowScopeDevice,
+		DeviceIDs: []string{"dev-1", "SN.001"},
+	}}
+	gs := maintenanceWindowToGrafanaSilence(7, sil)
+
+	var matcher *GrafanaSilenceMatcher
+	for i, m := range gs.Matchers {
+		if m.Name == "device_id" {
+			matcher = &gs.Matchers[i]
+		}
+	}
+	require.NotNil(t, matcher)
+	assert.True(t, matcher.IsRegex)
+	assert.Equal(t, `^(?:dev-1|SN\.001)$`, matcher.Value)
+
+	scope := matchersToScope(gs.Matchers)
+	assert.Equal(t, MaintenanceWindowScopeDevice, scope.Kind)
+	assert.Equal(t, []string{"dev-1", "SN.001"}, scope.DeviceIDs)
+}
+
 func TestValidateDestination(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -533,4 +599,50 @@ func TestUpdateChannelRejectsForeignOrg(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrNotFound)
 	assert.Nil(t, putBody, "no PUT should reach Grafana for a foreign org's channel")
+}
+
+func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte) *Grafana {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("POST /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		*postBody = b
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"silenceID":"sil-1"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return NewGrafana(GrafanaConfig{URL: srv.URL})
+}
+
+func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
+	existing := []GrafanaSilence{{
+		ID:        "sil-1",
+		CreatedBy: "alice@example.com",
+		Comment:   "old",
+		Matchers: []GrafanaSilenceMatcher{
+			{Name: "organization_id", Value: "7", IsEqual: true},
+			{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
+		},
+	}}
+	var postBody []byte
+	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), DestinationPolicy{})
+
+	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID:      "sil-1",
+		Comment: "updated",
+		Scope:   MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+	})
+	require.NoError(t, err)
+
+	var sent struct {
+		CreatedBy string `json:"createdBy"`
+	}
+	require.NoError(t, json.Unmarshal(postBody, &sent))
+	assert.Equal(t, "alice@example.com", sent.CreatedBy, "update must carry the original creator")
 }

@@ -36,3 +36,43 @@ export interface Channel {
   validation_error?: string;
   has_secret?: boolean;
 }
+
+export type RuleTemplate = "offline" | "temperature" | "hashrate" | "pool" | "command_failure" | "telemetry-poll" | "";
+
+export interface Rule {
+  id: string;
+  organization_id: string;
+  name: string;
+  template: RuleTemplate;
+  group: string;
+  severity: string;
+  summary: string;
+  description: string;
+  duration_seconds: number;
+  enabled: boolean;
+}
+
+export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";
+
+export interface MaintenanceWindowScope {
+  kind: MaintenanceWindowScopeKind;
+  rule_id: string | null;
+  group_id: string | null;
+  site_id: string | null;
+  device_ids: string[];
+}
+
+export interface MaintenanceWindow {
+  id: string;
+  organization_id: string;
+  scope: MaintenanceWindowScope;
+  starts_at: string;
+  ends_at: string | null;
+  comment: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface MaintenanceWindowWithActive extends MaintenanceWindow {
+  active: boolean;
+}

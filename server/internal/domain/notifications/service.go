@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -410,6 +413,346 @@ func isReservedIP(ip net.IP) bool {
 	return false
 }
 
+func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	rules, err := s.grafana.ListAlertRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	want := strconv.FormatInt(orgID, 10)
+	out := make([]Rule, 0, len(rules))
+	for _, gr := range rules {
+		if !ruleVisibleToOrg(gr, want) {
+			continue
+		}
+		out = append(out, grafanaRuleToDomain(orgID, gr))
+	}
+	paused := s.pauseSilencedRules(ctx, orgID)
+	if len(paused) > 0 {
+		for i := range out {
+			if paused[out[i].ID] {
+				out[i].Enabled = false
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// Mutes via a marker pause-silence rather than flipping isPaused: Grafana 11.6+ forbids the provisioning API from editing YAML-provisioned rules.
+func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	rule, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	if !rule.Enabled {
+		return rule, nil
+	}
+	silence := buildPauseSilence(orgID, id, s.now())
+	if _, err := s.grafana.PutSilence(ctx, silence); err != nil {
+		return nil, err
+	}
+	out := *rule
+	out.Enabled = false
+	return &out, nil
+}
+
+// Clears any active pause silence; a YAML-provisioned isPaused still keeps the rule paused.
+func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	_, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	want := strconv.FormatInt(orgID, 10)
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, sil := range sils {
+		if !isPauseSilenceFor(sil, want, id) {
+			continue
+		}
+		if sil.Status != nil && sil.Status.State == "expired" {
+			continue
+		}
+		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {
+			return nil, err
+		}
+	}
+	updated, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if id == "" {
+		return nil, errors.New("rule id is required")
+	}
+	rules, err := s.ListRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		if rules[i].ID == id {
+			return &rules[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// Best-effort: a fetch error returns an empty map so the list still renders.
+func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) map[string]bool {
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return nil
+	}
+	want := strconv.FormatInt(orgID, 10)
+	now := s.now()
+	out := map[string]bool{}
+	for _, sil := range sils {
+		if !isPauseSilence(sil) {
+			continue
+		}
+		if !silenceMatchesOrg(sil, want) {
+			continue
+		}
+		if !maintenanceWindowActive(grafanaSilenceToDomain(orgID, sil, now), now) {
+			continue
+		}
+		for _, m := range sil.Matchers {
+			if m.Name == alertRuleUIDMatcher && m.IsEqual && !m.IsRegex {
+				out[m.Value] = true
+			}
+		}
+	}
+	return out
+}
+
+func (s *Service) ListMaintenanceWindows(ctx context.Context, orgID int64) ([]MaintenanceWindow, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return nil, err
+	}
+	want := strconv.FormatInt(orgID, 10)
+	now := s.now()
+	out := make([]MaintenanceWindow, 0, len(sils))
+	for _, gs := range sils {
+		if !silenceMatchesOrg(gs, want) {
+			continue
+		}
+		// Hide pause silences; they're an implementation detail of PauseRule.
+		if isPauseSilence(gs) {
+			continue
+		}
+		dom := grafanaSilenceToDomain(orgID, gs, now)
+		out = append(out, dom)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })
+	return out, nil
+}
+
+func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil MaintenanceWindow) (*MaintenanceWindow, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	if err := validateMaintenanceWindowScope(sil.Scope); err != nil {
+		return nil, err
+	}
+	sil.OrganizationID = orgID
+	sil.CreatedAt = s.now()
+	gs := maintenanceWindowToGrafanaSilence(orgID, sil)
+	id, err := s.grafana.PutSilence(ctx, gs)
+	if err != nil {
+		return nil, err
+	}
+	sil.ID = id
+	sil.Active = maintenanceWindowActive(sil, s.now())
+	return &sil, nil
+}
+
+// Grafana has no dedicated update endpoint; POST with the existing id replaces.
+func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil MaintenanceWindow) (*MaintenanceWindow, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	if sil.ID == "" {
+		return nil, errors.New("maintenance window id is required for update")
+	}
+	if err := validateMaintenanceWindowScope(sil.Scope); err != nil {
+		return nil, err
+	}
+	existing, err := s.ListMaintenanceWindows(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	owned := false
+	for _, e := range existing {
+		if e.ID == sil.ID {
+			owned = true
+			// Carry the original creator; the update request has no created_by, so a blank would wipe the audit owner.
+			sil.CreatedBy = e.CreatedBy
+			break
+		}
+	}
+	if !owned {
+		return nil, ErrNotFound
+	}
+	sil.OrganizationID = orgID
+	gs := maintenanceWindowToGrafanaSilence(orgID, sil)
+	gs.ID = sil.ID
+	id, err := s.grafana.PutSilence(ctx, gs)
+	if err != nil {
+		return nil, err
+	}
+	sil.ID = id
+	sil.Active = maintenanceWindowActive(sil, s.now())
+	return &sil, nil
+}
+
+func (s *Service) DeleteMaintenanceWindow(ctx context.Context, orgID int64, id string) error {
+	if err := requireOrg(orgID); err != nil {
+		return err
+	}
+	existing, err := s.ListMaintenanceWindows(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	owned := false
+	for _, e := range existing {
+		if e.ID == id {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		return ErrNotFound
+	}
+	if err := s.grafana.DeleteSilence(ctx, id); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// Rejects targetless scopes, which would compile to just the org matcher and silence every alert in the organization.
+func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
+	switch scope.Kind {
+	case MaintenanceWindowScopeRule:
+		if scope.RuleID == "" {
+			return fleeterror.NewInvalidArgumentError("rule_id is required for a rule-scoped maintenance window")
+		}
+	case MaintenanceWindowScopeGroup:
+		if scope.GroupID == "" {
+			return fleeterror.NewInvalidArgumentError("group_id is required for a group-scoped maintenance window")
+		}
+	case MaintenanceWindowScopeSite:
+		if scope.SiteID == "" {
+			return fleeterror.NewInvalidArgumentError("site_id is required for a site-scoped maintenance window")
+		}
+	case MaintenanceWindowScopeDevice:
+		if len(scope.DeviceIDs) == 0 {
+			return fleeterror.NewInvalidArgumentError("device_ids is required for a device-scoped maintenance window")
+		}
+		if len(scope.DeviceIDs) > maxMaintenanceWindowDeviceIDs {
+			return fleeterror.NewInvalidArgumentErrorf("too many device_ids: %d (max %d)", len(scope.DeviceIDs), maxMaintenanceWindowDeviceIDs)
+		}
+		// Restrict ids to the identifier alphabet so a crafted id like ".*" can't broaden the silence to the whole org.
+		for _, id := range scope.DeviceIDs {
+			if !deviceIDPattern.MatchString(id) {
+				return fleeterror.NewInvalidArgumentErrorf("invalid device id: %q", id)
+			}
+		}
+	default:
+		return fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %q", scope.Kind)
+	}
+	return nil
+}
+
+const maxMaintenanceWindowDeviceIDs = 500
+
+// Excludes every regex metacharacter except "." (which maintenanceWindowToGrafanaSilence escapes).
+var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+
+const pauseSilenceMatcher = "proto_fleet_pause"
+
+// Grafana's reserved matcher label scoping a silence to a single alert rule.
+const alertRuleUIDMatcher = "__alert_rule_uid__"
+
+// Far-future end time making a pause behave as indefinite; Resume removes the silence before it expires.
+var pauseSilenceEndsAt = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+
+func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence {
+	return GrafanaSilence{
+		StartsAt:  now,
+		EndsAt:    pauseSilenceEndsAt,
+		CreatedBy: "Proto Fleet",
+		Comment:   "Paused via Proto Fleet UI",
+		Matchers: []GrafanaSilenceMatcher{
+			{
+				Name:    silenceLabelOrganizationID,
+				Value:   strconv.FormatInt(orgID, 10),
+				IsEqual: true,
+			},
+			{
+				Name:    alertRuleUIDMatcher,
+				Value:   ruleID,
+				IsEqual: true,
+			},
+			{
+				Name:    pauseSilenceMatcher,
+				Value:   "true",
+				IsEqual: true,
+			},
+		},
+	}
+}
+
+func isPauseSilence(sil GrafanaSilence) bool {
+	for _, m := range sil.Matchers {
+		if m.Name == pauseSilenceMatcher && m.Value == "true" && m.IsEqual && !m.IsRegex {
+			return true
+		}
+	}
+	return false
+}
+
+func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
+	if !isPauseSilence(sil) {
+		return false
+	}
+	if !silenceMatchesOrg(sil, wantOrgID) {
+		return false
+	}
+	for _, m := range sil.Matchers {
+		if m.Name == alertRuleUIDMatcher && m.Value == ruleID && m.IsEqual && !m.IsRegex {
+			return true
+		}
+	}
+	return false
+}
+
+// Absent on YAML defaults, which every org can see.
+const ruleLabelOrganizationID = "organization_id"
+
+const silenceLabelOrganizationID = "organization_id"
+
 // Grafana doesn't sandbox by org, so we sandbox by name prefix.
 func channelNamePrefix(orgID int64) string {
 	return fmt.Sprintf("org-%d-", orgID)
@@ -579,4 +922,206 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 	// Default to pending; loading the real last-validated state on every list is too expensive.
 	out.ValidationState = ValidationPending
 	return out, nil
+}
+
+func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
+	if r.Labels == nil {
+		return true
+	}
+	got, ok := r.Labels[ruleLabelOrganizationID]
+	if !ok {
+		return true
+	}
+	return got == wantOrgID
+}
+
+func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
+	out := Rule{
+		ID:              r.UID,
+		OrganizationID:  orgID,
+		Name:            r.Title,
+		Group:           r.RuleGroup,
+		Enabled:         !r.IsPaused,
+		DurationSeconds: parseDurationSeconds(r.For),
+	}
+	if r.Labels != nil {
+		out.Template = templateFromLabel(r.Labels["template"])
+		out.Severity = r.Labels["severity"]
+	}
+	if r.Annotations != nil {
+		out.Summary = r.Annotations["summary"]
+		out.Description = r.Annotations["description"]
+	}
+	return out
+}
+
+func templateFromLabel(label string) RuleTemplate {
+	switch label {
+	case "offline":
+		return RuleTemplateOffline
+	case "hashrate":
+		return RuleTemplateHashrate
+	case "temperature":
+		return RuleTemplateTemperature
+	case "pool":
+		return RuleTemplatePool
+	case "command_failure":
+		return RuleTemplateCommandFailure
+	case "telemetry-poll":
+		return RuleTemplateTelemetryPoll
+	}
+	return ""
+}
+
+func parseDurationSeconds(s string) int32 {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	secs := int64(d / time.Second)
+	if secs > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if secs < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(secs)
+}
+
+func silenceMatchesOrg(s GrafanaSilence, wantOrgID string) bool {
+	for _, m := range s.Matchers {
+		if m.Name == silenceLabelOrganizationID && m.IsEqual && !m.IsRegex && m.Value == wantOrgID {
+			return true
+		}
+	}
+	return false
+}
+
+func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) MaintenanceWindow {
+	out := MaintenanceWindow{
+		ID:             gs.ID,
+		OrganizationID: orgID,
+		StartsAt:       gs.StartsAt,
+		EndsAt:         gs.EndsAt,
+		Comment:        gs.Comment,
+		CreatedBy:      gs.CreatedBy,
+	}
+	// The Alertmanager API exposes no created_at, so approximate it with StartsAt.
+	out.CreatedAt = gs.StartsAt
+
+	out.Scope = matchersToScope(gs.Matchers)
+	out.Active = maintenanceWindowActive(out, now)
+	return out
+}
+
+func matchersToScope(ms []GrafanaSilenceMatcher) MaintenanceWindowScope {
+	scope := MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule}
+	for _, m := range ms {
+		switch m.Name {
+		case "alertname_uid", alertRuleUIDMatcher:
+			scope.Kind = MaintenanceWindowScopeRule
+			scope.RuleID = m.Value
+		case "group_id":
+			scope.Kind = MaintenanceWindowScopeGroup
+			scope.GroupID = m.Value
+		case "site_id":
+			scope.Kind = MaintenanceWindowScopeSite
+			scope.SiteID = m.Value
+		case "device_id":
+			scope.Kind = MaintenanceWindowScopeDevice
+			// A regex matcher holds many ids as `^(?:id1|id2)$`; strip anchors and escapes to recover the plain list.
+			if m.IsRegex {
+				v := strings.TrimSuffix(strings.TrimPrefix(m.Value, "^(?:"), ")$")
+				for id := range strings.SplitSeq(v, "|") {
+					scope.DeviceIDs = append(scope.DeviceIDs, strings.ReplaceAll(id, `\`, ""))
+				}
+			} else {
+				scope.DeviceIDs = append(scope.DeviceIDs, m.Value)
+			}
+		}
+	}
+	return scope
+}
+
+func maintenanceWindowToGrafanaSilence(orgID int64, sil MaintenanceWindow) GrafanaSilence {
+	matchers := []GrafanaSilenceMatcher{
+		{
+			Name:    silenceLabelOrganizationID,
+			Value:   strconv.FormatInt(orgID, 10),
+			IsRegex: false,
+			IsEqual: true,
+		},
+	}
+	switch sil.Scope.Kind {
+	case MaintenanceWindowScopeRule:
+		if sil.Scope.RuleID != "" {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    alertRuleUIDMatcher,
+				Value:   sil.Scope.RuleID,
+				IsEqual: true,
+			})
+		}
+	case MaintenanceWindowScopeGroup:
+		if sil.Scope.GroupID != "" {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "group_id",
+				Value:   sil.Scope.GroupID,
+				IsEqual: true,
+			})
+		}
+	case MaintenanceWindowScopeSite:
+		if sil.Scope.SiteID != "" {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "site_id",
+				Value:   sil.Scope.SiteID,
+				IsEqual: true,
+			})
+		}
+	case MaintenanceWindowScopeDevice:
+		if len(sil.Scope.DeviceIDs) == 1 {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "device_id",
+				Value:   sil.Scope.DeviceIDs[0],
+				IsEqual: true,
+			})
+		} else if len(sil.Scope.DeviceIDs) > 1 {
+			// Anchor the alternation so a partial match can't widen the silence to substring-containing ids.
+			quoted := make([]string, len(sil.Scope.DeviceIDs))
+			for i, id := range sil.Scope.DeviceIDs {
+				quoted[i] = regexp.QuoteMeta(id)
+			}
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "device_id",
+				Value:   "^(?:" + strings.Join(quoted, "|") + ")$",
+				IsRegex: true,
+				IsEqual: true,
+			})
+		}
+	}
+	// Alertmanager requires a concrete endsAt; represent an open-ended mute with the far-future sentinel.
+	endsAt := sil.EndsAt
+	if endsAt.IsZero() {
+		endsAt = pauseSilenceEndsAt
+	}
+	return GrafanaSilence{
+		StartsAt:  sil.StartsAt,
+		EndsAt:    endsAt,
+		CreatedBy: sil.CreatedBy,
+		Comment:   sil.Comment,
+		Matchers:  matchers,
+	}
+}
+
+// A zero EndsAt means indefinite.
+func maintenanceWindowActive(s MaintenanceWindow, now time.Time) bool {
+	if now.Before(s.StartsAt) {
+		return false
+	}
+	if s.EndsAt.IsZero() {
+		return true
+	}
+	return now.Before(s.EndsAt)
 }

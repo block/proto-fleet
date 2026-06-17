@@ -1,14 +1,27 @@
-import { type Timestamp, timestampDate } from "@bufbuild/protobuf/wkt";
+import { type Timestamp, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
-import { notificationChannelClient } from "@/protoFleet/api/clients";
+import {
+  notificationChannelClient,
+  notificationMaintenanceWindowClient,
+  notificationRuleClient,
+} from "@/protoFleet/api/clients";
 import {
   type Channel as ProtoChannel,
   ChannelKind as ProtoChannelKind,
+  type MaintenanceWindow as ProtoMaintenanceWindow,
+  MaintenanceWindowScopeKind as ProtoMaintenanceWindowScopeKind,
+  type Rule as ProtoRule,
+  RuleTemplate as ProtoRuleTemplate,
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/notifications/v1/notifications_pb";
 import type {
   Channel,
   ChannelKind,
+  MaintenanceWindow,
+  MaintenanceWindowScope,
+  MaintenanceWindowScopeKind,
+  Rule,
+  RuleTemplate,
   SlackConfig,
   SmtpConfig,
   ValidationState,
@@ -17,6 +30,7 @@ import type {
 
 const isoFromTs = (ts?: Timestamp): string => (ts ? timestampDate(ts).toISOString() : "");
 const isoOrNull = (ts?: Timestamp): string | null => (ts ? timestampDate(ts).toISOString() : null);
+const tsFromIso = (iso: string): Timestamp => timestampFromDate(new Date(iso));
 
 function required<T>(value: T | undefined, name: string): T {
   if (value == null) {
@@ -57,6 +71,52 @@ const validationStateFromProto = (s: ProtoValidationState): ValidationState => {
       return "pending";
   }
 };
+
+const ruleTemplateFromProto = (t: ProtoRuleTemplate): RuleTemplate => {
+  switch (t) {
+    case ProtoRuleTemplate.OFFLINE:
+      return "offline";
+    case ProtoRuleTemplate.HASHRATE:
+      return "hashrate";
+    case ProtoRuleTemplate.TEMPERATURE:
+      return "temperature";
+    case ProtoRuleTemplate.POOL:
+      return "pool";
+    case ProtoRuleTemplate.COMMAND_FAILURE:
+      return "command_failure";
+    case ProtoRuleTemplate.TELEMETRY_POLL:
+      return "telemetry-poll";
+    default:
+      return "";
+  }
+};
+
+const scopeKindToProto = (k: MaintenanceWindowScopeKind): ProtoMaintenanceWindowScopeKind => {
+  switch (k) {
+    case "rule":
+      return ProtoMaintenanceWindowScopeKind.RULE;
+    case "group":
+      return ProtoMaintenanceWindowScopeKind.GROUP;
+    case "site":
+      return ProtoMaintenanceWindowScopeKind.SITE;
+    case "device":
+      return ProtoMaintenanceWindowScopeKind.DEVICE;
+  }
+};
+
+const scopeKindFromProto = (k: ProtoMaintenanceWindowScopeKind): MaintenanceWindowScopeKind => {
+  switch (k) {
+    case ProtoMaintenanceWindowScopeKind.GROUP:
+      return "group";
+    case ProtoMaintenanceWindowScopeKind.SITE:
+      return "site";
+    case ProtoMaintenanceWindowScopeKind.DEVICE:
+      return "device";
+    default:
+      return "rule";
+  }
+};
+
 const channelFromProto = (c: ProtoChannel): Channel => ({
   id: c.id,
   organization_id: String(c.organizationId),
@@ -74,6 +134,37 @@ const channelFromProto = (c: ProtoChannel): Channel => ({
   validation_error: c.validationError,
   has_secret: c.hasSecret,
 });
+
+const ruleFromProto = (r: ProtoRule): Rule => ({
+  id: r.id,
+  organization_id: String(r.organizationId),
+  name: r.name,
+  template: ruleTemplateFromProto(r.template),
+  group: r.group,
+  severity: r.severity,
+  summary: r.summary,
+  description: r.description,
+  duration_seconds: r.durationSeconds,
+  enabled: r.enabled,
+});
+
+const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindow => ({
+  id: s.id,
+  organization_id: String(s.organizationId),
+  scope: {
+    kind: s.scope ? scopeKindFromProto(s.scope.kind) : "rule",
+    rule_id: s.scope?.ruleId || null,
+    group_id: s.scope?.groupId || null,
+    site_id: s.scope?.siteId || null,
+    device_ids: s.scope?.deviceIds ?? [],
+  },
+  starts_at: isoFromTs(s.startsAt),
+  ends_at: isoOrNull(s.endsAt),
+  comment: s.comment,
+  created_by: s.createdBy,
+  created_at: isoFromTs(s.createdAt),
+});
+
 const webhookToProto = (w?: WebhookConfig | null) =>
   w ? { url: w.url, bearerHeader: w.bearer_header ?? "" } : undefined;
 
@@ -83,6 +174,15 @@ const smtpToProto = (s?: SmtpConfig | null) =>
     : undefined;
 
 const slackToProto = (s?: SlackConfig | null) => (s ? { webhookUrl: s.webhook_url ?? "" } : undefined);
+
+const scopeToProto = (s: MaintenanceWindowScope) => ({
+  kind: scopeKindToProto(s.kind),
+  ruleId: s.rule_id ?? "",
+  groupId: s.group_id ?? "",
+  siteId: s.site_id ?? "",
+  deviceIds: s.device_ids,
+});
+
 const channelDestinationFields = (input: ChannelMutationInput) => ({
   kind: channelKindToProto(input.kind),
   webhook: webhookToProto(input.webhook),
@@ -137,4 +237,59 @@ export async function testChannel(input: ChannelMutationInput): Promise<TestChan
     ...channelDestinationFields(input),
   });
   return { ok: res.ok, error: res.error, response_code: res.responseCode };
+}
+
+export async function listRules(): Promise<Rule[]> {
+  const res = await notificationRuleClient.listRules({});
+  return res.rules.map(ruleFromProto);
+}
+
+export async function pauseRule(id: string): Promise<Rule> {
+  const res = await notificationRuleClient.pauseRule({ id });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function resumeRule(id: string): Promise<Rule> {
+  const res = await notificationRuleClient.resumeRule({ id });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function listMaintenanceWindows(): Promise<MaintenanceWindow[]> {
+  const res = await notificationMaintenanceWindowClient.listMaintenanceWindows({});
+  return res.maintenanceWindows.map(maintenanceWindowFromProto);
+}
+
+export interface MaintenanceWindowMutationInput {
+  id?: string;
+  scope: MaintenanceWindowScope;
+  starts_at: string;
+  ends_at: string | null;
+  comment: string;
+}
+
+export async function createMaintenanceWindow(input: MaintenanceWindowMutationInput): Promise<MaintenanceWindow> {
+  const res = await notificationMaintenanceWindowClient.createMaintenanceWindow({
+    scope: scopeToProto(input.scope),
+    startsAt: tsFromIso(input.starts_at),
+    endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
+    comment: input.comment,
+  });
+  return maintenanceWindowFromProto(required(res.maintenanceWindow, "maintenanceWindow"));
+}
+
+export async function updateMaintenanceWindow(
+  input: MaintenanceWindowMutationInput & { id: string },
+): Promise<MaintenanceWindow> {
+  const res = await notificationMaintenanceWindowClient.updateMaintenanceWindow({
+    id: input.id,
+    scope: scopeToProto(input.scope),
+    startsAt: tsFromIso(input.starts_at),
+    endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
+    comment: input.comment,
+  });
+  return maintenanceWindowFromProto(required(res.maintenanceWindow, "maintenanceWindow"));
+}
+
+export async function deleteMaintenanceWindow(id: string): Promise<void> {
+  await notificationMaintenanceWindowClient.deleteMaintenanceWindow({ id });
 }

@@ -623,6 +623,8 @@ func start(config *Config) error {
 
 	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
 	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
