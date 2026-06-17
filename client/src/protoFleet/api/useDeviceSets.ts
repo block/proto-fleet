@@ -59,6 +59,12 @@ interface ListDeviceSetsProps {
   errorComponentTypes?: number[];
   zones?: string[];
   buildingIds?: bigint[];
+  // Rack-list site filter (RACK type only). Mirrors the miner-list
+  // shape: siteIds is an OR across sites, includeUnassigned additionally
+  // surfaces racks with device_set_rack.site_id IS NULL. Both empty +
+  // false = no site filter applied.
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
   onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -373,6 +379,8 @@ const useDeviceSets = () => {
       errorComponentTypes,
       zones,
       buildingIds,
+      siteIds,
+      includeUnassigned,
       onSuccess,
       onError,
       onFinally,
@@ -387,6 +395,8 @@ const useDeviceSets = () => {
             errorComponentTypes: errorComponentTypes ?? [],
             zones: zones ?? [],
             buildingIds: buildingIds ?? [],
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -402,6 +412,8 @@ const useDeviceSets = () => {
               sort,
               zones: zones ?? [],
               buildingIds: buildingIds ?? [],
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;

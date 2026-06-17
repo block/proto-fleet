@@ -38,12 +38,18 @@ const DEFAULT_SORT = toProtoSort("name", SORT_ASC);
 
 type ListFn = (props: ListDeviceSetsProps) => Promise<void>;
 
+export interface DeviceSetSiteFilter {
+  siteIds: bigint[];
+  includeUnassigned: boolean;
+}
+
 export function useDeviceSetListState(
   listFn: ListFn,
   pageSize: number,
   getErrorComponentTypes?: () => number[],
   getZones?: () => string[],
   getBuildingIds?: () => bigint[],
+  getSiteFilter?: () => DeviceSetSiteFilter,
   initialSort?: () => { field: DeviceSetColumn; direction: SortDirection },
 ) {
   const { getDeviceSetStats } = useDeviceSets();
@@ -105,6 +111,7 @@ export function useDeviceSetListState(
       const requestId = ++listRequestId.current;
       setIsLoading(true);
       setError(null);
+      const siteFilter = getSiteFilter?.() ?? { siteIds: [], includeUnassigned: false };
       listFn({
         pageSize,
         pageToken,
@@ -112,6 +119,8 @@ export function useDeviceSetListState(
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
         zones: getZones?.() ?? [],
         buildingIds: getBuildingIds?.() ?? [],
+        siteIds: siteFilter.siteIds,
+        includeUnassigned: siteFilter.includeUnassigned,
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
@@ -139,7 +148,7 @@ export function useDeviceSetListState(
         },
       });
     },
-    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones, getBuildingIds],
+    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones, getBuildingIds, getSiteFilter],
   );
 
   const resetAndFetch = useCallback(() => {

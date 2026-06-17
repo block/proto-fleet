@@ -6,8 +6,9 @@ import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
@@ -134,9 +135,6 @@ const RacksPage = () => {
   );
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
-  // Distinguishes "buildings still loading" from "site has zero buildings"
-  // for the empty-filter sentinel below.
-  const [allBuildingsLoaded, setAllBuildingsLoaded] = useState(false);
   const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
@@ -157,6 +155,16 @@ const RacksPage = () => {
   } | null>(null);
   const [siteClearInFlight, setSiteClearInFlight] = useState(false);
 
+  // SitePicker active site → server-side site_ids / include_unassigned.
+  // URL `?site=` deep links still win when present (legacy / cross-link
+  // scoping) so the picker doesn't fight a user-explicit URL.
+  const knownSiteIds = useMemo(
+    () => buildKnownSiteIds(allSites.map((s) => ({ site: { id: BigInt(s.id), name: s.label } }) as SiteWithCounts)),
+    [allSites],
+  );
+  const { activeSite } = useActiveSite({ knownSiteIds });
+  const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+
   // listDeviceSets has no native siteIds filter, so we resolve
   // site → buildings client-side and pipe through buildingIds.
   const urlSiteIds = useMemo(
@@ -173,25 +181,30 @@ const RacksPage = () => {
 
   const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
   const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
-  // Explicit building filter wins; otherwise expand `?site=` into the
-  // sites' buildings. `[0n]` is a sentinel for "no buildings match" —
-  // server treats `[]` as no filter, so without it a site-scoped view
-  // would briefly show every rack while buildings are still loading
-  // (or permanently if the site has zero buildings). Building IDs are
-  // positive autoincrement, so `WHERE building_id IN (0)` matches nothing.
-  const effectiveBuildingIds = useMemo(() => {
-    if (selectedBuildingIds.length > 0) return selectedBuildingIds;
-    if (urlSiteIds.size === 0) return [] as bigint[];
-    if (!allBuildingsLoaded) return [0n];
-    const matched = allBuildings.filter((b) => urlSiteIds.has(b.siteId)).map((b) => BigInt(b.id));
-    if (matched.length === 0) return [0n];
-    return matched;
-  }, [selectedBuildingIds, urlSiteIds, allBuildings, allBuildingsLoaded]);
-  const effectiveBuildingIdsRef = useRef<bigint[]>(effectiveBuildingIds);
+  const effectiveBuildingIdsRef = useRef<bigint[]>(selectedBuildingIds);
   useEffect(() => {
-    effectiveBuildingIdsRef.current = effectiveBuildingIds;
-  }, [effectiveBuildingIds]);
+    effectiveBuildingIdsRef.current = selectedBuildingIds;
+  }, [selectedBuildingIds]);
   const getBuildingIds = useCallback(() => effectiveBuildingIdsRef.current, []);
+
+  // Effective site filter: URL `?site=` deep link wins over SitePicker
+  // selection (lets users link directly to a site scope without
+  // mutating the persisted picker state). When neither is set the
+  // filter is empty and the server returns every rack in the org.
+  const effectiveSiteFilter = useMemo(() => {
+    if (urlSiteIds.size > 0) {
+      return {
+        siteIds: Array.from(urlSiteIds, (id) => BigInt(id)),
+        includeUnassigned: false,
+      };
+    }
+    return activeSiteFilter;
+  }, [urlSiteIds, activeSiteFilter]);
+  const effectiveSiteFilterRef = useRef(effectiveSiteFilter);
+  useEffect(() => {
+    effectiveSiteFilterRef.current = effectiveSiteFilter;
+  }, [effectiveSiteFilter]);
+  const getSiteFilter = useCallback(() => effectiveSiteFilterRef.current, []);
 
   // ManageRackModal state
   const [manageRackFormData, setManageRackFormData] = useState<RackFormData | null>(null);
@@ -249,6 +262,7 @@ const RacksPage = () => {
     getErrorComponentTypes,
     getZones,
     getBuildingIds,
+    getSiteFilter,
     getInitialRackSort,
   );
 
@@ -331,7 +345,6 @@ const RacksPage = () => {
               siteId: (b.building!.siteId ?? 0n).toString(),
             })),
         );
-        setAllBuildingsLoaded(true);
       },
     });
     return () => controller.abort();
@@ -534,9 +547,17 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch on resolved building-filter change (explicit + site-expanded).
+  // Refetch on resolved building-filter change (explicit only now — site
+  // scoping moved to the server-side site_ids filter below).
   // useDeviceSetListState reads the ref; this effect just kicks pagination.
-  const effectiveBuildingKey = useMemo(() => effectiveBuildingIds.map(String).join(","), [effectiveBuildingIds]);
+  const effectiveBuildingKey = useMemo(() => selectedBuildingIds.map(String).join(","), [selectedBuildingIds]);
+  const prevBuildingKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevBuildingKey.current !== null && prevBuildingKey.current !== effectiveBuildingKey) {
+      resetAndFetch();
+    }
+    prevBuildingKey.current = effectiveBuildingKey;
+  }, [effectiveBuildingKey, resetAndFetch]);
 
   const writeMultiParam = useCallback(
     (key: string, values: string[]) => {
@@ -555,6 +576,21 @@ const RacksPage = () => {
     },
     [setSearchParams],
   );
+
+  // Refetch on resolved site-filter change (URL `?site=` or SitePicker
+  // selection). Same ref-read pattern as the building effect above.
+  const effectiveSiteKey = useMemo(
+    () =>
+      `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}`,
+    [effectiveSiteFilter],
+  );
+  const prevSiteKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevSiteKey.current !== null && prevSiteKey.current !== effectiveSiteKey) {
+      resetAndFetch();
+    }
+    prevSiteKey.current = effectiveSiteKey;
+  }, [effectiveSiteKey, resetAndFetch]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
