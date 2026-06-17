@@ -72,15 +72,19 @@ type firmwareUploadResponse struct {
 }
 
 // firmwareURL builds an endpoint URL under the firmware HTTP API. Firmware
-// endpoints live at the server origin, not under the normalized RPC base path.
+// endpoints live relative to the normalized base path, because deployments can
+// expose the API through a proxy prefix such as /api-proxy. An explicit server
+// URL with a trailing slash keeps the base path empty for direct fleet-api use.
 func (c *Client) firmwareURL(parts ...string) *url.URL {
 	u := *c.baseURL
-	u.Path = ""
-	u.RawPath = ""
 	u.RawQuery = ""
 	u.Fragment = ""
 
+	basePath := strings.Trim(u.Path, "/")
 	segments := make([]string, 0, 3+len(parts))
+	if basePath != "" {
+		segments = append(segments, strings.Split(basePath, "/")...)
+	}
 	segments = append(segments, "api", "v1", "firmware")
 	segments = append(segments, parts...)
 	rawSegments := make([]string, 0, len(segments))
