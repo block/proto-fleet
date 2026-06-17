@@ -122,6 +122,39 @@ func (g *Grafana) TestReceiverIntegration(ctx context.Context, receiverName, int
 	return ReceiverTestResult{OK: out.Status == "success", Error: out.Error}, nil
 }
 
+// TestStoredReceiver tests an already-saved receiver by replaying its stored
+// integration verbatim. The integration carries a uid + secureFields, so Grafana
+// reuses the stored secret values instead of whatever a read returned — necessary
+// because reads redact secrets (the Slack webhook url, a webhook bearer token),
+// and sending those redacted placeholders back makes delivery fail (e.g. an empty
+// url surfaces as "unsupported protocol scheme").
+func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName string) (ReceiverTestResult, error) {
+	base := "/apis/notifications.alerting.grafana.app/v1beta1/namespaces/" + grafanaAlertingNamespace +
+		"/receivers/" + base64.RawStdEncoding.EncodeToString([]byte(receiverName))
+
+	var receiver struct {
+		Spec struct {
+			Integrations []json.RawMessage `json:"integrations"`
+		} `json:"spec"`
+	}
+	if err := g.do(ctx, http.MethodGet, base, nil, &receiver); err != nil {
+		return ReceiverTestResult{}, fmt.Errorf("load receiver: %w", err)
+	}
+	if len(receiver.Spec.Integrations) == 0 {
+		return ReceiverTestResult{}, fmt.Errorf("receiver %q has no integration to test", receiverName)
+	}
+
+	body := map[string]any{"integration": receiver.Spec.Integrations[0]}
+	var out struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	if err := g.do(ctx, http.MethodPost, base+"/test", body, &out); err != nil {
+		return ReceiverTestResult{}, fmt.Errorf("test receiver: %w", err)
+	}
+	return ReceiverTestResult{OK: out.Status == "success", Error: out.Error}, nil
+}
+
 func (g *Grafana) do(ctx context.Context, method, path string, body, out any) error {
 	var reqJSON []byte
 	if body != nil {

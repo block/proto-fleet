@@ -202,14 +202,15 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 	}
 
 	if c.ID != "" {
-		// Saved channel: the receiver already lives in Grafana, so test it by name
-		// with its stored settings (full URL + secure fields). The echoed-back
-		// payload is redacted and would probe the wrong target.
+		// Saved channel: verify org ownership, then replay the receiver's stored
+		// integration so Grafana reuses its secrets. We can't rebuild the body from
+		// a read — reads redact the secret (Slack url, webhook bearer), and sending
+		// those placeholders back fails delivery.
 		_, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
 		if err != nil {
 			return false, 0, "", err
 		}
-		res, err := s.grafana.TestReceiverIntegration(ctx, ownedCP.Name, ownedCP.Type, ownedCP.Settings)
+		res, err := s.grafana.TestStoredReceiver(ctx, ownedCP.Name)
 		if err != nil {
 			return false, 0, "", err
 		}

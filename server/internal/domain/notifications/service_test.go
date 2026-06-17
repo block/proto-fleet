@@ -212,14 +212,18 @@ func TestUpdateChannelDropsSecretOnDestinationChange(t *testing.T) {
 	assert.Equal(t, "https://hooks.example.com/new", sent.Settings["url"])
 }
 
-func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
-	const fullURL = "https://hooks.slack.com/services/T1/B2/SECRET"
+func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
+	// A read redacts the Slack url secret, so the saved-channel test can't rebuild
+	// the body from it — it must replay the stored integration (uid + secureFields)
+	// so Grafana reuses the secret. Sending the redacted value back fails delivery.
 	listed := []GrafanaContactPoint{{
 		UID:      "cp-1",
 		Name:     "org-7-pager",
-		Type:     "webhook",
-		Settings: json.RawMessage(`{"url": "` + fullURL + `", "authorization_credentials": "[REDACTED]"}`),
+		Type:     "slack",
+		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
 	}}
+	const storedIntegration = `{"type":"slack","version":"v1","uid":"int-1","settings":{},"secureFields":{"url":true}}`
+	name := base64.RawStdEncoding.EncodeToString([]byte("org-7-pager"))
 
 	var testedBody []byte
 	mux := http.NewServeMux()
@@ -227,11 +231,15 @@ func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
 	})
+	mux.HandleFunc("GET /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}",
+		func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, name, r.PathValue("name"), "saved-channel test must address the receiver by base64(name)")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"spec":{"integrations":[` + storedIntegration + `]}}`))
+		})
 	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
 		func(w http.ResponseWriter, r *http.Request) {
 			testedBody, _ = io.ReadAll(r.Body)
-			assert.Equal(t, base64.RawStdEncoding.EncodeToString([]byte("org-7-pager")), r.PathValue("name"),
-				"saved-channel test must address the receiver by base64(name)")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"success"}`))
 		})
@@ -239,22 +247,21 @@ func TestTestChannelUsesStoredDestinationForSavedChannel(t *testing.T) {
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
 
-	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{
-		ID:      "cp-1",
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.slack.com"},
-	})
+	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{ID: "cp-1", Name: "pager", Kind: ChannelKindSlack})
 	require.NoError(t, err)
 	assert.True(t, ok)
 
 	var sent struct {
 		Integration struct {
-			Settings map[string]any `json:"settings"`
+			UID          string          `json:"uid"`
+			SecureFields map[string]bool `json:"secureFields"`
+			Settings     map[string]any  `json:"settings"`
 		} `json:"integration"`
 	}
 	require.NoError(t, json.Unmarshal(testedBody, &sent))
-	assert.Equal(t, fullURL, sent.Integration.Settings["url"], "saved-channel test must use the stored full URL, not the redacted host")
+	assert.Equal(t, "int-1", sent.Integration.UID, "must replay the stored integration so its secrets are reused")
+	assert.True(t, sent.Integration.SecureFields["url"], "the secret must be reused via secureFields, not sent as a redacted value")
+	assert.NotContains(t, sent.Integration.Settings, "url", "a redacted url must never be sent as the destination")
 }
 
 func TestTestChannelBeforeSaveUsesTransientReceiver(t *testing.T) {
