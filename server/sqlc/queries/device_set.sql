@@ -329,19 +329,22 @@ WHERE device_set_id = $1
 -- are derived in a subquery so the outer locking SELECT can use
 -- FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
 --
--- Joining device_set_rack with FOR UPDATE OF ds, dsr extends the lock
+-- Joining device_set_rack with FOR UPDATE OF dsr, ds extends the lock
 -- to the rack's placement row as well. LockRackPlacementForWrite (used
--- by SaveRack, DeleteCollection, etc.) acquires both rows; mirroring
--- that join here keeps the lock-acquisition order consistent across
--- both code paths so a concurrent SaveRack and AssignDevicesToRack
--- against the same rack cannot deadlock by holding one row and waiting
--- on the other. INNER JOIN (not LEFT) is intentional: Postgres rejects
--- FOR UPDATE on the nullable side of an outer join, and every live
--- rack has a device_set_rack row by lifecycle invariant.
+-- by SaveRack, DeleteCollection, etc.) starts FROM device_set_rack dsr
+-- JOIN device_set ds and locks both via FOR UPDATE — mirroring that
+-- table order here (dsr first in FROM, dsr first in FOR UPDATE OF) so
+-- the planner walks both joined rows in the same per-rack order across
+-- the two code paths. Without that parity, a concurrent SaveRack and
+-- AssignDevicesToRack against the same rack could hold device_set
+-- while waiting on device_set_rack (or vice versa) and deadlock.
+-- INNER JOIN (not LEFT) is intentional: Postgres rejects FOR UPDATE
+-- on the nullable side of an outer join, and every live rack has a
+-- device_set_rack row by lifecycle invariant.
 SELECT ds.id AS device_set_id
-FROM device_set ds
-JOIN device_set_rack dsr
-  ON dsr.device_set_id = ds.id AND dsr.org_id = ds.org_id
+FROM device_set_rack dsr
+JOIN device_set ds
+  ON ds.id = dsr.device_set_id AND ds.org_id = dsr.org_id
 WHERE ds.id IN (
     SELECT dsm.device_set_id
     FROM device_set_membership dsm
@@ -356,7 +359,7 @@ WHERE ds.id IN (
   AND ds.type = 'rack'
   AND ds.deleted_at IS NULL
 ORDER BY ds.id ASC
-FOR UPDATE OF ds, dsr;
+FOR UPDATE OF dsr, ds;
 
 -- name: RemoveDevicesFromAnyRack :execrows
 -- Removes the given devices from whatever rack they're currently in,
