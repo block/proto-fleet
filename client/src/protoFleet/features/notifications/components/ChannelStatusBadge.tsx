@@ -12,8 +12,8 @@ const LABEL: Record<ValidationState, string> = {
 };
 
 const DOT_CLASS: Record<ValidationState, string> = {
-  ok: "bg-state-success-fill",
-  failed: "bg-state-danger-fill",
+  ok: "bg-intent-success-fill",
+  failed: "bg-intent-critical-fill",
   pending: "bg-border-20",
 };
 
