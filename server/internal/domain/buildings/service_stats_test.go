@@ -280,3 +280,45 @@ func TestGetBuildingStats_rollsUpDeviceMetrics(t *testing.T) {
 		t.Errorf("rack health not populated correctly: %+v", stats.RackHealth)
 	}
 }
+
+func TestListBuildings_degradesWhenListTelemetryFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().ListBuildings(gomock.Any(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}).Return([]models.BuildingWithCounts{
+		{
+			Building:    models.Building{ID: 1, OrgID: testOrgID, Name: "Building 1"},
+			RackCount:   2,
+			DeviceCount: 1,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{
+		deviceIDs: []string{"d1"},
+		stateCounts: interfaces.MinerStateCounts{
+			HashingCount: 1,
+		},
+		componentCounts: []interfaces.ComponentErrorCount{
+			{ScopeID: 1, ComponentType: 4, DeviceCount: 1},
+		},
+	}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
+
+	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ListStats == nil {
+		t.Fatalf("expected one row with list stats, got %+v", rows)
+	}
+	stats := rows[0].ListStats
+	if stats.RackCount != 2 || stats.DeviceCount != 1 {
+		t.Fatalf("structural counts not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.HashingCount != 1 || stats.ControlBoardIssueCount != 1 {
+		t.Fatalf("non-telemetry stats not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
+		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
+	}
+}

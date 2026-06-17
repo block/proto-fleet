@@ -11,6 +11,7 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -242,5 +243,47 @@ func TestGetSiteStats_internalErrorWhenStatsDepsMissing(t *testing.T) {
 	var fe fleeterror.FleetError
 	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
 		t.Fatalf("expected Internal error; got %v", err)
+	}
+}
+
+func TestListSites_degradesWhenListTelemetryFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, OrgID: testOrgID, Name: "Site 1"},
+			BuildingCount: 2,
+			RackCount:     3,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{
+		deviceIDs: []string{"d1"},
+		stateCounts: interfaces.MinerStateCounts{
+			HashingCount: 1,
+		},
+		componentCounts: []interfaces.ComponentErrorCount{
+			{ScopeID: 1, ComponentType: 3, DeviceCount: 1},
+		},
+	}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, &fakeTransactor{}, nil)
+
+	rows, err := svc.ListSites(context.Background(), testOrgID, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ListStats == nil {
+		t.Fatalf("expected one row with list stats, got %+v", rows)
+	}
+	stats := rows[0].ListStats
+	if stats.BuildingCount != 2 || stats.RackCount != 3 || stats.DeviceCount != 1 {
+		t.Fatalf("structural counts not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.HashingCount != 1 || stats.FanIssueCount != 1 {
+		t.Fatalf("non-telemetry stats not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
+		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
 	}
 }

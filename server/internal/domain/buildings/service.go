@@ -7,6 +7,7 @@ package buildings
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -939,7 +940,8 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		}
 		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to fetch building list telemetry: %v", err)
+			slog.WarnContext(ctx, "failed to fetch building list telemetry", "error", err)
+			metrics = nil
 		}
 	}
 

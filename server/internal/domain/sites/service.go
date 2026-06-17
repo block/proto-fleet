@@ -988,7 +988,8 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		}
 		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to fetch site list telemetry: %v", err)
+			slog.WarnContext(ctx, "failed to fetch site list telemetry", "error", err)
+			metrics = nil
 		}
 	}
 
