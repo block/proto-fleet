@@ -587,7 +587,7 @@ func (s *SQLCollectionStore) LockRacksForReparent(ctx context.Context, orgID int
 		TargetRackID:      targetRackID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to lock racks for reparent: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to lock racks for reparent: %w", err)
 	}
 	return ids, nil
 }
