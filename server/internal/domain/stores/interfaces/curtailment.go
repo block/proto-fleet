@@ -150,6 +150,7 @@ type CurtailmentStore interface {
 	// seeds one per existing org; SQL store lazily upserts on miss for
 	// orgs created post-migration. NotFound only on invalid org_id (FK).
 	GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error)
+	UpdateOrgConfigPostEventCooldown(ctx context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error)
 
 	// Selector exclusion sets — org-scoped device IDs subtracted from candidates.
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)

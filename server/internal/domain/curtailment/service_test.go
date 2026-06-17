@@ -144,6 +144,17 @@ func (f *fakeStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgCon
 	return nil, fleeterror.NewNotFoundErrorf("no org config for %d", orgID)
 }
 
+func (f *fakeStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
+	cfg, ok := f.orgConfigByOrg[orgID]
+	if !ok {
+		return nil, fleeterror.NewNotFoundErrorf("no org config for %d", orgID)
+	}
+	next := *cfg
+	next.PostEventCooldownSec = cooldownSec
+	f.orgConfigByOrg[orgID] = &next
+	return &next, nil
+}
+
 func (f *fakeStore) ListActiveCurtailedDevices(_ context.Context, orgID int64) ([]string, error) {
 	f.activeDevicesCalls++
 	f.lastActiveDevicesOrgID = orgID

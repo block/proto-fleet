@@ -83,6 +83,25 @@ func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*m
 	}, nil
 }
 
+func (s *SQLCurtailmentStore) UpdateOrgConfigPostEventCooldown(ctx context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
+	if _, err := s.GetOrgConfig(ctx, orgID); err != nil {
+		return nil, err
+	}
+	row, err := s.GetQueries(ctx).UpdateCurtailmentOrgConfigPostEventCooldown(ctx, sqlc.UpdateCurtailmentOrgConfigPostEventCooldownParams{
+		OrgID:                orgID,
+		PostEventCooldownSec: cooldownSec,
+	})
+	if err != nil {
+		return nil, mapOrgConfigError(err, orgID)
+	}
+	return &models.OrgConfig{
+		OrgID:                 row.OrgID,
+		MaxDurationDefaultSec: row.MaxDurationDefaultSec,
+		CandidateMinPowerW:    row.CandidateMinPowerW,
+		PostEventCooldownSec:  row.PostEventCooldownSec,
+	}, nil
+}
+
 func (s *SQLCurtailmentStore) ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error) {
 	devices, err := s.GetQueries(ctx).ListActiveCurtailedDevicesByOrg(ctx, orgID)
 	if err != nil {

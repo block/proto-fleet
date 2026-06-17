@@ -80,6 +80,9 @@ func newFakeStore() *fakeStore {
 func (f *fakeStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
 	panic("GetOrgConfig not exercised")
 }
+func (f *fakeStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
+	panic("UpdateOrgConfigPostEventCooldown not exercised")
+}
 func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised")
 }

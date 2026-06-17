@@ -1077,6 +1077,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateCurtailmentEventStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventState: %w", err)
 	}
+	if q.updateCurtailmentOrgConfigPostEventCooldownStmt, err = db.PrepareContext(ctx, updateCurtailmentOrgConfigPostEventCooldown); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentOrgConfigPostEventCooldown: %w", err)
+	}
 	if q.updateCurtailmentResponseProfileStmt, err = db.PrepareContext(ctx, updateCurtailmentResponseProfile); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentResponseProfile: %w", err)
 	}
@@ -2984,6 +2987,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCurtailmentEventStateStmt: %w", cerr)
 		}
 	}
+	if q.updateCurtailmentOrgConfigPostEventCooldownStmt != nil {
+		if cerr := q.updateCurtailmentOrgConfigPostEventCooldownStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentOrgConfigPostEventCooldownStmt: %w", cerr)
+		}
+	}
 	if q.updateCurtailmentResponseProfileStmt != nil {
 		if cerr := q.updateCurtailmentResponseProfileStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCurtailmentResponseProfileStmt: %w", cerr)
@@ -3619,6 +3627,7 @@ type Queries struct {
 	updateCurtailmentAutomationRuleStmt                   *sql.Stmt
 	updateCurtailmentEventOperatorFieldsStmt              *sql.Stmt
 	updateCurtailmentEventStateStmt                       *sql.Stmt
+	updateCurtailmentOrgConfigPostEventCooldownStmt       *sql.Stmt
 	updateCurtailmentResponseProfileStmt                  *sql.Stmt
 	updateCurtailmentTargetStateStmt                      *sql.Stmt
 	updateCustomRoleNameStmt                              *sql.Stmt
@@ -4025,6 +4034,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateCurtailmentAutomationRuleStmt:                   q.updateCurtailmentAutomationRuleStmt,
 		updateCurtailmentEventOperatorFieldsStmt:              q.updateCurtailmentEventOperatorFieldsStmt,
 		updateCurtailmentEventStateStmt:                       q.updateCurtailmentEventStateStmt,
+		updateCurtailmentOrgConfigPostEventCooldownStmt:       q.updateCurtailmentOrgConfigPostEventCooldownStmt,
 		updateCurtailmentResponseProfileStmt:                  q.updateCurtailmentResponseProfileStmt,
 		updateCurtailmentTargetStateStmt:                      q.updateCurtailmentTargetStateStmt,
 		updateCustomRoleNameStmt:                              q.updateCustomRoleNameStmt,

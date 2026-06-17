@@ -119,6 +119,9 @@ func (s *updateStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.
 		MaxDurationDefaultSec: 7200,
 	}, nil
 }
+func (s *updateStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
+	panic("UpdateOrgConfigPostEventCooldown not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Update handler tests")
 }

@@ -38,6 +38,9 @@ type stopStubStore struct {
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
 	panic("GetOrgConfig not exercised by Stop handler tests")
 }
+func (s *stopStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
+	panic("UpdateOrgConfigPostEventCooldown not exercised by Stop handler tests")
+}
 func (s *stopStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Stop handler tests")
 }

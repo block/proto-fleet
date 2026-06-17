@@ -68,6 +68,9 @@ func (s *listStubStore) ListEvents(_ context.Context, params interfaces.ListEven
 func (s *listStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
 	panic("GetOrgConfig not exercised by List handler tests")
 }
+func (s *listStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
+	panic("UpdateOrgConfigPostEventCooldown not exercised by List handler tests")
+}
 func (s *listStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by List handler tests")
 }

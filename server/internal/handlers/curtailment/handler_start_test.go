@@ -55,6 +55,14 @@ func (s *startStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.O
 	return &cfg, nil
 }
 
+func (s *startStubStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
+	cfg := *s.orgConfig
+	cfg.OrgID = orgID
+	cfg.PostEventCooldownSec = cooldownSec
+	s.orgConfig = &cfg
+	return &cfg, nil
+}
+
 func (s *startStubStore) ListActiveCurtailedDevices(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }

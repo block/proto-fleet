@@ -113,6 +113,8 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:               authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceGetCurtailmentEventProcedure:                 authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:              authz.PermCurtailmentRead,
+	curtailmentv1connect.CurtailmentServiceGetCurtailmentSettingsProcedure:              authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentSettingsProcedure:           authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure:              authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:                    authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:                     authz.PermCurtailmentManage,

@@ -41,6 +41,12 @@ service CurtailmentService {
     rpc GetCurtailmentEvent(GetCurtailmentEventRequest)
         returns (GetCurtailmentEventResponse);
 
+    // Org-level curtailment settings shared by preview, start, and automation.
+    rpc GetCurtailmentSettings(GetCurtailmentSettingsRequest)
+        returns (GetCurtailmentSettingsResponse);
+    rpc UpdateCurtailmentSettings(UpdateCurtailmentSettingsRequest)
+        returns (UpdateCurtailmentSettingsResponse);
+
     // Admin recovery RPC: force a non-terminal event to a terminal state.
     // Session-only, Admin role; reason required (min_len=1, max_len=256).
     //
@@ -1155,3 +1161,26 @@ message DeleteCurtailmentAutomationRuleRequest {
 }
 
 message DeleteCurtailmentAutomationRuleResponse {}
+
+// --- Settings ---
+
+message CurtailmentSettings {
+    // How long restored targets remain excluded from normal preview/start
+    // selection after their event completes. Emergency and automation
+    // execution paths can bypass this cooldown.
+    uint32 post_event_cooldown_sec = 1;
+}
+
+message GetCurtailmentSettingsRequest {}
+
+message GetCurtailmentSettingsResponse {
+    CurtailmentSettings settings = 1;
+}
+
+message UpdateCurtailmentSettingsRequest {
+    uint32 post_event_cooldown_sec = 1 [(buf.validate.field).uint32.lte = 86400];
+}
+
+message UpdateCurtailmentSettingsResponse {
+    CurtailmentSettings settings = 1;
+}

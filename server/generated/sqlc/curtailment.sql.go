@@ -1944,6 +1944,38 @@ func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCur
 	return result.RowsAffected()
 }
 
+const updateCurtailmentOrgConfigPostEventCooldown = `-- name: UpdateCurtailmentOrgConfigPostEventCooldown :one
+UPDATE curtailment_org_config
+SET post_event_cooldown_sec = $1
+WHERE org_id = $2
+RETURNING
+    org_id,
+    max_duration_default_sec,
+    candidate_min_power_w,
+    post_event_cooldown_sec,
+    created_at,
+    updated_at
+`
+
+type UpdateCurtailmentOrgConfigPostEventCooldownParams struct {
+	PostEventCooldownSec int32
+	OrgID                int64
+}
+
+func (q *Queries) UpdateCurtailmentOrgConfigPostEventCooldown(ctx context.Context, arg UpdateCurtailmentOrgConfigPostEventCooldownParams) (CurtailmentOrgConfig, error) {
+	row := q.queryRow(ctx, q.updateCurtailmentOrgConfigPostEventCooldownStmt, updateCurtailmentOrgConfigPostEventCooldown, arg.PostEventCooldownSec, arg.OrgID)
+	var i CurtailmentOrgConfig
+	err := row.Scan(
+		&i.OrgID,
+		&i.MaxDurationDefaultSec,
+		&i.CandidateMinPowerW,
+		&i.PostEventCooldownSec,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :execrows
 WITH locked_event AS MATERIALIZED (
     SELECT id
