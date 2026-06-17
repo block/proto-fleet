@@ -263,6 +263,16 @@ export class MinersPage extends BasePage {
     }
   }
 
+  async getSelectedMinersCount(): Promise<number> {
+    await expect(this.page.getByTestId("action-bar")).toBeVisible();
+    const text = (await this.page.getByTestId("action-bar").textContent()) ?? "";
+    const match = text.match(/(\d+) miners? selected/);
+    if (!match) {
+      throw new Error(`Could not find selected miner count in action bar text: ${text}`);
+    }
+    return Number(match[1]);
+  }
+
   async clickRebootButton() {
     await this.page.getByTestId("reboot-popover-button").click();
   }
@@ -1010,8 +1020,53 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: PROLONGED_TIMEOUT });
   }
 
+  async validateActionableMinersIssues(issue: string, expected: boolean = true, expectedCount?: number) {
+    await expect(async () => {
+      try {
+        await this.waitForColumnValuesToLoad("status");
+        await this.uncheckSelectAllCheckbox();
+        const rows = this.page.getByTestId("list-body").locator("tr");
+        const rowCount = await rows.count();
+        let actionableCount = 0;
+
+        for (let i = rowCount - 1; i >= 0; i--) {
+          const row = rows.nth(i);
+          await row.scrollIntoViewIfNeeded();
+          const checkbox = row.locator('input[type="checkbox"]').first();
+          if (await checkbox.isDisabled()) {
+            continue;
+          }
+
+          actionableCount++;
+          const issuesLocator = row.locator(`//td[@data-testid='issues']`);
+
+          if (expected) {
+            await expect(issuesLocator).toContainText(issue, {
+              timeout: DEFAULT_INTERVAL,
+            });
+          } else {
+            await expect(issuesLocator).not.toContainText(issue, {
+              timeout: DEFAULT_INTERVAL,
+            });
+          }
+        }
+
+        if (expectedCount !== undefined) {
+          expect(actionableCount).toBe(expectedCount);
+        }
+      } catch (error) {
+        await this.reloadPage();
+        throw error;
+      }
+    }).toPass({ timeout: PROLONGED_TIMEOUT });
+  }
+
   async validateNoMinerWithIssue(issue: string) {
     await this.validateAllMinersIssues(issue, false);
+  }
+
+  async validateNoActionableMinerWithIssue(issue: string, expectedCount?: number) {
+    await this.validateActionableMinersIssues(issue, false, expectedCount);
   }
 
   private async waitForColumnValuesToLoad(columnTestId: string) {
