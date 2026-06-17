@@ -33,11 +33,11 @@ func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSites
 	if err != nil {
 		return nil, err
 	}
-	includeStats := false
-	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err == nil {
-		includeStats = true
+	includeStatsForSite := func(siteID int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
+		return err == nil
 	}
-	out, err := h.service.ListSites(ctx, info.OrganizationID, includeStats)
+	out, err := h.service.ListSites(ctx, info.OrganizationID, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}

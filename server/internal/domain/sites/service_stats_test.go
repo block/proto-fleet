@@ -269,7 +269,7 @@ func TestListSites_degradesWhenListTelemetryFails(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
 	svc := NewService(store, nil, nil, devices, telemetry, &fakeTransactor{}, nil)
 
-	rows, err := svc.ListSites(context.Background(), testOrgID, true)
+	rows, err := svc.ListSites(context.Background(), testOrgID, func(int64) bool { return true })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

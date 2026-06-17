@@ -29,6 +29,11 @@ const (
 	eventRackAssignedBuilding = "building.rack_assigned"
 )
 
+// ListStatsAuthorizer reports whether list-row telemetry stats may be
+// populated for a building at the supplied site. Nil site_id means the
+// building is unassigned and must be authorized at org scope.
+type ListStatsAuthorizer func(siteID *int64) bool
+
 // Service is the domain entry point for building CRUD.
 type Service struct {
 	store           interfaces.BuildingStore
@@ -130,20 +135,30 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 }
 
 // ListBuildings returns the filtered building list with rack counts.
-func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error) {
+func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
 	// The proto oneof enforces mutual exclusion structurally; this is
 	// a defense-in-depth guard for any non-proto caller.
 	if filter.SiteID != nil && *filter.SiteID > 0 && filter.UnassignedOnly {
 		return nil, fleeterror.NewInvalidArgumentError("site_id and unassigned_only are mutually exclusive")
 	}
 	rows, err := s.store.ListBuildings(ctx, filter)
-	if err != nil || !filter.IncludeStats {
+	if err != nil || !filter.IncludeStats || includeStatsForSite == nil {
 		return rows, err
+	}
+	hasStatsRow := false
+	for _, row := range rows {
+		if includeStatsForSite(row.Building.SiteID) {
+			hasStatsRow = true
+			break
+		}
+	}
+	if !hasStatsRow {
+		return rows, nil
 	}
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings stats requires deviceQueryer and telemetry")
 	}
-	if err := s.populateListStats(ctx, filter.OrgID, rows); err != nil {
+	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -882,7 +897,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	return stats, nil
 }
 
-func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts) error {
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -892,6 +907,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 	uniqueDeviceIDs := make(map[string]struct{})
 	for i := range rows {
 		buildingID := rows[i].Building.ID
+		if !includeStatsForSite(rows[i].Building.SiteID) {
+			continue
+		}
 		buildingIDs = append(buildingIDs, buildingID)
 		rows[i].ListStats = &models.FleetListStats{
 			RackCount: int32(rows[i].RackCount), //nolint:gosec // bounded by org capacity
@@ -922,6 +940,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		for _, id := range deviceIDs {
 			uniqueDeviceIDs[id] = struct{}{}
 		}
+	}
+	if len(buildingIDs) == 0 {
+		return nil
 	}
 
 	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{

@@ -304,7 +304,7 @@ func TestListBuildings_degradesWhenListTelemetryFails(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
 	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
 
-	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true})
+	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, func(*int64) bool { return true })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

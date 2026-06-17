@@ -33,10 +33,12 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 		return nil, err
 	}
 	filter := toListFilter(req.Msg, info.OrganizationID)
-	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err == nil {
-		filter.IncludeStats = true
+	filter.IncludeStats = true
+	includeStatsForSite := func(siteID *int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: siteID})
+		return err == nil
 	}
-	rows, err := h.service.ListBuildings(ctx, filter)
+	rows, err := h.service.ListBuildings(ctx, filter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}

@@ -182,17 +182,31 @@ func (s *Service) UpdateSite(ctx context.Context, params models.UpdateSiteParams
 	return &UpdateResult{Site: site, NetworkConfigWarnings: warnings}, nil
 }
 
+// ListStatsAuthorizer reports whether list-row telemetry stats may be
+// populated for a site. Nil means list stats are disabled.
+type ListStatsAuthorizer func(siteID int64) bool
+
 // ListSites returns sites with attachment counts for the delete-confirm
 // dialog impact numbers.
-func (s *Service) ListSites(ctx context.Context, orgID int64, includeStats bool) ([]models.SiteWithCounts, error) {
+func (s *Service) ListSites(ctx context.Context, orgID int64, includeStatsForSite ListStatsAuthorizer) ([]models.SiteWithCounts, error) {
 	rows, err := s.store.ListSites(ctx, orgID)
-	if err != nil || !includeStats {
+	if err != nil || includeStatsForSite == nil {
 		return rows, err
+	}
+	hasStatsRow := false
+	for _, row := range rows {
+		if includeStatsForSite(row.Site.ID) {
+			hasStatsRow = true
+			break
+		}
+	}
+	if !hasStatsRow {
+		return rows, nil
 	}
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("sites.ListSites stats requires deviceQueryer and telemetry")
 	}
-	if err := s.populateListStats(ctx, orgID, rows); err != nil {
+	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -937,7 +951,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	return stats, nil
 }
 
-func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts) error {
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -947,6 +961,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 	uniqueDeviceIDs := make(map[string]struct{})
 	for i := range rows {
 		siteID := rows[i].Site.ID
+		if !includeStatsForSite(siteID) {
+			continue
+		}
 		siteIDs = append(siteIDs, siteID)
 		rows[i].ListStats = &models.FleetListStats{
 			BuildingCount: int32(rows[i].BuildingCount), //nolint:gosec // bounded by org capacity
@@ -970,6 +987,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		for _, id := range deviceIDs {
 			uniqueDeviceIDs[id] = struct{}{}
 		}
+	}
+	if len(siteIDs) == 0 {
+		return nil
 	}
 
 	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{

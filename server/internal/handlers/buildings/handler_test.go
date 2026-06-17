@@ -186,6 +186,32 @@ func TestHandler_ListBuildings_filterByUnassignedOnly(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestHandler_ListBuildings_omitsStatsForNarrowedBuildingSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(1)
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
+			assert.True(t, f.IncludeStats)
+			return []models.BuildingWithCounts{
+				{
+					Building:    models.Building{ID: 10, Name: "narrowed", SiteID: &siteID},
+					RackCount:   1,
+					DeviceCount: 1,
+				},
+			}, nil
+		})
+
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermFleetRead),
+		handlerstest.SiteAssignment(siteID, authz.PermSiteRead),
+	)
+	resp, err := h.handler.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+	assert.Nil(t, resp.Msg.GetBuildings()[0].GetListStats())
+}
+
 func TestHandler_CreateBuilding_happy(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
