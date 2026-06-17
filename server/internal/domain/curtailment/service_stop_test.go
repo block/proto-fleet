@@ -145,6 +145,7 @@ func TestService_Stop_RejectsAutomationOwnedEventWhileOffAsserted(t *testing.T) 
 
 	externalReference := "9001"
 	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorAutomation
 		ev.ExternalSource = stringPtr(automationExternalSource)
 		ev.ExternalReference = &externalReference
 	})
@@ -165,7 +166,32 @@ func TestService_Stop_RejectsAutomationOwnedEventWhileOffAsserted(t *testing.T) 
 	assert.Equal(t, "failed_precondition", fleetErr.GRPCCode.String())
 	assert.Contains(t, fleetErr.DebugMessage, "OFF asserted")
 	assert.Equal(t, 1, f.store.getAutomationRuleForEventCalls)
-	assert.Equal(t, 0, f.store.beginRestoreCalls)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_DoesNotTrustExternalAutomationAttribution(t *testing.T) {
+	t.Parallel()
+
+	externalReference := "9001"
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorUser
+		ev.ExternalSource = stringPtr(automationExternalSource)
+		ev.ExternalReference = &externalReference
+	})
+	signal := models.AutomationSignalOff
+	f.store.automationRulesByExternalRef[externalReference] = &models.AutomationRule{
+		ID:         9001,
+		OrgID:      f.event.OrgID,
+		RuleName:   "MaestroOS curtailment",
+		Enabled:    true,
+		LastSignal: &signal,
+	}
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, f.store.getAutomationRuleForEventCalls)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
 func TestService_Stop_AllowsAutomationOwnedEventWhenLatestSignalIsOn(t *testing.T) {
@@ -173,6 +199,7 @@ func TestService_Stop_AllowsAutomationOwnedEventWhenLatestSignalIsOn(t *testing.
 
 	externalReference := "9001"
 	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorAutomation
 		ev.ExternalSource = stringPtr(automationExternalSource)
 		ev.ExternalReference = &externalReference
 	})
@@ -197,6 +224,7 @@ func TestService_Stop_ForceBypassesAutomationOffDemandGuard(t *testing.T) {
 
 	externalReference := "9001"
 	f := newStopFixture(t, func(ev *models.Event) {
+		ev.SourceActorType = models.SourceActorAutomation
 		ev.ExternalSource = stringPtr(automationExternalSource)
 		ev.ExternalReference = &externalReference
 	})

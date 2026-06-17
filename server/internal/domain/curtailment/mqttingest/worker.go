@@ -360,7 +360,7 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	priorEdgeAt := prior.LastEdgeAt
 	direction := Decide(PriorState{LastTarget: priorTarget, LastEdgeAt: priorEdgeAt}, canonical)
 	if shouldAssertRepeatedOff(prior, canonical, alreadyProcessed) {
-		direction = EdgeOnToOff
+		direction = EdgeReassertOff
 	}
 
 	// Each target value may be processed once per seconds-precision publisher
@@ -646,13 +646,13 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 		return false
 	}
 	if c.Target != prior.LastTarget {
-		if c.Target == TargetOff {
-			return false
-		}
 		for _, target := range prior.LastProcessedTargets {
 			if target == c.Target {
 				return true
 			}
+		}
+		if c.Target == TargetOff {
+			return false
 		}
 		return prior.LastTarget != TargetUnknown &&
 			prior.LastProcessedTarget == c.Target &&

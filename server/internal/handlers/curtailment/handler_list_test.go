@@ -160,7 +160,7 @@ func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, event
 	rollup.Total = int64(len(s.targetsByUUID[eventUUID]))
 	return rollup, nil
 }
-func (s *listStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *listStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by List handler tests")
 }
 func (s *listStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {

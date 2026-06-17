@@ -1250,6 +1250,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 	ctx context.Context,
 	orgID int64,
 	eventUUID uuid.UUID,
+	params interfaces.BeginRestoreTransitionParams,
 ) (*models.Event, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
 		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
@@ -1273,6 +1274,9 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 				"cannot stop curtailment event %s in terminal state %q",
 				eventUUID, current.State,
 			)
+		}
+		if err := guardAutomationDemandForRestore(ctx, q, orgID, eventUUID, params.AutomationDemandGuard); err != nil {
+			return nil, err
 		}
 
 		updated, err := q.BeginCurtailmentRestoration(ctx, current.ID)
@@ -1312,6 +1316,37 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 
 		return convertEventRow(updated), nil
 	})
+}
+
+func guardAutomationDemandForRestore(
+	ctx context.Context,
+	q *sqlc.Queries,
+	orgID int64,
+	eventUUID uuid.UUID,
+	guard *interfaces.AutomationDemandGuard,
+) error {
+	if guard == nil {
+		return nil
+	}
+	row, err := q.GetEnabledCurtailmentAutomationRuleByEvent(ctx, sqlc.GetEnabledCurtailmentAutomationRuleByEventParams{
+		OrgID:             orgID,
+		EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+		ExternalReference: nullStringFromPtr(guard.ExternalReference),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fleeterror.NewInternalErrorf("failed to check curtailment automation demand before restore: %v", err)
+	}
+	if !row.LastSignal.Valid || models.AutomationSignal(row.LastSignal.String) != models.AutomationSignalOff {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"cannot restore automation-owned curtailment event %s while automation rule %q still has OFF asserted; use force=true to override",
+		eventUUID,
+		row.RuleName,
+	)
 }
 
 // BeginRecurtailTransition flips a restoring event back to pending and resets

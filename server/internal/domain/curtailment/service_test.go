@@ -418,11 +418,19 @@ func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmen
 	panic("UpsertHeartbeat not exercised by Preview/Start/Stop tests")
 }
 
-func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+func (f *fakeStore) BeginRestoreTransition(
+	_ context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	params interfaces.BeginRestoreTransitionParams,
+) (*models.Event, error) {
 	f.beginRestoreCalls++
 	f.beginRestoreLastEventID = eventUUID
 	if f.beginRestoreErr != nil {
 		return nil, f.beginRestoreErr
+	}
+	if err := f.guardAutomationDemandForRestore(eventUUID, params.AutomationDemandGuard); err != nil {
+		return nil, err
 	}
 	// Default: mutate the seeded event copy so the test sees a 'restoring' echo.
 	ev, ok := f.eventsByUUID[eventUUID]
@@ -432,6 +440,27 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	updated := *ev
 	updated.State = models.EventStateRestoring
 	return &updated, nil
+}
+
+func (f *fakeStore) guardAutomationDemandForRestore(eventUUID uuid.UUID, guard *interfaces.AutomationDemandGuard) error {
+	if guard == nil {
+		return nil
+	}
+	rule, err := f.GetEnabledAutomationRuleForEvent(context.Background(), f.eventsByUUID[eventUUID].OrgID, eventUUID, guard.ExternalReference)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil
+		}
+		return err
+	}
+	if rule == nil || rule.LastSignal == nil || *rule.LastSignal != models.AutomationSignalOff {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"cannot restore automation-owned curtailment event %s while automation rule %q still has OFF asserted; use force=true to override",
+		eventUUID,
+		rule.RuleName,
+	)
 }
 
 func (f *fakeStore) BeginRecurtailTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {

@@ -63,6 +63,14 @@ type UpsertCurtailmentHeartbeatParams struct {
 	ActiveEventCount   int32
 }
 
+type BeginRestoreTransitionParams struct {
+	AutomationDemandGuard *AutomationDemandGuard
+}
+
+type AutomationDemandGuard struct {
+	ExternalReference *string
+}
+
 // ListEventsParams configures the cursor-paginated history query.
 // PageToken empty = first page; StateFilters empty = all states.
 // PageSize <=0 falls back to the store's default page size.
@@ -236,6 +244,7 @@ type CurtailmentStore interface {
 		ctx context.Context,
 		orgID int64,
 		eventUUID uuid.UUID,
+		params BeginRestoreTransitionParams,
 	) (*models.Event, error)
 
 	// BeginRecurtailTransition flips a restoring event back to pending and resets

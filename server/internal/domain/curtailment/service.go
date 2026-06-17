@@ -98,15 +98,6 @@ type Service struct {
 	audit   AuditLogger
 }
 
-type automationDemandStore interface {
-	GetEnabledAutomationRuleForEvent(
-		ctx context.Context,
-		orgID int64,
-		eventUUID uuid.UUID,
-		externalReference *string,
-	) (*models.AutomationRule, error)
-}
-
 // ServiceOption configures a Service at construction time.
 type ServiceOption func(*Service)
 
@@ -1083,6 +1074,9 @@ func validateStartRequest(req StartRequest) error {
 				"external_source must be at most %d characters, got %d", startTextFieldMaxLen, n,
 			)
 		}
+		if *req.ExternalSource == automationExternalSource && req.SourceActorType != models.SourceActorAutomation {
+			return fleeterror.NewInvalidArgumentError("external_source is reserved for curtailment automation")
+		}
 	}
 	if req.ExternalReference != nil {
 		if n := utf8.RuneCountInString(*req.ExternalReference); n > startTextFieldMaxLen {
@@ -1614,15 +1608,13 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 		return event, nil
 	}
 
-	if err := s.checkAutomationDemandStopGate(ctx, event, req); err != nil {
-		return nil, err
-	}
-
 	if err := checkMinCurtailedDurationGate(event, req.Force, time.Now()); err != nil {
 		return nil, err
 	}
 
-	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID)
+	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID, interfaces.BeginRestoreTransitionParams{
+		AutomationDemandGuard: automationDemandGuardForStop(event, req),
+	})
 }
 
 // RecurtailRequest re-asserts curtailment on a restoring event.
@@ -1654,33 +1646,18 @@ func validateStopRequest(req StopRequest) error {
 	return nil
 }
 
-func (s *Service) checkAutomationDemandStopGate(ctx context.Context, event *models.Event, req StopRequest) error {
+func automationDemandGuardForStop(event *models.Event, req StopRequest) *interfaces.AutomationDemandGuard {
 	if event == nil || req.Force || req.AutomationRestore || !isAutomationOwnedEvent(event) {
 		return nil
 	}
-	store, ok := s.store.(automationDemandStore)
-	if !ok {
-		return fleeterror.NewInternalError("automation demand guard is not configured")
+	return &interfaces.AutomationDemandGuard{
+		ExternalReference: event.ExternalReference,
 	}
-	rule, err := store.GetEnabledAutomationRuleForEvent(ctx, event.OrgID, event.EventUUID, event.ExternalReference)
-	if err != nil {
-		if fleeterror.IsNotFoundError(err) {
-			return nil
-		}
-		return err
-	}
-	if rule == nil || rule.LastSignal == nil || *rule.LastSignal != models.AutomationSignalOff {
-		return nil
-	}
-	return fleeterror.NewFailedPreconditionErrorf(
-		"cannot restore automation-owned curtailment event %s while automation rule %q still has OFF asserted; use force=true to override",
-		event.EventUUID,
-		rule.RuleName,
-	)
 }
 
 func isAutomationOwnedEvent(event *models.Event) bool {
 	return event != nil &&
+		event.SourceActorType == models.SourceActorAutomation &&
 		event.ExternalSource != nil &&
 		*event.ExternalSource == automationExternalSource
 }

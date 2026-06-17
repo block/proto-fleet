@@ -19,6 +19,8 @@ const (
 	maxAutomationRuleNameLength = 64
 
 	automationExternalSource = "curtailment_automation"
+
+	repeatedOffAutomationMinInterval = 30 * time.Second
 )
 
 // AutomationService validates automation rule CRUD and executes MQTT trigger
@@ -215,6 +217,9 @@ func (s *AutomationService) handleRuleSignal(ctx context.Context, rule *models.A
 	if err != nil {
 		return err
 	}
+	if shouldCoalesceRepeatedOff(rule, signal, normalized, at) {
+		return nil
+	}
 	if err := s.store.RecordAutomationSignal(ctx, rule.ID, normalized, at); err != nil {
 		return err
 	}
@@ -226,6 +231,24 @@ func (s *AutomationService) handleRuleSignal(ctx context.Context, rule *models.A
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unsupported automation signal %q", normalized)
 	}
+}
+
+func shouldCoalesceRepeatedOff(
+	rule *models.AutomationRule,
+	signal mqttingest.SignalEdge,
+	normalized models.AutomationSignal,
+	at time.Time,
+) bool {
+	if rule == nil ||
+		signal.Direction != mqttingest.EdgeReassertOff ||
+		normalized != models.AutomationSignalOff ||
+		rule.ActiveEventUUID == nil ||
+		rule.LastSignal == nil ||
+		*rule.LastSignal != models.AutomationSignalOff ||
+		rule.LastSignalAt == nil {
+		return false
+	}
+	return at.Sub(*rule.LastSignalAt) < repeatedOffAutomationMinInterval
 }
 
 func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.AutomationRule, signal mqttingest.SignalEdge, at time.Time) error {

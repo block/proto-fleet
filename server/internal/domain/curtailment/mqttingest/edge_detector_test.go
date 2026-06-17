@@ -196,6 +196,7 @@ func TestEdgeDirection_String(t *testing.T) {
 
 	assert.Equal(t, "none", EdgeNone.String())
 	assert.Equal(t, "on_to_off", EdgeOnToOff.String())
+	assert.Equal(t, "reassert_off", EdgeReassertOff.String())
 	assert.Equal(t, "off_to_on", EdgeOffToOn.String())
 	assert.Equal(t, "watchdog_off", EdgeWatchdogOff.String())
 }

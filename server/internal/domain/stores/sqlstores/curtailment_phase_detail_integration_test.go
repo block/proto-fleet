@@ -61,7 +61,7 @@ func TestSQLCurtailmentStore_TargetPhaseSummariesThroughCurtailRestoreLifecycle(
 	assert.Equal(t, curtailBatch, *targets[0].CurtailPhase.BatchUUID)
 	assertTimeEqual(t, curtailCompletedAt, targets[0].CurtailPhase.CompletedAt)
 
-	_, err = store.BeginRestoreTransition(ctx, user.OrganizationID, eventUUID)
+	_, err = store.BeginRestoreTransition(ctx, user.OrganizationID, eventUUID, interfaces.BeginRestoreTransitionParams{})
 	require.NoError(t, err)
 	activeDesired := models.DesiredStateActive
 	restoreDispatchedAt := curtailCompletedAt.Add(30 * time.Second)
@@ -132,7 +132,7 @@ func TestSQLCurtailmentStore_ReleasedTargetsCompletePhaseSummaries(t *testing.T)
 		},
 	)
 	require.NoError(t, err)
-	_, err = store.BeginRestoreTransition(ctx, user.OrganizationID, restoreEventUUID)
+	_, err = store.BeginRestoreTransition(ctx, user.OrganizationID, restoreEventUUID, interfaces.BeginRestoreTransitionParams{})
 	require.NoError(t, err)
 	activeDesired := models.DesiredStateActive
 	restoreReleasedAt := time.Date(2026, 6, 6, 11, 30, 0, 0, time.UTC)

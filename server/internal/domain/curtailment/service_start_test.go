@@ -304,6 +304,21 @@ func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	assert.Contains(t, err.Error(), "source_actor_type")
 }
 
+func TestService_Start_RejectsReservedAutomationExternalSourceForManualActors(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.ExternalSource = stringPtr(automationExternalSource)
+	externalReference := "9001"
+	req.ExternalReference = &externalReference
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "external_source")
+}
+
 // TestService_Start_RejectsMissingCreatedByUserID pins the service-level
 // backstop for the FK plumbing: a zero or negative UserID must never reach
 // the DB, where curtailment_event.created_by_user_id has a NOT NULL FK to

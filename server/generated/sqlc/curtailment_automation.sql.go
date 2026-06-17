@@ -210,7 +210,7 @@ JOIN curtailment_mqtt_source_config src
 JOIN curtailment_response_profile profile
     ON profile.id = r.response_profile_id
     AND profile.org_id = r.org_id
-LEFT JOIN curtailment_automation_rule_state st
+JOIN curtailment_automation_rule_state st
     ON st.rule_id = r.id
 WHERE r.org_id = $1
   AND r.enabled = TRUE
@@ -223,6 +223,7 @@ WHERE r.org_id = $1
   )
 ORDER BY r.id
 LIMIT 1
+FOR UPDATE OF st
 `
 
 type GetEnabledCurtailmentAutomationRuleByEventParams struct {

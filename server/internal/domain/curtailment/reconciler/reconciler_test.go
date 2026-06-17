@@ -308,7 +308,7 @@ func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertC
 // assert the call happened and the event row flips to restoring in-place
 // (mirroring SQL store semantics — the reconciler reads ev again on the next
 // tick). effective_batch_size was stamped at Start; this fake does not touch it.
-func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, _ interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	f.beginRestoreCalls++
 	f.beginRestoreLastEventID = eventUUID
 	if f.beginRestoreErr != nil {
@@ -768,7 +768,7 @@ func TestReconciler_TargetPhaseSummariesCaptureCurtailAndRestoreCycle(t *testing
 	require.NotNil(t, target.CurtailPhase.CompletedAt)
 	assert.Equal(t, int32(0), target.CurtailPhase.FailureCount)
 
-	_, err := store.BeginRestoreTransition(context.Background(), 1, eventUUID)
+	_, err := store.BeginRestoreTransition(context.Background(), 1, eventUUID, interfaces.BeginRestoreTransitionParams{})
 	require.NoError(t, err)
 	store.candidates = []*models.Candidate{
 		{

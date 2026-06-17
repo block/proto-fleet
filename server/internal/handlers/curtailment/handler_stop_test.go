@@ -95,7 +95,7 @@ func (s *stopStubStore) GetEventByIdempotencyKey(context.Context, int64, string)
 func (s *stopStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
 	panic("GetEventByExternalReference not exercised by Stop handler tests")
 }
-func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, _ interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	s.beginRestoreCalls++
 	if s.beginRestoreErr != nil {
 		return nil, s.beginRestoreErr
