@@ -573,38 +573,33 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 //     /network, /pairing/info, POST /pairing/auth-key.
 //   - Discovery reads (device-online check, no auth): /hardware, /hardware/psus,
 //     /hashboards, /power-supplies.
-//   - Reads/telemetry (auth required, NOT default-password-gated): /mining (GET),
-//     /hashrate, /temperature, /power, /efficiency, /errors, /telemetry,
-//     /timeseries, /system/logs, plus /auth/change-password and /pools. The
-//     default password does not block reading telemetry; operators can see a rig
-//     before changing its password.
-//   - Mutating operations: auth required AND blocked while default_password_active
-//     (mining start/stop/tuning, PUT /mining/target, PUT /cooling, reboot, locate,
-//     firmware update, power-supplies/update, network PUT, etc.).
+//   - DEFAULT_PASSWORD_BLOCKED_ROUTES: PUT /system/unlock.
+//   - Everything else: auth requirements still apply, but default_password_active
+//     does not block the route.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
-	// Pools: auth required, exempt from the default-password gate per firmware.
+	// Pools: auth required, not blocked by default_password_active per firmware.
 	// Fleet onboarding configures pools before the operator changes the password.
 	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
 	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.handlePoolByID))
 	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.handleTestPoolConnection))
 
 	// Auth flow. login/refresh/set-password are fully public; change-password
-	// requires auth but bypasses the default-password gate (it's the path OUT
-	// of that state). logout is authenticated and gated like any other route.
+	// and logout require auth but are not blocked by default_password_active.
 	mux.HandleFunc("/api/v1/auth/login", h.handleLogin)
-	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuth(h.requirePasswordChanged(h.handleLogout)))
+	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuth(h.handleLogout))
 	mux.HandleFunc("/api/v1/auth/refresh", h.handleRefresh)
 	mux.HandleFunc("/api/v1/auth/password", h.handleSetPassword)
 	mux.HandleFunc("/api/v1/auth/change-password", h.requireBearerAuth(h.handleChangePassword))
 
 	// System — GET public for the read-only status endpoints; mutating verbs
-	// (PUT, DELETE) require auth and are default-password-gated.
+	// (PUT, DELETE) require auth. Only PUT /system/unlock is blocked while
+	// default_password_active.
 	mux.HandleFunc("/api/v1/system", h.handleSystem)
 	mux.HandleFunc("/api/v1/system/status", h.handleSystemStatus)
 	mux.HandleFunc("/api/v1/system/secure", h.handleSecureStatus)
 	mux.HandleFunc(
 		"/api/v1/system/ssh",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleSSH, http.MethodPut), http.MethodPut),
+		h.requireBearerAuthMethods(h.handleSSH, http.MethodPut),
 	)
 	mux.HandleFunc(
 		"/api/v1/system/unlock",
@@ -612,32 +607,24 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	)
 	mux.HandleFunc(
 		"/api/v1/system/tag",
-		h.requireBearerAuthMethods(
-			h.requirePasswordChangedMethods(h.handleTag, http.MethodPut, http.MethodDelete),
-			http.MethodPut, http.MethodDelete,
-		),
+		h.requireBearerAuthMethods(h.handleTag, http.MethodPut, http.MethodDelete),
 	)
 	mux.HandleFunc(
 		"/api/v1/system/telemetry",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleTelemetryConfig, http.MethodPut), http.MethodPut),
+		h.requireBearerAuthMethods(h.handleTelemetryConfig, http.MethodPut),
 	)
-	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuth(h.requirePasswordChanged(h.handleReboot)))
-	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuth(h.requirePasswordChanged(h.handleLocate)))
-	// Logs are a read — not gated behind the default password.
+	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuth(h.handleReboot))
+	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuth(h.handleLocate))
 	mux.HandleFunc("/api/v1/system/logs", h.requireBearerAuth(h.handleLogs))
-	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuth(h.requirePasswordChanged(h.handleUpdate)))
-	mux.HandleFunc("/api/v1/system/update/check", h.requireBearerAuth(h.requirePasswordChanged(h.handleUpdateCheck)))
+	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuth(h.handleUpdate))
+	mux.HandleFunc("/api/v1/system/update/check", h.requireBearerAuth(h.handleUpdateCheck))
 
-	// Mining — GET status is a read (ungated); start/stop/tuning and the PUT on
-	// /mining/target are mutating and stay gated behind the default password.
+	// Mining
 	mux.HandleFunc("/api/v1/mining", h.requireBearerAuth(h.handleMining))
-	mux.HandleFunc(
-		"/api/v1/mining/target",
-		h.requireBearerAuth(h.requirePasswordChangedMethods(h.handleMiningTarget, http.MethodPut)),
-	)
-	mux.HandleFunc("/api/v1/mining/tuning", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningTuning)))
-	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStart)))
-	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStop)))
+	mux.HandleFunc("/api/v1/mining/target", h.requireBearerAuth(h.handleMiningTarget))
+	mux.HandleFunc("/api/v1/mining/tuning", h.requireBearerAuth(h.handleMiningTuning))
+	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.handleMiningStart))
+	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.handleMiningStop))
 
 	// Hardware discovery endpoints are public; detailed hashboard stats remain
 	// authenticated under /hashboards/{hb_sn} but are not default-password-gated.
@@ -646,7 +633,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/hashboards", h.requireDeviceOnline(h.handleHashboards))
 	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.handleHashboardByID))
 
-	// Telemetry data — reads, auth required but not default-password-gated.
+	// Telemetry data
 	mux.HandleFunc("/api/v1/hashrate", h.requireBearerAuth(h.handleHashrate))
 	mux.HandleFunc("/api/v1/hashrate/", h.requireBearerAuth(h.handleHashrateByID))
 	mux.HandleFunc("/api/v1/temperature", h.requireBearerAuth(h.handleTemperature))
@@ -656,40 +643,33 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/efficiency", h.requireBearerAuth(h.handleEfficiency))
 	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.handleEfficiencyByID))
 
-	// PSUs — discovery read is public; the update is mutating and stays gated.
+	// PSUs — discovery read is public; the update requires auth.
 	mux.HandleFunc("/api/v1/power-supplies", h.requireDeviceOnline(h.handlePowerSupplies))
-	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSuppliesUpdate)))
+	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.handlePowerSuppliesUpdate))
 
-	// Cooling — GET read ungated; PUT is mutating and stays gated.
-	mux.HandleFunc(
-		"/api/v1/cooling",
-		h.requireBearerAuth(h.requirePasswordChangedMethods(h.handleCooling, http.MethodPut)),
-	)
+	// Cooling
+	mux.HandleFunc("/api/v1/cooling", h.requireBearerAuth(h.handleCooling))
 
-	// Network — GET public; PUT requires auth and is default-password-gated.
+	// Network — GET public; PUT requires auth.
 	mux.HandleFunc(
 		"/api/v1/network",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleNetwork, http.MethodPut), http.MethodPut),
+		h.requireBearerAuthMethods(h.handleNetwork, http.MethodPut),
 	)
 
-	// Errors — read, not default-password-gated.
+	// Errors
 	mux.HandleFunc("/api/v1/errors", h.requireBearerAuth(h.handleErrors))
 
-	// Telemetry — reads, not default-password-gated.
+	// Telemetry
 	mux.HandleFunc("/api/v1/telemetry", h.requireBearerAuth(h.handleTelemetry))
 	mux.HandleFunc("/api/v1/timeseries", h.requireBearerAuth(h.handleTimeseries))
 
 	// Pairing — GET /info and POST /auth-key are public (POST's handler has
 	// internal auth logic for key rotation). DELETE requires auth and is
-	// default-password-gated, per firmware. Fleet unpair paths must tolerate
-	// a 403 from a never-rotated device.
+	// not blocked by default_password_active.
 	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo)
 	mux.HandleFunc(
 		"/api/v1/pairing/auth-key",
-		h.requireBearerAuthMethods(
-			h.requirePasswordChangedMethods(h.handlePairingAuthKey, http.MethodDelete),
-			http.MethodDelete,
-		),
+		h.requireBearerAuthMethods(h.handlePairingAuthKey, http.MethodDelete),
 	)
 }
 
@@ -824,19 +804,6 @@ func (h *RESTApiHandler) requirePasswordChangedMethods(next http.HandlerFunc, me
 			return
 		}
 
-		if h.state.IsDefaultPasswordActive() {
-			h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
-			return
-		}
-
-		next(w, r)
-	}
-}
-
-// requirePasswordChanged returns 403 when the device still has the default
-// password, matching the Proto firmware's default-password lockout behavior.
-func (h *RESTApiHandler) requirePasswordChanged(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
 		if h.state.IsDefaultPasswordActive() {
 			h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 			return
@@ -2777,10 +2744,6 @@ func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Req
 		if existing := h.state.GetAuthKey(); existing != "" {
 			if !h.isAuthorized(r) {
 				h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required for key rotation")
-				return
-			}
-			if h.state.IsDefaultPasswordActive() {
-				h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 				return
 			}
 		}
