@@ -8,6 +8,7 @@ package miners
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -221,6 +222,50 @@ func AssertConfiguration(t *testing.T, tc TestContext, device sdk.Device, caps s
 			err := device.SetPowerTarget(TestCtx(t), sdk.PerformanceModeEfficiency)
 
 			// Assert
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func AssertMaintenance(t *testing.T, device sdk.Device, caps sdk.Capabilities) {
+	t.Helper()
+
+	if caps["logs_download"] {
+		t.Run("download_logs_succeeds", func(t *testing.T) {
+			logs, more, err := device.DownloadLogs(TestCtx(t), nil, "")
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, logs, "logs should contain diagnostic output")
+			assert.False(t, more, "single-shot log downloads should not advertise more data")
+		})
+	}
+
+	if caps["update_miner_password"] {
+		t.Run("update_miner_password_rejects_wrong_current_password", func(t *testing.T) {
+			err := device.UpdateMinerPassword(TestCtx(t), "wrong-password", "new-admin")
+
+			assert.Error(t, err)
+		})
+
+		t.Run("update_miner_password_succeeds", func(t *testing.T) {
+			err := device.UpdateMinerPassword(TestCtx(t), "admin", "new-admin")
+
+			assert.NoError(t, err)
+		})
+	}
+
+	if caps["manual_upload"] {
+		t.Run("firmware_update_succeeds", func(t *testing.T) {
+			path := t.TempDir() + "/test-firmware.bin"
+			data := []byte("mock firmware image")
+			require.NoError(t, os.WriteFile(path, data, 0600))
+
+			err := device.FirmwareUpdate(TestCtx(t), sdk.FirmwareFile{
+				Filename: "test-firmware.bin",
+				Size:     int64(len(data)),
+				FilePath: path,
+			})
+
 			assert.NoError(t, err)
 		})
 	}

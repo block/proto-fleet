@@ -112,7 +112,7 @@ func testFleetAPIHealth(t *testing.T, ctx context.Context) {
 
 // testPluginBinaries verifies plugin binaries are correct architecture (Linux ARM64 ELF)
 func testPluginBinaries(t *testing.T) {
-	plugins := []string{"../plugins/proto-plugin", "../plugins/antminer-plugin"}
+	plugins := []string{"../plugins/proto-plugin", "../plugins/asicrs-plugin"}
 
 	for _, pluginPath := range plugins {
 		// Check file exists

@@ -31,12 +31,12 @@ flowchart TB
         fleet["fleet-api<br/>(port 4000)"]
         db[("TimescaleDB<br/>(port 5433)")]
         proto-plugin["proto-plugin<br/>(gRPC)"]
-        antminer-plugin["antminer-plugin<br/>(gRPC)"]
+        asicrs-plugin["asicrs-plugin<br/>(gRPC)"]
         proto-sim["proto-sim<br/>(port 8080)"]
 
         fleet <--> db
         fleet -- loads --> proto-plugin
-        fleet -- loads --> antminer-plugin
+        fleet -- loads --> asicrs-plugin
         proto-plugin -- discovers/pairs --> proto-sim
     end
 
@@ -77,7 +77,7 @@ Validates that the docker-compose environment is properly configured and all ser
 │                                                              │
 │  3. PluginBinariesCorrect                                   │
 │     ├─ proto-plugin binary exists                          │
-│     ├─ antminer-plugin binary exists                       │
+│     ├─ asicrs-plugin binary exists                         │
 │     ├─ Binaries are ELF format (not Mach-O)               │
 │     └─ Binaries are ARM64 architecture (for Docker)       │
 │                                                              │

@@ -101,7 +101,7 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 
 	orgID := int64(1)
 
-	discoveredDeviceID := createDiscoveredDevice(t, db, "TestMiner", "TestCorp", "antminer")
+	discoveredDeviceID := createDiscoveredDevice(t, db, "TestMiner", "TestCorp", "asicrs")
 
 	queries := sqlc.New(db)
 

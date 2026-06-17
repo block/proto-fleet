@@ -19,7 +19,7 @@ export const miners: MinerStateSnapshot[] = [
     model: "S19 Pro",
     manufacturer: "Bitmain",
     workerName: "worker-01",
-    driverName: "antminer",
+    driverName: "asicrs",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -76,7 +76,7 @@ export const miners: MinerStateSnapshot[] = [
     model: "S19 Pro",
     manufacturer: "Bitmain",
     workerName: "worker-02",
-    driverName: "antminer",
+    driverName: "asicrs",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -133,7 +133,7 @@ export const miners: MinerStateSnapshot[] = [
     model: "S19 Pro",
     manufacturer: "Bitmain",
     workerName: "worker-03",
-    driverName: "antminer",
+    driverName: "asicrs",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -190,7 +190,7 @@ export const miners: MinerStateSnapshot[] = [
     model: "S19 Pro",
     manufacturer: "Bitmain",
     workerName: "worker-04",
-    driverName: "antminer",
+    driverName: "asicrs",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },

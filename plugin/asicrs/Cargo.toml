@@ -16,8 +16,8 @@ tokio-stream = "0.1"
 prost-types = "0.13"
 
 # asic-rs miner library
-asic-rs = "0.5.3"
-asic-rs-core = "0.5.3"
+asic-rs = { git = "https://github.com/256foundation/asic-rs.git", rev = "43d706ef31aa154f8bea0bd7ef8e81caa9cbe491" }
+asic-rs-core = { git = "https://github.com/256foundation/asic-rs.git", rev = "43d706ef31aa154f8bea0bd7ef8e81caa9cbe491" }
 measurements = "0.11"
 
 # config
@@ -31,3 +31,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # utils
 anyhow = "1"
 futures = "0.3"
+reqwest = { version = "0.13.3", features = ["json", "gzip", "rustls", "multipart", "stream"], default-features = false }
+digest_auth = "0.3"
+serde_json = "1"
+chrono = "0.4"

@@ -39,7 +39,7 @@ func TestService_ExportMinerListCsv_ShouldExportOnlyPairedMinersAndRespectFilter
 			DeviceIdentifier: "unpaired-device-1",
 			Model:            "S19 Pro",
 			Manufacturer:     "Bitmain",
-			DriverName:       "ANTMINER",
+			DriverName:       "asicrs",
 			IpAddress:        "192.168.1.100",
 			Port:             "4028",
 			UrlScheme:        "http",

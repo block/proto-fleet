@@ -7,7 +7,7 @@ public sealed class PluginValidator : IPluginValidator
     private static readonly string[] RequiredPlugins =
     [
         "proto-plugin",
-        "antminer-plugin"
+        "asicrs-plugin"
     ];
 
     private readonly WslCommandExecutor _executor;

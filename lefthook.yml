@@ -60,7 +60,3 @@ pre-push:
     plugin-proto-lint:
       root: plugin/proto
       run: golangci-lint run -c .golangci.yaml
-
-    plugin-antminer-lint:
-      root: plugin/antminer
-      run: golangci-lint run -c .golangci.yaml

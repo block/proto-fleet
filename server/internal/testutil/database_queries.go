@@ -291,7 +291,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 
 	driverName := "proto"
 	if portStr == "4028" {
-		driverName = "antminer"
+		driverName = "asicrs"
 	}
 
 	deviceIDs := make([]string, count)

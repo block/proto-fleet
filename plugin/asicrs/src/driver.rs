@@ -13,8 +13,9 @@ use proto_fleet_plugin::capabilities::CAP_NATIVE_STRATUM_V2;
 use proto_fleet_plugin::pb;
 
 use crate::capabilities::{
-    default_credentials, detect_variant, driver_base_capabilities, firmware_manufacturer,
-    make_to_family, static_base_capabilities, verify_identity, VARIANT_STOCK,
+    default_credentials, detect_variant, display_manufacturer, display_model,
+    driver_base_capabilities, make_to_family, static_base_capabilities, verify_identity,
+    VARIANT_STOCK,
 };
 use crate::config::{MinerFamilyConfig, PluginConfig};
 use crate::device::AsicRsDevice;
@@ -387,9 +388,8 @@ impl Driver for DriverService {
             )));
         }
 
-        let manufacturer = firmware_manufacturer(variant)
-            .unwrap_or(make.as_str())
-            .to_string();
+        let manufacturer = display_manufacturer(&make, variant);
+        let model = display_model(&make, variant, &model);
 
         let url_scheme = "http";
 
@@ -509,7 +509,12 @@ impl Driver for DriverService {
         // Verify identity: compare fresh device data against the discovery record.
         // If the IP was reassigned between discovery and pairing, this catches it
         // before we persist the wrong identity into the fleet record.
-        let fresh_model = &data.device_info.model;
+        let fresh_variant = detect_variant(&data.device_info.make, &data.device_info.firmware);
+        let fresh_model = display_model(
+            &data.device_info.make,
+            fresh_variant,
+            &data.device_info.model,
+        );
         let fresh_serial = data.serial_number.clone().unwrap_or_default();
         let fresh_mac = data.mac.as_ref().map(|m| m.to_string()).unwrap_or_default();
 
@@ -517,7 +522,7 @@ impl Driver for DriverService {
             &device_info.model,
             &device_info.serial_number,
             &device_info.mac_address,
-            fresh_model,
+            &fresh_model,
             &fresh_serial,
             &fresh_mac,
         )
@@ -545,10 +550,7 @@ impl Driver for DriverService {
 
         // Derive canonical manufacturer from fresh firmware data, not stale discovery.
         // Aftermarket firmware (VNish, Braiins, LuxOS) gets reported as the firmware vendor.
-        let fresh_variant = detect_variant(&data.device_info.make, &data.device_info.firmware);
-        let fresh_manufacturer = firmware_manufacturer(fresh_variant)
-            .unwrap_or(data.device_info.make.as_str())
-            .to_string();
+        let fresh_manufacturer = display_manufacturer(&data.device_info.make, fresh_variant);
 
         tracing::info!(
             model = %fresh_model,
@@ -565,7 +567,7 @@ impl Driver for DriverService {
                 port: device_info.port,
                 url_scheme: device_info.url_scheme,
                 serial_number: fresh_serial,
-                model: fresh_model.clone(),
+                model: fresh_model,
                 manufacturer: fresh_manufacturer,
                 mac_address: fresh_mac,
                 firmware_version,
@@ -842,16 +844,44 @@ impl Driver for DriverService {
 
     async fn download_logs(
         &self,
-        _req: Request<pb::DownloadLogsRequest>,
+        req: Request<pb::DownloadLogsRequest>,
     ) -> Result<Response<pb::DownloadLogsResponse>, Status> {
-        Err(Status::unimplemented("download_logs not supported"))
+        let req = req.into_inner();
+        let device_id = req
+            .r#ref
+            .as_ref()
+            .map(|r| &r.device_id)
+            .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
+        let device = self.get_device(device_id).await?;
+        let (log_data, more_data) = device
+            .download_logs(req.since, &req.batch_log_uuid)
+            .await
+            .map_err(device_err_to_status)?;
+        Ok(Response::new(pb::DownloadLogsResponse {
+            log_data,
+            more_data,
+        }))
     }
 
     async fn update_firmware(
         &self,
-        _req: Request<pb::UpdateFirmwareRequest>,
+        req: Request<pb::UpdateFirmwareRequest>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented("update_firmware not yet supported"))
+        let req = req.into_inner();
+        let device_id = req
+            .r#ref
+            .as_ref()
+            .map(|r| &r.device_id)
+            .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
+        let firmware = req
+            .firmware
+            .ok_or_else(|| Status::invalid_argument("Missing firmware file info"))?;
+        let device = self.get_device(device_id).await?;
+        device
+            .update_firmware(firmware)
+            .await
+            .map_err(device_err_to_status)?;
+        Ok(Response::new(()))
     }
 
     async fn get_firmware_update_status(
@@ -870,9 +900,28 @@ impl Driver for DriverService {
 
     async fn update_miner_password(
         &self,
-        _req: Request<pb::UpdateMinerPasswordRequest>,
+        req: Request<pb::UpdateMinerPasswordRequest>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented("update_miner_password not supported"))
+        let req = req.into_inner();
+        let device_id = req
+            .r#ref
+            .as_ref()
+            .map(|r| &r.device_id)
+            .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
+        if req.new_password.is_empty() {
+            return Err(Status::invalid_argument("new_password must not be empty"));
+        }
+        if req.current_password.is_empty() {
+            return Err(Status::invalid_argument(
+                "current_password must not be empty",
+            ));
+        }
+        let device = self.get_device(device_id).await?;
+        device
+            .update_miner_password(&req.current_password, &req.new_password)
+            .await
+            .map_err(device_err_to_status)?;
+        Ok(Response::new(()))
     }
 
     // --- Curtailment ---

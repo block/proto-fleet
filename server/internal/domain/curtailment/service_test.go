@@ -455,7 +455,7 @@ func miner(id string, status, pairing string, powerW, hashRateHS float64) *model
 	t := time.Now()
 	pw := powerW
 	hr := hashRateHS
-	driver := "antminer"
+	driver := "asicrs"
 	return &models.Candidate{
 		DeviceIdentifier: id,
 		DriverName:       &driver,
@@ -475,7 +475,7 @@ func minerWithEff(id string, powerW, hashRateHS, effJH float64) *models.Candidat
 
 func staleMiner(id string) *models.Candidate {
 	// LatestMetricsAt nil → service treats as stale_telemetry.
-	driver := "antminer"
+	driver := "asicrs"
 	return &models.Candidate{
 		DeviceIdentifier: id,
 		DriverName:       &driver,

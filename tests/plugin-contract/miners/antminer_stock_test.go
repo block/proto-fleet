@@ -23,7 +23,16 @@ func TestAntminerStock(t *testing.T) {
 	// Arrange
 	mock := antminer.NewServer(t, antminerTestdataDir)
 	manifest := miners.LoadManifest(t, antminerTestdataDir+"/manifest.json")
-	driver := harness.StartAntminer(t, mock.WebPort())
+	driver := harness.StartAsicrsWithConfig(t, `plugin:
+  log_level: debug
+  discovery_timeout_seconds: 10
+  telemetry_cache_ttl_seconds: 0
+
+miners:
+  antminer:
+    stock:
+      enabled: true
+`)
 
 	func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -38,7 +47,7 @@ func TestAntminerStock(t *testing.T) {
 		Driver:    driver,
 		Manifest:  manifest,
 		MinerIP:   mock.Host(),
-		MinerPort: fmt.Sprintf("%d", manifest.Ports["rpc"]),
+		MinerPort: fmt.Sprintf("%d", manifest.Ports["web"]),
 	}
 
 	t.Run("Discovery", func(t *testing.T) { miners.AssertDiscovery(t, tc) })
@@ -51,6 +60,7 @@ func TestAntminerStock(t *testing.T) {
 		t.Run("Telemetry", func(t *testing.T) { miners.AssertTelemetry(t, tc, device) })
 		t.Run("Control", func(t *testing.T) { miners.AssertControl(t, tc, device, caps) })
 		t.Run("Configuration", func(t *testing.T) { miners.AssertConfiguration(t, tc, device, caps) })
+		t.Run("Maintenance", func(t *testing.T) { miners.AssertMaintenance(t, device, caps) })
 		t.Run("Errors", func(t *testing.T) { miners.AssertErrors(t, tc, device) })
 		t.Run("Capabilities", func(t *testing.T) { miners.AssertCapabilities(t, tc, device) })
 

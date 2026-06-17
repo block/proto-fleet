@@ -67,7 +67,7 @@ func TestPairer_PairDevice_NoPlugin(t *testing.T) {
 			DeviceIdentifier: "test-device",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 	}
 	credentials := &pb.Credentials{
@@ -91,12 +91,12 @@ func TestPairer_PairDevice_PluginNoPairingCapability(t *testing.T) {
 	// Add mock plugin without pairing capability
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true, // Has discovery but not pairing
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 
@@ -105,7 +105,7 @@ func TestPairer_PairDevice_PluginNoPairingCapability(t *testing.T) {
 			DeviceIdentifier: "test-device",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 	}
 	credentials := &pb.Credentials{
@@ -155,13 +155,13 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
@@ -186,7 +186,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 			Model:            "S19",
 			Manufacturer:     "Bitmain",
 			MacAddress:       "00:11:22:33:44:55",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -342,12 +342,12 @@ func TestPairer_GetDeviceInfo_PluginNoPairingCapability(t *testing.T) {
 	// Add mock plugin without pairing capability
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityDiscovery: true, // Has discovery but not pairing
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 
@@ -356,7 +356,7 @@ func TestPairer_GetDeviceInfo_PluginNoPairingCapability(t *testing.T) {
 			DeviceIdentifier: "test-device",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -413,13 +413,13 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
@@ -442,7 +442,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 			UrlScheme:        "http",
 			Model:            "S19",
 			Manufacturer:     "Bitmain",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -464,7 +464,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	assert.Equal(t, "TEST123", result.SerialNumber)
 	assert.Equal(t, "S19 Pro", result.Model)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
-	assert.Equal(t, "antminer", result.DriverName)
+	assert.Equal(t, "asicrs", result.DriverName)
 	assert.Equal(t, "00:11:22:33:44:55", result.MacAddress)
 }
 
@@ -481,13 +481,13 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromNewDevice_ReturnsForbidde
 
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
@@ -496,7 +496,7 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromNewDevice_ReturnsForbidde
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -530,13 +530,13 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromDescribeDevice_ReturnsFor
 
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
@@ -545,7 +545,7 @@ func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromDescribeDevice_ReturnsFor
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -574,11 +574,11 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromNewDevice_ReturnsUnauthenti
 
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
@@ -587,7 +587,7 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromNewDevice_ReturnsUnauthenti
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -618,11 +618,11 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromDescribeDevice_ReturnsUnaut
 
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
@@ -631,7 +631,7 @@ func TestPairer_GetDeviceInfo_GRPCUnauthenticatedFromDescribeDevice_ReturnsUnaut
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -743,7 +743,7 @@ func TestPairer_FetchWorkerNameFromPairedDevice_UsesAnyConfiguredPoolWorkerNameA
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -774,14 +774,14 @@ func TestPairer_FetchWorkerNameFromPairedDevice_UsesAnyConfiguredPoolWorkerNameA
 
 	plugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing:    true,
 			sdk.CapabilityPoolConfig: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = plugin
+	manager.pluginsByDriverName["asicrs"] = plugin
 
 	workerName, err := pairer.fetchWorkerNameFromPairedDevice(t.Context(), plugin, discoveredDevice, credentials)
 
@@ -808,7 +808,7 @@ func TestPairer_FetchWorkerNameFromPairedDevice_ClosesDeviceOnPoolReadError(t *t
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -836,14 +836,14 @@ func TestPairer_FetchWorkerNameFromPairedDevice_ClosesDeviceOnPoolReadError(t *t
 
 	plugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing:    true,
 			sdk.CapabilityPoolConfig: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = plugin
+	manager.pluginsByDriverName["asicrs"] = plugin
 
 	workerName, err := pairer.fetchWorkerNameFromPairedDevice(t.Context(), plugin, discoveredDevice, credentials)
 
@@ -913,14 +913,14 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     driverWithCreds,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
@@ -937,7 +937,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-001",
+			DeviceIdentifier: "asicrs-device-001",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
@@ -945,7 +945,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 			Model:            "S19",
 			Manufacturer:     "Bitmain",
 			MacAddress:       "00:11:22:33:44:55",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1021,14 +1021,14 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     driverWithCreds,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	transactor := mocks.NewMockTransactor(ctrl)
 	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
@@ -1044,7 +1044,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-001",
+			DeviceIdentifier: "asicrs-device-001",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
@@ -1052,7 +1052,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 			Model:            "S19",
 			Manufacturer:     "Bitmain",
 			MacAddress:       "00:11:22:33:44:55",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1098,7 +1098,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002"))
+		Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("asicrs-device-002"))
 
 	// Wrap mock driver with default credentials provider
 	driverWithCreds := &mockDriverWithDefaultCredentials{
@@ -1110,23 +1110,23 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     driverWithCreds,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-002",
+			DeviceIdentifier: "asicrs-device-002",
 			IpAddress:        "192.168.1.101",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1166,23 +1166,23 @@ func TestPairer_PairDevice_AntminerAutoCredentials_NetworkError(t *testing.T) {
 
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     driverWithCreds,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-003",
+			DeviceIdentifier: "asicrs-device-003",
 			IpAddress:        "192.168.1.102",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1233,14 +1233,14 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
@@ -1257,11 +1257,11 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-004",
+			DeviceIdentifier: "asicrs-device-004",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1312,21 +1312,21 @@ func TestPairer_PairDevice_PermissionDeniedFromPlugin_ReturnsForbidden(t *testin
 		Return(sdk.DeviceInfo{}, status.Error(codes.PermissionDenied, "default password must be changed"))
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-locked",
+			DeviceIdentifier: "asicrs-device-locked",
 			IpAddress:        "192.168.1.150",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1350,21 +1350,21 @@ func TestPairer_PairDevice_GRPCUnauthenticatedFromPlugin_ReturnsUnauthenticated(
 		Return(sdk.DeviceInfo{}, status.Error(codes.Unauthenticated, "authentication failed"))
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-bad-creds",
+			DeviceIdentifier: "asicrs-device-bad-creds",
 			IpAddress:        "192.168.1.151",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1396,20 +1396,20 @@ func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t 
 	}
 
 	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     driverWithCreds,
 		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-default-pw",
+			DeviceIdentifier: "asicrs-device-default-pw",
 			IpAddress:        "192.168.1.152",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}
@@ -1426,9 +1426,9 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 
 	manager := NewManager(&Config{})
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	manager.pluginsByDriverName["antminer"] = &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+	manager.pluginsByDriverName["asicrs"] = &LoadedPlugin{
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
@@ -1453,7 +1453,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 			MacAddress:       "AA:BB:CC:DD:EE:FF",
 			SerialNumber:     "SN-001",
 		},
@@ -1502,7 +1502,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 				IpAddress:        "192.168.1.10",
 				Port:             "80",
 				UrlScheme:        "http",
-				DriverName:       "antminer",
+				DriverName:       "asicrs",
 			},
 			OrgID: 1,
 		}, nil)
@@ -1550,7 +1550,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 		UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("paired-id"), models.MinerStatusActive, "").
 		Return(nil)
 
-	err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false, manager.pluginsByDriverName["antminer"])
+	err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false, manager.pluginsByDriverName["asicrs"])
 	require.NoError(t, err)
 	require.Equal(t, "paired-id", device.DeviceIdentifier)
 }
@@ -1570,9 +1570,9 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 	})
 	require.NoError(t, err)
 
-	manager.pluginsByDriverName["antminer"] = &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+	manager.pluginsByDriverName["asicrs"] = &LoadedPlugin{
+		Name:       "asicrs-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
@@ -1586,7 +1586,7 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 			MacAddress:       "AA:BB:CC:DD:EE:FF",
 		},
 		OrgID: 1,
@@ -1631,7 +1631,7 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 		UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("device-123"), models.MinerStatusActive, "").
 		Return(nil)
 
-	err = pairer.handlePairViaStore(ctx, device, credentials, "AA:BB:CC:DD:EE:FF", true, manager.pluginsByDriverName["antminer"])
+	err = pairer.handlePairViaStore(ctx, device, credentials, "AA:BB:CC:DD:EE:FF", true, manager.pluginsByDriverName["asicrs"])
 	require.NoError(t, err)
 }
 
@@ -1702,13 +1702,13 @@ func TestPairer_PairDevice_WithoutDefaultCredentialsProvider(t *testing.T) {
 	// Plugin with a driver that does NOT implement DefaultCredentialsProvider
 	mockPlugin := &LoadedPlugin{
 		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Identifier: sdk.DriverIdentifier{DriverName: "asicrs"},
 		Driver:     mockDriver, // Plain driver without DefaultCredentialsProvider
 		Caps: sdk.Capabilities{
 			sdk.CapabilityPairing: true,
 		},
 	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
+	manager.pluginsByDriverName["asicrs"] = mockPlugin
 
 	pairer := createTestPairer(ctrl, manager)
 
@@ -1717,7 +1717,7 @@ func TestPairer_PairDevice_WithoutDefaultCredentialsProvider(t *testing.T) {
 			DeviceIdentifier: "test-device-001",
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 		},
 		OrgID: 1,
 	}

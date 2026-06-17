@@ -625,7 +625,7 @@ func TestService_Start_EmitsCandidateExclusionMetrics(t *testing.T) {
 	power := 6000.0
 	zeroHR := 0.0
 	now := time.Now()
-	driver := "antminer"
+	driver := "asicrs"
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("ok", 6000, 100, 40),
 		{

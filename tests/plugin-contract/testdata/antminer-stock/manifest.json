@@ -2,11 +2,12 @@
   "model": "Antminer S19",
   "manufacturer": "Bitmain",
   "firmware": "stock",
-  "firmware_version": "1.0.0",
-  "plugin": "antminer",
+  "firmware_version": "Fri Nov 17 17:37:21 CST 2023",
+  "plugin": "asicrs",
   "recorded_from": "172.16.26.253",
   "recorded_at": "2026-03-12T10:00:00Z",
   "ports": {
-    "rpc": 4028
+    "rpc": 4028,
+    "web": 80
   }
 }

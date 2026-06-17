@@ -44,7 +44,7 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 			IpAddress:        "192.168.1.100",
 			Port:             "80",
 			UrlScheme:        "http",
-			DriverName:       "antminer",
+			DriverName:       "asicrs",
 			MacAddress:       "AA:BB:CC:DD:EE:FF",
 		},
 		OrgID: 1,

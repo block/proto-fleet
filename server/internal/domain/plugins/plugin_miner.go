@@ -29,6 +29,8 @@ import (
 var _ interfaces.Miner = &PluginMiner{}
 var _ interfaces.MinerInfo = &PluginMiner{}
 
+const maxDownloadLogPages = 128
+
 // PluginMiner wraps an SDK Device to implement the interfaces.Miner interface.
 //
 // Lifecycle Management:
@@ -369,11 +371,21 @@ func (p *PluginMiner) BlinkLED(ctx context.Context) error {
 
 // DownloadLogs implements interfaces.Miner
 func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
-	logData, _, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to download logs: %v", err)
+	var logBuilder strings.Builder
+	for page := 0; ; page++ {
+		logData, moreData, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to download logs: %v", err)
+		}
+		logBuilder.WriteString(logData)
+		if !moreData {
+			break
+		}
+		if page+1 >= maxDownloadLogPages {
+			return fleeterror.NewInternalErrorf("failed to download logs: exceeded %d pages", maxDownloadLogPages)
+		}
 	}
-	logLines := strings.Split(strings.TrimRight(logData, "\n"), "\n")
+	logLines := strings.Split(strings.TrimRight(logBuilder.String(), "\n"), "\n")
 
 	csvRows := formatLogsToCSV(logLines, p.caps[sdk.CapabilityAsymmetricAuth])
 	if _, err := p.filesService.SaveLogs(batchLogUUID, p.deviceInfo.MacAddress, csvRows); err != nil {

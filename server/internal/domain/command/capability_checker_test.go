@@ -258,14 +258,14 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 	t.Run("returns none supported when no devices support the command", func(t *testing.T) {
 		provider := &mockCapabilitiesProvider{
 			capabilities: map[string]*capabilitiespb.MinerCapabilities{
-				"antminer|Bitmain|S19": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
+				"asicrs|Bitmain|S19": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
 			},
 		}
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-1", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -285,16 +285,16 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 	t.Run("returns mixed results with partial support", func(t *testing.T) {
 		provider := &mockCapabilitiesProvider{
 			capabilities: map[string]*capabilitiespb.MinerCapabilities{
-				"proto|Proto|Model1":   {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: true}},
-				"antminer|Bitmain|S19": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
+				"proto|Proto|Model1": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: true}},
+				"asicrs|Bitmain|S19": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
 			},
 		}
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
 			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Model1", FirmwareVersion: "2.0.0"},
-			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-3", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-3", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -311,17 +311,17 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 	t.Run("groups unsupported devices by model and firmware version", func(t *testing.T) {
 		provider := &mockCapabilitiesProvider{
 			capabilities: map[string]*capabilitiespb.MinerCapabilities{
-				"antminer|Bitmain|S19":    {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
-				"antminer|Bitmain|S19Pro": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
+				"asicrs|Bitmain|S19":    {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
+				"asicrs|Bitmain|S19Pro": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
 			},
 		}
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
-			{DeviceIdentifier: "device-3", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19Pro", FirmwareVersion: "2.0.0"},
-			{DeviceIdentifier: "device-4", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.1.0"},
+			{DeviceIdentifier: "device-1", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-3", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19Pro", FirmwareVersion: "2.0.0"},
+			{DeviceIdentifier: "device-4", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.1.0"},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -343,13 +343,13 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 	t.Run("uses Unknown for empty model and firmware", func(t *testing.T) {
 		provider := &mockCapabilitiesProvider{
 			capabilities: map[string]*capabilitiespb.MinerCapabilities{
-				"antminer||": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
+				"asicrs||": {Commands: &capabilitiespb.CommandCapabilities{RebootSupported: false}},
 			},
 		}
 		checker := NewCapabilityChecker(nil, provider)
 
 		devices := []deviceInfo{
-			{DeviceIdentifier: "device-1", DriverName: "antminer", Manufacturer: "", Model: "", FirmwareVersion: ""},
+			{DeviceIdentifier: "device-1", DriverName: "asicrs", Manufacturer: "", Model: "", FirmwareVersion: ""},
 		}
 
 		result := checker.checkDeviceCapabilities(ctx, devices, []string{sdk.CapabilityReboot})
@@ -398,7 +398,7 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 					Commands: &capabilitiespb.CommandCapabilities{},
 					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true},
 				},
-				"antminer|Bitmain|S19": {
+				"asicrs|Bitmain|S19": {
 					Commands: &capabilitiespb.CommandCapabilities{},
 					Firmware: &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true},
 				},
@@ -412,7 +412,7 @@ func TestCheckDeviceCapabilities(t *testing.T) {
 
 		devices := []deviceInfo{
 			{DeviceIdentifier: "device-1", DriverName: "proto", Manufacturer: "Proto", Model: "Rig1", FirmwareVersion: "2.0.0"},
-			{DeviceIdentifier: "device-2", DriverName: "antminer", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
+			{DeviceIdentifier: "device-2", DriverName: "asicrs", Manufacturer: "Bitmain", Model: "S19", FirmwareVersion: "1.0.0"},
 			{DeviceIdentifier: "device-3", DriverName: "virtual", Manufacturer: "Virtual", Model: "Miner", FirmwareVersion: "0.0.1"},
 		}
 

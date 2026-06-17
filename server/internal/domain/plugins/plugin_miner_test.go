@@ -270,7 +270,7 @@ func createTestPluginMinerWithDevice(device sdk.Device) *PluginMiner {
 		testOrgID,
 		int64(0),
 		models.DeviceIdentifier("test-device-123"),
-		"antminer",
+		"asicrs",
 		nil,
 		"SN123456",
 		*connInfo,
@@ -467,6 +467,31 @@ func TestPluginMiner_DownloadLogs_TrailingNewlineTrimmed(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, saver.savedLines, 3) // header + 2 data rows, no empty row
+	assert.Equal(t, "Time,Message", saver.savedLines[0])
+	assert.Equal(t, `"2026-01-01T00:00:00Z","line one"`, saver.savedLines[1])
+	assert.Equal(t, `"2026-01-01T00:00:01Z","line two"`, saver.savedLines[2])
+}
+
+func TestPluginMiner_DownloadLogs_DrainsPagedResponses(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	saver := &mockLogSaver{}
+	pm.filesService = saver
+
+	calls := 0
+	mockDevice.downloadLogsFunc = func(_ context.Context, _ *time.Time, uuid string) (string, bool, error) {
+		require.Equal(t, "batch-uuid", uuid)
+		calls++
+		if calls == 1 {
+			return "[2026-01-01T00:00:00Z] line one\n", true, nil
+		}
+		return "[2026-01-01T00:00:01Z] line two\n", false, nil
+	}
+
+	err := pm.DownloadLogs(context.Background(), "batch-uuid")
+
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Len(t, saver.savedLines, 3)
 	assert.Equal(t, "Time,Message", saver.savedLines[0])
 	assert.Equal(t, `"2026-01-01T00:00:00Z","line one"`, saver.savedLines[1])
 	assert.Equal(t, `"2026-01-01T00:00:01Z","line two"`, saver.savedLines[2])
@@ -750,7 +775,7 @@ func TestPluginMiner_MinerInfo(t *testing.T) {
 	pm, _ := createTestPluginMiner()
 
 	assert.Equal(t, models.DeviceIdentifier("test-device-123"), pm.GetID())
-	assert.Equal(t, "antminer", pm.GetDriverName())
+	assert.Equal(t, "asicrs", pm.GetDriverName())
 	assert.Equal(t, "SN123456", pm.GetSerialNumber())
 	assert.NotNil(t, pm.GetConnectionInfo())
 }

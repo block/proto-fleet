@@ -19,10 +19,10 @@ import (
 )
 
 type Server struct {
-	t        testing.TB
-	dataDir  string
-	rpcAddr  string
-	webPort  int
+	t       testing.TB
+	dataDir string
+	rpcAddr string
+	webPort int
 
 	// RPC server
 	rpcListener net.Listener
@@ -41,23 +41,27 @@ type Server struct {
 	webOverrides    map[string][]byte
 	behaviors       map[string]mockapi.ConnBehavior
 	defaultBehavior mockapi.ConnBehavior
+	webPassword     string
 }
 
-// NewServer starts a mock Antminer server with RPC on 127.0.0.1:4028 and HTTP on a random port.
-// Not safe for parallel tests (shares port 4028 with WhatsMiner mock).
+// NewServer starts a mock Antminer server with RPC on 127.0.0.1:4028 and HTTP on port 80.
+// Port 80 is required because ASIC-RS hardcodes stock Antminer HTTP connections to port 80.
+// Not safe for parallel tests (shares ports 4028 and 80 with other mocks).
 func NewServer(t testing.TB, dataDir string) *Server {
 	t.Helper()
 
 	rpcAddr := "127.0.0.1:4028"
 	rpcListener := mockapi.ListenWithRetry(t, rpcAddr)
 
-	httpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	httpAddr := "127.0.0.1:80"
+	httpListener := mockapi.ListenWithRetry(t, httpAddr)
+
+	_, portStr, err := net.SplitHostPort(httpListener.Addr().String())
 	if err != nil {
 		rpcListener.Close()
-		t.Fatalf("failed to start mock Antminer HTTP server: %v", err)
+		httpListener.Close()
+		t.Fatalf("failed to parse mock Antminer HTTP address %q: %v", httpListener.Addr().String(), err)
 	}
-
-	_, portStr, _ := net.SplitHostPort(httpListener.Addr().String())
 	var webPort int
 	fmt.Sscanf(portStr, "%d", &webPort)
 
@@ -74,6 +78,7 @@ func NewServer(t testing.TB, dataDir string) *Server {
 		rpcOverrides: make(map[string][]byte),
 		webOverrides: make(map[string][]byte),
 		behaviors:    make(map[string]mockapi.ConnBehavior),
+		webPassword:  "admin",
 	}
 
 	// Start RPC server
@@ -243,26 +248,68 @@ func extractRPCCommand(req map[string]interface{}) string {
 // --- HTTP server (digest auth + CGI endpoints) ---
 
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
+	// Extract endpoint key from path: /cgi-bin/stats.cgi -> stats
+	endpoint := endpointKey(r.URL.Path)
+
 	// Simplified digest auth: require Authorization header with valid username.
 	// First request without auth gets a 401 with WWW-Authenticate challenge.
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Digest ") {
+		// Firmware uploads are multipart streams. The mock accepts the initial
+		// upload request so tests don't depend on replaying a streaming body
+		// after the synthetic digest challenge.
+		if endpoint == "upgrade" {
+			s.recordHTTPCommand(endpoint)
+			s.writeHTTPFixture(w, endpoint)
+			return
+		}
 		w.Header().Set("WWW-Authenticate",
 			`Digest realm="antMiner Configuration", nonce="abc123def456", qop="auth", algorithm=MD5`)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
-	// Extract endpoint key from path: /cgi-bin/stats.cgi -> stats
-	endpoint := endpointKey(r.URL.Path)
+	s.recordHTTPCommand(endpoint)
+	if endpoint == "passwd" {
+		s.handlePasswordChange(w, r)
+		return
+	}
+
+	s.writeHTTPFixture(w, endpoint)
+}
+
+func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		CurrentPassword string `json:"curPwd"`
+		NewPassword     string `json:"newPwd"`
+		ConfirmPassword string `json:"confirmPwd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, `{"stats":"error","msg":"invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
 
 	s.mu.Lock()
-	s.commands = append(s.commands, "web:"+endpoint)
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if payload.CurrentPassword != s.webPassword || payload.NewPassword != payload.ConfirmPassword {
+		w.Write([]byte(`{"stats":"error","msg":"invalid password"}`))
+		return
+	}
+	s.webPassword = payload.NewPassword
+	w.Write(s.webResponses["passwd"])
+}
 
+func (s *Server) recordHTTPCommand(endpoint string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.commands = append(s.commands, "web:"+endpoint)
+}
+
+func (s *Server) writeHTTPFixture(w http.ResponseWriter, endpoint string) {
 	resp := s.loadWebResponse(endpoint)
 	if resp == nil {
-		http.NotFound(w, r)
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
 

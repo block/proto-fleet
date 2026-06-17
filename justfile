@@ -33,14 +33,14 @@ build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins")
 # build plugin binaries for multiple architectures (deployment)
 build-plugins-release: _build-go-plugins-multi-arch _asicrs-build-release
 
-# rebuild a specific plugin for the Docker runtime (linux/arm64): proto, antminer, virtual, or asicrs
+# rebuild a specific plugin for the Docker runtime (linux/arm64): proto, virtual, or asicrs
 rebuild-plugin name:
   #!/usr/bin/env bash
   set -euo pipefail
   case "{{name}}" in
-    proto|antminer|virtual|asicrs) ;;
+    proto|virtual|asicrs) ;;
     *)
-      echo "Unknown plugin: {{name}}. Valid: proto, antminer, virtual, asicrs" >&2
+      echo "Unknown plugin: {{name}}. Valid: proto, virtual, asicrs" >&2
       exit 1
       ;;
   esac
@@ -48,7 +48,7 @@ rebuild-plugin name:
   # present and built for linux/arm64 before force-rebuilding the named one.
   just build-plugins-docker
   case "{{name}}" in
-    proto|antminer)
+    proto)
       (cd plugin/{{name}} && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/{{name}}-plugin .)
       chmod +x server/plugins/{{name}}-plugin
       ;;
@@ -70,7 +70,7 @@ build-virtual-plugin: (rebuild-plugin "virtual")
 # --- Tests ---
 
 # run plugin contract tests (each test suite in its own container for port isolation)
-test-contract: _asicrs-build
+test-contract: _asicrs-build-contract
   #!/usr/bin/env bash
   set -euo pipefail
   GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
@@ -100,7 +100,6 @@ test-contract: _asicrs-build
     "$IMAGE" sh -c '
       mkdir -p server/plugins && \
       (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
-      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
       (cd tests/plugin-contract && go test -c -o bin/miners.test ./miners/)
     '
 
@@ -179,8 +178,6 @@ update-go-deps:
   (cd server && go get -u -t ./... && go mod tidy)
   echo "Updating plugin/proto dependencies..."
   (cd plugin/proto && go get -u -t ./... && go mod tidy)
-  echo "Updating plugin/antminer dependencies..."
-  (cd plugin/antminer && go get -u -t ./... && go mod tidy)
   echo "Updating plugin/virtual dependencies..."
   (cd plugin/virtual && go get -u -t ./... && go mod tidy)
   echo "Updating server/fake-proto-rig dependencies..."
@@ -258,7 +255,6 @@ _lint-plugins:
   #!/usr/bin/env bash
   set -euo pipefail
   (cd plugin/proto && golangci-lint run -c .golangci.yaml)
-  (cd plugin/antminer && golangci-lint run -c .golangci.yaml)
 
 [working-directory: 'server']
 _format-server:
@@ -272,7 +268,6 @@ _format-plugins:
   #!/usr/bin/env bash
   set -euo pipefail
   (cd plugin/proto && goimports -w .)
-  (cd plugin/antminer && goimports -w .)
 
 _gen-protos:
   PATH="$(pwd)/client/node_modules/.bin:$PATH" buf generate
@@ -307,46 +302,40 @@ _build-go-plugins-native outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
   # Plugins import from ../../server, so server module files also affect the graph.
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
+  SOURCES="plugin/proto server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum"
   PROTO_BIN={{outdir}}/proto-plugin
-  ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="native"
-  if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
+  if [ -f "$PROTO_BIN" ] \
      && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
-     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
-     && [ -z "$(find $SOURCES -newer "$ANT_BIN" -type f 2>/dev/null | head -1)" ]; then
+     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "Go plugins up to date, skipping build."
     exit 0
   fi
   echo "Building Go plugins..."
   mkdir -p {{outdir}}
   (cd plugin/proto && go build -o ../../{{outdir}}/proto-plugin .)
-  (cd plugin/antminer && go build -o ../../{{outdir}}/antminer-plugin .)
-  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  chmod +x {{outdir}}/proto-plugin
   echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _build-go-plugins-cross goos goarch outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
   # Plugins import from ../../server, so server module files also affect the graph.
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
+  SOURCES="plugin/proto server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum"
   PROTO_BIN={{outdir}}/proto-plugin
-  ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
-  if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
+  if [ -f "$PROTO_BIN" ] \
      && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
-     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
-     && [ -z "$(find $SOURCES -newer "$ANT_BIN" -type f 2>/dev/null | head -1)" ]; then
+     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "Go plugins up to date for {{goos}}/{{goarch}}, skipping build."
     exit 0
   fi
   echo "Building Go plugins for {{goos}}/{{goarch}}..."
   mkdir -p {{outdir}}
   (cd plugin/proto && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/proto-plugin .)
-  (cd plugin/antminer && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/antminer-plugin .)
-  chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  chmod +x {{outdir}}/proto-plugin
   echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _build-go-plugins-multi-arch: _go-work-sync
@@ -355,9 +344,7 @@ _build-go-plugins-multi-arch: _go-work-sync
   echo "Building Go plugins for multiple architectures..."
   mkdir -p deployment-files/server
   (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
-  (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
   (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
-  (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
   chmod +x deployment-files/server/*-plugin-*
 
 _asicrs-build outdir="server/plugins":
@@ -401,6 +388,29 @@ _asicrs-build outdir="server/plugins":
       --output type=local,dest={{outdir}} \
       .
   fi
+  chmod +x "$BIN"
+  # buildx --output type=local preserves the in-image mtime; touch so freshness checks see "now".
+  touch "$BIN"
+  echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
+
+_asicrs-build-contract:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  BIN=server/plugins/asicrs-plugin
+  PLATFORM_MARKER=server/plugins/.asicrs-platform
+  WANT_PLATFORM="contract-docker-default"
+  if [ -f "$BIN" ] \
+     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
+     && [ -z "$(find plugin/asicrs sdk/rust server/sdk/v1/pb -newer "$BIN" -type f 2>/dev/null | head -1)" ]; then
+    echo "asicrs plugin up to date for contract tests, skipping build."
+    exit 0
+  fi
+  echo "Building asicrs plugin for contract tests using Docker's default platform..."
+  mkdir -p server/plugins
+  docker buildx build \
+    --file plugin/asicrs/Dockerfile.build \
+    --output type=local,dest=server/plugins \
+    .
   chmod +x "$BIN"
   # buildx --output type=local preserves the in-image mtime; touch so freshness checks see "now".
   touch "$BIN"

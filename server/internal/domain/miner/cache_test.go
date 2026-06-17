@@ -61,7 +61,7 @@ func TestMinerService_GetMinerFromDeviceIdentifier_CachesAfterFirstLookup(t *tes
 		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil).
 		Times(1)
 
-	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
+	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "asicrs"}
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
 
 	// Act — first call: DB lookup + plugin NewDevice
@@ -103,7 +103,7 @@ func TestMinerService_GetMiner_CachesAfterFirstLookup(t *testing.T) {
 		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil).
 		Times(1)
 
-	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
+	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "asicrs"}
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
 
 	// Act — first call: DB lookup + plugin NewDevice
@@ -145,7 +145,7 @@ func TestMinerService_InvalidateMiner_ForcesRefreshOnNextLookup(t *testing.T) {
 		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil).
 		Times(1)
 
-	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
+	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "asicrs"}
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
 
 	// Populate the cache
@@ -193,7 +193,7 @@ func TestMinerService_InvalidateMiner_ForcesRefreshForBothLookupPaths(t *testing
 		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil).
 		Times(1)
 
-	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
+	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "asicrs"}
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
 
 	// Populate the shared cache via GetMiner.

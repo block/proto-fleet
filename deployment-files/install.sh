@@ -425,7 +425,7 @@ extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
 # Validate plugin binaries exist
 echo "🔌 Validating plugin binaries..."
 PLUGIN_DIR="server"
-REQUIRED_PLUGINS=("proto-plugin" "antminer-plugin" "asicrs-plugin")
+REQUIRED_PLUGINS=("proto-plugin" "asicrs-plugin")
 MISSING_PLUGINS=()
 
 for plugin in "${REQUIRED_PLUGINS[@]}"; do
