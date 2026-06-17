@@ -176,6 +176,90 @@ func (g *Grafana) TestStoredReceiver(ctx context.Context, receiverName, integrat
 	return ReceiverTestResult{OK: out.Status == "success", Error: scrubSecretSubstrings(out.Error)}, nil
 }
 
+type GrafanaAlertRule struct {
+	UID          string            `json:"uid,omitempty"`
+	OrgID        int64             `json:"orgID,omitempty"`
+	FolderUID    string            `json:"folderUID,omitempty"`
+	RuleGroup    string            `json:"ruleGroup"`
+	Title        string            `json:"title"`
+	Condition    string            `json:"condition"`
+	Data         json.RawMessage   `json:"data"`
+	For          string            `json:"for,omitempty"`
+	NoDataState  string            `json:"noDataState,omitempty"`
+	ExecErrState string            `json:"execErrState,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Annotations  map[string]string `json:"annotations,omitempty"`
+	IsPaused     bool              `json:"isPaused,omitempty"`
+}
+
+func (g *Grafana) ListAlertRules(ctx context.Context) ([]GrafanaAlertRule, error) {
+	var out []GrafanaAlertRule
+	if err := g.do(ctx, http.MethodGet, "/api/v1/provisioning/alert-rules", nil, &out); err != nil {
+		return nil, fmt.Errorf("list alert rules: %w", err)
+	}
+	return out, nil
+}
+
+func (g *Grafana) GetAlertRule(ctx context.Context, uid string) (*GrafanaAlertRule, error) {
+	var out GrafanaAlertRule
+	if err := g.do(ctx, http.MethodGet, "/api/v1/provisioning/alert-rules/"+uid, nil, &out); err != nil {
+		return nil, fmt.Errorf("get alert rule: %w", err)
+	}
+	return &out, nil
+}
+
+// No Create/Update/DeleteAlertRule: rules are YAML-provisioned and Grafana 11.6+ blocks in-place API edits.
+
+type GrafanaSilence struct {
+	ID        string                  `json:"id,omitempty"`
+	Status    *GrafanaSilenceStatus   `json:"status,omitempty"`
+	StartsAt  time.Time               `json:"startsAt"`
+	EndsAt    time.Time               `json:"endsAt"`
+	CreatedBy string                  `json:"createdBy"`
+	Comment   string                  `json:"comment"`
+	Matchers  []GrafanaSilenceMatcher `json:"matchers"`
+}
+
+type GrafanaSilenceStatus struct {
+	State string `json:"state"`
+}
+
+type GrafanaSilenceMatcher struct {
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	IsRegex bool   `json:"isRegex"`
+	IsEqual bool   `json:"isEqual"`
+}
+
+const silencesPath = "/api/alertmanager/grafana/api/v2/silences"
+
+func (g *Grafana) ListSilences(ctx context.Context) ([]GrafanaSilence, error) {
+	var out []GrafanaSilence
+	if err := g.do(ctx, http.MethodGet, silencesPath, nil, &out); err != nil {
+		return nil, fmt.Errorf("list silences: %w", err)
+	}
+	return out, nil
+}
+
+// The Alertmanager API takes the silence id in the body, not the URL.
+func (g *Grafana) PutSilence(ctx context.Context, s GrafanaSilence) (string, error) {
+	var out struct {
+		SilenceID string `json:"silenceID"`
+	}
+	if err := g.do(ctx, http.MethodPost, silencesPath, s, &out); err != nil {
+		return "", fmt.Errorf("put silence: %w", err)
+	}
+	return out.SilenceID, nil
+}
+
+func (g *Grafana) DeleteSilence(ctx context.Context, id string) error {
+	path := "/api/alertmanager/grafana/api/v2/silence/" + id
+	if err := g.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
+		return fmt.Errorf("delete silence: %w", err)
+	}
+	return nil
+}
+
 func (g *Grafana) do(ctx context.Context, method, path string, body, out any) error {
 	var reqJSON []byte
 	if body != nil {

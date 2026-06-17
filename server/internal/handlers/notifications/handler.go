@@ -26,7 +26,11 @@ func NewHandler(svc *notifications.Service, history notificationhistory.Lister) 
 	return &Handler{svc: svc, history: history}
 }
 
-var _ notificationsv1connect.ChannelServiceHandler = (*Handler)(nil)
+var (
+	_ notificationsv1connect.ChannelServiceHandler           = (*Handler)(nil)
+	_ notificationsv1connect.RuleServiceHandler              = (*Handler)(nil)
+	_ notificationsv1connect.MaintenanceWindowServiceHandler = (*Handler)(nil)
+)
 
 func (h *Handler) authorize(ctx context.Context, permission string) (int64, error) {
 	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
@@ -129,6 +133,108 @@ func (h *Handler) TestChannel(ctx context.Context, req *connect.Request[notifica
 	}), nil
 }
 
+func (h *Handler) ListRules(ctx context.Context, _ *connect.Request[notificationsv1.ListRulesRequest]) (*connect.Response[notificationsv1.ListRulesResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := h.svc.ListRules(ctx, orgID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]*notificationsv1.Rule, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, ruleToProto(r))
+	}
+	return connect.NewResponse(&notificationsv1.ListRulesResponse{Rules: out}), nil
+}
+
+func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[notificationsv1.PauseRuleRequest]) (*connect.Response[notificationsv1.PauseRuleResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	if err != nil {
+		return nil, err
+	}
+	rule, err := h.svc.PauseRule(ctx, orgID, req.Msg.GetId())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&notificationsv1.PauseRuleResponse{Rule: ruleToProto(*rule)}), nil
+}
+
+func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[notificationsv1.ResumeRuleRequest]) (*connect.Response[notificationsv1.ResumeRuleResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	if err != nil {
+		return nil, err
+	}
+	rule, err := h.svc.ResumeRule(ctx, orgID, req.Msg.GetId())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&notificationsv1.ResumeRuleResponse{Rule: ruleToProto(*rule)}), nil
+}
+
+func (h *Handler) ListMaintenanceWindows(ctx context.Context, _ *connect.Request[notificationsv1.ListMaintenanceWindowsRequest]) (*connect.Response[notificationsv1.ListMaintenanceWindowsResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationRead)
+	if err != nil {
+		return nil, err
+	}
+	silences, err := h.svc.ListMaintenanceWindows(ctx, orgID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]*notificationsv1.MaintenanceWindow, 0, len(silences))
+	for _, s := range silences {
+		out = append(out, maintenanceWindowToProto(s))
+	}
+	return connect.NewResponse(&notificationsv1.ListMaintenanceWindowsResponse{MaintenanceWindows: out}), nil
+}
+
+func (h *Handler) CreateMaintenanceWindow(ctx context.Context, req *connect.Request[notificationsv1.CreateMaintenanceWindowRequest]) (*connect.Response[notificationsv1.CreateMaintenanceWindowResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	if err != nil {
+		return nil, err
+	}
+	dom, err := protoToMaintenanceWindow("", req.Msg.GetScope(), req.Msg.GetStartsAt(), req.Msg.GetEndsAt(), req.Msg.GetComment())
+	if err != nil {
+		return nil, err
+	}
+	if info, infoErr := middleware.RequirePermission(ctx, authz.PermNotificationManage, authz.ResourceContext{}); infoErr == nil {
+		dom.CreatedBy = info.Username
+	}
+	created, err := h.svc.CreateMaintenanceWindow(ctx, orgID, dom)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&notificationsv1.CreateMaintenanceWindowResponse{MaintenanceWindow: maintenanceWindowToProto(*created)}), nil
+}
+
+func (h *Handler) UpdateMaintenanceWindow(ctx context.Context, req *connect.Request[notificationsv1.UpdateMaintenanceWindowRequest]) (*connect.Response[notificationsv1.UpdateMaintenanceWindowResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	if err != nil {
+		return nil, err
+	}
+	dom, err := protoToMaintenanceWindow(req.Msg.GetId(), req.Msg.GetScope(), req.Msg.GetStartsAt(), req.Msg.GetEndsAt(), req.Msg.GetComment())
+	if err != nil {
+		return nil, err
+	}
+	updated, err := h.svc.UpdateMaintenanceWindow(ctx, orgID, dom)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&notificationsv1.UpdateMaintenanceWindowResponse{MaintenanceWindow: maintenanceWindowToProto(*updated)}), nil
+}
+
+func (h *Handler) DeleteMaintenanceWindow(ctx context.Context, req *connect.Request[notificationsv1.DeleteMaintenanceWindowRequest]) (*connect.Response[notificationsv1.DeleteMaintenanceWindowResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.svc.DeleteMaintenanceWindow(ctx, orgID, req.Msg.GetId()); err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&notificationsv1.DeleteMaintenanceWindowResponse{}), nil
+}
+
 func channelToProto(c notifications.Channel) *notificationsv1.Channel {
 	out := &notificationsv1.Channel{
 		Id:              c.ID,
@@ -165,6 +271,77 @@ func protoToChannel(id, name string, kind notificationsv1.ChannelKind, wh *notif
 	}
 	if slack != nil {
 		dom.Slack = &notifications.SlackConfig{WebhookURL: slack.GetWebhookUrl()}
+	}
+	return dom, nil
+}
+
+func ruleToProto(r notifications.Rule) *notificationsv1.Rule {
+	return &notificationsv1.Rule{
+		Id:              r.ID,
+		OrganizationId:  r.OrganizationID,
+		Name:            r.Name,
+		Template:        ruleTemplateToProto(r.Template),
+		Group:           r.Group,
+		Severity:        r.Severity,
+		Summary:         r.Summary,
+		Description:     r.Description,
+		DurationSeconds: r.DurationSeconds,
+		Enabled:         r.Enabled,
+	}
+}
+
+func maintenanceWindowToProto(s notifications.MaintenanceWindow) *notificationsv1.MaintenanceWindow {
+	out := &notificationsv1.MaintenanceWindow{
+		Id:             s.ID,
+		OrganizationId: s.OrganizationID,
+		Scope:          scopeToProto(s.Scope),
+		StartsAt:       timestamppb.New(s.StartsAt),
+		Comment:        s.Comment,
+		CreatedBy:      s.CreatedBy,
+		CreatedAt:      timestamppb.New(s.CreatedAt),
+		Active:         s.Active,
+	}
+	if !s.EndsAt.IsZero() {
+		out.EndsAt = timestamppb.New(s.EndsAt)
+	}
+	return out
+}
+
+func scopeToProto(sc notifications.MaintenanceWindowScope) *notificationsv1.MaintenanceWindowScope {
+	return &notificationsv1.MaintenanceWindowScope{
+		Kind:      scopeKindToProto(sc.Kind),
+		RuleId:    sc.RuleID,
+		GroupId:   sc.GroupID,
+		SiteId:    sc.SiteID,
+		DeviceIds: sc.DeviceIDs,
+	}
+}
+
+func protoToMaintenanceWindow(id string, scope *notificationsv1.MaintenanceWindowScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (notifications.MaintenanceWindow, error) {
+	if scope == nil {
+		return notifications.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
+	}
+	dk, err := protoToScopeKind(scope.GetKind())
+	if err != nil {
+		return notifications.MaintenanceWindow{}, err
+	}
+	if startsAt == nil {
+		return notifications.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
+	}
+	dom := notifications.MaintenanceWindow{
+		ID: id,
+		Scope: notifications.MaintenanceWindowScope{
+			Kind:      dk,
+			RuleID:    scope.GetRuleId(),
+			GroupID:   scope.GetGroupId(),
+			SiteID:    scope.GetSiteId(),
+			DeviceIDs: scope.GetDeviceIds(),
+		},
+		StartsAt: startsAt.AsTime(),
+		Comment:  comment,
+	}
+	if endsAt != nil {
+		dom.EndsAt = endsAt.AsTime()
 	}
 	return dom, nil
 }
@@ -211,4 +388,51 @@ func validationStateToProto(s notifications.ValidationState) notificationsv1.Val
 		return notificationsv1.ValidationState_VALIDATION_STATE_FAILED
 	}
 	return notificationsv1.ValidationState_VALIDATION_STATE_UNSPECIFIED
+}
+
+func ruleTemplateToProto(t notifications.RuleTemplate) notificationsv1.RuleTemplate {
+	switch t {
+	case notifications.RuleTemplateOffline:
+		return notificationsv1.RuleTemplate_RULE_TEMPLATE_OFFLINE
+	case notifications.RuleTemplateHashrate:
+		return notificationsv1.RuleTemplate_RULE_TEMPLATE_HASHRATE
+	case notifications.RuleTemplateTemperature:
+		return notificationsv1.RuleTemplate_RULE_TEMPLATE_TEMPERATURE
+	case notifications.RuleTemplatePool:
+		return notificationsv1.RuleTemplate_RULE_TEMPLATE_POOL
+	case notifications.RuleTemplateCommandFailure:
+		return notificationsv1.RuleTemplate_RULE_TEMPLATE_COMMAND_FAILURE
+	case notifications.RuleTemplateTelemetryPoll:
+		return notificationsv1.RuleTemplate_RULE_TEMPLATE_TELEMETRY_POLL
+	}
+	return notificationsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
+}
+
+func scopeKindToProto(k notifications.MaintenanceWindowScopeKind) notificationsv1.MaintenanceWindowScopeKind {
+	switch k {
+	case notifications.MaintenanceWindowScopeRule:
+		return notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE
+	case notifications.MaintenanceWindowScopeGroup:
+		return notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP
+	case notifications.MaintenanceWindowScopeSite:
+		return notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE
+	case notifications.MaintenanceWindowScopeDevice:
+		return notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE
+	}
+	return notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED
+}
+
+func protoToScopeKind(k notificationsv1.MaintenanceWindowScopeKind) (notifications.MaintenanceWindowScopeKind, error) {
+	switch k {
+	case notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE:
+		return notifications.MaintenanceWindowScopeRule, nil
+	case notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP:
+		return notifications.MaintenanceWindowScopeGroup, nil
+	case notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE:
+		return notifications.MaintenanceWindowScopeSite, nil
+	case notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE:
+		return notifications.MaintenanceWindowScopeDevice, nil
+	case notificationsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED:
+	}
+	return "", fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %s", k)
 }

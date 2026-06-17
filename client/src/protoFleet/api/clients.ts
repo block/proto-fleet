@@ -12,7 +12,11 @@ import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanageme
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
-import { ChannelService as NotificationChannelService } from "@/protoFleet/api/generated/notifications/v1/notifications_pb";
+import {
+  ChannelService as NotificationChannelService,
+  MaintenanceWindowService as NotificationMaintenanceWindowService,
+  RuleService as NotificationRuleService,
+} from "@/protoFleet/api/generated/notifications/v1/notifications_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
@@ -41,9 +45,13 @@ const foremanImportClient = createClient(ForemanImportService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
 const notificationChannelClient = createClient(NotificationChannelService, transport);
+const notificationRuleClient = createClient(NotificationRuleService, transport);
+const notificationMaintenanceWindowClient = createClient(NotificationMaintenanceWindowService, transport);
 
 export {
   notificationChannelClient,
+  notificationRuleClient,
+  notificationMaintenanceWindowClient,
   activityClient,
   apiKeyClient,
   authClient,
