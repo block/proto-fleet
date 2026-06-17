@@ -653,8 +653,10 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
 	}
 	if params.Filter != nil && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
-		if len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding || len(params.Filter.ZoneKeys) > 0 {
-			return nil, fleeterror.NewInvalidArgumentErrorf("building / zone filters are only supported for rack collections")
+		if len(params.Filter.SiteIDs) > 0 || params.Filter.IncludeUnassigned ||
+			len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding ||
+			len(params.Filter.ZoneKeys) > 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site / building / zone filters are only supported for rack collections")
 		}
 	}
 

@@ -60,6 +60,8 @@ type ZoneRefRow struct {
 // list query already returns one row per rack.
 type DeviceSetFilter struct {
 	ErrorComponentTypes []int32   // OR across types; surfaces racks with any device having an open error of those types
+	SiteIDs             []int64   // OR across sites. Only valid for RACK collections; ignored for GROUP.
+	IncludeUnassigned   bool      // Include racks where dsr.site_id IS NULL. OR'd with SiteIDs.
 	BuildingIDs         []int64   // OR across buildings. Only valid for RACK collections; ignored for GROUP.
 	IncludeNoBuilding   bool      // Include racks where dsr.building_id IS NULL. OR'd with BuildingIDs.
 	ZoneKeys            []ZoneKey // (building_id, zone) pairs. BuildingID == 0 is the wildcard sentinel.

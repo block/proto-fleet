@@ -268,6 +268,87 @@ func TestListDeviceSets_CrossOrgRejected(t *testing.T) {
 	assert.NotContains(t, err.Error(), "99")
 }
 
+// TestListDeviceSets_SiteIDs threads site_ids + include_unassigned
+// through to the domain filter shape. Site IDs skip the cross-org
+// building lookup; the SQL org_id predicate is the isolation barrier.
+func TestListDeviceSets_SiteIDs(t *testing.T) {
+	h := newTestHandler(t)
+
+	h.collectionStore.EXPECT().
+		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK,
+			int32(50), "", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
+			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
+		) ([]*collectionpb.DeviceCollection, string, int32, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, []int64{3, 5}, filter.SiteIDs)
+			assert.True(t, filter.IncludeUnassigned)
+			return nil, "", 0, nil
+		})
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:              dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		PageSize:          50,
+		SiteIds:           []int64{3, 5},
+		IncludeUnassigned: true,
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.NoError(t, err)
+}
+
+// TestListDeviceSets_SiteIDsRejectedForGroupType guards the RACK-only
+// filter rule — applying a site filter to a GROUP list is a request
+// shape error, not a silent no-op.
+func TestListDeviceSets_SiteIDsRejectedForGroupType(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		SiteIds: []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+// TestListDeviceSets_NonPositiveSiteID parallels the miner-list
+// site_ids[i] must be > 0 rule.
+func TestListDeviceSets_NonPositiveSiteID(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: []int64{3, 0},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "site_ids[1]")
+}
+
+// TestListDeviceSets_OversizedSiteIDs is the array cap. Parallels the
+// building_ids / zone_keys caps.
+func TestListDeviceSets_OversizedSiteIDs(t *testing.T) {
+	h := newTestHandler(t)
+
+	tooMany := make([]int64, maxDeviceSetFilterValues+1)
+	for i := range tooMany {
+		tooMany[i] = int64(i + 1)
+	}
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: tooMany,
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "site_ids")
+}
+
 // TestListRackZones_ReturnsFlatList is the legacy RPC path. Returns
 // string[] from the store unchanged — old clients still rely on this.
 func TestListRackZones_ReturnsFlatList(t *testing.T) {

@@ -181,6 +181,37 @@ func TestBuildCollectionListQuery_ZoneKeys_Scoped(t *testing.T) {
 	assert.Contains(t, query, "UNNEST($3::bigint[], $4::text[])")
 }
 
+func TestBuildCollectionListQuery_SiteIDs(t *testing.T) {
+	filter := &stores.DeviceSetFilter{
+		SiteIDs: []int64{3, 5},
+	}
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
+	assert.Contains(t, query, "AND (dcr.site_id = ANY($3::bigint[]))")
+	assert.Equal(t, pq.Array([]int64{3, 5}), args[2])
+}
+
+func TestBuildCollectionListQuery_IncludeUnassigned(t *testing.T) {
+	filter := &stores.DeviceSetFilter{IncludeUnassigned: true}
+	query, _ := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
+	assert.Contains(t, query, "AND (dcr.site_id IS NULL)")
+}
+
+func TestBuildCollectionListQuery_SiteIDsPlusIncludeUnassigned_OR(t *testing.T) {
+	filter := &stores.DeviceSetFilter{
+		SiteIDs:           []int64{7},
+		IncludeUnassigned: true,
+	}
+	query, _ := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
+	assert.Contains(t, query, "AND (dcr.site_id = ANY($3::bigint[]) OR dcr.site_id IS NULL)")
+}
+
+func TestBuildCollectionCountQuery_SiteIDs_JoinsRack(t *testing.T) {
+	filter := &stores.DeviceSetFilter{SiteIDs: []int64{2}}
+	query, _ := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, filter)
+	assert.Contains(t, query, "LEFT JOIN device_set_rack dcr")
+	assert.Contains(t, query, "AND (dcr.site_id = ANY($3::bigint[]))")
+}
+
 func TestBuildCollectionListQuery_BuildingIDs(t *testing.T) {
 	filter := &stores.DeviceSetFilter{
 		BuildingIDs: []int64{7, 9},

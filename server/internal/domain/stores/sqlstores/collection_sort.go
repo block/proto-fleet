@@ -85,7 +85,9 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, fi
 	// triggered the join.
 	needsRackJoin := false
 	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
-		needsRackJoin = len(filter.BuildingIDs) > 0 ||
+		needsRackJoin = len(filter.SiteIDs) > 0 ||
+			filter.IncludeUnassigned ||
+			len(filter.BuildingIDs) > 0 ||
 			filter.IncludeNoBuilding ||
 			len(filter.ZoneKeys) > 0
 	}
@@ -133,11 +135,33 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, fi
 }
 
 // appendDeviceSetRackFilterSQL emits the rack-list-only predicates:
-// building_ids, include_no_building, and zone_keys (scoped + wildcard
-// partition). All predicates reference dcr.* and assume the caller has
-// already joined device_set_rack as dcr. Org isolation is enforced by
-// the outer query's dc.org_id = $1 clause.
+// site_ids, include_unassigned, building_ids, include_no_building, and
+// zone_keys (scoped + wildcard partition). All predicates reference
+// dcr.* and assume the caller has already joined device_set_rack as
+// dcr. Org isolation is enforced by the outer query's dc.org_id = $1
+// clause.
 func appendDeviceSetRackFilterSQL(sb *strings.Builder, args []any, argNum int, filter *stores.DeviceSetFilter) ([]any, int) {
+	// Site filters (site_ids OR include_unassigned) wrapped in one OR
+	// group so an empty SiteIDs + true IncludeUnassigned only emits one
+	// branch.
+	if len(filter.SiteIDs) > 0 || filter.IncludeUnassigned {
+		sb.WriteString(" AND (")
+		first := true
+		if len(filter.SiteIDs) > 0 {
+			sb.WriteString(fmt.Sprintf("dcr.site_id = ANY($%d::bigint[])", argNum))
+			args = append(args, pq.Array(filter.SiteIDs))
+			argNum++
+			first = false
+		}
+		if filter.IncludeUnassigned {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			sb.WriteString("dcr.site_id IS NULL")
+		}
+		sb.WriteString(")")
+	}
+
 	// Building filters (building_ids OR include_no_building) wrapped in
 	// one OR group so an empty BuildingIDs + true IncludeNoBuilding only
 	// emits one branch.
