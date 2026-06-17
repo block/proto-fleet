@@ -494,6 +494,19 @@ func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, err
 	return c.loginLocked(ctx)
 }
 
+// refreshTokenForStreamingUpload forces a login before non-replayable streamed
+// uploads. Unlike JSON requests, firmware uploads cannot retry after a 401
+// because the multipart body is streamed from the caller's reader.
+func (c *Client) refreshTokenForStreamingUpload(ctx context.Context) (string, error) {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.credentials.Password == "" {
+		return c.accessToken, nil
+	}
+	c.accessToken = ""
+	return c.loginLocked(ctx)
+}
+
 // loginLocked logs in and caches the token. The caller must hold authMu.
 func (c *Client) loginLocked(ctx context.Context) (string, error) {
 	token, err := c.loginWithPassword(ctx, c.credentials.Password)
@@ -1271,6 +1284,11 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		return err
 	}
 
+	token, err := c.refreshTokenForStreamingUpload(ctx)
+	if err != nil {
+		return err
+	}
+
 	pr, pw := io.Pipe()
 	defer pr.Close()
 
@@ -1283,12 +1301,6 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		}
 		writerDone <- pw.Close()
 	}()
-
-	// Log in proactively: the streamed body can't be replayed for a 401 retry.
-	token, err := c.ensureToken(ctx)
-	if err != nil {
-		return err
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, pr)
 	if err != nil {

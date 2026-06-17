@@ -1258,6 +1258,50 @@ func TestUploadFirmware_413_ReturnsFailedPrecondition(t *testing.T) {
 	assert.Contains(t, st.Message(), "413 Request Entity Too Large")
 }
 
+func TestUploadFirmware_RefreshesCachedTokenBeforeStreaming(t *testing.T) {
+	const freshToken = "fresh-upload-token"
+	var loginCalled bool
+	var uploadCalled bool
+	var uploadAuthHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			loginCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"access_token":"` + freshToken + `","refresh_token":"refresh"}`))
+		case "/api/v1/system/update":
+			uploadCalled = true
+			uploadAuthHeader = r.Header.Get("Authorization")
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
+	client.accessToken = "stale-token"
+
+	firmware := sdk.FirmwareFile{
+		Reader:   strings.NewReader("firmware-data"),
+		Filename: "firmware.swu",
+		Size:     int64(len("firmware-data")),
+	}
+
+	err := client.UploadFirmware(context.Background(), firmware)
+
+	require.NoError(t, err)
+	assert.True(t, loginCalled, "upload must refresh a cached token before streaming")
+	assert.True(t, uploadCalled, "upload endpoint should be called")
+	assert.Equal(t, "Bearer "+freshToken, uploadAuthHeader)
+	assert.Equal(t, freshToken, client.accessToken)
+}
+
 func TestUploadFirmware_EarlyOKWaitsForWriterError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
