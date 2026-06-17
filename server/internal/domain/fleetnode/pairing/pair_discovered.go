@@ -121,7 +121,11 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 				return fleeterror.LogInternal(component, "check active pairing", clientErrPair, err)
 			}
 			if paired {
-				persisted = StatusPaired
+				status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+				if err != nil {
+					return fleeterror.LogInternal(component, "load active pairing status", clientErrPair, err)
+				}
+				persisted = status
 				return nil
 			}
 		}
@@ -150,14 +154,18 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 		if outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 			// Closes the TOCTOU left by the guard read above: if a concurrent pair
-			// turned this device PAIRED meanwhile, the write no-ops (applied == false)
-			// and we report the real PAIRED status instead of downgrading it.
+			// turned this device paired-like meanwhile, the write no-ops (applied == false)
+			// and we report the real paired-like status instead of downgrading it.
 			applied, err := s.deviceStore.SetDevicePairingAuthNeededIfNotPaired(ctx, &dd.Device, orgID)
 			if err != nil {
 				return fleeterror.LogInternal(component, "set auth-needed", clientErrPair, err)
 			}
 			if !applied {
-				persisted = StatusPaired
+				status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+				if err != nil {
+					return fleeterror.LogInternal(component, "load active pairing status", clientErrPair, err)
+				}
+				persisted = status
 			}
 			return nil
 		}

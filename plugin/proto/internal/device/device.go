@@ -334,8 +334,6 @@ func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.
 	if time.Since(d.lastDefaultPasswordCheckAt) < defaultPasswordInterval {
 		return
 	}
-	d.lastDefaultPasswordCheckAt = time.Now()
-
 	defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx)
 	if err != nil {
 		// Leave unset (nil) on an initial read failure so the server treats it as
@@ -343,6 +341,7 @@ func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.
 		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
 		return
 	}
+	d.lastDefaultPasswordCheckAt = time.Now()
 	d.lastDefaultPasswordActive = &defaultPasswordActive
 	metrics.DefaultPasswordActive = &defaultPasswordActive
 }
@@ -1009,6 +1008,9 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 	if err := d.client.ChangePassword(ctx, currentPassword, newPassword); err != nil {
 		return fmt.Errorf("failed to update miner password: %w", err)
 	}
+	defaultPasswordActive := false
+	d.lastDefaultPasswordActive = &defaultPasswordActive
+	d.lastDefaultPasswordCheckAt = time.Now()
 
 	slog.Info("Plugin device password updated successfully",
 		"device_id", d.id)

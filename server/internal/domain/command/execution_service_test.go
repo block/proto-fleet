@@ -137,6 +137,34 @@ func TestStuckMessageReaper(t *testing.T) {
 }
 
 func TestQueueProcessorRetries(t *testing.T) {
+	t.Run("treats context cancellation during dequeue as shutdown", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockQueue.EXPECT().
+			Dequeue(gomock.Any()).
+			DoAndReturn(func(context.Context) ([]queue.Message, error) {
+				cancel()
+				return nil, fleeterror.NewInternalError("error opening tx: context canceled")
+			})
+
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		svc := NewExecutionService(ctx, &Config{
+			MaxWorkers:            5,
+			MasterPollingInterval: time.Millisecond,
+			DequeueRetries:        0,
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+
+		// Act
+		err := svc.startQueueProcessorThread(ctx)
+
+		// Assert
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
 	t.Run("retries dequeue errors and continues running", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)

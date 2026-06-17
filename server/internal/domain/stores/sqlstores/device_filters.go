@@ -254,27 +254,27 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString("))")
 
 		if fp.needsAttentionFilter {
-			// Auth-needed and default-password (exclude OFFLINE only)
+			// Auth-needed devices (exclude OFFLINE only)
 			sb.WriteString(
-				" OR (" + credentialRemediationPairingStatusesExpr("device_pairing") +
+				" OR (" + authNeededPairingStatusesExpr("device_pairing") +
 					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
-			// Devices with actionable errors. Excludes NULL-status paired miners
+			// Devices with actionable errors. Excludes NULL-status paired-like miners
 			// so they stay bucketed as offline (matches CountMinersByState).
 			fmt.Fprintf(sb,
 				" OR (EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 					" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s)"+
-					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status = 'PAIRED')"+
+					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status NOT IN "+authNeededPairingStatusList+")"+
 					" AND (device_status.status IS NULL OR device_status.status NOT IN %s))",
 				argNum, actionableErrorSeverities, nonActionableStatuses)
 			args = append(args, orgID)
 			argNum++
 		}
 		if fp.includeNullStatus {
-			// NULL-status paired miners (counted as offline in dashboard).
-			// Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+			// NULL-status paired-like miners (counted as offline in dashboard).
+			// AUTHENTICATION_NEEDED stays in needs-attention, not offline.
 			sb.WriteString(
 				" OR (device_status.status IS NULL" +
-					" AND device_pairing.pairing_status = 'PAIRED')")
+					" AND device_pairing.pairing_status NOT IN " + authNeededPairingStatusList + ")")
 		}
 		// Close outer AND group
 		sb.WriteString(")")

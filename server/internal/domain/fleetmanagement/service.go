@@ -885,7 +885,8 @@ func convertToMeasurementWithMultiplier(metric *modelsV2.MetricValue, timestamp 
 }
 
 // shouldIncludeStateCounts determines if state counts should be fetched based on pairing status filter.
-// State counts are only meaningful for devices that have telemetry data (PAIRED and AUTHENTICATION_NEEDED).
+// State counts are meaningful for fleet-visible paired-like devices: PAIRED,
+// AUTHENTICATION_NEEDED, and DEFAULT_PASSWORD.
 // Per proto definition: empty slice means "no filter" (include all), UNSPECIFIED means "all statuses".
 func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 	if len(pairingStatuses) == 0 {

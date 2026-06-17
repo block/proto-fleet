@@ -1080,7 +1080,7 @@ type FleetNodePairResult struct {
 	UsedCredentials *UsedCredentials `protobuf:"bytes,11,opt,name=used_credentials,json=usedCredentials,proto3" json:"used_credentials,omitempty"`
 	// Present and true when the node paired the miner but detected it is still
 	// using its factory default password. The cloud persists this as
-	// DEFAULT_PASSWORD so operators must rotate the password before commands run.
+	// DEFAULT_PASSWORD so operators can find and rotate affected devices.
 	DefaultPasswordActive *bool `protobuf:"varint,12,opt,name=default_password_active,json=defaultPasswordActive,proto3,oneof" json:"default_password_active,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache

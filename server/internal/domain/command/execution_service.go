@@ -267,6 +267,9 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 	if err == nil {
 		return messages, nil
 	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 
 	delay := es.config.MasterPollingInterval
 
@@ -275,7 +278,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 
 		select {
 		case <-ctx.Done():
-			return nil, fleeterror.NewInternalErrorf("context cancelled: %v", ctx.Err())
+			return nil, ctx.Err()
 		case <-time.After(delay):
 			// Continue with retry
 		}
@@ -287,6 +290,9 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		if err == nil {
 			return messages, nil
 		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 	}
 
 	slog.Error("dequeue failed after retries", "error", err)
@@ -297,11 +303,14 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 	for {
 		select {
 		case <-ctx.Done():
-			return fleeterror.NewInternalErrorf("error queue processor thread ctx DONE: %v", ctx.Err())
+			return ctx.Err()
 		default:
 			messages, err := es.dequeueWithRetry(ctx)
 
 			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
 				return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
 			}
 

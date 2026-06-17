@@ -3901,6 +3901,7 @@ func TestReconcileDefaultPasswordState_IneligibleRowsAreNotCached(t *testing.T) 
 		mock.NewMockUpdateScheduler(ctrl), mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 	ctx := t.Context()
 	active := false
+	service.lastDefaultPwActive.Store(deviceID, true)
 
 	mockDeviceStore.EXPECT().
 		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).

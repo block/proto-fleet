@@ -2,7 +2,7 @@
 -- 0 rows on conflict signals rejection. A remote report must not redirect the
 -- endpoint/credentials of a miner the cloud actively dials, so the update is
 -- blocked when the row is promoted to a cloud-paired device (device_pairing
--- PAIRED) or one paired to a different fleet node. Bare promoted devices and
+-- PAIRED/DEFAULT_PASSWORD) or one paired to a different fleet node. Bare promoted devices and
 -- devices paired to the reporting node itself stay refreshable, subject to the
 -- attribution guard. The agent synthesizes a stable per-device identifier
 -- (mac:/serial:, else auto:<hash>), so a re-scan reuses the same row.
@@ -61,10 +61,10 @@ WHERE (
             SELECT 1
             FROM device_pairing dp
             WHERE dp.device_id = d.id
-              AND dp.pairing_status = 'PAIRED'
+              AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
           )
           -- A device paired to THIS reporting node ($10) is node-dialed, not
-          -- cloud-dialed; its PAIRED row must not block its own node's re-scan.
+          -- cloud-dialed; its paired-like row must not block its own node's re-scan.
           AND NOT EXISTS (
             SELECT 1
             FROM fleet_node_device fnd
@@ -89,11 +89,11 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
 -- name: DeviceHasActiveCloudPairing :one
--- True when the device is cloud-dialed: PAIRED and not bound to any fleet node.
--- A device paired to a fleet node is also PAIRED (so it reads as paired in the
--- UI), but the node dials it, so it is excluded here. Fleet-node pairing refuses
--- cloud-dialed devices: the upsert guard blocks refreshing them, so pairing one
--- would strand the node unable to refresh its discovery endpoint.
+-- True when the device is cloud-dialed: paired-like and not bound to any fleet node.
+-- A device paired to a fleet node is also paired-like (so it reads as paired in
+-- the UI), but the node dials it, so it is excluded here. Fleet-node pairing
+-- refuses cloud-dialed devices: the upsert guard blocks refreshing them, so pairing
+-- one would strand the node unable to refresh its discovery endpoint.
 SELECT EXISTS (
     SELECT 1
     FROM device_pairing dp
@@ -101,7 +101,7 @@ SELECT EXISTS (
     WHERE dp.device_id = $1
       AND d.org_id = $2
       AND d.deleted_at IS NULL
-      AND dp.pairing_status = 'PAIRED'
+      AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
       AND NOT EXISTS (
         SELECT 1
         FROM fleet_node_device fnd
@@ -111,11 +111,11 @@ SELECT EXISTS (
 );
 
 -- name: DeviceHasActivePairing :one
--- True when the device is PAIRED, regardless of whether it is cloud-dialed or
--- bound to a fleet node. Used to refuse downgrading an already-PAIRED device to
--- AUTHENTICATION_NEEDED on a non-PAIRED node report: between target resolution
--- and persistence, another node (or the cloud) may have paired the device, and a
--- stale AUTH_NEEDED result must not clobber that PAIRED status.
+-- True when the device is paired-like, regardless of whether it is cloud-dialed
+-- or bound to a fleet node. Used to refuse downgrading an already paired-like
+-- device to AUTHENTICATION_NEEDED on a non-PAIRED node report: between target
+-- resolution and persistence, another node (or the cloud) may have paired the
+-- device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 SELECT EXISTS (
     SELECT 1
     FROM device_pairing dp
@@ -123,7 +123,7 @@ SELECT EXISTS (
     WHERE dp.device_id = $1
       AND d.org_id = $2
       AND d.deleted_at IS NULL
-      AND dp.pairing_status = 'PAIRED'
+      AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 );
 
 -- name: TransferDiscoveredDeviceAttribution :execrows
@@ -167,7 +167,7 @@ ORDER BY fnd.assigned_at DESC, fnd.device_id ASC;
 -- name: ListFleetNodeDiscoveredDevices :many
 -- Fleet-node-discovered devices not yet paired to their node. A discovered
 -- device is excluded when ANY of its live device rows is already node-bound
--- (fleet_node_device) or cloud-PAIRED; AUTHENTICATION_NEEDED rows (a pair
+-- (fleet_node_device) or cloud-paired-like; AUTHENTICATION_NEEDED rows (a pair
 -- attempt that needs credentials) surface for retry. Inverse of
 -- GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 -- The exclusions use NOT EXISTS so a device with more than one live row is
@@ -215,7 +215,7 @@ WHERE dd.org_id = $1
       WHERE (dpd.discovered_device_id = dd.id
              OR (dpd.device_identifier = dd.device_identifier AND dpd.org_id = dd.org_id))
         AND dpd.deleted_at IS NULL
-        AND dpp.pairing_status = 'PAIRED'
+        AND dpp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   )
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR dd.discovered_by_fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
   -- pair-all without operator credentials can't satisfy AUTHENTICATION_NEEDED rows

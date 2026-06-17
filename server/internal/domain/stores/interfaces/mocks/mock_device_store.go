@@ -170,6 +170,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceOrgDriverAndSite(ctx, deviceIden
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceOrgDriverAndSite", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceOrgDriverAndSite), ctx, deviceIdentifier)
 }
 
+// GetDevicePairingStatusByIdentifier mocks base method.
+func (m *MockDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicePairingStatusByIdentifier", ctx, deviceIdentifier, orgID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicePairingStatusByIdentifier indicates an expected call of GetDevicePairingStatusByIdentifier.
+func (mr *MockDeviceStoreMockRecorder) GetDevicePairingStatusByIdentifier(ctx, deviceIdentifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicePairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).GetDevicePairingStatusByIdentifier), ctx, deviceIdentifier, orgID)
+}
+
 // GetDevicePropertiesForRename mocks base method.
 func (m *MockDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]interfaces.DeviceRenameProperties, error) {
 	m.ctrl.T.Helper()

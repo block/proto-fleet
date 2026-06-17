@@ -897,9 +897,9 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	// Device identifiers scoped to the site via the existing MinerFilter.
 	// SiteIDs alone is enough — site-direct devices have device.site_id
 	// set; racked devices inherit site_id through the rack cascade.
-	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
-	// counts AUTH_NEEDED devices the same way the miner list does — without
-	// this, the default PAIRED-only filter would silently undercount.
+	// Pass the fleet-visible paired-like statuses explicitly so the stats
+	// roll-up counts credential-related rows the same way the miner list does;
+	// without this, the default PAIRED-only filter would silently undercount.
 	// Limit = cap + 1 lets us detect over-cap with a single bounded query
 	// rather than materializing the full identifier list before bailing.
 	// The cap-exceeded guard below trips when the SQL returns cap+1 rows;

@@ -472,7 +472,7 @@ export type FleetNodePairResult = Message<"fleetnodegateway.v1.FleetNodePairResu
   /**
    * Present and true when the node paired the miner but detected it is still
    * using its factory default password. The cloud persists this as
-   * DEFAULT_PASSWORD so operators must rotate the password before commands run.
+   * DEFAULT_PASSWORD so operators can find and rotate affected devices.
    *
    * @generated from field: optional bool default_password_active = 12;
    */

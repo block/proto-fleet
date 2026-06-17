@@ -1173,6 +1173,7 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 		return
 	}
 	if !eligible {
+		s.lastDefaultPwActive.Delete(deviceID)
 		slog.Debug("skipping default-password pairing reconciliation for non paired-like device",
 			"device_id", deviceID, "default_password_active", active, "target_status", status)
 		return

@@ -404,10 +404,11 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 }
 
 // GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
-// for a paired device. site_id is 0 when the device is not assigned to a site.
+// for a paired-like device. site_id is 0 when the device is not assigned to a site.
 func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error) {
 	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierParams{
-		DeviceIdentifier: string(deviceIdentifier),
+		DeviceIdentifier:       string(deviceIdentifier),
+		IncludeDefaultPassword: true,
 	})
 	if err != nil {
 		return 0, "", 0, handleQueryError(err,
@@ -1160,26 +1161,26 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 SELECT
     COALESCE(SUM(CASE
         WHEN filtered.status = 'OFFLINE'
-             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `)
+             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ` + authNeededPairingStatusList + `)
         THEN 1 ELSE 0
     END), 0)::bigint AS offline_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
-             AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `
+             AND filtered.pairing_status NOT IN ` + authNeededPairingStatusList + `
         THEN 1 ELSE 0
     END), 0)::bigint AS sleeping_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `)
-             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `)
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ` + authNeededPairingStatusList + `)
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ` + authNeededPairingStatusList + `)
              AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR filtered.pairing_status IN ` + credentialRemediationPairingStatusList + `
+                  OR filtered.pairing_status IN ` + authNeededPairingStatusList + `
                   OR filtered.has_open_error)
         THEN 1 ELSE 0
     END), 0)::bigint AS broken_count,
     COALESCE(SUM(CASE
         WHEN filtered.status = 'ACTIVE'
-             AND filtered.pairing_status NOT IN ` + credentialRemediationPairingStatusList + `
+             AND filtered.pairing_status NOT IN ` + authNeededPairingStatusList + `
              AND NOT filtered.has_open_error
         THEN 1 ELSE 0
     END), 0)::bigint AS hashing_count
@@ -1413,29 +1414,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`)
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN `+authNeededPairingStatusList+`)
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`
+             AND dp.pairing_status NOT IN `+authNeededPairingStatusList+`
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`)
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`)
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN `+authNeededPairingStatusList+`)
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN `+authNeededPairingStatusList+`)
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN `+credentialRemediationPairingStatusList+`
+                  OR dp.pairing_status IN `+authNeededPairingStatusList+`
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN `+credentialRemediationPairingStatusList+`
+             AND dp.pairing_status NOT IN `+authNeededPairingStatusList+`
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
     END), 0)::int AS hashing_count

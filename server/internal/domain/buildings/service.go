@@ -827,8 +827,8 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// BuildingIDs joins rack → building_id; un-racked devices at the
 	// site without a building aren't visible here, which is the right
 	// scope (this is a building roll-up, not a site roll-up).
-	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
-	// counts AUTH_NEEDED devices the same way the miner list does.
+	// Pass the fleet-visible paired-like statuses explicitly so the stats
+	// roll-up counts credential-related rows the same way the miner list does.
 	//
 	// Also constrain by expectedSiteID so a concurrent AssignBuildingsToSite
 	// that commits between the building re-read and the device fetch can't
