@@ -216,6 +216,39 @@ func TestHandler_TestMqttCurtailmentSourceConnectionRequiresAdmin(t *testing.T) 
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func TestToMqttStatusProtoReportsPendingEdgeAsLatestSignal(t *testing.T) {
+	t.Parallel()
+
+	settledAt := time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC)
+	settledReceivedAt := settledAt.Add(1 * time.Second)
+	pendingAt := settledAt.Add(2 * time.Minute)
+	pendingReceivedAt := pendingAt.Add(2 * time.Second)
+
+	status := toMqttStatusProto(mqttingest.SourceView{
+		HasState: true,
+		State: mqttingest.SourceState{
+			LastTarget:         mqttingest.TargetOn,
+			LastTargetAt:       settledAt,
+			LastReceivedAt:     settledReceivedAt,
+			LastReceivedBroker: "primary",
+			PendingEdge: &mqttingest.PendingEdge{
+				Direction:      mqttingest.EdgeOnToOff,
+				Target:         mqttingest.TargetOff,
+				TargetAt:       pendingAt,
+				ReceivedAt:     pendingReceivedAt,
+				ReceivedBroker: "secondary",
+			},
+		},
+	})
+
+	assert.Equal(t, "OFF", status.GetLastTarget())
+	require.NotNil(t, status.GetLastTargetAt())
+	assert.Equal(t, pendingAt, status.GetLastTargetAt().AsTime())
+	require.NotNil(t, status.GetLastReceivedAt())
+	assert.Equal(t, pendingReceivedAt, status.GetLastReceivedAt().AsTime())
+	assert.Equal(t, "secondary", status.GetLastReceivedBroker())
+}
+
 type handlerMqttSettingsStore struct {
 	created         *mqttingest.SourceConfig
 	deletedOrgID    int64

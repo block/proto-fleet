@@ -548,6 +548,30 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByLabelText("Loading curtailment preview")).toHaveLength(2);
   });
 
+  it("allows saving a response profile when live preview has no current curtailable load", async () => {
+    const user = userEvent.setup();
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: "No miners match this curtailment.",
+      isPreviewLoading: false,
+    });
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: configuredValues,
+      onTestCurtailment: vi.fn(),
+    });
+
+    expect(screen.getAllByText("No miners match this curtailment.")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+
+    const saveButton = screen.getByRole("button", { name: "Save profile" });
+    expect(saveButton).toBeEnabled();
+
+    await user.click(saveButton);
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ reason: configuredValues.reason }));
+  });
+
   it("normalizes response profile initial scopes inside confirmation sentences", async () => {
     const user = userEvent.setup();
     renderModal({

@@ -33,12 +33,15 @@ type Scope struct {
 
 // PreviewRequest is the service-level shape of a Preview call.
 type PreviewRequest struct {
-	OrgID                      int64
-	Scope                      Scope
-	Mode                       models.Mode     // must be ModeFixedKw
-	Strategy                   models.Strategy // default StrategyLeastEfficientFirst
-	Level                      models.Level    // must be LevelFull
-	Priority                   models.Priority // PriorityNormal or PriorityEmergency (cooldown bypass)
+	OrgID    int64
+	Scope    Scope
+	Mode     models.Mode     // must be ModeFixedKw
+	Strategy models.Strategy // default StrategyLeastEfficientFirst
+	Level    models.Level    // must be LevelFull
+	Priority models.Priority // PriorityNormal or PriorityEmergency (cooldown bypass)
+	// BypassCooldown lets trusted internal callers skip post-event cooldown
+	// without changing the persisted priority/audit value on the event.
+	BypassCooldown             bool
 	TargetKW                   float64
 	ToleranceKW                float64
 	IncludeMaintenance         bool
@@ -931,8 +934,8 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		minPowerW = *req.CandidateMinPowerWOverride
 	}
 
-	// EMERGENCY skips post_event_cooldown_sec.
-	bypassCooldown := req.Priority == models.PriorityEmergency
+	// EMERGENCY and trusted automation starts skip post_event_cooldown_sec.
+	bypassCooldown := req.Priority == models.PriorityEmergency || req.BypassCooldown
 
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {

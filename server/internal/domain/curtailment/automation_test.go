@@ -306,6 +306,27 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffBypassesPostRestoreCooldown(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.curtailments.cooldownDevicesByOrg[h.orgID] = []string{"miner-a", "miner-b"}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, h.curtailments.cooldownCalls)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, models.PriorityNormal, h.curtailments.lastInsertEvent.Priority)
+	require.Len(t, h.curtailments.lastInsertTargets, 2)
+	assert.Equal(t, "miner-a", h.curtailments.lastInsertTargets[0].DeviceIdentifier)
+	assert.Equal(t, "miner-b", h.curtailments.lastInsertTargets[1].DeviceIdentifier)
+}
+
 func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t *testing.T) {
 	t.Parallel()
 

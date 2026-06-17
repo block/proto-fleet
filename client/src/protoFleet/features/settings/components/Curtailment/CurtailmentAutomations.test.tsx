@@ -23,6 +23,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "38 seconds ago",
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "source-beta",
@@ -38,6 +39,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "24 seconds ago",
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
 ];
 

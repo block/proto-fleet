@@ -1,6 +1,8 @@
 export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
 
+export const DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC = 240;
+
 export type CurtailmentSource = {
   id: string;
   name: string;
@@ -18,6 +20,7 @@ export type CurtailmentSource = {
   lastSeen: string;
   health: CurtailmentHealth;
   enabled: boolean;
+  stalenessThresholdSec: number;
 };
 
 export type CurtailmentSourceFormValues = {
@@ -28,6 +31,7 @@ export type CurtailmentSourceFormValues = {
   topic: string;
   username: string;
   password: string;
+  stalenessThresholdSec: string;
 };
 
 export type ResponseProfileActionType = "fullFleet" | "fixedKwReduction";

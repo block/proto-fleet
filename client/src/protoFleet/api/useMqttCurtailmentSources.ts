@@ -17,17 +17,17 @@ import {
   UpdateMqttCurtailmentSourceRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
-import type {
-  CurtailmentHealth,
-  CurtailmentSource,
-  CurtailmentSourceFormValues,
+import {
+  type CurtailmentHealth,
+  type CurtailmentSource,
+  type CurtailmentSourceFormValues,
+  DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const DEFAULT_BROKER_TRANSPORT = "tcp";
 const DEFAULT_PAYLOAD_FORMAT = "target_timestamp";
-const DEFAULT_STALENESS_THRESHOLD_SEC = 240;
 const SOURCES_POLL_INTERVAL_MS = 10_000;
 
 const unsetDisplayValue = "-";
@@ -118,6 +118,7 @@ function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSou
     lastSeen: formatSignalUpdate(source.status?.lastReceivedAt ?? source.status?.lastTargetAt),
     health: mapRuntimeHealth(source),
     enabled: source.enabled,
+    stalenessThresholdSec: source.stalenessThresholdSec || DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
   };
 }
 
@@ -132,7 +133,7 @@ function buildCreateSourceRequest(values: CurtailmentSourceFormValues): CreateMq
     mqttUsername: values.username.trim(),
     mqttPassword: values.password,
     payloadFormat: DEFAULT_PAYLOAD_FORMAT,
-    stalenessThresholdSec: DEFAULT_STALENESS_THRESHOLD_SEC,
+    stalenessThresholdSec: Number(values.stalenessThresholdSec),
   });
 }
 
@@ -162,6 +163,7 @@ function buildUpdateSourceRequest(
     brokerPort: Number(values.brokerPort),
     mqttUsername: values.username.trim(),
     ...(values.password === "" ? {} : { mqttPassword: values.password }),
+    stalenessThresholdSec: Number(values.stalenessThresholdSec),
   });
 }
 

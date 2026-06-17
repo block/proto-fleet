@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -320,6 +320,51 @@ describe("useCurtailmentPlanPreview", () => {
       });
     });
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the preview while request values stay unchanged", async () => {
+    let resolveRefresh: (response: ReturnType<typeof previewResponse>) => void = () => {};
+    const refreshPromise = new Promise<ReturnType<typeof previewResponse>>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mockPreviewCurtailmentPlan.mockReturnValue(refreshPromise);
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse(0));
+
+    const { result } = renderHook(
+      ({ values }) =>
+        useCurtailmentPlanPreview({
+          open: true,
+          values,
+          debounceMs: 0,
+          refreshIntervalMs: 5,
+        }),
+      {
+        initialProps: { values: baseValues },
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.previewError).toBe("No miners match this curtailment.");
+    });
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    await act(async () => {
+      resolveRefresh(previewResponse(2));
+      await refreshPromise;
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview).toEqual(
+        expect.objectContaining({
+          selectedMinerCount: 2,
+          estimatedReductionKw: 45,
+        }),
+      );
+    });
+    expect(result.current.previewError).toBeUndefined();
+    expect(mockPreviewCurtailmentPlan.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("updates local preview labels without refetching for batch edits", async () => {

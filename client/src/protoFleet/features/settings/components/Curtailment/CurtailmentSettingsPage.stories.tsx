@@ -24,6 +24,7 @@ const storySources: CurtailmentSource[] = [
     lastSeen: formatStorySignalUpdate("2026-06-09T15:10:00Z"),
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-beta-mqtt",
@@ -39,6 +40,7 @@ const storySources: CurtailmentSource[] = [
     lastSeen: formatStorySignalUpdate("2026-06-09T15:10:30Z"),
     health: "connected",
     enabled: false,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-gamma-mqtt",
@@ -54,6 +56,7 @@ const storySources: CurtailmentSource[] = [
     lastSeen: formatStorySignalUpdate("2026-06-09T14:58:00Z"),
     health: "noSignal",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-delta-mqtt",
@@ -69,6 +72,7 @@ const storySources: CurtailmentSource[] = [
     lastSeen: "-",
     health: "waitingForSignal",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
 ];
 

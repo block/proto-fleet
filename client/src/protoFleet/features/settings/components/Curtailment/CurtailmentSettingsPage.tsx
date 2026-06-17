@@ -15,14 +15,15 @@ import CurtailmentStartModal, {
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
-import type {
-  AutomationRule,
-  AutomationRuleFormValues,
-  CurtailmentHealth,
-  CurtailmentSource,
-  CurtailmentSourceFormValues,
-  ResponseProfile,
-  ResponseProfileFormValues,
+import {
+  type AutomationRule,
+  type AutomationRuleFormValues,
+  type CurtailmentHealth,
+  type CurtailmentSource,
+  type CurtailmentSourceFormValues,
+  DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  type ResponseProfile,
+  type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert, Info, Success } from "@/shared/assets/icons";
@@ -130,6 +131,7 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
   topic: "",
   username: "",
   password: "",
+  stalenessThresholdSec: DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC.toString(),
 };
 
 const emptyCurtailmentSources: CurtailmentSource[] = [];
@@ -170,6 +172,7 @@ const sourceInputIds = {
   topic: "source-topic",
   username: "source-username",
   password: "source-password",
+  stalenessThresholdSec: "source-staleness-threshold",
 } as const;
 
 const sourceInputIdToFormKey: Record<string, keyof CurtailmentSourceFormValues> = {
@@ -180,6 +183,7 @@ const sourceInputIdToFormKey: Record<string, keyof CurtailmentSourceFormValues> 
   [sourceInputIds.topic]: "topic",
   [sourceInputIds.username]: "username",
   [sourceInputIds.password]: "password",
+  [sourceInputIds.stalenessThresholdSec]: "stalenessThresholdSec",
 };
 
 function isPositiveInteger(value: string): boolean {
@@ -421,6 +425,7 @@ function createSourceFormValuesFromSource(source: CurtailmentSource): Curtailmen
     topic: source.topic,
     username: source.username,
     password: "",
+    stalenessThresholdSec: (source.stalenessThresholdSec || DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC).toString(),
   };
 }
 
@@ -437,6 +442,7 @@ function applySourceFormValues(source: CurtailmentSource, values: CurtailmentSou
     port: Number(values.brokerPort),
     topic: values.topic.trim(),
     username: values.username.trim(),
+    stalenessThresholdSec: Number(values.stalenessThresholdSec),
   };
 }
 
@@ -479,6 +485,11 @@ function validateSourceFormValues(values: CurtailmentSourceFormValues, passwordR
     errors.brokerPort = "Enter port as a whole number greater than 0.";
   } else if (Number(values.brokerPort) > MAX_BROKER_PORT) {
     errors.brokerPort = `Enter port of ${MAX_BROKER_PORT.toLocaleString()} or less.`;
+  }
+  if (values.stalenessThresholdSec.trim() === "") {
+    errors.stalenessThresholdSec = "Enter a timeout.";
+  } else if (!isPositiveInteger(values.stalenessThresholdSec)) {
+    errors.stalenessThresholdSec = "Enter timeout as a whole number greater than 0.";
   }
 
   return errors;
@@ -991,6 +1002,22 @@ function SourceModal({
             onChange={updateSourceValue}
             onFocus={handlePasswordFocus}
             hidePasswordToggle={showSavedPasswordPlaceholder}
+          />
+        </div>
+        <div className="grid gap-4 laptop:grid-cols-2">
+          <Input
+            id={sourceInputIds.stalenessThresholdSec}
+            label="No signal timeout"
+            type="number"
+            inputMode="numeric"
+            initValue={values.stalenessThresholdSec}
+            error={visibleValidationErrors.stalenessThresholdSec}
+            onChange={updateSourceValue}
+            units="sec"
+            tooltip={{
+              body: "When no MQTT signal is received for this duration, the source is treated as OFF.",
+              widthClassName: "w-72",
+            }}
           />
         </div>
       </div>

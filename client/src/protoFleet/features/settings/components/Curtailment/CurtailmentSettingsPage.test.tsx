@@ -104,6 +104,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "38 seconds ago",
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-beta-mqtt",
@@ -119,6 +120,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "24 seconds ago",
     health: "connected",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-gamma-mqtt",
@@ -134,6 +136,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "-",
     health: "waitingForSignal",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
   {
     id: "site-delta-mqtt",
@@ -149,6 +152,7 @@ const testSources: CurtailmentSource[] = [
     lastSeen: "12 minutes ago",
     health: "noSignal",
     enabled: true,
+    stalenessThresholdSec: 240,
   },
 ];
 
@@ -322,6 +326,7 @@ const testSourceFormValues: CurtailmentSourceFormValues = {
   topic: "curtailment/site-alpha/target",
   username: "curtailment-alpha",
   password: "secret",
+  stalenessThresholdSec: "240",
 };
 
 const createSourceMock = vi.fn();
@@ -398,6 +403,7 @@ function fillSourceForm(values: CurtailmentSourceFormValues = testSourceFormValu
   fireEvent.change(screen.getByLabelText("Topic"), { target: { value: values.topic } });
   fireEvent.change(screen.getByLabelText("Username"), { target: { value: values.username } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: values.password } });
+  fireEvent.change(screen.getByLabelText("No signal timeout"), { target: { value: values.stalenessThresholdSec } });
 }
 
 function getSourceRow(sourceName: string): HTMLTableRowElement {
@@ -1045,17 +1051,23 @@ describe("CurtailmentSettingsPage", () => {
     ]) {
       expect((screen.getByLabelText(fieldLabel) as HTMLInputElement).value).toBe("");
     }
+    expect(screen.getByLabelText("No signal timeout")).toHaveValue(240);
     expect(screen.getByLabelText("Integration")).toHaveValue("MaestroOS");
     expect(screen.getByLabelText("Integration")).toBeDisabled();
     const portTooltip = screen.getByText("Default MQTT port for MaestroOS is 1883.").parentElement;
     const topicTooltip = screen.getByText(
       "The MQTT topic to subscribe to on MaestroOS for curtailment signals.",
     ).parentElement;
+    const timeoutTooltip = screen.getByText(
+      "When no MQTT signal is received for this duration, the source is treated as OFF.",
+    ).parentElement;
     expect(portTooltip).toHaveClass("z-50", "w-72", "left-[16px]");
     expect(portTooltip?.parentElement?.parentElement).toHaveClass("z-50");
     expect(topicTooltip).toHaveClass("w-72");
+    expect(timeoutTooltip).toHaveClass("w-72");
     expect(screen.getAllByText("Port")).toHaveLength(1);
     expect(screen.getAllByText("Topic")).toHaveLength(1);
+    expect(screen.getAllByText("No signal timeout")).toHaveLength(1);
     expect(screen.queryByText(/TLS/)).not.toBeInTheDocument();
 
     const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
@@ -1164,6 +1176,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByLabelText("Topic")).toHaveValue("curtailment/site-alpha/target");
     expect(screen.getByLabelText("Username")).toHaveValue("curtailment-alpha");
     expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByLabelText("No signal timeout")).toHaveValue(240);
 
     const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
     const deleteButton = screen.getByRole("button", { name: "Delete" });
@@ -1208,6 +1221,7 @@ describe("CurtailmentSettingsPage", () => {
         topic: "curtailment/site-alpha/target",
         username: "curtailment-alpha",
         password: "updated-secret",
+        stalenessThresholdSec: "240",
       }),
     );
   });
@@ -1270,6 +1284,7 @@ describe("CurtailmentSettingsPage", () => {
 
     fireEvent.click(getSourceRow("Site Alpha MQTT"));
     fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Site Alpha MQTT updated" } });
+    fireEvent.change(screen.getByLabelText("No signal timeout"), { target: { value: "300" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
@@ -1281,6 +1296,7 @@ describe("CurtailmentSettingsPage", () => {
         topic: "curtailment/site-alpha/target",
         username: "curtailment-alpha",
         password: "",
+        stalenessThresholdSec: "300",
       }),
     );
     await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());

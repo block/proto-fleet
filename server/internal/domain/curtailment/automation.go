@@ -484,6 +484,7 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 			Strategy:                profile.Strategy,
 			Level:                   profile.Level,
 			Priority:                profile.Priority,
+			BypassCooldown:          true,
 			TargetKW:                targetKW,
 			ToleranceKW:             toleranceKW,
 			IncludeMaintenance:      profile.IncludeMaintenance,

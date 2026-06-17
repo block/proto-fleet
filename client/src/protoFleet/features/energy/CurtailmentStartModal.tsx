@@ -774,10 +774,11 @@ function CurtailmentStartModalContent({
 
   const hasLocalFormError = Object.keys(localErrors).length > 0;
   const hasExternalFormError = Object.keys(errors ?? {}).length > 0;
-  const hasBlockingPreviewState =
+  const hasBlockingRunPreviewState =
     previewState.previewError !== undefined || (!isResponseProfileVariant && previewState.isPreviewLoading);
+  const hasBlockingSubmitPreviewState = !isResponseProfileVariant && hasBlockingRunPreviewState;
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
-  const isSubmitDisabled = isBusy || hasBlockingPreviewState || hasExternalFormError || !hasEditableChanges;
+  const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
   const selectedMinerIds = getSelectedMinerIds(values);
   const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode);
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
@@ -948,7 +949,7 @@ function CurtailmentStartModalContent({
       return;
     }
 
-    if (hasBlockingPreviewState || hasExternalFormError) {
+    if (hasBlockingRunPreviewState || hasExternalFormError) {
       return;
     }
 
@@ -987,7 +988,7 @@ function CurtailmentStartModalContent({
       text: "Run curtailment",
       variant: variants.secondary,
       onClick: requestResponseProfileCurtailment,
-      disabled: isBusy || hasBlockingPreviewState || hasExternalFormError,
+      disabled: isBusy || hasBlockingRunPreviewState || hasExternalFormError,
       loading: isTestingCurtailment,
     });
   }
