@@ -354,8 +354,13 @@ const RacksPage = () => {
   // issues are combined into a single effect so a navigation that updates
   // more than one of them (e.g. "Clear filters" or activating a saved view)
   // produces one fetch, not several.
+  //
+  // `JSON.stringify` (not a delimiter-joined string) is used to encode the
+  // arrays so values containing the delimiter character — e.g. a zone label
+  // like "DC1, Row A" — can't collide with a different selection that
+  // happens to produce the same joined output.
   const filterFetchKey = useMemo(
-    () => `${effectiveBuildingKey}|${selectedZones.join(",")}|${selectedIssues.join(",")}`,
+    () => JSON.stringify([effectiveBuildingKey, selectedZones, selectedIssues]),
     [effectiveBuildingKey, selectedZones, selectedIssues],
   );
   const prevFilterFetchKey = useRef<string | null>(null);
