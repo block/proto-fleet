@@ -229,6 +229,18 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Sleeping")).toBeInTheDocument();
       expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "sleeping");
     });
+
+    it("should use the inactive indicator for offline miners", async () => {
+      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
+      vi.mocked(useMinerStatus).mockReturnValue("Offline");
+
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.OFFLINE });
+
+      render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+
+      expect(screen.getByText("Offline")).toBeInTheDocument();
+      expect(screen.getByTestId("miner-status-indicator")).toHaveAttribute("data-status", "inactive");
+    });
   });
 
   describe("Status after pool assignment", () => {
