@@ -224,6 +224,30 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestPairer_CreateSecretBundle_AllowsBlankPassword(t *testing.T) {
+	pairer := &Pairer{}
+	password := ""
+
+	bundle, err := pairer.createSecretBundle(t.Context(), 1, sdk.Capabilities{}, &pb.Credentials{
+		Username: "admin",
+		Password: &password,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: ""}, bundle.Kind)
+}
+
+func TestPairer_CreateSecretBundle_RequiresPasswordPresence(t *testing.T) {
+	pairer := &Pairer{}
+
+	_, err := pairer.createSecretBundle(t.Context(), 1, sdk.Capabilities{}, &pb.Credentials{
+		Username: "admin",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "password is required")
+}
+
 // TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState verifies a
 // device that pairs while still on its factory password is recorded immediately in
 // the DEFAULT_PASSWORD state with a non-ACTIVE initial status, rather than PAIRED/ACTIVE.

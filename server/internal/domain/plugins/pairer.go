@@ -607,7 +607,7 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, caps sdk.C
 		if credentials == nil {
 			return sdk.SecretBundle{}, fmt.Errorf("credentials required for secret bundle")
 		}
-		if credentials.Password == nil || *credentials.Password == "" {
+		if credentials.Password == nil {
 			return sdk.SecretBundle{}, fmt.Errorf("password is required for secret bundle")
 		}
 		bundle.Kind = sdk.UsernamePassword{
