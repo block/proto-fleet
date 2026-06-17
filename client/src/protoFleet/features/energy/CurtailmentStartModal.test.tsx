@@ -550,9 +550,11 @@ describe("CurtailmentStartModal", () => {
 
   it("allows saving a response profile when live preview has no current curtailable load", async () => {
     const user = userEvent.setup();
+    const previewError =
+      "insufficient curtailable load: 0.000 kW available, 0.000 kW requested, tolerance 0.000 kW, candidate_min_power_w=1500W; excluded: power_telemetry_unreliable=4, pairing=4, active_event=6";
     mockUseCurtailmentPlanPreview.mockReturnValue({
       preview: undefined,
-      previewError: "No miners match this curtailment.",
+      previewError,
       isPreviewLoading: false,
     });
     const { onSubmit } = renderModal({
@@ -561,7 +563,8 @@ describe("CurtailmentStartModal", () => {
       onTestCurtailment: vi.fn(),
     });
 
-    expect(screen.getAllByText("No miners match this curtailment.")).toHaveLength(2);
+    expect(screen.queryByText(previewError)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Current fleet state is unavailable for preview.")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
 
     const saveButton = screen.getByRole("button", { name: "Save profile" });

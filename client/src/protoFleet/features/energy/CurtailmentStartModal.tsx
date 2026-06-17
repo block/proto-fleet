@@ -119,6 +119,7 @@ interface ReductionProgressBarProps {
 interface PreviewPaneProps {
   preview?: CurtailmentPlanPreview;
   previewError?: string;
+  previewUnavailable?: string;
   isPreviewLoading?: boolean;
 }
 
@@ -498,7 +499,12 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
   );
 }
 
-function PreviewPane({ preview, previewError, isPreviewLoading = false }: PreviewPaneProps): ReactElement {
+function PreviewPane({
+  preview,
+  previewError,
+  previewUnavailable,
+  isPreviewLoading = false,
+}: PreviewPaneProps): ReactElement {
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -506,6 +512,14 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
           <Alert className="mt-0.5 shrink-0 text-text-primary-50" width="w-4" />
           <div>{previewError}</div>
         </div>
+      </div>
+    );
+  }
+
+  if (previewUnavailable) {
+    return (
+      <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
+        {previewUnavailable}
       </div>
     );
   }
@@ -669,6 +683,18 @@ function getPreviewState({
   return controlledPreview ?? apiPreview;
 }
 
+function responseProfilePreviewState(previewState: PreviewPaneProps): PreviewPaneProps {
+  if (!previewState.previewError) {
+    return previewState;
+  }
+
+  return {
+    preview: undefined,
+    previewUnavailable: "Current fleet state is unavailable for preview.",
+    isPreviewLoading: previewState.isPreviewLoading,
+  };
+}
+
 function CurtailmentStartModalContent({
   open,
   onDismiss,
@@ -779,6 +805,7 @@ function CurtailmentStartModalContent({
   const hasBlockingSubmitPreviewState = !isResponseProfileVariant && hasBlockingRunPreviewState;
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
+  const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
   const selectedMinerIds = getSelectedMinerIds(values);
   const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode);
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
@@ -794,8 +821,11 @@ function CurtailmentStartModalContent({
     ? "response-profile-curtail-batch-interval"
     : "curtailment-curtail-batch-interval";
   const shouldShowPreviewPane =
-    !isLiveCurtailmentEditMode || previewState.preview !== undefined || previewState.previewError !== undefined;
-  const previewPane = shouldShowPreviewPane ? <PreviewPane {...previewState} /> : null;
+    !isLiveCurtailmentEditMode ||
+    displayedPreviewState.preview !== undefined ||
+    displayedPreviewState.previewError !== undefined ||
+    displayedPreviewState.previewUnavailable !== undefined;
+  const previewPane = shouldShowPreviewPane ? <PreviewPane {...displayedPreviewState} /> : null;
   const curtailmentConfirmationCopy = getCurtailmentConfirmationCopy(
     pendingCurtailmentConfirmation,
     previewState.preview?.selectedMinerCount,
