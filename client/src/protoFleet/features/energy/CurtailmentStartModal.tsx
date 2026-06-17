@@ -14,6 +14,7 @@ import {
   getUnsupportedDeviceSetPreviewError,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
+import DeviceSettingsModal from "@/protoFleet/features/infrastructure/components/InfraDeviceSettings/DeviceSettingsModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -701,6 +702,7 @@ function CurtailmentStartModalContent({
   const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
     useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
+  const [showFanBehaviorModal, setShowFanBehaviorModal] = useState(false);
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
@@ -1203,12 +1205,18 @@ function CurtailmentStartModalContent({
                 title="Apply to"
                 subtext="Applies to all miners by default. Use the options below to narrow the scope."
               >
-                <div className="grid">
+                <div className="grid gap-2">
                   <TargetSelectButton
                     label={applyToTarget.label}
                     value={applyToTarget.value}
                     disabled={isLiveCurtailmentEditMode}
                     onClick={() => setShowMinerSelectionModal(true)}
+                  />
+                  <TargetSelectButton
+                    label="Infrastructure devices"
+                    value="Configure fan behavior"
+                    disabled={isLiveCurtailmentEditMode}
+                    onClick={() => setShowFanBehaviorModal(true)}
                   />
                 </div>
               </Section>
@@ -1311,6 +1319,10 @@ function CurtailmentStartModalContent({
             setShowMinerSelectionModal(false);
           }}
         />
+      ) : null}
+
+      {showFanBehaviorModal ? (
+        <DeviceSettingsModal onDismiss={() => setShowFanBehaviorModal(false)} />
       ) : null}
     </>
   );

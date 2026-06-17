@@ -1,0 +1,268 @@
+syntax = "proto3";
+
+package infradevice.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// InfraDeviceService manages infrastructure devices (fans, sensors,
+// PDUs) that support the mining environment. These are building-level
+// equipment distinct from the miners themselves — tracked for
+// monitoring, control mode management, and maintenance ticketing.
+service InfraDeviceService {
+    // ListInfraDevices returns a filtered list of infrastructure
+    // devices. Supports site, building, status, and type filters.
+    rpc ListInfraDevices(ListInfraDevicesRequest) returns (ListInfraDevicesResponse);
+
+    // GetInfraDevice returns a single device by id.
+    rpc GetInfraDevice(GetInfraDeviceRequest) returns (GetInfraDeviceResponse);
+
+    // CreateInfraDevice registers a new infrastructure device
+    // (manual pairing).
+    rpc CreateInfraDevice(CreateInfraDeviceRequest) returns (CreateInfraDeviceResponse);
+
+    // UpdateInfraDevice modifies device properties (name, IP,
+    // control mode).
+    rpc UpdateInfraDevice(UpdateInfraDeviceRequest) returns (UpdateInfraDeviceResponse);
+
+    // DeleteInfraDevice soft-deletes a device.
+    rpc DeleteInfraDevice(DeleteInfraDeviceRequest) returns (DeleteInfraDeviceResponse);
+
+    // BulkUpdateControlMode changes the control mode for multiple
+    // devices in a single transaction.
+    rpc BulkUpdateControlMode(BulkUpdateControlModeRequest) returns (BulkUpdateControlModeResponse);
+
+    // BulkDeleteInfraDevices soft-deletes multiple devices.
+    rpc BulkDeleteInfraDevices(BulkDeleteInfraDevicesRequest) returns (BulkDeleteInfraDevicesResponse);
+
+    // TestInfraDeviceConnection attempts to reach a device at its
+    // IP address and returns a connectivity result.
+    rpc TestInfraDeviceConnection(TestInfraDeviceConnectionRequest) returns (TestInfraDeviceConnectionResponse);
+
+    // ScanNetwork discovers infrastructure devices on the local
+    // network segment and returns candidate devices for pairing.
+    rpc ScanNetwork(ScanNetworkRequest) returns (ScanNetworkResponse);
+
+    // PairInfraDevices confirms pairing of scanned devices, creating
+    // device records for each.
+    rpc PairInfraDevices(PairInfraDevicesRequest) returns (PairInfraDevicesResponse);
+
+    // GetInfraDeviceStats returns aggregate device counts (total,
+    // online, buildings) for dashboard summaries.
+    rpc GetInfraDeviceStats(GetInfraDeviceStatsRequest) returns (GetInfraDeviceStatsResponse);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Enums
+// ──────────────────────────────────────────────────────────────────
+
+enum InfraDeviceType {
+    INFRA_DEVICE_TYPE_UNSPECIFIED = 0;
+    INFRA_DEVICE_TYPE_FAN         = 1;
+    INFRA_DEVICE_TYPE_SENSOR      = 2;
+    INFRA_DEVICE_TYPE_PDU         = 3;
+}
+
+enum InfraDeviceStatus {
+    INFRA_DEVICE_STATUS_UNSPECIFIED = 0;
+    INFRA_DEVICE_STATUS_ONLINE      = 1;
+    INFRA_DEVICE_STATUS_DEGRADED    = 2;
+    INFRA_DEVICE_STATUS_OFFLINE     = 3;
+}
+
+enum ControlMode {
+    CONTROL_MODE_UNSPECIFIED = 0;
+    CONTROL_MODE_FLEET       = 1;
+    CONTROL_MODE_PLC         = 2;
+    CONTROL_MODE_HYBRID      = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Domain messages
+// ──────────────────────────────────────────────────────────────────
+
+message InfraDevice {
+    int64  id       = 1;
+    string name     = 2;
+
+    InfraDeviceType   device_type  = 3;
+    string            subtype      = 4;
+
+    optional int64 site_id     = 5;
+    string         site_name   = 6;
+    optional int64 building_id = 7;
+    string         building_name = 8;
+
+    string            ip_address   = 9;
+    InfraDeviceStatus status       = 10;
+    ControlMode       control_mode = 11;
+
+    double rpm      = 12;
+    string protocol = 13;
+
+    optional google.protobuf.Timestamp last_seen   = 14;
+    google.protobuf.Timestamp          created_at  = 15;
+    google.protobuf.Timestamp          updated_at  = 16;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// RPC messages
+// ──────────────────────────────────────────────────────────────────
+
+// ListInfraDevices
+
+message InfraDeviceFilter {
+    repeated int64            site_ids     = 1;
+    repeated int64            building_ids = 2;
+    repeated InfraDeviceStatus statuses    = 3;
+    repeated InfraDeviceType   types       = 4;
+}
+
+message ListInfraDevicesRequest {
+    InfraDeviceFilter filter     = 1;
+    int32             page_size  = 2 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
+    string            page_token = 3 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListInfraDevicesResponse {
+    repeated InfraDevice devices         = 1;
+    string               next_page_token = 2;
+    int32                total_count     = 3;
+}
+
+// GetInfraDevice
+
+message GetInfraDeviceRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetInfraDeviceResponse {
+    InfraDevice device = 1;
+}
+
+// CreateInfraDevice
+
+message CreateInfraDeviceRequest {
+    string          name         = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    InfraDeviceType device_type  = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    string          subtype      = 3 [(buf.validate.field).string.max_len = 128];
+    optional int64  site_id      = 4 [(buf.validate.field).int64.gt = 0];
+    optional int64  building_id  = 5 [(buf.validate.field).int64.gt = 0];
+    string          ip_address   = 6 [(buf.validate.field).string.max_len = 45];
+    ControlMode     control_mode = 7 [(buf.validate.field).enum.defined_only = true];
+    string          protocol     = 8 [(buf.validate.field).string.max_len = 64];
+}
+
+message CreateInfraDeviceResponse {
+    InfraDevice device = 1;
+}
+
+// UpdateInfraDevice
+
+message UpdateInfraDeviceRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+
+    optional string      name         = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string      ip_address   = 3 [(buf.validate.field).string.max_len = 45];
+    optional ControlMode control_mode = 4 [(buf.validate.field).enum.defined_only = true];
+}
+
+message UpdateInfraDeviceResponse {
+    InfraDevice device = 1;
+}
+
+// DeleteInfraDevice
+
+message DeleteInfraDeviceRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteInfraDeviceResponse {}
+
+// BulkUpdateControlMode
+
+message BulkUpdateControlModeRequest {
+    repeated int64 device_ids   = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+    ControlMode    control_mode = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+
+message BulkUpdateControlModeResponse {
+    int32 updated_count = 1;
+}
+
+// BulkDeleteInfraDevices
+
+message BulkDeleteInfraDevicesRequest {
+    repeated int64 device_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+
+message BulkDeleteInfraDevicesResponse {
+    int32 deleted_count = 1;
+}
+
+// TestInfraDeviceConnection
+
+message TestInfraDeviceConnectionRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message TestInfraDeviceConnectionResponse {
+    bool   reachable    = 1;
+    string error_detail = 2;
+    int32  latency_ms   = 3;
+}
+
+// ScanNetwork
+
+message ScanNetworkRequest {
+    optional int64 site_id     = 1 [(buf.validate.field).int64.gt = 0];
+    optional int64 building_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+message DiscoveredDevice {
+    string          ip_address  = 1;
+    string          name        = 2;
+    InfraDeviceType device_type = 3;
+    string          subtype     = 4;
+    string          protocol    = 5;
+}
+
+message ScanNetworkResponse {
+    repeated DiscoveredDevice devices = 1;
+}
+
+// PairInfraDevices
+
+message PairInfraDeviceEntry {
+    string          ip_address   = 1 [(buf.validate.field).string = {min_len: 1, max_len: 45}];
+    string          name         = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    InfraDeviceType device_type  = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    string          subtype      = 4 [(buf.validate.field).string.max_len = 128];
+    optional int64  site_id      = 5 [(buf.validate.field).int64.gt = 0];
+    optional int64  building_id  = 6 [(buf.validate.field).int64.gt = 0];
+    ControlMode     control_mode = 7 [(buf.validate.field).enum.defined_only = true];
+    string          protocol     = 8 [(buf.validate.field).string.max_len = 64];
+}
+
+message PairInfraDevicesRequest {
+    repeated PairInfraDeviceEntry devices = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100}];
+}
+
+message PairInfraDevicesResponse {
+    repeated InfraDevice devices = 1;
+}
+
+// GetInfraDeviceStats
+
+message GetInfraDeviceStatsRequest {
+    optional int64 site_id     = 1 [(buf.validate.field).int64.gt = 0];
+    optional int64 building_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetInfraDeviceStatsResponse {
+    int32 total_count    = 1;
+    int32 online_count   = 2;
+    int32 degraded_count = 3;
+    int32 offline_count  = 4;
+    int32 buildings_count = 5;
+}

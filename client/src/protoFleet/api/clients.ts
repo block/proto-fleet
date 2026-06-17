@@ -5,6 +5,9 @@ import { ApiKeyService } from "@/protoFleet/api/generated/apikey/v1/apikey_pb";
 import { AuthService } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { AuthzService } from "@/protoFleet/api/generated/authz/v1/authz_pb";
 import { BuildingService } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { MaintenanceService } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { InventoryService } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
+import { InfraDeviceService } from "@/protoFleet/api/generated/infradevice/v1/infradevice_pb";
 import { CurtailmentService } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -39,6 +42,9 @@ const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
+const maintenanceClient = createClient(MaintenanceService, transport);
+const inventoryClient = createClient(InventoryService, transport);
+const infraDeviceClient = createClient(InfraDeviceService, transport);
 
 export {
   activityClient,
@@ -46,6 +52,9 @@ export {
   authClient,
   authzClient,
   buildingsClient,
+  maintenanceClient,
+  inventoryClient,
+  infraDeviceClient,
   curtailmentClient,
   deviceSetClient,
   errorQueryClient,

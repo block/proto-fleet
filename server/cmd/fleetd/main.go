@@ -42,6 +42,10 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
+	// TODO: uncomment after `just gen`
+	// "github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
+	// "github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	// "github.com/block/proto-fleet/server/generated/grpc/infradevice/v1/infradevicev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
@@ -64,6 +68,10 @@ import (
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
+	// TODO: uncomment after `just gen`
+	// maintenanceDomain "github.com/block/proto-fleet/server/internal/domain/maintenance"
+	// inventoryDomain "github.com/block/proto-fleet/server/internal/domain/inventory"
+	// infradeviceDomain "github.com/block/proto-fleet/server/internal/domain/infradevice"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -94,6 +102,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	authzHandler "github.com/block/proto-fleet/server/internal/handlers/authz"
 	buildingsHandler "github.com/block/proto-fleet/server/internal/handlers/buildings"
+	// TODO: uncomment after `just gen`
+	// maintenanceHandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
+	// inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
+	// infradeviceHandler "github.com/block/proto-fleet/server/internal/handlers/infradevice"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
 	curtailmentHandler "github.com/block/proto-fleet/server/internal/handlers/curtailment"
@@ -157,6 +169,10 @@ var reflectEnabledServices = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
+	// TODO: uncomment after `just gen`
+	// maintenancev1connect.MaintenanceServiceName,
+	// inventoryv1connect.InventoryServiceName,
+	// infradevicev1connect.InfraDeviceServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 }
 
@@ -458,6 +474,14 @@ func start(config *Config) error {
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 
+	// TODO: uncomment after `just gen` generates the sqlc store implementations
+	// maintenanceStore := sqlstores.NewSQLMaintenanceStore(conn)
+	// maintenanceSvc := maintenanceDomain.NewService(maintenanceStore, transactor, activitySvc)
+	// inventoryStore := sqlstores.NewSQLInventoryStore(conn)
+	// inventorySvc := inventoryDomain.NewService(inventoryStore, transactor, activitySvc)
+	// infradeviceStore := sqlstores.NewSQLInfraDeviceStore(conn)
+	// infradeviceSvc := infradeviceDomain.NewService(infradeviceStore, transactor, activitySvc)
+
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)
 	// sees the same priority/manual-fallback semantics. Pre-pre-work this
@@ -603,6 +627,10 @@ func start(config *Config) error {
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithCurtailmentSettings(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	// TODO: uncomment after `just gen`
+	// mux.Handle(maintenancev1connect.NewMaintenanceServiceHandler(maintenanceHandler.NewHandler(maintenanceSvc), li))
+	// mux.Handle(inventoryv1connect.NewInventoryServiceHandler(inventoryHandler.NewHandler(inventorySvc), li))
+	// mux.Handle(infradevicev1connect.NewInfraDeviceServiceHandler(infradeviceHandler.NewHandler(infradeviceSvc), li))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry), li))
 	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))

@@ -85,6 +85,18 @@ const (
 
 	// role — custom role + ADMIN/FIELD_TECH editing.
 	PermRoleManage = "role:manage"
+
+	// maintenance — repair ticket lifecycle.
+	PermMaintenanceRead   = "maintenance:read"
+	PermMaintenanceManage = "maintenance:manage"
+
+	// inventory — spare parts tracking.
+	PermInventoryRead   = "inventory:read"
+	PermInventoryManage = "inventory:manage"
+
+	// infradevice — infrastructure device management.
+	PermInfraDeviceRead   = "infradevice:read"
+	PermInfraDeviceManage = "infradevice:manage"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -104,6 +116,9 @@ const (
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
 	ResourceRole        = "role"
+	ResourceMaintenance = "maintenance"
+	ResourceInventory   = "inventory"
+	ResourceInfraDevice = "infradevice"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -169,6 +184,15 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, reset, and deactivate users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles. Built-in roles cannot be modified.", ResourceRole},
+
+	{PermMaintenanceRead, "View repair tickets, queue, and maintenance history.", ResourceMaintenance},
+	{PermMaintenanceManage, "Create, assign, update, and close repair tickets.", ResourceMaintenance},
+
+	{PermInventoryRead, "View spare parts inventory.", ResourceInventory},
+	{PermInventoryManage, "Adjust stock, import parts, and manage inventory.", ResourceInventory},
+
+	{PermInfraDeviceRead, "View infrastructure devices (fans, sensors, PDUs).", ResourceInfraDevice},
+	{PermInfraDeviceManage, "Add, edit, delete, and control infrastructure devices.", ResourceInfraDevice},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

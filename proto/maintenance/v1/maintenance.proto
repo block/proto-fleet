@@ -1,0 +1,398 @@
+syntax = "proto3";
+
+package maintenance.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// MaintenanceService is the admin surface for repair ticket management:
+// create, triage, assign, track, and close repair tickets for both
+// miner hardware and infrastructure components. Also manages ticket
+// comments and provides aggregate statistics for queue dashboards.
+service MaintenanceService {
+    // ListRepairTickets returns a filtered, sorted, paginated list of
+    // repair tickets. Excludes soft-deleted tickets. Supports cursor
+    // pagination, multi-dimensional filtering, and text search across
+    // ticket_number, component, diagnosis, and miner_identifier.
+    rpc ListRepairTickets(ListRepairTicketsRequest) returns (ListRepairTicketsResponse);
+
+    // GetRepairTicket returns a single ticket by id with its comments
+    // and parts usage. Returns NotFound if the ticket does not exist
+    // or belongs to another org.
+    rpc GetRepairTicket(GetRepairTicketRequest) returns (GetRepairTicketResponse);
+
+    // CreateRepairTicket inserts a new ticket. Ticket number is
+    // auto-generated as TK-XXXX (zero-padded, monotonically
+    // increasing per org).
+    rpc CreateRepairTicket(CreateRepairTicketRequest) returns (CreateRepairTicketResponse);
+
+    // UpdateRepairTicket mutates mutable fields on a single ticket:
+    // status changes, field edits, completion form submission, and
+    // RMA field updates. Status transitions are validated server-side.
+    rpc UpdateRepairTicket(UpdateRepairTicketRequest) returns (UpdateRepairTicketResponse);
+
+    // DeleteRepairTicket soft-deletes a ticket.
+    rpc DeleteRepairTicket(DeleteRepairTicketRequest) returns (DeleteRepairTicketResponse);
+
+    // BulkUpdateRepairTickets applies a single mutation (assign,
+    // status change, mark urgent, or bulk close with resolution) to
+    // one or more tickets in a single transaction.
+    rpc BulkUpdateRepairTickets(BulkUpdateRepairTicketsRequest) returns (BulkUpdateRepairTicketsResponse);
+
+    // ListTicketComments returns all non-deleted comments on a ticket,
+    // ordered by created_at ascending.
+    rpc ListTicketComments(ListTicketCommentsRequest) returns (ListTicketCommentsResponse);
+
+    // CreateTicketComment adds a comment to a ticket.
+    rpc CreateTicketComment(CreateTicketCommentRequest) returns (CreateTicketCommentResponse);
+
+    // DeleteTicketComment soft-deletes a comment.
+    rpc DeleteTicketComment(DeleteTicketCommentRequest) returns (DeleteTicketCommentResponse);
+
+    // ListCompletedTickets returns completed tickets for the history
+    // tab with optional component and assignee filters.
+    rpc ListCompletedTickets(ListCompletedTicketsRequest) returns (ListCompletedTicketsResponse);
+
+    // GetTicketStats returns aggregate counts by status for the queue
+    // stats row and kanban column headers.
+    rpc GetTicketStats(GetTicketStatsRequest) returns (GetTicketStatsResponse);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Enums
+// ──────────────────────────────────────────────────────────────────
+
+enum TicketCategory {
+    TICKET_CATEGORY_UNSPECIFIED     = 0;
+    TICKET_CATEGORY_MINER           = 1;
+    TICKET_CATEGORY_INFRASTRUCTURE  = 2;
+}
+
+enum TicketStatus {
+    TICKET_STATUS_UNSPECIFIED    = 0;
+    TICKET_STATUS_OPEN           = 1;
+    TICKET_STATUS_IN_PROGRESS    = 2;
+    TICKET_STATUS_ON_HOLD        = 3;
+    TICKET_STATUS_SENT_TO_VENDOR = 4;
+    TICKET_STATUS_COMPLETED      = 5;
+}
+
+enum TicketResolution {
+    TICKET_RESOLUTION_UNSPECIFIED  = 0;
+    TICKET_RESOLUTION_REPAIRED     = 1;
+    TICKET_RESOLUTION_REPLACED     = 2;
+    TICKET_RESOLUTION_DEFERRED     = 3;
+    TICKET_RESOLUTION_UNREPAIRABLE = 4;
+}
+
+enum RepairLocation {
+    REPAIR_LOCATION_UNSPECIFIED  = 0;
+    REPAIR_LOCATION_ON_RACK      = 1;
+    REPAIR_LOCATION_REPAIR_BENCH = 2;
+}
+
+enum WarrantyStatus {
+    WARRANTY_STATUS_UNSPECIFIED     = 0;
+    WARRANTY_STATUS_IN_WARRANTY     = 1;
+    WARRANTY_STATUS_OUT_OF_WARRANTY = 2;
+    WARRANTY_STATUS_EXPIRING_SOON   = 3;
+}
+
+enum TicketSortField {
+    TICKET_SORT_FIELD_UNSPECIFIED = 0;
+    TICKET_SORT_FIELD_COMPONENT   = 1;
+    TICKET_SORT_FIELD_ASSET       = 2;
+    TICKET_SORT_FIELD_LOCATION    = 3;
+    TICKET_SORT_FIELD_STATUS      = 4;
+    TICKET_SORT_FIELD_CREATED_AT  = 5;
+}
+
+enum SortDirection {
+    SORT_DIRECTION_UNSPECIFIED = 0;
+    SORT_DIRECTION_ASC         = 1;
+    SORT_DIRECTION_DESC        = 2;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Domain messages
+// ──────────────────────────────────────────────────────────────────
+
+// RepairTicket is the read shape returned by Get/List/Create/Update.
+message RepairTicket {
+    int64  id             = 1;
+    string ticket_number  = 2;
+
+    TicketCategory   category         = 3;
+    TicketStatus     status           = 4;
+    bool             urgent           = 5;
+
+    string component  = 6;
+    string diagnosis  = 7;
+
+    // Set only for miner tickets.
+    optional string miner_identifier = 8;
+    // Set when the ticket was created from an alert.
+    optional string alert_id = 9;
+
+    // Assignee — user_id is the FK, name is denormalized for display.
+    optional int64 assignee_user_id = 10;
+    string         assignee_name    = 11;
+
+    WarrantyStatus warranty_status = 12;
+
+    // Location context — all optional; infra tickets may lack rack/group.
+    optional int64 site_id     = 13;
+    optional int64 building_id = 14;
+    string         zone        = 15;
+    optional int64 rack_id     = 16;
+    string         rack_label  = 17;
+    string         group_label = 18;
+
+    // Completion fields — populated when status is COMPLETED.
+    TicketResolution resolution      = 19;
+    RepairLocation   repair_location = 20;
+    string           notes           = 21;
+    double           daily_impact_usd = 22;
+
+    // RMA fields — populated when status is SENT_TO_VENDOR.
+    string                          rma_vendor   = 23;
+    string                          rma_tracking = 24;
+    optional google.protobuf.Timestamp rma_eta   = 25;
+
+    optional google.protobuf.Timestamp completed_at = 26;
+    google.protobuf.Timestamp          created_at   = 27;
+    google.protobuf.Timestamp          updated_at   = 28;
+}
+
+message PartUsage {
+    string part_name = 1 [(buf.validate.field).string.min_len = 1];
+    int32  quantity  = 2 [(buf.validate.field).int32.gt = 0];
+}
+
+message TicketComment {
+    int64  id        = 1;
+    int64  ticket_id = 2;
+    int64  user_id   = 3;
+    string user_name = 4;
+    string text      = 5;
+    google.protobuf.Timestamp created_at = 6;
+}
+
+// RepairTicketDetail pairs a ticket with its comments and parts for
+// the detail view. Returned by GetRepairTicket.
+message RepairTicketDetail {
+    RepairTicket          ticket   = 1;
+    repeated TicketComment comments = 2;
+    repeated PartUsage    parts_used = 3;
+}
+
+// RepairTicketSummary is the list-view shape: ticket fields plus
+// aggregate counts to avoid N+1 on the list page.
+message RepairTicketSummary {
+    RepairTicket ticket        = 1;
+    int32        comment_count = 2;
+    int32        parts_count   = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// RPC messages
+// ──────────────────────────────────────────────────────────────────
+
+// ListRepairTickets
+
+message TicketFilter {
+    repeated TicketStatus   statuses     = 1;
+    repeated TicketCategory categories   = 2;
+    repeated int64          site_ids     = 3;
+    repeated int64          building_ids = 4;
+    repeated int64          rack_ids     = 5;
+    repeated string         group_labels = 6;
+    optional int64          assignee_user_id = 7;
+    bool                    urgent_only  = 8;
+    string                  search_query = 9 [(buf.validate.field).string.max_len = 256];
+    bool                    exclude_completed = 10;
+}
+
+message ListRepairTicketsRequest {
+    TicketFilter   filter         = 1;
+    TicketSortField sort_field    = 2;
+    SortDirection   sort_direction = 3;
+    int32           page_size     = 4 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+    string          page_token    = 5 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListRepairTicketsResponse {
+    repeated RepairTicketSummary tickets         = 1;
+    string                      next_page_token = 2;
+    int32                       total_count     = 3;
+}
+
+// GetRepairTicket
+
+message GetRepairTicketRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetRepairTicketResponse {
+    RepairTicketDetail detail = 1;
+}
+
+// CreateRepairTicket
+
+message CreateRepairTicketRequest {
+    TicketCategory category  = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    string         component = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string         diagnosis = 3 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+    bool           urgent    = 4;
+
+    optional string miner_identifier = 5 [(buf.validate.field).string.max_len = 256];
+    optional string alert_id         = 6 [(buf.validate.field).string.max_len = 64];
+
+    optional int64 assignee_user_id = 7 [(buf.validate.field).int64.gt = 0];
+
+    WarrantyStatus warranty_status = 8 [(buf.validate.field).enum.defined_only = true];
+
+    optional int64 site_id     = 9  [(buf.validate.field).int64.gt = 0];
+    optional int64 building_id = 10 [(buf.validate.field).int64.gt = 0];
+    string         zone        = 11 [(buf.validate.field).string.max_len = 255];
+    optional int64 rack_id     = 12 [(buf.validate.field).int64.gt = 0];
+    string         rack_label  = 13 [(buf.validate.field).string.max_len = 255];
+    string         group_label = 14 [(buf.validate.field).string.max_len = 255];
+
+    string notes = 15 [(buf.validate.field).string.max_len = 4096];
+}
+
+message CreateRepairTicketResponse {
+    RepairTicket ticket = 1;
+}
+
+// UpdateRepairTicket
+
+message UpdateRepairTicketRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+
+    // Mutable fields — only set fields are applied.
+    optional TicketStatus    status           = 2;
+    optional bool            urgent           = 3;
+    optional int64           assignee_user_id = 4;
+    optional string          component        = 5  [(buf.validate.field).string.max_len = 255];
+    optional string          diagnosis        = 6  [(buf.validate.field).string.max_len = 4096];
+    optional WarrantyStatus  warranty_status  = 7;
+
+    // Completion fields — set when transitioning to COMPLETED.
+    optional TicketResolution resolution      = 8;
+    optional RepairLocation   repair_location = 9;
+    repeated PartUsage        parts_used      = 10;
+    optional string           notes           = 11 [(buf.validate.field).string.max_len = 4096];
+
+    // RMA fields — set when transitioning to SENT_TO_VENDOR.
+    optional string                    rma_vendor   = 12 [(buf.validate.field).string.max_len = 255];
+    optional string                    rma_tracking = 13 [(buf.validate.field).string.max_len = 255];
+    optional google.protobuf.Timestamp rma_eta      = 14;
+
+    // Clear assignee — set to true to unassign.
+    bool clear_assignee = 15;
+}
+
+message UpdateRepairTicketResponse {
+    RepairTicket ticket = 1;
+}
+
+// DeleteRepairTicket
+
+message DeleteRepairTicketRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteRepairTicketResponse {}
+
+// BulkUpdateRepairTickets
+
+message BulkUpdateRepairTicketsRequest {
+    repeated int64 ticket_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+
+    // Exactly one mutation must be set.
+    oneof mutation {
+        int64           assign_to_user_id = 2;
+        TicketStatus    set_status        = 3;
+        bool            mark_urgent       = 4;
+        BulkCloseParams bulk_close        = 5;
+    }
+
+    // Clear assignee for all selected tickets.
+    bool clear_assignee = 6;
+}
+
+message BulkCloseParams {
+    TicketResolution resolution      = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    RepairLocation   repair_location = 2 [(buf.validate.field).enum.defined_only = true];
+    repeated PartUsage parts_used    = 3;
+    string             notes         = 4 [(buf.validate.field).string.max_len = 4096];
+}
+
+message BulkUpdateRepairTicketsResponse {
+    int32 updated_count = 1;
+}
+
+// ListTicketComments
+
+message ListTicketCommentsRequest {
+    int64 ticket_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ListTicketCommentsResponse {
+    repeated TicketComment comments = 1;
+}
+
+// CreateTicketComment
+
+message CreateTicketCommentRequest {
+    int64  ticket_id = 1 [(buf.validate.field).int64.gt = 0];
+    string text      = 2 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+}
+
+message CreateTicketCommentResponse {
+    TicketComment comment = 1;
+}
+
+// DeleteTicketComment
+
+message DeleteTicketCommentRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteTicketCommentResponse {}
+
+// ListCompletedTickets
+
+message ListCompletedTicketsRequest {
+    optional string component_filter        = 1 [(buf.validate.field).string.max_len = 255];
+    optional int64  assignee_user_id_filter = 2 [(buf.validate.field).int64.gt = 0];
+    TicketSortField sort_field              = 3;
+    SortDirection   sort_direction          = 4;
+    int32           page_size               = 5 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+    string          page_token              = 6 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListCompletedTicketsResponse {
+    repeated RepairTicketSummary tickets         = 1;
+    string                      next_page_token = 2;
+    int32                       total_count     = 3;
+}
+
+// GetTicketStats
+
+message GetTicketStatsRequest {}
+
+message GetTicketStatsResponse {
+    int32 open_count        = 1;
+    int32 in_progress_count = 2;
+    int32 on_hold_count     = 3;
+    int32 sent_to_vendor_count = 4;
+    int32 completed_count   = 5;
+    int32 unassigned_count  = 6;
+    int32 urgent_count      = 7;
+    int32 overdue_count     = 8;
+    // Average age in hours for non-completed tickets.
+    double avg_age_hours    = 9;
+}

@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Repair, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -36,6 +36,12 @@ export const primaryNavItems: NavItem[] = [
     path: "/groups",
     label: "Groups",
     icon: Groups,
+  },
+  {
+    path: "/maintenance",
+    label: "Maintenance",
+    icon: Repair,
+    requiredPermission: "maintenance:read",
   },
   {
     path: "/energy",

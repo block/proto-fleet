@@ -836,6 +836,42 @@ type FleetTelemetryPollHeartbeat struct {
 	SampleCount    int64
 }
 
+type InfraDevice struct {
+	ID          int64
+	OrgID       int64
+	Name        string
+	DeviceType  int16
+	Subtype     sql.NullString
+	SiteID      sql.NullInt64
+	BuildingID  sql.NullInt64
+	IpAddress   sql.NullString
+	Status      int16
+	ControlMode int16
+	Rpm         sql.NullFloat64
+	Protocol    sql.NullString
+	LastSeen    sql.NullTime
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   sql.NullTime
+}
+
+type InventoryPart struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Type         string
+	Manufacturer sql.NullString
+	PartNumber   sql.NullString
+	SiteID       sql.NullInt64
+	OnHand       int32
+	Allocated    int32
+	ReorderPoint int32
+	BinLocation  sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
 type MinerCredential struct {
 	ID          int64
 	DeviceID    int64
@@ -945,6 +981,57 @@ type RackSlot struct {
 	Row         int32
 	Col         int32
 	CreatedAt   time.Time
+}
+
+type RepairTicket struct {
+	ID              int64
+	OrgID           int64
+	TicketNumber    string
+	Category        int16
+	Status          int16
+	Urgent          bool
+	Component       string
+	Diagnosis       sql.NullString
+	MinerIdentifier sql.NullString
+	AlertID         sql.NullString
+	AssigneeUserID  sql.NullInt64
+	WarrantyStatus  int16
+	SiteID          sql.NullInt64
+	BuildingID      sql.NullInt64
+	Zone            sql.NullString
+	RackID          sql.NullInt64
+	RackLabel       sql.NullString
+	GroupLabel      sql.NullString
+	Resolution      int16
+	RepairLocation  int16
+	Notes           sql.NullString
+	DailyImpactUsd  sql.NullString
+	RmaVendor       sql.NullString
+	RmaTracking     sql.NullString
+	RmaEta          sql.NullTime
+	CompletedAt     sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       sql.NullTime
+}
+
+type RepairTicketComment struct {
+	ID        int64
+	OrgID     int64
+	TicketID  int64
+	UserID    int64
+	UserName  string
+	Text      string
+	CreatedAt time.Time
+	DeletedAt sql.NullTime
+}
+
+type RepairTicketPart struct {
+	ID       int64
+	OrgID    int64
+	TicketID int64
+	PartName string
+	Quantity int32
 }
 
 type Role struct {
