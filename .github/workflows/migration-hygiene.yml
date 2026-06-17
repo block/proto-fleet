@@ -1,0 +1,103 @@
+name: Migration Hygiene
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  migration-hygiene:
+    name: Migration Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR merge result
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Checkout current ref
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Detect migration changes
+        id: migration-changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          changed_files="$(git diff --name-only "origin/$BASE_REF"...HEAD -- server/migrations)"
+
+          if printf '%s\n' "$changed_files" | grep -Eq '^server/migrations/[0-9]{6}_.+\.sql$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No migration SQL changes in this PR."
+          fi
+
+      - name: Skip migration version check
+        if: github.event_name == 'pull_request' && steps.migration-changes.outputs.changed != 'true'
+        run: echo "Skipping migration version check because this PR does not change migration SQL."
+
+      - name: Check migration version pairs
+        if: github.event_name != 'pull_request' || steps.migration-changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          report="$(mktemp)"
+          failed=0
+
+          for file in server/migrations/[0-9][0-9][0-9][0-9][0-9][0-9]_*.sql; do
+            name="${file##*/}"
+            version="${name:0:6}"
+
+            case "$name" in
+              *.up.sql)
+                printf '%s\tup\t%s\n' "$version" "$file" >> "$report"
+                ;;
+              *.down.sql)
+                printf '%s\tdown\t%s\n' "$version" "$file" >> "$report"
+                ;;
+              *)
+                echo "::error file=$file::Migration file must end with .up.sql or .down.sql."
+                failed=1
+                ;;
+            esac
+          done
+
+          awk -F '\t' '
+            {
+              versions[$1] = 1
+              counts[$1, $2] += 1
+              files[$1] = files[$1] "\n  " $3
+            }
+            END {
+              for (version in versions) {
+                up_count = counts[version, "up"] + 0
+                down_count = counts[version, "down"] + 0
+                if (up_count != 1 || down_count != 1) {
+                  printf "::error::Migration version %s has %d up file(s) and %d down file(s); expected exactly one of each.\n", version, up_count, down_count
+                  printf "Files for version %s:%s\n", version, files[version]
+                  failed = 1
+                }
+              }
+              exit failed
+            }
+          ' "$report" || failed=1
+
+          if (( failed != 0 )); then
+            exit 1
+          fi
+
+          echo "Migration version pairs are unique."

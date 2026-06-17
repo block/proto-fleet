@@ -78,6 +78,12 @@ jobs:
     uses: ./.github/workflows/protofleet-server-checks.yml
     secrets: inherit
 
+  migration-hygiene:
+    name: Migration Hygiene
+    needs: changes
+    uses: ./.github/workflows/migration-hygiene.yml
+    secrets: inherit
+
   antminer-plugin-checks:
     name: Antminer Plugin Checks
     needs: changes
@@ -173,6 +179,7 @@ jobs:
       - proto-checks
       - client-checks
       - server-checks
+      - migration-hygiene
       - antminer-plugin-checks
       - proto-plugin-checks
       - virtual-plugin-checks
