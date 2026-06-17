@@ -125,6 +125,20 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err != nil {
 		return nil, err
 	}
+	// A rename to another channel's name would collapse both onto one Grafana
+	// receiver, so reject it the same way CreateChannel does (excluding self).
+	if c.Name != owned.Name {
+		grafanaName := channelGrafanaName(orgID, c.Name)
+		existing, err := s.grafana.ListContactPoints(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, ecp := range existing {
+			if ecp.Name == grafanaName && ecp.UID != c.ID {
+				return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
+			}
+		}
+	}
 	// destinationChanged gates secret preservation: a stored secret must never be carried onto a new destination.
 	destinationChanged := false
 	keepStoredSlackURL := false

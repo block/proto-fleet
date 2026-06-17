@@ -225,6 +225,31 @@ func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *G
 	return NewGrafana(GrafanaConfig{URL: srv.URL})
 }
 
+func TestUpdateChannelRejectsRenameToExistingName(t *testing.T) {
+	listed := []GrafanaContactPoint{
+		{UID: "cp-1", Name: "org-7-pager", Type: "webhook", Settings: json.RawMessage(`{"url":"https://a.example.com"}`)},
+		{UID: "cp-2", Name: "org-7-oncall", Type: "webhook", Settings: json.RawMessage(`{"url":"https://b.example.com"}`)},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(listed))
+	})
+	mux.HandleFunc("PUT /api/v1/provisioning/contact-points/{uid}", func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("must not update when the renamed channel collides with another")
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
+
+	// Rename "oncall" (cp-2) to "pager", already owned by cp-1.
+	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID: "cp-2", Name: "pager", Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "https://b.example.com"},
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "renaming onto another channel's name must be rejected")
+}
+
 func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
 	existing := []GrafanaContactPoint{{
 		UID:  "cp-1",
