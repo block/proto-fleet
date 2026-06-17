@@ -1225,7 +1225,7 @@ func TestAssignBuildingsToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	const N = 100
 	target := int64(20)
 	buildingIDs := make([]int64, N)
-	for i := 0; i < N; i++ {
+	for i := range N {
 		buildingIDs[i] = int64(1000 + i)
 	}
 
@@ -1268,7 +1268,7 @@ func TestAssignRacksToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	oldSite := int64(9)
 	newSite := int64(20)
 	rackIDs := make([]int64, N)
-	for i := 0; i < N; i++ {
+	for i := range N {
 		rackIDs[i] = int64(1000 + i)
 	}
 

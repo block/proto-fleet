@@ -644,10 +644,12 @@ func TestAssignRacksToBuilding_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	wantPositions := make([]int32, N)
 	racks := make([]models.RackPlacementParam, N)
 	// Build distinct (aisle, position) values that fit in a 10×10 grid.
-	for i := 0; i < N; i++ {
+	for i := range N {
 		id := int64(1000 + i)
 		wantRackIDs[i] = id
+		// #nosec G115 -- i is bounded by N=100, fits in int32.
 		aisle := int32(i / 10)
+		// #nosec G115 -- i is bounded by N=100, fits in int32.
 		pos := int32(i % 10)
 		wantAisles[i] = aisle
 		wantPositions[i] = pos
