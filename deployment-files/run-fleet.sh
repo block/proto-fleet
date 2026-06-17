@@ -901,11 +901,87 @@ RESET ROLE;
 SQL
 }
 
+provision_grafana_service_account_token() {
+    local admin_pass grafana_url sa_name token_name attempt sa_id token create_body
+
+    if env_has_nonempty_value FLEET_METRICS_GRAFANA_TOKEN; then
+        echo "Grafana service-account token already present in $ENV_FILE; leaving it as-is."
+        return 0
+    fi
+
+    admin_pass=$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    if [ -z "$admin_pass" ]; then
+        echo "Error: GRAFANA_ADMIN_PASSWORD missing/empty in $ENV_FILE; cannot mint a Grafana token." >&2
+        return 1
+    fi
+
+    grafana_url="http://127.0.0.1:3000"
+    sa_name="fleet-api"
+    token_name="fleet-api-$(date +%Y%m%d%H%M%S)"
+
+    for attempt in $(seq 1 30); do
+        if curl -fsS --max-time 5 -u "admin:${admin_pass}" "${grafana_url}/api/user" >/dev/null 2>&1; then
+            break
+        fi
+        if [ "$attempt" -eq 30 ]; then
+            echo "Error: Grafana API at ${grafana_url} not reachable with admin credentials; token not provisioned." >&2
+            return 1
+        fi
+        sleep 2
+    done
+
+    create_body=$(curl -fsS --max-time 10 -u "admin:${admin_pass}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"${sa_name}\",\"role\":\"Editor\",\"isDisabled\":false}" \
+        "${grafana_url}/api/serviceaccounts" 2>/dev/null || true)
+    sa_id=$(printf '%s' "$create_body" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+
+    if [ -z "$sa_id" ]; then
+        create_body=$(curl -fsS --max-time 10 -u "admin:${admin_pass}" \
+            "${grafana_url}/api/serviceaccounts/search?query=${sa_name}" 2>/dev/null || true)
+        sa_id=$(printf '%s' "$create_body" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+    fi
+
+    if [ -z "$sa_id" ]; then
+        echo "Error: could not create or locate the Grafana '${sa_name}' service account." >&2
+        return 1
+    fi
+
+    token=$(curl -fsS --max-time 10 -u "admin:${admin_pass}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"${token_name}\"}" \
+        "${grafana_url}/api/serviceaccounts/${sa_id}/tokens" 2>/dev/null \
+        | grep -o '"key":"[^"]*"' | head -1 | sed -E 's/.*"key":"([^"]+)".*/\1/')
+
+    if [ -z "$token" ]; then
+        echo "Error: failed to mint a token for the Grafana '${sa_name}' service account." >&2
+        return 1
+    fi
+
+    scrub_env_key FLEET_METRICS_GRAFANA_TOKEN
+    echo "FLEET_METRICS_GRAFANA_TOKEN=$token" >> "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    echo "Provisioned Grafana service-account token for fleet-api (stored in $ENV_FILE)."
+
+    echo "Restarting fleet-api to pick up the Grafana token…"
+    if ! docker compose "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate fleet-api; then
+        echo "Error: wrote the Grafana token to $ENV_FILE but failed to restart fleet-api; it is still" >&2
+        echo "       running with the pre-token environment and will 401 against Grafana. Restart it with:" >&2
+        echo "         docker compose ${COMPOSE_FILES[*]} up -d --force-recreate fleet-api" >&2
+        return 1
+    fi
+}
+
 if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
     if ! provision_grafana_db_role; then
         echo "Error: Grafana DB role provisioning failed; Grafana alerting cannot query notification_metric_sample." >&2
         echo "       Fix the underlying cause (DB reachable, migrations complete) and re-run this script." >&2
         exit 1
+    fi
+    if ! provision_grafana_service_account_token; then
+        echo "Warning: Grafana service-account token provisioning failed; fleet-api cannot authenticate to Grafana" >&2
+        echo "         so notification channel/rule/silence management will 401 until this succeeds." >&2
+        echo "         Re-run this script (Grafana must be reachable on 127.0.0.1:3000) to retry." >&2
     fi
 fi
 
