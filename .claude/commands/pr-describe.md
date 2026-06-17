@@ -64,6 +64,27 @@ describe what the code does, not the decisions made getting there.
    From the file list, identify which subsystems are touched (`server/`,
    `client/`, `plugin/`, `proto/`, `migrations/`, `packages/proto-python-gen/`).
 
+   Also compute the reviewable line diff from the same diff scope so reviewers
+   can gauge PR size without counting generated or review-light files:
+
+   - **Numbered-PR path:** save the PR patch from
+     `gh pr diff <number> -R <owner>/<repo> --patch` to a temp file and run
+     `git apply --numstat /path/to/tmp.patch` to get added/deleted lines by
+     path.
+   - **Current-branch path:** run
+     `git diff "origin/<base>...HEAD" --numstat`.
+   - Exclude generated files (`**/generated/**`, `*.pb.go`, `*.pb.ts`), test
+     files (`*_test.go`, `*.test.*`, `*.spec.*`, `__tests__/**`, `tests/**`,
+     `test/**`), and story files (`*.stories.*`, `*.story.*`, `stories/**`)
+     before summing. For renamed paths, exclude the row if either the old or
+     new path matches an excluded pattern.
+   - Sum the remaining numeric additions and deletions, and count the remaining
+     files. Ignore binary-only rows with `-` additions/deletions in the line
+     totals; if non-excluded binary files remain, append `; <N> binary files
+     have no line count` to the reviewable diff line.
+   - Record the result as:
+     `Reviewable diff: +<additions>/-<deletions> across <files> files (excludes generated, test, and story files).`
+
    If the target is part of a series (step 1), also read each ancestor PR's description
    (`gh pr view <number> --json title,body,url`, adding `-R` on the numbered-PR
    path) and extract the load-bearing context this PR depends on: the contracts,
@@ -82,7 +103,10 @@ describe what the code does, not the decisions made getting there.
 
 3. Draft the description in this structure:
 
-   1. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
+   1. `Reviewable diff: +<additions>/-<deletions> across <files> files
+      (excludes generated, test, and story files).` — the reviewable line diff
+      from step 2. This must be the first line of the PR description.
+   2. **Summary** — 2-4 sentences: what this PR delivers and why it exists.
       Lead with the user- or operator-facing capability, not the implementation.
       If the PR is part of a series (step 1), follow the summary with a short
       **Stack** note: the full chain with PR numbers/links (ancestors down to
@@ -95,24 +119,24 @@ describe what the code does, not the decisions made getting there.
       what is intentionally out of scope here and where the remaining work
       lands, drawn from descendant PRs, the plan docs, this conversation, and
       any tracking issues (later phases may not be open as PRs yet).
-   2. **How it works** — the end-to-end mechanism in plain language. Walk the
+   3. **How it works** — the end-to-end mechanism in plain language. Walk the
       primary flow(s) step by step (who triggers it, what crosses each boundary,
       where state is persisted, what comes back). Assume the reader does not
       know Go/TS idioms; explain workflows and mechanisms, not syntax.
-   3. **Diagrams** — include mermaid diagrams in fenced code blocks labeled `mermaid` so
+   4. **Diagrams** — include mermaid diagrams in fenced code blocks labeled `mermaid` so
       they render on GitHub. At minimum a component/flow diagram of the main
       path; add a state or sequence diagram where lifecycle or ordering matters.
       Keep syntax GitHub-safe: quote labels containing special characters, avoid
       fragile edge styles (e.g. dotted/labelled edges that GitHub mis-renders).
-   4. **Areas of the code involved** — a table so reviewers know where to focus:
+   5. **Areas of the code involved** — a table so reviewers know where to focus:
       `| Area / package / file | What changed | Why it matters for review |`.
       Group by subsystem. Call out new vs. modified files, and flag generated
       code (`**/generated/**`, `*.pb.go`, `*.pb.ts`) as "generated — skip".
-   5. **Key technical decisions & trade-offs** — bullet the choices a reviewer
+   6. **Key technical decisions & trade-offs** — bullet the choices a reviewer
       should scrutinize: new abstractions, data-model/migration changes,
       security or validation boundaries, backward-compat or rollout concerns.
       One line each: the decision and the alternative it was chosen over.
-   6. **Testing & validation** — how correctness was verified (tests added,
+   7. **Testing & validation** — how correctness was verified (tests added,
       manual checks, migrations run) and what is explicitly NOT covered.
 
 4. Apply the result against the target resolved in step 1:
