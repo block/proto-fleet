@@ -8,7 +8,7 @@ import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
-import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
@@ -26,17 +26,50 @@ const LIST_WRAPPER = "pt-6";
 const FleetBuildingsPage = () => {
   const { sites, sitesError, refetchSites } = useFleetOutletContext();
 
-  const { listAllBuildings } = useBuildings();
+  const { listBuildings } = useBuildings();
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+
+  // `?site=<id>` deep links scope the list without mutating SitePicker
+  // (avoids racing FleetLayout's single-site redirect). URL wins.
+  const [searchParams] = useSearchParams();
+  const urlSiteIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          searchParams
+            .getAll("site")
+            .map((value) => value.trim())
+            .filter((value) => value !== "" && /^\d+$/.test(value)),
+        ),
+      ),
+    [searchParams],
+  );
+
+  // URL wins over picker. Both empty + false → server returns every
+  // building in the org (rendered straight through, no client filter).
+  const requestSiteFilter = useMemo(() => {
+    if (urlSiteIds.length > 0) {
+      return {
+        siteIds: urlSiteIds.map((id) => BigInt(id)),
+        includeUnassigned: false,
+      };
+    }
+    return siteFilterFromActive(activeSite);
+  }, [urlSiteIds, activeSite]);
+
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
   const fetchBuildings = useCallback(
     () =>
-      listAllBuildings({
+      listBuildings({
+        siteIds: requestSiteFilter.siteIds,
+        includeUnassigned: requestSiteFilter.includeUnassigned,
         onSuccess: (rows) => {
           setBuildings(rows);
           setBuildingsError(null);
@@ -48,7 +81,7 @@ const FleetBuildingsPage = () => {
           setBuildings((prev) => prev ?? []);
         },
       }),
-    [listAllBuildings],
+    [listBuildings, requestSiteFilter],
   );
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
@@ -60,34 +93,9 @@ const FleetBuildingsPage = () => {
     enabled: canReadBuildings,
   });
 
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
-  const { activeSite } = useActiveSite({ knownSiteIds });
-
-  // `?site=<id>` deep links scope the list without mutating SitePicker
-  // (avoids racing FleetLayout's single-site redirect). URL wins.
-  const [searchParams] = useSearchParams();
-  const urlSiteIds = useMemo(
-    () =>
-      new Set(
-        searchParams
-          .getAll("site")
-          .map((value) => value.trim())
-          .filter((value) => value !== "" && /^\d+$/.test(value)),
-      ),
-    [searchParams],
-  );
-
-  const visibleBuildings = useMemo(() => {
-    if (!buildings) return [];
-    if (urlSiteIds.size > 0) {
-      return buildings.filter((b) => urlSiteIds.has((b.building?.siteId ?? 0n).toString()));
-    }
-    if (activeSite.kind === "all") return buildings;
-    if (activeSite.kind === "unassigned") {
-      return buildings.filter((b) => !b.building?.siteId || b.building.siteId === 0n);
-    }
-    return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
-  }, [buildings, activeSite, urlSiteIds]);
+  // Server-side filter already scoped the list to the active site /
+  // URL deep-link; just pass through.
+  const visibleBuildings = useMemo(() => buildings ?? [], [buildings]);
   const visibleBuildingScopes = useMemo(
     () =>
       visibleBuildings.flatMap((building) => {
@@ -237,8 +245,14 @@ const FleetBuildingsPage = () => {
       />
     ) : null;
 
+  // When a site filter is active, the response is scoped — so an empty
+  // response could mean "no buildings in this site" rather than "no
+  // buildings at all in the org". Differentiate so we don't show the
+  // first-time-user CTA inside a filtered scope.
+  const hasSiteFilter = requestSiteFilter.siteIds.length > 0 || requestSiteFilter.includeUnassigned;
+
   let pageContent: ReactNode;
-  if (buildings.length === 0) {
+  if (buildings.length === 0 && !hasSiteFilter) {
     pageContent = (
       <FilterRow testId="fleet-buildings-page">
         <div className="flex items-center justify-end">{addBuildingButton}</div>

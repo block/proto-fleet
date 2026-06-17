@@ -29,10 +29,11 @@ interface SitePickerProps {
   onRetry?: () => void;
 }
 
-// Phase 1: the picker is mounted globally in PageHeader, but only the new
-// multi-site routes (/sites, /settings/sites, /buildings/:id) consume the
-// selection. Existing pages (/miners, /racks, dashboards) render the picker
-// but ignore the value until #202 wires their queries.
+// Phase 1b (#202): the picker now scopes the buildings, racks, and miner
+// tabs in addition to the new multi-site routes (/sites, /settings/sites,
+// /buildings/:id). History pages (errors, activity, telemetry,
+// dashboards) still ignore the selection — they remain org-wide until
+// Phase 2 (#194).
 const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
