@@ -1179,7 +1179,7 @@ func (q *Queries) LockRackPlacementForWrite(ctx context.Context, arg LockRackPla
 const lockRacksForReparent = `-- name: LockRacksForReparent :many
 SELECT ds.id AS device_set_id
 FROM device_set ds
-LEFT JOIN device_set_rack dsr
+JOIN device_set_rack dsr
   ON dsr.device_set_id = ds.id AND dsr.org_id = ds.org_id
 WHERE ds.id IN (
     SELECT dsm.device_set_id
@@ -1219,13 +1219,15 @@ type LockRacksForReparentParams struct {
 // are derived in a subquery so the outer locking SELECT can use
 // FOR UPDATE (Postgres rejects DISTINCT + FOR UPDATE at runtime).
 //
-// The LEFT JOIN to device_set_rack with FOR UPDATE OF ds, dsr extends
-// the lock to the rack's placement row as well. LockRackPlacementForWrite
-// (used by SaveRack, DeleteCollection, etc.) acquires both rows in the
-// order {device_set_rack, device_set}; mirroring that join here keeps
-// the lock-acquisition order consistent across both code paths so a
-// concurrent SaveRack and AssignDevicesToRack against the same rack
-// cannot deadlock by holding one row and waiting on the other.
+// Joining device_set_rack with FOR UPDATE OF ds, dsr extends the lock
+// to the rack's placement row as well. LockRackPlacementForWrite (used
+// by SaveRack, DeleteCollection, etc.) acquires both rows; mirroring
+// that join here keeps the lock-acquisition order consistent across
+// both code paths so a concurrent SaveRack and AssignDevicesToRack
+// against the same rack cannot deadlock by holding one row and waiting
+// on the other. INNER JOIN (not LEFT) is intentional: Postgres rejects
+// FOR UPDATE on the nullable side of an outer join, and every live
+// rack has a device_set_rack row by lifecycle invariant.
 func (q *Queries) LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.lockRacksForReparentStmt, lockRacksForReparent, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.TargetRackID)
 	if err != nil {
