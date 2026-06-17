@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
@@ -15,7 +16,7 @@ import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
-export type ReparentKind = "rack" | "site";
+export type ReparentKind = "rack" | "site" | "building";
 
 interface MinerReparentPickerProps {
   kind: ReparentKind;
@@ -30,7 +31,7 @@ interface MinerReparentPickerProps {
   // all-mode builds it during resolveAllModeIds.
   miners?: Record<string, MinerStateSnapshot>;
   sourceLabel: string;
-  successMessage: (count: number | bigint, target: "site" | "rack") => string;
+  successMessage: (count: number | bigint, target: "site" | "rack" | "building") => string;
   onClose: () => void;
   onRefetchMiners?: () => void;
 }
@@ -181,6 +182,17 @@ type SiteMoveConfirmation = {
   labelToRackId: Map<string, bigint>;
 };
 
+// BuildingMoveConfirmation drives the "device in rack at other building"
+// confirm dialog. Unlike SiteMoveConfirmation we lean on the server's
+// own conflict response (PerDeviceBuildingConflict[]) instead of
+// pre-scanning racks — the new AssignDevicesToBuilding RPC returns the
+// per-device list directly.
+type BuildingMoveConfirmation = {
+  targetBuildingId: bigint;
+  ids: string[];
+  conflictCount: number;
+};
+
 const MinerReparentPicker = ({
   kind,
   deviceIdentifiers,
@@ -194,9 +206,12 @@ const MinerReparentPicker = ({
   onRefetchMiners,
 }: MinerReparentPickerProps) => {
   const { assignDevicesToSite } = useSites();
+  const { assignDevicesToBuilding } = useBuildings();
   const { assignDevicesToRack, getDeviceSet, listRacks } = useDeviceSets();
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
+  const [buildingMoveConfirmation, setBuildingMoveConfirmation] = useState<BuildingMoveConfirmation | null>(null);
+  const [buildingMoveInFlight, setBuildingMoveInFlight] = useState(false);
   // Resolver for the onConfirm promise during the cross-site confirm
   // dialog flow. We hand it off to the Dialog button handlers so
   // ParentPickerModal's handleSave only resolves (and calls onDismiss
@@ -375,12 +390,78 @@ const MinerReparentPicker = ({
     });
   };
 
+  // dispatchBuildingReassign performs the AssignDevicesToBuilding RPC.
+  // When force=false we let the server enumerate per-device conflicts;
+  // the caller raises a confirm dialog and re-dispatches with force=true.
+  const dispatchBuildingReassign = (
+    targetBuildingId: bigint,
+    ids: string[],
+    force: boolean,
+  ): Promise<{ ok: true } | { ok: false; conflictCount: number }> =>
+    new Promise((resolve) => {
+      void assignDevicesToBuilding({
+        targetBuildingId,
+        deviceIdentifiers: ids,
+        forceClearConflictingRackMembership: force,
+        signal: abortRef.current?.signal,
+        onSuccess: (count) => {
+          if (abortRef.current?.signal.aborted) {
+            resolve({ ok: true });
+            return;
+          }
+          pushToast({ message: successMessage(count, "building"), status: STATUSES.success });
+          onRefetchMiners?.();
+          resolve({ ok: true });
+        },
+        onError: (msg, conflicts) => {
+          if (abortRef.current?.signal.aborted) {
+            resolve({ ok: true });
+            return;
+          }
+          if (conflicts.length > 0) {
+            resolve({ ok: false, conflictCount: conflicts.length });
+            return;
+          }
+          pushToast({ message: `Couldn't move miners: ${msg}`, status: STATUSES.error });
+          resolve({ ok: true });
+        },
+      });
+    });
+
+  const dispatchBuildingMoveWithUnassign = async (confirmation: BuildingMoveConfirmation) => {
+    setBuildingMoveInFlight(true);
+    const movingToast = pushToast({
+      message: "Moving miners to the new building…",
+      status: STATUSES.loading,
+      longRunning: true,
+    });
+    await dispatchBuildingReassign(confirmation.targetBuildingId, confirmation.ids, true);
+    removeToast(movingToast);
+    setBuildingMoveInFlight(false);
+    setBuildingMoveConfirmation(null);
+  };
+
+  const dispatchReparentToBuilding = async (targetBuildingId: bigint, ids: string[]) => {
+    const result = await dispatchBuildingReassign(targetBuildingId, ids, false);
+    if (result.ok) return;
+    // Server flagged cross-building conflicts. Park onConfirm's
+    // promise on the dialog so ParentPickerModal only dismisses
+    // once the operator picks Continue (force-clear) or Cancel.
+    setBuildingMoveConfirmation({ targetBuildingId, ids, conflictCount: result.conflictCount });
+    await new Promise<void>((resolve) => {
+      dialogResolveRef.current = resolve;
+    });
+  };
+
   const dispatchReparent = (
     targetId: bigint,
     ids: string[],
     minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
-  ) =>
-    kind === "site" ? dispatchReparentToSite(targetId, ids, minerSnapshots) : dispatchReparentToRack(targetId, ids);
+  ) => {
+    if (kind === "site") return dispatchReparentToSite(targetId, ids, minerSnapshots);
+    if (kind === "building") return dispatchReparentToBuilding(targetId, ids);
+    return dispatchReparentToRack(targetId, ids);
+  };
 
   const settleDialog = () => {
     const resolve = dialogResolveRef.current;
@@ -396,6 +477,17 @@ const MinerReparentPicker = ({
   const handleDialogConfirm = async () => {
     if (!siteMoveConfirmation) return;
     await dispatchSiteMoveWithUnassign(siteMoveConfirmation);
+    settleDialog();
+  };
+
+  const handleBuildingDialogCancel = () => {
+    setBuildingMoveConfirmation(null);
+    settleDialog();
+  };
+
+  const handleBuildingDialogConfirm = async () => {
+    if (!buildingMoveConfirmation) return;
+    await dispatchBuildingMoveWithUnassign(buildingMoveConfirmation);
     settleDialog();
   };
 
@@ -491,6 +583,34 @@ const MinerReparentPicker = ({
               },
               loading: siteMoveInFlight,
               disabled: siteMoveInFlight,
+            },
+          ]}
+        />
+      ) : null}
+      {buildingMoveConfirmation ? (
+        <Dialog
+          open
+          title="Move miners between buildings?"
+          subtitle={`${buildingMoveConfirmation.conflictCount} of the selected miner${buildingMoveConfirmation.conflictCount === 1 ? " is" : "s are"} currently in a rack that belongs to a different building. Continuing will unassign ${buildingMoveConfirmation.conflictCount === 1 ? "it" : "them"} from those racks before moving to the selected building.`}
+          onDismiss={() => {
+            if (buildingMoveInFlight) return;
+            handleBuildingDialogCancel();
+          }}
+          buttons={[
+            {
+              text: "Cancel",
+              variant: variants.secondary,
+              onClick: handleBuildingDialogCancel,
+              disabled: buildingMoveInFlight,
+            },
+            {
+              text: "Continue",
+              variant: variants.primary,
+              onClick: () => {
+                void handleBuildingDialogConfirm();
+              },
+              loading: buildingMoveInFlight,
+              disabled: buildingMoveInFlight,
             },
           ]}
         />

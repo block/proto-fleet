@@ -399,7 +399,7 @@ func (q *Queries) GetAvailableModels(ctx context.Context, orgID int64) ([]sql.Nu
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name, worker_name_pool_sync_status, site_id
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name, worker_name_pool_sync_status, site_id, building_id
 FROM device
 WHERE device_identifier = $1
   AND org_id = $2
@@ -429,12 +429,13 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.WorkerName,
 		&i.WorkerNamePoolSyncStatus,
 		&i.SiteID,
+		&i.BuildingID,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name, worker_name_pool_sync_status, site_id
+SELECT id, device_identifier, mac_address, serial_number, org_id, discovered_device_id, created_at, updated_at, deleted_at, custom_name, worker_name, worker_name_pool_sync_status, site_id, building_id
 FROM device
 WHERE id = $1
   AND org_id = $2
@@ -464,6 +465,7 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.WorkerName,
 		&i.WorkerNamePoolSyncStatus,
 		&i.SiteID,
+		&i.BuildingID,
 	)
 	return i, err
 }

@@ -143,6 +143,28 @@ type CollectionStore interface {
 	// rack in rackIDs where the current value differs.
 	CascadeRackDeviceSitesBulk(ctx context.Context, orgID int64, rackIDs []int64, targetSiteID *int64) (int64, error)
 
+	// UnassignDeviceBuildingsByRack is the building peer of
+	// UnassignDeviceSitesByRack: nulls device.building_id for paired
+	// rack members whose value matches the rack's stamped building.
+	// Preserves direct "Add miners to building" assignments that
+	// diverged from the rack.
+	UnassignDeviceBuildingsByRack(ctx context.Context, collectionID, orgID int64) (int64, error)
+
+	// CascadeRackDeviceBuildings is the building peer of
+	// CascadeRackDeviceSites: rewrites device.building_id to
+	// targetBuildingID for paired members of the rack.
+	CascadeRackDeviceBuildings(ctx context.Context, collectionID, orgID int64, targetBuildingID *int64) (int64, error)
+
+	// CascadeRackDeviceBuildingsBulk is the multi-rack building peer
+	// of CascadeRackDeviceSitesBulk.
+	CascadeRackDeviceBuildingsBulk(ctx context.Context, orgID int64, rackIDs []int64, targetBuildingID *int64) (int64, error)
+
+	// CascadeAddedDeviceBuildings is the building peer of
+	// CascadeAddedDeviceSites: rewrites device.building_id to
+	// rack.building_id for newly added rack members where the value
+	// differs. No-op for groups or building-less racks.
+	CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error)
+
 	// GetDeviceSiteIDsByMembership returns device_identifier + current
 	// site_id for every rack member.
 	GetDeviceSiteIDsByMembership(ctx context.Context, collectionID, orgID int64) (map[string]*int64, error)

@@ -305,6 +305,59 @@ func (s *SQLCollectionStore) CascadeRackDeviceSitesBulk(ctx context.Context, org
 	return n, nil
 }
 
+func (s *SQLCollectionStore) UnassignDeviceBuildingsByRack(ctx context.Context, collectionID, orgID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).UnassignDeviceBuildingsByRack(ctx, sqlc.UnassignDeviceBuildingsByRackParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to unassign device buildings by rack: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeRackDeviceBuildings(ctx context.Context, collectionID, orgID int64, targetBuildingID *int64) (int64, error) {
+	n, err := s.GetQueries(ctx).CascadeRackDeviceBuildings(ctx, sqlc.CascadeRackDeviceBuildingsParams{
+		DeviceSetID:      collectionID,
+		OrgID:            orgID,
+		TargetBuildingID: ptrToNullInt64(targetBuildingID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade rack device buildings: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeRackDeviceBuildingsBulk(ctx context.Context, orgID int64, rackIDs []int64, targetBuildingID *int64) (int64, error) {
+	if len(rackIDs) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeRackDeviceBuildingsBulk(ctx, sqlc.CascadeRackDeviceBuildingsBulkParams{
+		TargetBuildingID: ptrToNullInt64(targetBuildingID),
+		RackIds:          rackIDs,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-cascade rack device buildings: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeAddedDeviceBuildings(ctx, sqlc.CascadeAddedDeviceBuildingsParams{
+		OrgID:             orgID,
+		ID:                deviceSetID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade added-device buildings: %w", err)
+	}
+	return n, nil
+}
+
 func (s *SQLCollectionStore) GetDeviceSiteIDsByMembership(ctx context.Context, collectionID, orgID int64) (map[string]*int64, error) {
 	rows, err := s.GetQueries(ctx).GetDeviceSiteIDsByMembership(ctx, sqlc.GetDeviceSiteIDsByMembershipParams{
 		DeviceSetID: collectionID,

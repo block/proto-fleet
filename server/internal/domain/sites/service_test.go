@@ -1090,6 +1090,7 @@ func TestAssignRacksToSite_clearsBuildingOnSiteChange(t *testing.T) {
 		UpdateRackPlacementBulkForSite(inTxCtx, testOrgID, []int64{rackID}, &newSite).
 		Return(nil)
 	collStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &newSite).Return(int64(4), nil)
+	collStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 	_ = oldBuilding
 
 	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
@@ -1162,6 +1163,7 @@ func TestAssignRacksToSite_noPriorBuildingStaysIntact(t *testing.T) {
 		UpdateRackPlacementBulkForSite(inTxCtx, testOrgID, []int64{rackID}, &newSite).
 		Return(nil)
 	collStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &newSite).Return(int64(0), nil)
+	collStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
 		OrgID:        testOrgID,
@@ -1280,6 +1282,7 @@ func TestAssignRacksToSite_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	// Exactly one bulk placement update + one bulk cascade.
 	collStore.EXPECT().UpdateRackPlacementBulkForSite(inTxCtx, testOrgID, rackIDs, &newSite).Return(nil)
 	collStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, rackIDs, &newSite).Return(int64(500), nil)
+	collStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, rackIDs, gomock.Nil()).Return(int64(0), nil)
 
 	out, err := svc.AssignRacksToSite(context.Background(), models.AssignRacksToSiteParams{
 		OrgID:        testOrgID,

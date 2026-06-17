@@ -88,6 +88,29 @@ interface AssignRacksToBuildingProps {
   onFinally?: () => void;
 }
 
+// AssignDevicesToBuildingConflict carries server-reported per-device
+// conflicts surfaced when the batch rejects (e.g. a device is in a
+// rack at a different building). Mirrors PerDeviceBuildingConflict.
+export interface AssignDevicesToBuildingConflict {
+  deviceIdentifier: string;
+  reason: number;
+  conflictingBuildingId: bigint;
+}
+
+interface AssignDevicesToBuildingProps {
+  // Unset = move devices to the "Unassigned" bucket (device.building_id
+  // becomes NULL).
+  targetBuildingId?: bigint;
+  deviceIdentifiers: string[];
+  // When true, server force-clears any rack memberships that put a
+  // device in a different building (mirrors AssignDevicesToSite).
+  forceClearConflictingRackMembership?: boolean;
+  signal?: AbortSignal;
+  onSuccess?: (reassignedCount: bigint, siteReassignedDeviceCount: bigint) => void;
+  onError?: (message: string, conflicts: AssignDevicesToBuildingConflict[]) => void;
+  onFinally?: () => void;
+}
+
 // BuildingFormValues is the FE-side draft shape carried by
 // BuildingDetailsModal + ManageBuildingModal. Power values live in MW
 // to match the form's surface units; the API maps them to kW on
@@ -391,6 +414,57 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
+  // assignDevicesToBuilding wraps the atomic device→building reassignment
+  // RPC introduced alongside the device.building_id column. Mirrors
+  // sites.assignDevicesToSite — when the response carries conflicts the
+  // call surfaces them through onError so the picker can prompt for
+  // force-clear (or show the conflict list). targetBuildingId unset =
+  // move to "Unassigned".
+  const assignDevicesToBuilding = useCallback(
+    async ({
+      targetBuildingId,
+      deviceIdentifiers,
+      forceClearConflictingRackMembership,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: AssignDevicesToBuildingProps) => {
+      try {
+        const response = await buildingsClient.assignDevicesToBuilding(
+          {
+            targetBuildingId,
+            deviceIdentifiers,
+            forceClearConflictingRackMembership,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        if (response.conflicts.length > 0) {
+          const conflicts: AssignDevicesToBuildingConflict[] = response.conflicts.map((c) => ({
+            deviceIdentifier: c.deviceIdentifier,
+            reason: c.reason,
+            conflictingBuildingId: c.conflictingBuildingId,
+          }));
+          onError?.("Some devices could not be reassigned", conflicts);
+          return;
+        }
+        onSuccess?.(response.reassignedCount, response.siteReassignedDeviceCount);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error), []);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     listBuildingsBySite,
     listAllBuildings,
@@ -400,6 +474,7 @@ const useBuildings = () => {
     updateBuilding,
     deleteBuilding,
     assignRacksToBuilding,
+    assignDevicesToBuilding,
   };
 };
 

@@ -456,6 +456,7 @@ func TestHandler_AssignRacksToSite_partialUpdateCascadesAndClearsBuilding(t *tes
 	// follows for the same rack set.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, &target).Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, &target).Return(int64(8), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds:      []int64{rackID},
@@ -479,6 +480,7 @@ func TestHandler_AssignRacksToSite_targetUnsetUnassigns(t *testing.T) {
 	// site changes (priorSite → nil) but no building to clear.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(3), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds: []int64{rackID},
@@ -526,6 +528,7 @@ func TestHandler_AssignRacksToSite_bulkAggregates(t *testing.T) {
 		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(int64(6), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.Nil()).Return(int64(0), nil)
 
 	// IDs passed out-of-order to verify the sort happens.
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{

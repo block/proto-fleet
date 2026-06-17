@@ -50,8 +50,13 @@ interface FleetGroupActionsMenuProps {
   scopes: GroupScope[];
   ariaLabel: string;
   testIdPrefix?: string;
-  // Rendered between the wired top + bottom bulk clusters.
+  // Rendered between the wired top + bottom bulk clusters when a single
+  // scope is selected (row-level menu). For actions that make sense
+  // against multiple scopes (e.g. bulk reparent), use bulkExtraActions.
   extraActions?: RowAction[];
+  // Rendered in the same cluster slot when more than one scope is
+  // selected (multi-select bulk bar).
+  bulkExtraActions?: RowAction[];
   onActionStart?: () => void;
   onActionComplete?: () => void;
   presentation?: "row" | "bulk";
@@ -125,6 +130,7 @@ const FleetGroupActionsMenu = ({
   ariaLabel,
   testIdPrefix,
   extraActions = [],
+  bulkExtraActions = [],
   onActionStart,
   onActionComplete,
   presentation = "row",
@@ -342,8 +348,8 @@ const FleetGroupActionsMenu = ({
   const topWiredEntries = useMemo(() => TOP_WIRED_KEYS.filter(keepEntry), [keepEntry]);
   const bottomWiredEntries = useMemo(() => BOTTOM_WIRED_KEYS.filter(keepEntry), [keepEntry]);
   const visibleExtraActions = useMemo(
-    () => (scopes.length > 1 ? [] : extraActions.filter((entry) => !entry.hidden)),
-    [extraActions, scopes.length],
+    () => (scopes.length > 1 ? bulkExtraActions : extraActions).filter((entry) => !entry.hidden),
+    [bulkExtraActions, extraActions, scopes.length],
   );
 
   // Cluster boundary rules: divider between top↔extras and (when no

@@ -249,6 +249,8 @@ func TestService_DeleteCollection_LocksRackBeforeCascade(t *testing.T) {
 			Return(interfaces.RackPlacement{}, nil),
 		mockStore.EXPECT().UnassignDeviceSitesByRack(gomock.Any(), testCollectionID, testOrgID).
 			Return(int64(0), nil),
+		mockStore.EXPECT().UnassignDeviceBuildingsByRack(gomock.Any(), testCollectionID, testOrgID).
+			Return(int64(0), nil),
 		// Placement clear is rack-scoped and now lives inside the
 		// rack branch, so it lands BEFORE the generic
 		// RemoveAllDevicesFromCollection step.
@@ -1558,6 +1560,10 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).
 		Return(map[string]*int64{"device-1": priorSite}, nil)
 	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(1), nil)
+	// Building peer of the site cascade — fires whenever the rack has a
+	// stamped building, mirroring the site cascade above for
+	// device.building_id.
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newBuilding)).Return(int64(1), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 1}, nil)
@@ -1920,6 +1926,7 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
 			Return(map[string]*int64{"d1": int64Ptr(99), "d2": &rackSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2003,6 +2010,7 @@ func TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites(t *test
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2063,6 +2071,7 @@ func TestService_AssignDevicesToRack_locksIncludeTargetRack(t *testing.T) {
 		Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -2113,6 +2122,7 @@ func TestService_AssignDevicesToRack_crossSiteEmitsCascadeMetadata(t *testing.T)
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
 			Return(map[string]*int64{"d1": &priorSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2166,6 +2176,7 @@ func TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata(t *testing.T) 
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
 			Return(map[string]*int64{"d1": &rackSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{

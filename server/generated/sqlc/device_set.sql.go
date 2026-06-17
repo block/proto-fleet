@@ -40,6 +40,40 @@ func (q *Queries) AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDev
 	return result.RowsAffected()
 }
 
+const cascadeAddedDeviceBuildings = `-- name: CascadeAddedDeviceBuildings :execrows
+UPDATE device d
+SET building_id = dsr.building_id,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set ds
+JOIN device_set_rack dsr ON dsr.device_set_id = ds.id AND dsr.org_id = ds.org_id
+WHERE d.device_identifier = ANY($3::text[])
+  AND d.org_id = $1
+  AND d.deleted_at IS NULL
+  AND ds.id = $2
+  AND ds.org_id = $1
+  AND ds.deleted_at IS NULL
+  AND ds.type = 'rack'
+  AND dsr.building_id IS NOT NULL
+  AND d.building_id IS DISTINCT FROM dsr.building_id
+`
+
+type CascadeAddedDeviceBuildingsParams struct {
+	OrgID             int64
+	ID                int64
+	DeviceIdentifiers []string
+}
+
+// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
+// to rack.building_id for added rack members whose current building
+// differs. No-op for groups or building-less racks.
+func (q *Queries) CascadeAddedDeviceBuildings(ctx context.Context, arg CascadeAddedDeviceBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeAddedDeviceBuildingsStmt, cascadeAddedDeviceBuildings, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cascadeAddedDeviceSites = `-- name: CascadeAddedDeviceSites :execrows
 UPDATE device d
 SET site_id = dsr.site_id,
@@ -67,6 +101,67 @@ type CascadeAddedDeviceSitesParams struct {
 // whose current site differs. No-op for groups or site-less racks.
 func (q *Queries) CascadeAddedDeviceSites(ctx context.Context, arg CascadeAddedDeviceSitesParams) (int64, error) {
 	result, err := q.exec(ctx, q.cascadeAddedDeviceSitesStmt, cascadeAddedDeviceSites, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cascadeRackDeviceBuildings = `-- name: CascadeRackDeviceBuildings :execrows
+UPDATE device d
+SET building_id = $3::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.building_id IS DISTINCT FROM $3::bigint
+`
+
+type CascadeRackDeviceBuildingsParams struct {
+	DeviceSetID      int64
+	OrgID            int64
+	TargetBuildingID sql.NullInt64
+}
+
+// Building peer of CascadeRackDeviceSites. Rewrites device.building_id
+// to target_building_id for every paired member of the rack. NULL
+// target unassigns. IS DISTINCT FROM skips no-op rows.
+func (q *Queries) CascadeRackDeviceBuildings(ctx context.Context, arg CascadeRackDeviceBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeRackDeviceBuildingsStmt, cascadeRackDeviceBuildings, arg.DeviceSetID, arg.OrgID, arg.TargetBuildingID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cascadeRackDeviceBuildingsBulk = `-- name: CascadeRackDeviceBuildingsBulk :execrows
+UPDATE device d
+SET building_id = $1::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = ANY($2::bigint[])
+  AND dsm.org_id = $3
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.building_id IS DISTINCT FROM $1::bigint
+`
+
+type CascadeRackDeviceBuildingsBulkParams struct {
+	TargetBuildingID sql.NullInt64
+	RackIds          []int64
+	OrgID            int64
+}
+
+// Building peer of CascadeRackDeviceSitesBulk. Rewrites
+// device.building_id to target_building_id for every paired member of
+// every rack in @rack_ids. NULL target unassigns. IS DISTINCT FROM
+// skips no-op rows.
+func (q *Queries) CascadeRackDeviceBuildingsBulk(ctx context.Context, arg CascadeRackDeviceBuildingsBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeRackDeviceBuildingsBulkStmt, cascadeRackDeviceBuildingsBulk, arg.TargetBuildingID, pq.Array(arg.RackIds), arg.OrgID)
 	if err != nil {
 		return 0, err
 	}
@@ -1370,6 +1465,38 @@ type SoftDeleteDeviceSetParams struct {
 
 func (q *Queries) SoftDeleteDeviceSet(ctx context.Context, arg SoftDeleteDeviceSetParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteDeviceSetStmt, softDeleteDeviceSet, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unassignDeviceBuildingsByRack = `-- name: UnassignDeviceBuildingsByRack :execrows
+UPDATE device d
+SET building_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id AND dsr.org_id = dsm.org_id
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NOT NULL
+  AND d.building_id IS NOT DISTINCT FROM dsr.building_id
+`
+
+type UnassignDeviceBuildingsByRackParams struct {
+	DeviceSetID int64
+	OrgID       int64
+}
+
+// Building peer of UnassignDeviceSitesByRack. Nulls device.building_id
+// for paired rack members whose building_id matches the rack's stamped
+// building. No-op when the rack has no building; preserves direct
+// "Add miners to building" assignments that diverged from the rack.
+func (q *Queries) UnassignDeviceBuildingsByRack(ctx context.Context, arg UnassignDeviceBuildingsByRackParams) (int64, error) {
+	result, err := q.exec(ctx, q.unassignDeviceBuildingsByRackStmt, unassignDeviceBuildingsByRack, arg.DeviceSetID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}

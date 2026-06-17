@@ -596,6 +596,7 @@ type Device struct {
 	WorkerName               sql.NullString
 	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
 	SiteID                   sql.NullInt64
+	BuildingID               sql.NullInt64
 }
 
 type DeviceMetric struct {

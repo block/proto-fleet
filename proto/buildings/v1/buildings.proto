@@ -58,6 +58,17 @@ service BuildingService {
     // runs when a rack's site changes.
     rpc AssignRacksToBuilding(AssignRacksToBuildingRequest) returns (AssignRacksToBuildingResponse);
 
+    // AssignDevicesToBuilding is an all-or-nothing bulk update of
+    // device.building_id. If any device is in a rack whose building_id
+    // differs from the target, the entire batch rejects with per-device
+    // error details and no row is touched. Omit target_building_id (or
+    // leave it unset) to move devices to the "Unassigned" bucket. When
+    // target_building_id is set, the same transaction also cascades
+    // device.site_id to the target building's site so building/site
+    // stay in lockstep.
+    rpc AssignDevicesToBuilding(AssignDevicesToBuildingRequest)
+        returns (AssignDevicesToBuildingResponse);
+
     // GetBuildingStats returns server-rolled telemetry + miner-state
     // counts for every device whose rack lives in the building, plus a
     // per-rack health summary (rack id, label, position, state counts)
@@ -289,6 +300,58 @@ message AssignRacksToBuildingResponse {
     // site_id re-stamped across every rack in the batch. Zero when no
     // cascade was needed.
     int64 site_reassigned_device_count = 1;
+}
+
+// AssignDevicesToBuilding
+
+message AssignDevicesToBuildingRequest {
+    // Unset = move to the "Unassigned" bucket. When present, must be > 0.
+    optional int64 target_building_id = 1 [(buf.validate.field).int64.gt = 0];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+    // When true, the server — inside the same transaction as the
+    // building write — removes any conflicting rack memberships for the
+    // listed devices before applying the building assignment. Mirrors
+    // the AssignDevicesToSite force-clear semantic: a device currently
+    // in a rack at a different building would otherwise reject the whole
+    // batch with DEVICE_IN_RACK_AT_OTHER_BUILDING.
+    //
+    // When false (default), any device currently in a rack at a different
+    // building rejects the whole batch with per-device error details.
+    optional bool force_clear_conflicting_rack_membership = 3;
+}
+
+// PerDeviceBuildingConflictReason enumerates the reasons a device can be
+// rejected by AssignDevicesToBuilding.
+enum PerDeviceBuildingConflictReason {
+    PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED                       = 0;
+    PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_NOT_FOUND                  = 1;
+    PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_BUILDING  = 2;
+}
+
+// PerDeviceBuildingConflict carries the per-device error details
+// surfaced when AssignDevicesToBuilding rejects. The whole batch is
+// rejected; no rows are mutated.
+message PerDeviceBuildingConflict {
+    string device_identifier = 1;
+    PerDeviceBuildingConflictReason reason = 2;
+    // When reason == DEVICE_IN_RACK_AT_OTHER_BUILDING: the building_id
+    // of the device's rack. 0 otherwise.
+    int64 conflicting_building_id = 3;
+}
+
+message AssignDevicesToBuildingResponse {
+    int64 reassigned_count = 1;
+    // Populated only on rejection. Empty on success.
+    repeated PerDeviceBuildingConflict conflicts = 2;
+    // Number of devices whose site_id was cascaded to the target
+    // building's site as part of the same transaction. Zero when no
+    // cascade was needed (target unassigned or every device was already
+    // at the target site).
+    int64 site_reassigned_device_count = 3;
 }
 
 // GetBuildingStats

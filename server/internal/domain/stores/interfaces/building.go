@@ -83,4 +83,29 @@ type BuildingStore interface {
 	// rackIDs (parallel-aligned arrays). Used by
 	// AssignRacksToBuilding's pass-2 after pass-1 cleared cells.
 	SetRackBuildingPositionBulkPlace(ctx context.Context, orgID int64, rackIDs []int64, aisleIndexes, positionInAisles []int32) error
+
+	// AssignDevicesToBuilding bulk-updates device.building_id for the
+	// given identifiers. The caller must have validated cross-building
+	// conflicts (see FindDeviceBuildingConflicts) and that every
+	// identifier exists (see ListExistingDeviceIdentifiers on SiteStore).
+	// targetBuildingID == nil means "Unassigned".
+	AssignDevicesToBuilding(ctx context.Context, orgID int64, targetBuildingID *int64, deviceIdentifiers []string) (int64, error)
+
+	// CascadeDevicesSiteForBuilding sets device.site_id to the supplied
+	// target_site_id for any device in @device_identifiers whose
+	// site_id differs from target. Caller is responsible for matching
+	// targetSiteID to the building's site. Returns the count of
+	// devices actually cascaded.
+	CascadeDevicesSiteForBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string, targetSiteID *int64) (int64, error)
+
+	// FindDeviceBuildingConflicts returns, for each requested device
+	// that is in a rack with a building_id, the device identifier and
+	// that rack's building_id. The caller compares against the
+	// requested target.
+	FindDeviceBuildingConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error)
+
+	// GetBuildingSiteID returns the building's site_id (nil when the
+	// building is unassigned). Returns NotFound when the building is
+	// missing / soft-deleted / cross-org.
+	GetBuildingSiteID(ctx context.Context, orgID, buildingID int64) (*int64, error)
 }

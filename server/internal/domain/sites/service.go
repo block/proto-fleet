@@ -694,6 +694,16 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 				return nil, err
 			}
 			deviceCount += n
+
+			// Phase B3: building cascade. UpdateRackPlacementBulkForSite
+			// cleared rack.building_id for every cross-site move; the
+			// devices' building_id has to follow so they don't reference
+			// a building the device is no longer in.
+			if _, err := s.collectionStore.CascadeRackDeviceBuildingsBulk(
+				txCtx, params.OrgID, changedRackIDs, nil,
+			); err != nil {
+				return nil, err
+			}
 		}
 		return assignRacksToSiteTx{
 			deviceCount:     deviceCount,

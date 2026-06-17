@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { type RowAction } from "../RowActionsMenu";
 import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import { useSetActionBarVisible } from "@/protoFleet/store";
@@ -8,6 +9,9 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 interface FleetGroupListActionBarProps {
   selectedScopes: GroupScope[];
   kind: "site" | "building" | "rack";
+  // Extra actions inserted into the bulk popover — used by lists that
+  // need bulk reparent (e.g. Add racks to building / site).
+  bulkExtraActions?: RowAction[];
   onClearSelection: () => void;
   onSelectAllVisible: () => void;
   onActionBusyChange?: (busy: boolean) => void;
@@ -22,6 +26,7 @@ const PLURAL_KIND: Record<FleetGroupListActionBarProps["kind"], string> = {
 const FleetGroupListActionBar = ({
   selectedScopes,
   kind,
+  bulkExtraActions,
   onClearSelection,
   onSelectAllVisible,
   onActionBusyChange,
@@ -106,6 +111,7 @@ const FleetGroupListActionBar = ({
           ariaLabel={`Bulk actions for selected ${pluralKind}`}
           testIdPrefix={`fleet-bulk-${kind}-actions`}
           presentation="bulk"
+          bulkExtraActions={bulkExtraActions}
           onActionStart={() => {
             setIsActionBusy(true);
             onActionBusyChange?.(true);

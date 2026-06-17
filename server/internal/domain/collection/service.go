@@ -414,7 +414,10 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			if err != nil {
 				return nil, err
 			}
-			var rackSiteID *int64
+			var (
+				rackSiteID     *int64
+				rackBuildingID *int64
+			)
 			isRack := collType == pb.CollectionType_COLLECTION_TYPE_RACK
 			if isRack {
 				placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
@@ -422,6 +425,7 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 					return nil, err
 				}
 				rackSiteID = placement.SiteID
+				rackBuildingID = placement.BuildingID
 			}
 			if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId); err != nil {
 				return nil, err
@@ -433,6 +437,14 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 				// Skip when site-less: cascading NULL would wipe direct assignments.
 				if isRack && rackSiteID != nil {
 					if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, req.CollectionId, info.OrganizationID, rackSiteID); err != nil {
+						return nil, err
+					}
+				}
+				// Building peer of the site cascade above. Same skip-on-
+				// nil rationale: cascading NULL would wipe direct
+				// AssignDevicesToBuilding assignments for the new members.
+				if isRack && rackBuildingID != nil {
+					if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, req.CollectionId, info.OrganizationID, rackBuildingID); err != nil {
 						return nil, err
 					}
 				}
@@ -509,6 +521,13 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 				return err
 			}
 			siteUnassignedCount = n
+			// Building peer of the site unassign: drops device.building_id
+			// for members whose value still matched the rack's stamped
+			// building. Preserves direct AssignDevicesToBuilding
+			// assignments that diverged from the rack.
+			if _, err := s.collectionStore.UnassignDeviceBuildingsByRack(ctx, req.CollectionId, info.OrganizationID); err != nil {
+				return err
+			}
 			// Clear device_set_rack placement BEFORE soft-deleting the
 			// device_set row so the partial unique index
 			// uk_device_set_rack_building_position releases the cell
@@ -1013,6 +1032,15 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 					return nil, err
 				}
 				siteReassigned = c
+			}
+			// Building cascade — paired with the site cascade above so
+			// device.building_id stays in lockstep with the rack's
+			// building. Fires independently of targetSiteID because a
+			// rack can have a building without a stamped site
+			// (building.site_id is denormalized onto the rack, not
+			// required). No-ops when the rack has no building.
+			if _, err := s.collectionStore.CascadeAddedDeviceBuildings(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers); err != nil {
+				return nil, err
 			}
 		}
 
@@ -1544,7 +1572,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 
 		// Cascade runs after membership replace so it touches only the
 		// final member set; removed devices keep their prior site_id.
-		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, siteChanged)
+		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, finalBuildingID, siteChanged)
 		if err != nil {
 			return nil, err
 		}
@@ -1834,7 +1862,7 @@ type rackCascadeOutcome struct {
 // writes the new set. Cascade runs AFTER membership replace so removed
 // devices keep their prior site_id and the per-device priors captured
 // here reflect the final member set.
-func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID *int64, siteChanged bool) (rackCascadeOutcome, error) {
+func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID, finalBuildingID *int64, siteChanged bool) (rackCascadeOutcome, error) {
 	var out rackCascadeOutcome
 	if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, collectionID); err != nil {
 		return out, err
@@ -1860,6 +1888,16 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 				return out, err
 			}
 			out.cascadeCount = n
+		}
+		// Building peer of the site cascade above. Same skip-on-nil
+		// rationale: cascading NULL would wipe direct
+		// AssignDevicesToBuilding assignments for the new members. We
+		// don't have a "buildingChanged" flag wired through, so we
+		// conservatively only fire when the rack has a stamped building.
+		if finalBuildingID != nil {
+			if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collectionID, orgID, finalBuildingID); err != nil {
+				return out, err
+			}
 		}
 	}
 

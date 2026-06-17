@@ -153,6 +153,48 @@ func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken strin
 	return &pb.ListBuildingRacksResponse{Racks: out, NextPageToken: nextPageToken}
 }
 
+func toAssignDevicesToBuildingParams(req *pb.AssignDevicesToBuildingRequest, orgID int64) models.AssignDevicesToBuildingParams {
+	var targetBuildingID *int64
+	if req.TargetBuildingId != nil {
+		v := req.GetTargetBuildingId()
+		targetBuildingID = &v
+	}
+	return models.AssignDevicesToBuildingParams{
+		OrgID:                               orgID,
+		TargetBuildingID:                    targetBuildingID,
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
+	}
+}
+
+func toProtoBuildingConflicts(conflicts []models.PerDeviceBuildingConflict) []*pb.PerDeviceBuildingConflict {
+	if len(conflicts) == 0 {
+		return nil
+	}
+	out := make([]*pb.PerDeviceBuildingConflict, 0, len(conflicts))
+	for _, c := range conflicts {
+		out = append(out, &pb.PerDeviceBuildingConflict{
+			DeviceIdentifier:      c.DeviceIdentifier,
+			Reason:                toProtoBuildingConflictReason(c.Reason),
+			ConflictingBuildingId: c.ConflictingBuildingID,
+		})
+	}
+	return out
+}
+
+func toProtoBuildingConflictReason(r models.PerDeviceBuildingConflictReason) pb.PerDeviceBuildingConflictReason {
+	switch r {
+	case models.ReasonBuildingUnspecified:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED
+	case models.ReasonBuildingDeviceNotFound:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_NOT_FOUND
+	case models.ReasonBuildingDeviceInRackAtOtherBuilding:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_BUILDING
+	default:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED
+	}
+}
+
 func toAssignRacksToBuildingParams(req *pb.AssignRacksToBuildingRequest, orgID int64) models.AssignRacksToBuildingParams {
 	out := models.AssignRacksToBuildingParams{
 		OrgID: orgID,

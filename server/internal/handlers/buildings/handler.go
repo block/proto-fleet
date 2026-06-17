@@ -133,6 +133,35 @@ func (h *Handler) AssignRacksToBuilding(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
+func (h *Handler) AssignDevicesToBuilding(ctx context.Context, req *connect.Request[pb.AssignDevicesToBuildingRequest]) (*connect.Response[pb.AssignDevicesToBuildingResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// force_clear_conflicting_rack_membership deletes
+	// device_set_membership rows as a side effect — same auth gate
+	// pattern as AssignDevicesToSite so site-only operators can't
+	// bypass rack auth via this flag.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	out, conflicts, err := h.service.AssignDevicesToBuilding(ctx, toAssignDevicesToBuildingParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	if len(conflicts) > 0 {
+		return connect.NewResponse(&pb.AssignDevicesToBuildingResponse{
+			Conflicts: toProtoBuildingConflicts(conflicts),
+		}), nil
+	}
+	return connect.NewResponse(&pb.AssignDevicesToBuildingResponse{
+		ReassignedCount:           out.ReassignedCount,
+		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
+	}), nil
+}
+
 func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.GetBuildingStatsRequest]) (*connect.Response[pb.GetBuildingStatsResponse], error) {
 	// GetBuildingStats returns telemetry rollups + per-rack health +
 	// device_identifiers, so it layers three permissions: site:read for
