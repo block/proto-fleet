@@ -419,6 +419,11 @@ const ManageBuildingModal = ({
       // clear-then-place within a single RPC, so unassigns and cell-
       // clears must all complete before any place runs.
       const RACKS_PER_RPC = 1000;
+      // Tracks whether any chunk has committed so the catch below can
+      // distinguish "nothing landed" from "partial commit" — operator
+      // needs to know to refresh before retrying when chunks N..M ran
+      // before chunk N+1 failed.
+      let savedAtLeastOne = false;
       const dispatch = async (racks: RackPlacementInput[], targetBuildingId?: bigint) => {
         if (racks.length === 0) return;
         for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
@@ -431,6 +436,7 @@ const ManageBuildingModal = ({
               onError: (msg) => reject(new Error(msg)),
             });
           });
+          savedAtLeastOne = true;
         }
       };
 
@@ -488,9 +494,14 @@ const ManageBuildingModal = ({
         // unique index — even across >1000-rack chunked saves.
         await dispatch(inBuildingPlace, building.id);
       } catch (err) {
-        setErrorMsg(
-          err instanceof Error ? `Failed to save rack positions: ${err.message}.` : "Failed to save rack positions.",
-        );
+        const detail = err instanceof Error ? err.message : "Failed to save rack positions";
+        if (savedAtLeastOne) {
+          setErrorMsg(
+            `${detail}. Some changes were saved before the error — refresh the building view to see the current state, then retry to apply the remaining changes.`,
+          );
+        } else {
+          setErrorMsg(`Failed to save rack positions: ${detail}.`);
+        }
         return;
       }
 
