@@ -587,6 +587,11 @@ const RacksPage = () => {
   const prevSiteKey = useRef<string | null>(null);
   useEffect(() => {
     if (prevSiteKey.current !== null && prevSiteKey.current !== effectiveSiteKey) {
+      // Drop the prior scope's selection so the bulk-action bar can't stay
+      // active on racks that belong to a site the picker no longer shows.
+      // (Out-of-order list responses are already dropped by
+      // useDeviceSetListState's request-id guard, so rows can't go stale.)
+      setSelectedRackIds([]);
       resetAndFetch();
     }
     prevSiteKey.current = effectiveSiteKey;

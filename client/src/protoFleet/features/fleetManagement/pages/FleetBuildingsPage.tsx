@@ -63,26 +63,37 @@ const FleetBuildingsPage = () => {
     return siteFilterFromActive(activeSite);
   }, [urlSiteIds, activeSite]);
 
+  // Latest scope, read at response time. usePoll has no per-request
+  // cancellation, so a slow ListBuildings for a previous scope can resolve
+  // after a newer one; comparing the captured scope against this ref lets
+  // the stale (out-of-order) response be ignored instead of clobbering the
+  // current scope's rows.
+  const requestSiteFilterRef = useRef(requestSiteFilter);
+  useEffect(() => {
+    requestSiteFilterRef.current = requestSiteFilter;
+  }, [requestSiteFilter]);
+
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
-  const fetchBuildings = useCallback(
-    () =>
-      listBuildings({
-        siteIds: requestSiteFilter.siteIds,
-        includeUnassigned: requestSiteFilter.includeUnassigned,
-        onSuccess: (rows) => {
-          setBuildings(rows);
-          setBuildingsError(null);
-        },
-        onError: (msg) => {
-          setBuildingsError(msg);
-          // Preserve last-good list across transient errors; only fall to []
-          // on the initial-load failure path.
-          setBuildings((prev) => prev ?? []);
-        },
-      }),
-    [listBuildings, requestSiteFilter],
-  );
+  const fetchBuildings = useCallback(() => {
+    const requestedFilter = requestSiteFilter; // captured for the staleness check
+    return listBuildings({
+      siteIds: requestSiteFilter.siteIds,
+      includeUnassigned: requestSiteFilter.includeUnassigned,
+      onSuccess: (rows) => {
+        if (requestSiteFilterRef.current !== requestedFilter) return; // scope changed mid-flight
+        setBuildings(rows);
+        setBuildingsError(null);
+      },
+      onError: (msg) => {
+        if (requestSiteFilterRef.current !== requestedFilter) return; // scope changed mid-flight
+        setBuildingsError(msg);
+        // Preserve last-good list across transient errors; only fall to []
+        // on the initial-load failure path.
+        setBuildings((prev) => prev ?? []);
+      },
+    });
+  }, [listBuildings, requestSiteFilter]);
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
   const canReadBuildings = useHasPermission("site:read");
