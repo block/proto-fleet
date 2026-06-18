@@ -70,6 +70,25 @@ func TestBuildPlan_DualSignalFilter_BelowThreshold(t *testing.T) {
 	assert.Equal(t, SkipBelowThreshold, plan.Skipped[0].Reason)
 }
 
+func TestBuildPlan_FullFleetBypassesDualSignalFilter(t *testing.T) {
+	t.Parallel()
+
+	inputs := []CandidateInput{
+		{DeviceIdentifier: "low-power-hashing", PowerW: 100, HashRateHS: 100e12, AvgEfficiencyJH: eff(40)},
+		{DeviceIdentifier: "below-threshold-no-hash", PowerW: 100, HashRateHS: 0, AvgEfficiencyJH: eff(30)},
+		{DeviceIdentifier: "above-threshold-no-hash", PowerW: 2000, HashRateHS: 0, AvgEfficiencyJH: eff(20)},
+	}
+
+	plan := BuildPlan(inputs, nil, 1500, modes.FullFleet{})
+
+	assert.Empty(t, plan.Skipped)
+	require.Len(t, plan.Selected, 3)
+	assert.Equal(t, "low-power-hashing", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, "below-threshold-no-hash", plan.Selected[1].DeviceIdentifier)
+	assert.Equal(t, "above-threshold-no-hash", plan.Selected[2].DeviceIdentifier)
+	assert.InDelta(t, 2.2, plan.EstimatedReductionKW, 0.001)
+}
+
 func TestBuildPlan_PreFilteredSkippedAreForwarded(t *testing.T) {
 	t.Parallel()
 
