@@ -108,6 +108,21 @@ func (mr *MockDeviceStoreMockRecorder) GetAvailableModels(ctx, orgID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailableModels", reflect.TypeOf((*MockDeviceStore)(nil).GetAvailableModels), ctx, orgID)
 }
 
+// GetComponentErrorCounts mocks base method.
+func (m *MockDeviceStore) GetComponentErrorCounts(ctx context.Context, orgID int64, scope interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetComponentErrorCounts", ctx, orgID, scope)
+	ret0, _ := ret[0].([]interfaces.ComponentErrorCount)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetComponentErrorCounts indicates an expected call of GetComponentErrorCounts.
+func (mr *MockDeviceStoreMockRecorder) GetComponentErrorCounts(ctx, orgID, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetComponentErrorCounts", reflect.TypeOf((*MockDeviceStore)(nil).GetComponentErrorCounts), ctx, orgID, scope)
+}
+
 // GetDeviceByDeviceIdentifier mocks base method.
 func (m *MockDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pairingv1.Device, error) {
 	m.ctrl.T.Helper()

@@ -7,6 +7,7 @@ package buildings
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -15,7 +16,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // Event type constants for buildings activity logs.
@@ -25,6 +28,11 @@ const (
 	eventBuildingDeleted      = "building.deleted"
 	eventRackAssignedBuilding = "building.rack_assigned"
 )
+
+// ListStatsAuthorizer reports whether list-row telemetry stats may be
+// populated for a building at the supplied site. Nil site_id means the
+// building is unassigned and must be authorized at org scope.
+type ListStatsAuthorizer func(siteID *int64) bool
 
 // Service is the domain entry point for building CRUD.
 type Service struct {
@@ -127,13 +135,33 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 }
 
 // ListBuildings returns the filtered building list with rack counts.
-func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error) {
+func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
 	// The proto oneof enforces mutual exclusion structurally; this is
 	// a defense-in-depth guard for any non-proto caller.
 	if filter.SiteID != nil && *filter.SiteID > 0 && filter.UnassignedOnly {
 		return nil, fleeterror.NewInvalidArgumentError("site_id and unassigned_only are mutually exclusive")
 	}
-	return s.store.ListBuildings(ctx, filter)
+	rows, err := s.store.ListBuildings(ctx, filter)
+	if err != nil || !filter.IncludeStats || includeStatsForSite == nil {
+		return rows, err
+	}
+	hasStatsRow := false
+	for _, row := range rows {
+		if includeStatsForSite(row.Building.SiteID) {
+			hasStatsRow = true
+			break
+		}
+	}
+	if !hasStatsRow {
+		return rows, nil
+	}
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings stats requires deviceQueryer and telemetry")
+	}
+	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // UpdateBuilding mutates the building's mutable fields. Site
@@ -852,6 +880,19 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.OfflineCount = counts.OfflineCount
 		stats.SleepingCount = counts.SleepingCount
 
+		componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+			Kind: interfaces.ComponentErrorScopeBuildings,
+			IDs:  []int64{buildingID},
+		})
+		if err != nil {
+			return nil, err
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+
 		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
 		metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 		if err != nil {
@@ -862,9 +903,12 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.HashrateReportingCount = rollup.HashrateReportingCount
 		stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
 		stats.PowerReportingCount = rollup.PowerReportingCount
+		stats.TemperatureReportingCount = rollup.TemperatureReportingCount
 		stats.TotalHashrateThs = rollup.TotalHashrateThs
 		stats.TotalPowerKw = rollup.TotalPowerKw
 		stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+		stats.MinTemperatureC = rollup.MinTemperatureC
+		stats.MaxTemperatureC = rollup.MaxTemperatureC
 	}
 
 	// Belt-and-braces: re-read the building after all the rollup queries.
@@ -886,4 +930,113 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	}
 
 	return stats, nil
+}
+
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	buildingIDs := make([]int64, 0, len(rows))
+	deviceIDsByBuilding := make(map[int64][]string, len(rows))
+	uniqueDeviceIDs := make(map[string]struct{})
+	for i := range rows {
+		buildingID := rows[i].Building.ID
+		if !includeStatsForSite(rows[i].Building.SiteID) {
+			continue
+		}
+		buildingIDs = append(buildingIDs, buildingID)
+		rows[i].ListStats = &models.FleetListStats{
+			RackCount: int32(rows[i].RackCount), //nolint:gosec // bounded by org capacity
+		}
+
+		filter := &interfaces.MinerFilter{
+			BuildingIDs: []int64{buildingID},
+			PairingStatuses: []fm.PairingStatus{
+				fm.PairingStatus_PAIRING_STATUS_PAIRED,
+				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			},
+			Limit: MaxDevicesPerStatsResponse + 1,
+		}
+		if rows[i].Building.SiteID != nil {
+			filter.SiteIDs = []int64{*rows[i].Building.SiteID}
+		} else {
+			filter.IncludeUnassigned = true
+		}
+
+		deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, filter)
+		if err != nil {
+			return err
+		}
+		if len(deviceIDs) > MaxDevicesPerStatsResponse {
+			return fleeterror.NewInternalErrorf("building %d exceeded the %d device cap", buildingID, MaxDevicesPerStatsResponse)
+		}
+		deviceIDsByBuilding[buildingID] = deviceIDs
+		for _, id := range deviceIDs {
+			uniqueDeviceIDs[id] = struct{}{}
+		}
+	}
+	if len(buildingIDs) == 0 {
+		return nil
+	}
+
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeBuildings,
+		IDs:  buildingIDs,
+	})
+	if err != nil {
+		return err
+	}
+
+	var metrics map[minerModels.DeviceIdentifier]telemetrymodels.DeviceMetrics
+	if len(uniqueDeviceIDs) > 0 {
+		uniqueTelemetryIDs := make([]string, 0, len(uniqueDeviceIDs))
+		for id := range uniqueDeviceIDs {
+			uniqueTelemetryIDs = append(uniqueTelemetryIDs, id)
+		}
+		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
+		if err != nil {
+			slog.WarnContext(ctx, "failed to fetch building list telemetry", "error", err)
+			metrics = nil
+		}
+	}
+
+	for i := range rows {
+		stats := rows[i].ListStats
+		if stats == nil {
+			continue
+		}
+		buildingID := rows[i].Building.ID
+		deviceIDs := deviceIDsByBuilding[buildingID]
+		stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
+		if len(deviceIDs) > 0 {
+			counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+			if err != nil {
+				return err
+			}
+			stats.HashingCount = counts.HashingCount
+			stats.BrokenCount = counts.BrokenCount
+			stats.OfflineCount = counts.OfflineCount
+			stats.SleepingCount = counts.SleepingCount
+
+			telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+			rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+			stats.ReportingCount = rollup.ReportingCount
+			stats.HashrateReportingCount = rollup.HashrateReportingCount
+			stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+			stats.PowerReportingCount = rollup.PowerReportingCount
+			stats.TemperatureReportingCount = rollup.TemperatureReportingCount
+			stats.TotalHashrateThs = rollup.TotalHashrateThs
+			stats.TotalPowerKw = rollup.TotalPowerKw
+			stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+			stats.MinTemperatureC = rollup.MinTemperatureC
+			stats.MaxTemperatureC = rollup.MaxTemperatureC
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+	}
+	return nil
 }

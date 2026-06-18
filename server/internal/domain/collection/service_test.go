@@ -60,7 +60,7 @@ func (m *mockDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, 
 	return m.stateCountsByCollection, nil
 }
 
-func (m *mockDeviceQueryer) GetComponentErrorCountsByCollections(_ context.Context, _ int64, _ []int64) ([]interfaces.ComponentErrorCount, error) {
+func (m *mockDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

@@ -4,6 +4,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 )
 
@@ -93,11 +94,42 @@ func toListBuildingsResponse(rows []models.BuildingWithCounts) *pb.ListBuildings
 	for i := range rows {
 		row := rows[i]
 		out = append(out, &pb.BuildingWithCounts{
-			Building:  toProtoBuilding(&row.Building),
-			RackCount: row.RackCount,
+			Building:    toProtoBuilding(&row.Building),
+			RackCount:   row.RackCount,
+			DeviceCount: row.DeviceCount,
+			ListStats:   toProtoFleetListStats(row.ListStats),
 		})
 	}
 	return &pb.ListBuildingsResponse{Buildings: out}
+}
+
+func toProtoFleetListStats(stats *models.FleetListStats) *commonpb.FleetListStats {
+	if stats == nil {
+		return nil
+	}
+	return &commonpb.FleetListStats{
+		BuildingCount:             stats.BuildingCount,
+		RackCount:                 stats.RackCount,
+		DeviceCount:               stats.DeviceCount,
+		ReportingCount:            stats.ReportingCount,
+		HashrateReportingCount:    stats.HashrateReportingCount,
+		EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+		PowerReportingCount:       stats.PowerReportingCount,
+		TemperatureReportingCount: stats.TemperatureReportingCount,
+		TotalHashrateThs:          stats.TotalHashrateThs,
+		AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+		TotalPowerKw:              stats.TotalPowerKw,
+		MinTemperatureC:           stats.MinTemperatureC,
+		MaxTemperatureC:           stats.MaxTemperatureC,
+		HashingCount:              stats.HashingCount,
+		BrokenCount:               stats.BrokenCount,
+		OfflineCount:              stats.OfflineCount,
+		SleepingCount:             stats.SleepingCount,
+		ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+		FanIssueCount:             stats.FanIssueCount,
+		HashBoardIssueCount:       stats.HashBoardIssueCount,
+		PsuIssueCount:             stats.PsuIssueCount,
+	}
 }
 
 func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken string) *pb.ListBuildingRacksResponse {

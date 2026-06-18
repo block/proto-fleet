@@ -39,6 +39,7 @@ type DeviceQueryer interface {
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) ([]string, error)
 	GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (interfaces.MinerStateCounts, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]interfaces.MinerStateCounts, error)
+	GetComponentErrorCounts(ctx context.Context, orgID int64, scope interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error)
 }
 
 // ToDeviceIdentifiers converts the device-id string slice that comes
@@ -62,22 +63,54 @@ func ToDeviceIdentifiers(deviceIDs []string) []minerModels.DeviceIdentifier {
 // zero. ReportingCount is the union (any field present); the per-field
 // counts are subsets.
 type MetricsRollup struct {
-	ReportingCount           int32
-	HashrateReportingCount   int32
-	EfficiencyReportingCount int32
-	PowerReportingCount      int32
-	TotalHashrateThs         float64
-	TotalPowerKw             float64
-	AvgEfficiencyJth         float64
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	EfficiencyReportingCount  int32
+	PowerReportingCount       int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	TotalPowerKw              float64
+	AvgEfficiencyJth          float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+}
+
+type ComponentIssueCounts struct {
+	ControlBoardIssueCount int32
+	FanIssueCount          int32
+	HashBoardIssueCount    int32
+	PsuIssueCount          int32
+}
+
+func AggregateComponentIssueCounts(counts []interfaces.ComponentErrorCount, scopeID int64) ComponentIssueCounts {
+	var out ComponentIssueCounts
+	for _, c := range counts {
+		if c.ScopeID != scopeID {
+			continue
+		}
+		switch c.ComponentType {
+		case 1:
+			out.PsuIssueCount = c.DeviceCount
+		case 2:
+			out.HashBoardIssueCount = c.DeviceCount
+		case 3:
+			out.FanIssueCount = c.DeviceCount
+		case 4:
+			out.ControlBoardIssueCount = c.DeviceCount
+		}
+	}
+	return out
 }
 
 // AggregateLatestMetrics sums hashrate + power and averages efficiency
 // across the supplied device set. Devices missing from `metrics` are
 // skipped silently — they simply don't contribute. Per-field values are
-// validated to be finite (not NaN / ±Inf) and non-negative before they
-// count; an invalid value behaves the same as "field absent" — it
-// doesn't increment that field's reporting count and doesn't poison the
-// aggregate. A device with all three fields invalid still increments
+// validated before they count; hashrate, power, and efficiency must be
+// finite and non-negative, while temperature only needs to be finite
+// because negative Celsius readings are valid. An invalid value behaves
+// the same as "field absent" — it doesn't increment that field's
+// reporting count and doesn't poison the aggregate. A device with all
+// fields invalid still increments
 // ReportingCount (the latest-metrics record itself is present) but
 // contributes nothing to any rollup. Empty input returns the zero
 // value with ReportingCount = 0.
@@ -95,14 +128,20 @@ func AggregateLatestMetrics(
 		hashrateN      int32
 		powerN         int32
 		efficiencyN    int32
+		temperatureN   int32
 		hashrateSum    float64
 		powerSum       float64
 		efficiencySum  float64
+		minTemperature = math.MaxFloat64
+		maxTemperature = -math.MaxFloat64
 	)
 	finiteNonNegative := func(v float64) bool {
 		// math.IsInf(v, 0) catches both +Inf and -Inf; the v >= 0 clause
 		// also rejects -0 silently (rounds to 0 in the sum, harmless).
 		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0
+	}
+	finite := func(v float64) bool {
+		return !math.IsNaN(v) && !math.IsInf(v, 0)
 	}
 	for _, devID := range deviceIDs {
 		m, ok := metrics[devID]
@@ -122,13 +161,19 @@ func AggregateLatestMetrics(
 			efficiencySum += m.EfficiencyJH.Value
 			efficiencyN++
 		}
+		if m.TempC != nil && finite(m.TempC.Value) {
+			minTemperature = math.Min(minTemperature, m.TempC.Value)
+			maxTemperature = math.Max(maxTemperature, m.TempC.Value)
+			temperatureN++
+		}
 	}
 
 	out := MetricsRollup{
-		ReportingCount:           reportingCount,
-		HashrateReportingCount:   hashrateN,
-		EfficiencyReportingCount: efficiencyN,
-		PowerReportingCount:      powerN,
+		ReportingCount:            reportingCount,
+		HashrateReportingCount:    hashrateN,
+		EfficiencyReportingCount:  efficiencyN,
+		PowerReportingCount:       powerN,
+		TemperatureReportingCount: temperatureN,
 	}
 	if reportingCount == 0 {
 		return out
@@ -142,6 +187,10 @@ func AggregateLatestMetrics(
 			avg = 0
 		}
 		out.AvgEfficiencyJth = avg
+	}
+	if temperatureN > 0 {
+		out.MinTemperatureC = minTemperature
+		out.MaxTemperatureC = maxTemperature
 	}
 	return out
 }

@@ -74,6 +74,21 @@ WHERE s.org_id = sqlc.arg('org_id')
   AND s.deleted_at IS NULL
 ORDER BY s.name;
 
+-- name: CountRacksBySite :one
+SELECT COUNT(*)::bigint
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.site_id = sqlc.arg('site_id')
+  AND ds.deleted_at IS NULL;
+
+-- name: CountBuildingsBySite :one
+SELECT COUNT(*)::bigint
+FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
 -- name: UpdateSite :exec
 UPDATE site
 SET name              = sqlc.arg('name'),

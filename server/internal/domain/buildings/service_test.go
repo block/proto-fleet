@@ -179,7 +179,7 @@ func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
 		OrgID:          testOrgID,
 		SiteID:         ptrInt64(5),
 		UnassignedOnly: true,
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("expected InvalidArgument error, got nil")
 	}

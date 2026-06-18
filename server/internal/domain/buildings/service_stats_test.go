@@ -19,11 +19,13 @@ import (
 
 // fakeDeviceQueryer is a hand-rolled devicerollup.DeviceQueryer.
 type fakeDeviceQueryer struct {
-	deviceIDs    []string
-	deviceIDsErr error
-	lastFilter   *interfaces.MinerFilter
-	stateCounts  interfaces.MinerStateCounts
-	collections  map[int64]interfaces.MinerStateCounts
+	deviceIDs       []string
+	deviceIDsErr    error
+	lastFilter      *interfaces.MinerFilter
+	stateCounts     interfaces.MinerStateCounts
+	collections     map[int64]interfaces.MinerStateCounts
+	componentCounts []interfaces.ComponentErrorCount
+	componentErr    error
 }
 
 func (f *fakeDeviceQueryer) GetDeviceIdentifiersByOrgWithFilter(_ context.Context, _ int64, filter *interfaces.MinerFilter) ([]string, error) {
@@ -37,6 +39,10 @@ func (f *fakeDeviceQueryer) GetMinerStateCountsByDeviceIDs(_ context.Context, _ 
 
 func (f *fakeDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, _ int64, _ []int64) (map[int64]interfaces.MinerStateCounts, error) {
 	return f.collections, nil
+}
+
+func (f *fakeDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
+	return f.componentCounts, f.componentErr
 }
 
 type fakeTelemetryCollector struct {
@@ -272,5 +278,47 @@ func TestGetBuildingStats_rollsUpDeviceMetrics(t *testing.T) {
 	}
 	if len(stats.RackHealth) != 1 || stats.RackHealth[0].HashingCount != 2 {
 		t.Errorf("rack health not populated correctly: %+v", stats.RackHealth)
+	}
+}
+
+func TestListBuildings_degradesWhenListTelemetryFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().ListBuildings(gomock.Any(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}).Return([]models.BuildingWithCounts{
+		{
+			Building:    models.Building{ID: 1, OrgID: testOrgID, Name: "Building 1"},
+			RackCount:   2,
+			DeviceCount: 1,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{
+		deviceIDs: []string{"d1"},
+		stateCounts: interfaces.MinerStateCounts{
+			HashingCount: 1,
+		},
+		componentCounts: []interfaces.ComponentErrorCount{
+			{ScopeID: 1, ComponentType: 4, DeviceCount: 1},
+		},
+	}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
+
+	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, func(*int64) bool { return true })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ListStats == nil {
+		t.Fatalf("expected one row with list stats, got %+v", rows)
+	}
+	stats := rows[0].ListStats
+	if stats.RackCount != 2 || stats.DeviceCount != 1 {
+		t.Fatalf("structural counts not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.HashingCount != 1 || stats.ControlBoardIssueCount != 1 {
+		t.Fatalf("non-telemetry stats not preserved after telemetry failure: %+v", stats)
+	}
+	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
+		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
 	}
 }

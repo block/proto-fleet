@@ -174,6 +174,28 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	assert.Equal(t, "alpha", row.GetSite().GetName())
 }
 
+func TestHandler_ListSites_omitsStatsForNarrowedSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, Name: "narrowed"},
+			DeviceCount:   1,
+			BuildingCount: 1,
+			RackCount:     1,
+		},
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermFleetRead),
+		handlerstest.SiteAssignment(1, authz.PermSiteRead),
+	)
+	resp, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSites(), 1)
+	assert.Nil(t, resp.Msg.GetSites()[0].GetListStats())
+}
+
 func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)

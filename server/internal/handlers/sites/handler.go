@@ -33,7 +33,11 @@ func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSites
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.ListSites(ctx, info.OrganizationID)
+	includeStatsForSite := func(siteID int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
+		return err == nil
+	}
+	out, err := h.service.ListSites(ctx, info.OrganizationID, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}
@@ -161,19 +165,27 @@ func (h *Handler) GetSiteStats(ctx context.Context, req *connect.Request[pb.GetS
 		return nil, err
 	}
 	return connect.NewResponse(&pb.GetSiteStatsResponse{
-		SiteId:                   out.SiteID,
-		BuildingCount:            out.BuildingCount,
-		DeviceCount:              out.DeviceCount,
-		ReportingCount:           out.ReportingCount,
-		HashrateReportingCount:   out.HashrateReportingCount,
-		EfficiencyReportingCount: out.EfficiencyReportingCount,
-		PowerReportingCount:      out.PowerReportingCount,
-		TotalHashrateThs:         out.TotalHashrateThs,
-		AvgEfficiencyJth:         out.AvgEfficiencyJth,
-		TotalPowerKw:             out.TotalPowerKw,
-		HashingCount:             out.HashingCount,
-		BrokenCount:              out.BrokenCount,
-		OfflineCount:             out.OfflineCount,
-		SleepingCount:            out.SleepingCount,
+		SiteId:                    out.SiteID,
+		BuildingCount:             out.BuildingCount,
+		DeviceCount:               out.DeviceCount,
+		ReportingCount:            out.ReportingCount,
+		HashrateReportingCount:    out.HashrateReportingCount,
+		EfficiencyReportingCount:  out.EfficiencyReportingCount,
+		PowerReportingCount:       out.PowerReportingCount,
+		TemperatureReportingCount: out.TemperatureReportingCount,
+		TotalHashrateThs:          out.TotalHashrateThs,
+		AvgEfficiencyJth:          out.AvgEfficiencyJth,
+		TotalPowerKw:              out.TotalPowerKw,
+		MinTemperatureC:           out.MinTemperatureC,
+		MaxTemperatureC:           out.MaxTemperatureC,
+		HashingCount:              out.HashingCount,
+		BrokenCount:               out.BrokenCount,
+		OfflineCount:              out.OfflineCount,
+		SleepingCount:             out.SleepingCount,
+		ControlBoardIssueCount:    out.ControlBoardIssueCount,
+		FanIssueCount:             out.FanIssueCount,
+		HashBoardIssueCount:       out.HashBoardIssueCount,
+		PsuIssueCount:             out.PsuIssueCount,
+		RackCount:                 out.RackCount,
 	}), nil
 }

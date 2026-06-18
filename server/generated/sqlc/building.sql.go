@@ -333,7 +333,8 @@ func (q *Queries) ListBuildingRacks(ctx context.Context, arg ListBuildingRacksPa
 const listBuildingsByOrg = `-- name: ListBuildingsByOrg :many
 SELECT
     b.id, b.org_id, b.site_id, b.name, b.description, b.power_kw, b.overhead_kw, b.aisles, b.physical_rack_count, b.racks_per_aisle, b.default_rack_rows, b.default_rack_columns, b.default_rack_order_index, b.created_at, b.updated_at, b.deleted_at,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(d.device_count, 0)::bigint AS device_count
 FROM building b
 LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
@@ -344,6 +345,18 @@ LEFT JOIN (
       AND dsr.org_id = $1
     GROUP BY dsr.building_id
 ) r ON r.building_id = b.id
+LEFT JOIN (
+    SELECT dsr.building_id, COUNT(DISTINCT dcm.device_id) AS device_count
+    FROM device_set_rack dsr
+    JOIN device_set ds ON dsr.device_set_id = ds.id
+    JOIN device_set_membership dcm ON dcm.device_set_id = ds.id
+    JOIN device d ON dcm.device_id = d.id
+    WHERE ds.deleted_at IS NULL
+      AND d.deleted_at IS NULL
+      AND dsr.building_id IS NOT NULL
+      AND dsr.org_id = $1
+    GROUP BY dsr.building_id
+) d ON d.building_id = b.id
 WHERE b.org_id = $1
   AND b.deleted_at IS NULL
   AND ($2::bigint IS NULL OR b.site_id = $2::bigint)
@@ -377,6 +390,7 @@ type ListBuildingsByOrgRow struct {
 	UpdatedAt             time.Time
 	DeletedAt             sql.NullTime
 	RackCount             int64
+	DeviceCount           int64
 }
 
 // Lists every live building in the org with its rack count. The site
@@ -411,6 +425,7 @@ func (q *Queries) ListBuildingsByOrg(ctx context.Context, arg ListBuildingsByOrg
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.RackCount,
+			&i.DeviceCount,
 		); err != nil {
 			return nil, err
 		}

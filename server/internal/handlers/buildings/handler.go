@@ -32,7 +32,13 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ListBuildings(ctx, toListFilter(req.Msg, info.OrganizationID))
+	filter := toListFilter(req.Msg, info.OrganizationID)
+	filter.IncludeStats = true
+	includeStatsForSite := func(siteID *int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: siteID})
+		return err == nil
+	}
+	rows, err := h.service.ListBuildings(ctx, filter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}
@@ -192,21 +198,28 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 		})
 	}
 	return connect.NewResponse(&pb.GetBuildingStatsResponse{
-		BuildingId:               out.BuildingID,
-		RackCount:                out.RackCount,
-		DeviceCount:              out.DeviceCount,
-		ReportingCount:           out.ReportingCount,
-		HashrateReportingCount:   out.HashrateReportingCount,
-		EfficiencyReportingCount: out.EfficiencyReportingCount,
-		PowerReportingCount:      out.PowerReportingCount,
-		TotalHashrateThs:         out.TotalHashrateThs,
-		AvgEfficiencyJth:         out.AvgEfficiencyJth,
-		TotalPowerKw:             out.TotalPowerKw,
-		HashingCount:             out.HashingCount,
-		BrokenCount:              out.BrokenCount,
-		OfflineCount:             out.OfflineCount,
-		SleepingCount:            out.SleepingCount,
-		RackHealth:               rackHealth,
-		DeviceIdentifiers:        out.DeviceIdentifiers,
+		BuildingId:                out.BuildingID,
+		RackCount:                 out.RackCount,
+		DeviceCount:               out.DeviceCount,
+		ReportingCount:            out.ReportingCount,
+		HashrateReportingCount:    out.HashrateReportingCount,
+		EfficiencyReportingCount:  out.EfficiencyReportingCount,
+		PowerReportingCount:       out.PowerReportingCount,
+		TemperatureReportingCount: out.TemperatureReportingCount,
+		TotalHashrateThs:          out.TotalHashrateThs,
+		AvgEfficiencyJth:          out.AvgEfficiencyJth,
+		TotalPowerKw:              out.TotalPowerKw,
+		MinTemperatureC:           out.MinTemperatureC,
+		MaxTemperatureC:           out.MaxTemperatureC,
+		HashingCount:              out.HashingCount,
+		BrokenCount:               out.BrokenCount,
+		OfflineCount:              out.OfflineCount,
+		SleepingCount:             out.SleepingCount,
+		ControlBoardIssueCount:    out.ControlBoardIssueCount,
+		FanIssueCount:             out.FanIssueCount,
+		HashBoardIssueCount:       out.HashBoardIssueCount,
+		PsuIssueCount:             out.PsuIssueCount,
+		RackHealth:                rackHealth,
+		DeviceIdentifiers:         out.DeviceIdentifiers,
 	}), nil
 }

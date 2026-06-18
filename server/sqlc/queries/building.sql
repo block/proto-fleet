@@ -47,7 +47,8 @@ WHERE id = sqlc.arg('id')
 -- unset for "all buildings in org".
 SELECT
     b.*,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(d.device_count, 0)::bigint AS device_count
 FROM building b
 LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
@@ -58,6 +59,18 @@ LEFT JOIN (
       AND dsr.org_id = sqlc.arg('org_id')
     GROUP BY dsr.building_id
 ) r ON r.building_id = b.id
+LEFT JOIN (
+    SELECT dsr.building_id, COUNT(DISTINCT dcm.device_id) AS device_count
+    FROM device_set_rack dsr
+    JOIN device_set ds ON dsr.device_set_id = ds.id
+    JOIN device_set_membership dcm ON dcm.device_set_id = ds.id
+    JOIN device d ON dcm.device_id = d.id
+    WHERE ds.deleted_at IS NULL
+      AND d.deleted_at IS NULL
+      AND dsr.building_id IS NOT NULL
+      AND dsr.org_id = sqlc.arg('org_id')
+    GROUP BY dsr.building_id
+) d ON d.building_id = b.id
 WHERE b.org_id = sqlc.arg('org_id')
   AND b.deleted_at IS NULL
   AND (sqlc.narg('site_id')::bigint IS NULL OR b.site_id = sqlc.narg('site_id')::bigint)

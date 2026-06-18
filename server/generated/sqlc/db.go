@@ -120,6 +120,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActivityLogsStmt, err = db.PrepareContext(ctx, countActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActivityLogs: %w", err)
 	}
+	if q.countBuildingsBySiteStmt, err = db.PrepareContext(ctx, countBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountBuildingsBySite: %w", err)
+	}
 	if q.countComponentsWithErrorsStmt, err = db.PrepareContext(ctx, countComponentsWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountComponentsWithErrors: %w", err)
 	}
@@ -140,6 +143,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countOrgScopeSuperAdminsExcludingUserStmt, err = db.PrepareContext(ctx, countOrgScopeSuperAdminsExcludingUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CountOrgScopeSuperAdminsExcludingUser: %w", err)
+	}
+	if q.countRacksBySiteStmt, err = db.PrepareContext(ctx, countRacksBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRacksBySite: %w", err)
 	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
@@ -1392,6 +1398,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countActivityLogsStmt: %w", cerr)
 		}
 	}
+	if q.countBuildingsBySiteStmt != nil {
+		if cerr := q.countBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countBuildingsBySiteStmt: %w", cerr)
+		}
+	}
 	if q.countComponentsWithErrorsStmt != nil {
 		if cerr := q.countComponentsWithErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countComponentsWithErrorsStmt: %w", cerr)
@@ -1425,6 +1436,11 @@ func (q *Queries) Close() error {
 	if q.countOrgScopeSuperAdminsExcludingUserStmt != nil {
 		if cerr := q.countOrgScopeSuperAdminsExcludingUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countOrgScopeSuperAdminsExcludingUserStmt: %w", cerr)
+		}
+	}
+	if q.countRacksBySiteStmt != nil {
+		if cerr := q.countRacksBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRacksBySiteStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -3308,6 +3324,7 @@ type Queries struct {
 	countActiveAssignmentsForRoleStmt                     *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	countActivityLogsStmt                                 *sql.Stmt
+	countBuildingsBySiteStmt                              *sql.Stmt
 	countComponentsWithErrorsStmt                         *sql.Stmt
 	countCurtailmentAutomationRulesByMQTTSourceStmt       *sql.Stmt
 	countCurtailmentAutomationRulesByResponseProfileStmt  *sql.Stmt
@@ -3315,6 +3332,7 @@ type Queries struct {
 	countErrorsStmt                                       *sql.Stmt
 	countMinersByStateStmt                                *sql.Stmt
 	countOrgScopeSuperAdminsExcludingUserStmt             *sql.Stmt
+	countRacksBySiteStmt                                  *sql.Stmt
 	createApiKeyStmt                                      *sql.Stmt
 	createBuildingStmt                                    *sql.Stmt
 	createCommandBatchLogStmt                             *sql.Stmt
@@ -3715,6 +3733,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countActiveAssignmentsForRoleStmt:                     q.countActiveAssignmentsForRoleStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:              q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                 q.countActivityLogsStmt,
+		countBuildingsBySiteStmt:                              q.countBuildingsBySiteStmt,
 		countComponentsWithErrorsStmt:                         q.countComponentsWithErrorsStmt,
 		countCurtailmentAutomationRulesByMQTTSourceStmt:       q.countCurtailmentAutomationRulesByMQTTSourceStmt,
 		countCurtailmentAutomationRulesByResponseProfileStmt:  q.countCurtailmentAutomationRulesByResponseProfileStmt,
@@ -3722,6 +3741,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countErrorsStmt:                                       q.countErrorsStmt,
 		countMinersByStateStmt:                                q.countMinersByStateStmt,
 		countOrgScopeSuperAdminsExcludingUserStmt:             q.countOrgScopeSuperAdminsExcludingUserStmt,
+		countRacksBySiteStmt:                                  q.countRacksBySiteStmt,
 		createApiKeyStmt:                                      q.createApiKeyStmt,
 		createBuildingStmt:                                    q.createBuildingStmt,
 		createCommandBatchLogStmt:                             q.createCommandBatchLogStmt,

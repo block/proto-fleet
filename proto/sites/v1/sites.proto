@@ -3,6 +3,7 @@ syntax = "proto3";
 package sites.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/fleet_list_stats.proto";
 import "google/protobuf/timestamp.proto";
 
 // SiteService is the admin surface for sites: physical locations that
@@ -107,6 +108,9 @@ message SiteWithCounts {
     int64 device_count = 2;
     int64 building_count = 3;
     int64 rack_count = 4;
+    // Lightweight list/table rollup. Omitted when the caller is not
+    // authorized for telemetry stats.
+    common.v1.FleetListStats list_stats = 5;
 }
 
 // ListSites
@@ -317,4 +321,12 @@ message GetSiteStatsResponse {
     int32  hashrate_reporting_count    = 12;
     int32  efficiency_reporting_count  = 13;
     int32  power_reporting_count       = 14;
+    double min_temperature_c           = 15;
+    double max_temperature_c           = 16;
+    int32  temperature_reporting_count = 17;
+    int32  control_board_issue_count   = 18;
+    int32  fan_issue_count             = 19;
+    int32  hash_board_issue_count      = 20;
+    int32  psu_issue_count             = 21;
+    int32  rack_count                  = 22;
 }
