@@ -997,15 +997,17 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 type FullFleetCandidatePlanOptions struct {
 	IncludeMaintenance bool
 	ActiveEventDevices map[string]struct{}
+	CooldownDevices    map[string]struct{}
 }
 
 // BuildFullFleetCandidatePlan applies the same FULL_FLEET eligibility rules as
-// Start/Preview without consulting org cooldown or the candidate power floor.
+// Start/Preview without consulting the candidate power floor.
 // The reconciler uses it for dynamic active-event targeting.
 func BuildFullFleetCandidatePlan(candidates []*models.Candidate, opts FullFleetCandidatePlanOptions) Plan {
 	eligible, preFiltered, _ := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: opts.IncludeMaintenance,
 		ActiveEventDevices: opts.ActiveEventDevices,
+		CooldownDevices:    opts.CooldownDevices,
 		CandidateMinPowerW: 0,
 	})
 	return BuildPlan(eligible, preFiltered, 0, modes.FullFleet{})

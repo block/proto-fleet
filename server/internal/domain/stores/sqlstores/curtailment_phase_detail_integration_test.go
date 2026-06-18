@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -15,6 +16,94 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+func TestSQLCurtailmentStore_InsertTargetsForFullFleetCurtailmentPhaseGuardsAndRefreshesSnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "dynamic-full-fleet")
+	event.Mode = models.ModeFullFleet
+	event.ScopeType = models.ScopeTypeWholeOrg
+	event.ScopeJSON = []byte(`{}`)
+	event.ModeParamsJSON = []byte(`{}`)
+	event.DecisionSnapshotJSON = []byte(`{"selected_count":1,"estimated_reduction_kw":3}`)
+
+	initialBaseline := 3000.0
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		event,
+		[]models.InsertTargetParams{
+			{
+				DeviceIdentifier: "miner-existing",
+				TargetType:       "miner",
+				State:            models.TargetStateConfirmed,
+				DesiredState:     models.DesiredStateCurtailed,
+				BaselinePowerW:   &initialBaseline,
+			},
+		},
+	)
+	require.NoError(t, err)
+
+	newBaseline := 2000.0
+	rows, err := store.InsertTargetsForFullFleetCurtailmentPhase(
+		ctx,
+		user.OrganizationID,
+		inserted.ID,
+		[]models.InsertTargetParams{
+			{
+				DeviceIdentifier: "miner-existing",
+				TargetType:       "miner",
+				State:            models.TargetStatePending,
+				DesiredState:     models.DesiredStateCurtailed,
+				BaselinePowerW:   &initialBaseline,
+			},
+			{
+				DeviceIdentifier: "miner-new",
+				TargetType:       "miner",
+				State:            models.TargetStatePending,
+				DesiredState:     models.DesiredStateCurtailed,
+				BaselinePowerW:   &newBaseline,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "miner-new", rows[0].DeviceIdentifier)
+
+	updated, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	var snapshot map[string]any
+	require.NoError(t, json.Unmarshal(updated.DecisionSnapshotJSON, &snapshot))
+	assert.Equal(t, float64(2), snapshot["selected_count"])
+	assert.Equal(t, float64(5), snapshot["estimated_reduction_kw"])
+
+	fixedEventUUID := uuid.New()
+	fixedInserted, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, fixedEventUUID, models.EventStateActive, "fixed-kw"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget("miner-fixed-existing", models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+	guardedRows, err := store.InsertTargetsForFullFleetCurtailmentPhase(
+		ctx,
+		user.OrganizationID,
+		fixedInserted.ID,
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget("miner-fixed-new", models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, guardedRows)
+}
 
 func TestSQLCurtailmentStore_TargetPhaseSummariesThroughCurtailRestoreLifecycle(t *testing.T) {
 	if testing.Short() {

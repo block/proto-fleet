@@ -748,7 +748,7 @@ func (s *SQLCurtailmentStore) InsertTargetsForFullFleetCurtailmentPhase(
 	}
 	out := make([]*models.Target, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, convertTargetRow(row))
+		out = append(out, convertFullFleetPhaseTargetRow(row))
 	}
 	return out, nil
 }
@@ -1740,6 +1740,10 @@ func restorePhaseFromTargetRow(row sqlc.CurtailmentTarget) *models.TargetPhaseSu
 		FailureCount: row.RestoreFailureCount,
 		LastError:    nullStringToPtr(row.RestoreLastError),
 	}
+}
+
+func convertFullFleetPhaseTargetRow(row sqlc.InsertCurtailmentTargetsForFullFleetCurtailmentPhaseRow) *models.Target {
+	return convertTargetRow(sqlc.CurtailmentTarget(row))
 }
 
 // --- curtailment-specific conversion helpers ---

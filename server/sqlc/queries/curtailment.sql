@@ -462,42 +462,76 @@ FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
 -- Duplicates or devices concurrently claimed by another non-terminal event are
 -- skipped.
 WITH locked_event AS MATERIALIZED (
-    SELECT id
-    FROM curtailment_event
-    WHERE id = sqlc.arg('curtailment_event_id')
-        AND org_id = sqlc.arg('org_id')
-        AND state IN ('pending', 'active')
-        AND mode = 'FULL_FLEET'
+    SELECT ce.id
+    FROM curtailment_event ce
+    WHERE ce.id = sqlc.arg('curtailment_event_id')
+        AND ce.org_id = sqlc.arg('org_id')
+        AND ce.state IN ('pending', 'active')
+        AND ce.mode = 'FULL_FLEET'
     FOR UPDATE
+),
+inserted AS (
+    INSERT INTO curtailment_target (
+        curtailment_event_id,
+        device_identifier,
+        target_type,
+        state,
+        desired_state,
+        baseline_power_w,
+        selector_rationale_jsonb
+    )
+    SELECT
+        locked_event.id,
+        t.device_identifier,
+        t.target_type,
+        t.state,
+        t.desired_state,
+        t.baseline_power_w,
+        t.selector_rationale_jsonb
+    FROM locked_event
+    CROSS JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+        device_identifier         TEXT,
+        target_type               TEXT,
+        state                     TEXT,
+        desired_state             TEXT,
+        baseline_power_w          NUMERIC(12,3),
+        selector_rationale_jsonb  JSONB
+    )
+    ON CONFLICT DO NOTHING
+    RETURNING *
+),
+existing_snapshot AS (
+    SELECT
+        COUNT(*)::INT AS selected_count,
+        COALESCE(SUM(COALESCE(ct.baseline_power_w, 0)), 0)::NUMERIC AS baseline_power_w
+    FROM curtailment_target ct
+    JOIN locked_event ON locked_event.id = ct.curtailment_event_id
+),
+inserted_snapshot AS (
+    SELECT
+        COUNT(*)::INT AS selected_count,
+        COALESCE(SUM(COALESCE(inserted.baseline_power_w, 0)), 0)::NUMERIC AS baseline_power_w
+    FROM inserted
+),
+updated_event AS (
+    UPDATE curtailment_event ce
+    SET decision_snapshot_jsonb = jsonb_set(
+        jsonb_set(
+            COALESCE(ce.decision_snapshot_jsonb, '{}'::JSONB),
+            '{selected_count}',
+            to_jsonb((existing_snapshot.selected_count + inserted_snapshot.selected_count)::INT),
+            true
+        ),
+        '{estimated_reduction_kw}',
+        to_jsonb(((existing_snapshot.baseline_power_w + inserted_snapshot.baseline_power_w) / 1000.0)::DOUBLE PRECISION),
+        true
+    )
+    FROM locked_event, existing_snapshot, inserted_snapshot
+    WHERE ce.id = locked_event.id
+        AND inserted_snapshot.selected_count > 0
 )
-INSERT INTO curtailment_target (
-    curtailment_event_id,
-    device_identifier,
-    target_type,
-    state,
-    desired_state,
-    baseline_power_w,
-    selector_rationale_jsonb
-)
-SELECT
-    locked_event.id,
-    t.device_identifier,
-    t.target_type,
-    t.state,
-    t.desired_state,
-    t.baseline_power_w,
-    t.selector_rationale_jsonb
-FROM locked_event
-CROSS JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
-    device_identifier         TEXT,
-    target_type               TEXT,
-    state                     TEXT,
-    desired_state             TEXT,
-    baseline_power_w          NUMERIC(12,3),
-    selector_rationale_jsonb  JSONB
-)
-ON CONFLICT DO NOTHING
-RETURNING *;
+SELECT *
+FROM inserted;
 
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.

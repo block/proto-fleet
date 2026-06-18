@@ -365,11 +365,14 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 	}
 
 	intervalActive := curtailBatchIntervalActive(ev)
-	hadDispatching := hasTargetsInState(targets, models.TargetStateDispatching)
+	var dispatchingBefore map[string]struct{}
+	if intervalActive {
+		dispatchingBefore = targetDeviceSetByState(targets, models.TargetStateDispatching)
+	}
 	if !dispatchByState(models.TargetStateDispatching, intervalActive) {
 		return
 	}
-	if intervalActive && hadDispatching {
+	if intervalActive && dispatchingTargetsConsumeInterval(targets, dispatchingBefore) {
 		return
 	}
 	if intervalActive && !r.curtailBatchIntervalElapsed(ev, targets) {
@@ -558,7 +561,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
-	if newRetry >= r.cfg.MaxRetries && !keepsCurtailRetryingDuringActiveSignal(ev) {
+	if newRetry >= r.cfg.MaxRetries {
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
@@ -698,15 +701,13 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			}
 		case models.TargetStateDrifted:
 			if t.RetryCount >= r.cfg.MaxRetries {
-				if !keepsCurtailRetryingDuringActiveSignal(ev) {
-					// A Drifted target whose retry budget was bumped past
-					// MaxRetries by the BumpTargetRetry fallback must
-					// terminalize for open-loop events, not loop.
-					r.recordDispatchFailure(cmdCtx, ev, t,
-						"retry budget exhausted on drifted target",
-						models.TargetStateDrifted)
-					continue
-				}
+				// A Drifted target whose retry budget was bumped past
+				// MaxRetries by the BumpTargetRetry fallback must
+				// terminalize, not loop.
+				r.recordDispatchFailure(cmdCtx, ev, t,
+					"retry budget exhausted on drifted target",
+					models.TargetStateDrifted)
+				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
 		case models.TargetStateResolved, models.TargetStateReleased,
@@ -745,10 +746,27 @@ func (r *Reconciler) expandFullFleetCurtailmentPhaseTargets(ctx context.Context,
 	for deviceID := range existingTargets {
 		delete(activeDevicesSet, deviceID)
 	}
+	cooldownDevicesSet := map[string]struct{}{}
+	if ev.Priority != models.PriorityEmergency {
+		orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
+		if err != nil {
+			slog.Error("curtailment reconciler: get org config (full-fleet sweep) failed",
+				"event_id", ev.ID, "error", err)
+			return targets
+		}
+		cooldownDevices, err := r.store.ListRecentlyResolvedCurtailedDevices(ctx, ev.OrgID, orgConfig.PostEventCooldownSec)
+		if err != nil {
+			slog.Error("curtailment reconciler: list cooldown devices (full-fleet sweep) failed",
+				"event_id", ev.ID, "error", err)
+			return targets
+		}
+		cooldownDevicesSet = toSet(cooldownDevices)
+	}
 
 	plan := curtailment.BuildFullFleetCandidatePlan(candidates, curtailment.FullFleetCandidatePlanOptions{
 		IncludeMaintenance: ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		ActiveEventDevices: activeDevicesSet,
+		CooldownDevices:    cooldownDevicesSet,
 	})
 	if len(plan.Selected) == 0 {
 		return targets
@@ -914,8 +932,10 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		if params.ObservedPowerW != nil {
 			t.ObservedPowerW = params.ObservedPowerW
 		}
-		// Budget exhausted: stay Drifted (matches observeActive's drift arm).
-		if t.RetryCount >= r.cfg.MaxRetries && !keepsCurtailRetryingDuringActiveSignal(ev) {
+		if t.RetryCount >= r.cfg.MaxRetries {
+			r.recordDispatchFailure(ctx, ev, t,
+				"retry budget exhausted on drifted target",
+				models.TargetStateDrifted)
 			return
 		}
 		r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
@@ -1040,12 +1060,6 @@ func expectedDesiredStateForEventState(state models.EventState) string {
 	return ""
 }
 
-func keepsCurtailRetryingDuringActiveSignal(ev *models.Event) bool {
-	return ev != nil &&
-		ev.Mode == models.ModeFullFleet &&
-		ev.State == models.EventStateActive
-}
-
 // reconcilerContext stamps synthetic session.Info on the dispatch ctx.
 // Actor=ActorCurtailment lets CurtailmentActiveFilter recognize self-traffic;
 // userID (from curtailment_event.created_by_user_id) satisfies
@@ -1093,6 +1107,28 @@ func curtailBatchIntervalActive(ev *models.Event) bool {
 func hasTargetsInState(targets []*models.Target, state models.TargetState) bool {
 	for _, t := range targets {
 		if t.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func targetDeviceSetByState(targets []*models.Target, state models.TargetState) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, target := range targets {
+		if target.State == state {
+			out[target.DeviceIdentifier] = struct{}{}
+		}
+	}
+	return out
+}
+
+func dispatchingTargetsConsumeInterval(targets []*models.Target, dispatchingBefore map[string]struct{}) bool {
+	for _, target := range targets {
+		if _, wasDispatching := dispatchingBefore[target.DeviceIdentifier]; !wasDispatching {
+			continue
+		}
+		if target.State == models.TargetStateDispatching || target.State == models.TargetStateDispatched {
 			return true
 		}
 	}

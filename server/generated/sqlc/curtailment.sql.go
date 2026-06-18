@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/sqlc-dev/pqtype"
 )
 
 const adminTerminateCurtailmentEvent = `-- name: AdminTerminateCurtailmentEvent :one
@@ -884,48 +885,116 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 
 const insertCurtailmentTargetsForFullFleetCurtailmentPhase = `-- name: InsertCurtailmentTargetsForFullFleetCurtailmentPhase :many
 WITH locked_event AS MATERIALIZED (
-    SELECT id
-    FROM curtailment_event
-    WHERE id = $2
-        AND org_id = $3
-        AND state IN ('pending', 'active')
-        AND mode = 'FULL_FLEET'
+    SELECT ce.id
+    FROM curtailment_event ce
+    WHERE ce.id = $1
+        AND ce.org_id = $2
+        AND ce.state IN ('pending', 'active')
+        AND ce.mode = 'FULL_FLEET'
     FOR UPDATE
+),
+inserted AS (
+    INSERT INTO curtailment_target (
+        curtailment_event_id,
+        device_identifier,
+        target_type,
+        state,
+        desired_state,
+        baseline_power_w,
+        selector_rationale_jsonb
+    )
+    SELECT
+        locked_event.id,
+        t.device_identifier,
+        t.target_type,
+        t.state,
+        t.desired_state,
+        t.baseline_power_w,
+        t.selector_rationale_jsonb
+    FROM locked_event
+    CROSS JOIN jsonb_to_recordset($3::JSONB) AS t(
+        device_identifier         TEXT,
+        target_type               TEXT,
+        state                     TEXT,
+        desired_state             TEXT,
+        baseline_power_w          NUMERIC(12,3),
+        selector_rationale_jsonb  JSONB
+    )
+    ON CONFLICT DO NOTHING
+    RETURNING curtailment_event_id, device_identifier, target_type, state, desired_state, baseline_power_w, added_at, released_at, last_dispatched_at, last_batch_uuid, observed_power_w, observed_at, confirmed_at, retry_count, last_error, selector_rationale_jsonb, curtail_state, curtail_dispatched_at, curtail_batch_uuid, curtail_completed_at, curtail_retry_count, curtail_failure_count, curtail_last_error, restore_state, restore_started_at, restore_dispatched_at, restore_batch_uuid, restore_completed_at, restore_retry_count, restore_failure_count, restore_last_error
+),
+existing_snapshot AS (
+    SELECT
+        COUNT(*)::INT AS selected_count,
+        COALESCE(SUM(COALESCE(ct.baseline_power_w, 0)), 0)::NUMERIC AS baseline_power_w
+    FROM curtailment_target ct
+    JOIN locked_event ON locked_event.id = ct.curtailment_event_id
+),
+inserted_snapshot AS (
+    SELECT
+        COUNT(*)::INT AS selected_count,
+        COALESCE(SUM(COALESCE(inserted.baseline_power_w, 0)), 0)::NUMERIC AS baseline_power_w
+    FROM inserted
+),
+updated_event AS (
+    UPDATE curtailment_event ce
+    SET decision_snapshot_jsonb = jsonb_set(
+        jsonb_set(
+            COALESCE(ce.decision_snapshot_jsonb, '{}'::JSONB),
+            '{selected_count}',
+            to_jsonb((existing_snapshot.selected_count + inserted_snapshot.selected_count)::INT),
+            true
+        ),
+        '{estimated_reduction_kw}',
+        to_jsonb(((existing_snapshot.baseline_power_w + inserted_snapshot.baseline_power_w) / 1000.0)::DOUBLE PRECISION),
+        true
+    )
+    FROM locked_event, existing_snapshot, inserted_snapshot
+    WHERE ce.id = locked_event.id
+        AND inserted_snapshot.selected_count > 0
 )
-INSERT INTO curtailment_target (
-    curtailment_event_id,
-    device_identifier,
-    target_type,
-    state,
-    desired_state,
-    baseline_power_w,
-    selector_rationale_jsonb
-)
-SELECT
-    locked_event.id,
-    t.device_identifier,
-    t.target_type,
-    t.state,
-    t.desired_state,
-    t.baseline_power_w,
-    t.selector_rationale_jsonb
-FROM locked_event
-CROSS JOIN jsonb_to_recordset($1::JSONB) AS t(
-    device_identifier         TEXT,
-    target_type               TEXT,
-    state                     TEXT,
-    desired_state             TEXT,
-    baseline_power_w          NUMERIC(12,3),
-    selector_rationale_jsonb  JSONB
-)
-ON CONFLICT DO NOTHING
-RETURNING curtailment_event_id, device_identifier, target_type, state, desired_state, baseline_power_w, added_at, released_at, last_dispatched_at, last_batch_uuid, observed_power_w, observed_at, confirmed_at, retry_count, last_error, selector_rationale_jsonb, curtail_state, curtail_dispatched_at, curtail_batch_uuid, curtail_completed_at, curtail_retry_count, curtail_failure_count, curtail_last_error, restore_state, restore_started_at, restore_dispatched_at, restore_batch_uuid, restore_completed_at, restore_retry_count, restore_failure_count, restore_last_error
+SELECT curtailment_event_id, device_identifier, target_type, state, desired_state, baseline_power_w, added_at, released_at, last_dispatched_at, last_batch_uuid, observed_power_w, observed_at, confirmed_at, retry_count, last_error, selector_rationale_jsonb, curtail_state, curtail_dispatched_at, curtail_batch_uuid, curtail_completed_at, curtail_retry_count, curtail_failure_count, curtail_last_error, restore_state, restore_started_at, restore_dispatched_at, restore_batch_uuid, restore_completed_at, restore_retry_count, restore_failure_count, restore_last_error
+FROM inserted
 `
 
 type InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams struct {
-	TargetsJsonb       json.RawMessage
 	CurtailmentEventID int64
 	OrgID              int64
+	TargetsJsonb       json.RawMessage
+}
+
+type InsertCurtailmentTargetsForFullFleetCurtailmentPhaseRow struct {
+	CurtailmentEventID     int64
+	DeviceIdentifier       string
+	TargetType             string
+	State                  string
+	DesiredState           string
+	BaselinePowerW         sql.NullString
+	AddedAt                time.Time
+	ReleasedAt             sql.NullTime
+	LastDispatchedAt       sql.NullTime
+	LastBatchUuid          sql.NullString
+	ObservedPowerW         sql.NullString
+	ObservedAt             sql.NullTime
+	ConfirmedAt            sql.NullTime
+	RetryCount             int32
+	LastError              sql.NullString
+	SelectorRationaleJsonb pqtype.NullRawMessage
+	CurtailState           string
+	CurtailDispatchedAt    sql.NullTime
+	CurtailBatchUuid       sql.NullString
+	CurtailCompletedAt     sql.NullTime
+	CurtailRetryCount      int32
+	CurtailFailureCount    int32
+	CurtailLastError       sql.NullString
+	RestoreState           sql.NullString
+	RestoreStartedAt       sql.NullTime
+	RestoreDispatchedAt    sql.NullTime
+	RestoreBatchUuid       sql.NullString
+	RestoreCompletedAt     sql.NullTime
+	RestoreRetryCount      int32
+	RestoreFailureCount    int32
+	RestoreLastError       sql.NullString
 }
 
 // Dynamic FULL_FLEET fan-out. The parent row lock serializes with Stop /
@@ -933,15 +1002,15 @@ type InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams struct {
 // targets after the event leaves the pending/active curtailment phase.
 // Duplicates or devices concurrently claimed by another non-terminal event are
 // skipped.
-func (q *Queries) InsertCurtailmentTargetsForFullFleetCurtailmentPhase(ctx context.Context, arg InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams) ([]CurtailmentTarget, error) {
-	rows, err := q.query(ctx, q.insertCurtailmentTargetsForFullFleetCurtailmentPhaseStmt, insertCurtailmentTargetsForFullFleetCurtailmentPhase, arg.TargetsJsonb, arg.CurtailmentEventID, arg.OrgID)
+func (q *Queries) InsertCurtailmentTargetsForFullFleetCurtailmentPhase(ctx context.Context, arg InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams) ([]InsertCurtailmentTargetsForFullFleetCurtailmentPhaseRow, error) {
+	rows, err := q.query(ctx, q.insertCurtailmentTargetsForFullFleetCurtailmentPhaseStmt, insertCurtailmentTargetsForFullFleetCurtailmentPhase, arg.CurtailmentEventID, arg.OrgID, arg.TargetsJsonb)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CurtailmentTarget
+	var items []InsertCurtailmentTargetsForFullFleetCurtailmentPhaseRow
 	for rows.Next() {
-		var i CurtailmentTarget
+		var i InsertCurtailmentTargetsForFullFleetCurtailmentPhaseRow
 		if err := rows.Scan(
 			&i.CurtailmentEventID,
 			&i.DeviceIdentifier,
