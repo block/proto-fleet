@@ -104,6 +104,14 @@ type BuildingStore interface {
 	// requested target.
 	FindDeviceBuildingConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error)
 
+	// FindDevicesInBuildingLessPlacedRacks returns the requested devices
+	// that sit in a rack which has a site but no building (a site-level
+	// rack). These can't take a direct building assignment while staying
+	// in the rack, so AssignDevicesToBuilding treats them as clearable
+	// conflicts for any non-null target. Fully-unassigned racks are
+	// excluded.
+	FindDevicesInBuildingLessPlacedRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
 	// GetBuildingSiteID returns the building's site_id (nil when the
 	// building is unassigned). Returns NotFound when the building is
 	// missing / soft-deleted / cross-org.

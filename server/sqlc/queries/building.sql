@@ -377,6 +377,35 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
   AND dsr.building_id IS NOT NULL;
 
+-- name: FindDevicesInBuildingLessPlacedRacks :many
+-- Returns device identifiers that sit in a rack which HAS a site but
+-- NO building (a site-level rack). FindDeviceBuildingConflicts filters
+-- these out (its building_id IS NOT NULL guard), and the site-conflict
+-- probe misses them when the target building is in the same site — yet
+-- such a device can't take a direct building assignment while remaining
+-- in a building-less rack without violating rack/device lockstep. The
+-- service flags these as a clearable IN_RACK_AT_OTHER_BUILDING conflict
+-- whenever the target building is non-null. Fully-unassigned racks
+-- (no site AND no building) are excluded: they dictate no placement, so
+-- a member may keep a direct building.
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NULL
+  AND dsr.site_id IS NOT NULL;
+
 -- name: GetBuildingSiteID :one
 -- Returns the building's site_id (which may be NULL). Used by
 -- AssignDevicesToBuilding to determine the cascade target for

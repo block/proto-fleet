@@ -855,7 +855,9 @@ func TestAssignDevicesToBuilding_writesAndCascadesOnSuccess(t *testing.T) {
 	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
-	// Cross-site rack probe fires when target building has a site set.
+	// Building-less placed-rack probe + cross-site rack probe both fire
+	// when target building is non-null.
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(2), nil)
 	// Cascade fires when target_building_id is set and has a site.
@@ -898,9 +900,10 @@ func TestAssignDevicesToBuilding_rejectsCrossBuildingConflict(t *testing.T) {
 	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": conflictingBuilding,
 	}, nil)
-	// Site probe runs even for a site-less target building; d1 is
-	// already flagged as a building conflict so an empty site result
-	// leaves the conflict set unchanged.
+	// Building-less placed-rack + site probes both run; d1 is already
+	// flagged as a building conflict so empty results here leave the
+	// conflict set unchanged.
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	// AssignDevicesToBuilding is NOT called — the batch rejects with conflicts.
 
@@ -971,8 +974,10 @@ func TestAssignDevicesToBuilding_forceClearCascadesRackMembership(t *testing.T) 
 	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": conflictingBuilding,
 	}, nil)
-	// Site probe runs for the site-less target building; no extra site
-	// conflicts beyond the building one already flagged for d1.
+	// Building-less placed-rack + site probes run for the site-less
+	// target building; no extra conflicts beyond the building one
+	// already flagged for d1.
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	// d1 had the conflict — its rack memberships get cleared.
 	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d1"}, int64(0)).Return(int64(1), nil)
@@ -1022,8 +1027,11 @@ func TestAssignDevicesToBuilding_siteLessBuildingFlagsRackAtRealSite(t *testing.
 	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
 	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
-	// No building conflict, but d1's rack is at a real site.
+	// No building conflict and d1's rack has a building (so the
+	// building-less probe is empty); the site probe flags d1's rack at
+	// a real site against the site-less target.
 	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": rackSite,
 	}, nil)
@@ -1042,6 +1050,55 @@ func TestAssignDevicesToBuilding_siteLessBuildingFlagsRackAtRealSite(t *testing.
 	}
 	if conflicts[0].Reason != models.ReasonBuildingDeviceInRackAtOtherSite {
 		t.Fatalf("expected reason DeviceInRackAtOtherSite, got %v", conflicts[0].Reason)
+	}
+}
+
+// TestAssignDevicesToBuilding_flagsBuildingLessPlacedRack pins the gap
+// the building + site probes miss on their own: a device in a rack that
+// has a site but no building, assigned to a building in that SAME site.
+// The building probe skips it (rack building NULL), the site probe skips
+// it (rack site == target site), but assigning it would leave the device
+// directly in a building while its rack has none — so the building-less
+// placed-rack probe must flag it as a clearable conflict.
+func TestAssignDevicesToBuilding_flagsBuildingLessPlacedRack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+	site := int64(8)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	// Target building is in site 8.
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(&site, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// No building conflict (rack has no building) and no site conflict
+	// (d1's rack is in the same site 8) — only the building-less placed
+	// rack probe catches it.
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": site, // same site as target → not a site conflict
+	}, nil)
+	// No force-clear → batch rejects; no write.
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %v", conflicts)
+	}
+	if conflicts[0].Reason != models.ReasonBuildingDeviceInRackAtOtherBuilding {
+		t.Fatalf("expected reason DeviceInRackAtOtherBuilding, got %v", conflicts[0].Reason)
 	}
 }
 

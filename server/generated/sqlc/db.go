@@ -276,6 +276,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.findDeviceSiteConflictsStmt, err = db.PrepareContext(ctx, findDeviceSiteConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDeviceSiteConflicts: %w", err)
 	}
+	if q.findDevicesInBuildingLessPlacedRacksStmt, err = db.PrepareContext(ctx, findDevicesInBuildingLessPlacedRacks); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDevicesInBuildingLessPlacedRacks: %w", err)
+	}
 	if q.getActiveFleetNodeForDeviceStmt, err = db.PrepareContext(ctx, getActiveFleetNodeForDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveFleetNodeForDevice: %w", err)
 	}
@@ -1692,6 +1695,11 @@ func (q *Queries) Close() error {
 	if q.findDeviceSiteConflictsStmt != nil {
 		if cerr := q.findDeviceSiteConflictsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDeviceSiteConflictsStmt: %w", cerr)
+		}
+	}
+	if q.findDevicesInBuildingLessPlacedRacksStmt != nil {
+		if cerr := q.findDevicesInBuildingLessPlacedRacksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDevicesInBuildingLessPlacedRacksStmt: %w", cerr)
 		}
 	}
 	if q.getActiveFleetNodeForDeviceStmt != nil {
@@ -3472,6 +3480,7 @@ type Queries struct {
 	ensureCurtailmentOrgConfigStmt                        *sql.Stmt
 	findDeviceBuildingConflictsStmt                       *sql.Stmt
 	findDeviceSiteConflictsStmt                           *sql.Stmt
+	findDevicesInBuildingLessPlacedRacksStmt              *sql.Stmt
 	getActiveFleetNodeForDeviceStmt                       *sql.Stmt
 	getActiveSchedulesStmt                                *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                *sql.Stmt
@@ -3893,6 +3902,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		ensureCurtailmentOrgConfigStmt:                        q.ensureCurtailmentOrgConfigStmt,
 		findDeviceBuildingConflictsStmt:                       q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                           q.findDeviceSiteConflictsStmt,
+		findDevicesInBuildingLessPlacedRacksStmt:              q.findDevicesInBuildingLessPlacedRacksStmt,
 		getActiveFleetNodeForDeviceStmt:                       q.getActiveFleetNodeForDeviceStmt,
 		getActiveSchedulesStmt:                                q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                q.getActiveUnpairedDiscoveredDevicesStmt,

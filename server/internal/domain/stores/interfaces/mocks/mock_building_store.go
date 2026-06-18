@@ -191,6 +191,21 @@ func (mr *MockBuildingStoreMockRecorder) FindDeviceBuildingConflicts(ctx, orgID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDeviceBuildingConflicts", reflect.TypeOf((*MockBuildingStore)(nil).FindDeviceBuildingConflicts), ctx, orgID, deviceIdentifiers)
 }
 
+// FindDevicesInBuildingLessPlacedRacks mocks base method.
+func (m *MockBuildingStore) FindDevicesInBuildingLessPlacedRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindDevicesInBuildingLessPlacedRacks", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindDevicesInBuildingLessPlacedRacks indicates an expected call of FindDevicesInBuildingLessPlacedRacks.
+func (mr *MockBuildingStoreMockRecorder) FindDevicesInBuildingLessPlacedRacks(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesInBuildingLessPlacedRacks", reflect.TypeOf((*MockBuildingStore)(nil).FindDevicesInBuildingLessPlacedRacks), ctx, orgID, deviceIdentifiers)
+}
+
 // GetBuilding mocks base method.
 func (m *MockBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*models.Building, error) {
 	m.ctrl.T.Helper()

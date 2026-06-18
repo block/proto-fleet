@@ -311,6 +311,20 @@ func (s *SQLBuildingStore) FindDeviceBuildingConflicts(ctx context.Context, orgI
 	return out, nil
 }
 
+func (s *SQLBuildingStore) FindDevicesInBuildingLessPlacedRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	if len(deviceIdentifiers) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).FindDevicesInBuildingLessPlacedRacks(ctx, sqlc.FindDevicesInBuildingLessPlacedRacksParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices in building-less placed racks: %w", err)
+	}
+	return rows, nil
+}
+
 func (s *SQLBuildingStore) GetBuildingSiteID(ctx context.Context, orgID, buildingID int64) (*int64, error) {
 	siteID, err := s.GetQueries(ctx).GetBuildingSiteID(ctx, sqlc.GetBuildingSiteIDParams{
 		ID:    buildingID,

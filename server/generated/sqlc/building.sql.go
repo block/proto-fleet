@@ -454,6 +454,64 @@ func (q *Queries) FindDeviceBuildingConflicts(ctx context.Context, arg FindDevic
 	return items, nil
 }
 
+const findDevicesInBuildingLessPlacedRacks = `-- name: FindDevicesInBuildingLessPlacedRacks :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NULL
+  AND dsr.site_id IS NOT NULL
+`
+
+type FindDevicesInBuildingLessPlacedRacksParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns device identifiers that sit in a rack which HAS a site but
+// NO building (a site-level rack). FindDeviceBuildingConflicts filters
+// these out (its building_id IS NOT NULL guard), and the site-conflict
+// probe misses them when the target building is in the same site — yet
+// such a device can't take a direct building assignment while remaining
+// in a building-less rack without violating rack/device lockstep. The
+// service flags these as a clearable IN_RACK_AT_OTHER_BUILDING conflict
+// whenever the target building is non-null. Fully-unassigned racks
+// (no site AND no building) are excluded: they dictate no placement, so
+// a member may keep a direct building.
+func (q *Queries) FindDevicesInBuildingLessPlacedRacks(ctx context.Context, arg FindDevicesInBuildingLessPlacedRacksParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesInBuildingLessPlacedRacksStmt, findDevicesInBuildingLessPlacedRacks, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getBuilding = `-- name: GetBuilding :one
 SELECT id, org_id, site_id, name, description, power_kw, overhead_kw, aisles, physical_rack_count, racks_per_aisle, default_rack_rows, default_rack_columns, default_rack_order_index, created_at, updated_at, deleted_at
 FROM building

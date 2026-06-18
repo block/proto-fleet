@@ -926,6 +926,30 @@ func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID in
 		}
 	}
 
+	// Building-less placed-rack guard. A device in a rack that has a
+	// site but no building (a site-level rack) is missed by the
+	// building probe above (its building_id is NULL) and by the
+	// site probe below when the target building is in the same site —
+	// yet it can't take a direct building while staying in that rack
+	// without breaking rack/device lockstep. Flag those (clearable)
+	// whenever we're assigning to a building. Fully-unassigned racks
+	// are excluded by the query: they dictate no placement.
+	if targetBuildingID != nil {
+		buildingLess, err := s.store.FindDevicesInBuildingLessPlacedRacks(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for _, ident := range buildingLess {
+			if _, ok := flagged[ident]; ok {
+				continue
+			}
+			flagged[ident] = models.PerDeviceBuildingConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonBuildingDeviceInRackAtOtherBuilding,
+			}
+		}
+	}
+
 	// Cross-site rack guard. Reuses the existing site-conflict probe
 	// from SiteStore so we don't carry a parallel query family.
 	// FindDeviceSiteConflicts only returns devices whose rack has a

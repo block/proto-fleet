@@ -25,8 +25,12 @@ import (
 //
 //  1. Direct building↔site: if device.building_id is set, the building's
 //     site_id must equal device.site_id (NULL == NULL counts as equal).
-//  2. Rack lockstep: if the device is a member of a rack, device.site_id
-//     and device.building_id must equal that rack's site_id / building_id.
+//  2. Rack lockstep: if the device is a member of a *placed* rack (one
+//     that has a site or a building), device.site_id and
+//     device.building_id must equal that rack's site_id / building_id.
+//     A fully-unassigned rack (no site, no building) is organizational
+//     only and dictates no placement, so its members may keep direct
+//     assignments.
 //
 // The query is operation-agnostic: it doesn't know which RPC ran, only
 // whether the result is consistent — so it catches any reparent path that
@@ -50,10 +54,14 @@ func devicePlacementInvariantViolations(ctx context.Context, t *testing.T, tc *t
 		  AND (
 		    -- (1) building set but its site disagrees with the device's site
 		    (d.building_id IS NOT NULL AND b.site_id IS DISTINCT FROM d.site_id)
-		    -- (2) racked device whose site/building diverge from the rack's
-		    OR (ds.id IS NOT NULL AND
-		        (d.site_id IS DISTINCT FROM dsr.site_id
-		         OR d.building_id IS DISTINCT FROM dsr.building_id))
+		    -- (2) device in a *placed* rack (one with a site or building)
+		    --     whose site/building diverge from the rack's. A
+		    --     placement-less rack (no site, no building) dictates
+		    --     nothing, so its members may keep direct assignments.
+		    OR (ds.id IS NOT NULL
+		        AND (dsr.site_id IS NOT NULL OR dsr.building_id IS NOT NULL)
+		        AND (d.site_id IS DISTINCT FROM dsr.site_id
+		             OR d.building_id IS DISTINCT FROM dsr.building_id))
 		  )`, orgID)
 	require.NoError(t, err)
 	defer rows.Close()

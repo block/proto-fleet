@@ -53,7 +53,7 @@ WHERE d.device_identifier = ANY($3::text[])
   AND ds.org_id = $1
   AND ds.deleted_at IS NULL
   AND ds.type = 'rack'
-  AND dsr.building_id IS NOT NULL
+  AND (dsr.building_id IS NOT NULL OR dsr.site_id IS NOT NULL)
   AND d.building_id IS DISTINCT FROM dsr.building_id
 `
 
@@ -65,7 +65,12 @@ type CascadeAddedDeviceBuildingsParams struct {
 
 // Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
 // to rack.building_id for added rack members whose current building
-// differs. No-op for groups or building-less racks.
+// differs. Fires when the rack has a placement (a site OR a building):
+// a site-level rack (site set, building NULL) is a real placement that
+// dictates building = NULL, so members added to it get device.building_id
+// cleared rather than keeping a stale direct assignment. No-op for
+// groups and fully-unassigned racks (no site, no building), where the
+// rack dictates nothing and clearing would clobber direct assignments.
 func (q *Queries) CascadeAddedDeviceBuildings(ctx context.Context, arg CascadeAddedDeviceBuildingsParams) (int64, error) {
 	result, err := q.exec(ctx, q.cascadeAddedDeviceBuildingsStmt, cascadeAddedDeviceBuildings, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
