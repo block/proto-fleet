@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AddChannelModal from "./AddChannelModal";
 import ChannelEditableCell from "./ChannelEditableCell";
 import ChannelStatusBadge from "./ChannelStatusBadge";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
+import { useChannels } from "@/protoFleet/features/notifications/api/useChannels";
 import type { Channel } from "@/protoFleet/features/notifications/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Checkmark, Trash } from "@/shared/assets/icons";
@@ -34,13 +34,19 @@ const destinationPlaceholder = (c: Channel) => {
 };
 
 const ChannelsSection = () => {
-  const channels = useNotificationsStore((s) => s.channels);
-  const updateChannel = useNotificationsStore((s) => s.updateChannel);
-  const testChannel = useNotificationsStore((s) => s.testChannel);
-  const removeChannel = useNotificationsStore((s) => s.removeChannel);
+  const { channels, refresh, createChannel, updateChannel, testChannel, removeChannel } = useChannels();
   const canManage = useHasPermission("notification:manage");
 
   const [showAddModal, setShowAddModal] = useState(false);
+
+  useEffect(() => {
+    void refresh().catch((error) => {
+      pushToast({
+        message: getErrorMessage(error, "Failed to load notifications"),
+        status: STATUSES.error,
+      });
+    });
+  }, [refresh]);
 
   const handleSaveName = useCallback(
     async (channel: Channel, next: string) => {
@@ -216,7 +222,7 @@ const ChannelsSection = () => {
         actions={canManage ? actions : []}
       />
 
-      <AddChannelModal open={showAddModal} onDismiss={() => setShowAddModal(false)} />
+      <AddChannelModal open={showAddModal} onDismiss={() => setShowAddModal(false)} onCreate={createChannel} />
     </section>
   );
 };

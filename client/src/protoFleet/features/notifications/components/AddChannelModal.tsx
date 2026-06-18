@@ -1,7 +1,9 @@
 import { useCallback, useState } from "react";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { testChannel as testChannelApi } from "@/protoFleet/features/notifications/api/notificationsApi";
-import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
+import {
+  type ChannelMutationInput,
+  testChannel as testChannelApi,
+} from "@/protoFleet/features/notifications/api/notificationsApi";
 import type { Channel, ChannelKind, SlackConfig, WebhookConfig } from "@/protoFleet/features/notifications/types";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -14,11 +16,10 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 interface AddChannelModalProps {
   open: boolean;
   onDismiss: () => void;
+  onCreate: (input: ChannelMutationInput) => Promise<Channel>;
 }
 
-const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
-  const createChannel = useNotificationsStore((s) => s.createChannel);
-
+const AddChannelModal = ({ open, onDismiss, onCreate }: AddChannelModalProps) => {
   const [kind, setKind] = useState<ChannelKind>("webhook");
   const [name, setName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -104,7 +105,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
     if (!payload) return;
     setSaving(true);
     try {
-      const created: Channel = await createChannel(payload);
+      const created: Channel = await onCreate(payload);
       pushToast({ message: `Saved: ${created.name}`, status: STATUSES.success });
       onDismiss();
     } catch (error) {
@@ -114,7 +115,7 @@ const AddChannelModal = ({ open, onDismiss }: AddChannelModalProps) => {
       });
       setSaving(false);
     }
-  }, [buildPayload, createChannel, onDismiss]);
+  }, [buildPayload, onCreate, onDismiss]);
 
   const canTest = kind === "webhook" ? webhookUrl.trim().length > 0 : slackWebhookUrl.trim().length > 0;
 
