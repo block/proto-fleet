@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import clsx from "clsx";
 import { Code } from "@connectrpc/connect";
 
 import { type FleetOutletContext } from "./outletContext";
@@ -8,6 +9,7 @@ import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
 import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
@@ -222,8 +224,16 @@ const FleetLayout = () => {
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
 
   return (
-    <div className="flex h-full flex-col" data-testid="fleet-layout">
-      <div className="sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10">
+    // w-max + min-w-full: the subtree grows to the widest tab content (a wide
+    // table), which is what gives the sticky-left chrome below room to slide.
+    // min-w-full keeps it at least viewport-wide when content is narrow.
+    <div className="flex h-full w-max min-w-full flex-col" data-testid="fleet-layout">
+      <div
+        className={clsx(
+          "sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10",
+          PAGE_SCROLL_CHROME_WIDTH,
+        )}
+      >
         <div className="flex items-baseline justify-between gap-4">
           <h1 className="text-heading-300 text-text-primary">Fleet</h1>
           <div className="laptop:hidden">{viewTabs}</div>

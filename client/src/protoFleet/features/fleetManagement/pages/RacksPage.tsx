@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -19,6 +20,7 @@ import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEm
 import NullState from "@/protoFleet/components/NullState";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -763,7 +765,7 @@ const RacksPage = () => {
 
   return (
     <div>
-      <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
+      <div className={clsx("sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10", PAGE_SCROLL_CHROME_WIDTH)}>
         {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
         <div className="flex flex-col gap-2 pb-6">
           {/* Action button — full-width on tablet/phone */}
@@ -844,7 +846,12 @@ const RacksPage = () => {
         <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
       ) : null}
       {racksViewMode === "list" ? (
-        <div className="overflow-x-auto p-6 pt-0 laptop:p-10 laptop:pt-0">
+        // No horizontal padding or overflow wrapper here: that inset the table
+        // (white gaps beside the row rules) and added a second scroll
+        // container. Row content is indented via DeviceSetList's paddingLeft
+        // so the rules still span the full width, and the page is the single
+        // scroll container.
+        <div className="pb-6 laptop:pb-10">
           <DeviceSetList
             deviceSets={racks}
             statsMap={statsMap}
@@ -867,6 +874,8 @@ const RacksPage = () => {
             emptyStateRow={emptyStateRow}
             selectedIds={selectedRackIds}
             onSelectedIdsChange={handleSelectedRackIdsChange}
+            paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
+            overflowContainer={false}
           />
         </div>
       ) : (

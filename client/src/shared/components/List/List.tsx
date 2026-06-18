@@ -169,6 +169,13 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   paddingRight?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
+  /**
+   * Extra classes for the sticky-left chrome (filter row, count, action bar).
+   * Used in page-scroll mode to give them an explicit viewport width so they
+   * stay pinned while the table scrolls the page horizontally. Left empty for
+   * bounded lists, where the chrome never moves.
+   */
+  stickyChromeClassName?: string;
   stickyBgColor?: string;
   total?: number;
   /**
@@ -696,6 +703,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   paddingLeft,
   paddingRight,
   overflowContainer = true,
+  stickyChromeClassName,
   stickyBgColor = "bg-surface-base",
   total,
   totalDisabled = 0,
@@ -1371,12 +1379,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   return (
     <>
-      <div style={paddingCssVariables} className="sticky left-0 z-3">
+      <div style={paddingCssVariables} className={clsx("sticky left-0 z-3", stickyChromeClassName)}>
         {filtersElement}
       </div>
       <div style={paddingCssVariables}>
         {!hideTotal && total !== undefined ? (
-          <div className="sticky left-0 flex">
+          <div className={clsx("sticky left-0 flex", stickyChromeClassName)}>
             <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
               {total} {total === 1 ? itemName.singular : itemName.plural}
             </div>
@@ -1403,7 +1411,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             )}
           </div>
           {renderActionBar ? (
-            <div className="w-full">
+            <div className={stickyChromeClassName ? clsx("sticky left-0", stickyChromeClassName) : "w-full"}>
               {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
             </div>
           ) : null}

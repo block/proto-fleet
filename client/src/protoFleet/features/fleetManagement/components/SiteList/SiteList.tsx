@@ -147,6 +147,12 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+    // Page-scroll mode: the Fleet shell is the single scroll container. An
+    // overflow wrapper here would trap the sticky <thead> in a nested scroll
+    // context (overflow-x:* computes overflow-y to auto), so the header would
+    // not stick to the page. Let wide tables scroll the page horizontally
+    // instead — the sticky-left chrome (FilterRow, header) is built for that.
+    overflowContainer: false,
   };
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {

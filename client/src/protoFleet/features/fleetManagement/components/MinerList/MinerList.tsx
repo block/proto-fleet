@@ -31,6 +31,7 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
@@ -97,6 +98,13 @@ type MinerListProps = {
   batchStateVersion?: number;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  /**
+   * When false, the list does not create its own scroll container — the page
+   * scrolls instead and the sticky header pins to the page. The Fleet shell
+   * passes false; embedded usages (modals, panels) keep the default bounded
+   * scroll. See List's `overflowContainer`.
+   */
+  overflowContainer?: boolean;
   onAddMiners: () => void;
   totalMiners?: number;
   /**
@@ -222,6 +230,7 @@ type ScopedMinerListBodyProps = {
   initialActiveFilters: ActiveFilters;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  overflowContainer?: boolean;
   totalMiners?: number;
   totalDisabledMiners: number;
   totalDisabledMinersFresh: boolean;
@@ -261,6 +270,7 @@ const ScopedMinerListBody = ({
   initialActiveFilters,
   listClassName,
   paddingLeft,
+  overflowContainer,
   totalMiners,
   totalDisabledMiners,
   totalDisabledMinersFresh,
@@ -389,6 +399,8 @@ const ScopedMinerListBody = ({
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
+        overflowContainer={overflowContainer}
+        stickyChromeClassName={overflowContainer === false ? PAGE_SCROLL_CHROME_WIDTH : undefined}
         applyColumnWidthsToCells
         total={totalMiners}
         // Every row is selectable; `totalSelectable = totalMiners` so action-bar
@@ -463,6 +475,7 @@ const MinerList = ({
   batchStateVersion,
   listClassName,
   paddingLeft,
+  overflowContainer,
   onAddMiners,
   totalMiners,
   totalUnfilteredMiners,
@@ -1061,11 +1074,22 @@ const MinerList = ({
 
   return (
     <>
-      <div ref={topRef} className="sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10">
+      <div
+        ref={topRef}
+        className={clsx(
+          "sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10",
+          overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+        )}
+      >
         {title ? <h2 className="text-heading-300">{title}</h2> : null}
       </div>
 
-      <div className="sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10">
+      <div
+        className={clsx(
+          "sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10",
+          overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+        )}
+      >
         {hasActiveFilters && totalUnfilteredMiners !== undefined && totalMiners !== totalUnfilteredMiners
           ? `${totalMiners} of ${totalUnfilteredMiners} miners`
           : `${totalMiners ?? 0} miners`}
@@ -1086,6 +1110,7 @@ const MinerList = ({
           initialActiveFilters={initialActiveFilters}
           listClassName={listClassName}
           paddingLeft={paddingLeft}
+          overflowContainer={overflowContainer}
           totalMiners={totalMiners}
           totalDisabledMiners={totalDisabledMiners}
           totalDisabledMinersFresh={totalDisabledMinersFresh}

@@ -254,6 +254,8 @@ const Fleet = () => {
             laptop: "40px",
             desktop: "40px",
           }}
+          // Fleet shell owns the scroll: page scrolls, sticky header pins to it.
+          overflowContainer={false}
           onAddMiners={() => setShowAddMinersModal(true)}
           loading={!hasInitialLoadCompleted}
           pageSize={MINERS_PAGE_SIZE}

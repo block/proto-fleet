@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
@@ -45,6 +45,24 @@ const AppLayoutContent = ({ children }: Props) => {
 
   const showPhoneWidgets = isPhone && phoneRowWidgetCount > 0;
 
+  // Publish the scroll container's vertical-scrollbar width as
+  // `--content-scroll-gutter`. Page-scroll sticky chrome (see
+  // PAGE_SCROLL_CHROME_WIDTH) sizes itself with `100vw`, which counts that
+  // gutter while the client area does not — subtracting it keeps the chrome
+  // pinned all the way to the end of a horizontal scroll. Resolves to 0 for
+  // overlay scrollbars. Re-measured when the scroll area resizes (the gutter
+  // appears/disappears as content overflows or the viewport changes).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => el.style.setProperty("--content-scroll-gutter", `${el.offsetWidth - el.clientWidth}px`);
+    update();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : undefined;
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
+
   return (
     <div className={clsx("absolute top-0 right-0 bottom-0 left-0", bgClass)}>
       <div className="fixed top-0 z-50 h-fit w-0 laptop:w-16 desktop:w-50">
@@ -63,6 +81,7 @@ const AppLayoutContent = ({ children }: Props) => {
       </div>
 
       <div
+        ref={scrollRef}
         className={clsx(
           "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 overflow-auto laptop:top-[calc(theme(spacing.1)*15)] laptop:left-16 desktop:left-50",
           bgClass,

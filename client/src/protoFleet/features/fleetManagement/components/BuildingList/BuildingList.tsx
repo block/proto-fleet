@@ -174,6 +174,9 @@ const BuildingList = ({
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+    // See SiteList: page-scroll mode so the sticky header isn't trapped in a
+    // nested scroll container inside the Fleet shell.
+    overflowContainer: false,
   };
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
