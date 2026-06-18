@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { variants } from "@/shared/components/Button";
+import Divider from "@/shared/components/Divider";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
@@ -92,7 +93,7 @@ const DeviceSettingsModal = ({ onDismiss }: DeviceSettingsModalProps) => {
           </div>
         </div>
 
-        <div className="h-px bg-border-5" />
+        <Divider />
 
         <div className="flex flex-col gap-3">
           <span className="text-300 font-medium text-text-primary">Restore</span>

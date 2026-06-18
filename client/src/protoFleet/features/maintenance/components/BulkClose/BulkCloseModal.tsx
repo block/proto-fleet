@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
+import Radio from "@/shared/components/Radio";
 import Textarea from "@/shared/components/Textarea";
 
 interface BulkCloseModalProps {
@@ -50,30 +51,27 @@ const BulkCloseModal = ({ ticketIds, onDismiss, onSuccess }: BulkCloseModalProps
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-2">
           {RESOLUTIONS.map((r) => (
-            <button
+            <label
               key={r.value}
-              type="button"
-              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-left transition-colors ${
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
                 resolution === r.value
                   ? "border-core-primary-fill bg-core-primary-5"
                   : "border-border-5 hover:border-border-20"
               }`}
-              onClick={() => setResolution(r.value)}
             >
-              <div
-                className={`mt-0.5 flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                  resolution === r.value ? "border-core-primary-fill" : "border-border-20"
-                }`}
-              >
-                {resolution === r.value && (
-                  <div className="h-2 w-2 rounded-full bg-core-primary-fill" />
-                )}
+              <div className="mt-0.5">
+                <Radio
+                  selected={resolution === r.value}
+                  onChange={() => setResolution(r.value)}
+                  name="bulk-resolution"
+                  value={r.value}
+                />
               </div>
               <div className="flex flex-col">
                 <span className="text-emphasis-300 font-medium">{r.label}</span>
                 <span className="text-200 text-text-primary-70">{r.description}</span>
               </div>
-            </button>
+            </label>
           ))}
         </div>
         <Textarea

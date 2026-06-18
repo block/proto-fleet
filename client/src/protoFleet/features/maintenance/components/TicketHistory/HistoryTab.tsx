@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { mockCompletedTickets, REPAIR_TECHNICIANS } from "../../mockData";
+import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -33,6 +34,7 @@ const colTitles: ColTitles<HistoryColumns> = {
 
 const HistoryTab = () => {
   const [tickets] = useState<CompletedTicketItem[]>(mockCompletedTickets);
+  const [detailTicketId, setDetailTicketId] = useState<string | null>(null);
 
   const colConfig: ColConfig<CompletedTicketItem, string, HistoryColumns> = useMemo(
     () => ({
@@ -45,7 +47,6 @@ const HistoryTab = () => {
             <span className="text-300 text-text-primary-70">{ticket.ticketNumber}</span>
           </div>
         ),
-        width: "w-72",
       },
       asset: {
         component: (ticket) => (
@@ -56,21 +57,17 @@ const HistoryTab = () => {
             </span>
           </div>
         ),
-        width: "w-40",
       },
       resolution: {
         component: (ticket) => <span className="text-300">{ticket.resolution}</span>,
-        width: "w-32",
       },
       completedAt: {
         component: (ticket) => <span className="text-300">{ticket.completedAt}</span>,
-        width: "w-36",
       },
       assignee: {
         component: (ticket) => (
           <span className="text-300">{ticket.assigneeName ?? "Unassigned"}</span>
         ),
-        width: "w-32",
       },
     }),
     [],
@@ -110,6 +107,10 @@ const HistoryTab = () => {
     // TODO: wire to ExportTicketsCsv RPC
   }, []);
 
+  const handleRowClick = useCallback((ticket: CompletedTicketItem) => {
+    setDetailTicketId(ticket.id);
+  }, []);
+
   return (
     <div className="flex flex-col gap-4">
       <List
@@ -120,9 +121,11 @@ const HistoryTab = () => {
         colConfig={colConfig}
         filters={filters}
         stickyFirstColumn={false}
+        overflowContainer={false}
         total={tickets.length}
         itemName={{ singular: "completed ticket", plural: "completed tickets" }}
         sortableColumns={new Set<HistoryColumns>(["issue", "asset", "resolution"])}
+        onRowClick={handleRowClick}
         headerControls={
           <Button
             text="Export CSV"
@@ -132,6 +135,14 @@ const HistoryTab = () => {
           />
         }
       />
+
+      {detailTicketId !== null && (
+        <TicketDetailModal
+          ticketId={detailTicketId}
+          ticketIds={tickets.map((t) => t.id)}
+          onDismiss={() => setDetailTicketId(null)}
+        />
+      )}
     </div>
   );
 };

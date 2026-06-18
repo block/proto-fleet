@@ -4,6 +4,7 @@ import { mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
+import Row from "@/shared/components/Row";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
@@ -151,15 +152,9 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
                 className="absolute top-full right-0 left-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border border-border-5 bg-surface-elevated-base shadow-300"
               >
                 {filteredMiners.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className="w-full cursor-pointer px-3 py-2 text-left text-300 hover:bg-surface-base"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => selectMiner(m)}
-                  >
-                    {m}
-                  </button>
+                  <div key={m} className="px-2" onMouseDown={(e) => e.preventDefault()}>
+                    <Row compact className="text-emphasis-300" onClick={() => selectMiner(m)}>{m}</Row>
+                  </div>
                 ))}
               </div>
             )}

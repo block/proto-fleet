@@ -5,6 +5,8 @@ import CreateTicketModal from "../CreateTicket/CreateTicketModal";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import { mockTickets, CURRENT_USER } from "../../mockData";
 import { Alert, Dismiss, Info } from "@/shared/assets/icons";
+import Divider from "@/shared/components/Divider";
+import StatusCircle from "@/shared/components/StatusCircle";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
@@ -49,20 +51,20 @@ const CATEGORY_OPTIONS = [
   { id: "infrastructure", label: "Infrastructure" },
 ];
 
-const statusDotColor = (status: string) => {
+const statusCircleMap = (status: string) => {
   switch (status) {
     case "open":
-      return "bg-color-text-emphasis";
+      return "warning" as const;
     case "in_progress":
-      return "bg-intent-success-fill";
+      return "normal" as const;
     case "on_hold":
-      return "bg-border-20";
+      return "sleeping" as const;
     case "sent_to_vendor":
-      return "bg-border-20";
+      return "inactive" as const;
     case "completed":
-      return "bg-intent-success-fill";
+      return "normal" as const;
     default:
-      return "bg-border-10";
+      return "inactive" as const;
   }
 };
 
@@ -98,7 +100,6 @@ const TicketQueue = () => {
   const { isPhone, isTablet } = useWindowDimensions();
   const isCompact = isPhone || isTablet;
   const [tickets] = useState<TicketItem[]>(mockTickets);
-  const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("list");
   const [detailTicketId, setDetailTicketId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -131,7 +132,7 @@ const TicketQueue = () => {
             <span className="text-emphasis-300 font-medium">
               {ticket.minerIdentifier ?? ticket.component}
             </span>
-            <span className="text-200 text-text-primary-70">
+            <span className="text-300 text-text-primary-70">
               {ticket.minerType ?? ticket.buildingName}
             </span>
           </div>
@@ -154,10 +155,12 @@ const TicketQueue = () => {
       status: {
         component: (ticket) => (
           <div className="flex items-start gap-2">
-            <div className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${statusDotColor(ticket.status)}`} />
+            <div className="mt-1">
+              <StatusCircle status={statusCircleMap(ticket.status)} />
+            </div>
             <div className="flex flex-col">
               <span className="text-emphasis-300 font-medium">{formatStatus(ticket.status)}</span>
-              <span className="text-200 text-text-primary-70">{ticket.assigneeName ?? "Unassigned"}</span>
+              <span className="text-300 text-text-primary-70">{ticket.assigneeName ?? "Unassigned"}</span>
             </div>
           </div>
         ),
@@ -245,14 +248,9 @@ const TicketQueue = () => {
       if (siteF?.length && !siteF.includes(ticket.siteName)) return false;
       const buildingF = activeDropdownFilters["building"];
       if (buildingF?.length && !buildingF.includes(ticket.buildingName)) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const haystack = `${ticket.ticketNumber} ${ticket.component} ${ticket.diagnosis} ${ticket.minerIdentifier ?? ""} ${ticket.assigneeName ?? ""} ${ticket.siteName} ${ticket.buildingName}`.toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
       return true;
     },
-    [searchQuery, myTicketsActive, activeDropdownFilters],
+    [myTicketsActive, activeDropdownFilters],
   );
 
   const filteredTickets = useMemo(
@@ -308,27 +306,6 @@ const TicketQueue = () => {
     [],
   );
 
-  const searchPill = (
-    <div className="relative flex items-center">
-      <input
-        type="text"
-        placeholder="Search"
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        className={`h-8 rounded-full border border-border-5 bg-transparent px-3 text-300 text-text-primary outline-none placeholder:text-text-primary-70 focus:border-border-20 ${isCompact ? "flex-1" : "w-44"}`}
-      />
-      {searchQuery && (
-        <button
-          type="button"
-          className="absolute right-2 flex cursor-pointer items-center text-text-primary-70 hover:text-text-primary"
-          onClick={() => setSearchQuery("")}
-        >
-          <Dismiss width="w-3" />
-        </button>
-      )}
-    </div>
-  );
-
   const queueStats = useMemo(() => {
     const active = tickets.filter((t) => t.status !== "completed");
     const overdue = active.filter((t) => t.age.includes("d") && parseInt(t.age) >= 3).length;
@@ -358,22 +335,19 @@ const TicketQueue = () => {
             onSelect={(key) => setViewMode(key as "list" | "kanban")}
           />
         )}
-        <button
-          type="button"
-          className={`shrink-0 cursor-pointer rounded-full border px-3 py-1 text-300 transition-colors ${
-            myTicketsActive ? "border-core-primary-fill bg-core-primary-5 text-text-primary" : "border-border-5 text-text-primary hover:border-border-20"
-          }`}
+        <Button
+          variant={myTicketsActive ? variants.accent : variants.ghost}
+          size={buttonSizes.compact}
           onClick={() => setMyTicketsActive((v) => !v)}
         >
           My tickets
-        </button>
+        </Button>
         <FilterChipsBar
           filters={chipFilters}
           onChange={handleChipFilterChange}
         />
       </div>
-      <div className={`flex items-center gap-2 ${isCompact ? "" : "ml-auto shrink-0"}`}>
-        {searchPill}
+      <div className={`${isCompact ? "" : "ml-auto"}`}>
         <Button
           text="Create ticket"
           variant={variants.secondary}
@@ -402,14 +376,13 @@ const TicketQueue = () => {
               setOverdueDismissed(true);
             }}
           />
-          <button
-            type="button"
-            className="shrink-0 cursor-pointer p-1 text-text-primary-70 hover:text-text-primary"
+          <Button
+            ariaLabel="Dismiss"
+            variant={variants.ghost}
+            size={buttonSizes.compact}
+            prefixIcon={<Dismiss />}
             onClick={() => setOverdueDismissed(true)}
-            aria-label="Dismiss"
-          >
-            <Dismiss width="w-4" />
-          </button>
+          />
         </div>
       )}
       {toolbar}

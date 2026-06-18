@@ -5,11 +5,12 @@ import TicketComments from "./TicketComments";
 import { RmaSectionContent } from "./RmaSection";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import CompletionForm from "./CompletionForm";
-import { mockTickets, REPAIR_TECHNICIANS } from "../../mockData";
+import { mockTickets, mockCompletedTickets, REPAIR_TECHNICIANS } from "../../mockData";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import { Alert, Edit, Fleet, Info, Checkmark, Pause, Racks } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
+import Row from "@/shared/components/Row";
 import Modal from "@/shared/components/Modal";
 
 interface TicketDetailModalProps {
@@ -30,9 +31,10 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showCardAssign, setShowCardAssign] = useState(false);
 
+  const allTickets = useMemo(() => [...mockTickets, ...mockCompletedTickets], []);
   const ticket = useMemo(
-    () => mockTickets.find((t) => t.id === currentId),
-    [currentId],
+    () => allTickets.find((t) => t.id === currentId),
+    [allTickets, currentId],
   );
 
   const navIds = ticketIds ?? mockTickets.map((t) => t.id);
@@ -147,15 +149,15 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
             {showAssignMenu && (
               <>
                 {ticket.assigneeName && (
-                  <button type="button" className="w-full px-4 py-2 text-left text-emphasis-300 hover:bg-surface-base" onClick={() => setShowAssignMenu(false)}>Unassign</button>
+                  <div className="px-4"><Row compact className="text-emphasis-300" onClick={() => setShowAssignMenu(false)}>Unassign</Row></div>
                 )}
                 {REPAIR_TECHNICIANS.map((name) => (
-                  <button key={name} type="button" className={`w-full px-4 py-2 text-left text-emphasis-300 hover:bg-surface-base ${name === ticket.assigneeName ? "font-medium" : ""}`} onClick={() => setShowAssignMenu(false)}>{name}</button>
+                  <div key={name} className="px-4"><Row compact className={`text-emphasis-300 ${name === ticket.assigneeName ? "font-medium" : ""}`} onClick={() => setShowAssignMenu(false)}>{name}</Row></div>
                 ))}
               </>
             )}
             {showStatusMenu && STATUS_OPTIONS.map((label) => (
-              <button key={label} type="button" className={`w-full px-4 py-2 text-left text-emphasis-300 hover:bg-surface-base ${statusKey(label) === ticket.status ? "font-medium" : ""}`} onClick={() => setShowStatusMenu(false)}>{label}</button>
+              <div key={label} className="px-4"><Row compact className={`text-emphasis-300 ${statusKey(label) === ticket.status ? "font-medium" : ""}`} onClick={() => setShowStatusMenu(false)}>{label}</Row></div>
             ))}
           </div>
         </>
@@ -300,7 +302,7 @@ const TicketDetailModal = ({ ticketId, onDismiss, ticketIds }: TicketDetailModal
                       key={i}
                       className={`h-4 w-4 rounded-sm ${
                         isHighlight
-                          ? "bg-color-text-emphasis"
+                          ? "bg-core-accent-fill"
                           : isOccupied
                             ? "bg-core-primary-fill/10"
                             : "bg-transparent"
