@@ -125,13 +125,17 @@ interface CreateRouteOptions {
   fullscreen?: boolean;
   loader?: LoaderFunction;
   bg?: PageBackground;
+  hidePageHeader?: boolean;
 }
 
 const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
   ...(options.loader && { loader: options.loader }),
-  ...(options.bg && { handle: { bg: options.bg } }),
+  handle: {
+    ...(options.bg && { bg: options.bg }),
+    ...(options.hidePageHeader && { hidePageHeader: true }),
+  },
 });
 
 // Wrap protoOS routes with SingleMinerWrapper for /miners/:id/* paths
@@ -184,8 +188,8 @@ const router = createBrowserRouter([
   // tracked cleanup in #376. When the flag is on, /sites redirects into
   // /fleet/sites.
   MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
-  createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
-  createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
+  createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5", hidePageHeader: true }),
+  createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5", hidePageHeader: true }),
 
   // Energy
   createRoute("/energy", <EnergyPage />),

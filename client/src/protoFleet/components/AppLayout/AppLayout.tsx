@@ -26,7 +26,7 @@ type Props = {
 
 const AppLayoutContent = ({ children }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { bgClass } = usePageBackground();
+  const { bgClass, hidePageHeader } = usePageBackground();
   const { isPhone } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
@@ -51,24 +51,31 @@ const AppLayoutContent = ({ children }: Props) => {
         <NavigationMenu items={primaryNavItems} isVisible={isMenuOpen} closeMenu={() => setIsMenuOpen(false)} />
       </div>
 
-      <div
-        className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
-      >
-        <PageHeader
-          activeCurtailmentEvent={activeCurtailmentEvent}
-          isMenuOpen={isMenuOpen}
-          openMenu={() => setIsMenuOpen(true)}
-          schedulePillData={schedulePillData}
-        />
-      </div>
+      {hidePageHeader ? null : (
+        <div
+          className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
+        >
+          <PageHeader
+            activeCurtailmentEvent={activeCurtailmentEvent}
+            isMenuOpen={isMenuOpen}
+            openMenu={() => setIsMenuOpen(true)}
+            schedulePillData={schedulePillData}
+          />
+        </div>
+      )}
 
       <div
         className={clsx(
-          "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 overflow-auto laptop:top-[calc(theme(spacing.1)*15)] laptop:left-16 desktop:left-50",
+          "fixed right-0 bottom-0 left-0 z-20 overflow-auto laptop:left-16 desktop:left-50",
+          hidePageHeader
+            ? "top-0"
+            : clsx(
+                "top-[calc(theme(spacing.1)*12)] laptop:top-[calc(theme(spacing.1)*15)]",
+                showPhoneWidgets
+                  ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)
+                  : PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS,
+              ),
           bgClass,
-          showPhoneWidgets
-            ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)
-            : PHONE_HEADER_WIDGET_HIDDEN_OFFSET_CLASS,
         )}
       >
         {children}

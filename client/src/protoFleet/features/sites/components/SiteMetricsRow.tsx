@@ -57,11 +57,11 @@ const SiteMetricsRow = ({
       className="grid grid-cols-2 gap-6 tablet:grid-cols-3 laptop:grid-cols-5"
       data-testid={testId ?? "site-metrics-row"}
     >
-      <Metric label="Location" value={location} testId="site-metric-location" />
-      <Metric label="Hashrate" value={hashrate} testId="site-metric-hashrate" />
-      <Metric label="Power" value={power} testId="site-metric-power" />
-      <Metric label="Efficiency" value={efficiency} testId="site-metric-efficiency" />
-      <Metric label="Buildings" value={String(buildingCount)} testId="site-metric-buildings" />
+      <Metric label="Location" value={location} valueSize="text-heading-200" testId="site-metric-location" />
+      <Metric label="Hashrate" value={hashrate} valueSize="text-heading-200" testId="site-metric-hashrate" />
+      <Metric label="Power" value={power} valueSize="text-heading-200" testId="site-metric-power" />
+      <Metric label="Efficiency" value={efficiency} valueSize="text-heading-200" testId="site-metric-efficiency" />
+      <Metric label="Buildings" value={String(buildingCount)} valueSize="text-heading-200" testId="site-metric-buildings" />
     </div>
   );
 };

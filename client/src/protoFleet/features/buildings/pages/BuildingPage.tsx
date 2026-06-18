@@ -5,22 +5,27 @@ import { create } from "@bufbuild/protobuf";
 import BuildingMetricsRow from "../components/BuildingMetricsRow";
 import BuildingModals from "../components/BuildingModals";
 import BuildingPageHeader from "../components/BuildingPageHeader";
+import { BuildingRackGrid } from "../components/BuildingRackGrid";
 import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type Building,
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { parseBigIntId } from "@/protoFleet/api/sites";
+import { parseBigIntId, useSites } from "@/protoFleet/api/sites";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
-import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
-import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
+import type { BreadcrumbSegment } from "@/shared/components/Breadcrumb";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
-import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
 // Same measurement / aggregation slate the rack-overview page uses, so the
@@ -54,7 +59,14 @@ const BuildingPage = () => {
   const navigate = useNavigate();
   const { getBuilding, listBuildingRacks } = useBuildings();
 
+  const { listSites } = useSites();
+  const { listBuildingsBySite } = useBuildings();
+
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
+
+  // Breadcrumb hierarchy: parent site + sibling buildings.
+  const [parentSite, setParentSite] = useState<SiteWithCounts | undefined>(undefined);
+  const [siblingBuildings, setSiblingBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
 
   // Pair the in-flight building id with the response so rapid navigation
   // (back/forward between two building URLs) doesn't render the older
@@ -103,6 +115,30 @@ const BuildingPage = () => {
     fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
 
+  // Fetch parent site + sibling buildings for breadcrumb once building loads.
+  const resolvedSiteId =
+    response && buildingId !== null && response.id === buildingId && response.outcome.status === "found"
+      ? response.outcome.building.siteId
+      : undefined;
+
+  useEffect(() => {
+    if (!resolvedSiteId) return;
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: (sites) => {
+        const match = sites.find((s) => s.site?.id === resolvedSiteId);
+        setParentSite(match);
+      },
+    });
+    void listBuildingsBySite({
+      siteId: resolvedSiteId,
+      signal: controller.signal,
+      onSuccess: (buildings) => setSiblingBuildings(buildings),
+    });
+    return () => controller.abort();
+  }, [resolvedSiteId, listSites, listBuildingsBySite]);
+
   const buildingModals = useBuildingModals({
     refetchBuildings: () => {
       if (buildingId !== null) fetchBuilding(buildingId);
@@ -141,22 +177,6 @@ const BuildingPage = () => {
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
 
-  // Component errors scoped to the building's devices. While stats are
-  // still loading (memberDeviceIds === null) we pass enabled=false so the
-  // hook holds an undefined-count state — otherwise it would race to an
-  // empty-scope fetch and render "No issues" before the real scope ever
-  // arrives, hiding genuine component failures during the brief
-  // GetBuildingStats outage or initial load.
-  const componentErrorsOptions = useMemo(
-    () => ({
-      deviceIdentifiers: memberDeviceIds ?? [],
-      enabled: memberDeviceIds !== null,
-      pollIntervalMs: POLL_INTERVAL_MS,
-    }),
-    [memberDeviceIds],
-  );
-  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors(componentErrorsOptions);
-
   const telemetryEnabled = memberDeviceIds !== null && memberDeviceIds.length > 0;
   const telemetryOptions = useMemo(
     () => ({
@@ -178,6 +198,30 @@ const BuildingPage = () => {
 
   const effectiveOutcome: FetchOutcome | "loading" | "invalid" =
     buildingId === null ? "invalid" : response && response.id === buildingId ? response.outcome : "loading";
+
+  // Breadcrumb segments must be computed before early returns to satisfy
+  // the rules-of-hooks constraint. The values are only meaningful when
+  // effectiveOutcome is "found", but the memo itself is always called.
+  const breadcrumbSegments: BreadcrumbSegment[] = useMemo(() => {
+    if (typeof effectiveOutcome === "string" || effectiveOutcome.status !== "found") return [];
+    const building = effectiveOutcome.building;
+    const segments: BreadcrumbSegment[] = [];
+    if (parentSite?.site) {
+      segments.push({
+        label: parentSite.site.name,
+        to: `/sites/${parentSite.site.id.toString()}`,
+      });
+    }
+    segments.push({
+      label: building.name || "(unnamed building)",
+      siblings: siblingBuildings?.map((b) => ({
+        label: b.building?.name ?? "(unnamed)",
+        to: `/buildings/${(b.building?.id ?? 0n).toString()}`,
+        isActive: b.building?.id === building.id,
+      })),
+    });
+    return segments;
+  }, [effectiveOutcome, parentSite, siblingBuildings]);
 
   if (effectiveOutcome === "loading") {
     return (
@@ -222,7 +266,6 @@ const BuildingPage = () => {
   const effectiveBuilding = effectiveOutcome.building;
   const label = effectiveBuilding.name || "(unnamed building)";
   const idForHeader = effectiveBuilding.id.toString();
-  const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
 
   // Edit/Delete require the rack count to render an accurate cascade
   // warning ("deleting this building will unassign N racks"). Prefer the
@@ -248,7 +291,12 @@ const BuildingPage = () => {
     <div className="h-full" data-testid="building-page">
       <div className="flex flex-col">
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
-          <BuildingPageHeader label={label} buildingId={idForHeader} onEditBuilding={handleEditBuilding} />
+          <BuildingPageHeader
+            label={label}
+            buildingId={idForHeader}
+            onEditBuilding={handleEditBuilding}
+            breadcrumbSegments={breadcrumbSegments}
+          />
         </div>
 
         {/* Stats fetch failure on initial load — surface it inline so the
@@ -278,18 +326,18 @@ const BuildingPage = () => {
           <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} />
         </section>
 
-        {/* Diagnostics: rack-health module (FPO) + component health */}
+        {/* Diagnostics: rack-health grid */}
         <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-1">
-            <PlaceholderBlock label="Rack health module — #264" className="h-64" />
-            <FleetErrors
-              controlBoardErrors={controlBoardErrors}
-              fanErrors={fanErrors}
-              hashboardErrors={hashboardErrors}
-              psuErrors={psuErrors}
-              extraFilterParams={buildingFilterParam}
+          {stats === undefined ? (
+            <SkeletonBar className="h-64 w-full rounded-2xl" />
+          ) : (
+            <BuildingRackGrid
+              rackHealth={stats.rackHealth}
+              aisles={effectiveBuilding.aisles}
+              racksPerAisle={effectiveBuilding.racksPerAisle}
+              testId="building-page-rack-grid"
             />
-          </div>
+          )}
         </section>
 
         {/* Performance section — identical wiring to RackOverviewPage */}

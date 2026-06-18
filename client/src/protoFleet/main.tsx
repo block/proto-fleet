@@ -1,8 +1,13 @@
 import { RouterProvider } from "react-router-dom";
 
 import router from "./router";
+import { seedMockAuth } from "@/protoFleet/mocks/enableMocks";
 
 import "@/shared/styles/index.css";
+
+if (import.meta.env.VITE_MOCK_DATA === "true") {
+  seedMockAuth();
+}
 
 // Polyfill BigInt.prototype.toJSON to fix React 19 serialization issue
 // React 19 attempts to serialize props during comparison, which fails for BigInt values

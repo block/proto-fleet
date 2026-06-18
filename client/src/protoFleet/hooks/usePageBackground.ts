@@ -8,6 +8,11 @@ const bgClassMap: Record<PageBackground, string> = {
   "surface-base": "bg-surface-base",
 };
 
+interface RouteHandle {
+  bg?: PageBackground;
+  hidePageHeader?: boolean;
+}
+
 export const usePageBackground = () => {
   // Read the data router state directly via context instead of useMatches(),
   // so we can safely fall back when rendered under a plain <MemoryRouter> (tests/storybook).
@@ -15,10 +20,13 @@ export const usePageBackground = () => {
   const state = useContext(UNSAFE_DataRouterStateContext);
 
   let bg: PageBackground = "surface-base";
+  let hidePageHeader = false;
   if (dataRouterContext && state) {
     const matches = state.matches;
-    bg = (matches[matches.length - 1]?.route?.handle as { bg?: PageBackground } | undefined)?.bg ?? "surface-base";
+    const handle = matches[matches.length - 1]?.route?.handle as RouteHandle | undefined;
+    bg = handle?.bg ?? "surface-base";
+    hidePageHeader = handle?.hidePageHeader ?? false;
   }
 
-  return { bg, bgClass: bgClassMap[bg] };
+  return { bg, bgClass: bgClassMap[bg], hidePageHeader };
 };

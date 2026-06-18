@@ -38,10 +38,10 @@ const BuildingMetricsRow = ({ powerCapacityKw, stats, testId }: BuildingMetricsR
 
   return (
     <div className="grid grid-cols-2 gap-6 tablet:grid-cols-4" data-testid={testId ?? "building-metrics-row"}>
-      <Metric label="Hashrate" value={hashrate} testId="building-metric-hashrate" />
-      <Metric label="Power" value={power} testId="building-metric-power" />
-      <Metric label="Efficiency" value={efficiency} testId="building-metric-efficiency" />
-      <Metric label="Miners online" value={onlineDisplay} testId="building-metric-online" />
+      <Metric label="Hashrate" value={hashrate} valueSize="text-heading-200" testId="building-metric-hashrate" />
+      <Metric label="Power" value={power} valueSize="text-heading-200" testId="building-metric-power" />
+      <Metric label="Efficiency" value={efficiency} valueSize="text-heading-200" testId="building-metric-efficiency" />
+      <Metric label="Miners online" value={onlineDisplay} valueSize="text-heading-200" testId="building-metric-online" />
     </div>
   );
 };
