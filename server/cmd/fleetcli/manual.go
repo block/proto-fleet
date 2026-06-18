@@ -6,7 +6,6 @@ func manualCommands() []*cli.Command {
 	return []*cli.Command{
 		authCommand(),
 		apiKeyCommand(),
-		pairingCommand(),
 		performanceCommand(),
 		firmwareCommand(),
 	}

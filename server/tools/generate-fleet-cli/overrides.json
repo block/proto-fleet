@@ -4,22 +4,8 @@
       "group": "miners",
       "auth": "bearer"
     },
-    "networkinfo.v1.NetworkInfoService": {
-      "group": "networkinfo",
-      "auth": "bearer"
-    },
-    "schedule.v1.ScheduleService": {
-      "group": "schedule",
-      "auth": "bearer",
-      "all_methods": true
-    },
     "pools.v1.PoolsService": {
       "group": "pools",
-      "auth": "bearer",
-      "all_methods": true
-    },
-    "minercommand.v1.MinerCommandService": {
-      "group": "minercommand",
       "auth": "bearer",
       "all_methods": true
     }
@@ -27,36 +13,6 @@
   "methods": {
     "fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots": {
       "command": "list"
-    },
-    "networkinfo.v1.NetworkInfoService/GetNetworkInfo": {
-      "command": "get"
-    },
-    "networkinfo.v1.NetworkInfoService/UpdateNetworkNickname": {
-      "command": "set-nickname"
-    },
-    "minercommand.v1.MinerCommandService/StartMining": {
-      "command": "start"
-    },
-    "minercommand.v1.MinerCommandService/StopMining": {
-      "command": "stop"
-    },
-    "minercommand.v1.MinerCommandService/SetPowerTarget": {
-      "command": "set-power-target"
-    },
-    "minercommand.v1.MinerCommandService/UpdateMiningPools": {
-      "command": "update-pools"
-    },
-    "minercommand.v1.MinerCommandService/CheckCommandCapabilities": {
-      "command": "check-capabilities"
-    },
-    "minercommand.v1.MinerCommandService/SetCoolingMode": {
-      "command": "set-cooling-mode"
-    },
-    "minercommand.v1.MinerCommandService/FirmwareUpdate": {
-      "command": "firmware-update"
-    },
-    "minercommand.v1.MinerCommandService/UpdateMinerPassword": {
-      "command": "update-password"
     }
   },
   "commands": [

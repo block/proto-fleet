@@ -16,6 +16,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/fatih/color"
+	"github.com/urfave/cli/v3"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // newFirmwareTestClient points a Client at srv and pre-seeds the session
@@ -525,6 +532,193 @@ func TestFirmwareDeleteAllReturnsCount(t *testing.T) {
 	if resp.DeletedCount != 3 {
 		t.Errorf("DeletedCount = %d, want 3", resp.DeletedCount)
 	}
+}
+
+func buildFirmwareDeployRequestFromArgs(t *testing.T, args ...string) (*minercommandv1.FirmwareUpdateRequest, error) {
+	t.Helper()
+
+	var req *minercommandv1.FirmwareUpdateRequest
+	var buildErr error
+	cmd := firmwareDeployCommand()
+	cmd.Action = func(_ context.Context, cmd *cli.Command) error {
+		req, buildErr = buildFirmwareDeployRequest(cmd)
+		return nil
+	}
+	if err := cmd.Run(context.Background(), append([]string{"deploy"}, args...)); err != nil {
+		return nil, err
+	}
+	return req, buildErr
+}
+
+func TestFirmwareDeployBuildsExplicitDeviceRequest(t *testing.T) {
+	req, err := buildFirmwareDeployRequestFromArgs(t,
+		"--firmware-file-id", " firmware-1 ",
+		"--device", "device-b",
+		"--device", " device-a ",
+		"--device", "device-b",
+	)
+	if err != nil {
+		t.Fatalf("buildFirmwareDeployRequest() error = %v", err)
+	}
+
+	want := &minercommandv1.FirmwareUpdateRequest{
+		FirmwareFileId: "firmware-1",
+		DeviceSelector: &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"device-a", "device-b"},
+				},
+			},
+		},
+	}
+	if !proto.Equal(req, want) {
+		t.Fatalf("request = %v, want %v", req, want)
+	}
+}
+
+func TestFirmwareDeployRequiresFirmwareFileIDAndDevice(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "missing firmware file id", args: []string{"--device", "device-a"}, wantErr: "firmware-file-id"},
+		{name: "missing device", args: []string{"--firmware-file-id", "firmware-1"}, wantErr: "device"},
+		{name: "blank device", args: []string{"--firmware-file-id", "firmware-1", "--device", "  "}, wantErr: "at least one --device is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := buildFirmwareDeployRequestFromArgs(t, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("firmware deploy %v error = %v, want containing %q", tt.args, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFirmwareDeployRejectsUnsupportedSelectorsBeforeRequest(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "unexpected request", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	tests := [][]string{
+		{"--all-devices"},
+		{"--group", "rack-a"},
+		{"--group-id", "1"},
+		{"--rack", "rack-a"},
+		{"--rack-id", "1"},
+	}
+	for _, unsupportedSelector := range tests {
+		t.Run(strings.Join(unsupportedSelector, " "), func(t *testing.T) {
+			args := []string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+				"firmware", "deploy", "--firmware-file-id", "firmware-1", "--device", "device-a",
+			}
+			args = append(args, unsupportedSelector...)
+
+			err := newRootCommand().Run(context.Background(), args)
+			if err == nil {
+				t.Fatalf("firmware deploy accepted unsupported selector %s", strings.Join(unsupportedSelector, " "))
+			}
+			if requestCount != 0 {
+				t.Fatalf("request count = %d, want 0", requestCount)
+			}
+		})
+	}
+}
+
+func TestFirmwareDeployCallsFirmwareUpdateAndPrintsBatch(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	var gotAuth string
+	var gotReq minercommandv1.FirmwareUpdateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /minercommand.v1.MinerCommandService/FirmwareUpdate", func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read firmware deploy request: %v", err)
+		}
+		if err := protojson.Unmarshal(body, &gotReq); err != nil {
+			t.Errorf("decode firmware deploy request: %v", err)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"batch_identifier":"batch-1"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	output := captureStdout(t, func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"firmware", "deploy", "--firmware-file-id", "firmware-1", "--device", "device-a", "--device", "device-b",
+		})
+		if err != nil {
+			t.Fatalf("firmware deploy error = %v", err)
+		}
+	})
+
+	if gotAuth != "Bearer test-key" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-key")
+	}
+	wantReq := &minercommandv1.FirmwareUpdateRequest{
+		FirmwareFileId: "firmware-1",
+		DeviceSelector: &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"device-a", "device-b"},
+				},
+			},
+		},
+	}
+	if !proto.Equal(&gotReq, wantReq) {
+		t.Fatalf("request = %v, want %v", &gotReq, wantReq)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %s", output)
+	}
+	if decoded["batch_identifier"] != "batch-1" {
+		t.Fatalf("batch_identifier = %v, want batch-1", decoded["batch_identifier"])
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = write
+	defer func() { os.Stdout = oldStdout }()
+
+	fn()
+
+	if err := write.Close(); err != nil {
+		t.Fatalf("close stdout pipe: %v", err)
+	}
+	output, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatalf("read stdout pipe: %v", err)
+	}
+	if err := read.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+	return string(output)
 }
 
 func TestFirmwareAPIErrorIncludesMethodLabel(t *testing.T) {
