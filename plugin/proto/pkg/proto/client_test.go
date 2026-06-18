@@ -1121,7 +1121,7 @@ func TestGetStatusNoMiningStatistics(t *testing.T) {
 
 // TestUploadFirmware tests the multipart firmware upload to the MDK REST API.
 func TestUploadFirmware(t *testing.T) {
-	const testToken = "credential-access-token"
+	const uploadAuthFixture = "fixture-upload-authz"
 	firmwareContent := []byte("fake-swu-firmware-content-for-test")
 
 	tests := []struct {
@@ -1137,7 +1137,7 @@ func TestUploadFirmware(t *testing.T) {
 				return func(w http.ResponseWriter, r *http.Request) {
 					assert.Equal(t, http.MethodPut, r.Method)
 					assert.Equal(t, "/api/v1/system/update", r.URL.Path)
-					assert.Equal(t, "Bearer "+testToken, r.Header.Get("Authorization"))
+					assert.Equal(t, "Bearer "+uploadAuthFixture, r.Header.Get("Authorization"))
 					assert.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data"))
 					assert.Empty(t, r.TransferEncoding, "firmware upload must not use chunked transfer encoding")
 					assert.Greater(t, r.ContentLength, int64(len(firmwareContent)), "multipart content length should include file plus form boundaries")
@@ -1155,7 +1155,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"message":"Firmware uploaded successfully"}`))
 				}
 			},
-			token:     testToken,
+			token:     uploadAuthFixture,
 			expectErr: false,
 		},
 		{
@@ -1166,7 +1166,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"invalid token"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "invalid token",
 		},
@@ -1177,7 +1177,7 @@ func TestUploadFirmware(t *testing.T) {
 					w.WriteHeader(http.StatusUnauthorized)
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "check credentials",
 		},
@@ -1189,7 +1189,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"update in progress"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "update in progress",
 		},
@@ -1201,7 +1201,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"unsupported firmware"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "unsupported firmware",
 		},
@@ -1213,7 +1213,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"internal failure"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "internal failure",
 		},
