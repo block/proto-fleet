@@ -137,10 +137,19 @@ const Fleet = () => {
   // "Unfiltered" here means "no chip / saved-view filter applied"; the
   // active-site scope still applies so Y reflects the current site
   // (otherwise switching sites would leave Y stuck at the org-wide total).
-  const siteScopedTotalFilter = useMemo(
-    () => mergeSiteFilter(undefined, activeSiteIds, activeIncludeUnassigned),
-    [activeSiteIds, activeIncludeUnassigned],
-  );
+  // A `?site=` deep link wins over the picker — same precedence as the
+  // list's currentFilter — so a deep-linked site view reports its own Y
+  // rather than the org-wide or picker-site total.
+  const siteScopedTotalFilter = useMemo(() => {
+    const urlHasSiteFilter = (urlFilter?.siteIds.length ?? 0) > 0 || (urlFilter?.includeUnassigned ?? false);
+    if (urlHasSiteFilter) {
+      return create(MinerListFilterSchema, {
+        siteIds: urlFilter!.siteIds,
+        includeUnassigned: urlFilter!.includeUnassigned,
+      });
+    }
+    return mergeSiteFilter(undefined, activeSiteIds, activeIncludeUnassigned);
+  }, [urlFilter, activeSiteIds, activeIncludeUnassigned]);
   const { totalMiners: totalUnfilteredMiners, refreshCurrentPage: refreshUnfilteredCount } = useFleet({
     pageSize: 1,
     filter: siteScopedTotalFilter,

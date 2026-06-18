@@ -6,7 +6,7 @@ import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
@@ -158,10 +158,10 @@ const RacksPage = () => {
   // SitePicker active site → server-side site_ids / include_unassigned.
   // URL `?site=` deep links still win when present (legacy / cross-link
   // scoping) so the picker doesn't fight a user-explicit URL.
-  const knownSiteIds = useMemo(
-    () => buildKnownSiteIds(allSites.map((s) => ({ site: { id: BigInt(s.id), name: s.label } }) as SiteWithCounts)),
-    [allSites],
-  );
+  // allSites already holds the decimal-string site IDs, so derive the
+  // known-id set directly rather than round-tripping through a partial
+  // SiteWithCounts cast.
+  const knownSiteIds = useMemo(() => new Set(allSites.map((s) => s.id)), [allSites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 

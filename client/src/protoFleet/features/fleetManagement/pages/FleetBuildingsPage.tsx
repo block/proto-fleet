@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
@@ -101,6 +101,21 @@ const FleetBuildingsPage = () => {
     pollIntervalMs: POLL_INTERVAL_MS,
     enabled: canReadBuildings,
   });
+
+  // Drop the previous scope's rows the moment the site filter changes so
+  // the now-mismatched buildings can't render (or be selected/edited)
+  // under the new scope during the in-flight refetch. Resetting to
+  // `undefined` surfaces the Loading… state until the scoped response
+  // lands; usePoll's params change fires that fetch immediately.
+  const prevSiteFilterKey = useRef(siteFilterKey);
+  useEffect(() => {
+    if (prevSiteFilterKey.current !== siteFilterKey) {
+      prevSiteFilterKey.current = siteFilterKey;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale cross-scope rows; external-sync pattern.
+      setBuildings(undefined);
+      setSelectedBuildingIds([]);
+    }
+  }, [siteFilterKey]);
 
   // Server-side filter already scoped the list to the active site /
   // URL deep-link; just pass through.
