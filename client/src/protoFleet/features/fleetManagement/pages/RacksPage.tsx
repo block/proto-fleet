@@ -8,7 +8,6 @@ import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
-import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
@@ -19,6 +18,7 @@ import {
 } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";

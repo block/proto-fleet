@@ -66,10 +66,10 @@ const (
 // BuildingServiceClient is a client for the buildings.v1.BuildingService service.
 type BuildingServiceClient interface {
 	// ListBuildings returns every live building in the org with its
-	// rack_count. site_filter selects buildings under a specific
-	// site (when site_id > 0), the unassigned bucket (when
-	// unassigned_only is true), or all buildings in the org
-	// (default).
+	// rack_count. site_ids restricts the result to buildings under any
+	// of the given sites; include_unassigned adds the unassigned bucket
+	// (building.site_id IS NULL). Leaving both unset returns every
+	// building in the org.
 	ListBuildings(context.Context, *connect.Request[v1.ListBuildingsRequest]) (*connect.Response[v1.ListBuildingsResponse], error)
 	// GetBuilding returns a single building by id. Returns NotFound if the
 	// building does not exist or belongs to another org.
@@ -241,10 +241,10 @@ func (c *buildingServiceClient) GetBuildingStats(ctx context.Context, req *conne
 // BuildingServiceHandler is an implementation of the buildings.v1.BuildingService service.
 type BuildingServiceHandler interface {
 	// ListBuildings returns every live building in the org with its
-	// rack_count. site_filter selects buildings under a specific
-	// site (when site_id > 0), the unassigned bucket (when
-	// unassigned_only is true), or all buildings in the org
-	// (default).
+	// rack_count. site_ids restricts the result to buildings under any
+	// of the given sites; include_unassigned adds the unassigned bucket
+	// (building.site_id IS NULL). Leaving both unset returns every
+	// building in the org.
 	ListBuildings(context.Context, *connect.Request[v1.ListBuildingsRequest]) (*connect.Response[v1.ListBuildingsResponse], error)
 	// GetBuilding returns a single building by id. Returns NotFound if the
 	// building does not exist or belongs to another org.
