@@ -166,11 +166,6 @@ message FleetNodePairResult {
     // password -- means the cloud must persist it as the device's auth material;
     // absent means store nothing.
     UsedCredentials used_credentials = 11;
-
-    // Present and true when the node paired the miner but detected it is still
-    // using its factory default password. The cloud persists this as
-    // DEFAULT_PASSWORD so operators can find and rotate affected devices.
-    optional bool default_password_active = 12;
 }
 
 // UsedCredentials carries the basic-auth credentials a node authenticated with,

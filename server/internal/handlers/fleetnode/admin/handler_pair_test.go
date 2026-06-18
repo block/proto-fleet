@@ -112,64 +112,6 @@ func TestPairDiscoveredDevicesOnFleetNode_PairsAndStreamsResults(t *testing.T) {
 	assert.Equal(t, 1, bound)
 }
 
-func TestPairDiscoveredDevicesOnFleetNode_DefaultPasswordStreamsRemediationState(t *testing.T) {
-	h := newPairingHarness(t)
-	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-default-password")
-	h.insertDiscoveredForNode(t, fleetNodeID, "mac:hp-default")
-	stream := h.registry.Register(fleetNodeID)
-	defer stream.Unregister()
-	client := startAdminServer(t, h)
-
-	agentDone := make(chan struct{})
-	go func() {
-		defer close(agentDone)
-		select {
-		case cmd, ok := <-stream.Outgoing:
-			if !ok {
-				return
-			}
-			defaultPasswordActive := true
-			h.nodeReportPaired(t, fleetNodeID, cmd.GetCommandId(), []*gatewaypb.FleetNodePairResult{
-				{
-					DeviceIdentifier:      "mac:hp-default",
-					Outcome:               gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
-					SerialNumber:          "sn-hp-default",
-					MacAddress:            "aa:bb:cc:11:22:34",
-					UsedCredentials:       &gatewaypb.UsedCredentials{Username: "admin", Password: "proto"},
-					DefaultPasswordActive: &defaultPasswordActive,
-				},
-			})
-			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
-		case <-time.After(2 * time.Second):
-			t.Errorf("agent goroutine timed out waiting for pair command")
-		}
-	}()
-
-	resp, err := client.PairDiscoveredDevicesOnFleetNode(context.Background(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
-		FleetNodeId:       fleetNodeID,
-		DeviceIdentifiers: []string{"mac:hp-default"},
-	}))
-	require.NoError(t, err)
-
-	var results []*pb.DevicePairingResult
-	for resp.Receive() {
-		results = append(results, resp.Msg().GetResults()...)
-	}
-	require.NoError(t, resp.Err())
-	require.NoError(t, resp.Close())
-	require.Len(t, results, 1)
-	assert.Equal(t, "mac:hp-default", results[0].GetDeviceIdentifier())
-	assert.Equal(t, fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD, results[0].GetPairingStatus())
-	<-agentDone
-
-	var status string
-	require.NoError(t, h.db.QueryRow(
-		`SELECT dp.pairing_status FROM device d JOIN device_pairing dp ON dp.device_id = d.id WHERE d.device_identifier=$1 AND d.org_id=$2`,
-		"mac:hp-default", h.orgID,
-	).Scan(&status))
-	assert.Equal(t, "DEFAULT_PASSWORD", status)
-}
-
 func TestPairDiscoveredDevicesOnFleetNode_SynthesizesUnreportedTargets(t *testing.T) {
 	// Arrange: two devices requested, but the node reports only one before its
 	// (partial) ack. The operator must still get a terminal status for the device

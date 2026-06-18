@@ -135,7 +135,7 @@ func TestGetBuildingStats_internalErrorWhenDepsMissing(t *testing.T) {
 	}
 }
 
-func TestGetBuildingStats_includesRemediationStatusesInFilter(t *testing.T) {
+func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
 	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
@@ -149,7 +149,7 @@ func TestGetBuildingStats_includesRemediationStatusesInFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	hasPaired, hasAuthNeeded, hasDefaultPassword := false, false, false
+	hasPaired, hasAuthNeeded := false, false
 	for _, s := range devices.lastFilter.PairingStatuses {
 		if s == fm.PairingStatus_PAIRING_STATUS_PAIRED {
 			hasPaired = true
@@ -157,12 +157,9 @@ func TestGetBuildingStats_includesRemediationStatusesInFilter(t *testing.T) {
 		if s == fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 			hasAuthNeeded = true
 		}
-		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
-			hasDefaultPassword = true
-		}
 	}
-	if !hasPaired || !hasAuthNeeded || !hasDefaultPassword {
-		t.Errorf("expected PAIRED+AUTH_NEEDED+DEFAULT_PASSWORD filter; got %v", devices.lastFilter.PairingStatuses)
+	if !hasPaired || !hasAuthNeeded {
+		t.Errorf("expected PAIRED+AUTH_NEEDED filter; got %v", devices.lastFilter.PairingStatuses)
 	}
 	if devices.lastFilter.Limit != MaxDevicesPerStatsResponse+1 {
 		t.Errorf("expected SQL-level Limit=cap+1 (%d); got %d", MaxDevicesPerStatsResponse+1, devices.lastFilter.Limit)

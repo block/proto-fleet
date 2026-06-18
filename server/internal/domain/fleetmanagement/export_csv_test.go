@@ -178,12 +178,12 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Needs attention",
 		},
 		{
-			name: "default password follows normal status",
+			name: "default password overrides online to needs attention",
 			snapshot: &pb.MinerStateSnapshot{
 				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
-			expected: "Hashing",
+			expected: "Needs attention",
 		},
 		{
 			name:     "needs mining pool",
@@ -231,11 +231,11 @@ func TestMinerIssuesCSVValue(t *testing.T) {
 			expected: "Authentication required",
 		},
 		{
-			name: "default password has no issue text",
+			name: "default password",
 			snapshot: &pb.MinerStateSnapshot{
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
-			expected: "",
+			expected: "Password change required",
 		},
 		{
 			name:     "needs mining pool",

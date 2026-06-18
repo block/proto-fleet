@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"sort"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
@@ -827,8 +828,8 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// BuildingIDs joins rack → building_id; un-racked devices at the
 	// site without a building aren't visible here, which is the right
 	// scope (this is a building roll-up, not a site roll-up).
-	// Pass the fleet-visible paired-like statuses explicitly so the stats
-	// roll-up counts credential-related rows the same way the miner list does.
+	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
+	// counts AUTH_NEEDED devices the same way the miner list does.
 	//
 	// Also constrain by expectedSiteID so a concurrent AssignBuildingsToSite
 	// that commits between the building re-read and the device fetch can't
@@ -842,9 +843,13 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// We never hold (or fan out to state/telemetry queries with) more
 	// than cap+1 rows even for a pathological building.
 	devFilter := &interfaces.MinerFilter{
-		BuildingIDs:     []int64{buildingID},
-		PairingStatuses: interfaces.FleetVisiblePairingStatuses(),
-		Limit:           MaxDevicesPerStatsResponse + 1,
+		BuildingIDs: []int64{buildingID},
+		PairingStatuses: []fm.PairingStatus{
+			fm.PairingStatus_PAIRING_STATUS_PAIRED,
+			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+		},
+		Limit: MaxDevicesPerStatsResponse + 1,
 	}
 	if expectedSiteID != nil {
 		devFilter.SiteIDs = []int64{*expectedSiteID}

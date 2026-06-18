@@ -40,7 +40,7 @@ SELECT
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
         THEN 1
         ELSE 0
     END), 0)::bigint as offline_count,
@@ -48,7 +48,7 @@ SELECT
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
         THEN 1
         ELSE 0
     END), 0)::bigint as sleeping_count,
@@ -56,10 +56,10 @@ SELECT
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -68,7 +68,7 @@ SELECT
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
@@ -111,7 +111,7 @@ WHERE d.deleted_at IS NULL
           )
       )
       OR ($4::boolean = TRUE
-          AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+          AND dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
           AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
       OR ($4::boolean = TRUE
           AND EXISTS (
@@ -121,13 +121,13 @@ WHERE d.deleted_at IS NULL
                 AND errors.closed_at IS NULL
                 AND errors.severity IN (1, 2, 3, 4)
           )
-          AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
           AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-      -- NULL-status paired-like miners (counted as offline in dashboard).
-      -- AUTHENTICATION_NEEDED stays in needs-attention, not offline.
+      -- NULL-status paired miners (counted as offline in dashboard).
+      -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
       OR ($5::boolean = TRUE
           AND ds.status IS NULL
-          AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+          AND dp.pairing_status = 'PAIRED')
   )
   AND ($6::text IS NULL OR dd.model = ANY($7::text[]))
   AND ($8::text IS NULL OR d.device_identifier = ANY($9::text[]))
@@ -1132,7 +1132,7 @@ SELECT
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
         THEN 1
         ELSE 0
     END), 0)::int AS offline_count,
@@ -1140,7 +1140,7 @@ SELECT
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
         THEN 1
         ELSE 0
     END), 0)::int AS sleeping_count,
@@ -1148,10 +1148,10 @@ SELECT
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -1160,7 +1160,7 @@ SELECT
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
@@ -1550,11 +1550,11 @@ WHERE dd.org_id = $1
                 OR ($8::boolean = TRUE)
             )
         )
-        -- Auth-needed devices (exclude OFFLINE only)
+        -- Auth-needed / default-password (exclude OFFLINE only)
         OR ($8::boolean = TRUE
-            AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+            AND dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
             AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
-        -- Devices with actionable errors. Excludes NULL-status paired-like miners
+        -- Devices with actionable errors. Excludes NULL-status paired miners
         -- so they stay bucketed as offline (matches CountMinersByState).
         OR ($8::boolean = TRUE
             AND EXISTS (
@@ -1564,13 +1564,13 @@ WHERE dd.org_id = $1
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
             AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-        -- NULL-status paired-like miners (counted as offline in dashboard).
-        -- AUTHENTICATION_NEEDED stays in needs-attention, not offline.
+        -- NULL-status paired miners (counted as offline in dashboard).
+        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
         OR ($9::boolean = TRUE
             AND ds.status IS NULL
-            AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+            AND dp.pairing_status = 'PAIRED')
     )
     -- Component error filter
     AND (

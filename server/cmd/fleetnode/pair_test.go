@@ -535,23 +535,6 @@ func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
 	assert.Equal(t, "admin", res.GetUsedCredentials().GetPassword())
 }
 
-func TestPluginPairer_ReportsDefaultPasswordActive(t *testing.T) {
-	active := true
-	drv := &fakePairDriver{
-		pairResult: sdk.DeviceInfo{
-			SerialNumber:          "SN1",
-			DefaultPasswordActive: &active,
-		},
-		defaults: []sdk.UsernamePassword{{Username: "admin", Password: "proto"}},
-	}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
-
-	res := p.Pair(context.Background(), fakePairTarget(), nil)
-
-	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	assert.True(t, res.GetDefaultPasswordActive())
-}
-
 func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {
 	// Arrange: the first default is unreportable (oversized), the second is usable.
 	drv := &fakePairDriver{

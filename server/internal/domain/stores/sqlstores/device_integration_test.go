@@ -678,8 +678,7 @@ func TestCountMinersByState_ComplexPriority(t *testing.T) {
 }
 
 // TestCountMinersByState_FilterConsistency verifies that filtering by needs attention
-// returns exactly the devices counted in broken_count (not offline/sleeping devices
-// with errors, and not DEFAULT_PASSWORD devices without actual errors).
+// returns exactly the devices counted in broken_count (not offline/sleeping devices with errors)
 func TestCountMinersByState_FilterConsistency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -695,7 +694,6 @@ func TestCountMinersByState_FilterConsistency(t *testing.T) {
 			{id: 3, identifier: "device-003", status: "ERROR", pairingStatus: "PAIRED"},                 // Error status - should be in needs attention
 			{id: 4, identifier: "device-004", status: "ACTIVE", pairingStatus: "PAIRED"},                // Active with error - should be in needs attention
 			{id: 5, identifier: "device-005", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // Auth needed - should be in needs attention
-			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"},      // Default password - should NOT be in needs attention
 		},
 		errors: []testError{
 			{deviceID: 1, orgID: 1, severity: 1, closed: false}, // OFFLINE with error
@@ -732,7 +730,6 @@ func TestCountMinersByState_FilterConsistency(t *testing.T) {
 	require.True(t, identifiers["device-005"], "should include AUTHENTICATION_NEEDED device")
 	require.False(t, identifiers["device-001"], "should NOT include OFFLINE device with error")
 	require.False(t, identifiers["device-002"], "should NOT include INACTIVE device with error")
-	require.False(t, identifiers["device-006"], "should NOT include DEFAULT_PASSWORD without an actual error")
 }
 
 // TestCountMinersByState_AuthNeededNullStatus verifies auth-needed miners with
@@ -752,7 +749,7 @@ func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int32(1), counts.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(2), counts.OfflineCount, "paired/default-password with NULL status should be offline")
+	require.Equal(t, int32(1), counts.OfflineCount, "paired with NULL status should be offline")
 	require.Equal(t, int32(1), counts.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), counts.SleepingCount, "no sleeping devices")
 }
@@ -803,7 +800,7 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), counts.BrokenCount)
-	require.Equal(t, int32(2), counts.OfflineCount)
+	require.Equal(t, int32(1), counts.OfflineCount)
 	require.Equal(t, int32(1), counts.HashingCount)
 
 	// Filter by needs attention — should include auth-needed NULL-status miner
@@ -816,19 +813,15 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	require.Len(t, miners, 1)
 	require.Equal(t, "device-001", miners[0].DeviceIdentifier, "should include auth-needed NULL-status miner")
 
-	// Filter by offline — should include paired-like NULL-status miners
+	// Filter by offline — should include paired NULL-status miner
 	offlineFilter := &interfaces.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
 	}
 	miners, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), total, "offline filter should match 2 miners")
-	require.Len(t, miners, 2)
-	identifiers := make([]string, 0, len(miners))
-	for _, miner := range miners {
-		identifiers = append(identifiers, miner.DeviceIdentifier)
-	}
-	require.ElementsMatch(t, []string{"device-002", "device-004"}, identifiers, "should include paired-like NULL-status miners")
+	require.Equal(t, int64(1), total, "offline filter should match 1 miner")
+	require.Len(t, miners, 1)
+	require.Equal(t, "device-002", miners[0].DeviceIdentifier, "should include paired NULL-status miner")
 }
 
 // TestCountMinersByState_FilteredCountsMatchList verifies that GetMinerStateCounts
@@ -852,8 +845,6 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 			{id: 5, identifier: "device-005", status: "ERROR", pairingStatus: "PAIRED"},                 // broken
 			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE → broken
 			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error → broken (excluded from Hashing)
-			{id: 8, identifier: "device-008", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"},      // default-password+ACTIVE → hashing
-			{id: 9, identifier: "device-009", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // default-password+NULL → offline
 		},
 		errors: []testError{
 			{deviceID: 7, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-007
@@ -868,7 +859,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	}
 	_, _, listTotal, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), listTotal, "offline list should match OFFLINE + NULL paired-like")
+	require.Equal(t, int64(2), listTotal, "offline list should match OFFLINE + NULL+paired")
 
 	stateCounts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
@@ -901,12 +892,12 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	}
 	_, _, listTotal, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, hashingFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), listTotal,
-		"hashing list should exclude ACTIVE+error (device-007); includes device-003, device-006, and device-008")
+	require.Equal(t, int64(2), listTotal,
+		"hashing list should exclude ACTIVE+error (device-007); includes device-003 and device-006")
 
 	stateCounts, err = store.GetMinerStateCounts(ctx, 1, hashingFilter)
 	require.NoError(t, err)
-	require.Equal(t, int32(2), stateCounts.HashingCount, "paired/default-password+ACTIVE+no-error (device-003, device-008)")
+	require.Equal(t, int32(1), stateCounts.HashingCount, "paired+ACTIVE+no-error only (device-003)")
 	require.Equal(t, int32(1), stateCounts.BrokenCount, "auth+ACTIVE+no-error (device-006); auth overrides hashing")
 	require.Equal(t, int32(0), stateCounts.OfflineCount, "no offline in hashing-filtered view")
 	require.Equal(t, int32(0), stateCounts.SleepingCount, "no sleeping in hashing-filtered view")
@@ -981,7 +972,7 @@ func TestGetMinerStateCountsByCollections_AuthNeededNullStatus(t *testing.T) {
 
 	c := counts[collectionID]
 	require.Equal(t, int32(1), c.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(2), c.OfflineCount, "paired/default-password with NULL status should be offline")
+	require.Equal(t, int32(1), c.OfflineCount, "paired with NULL status should be offline")
 	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
@@ -1017,10 +1008,10 @@ func TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus(t *testing.T)
 	require.Equal(t, int32(0), c.HashingCount, "no hashing devices")
 }
 
-// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsHashing verifies the
-// site/building stats query (by device IDs) treats DEFAULT_PASSWORD like a
-// paired device for health rollups.
-func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsHashing(t *testing.T) {
+// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken verifies the
+// site/building stats query (by device IDs) buckets a DEFAULT_PASSWORD device as
+// broken/needs-attention rather than dropping it from every state bucket.
+func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1029,7 +1020,7 @@ func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsHashing(t *testing.T) {
 	ctx := t.Context()
 
 	devices := []testDevice{
-		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active → hashing
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active → broken
 		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},           // active paired → hashing
 	}
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
@@ -1038,8 +1029,8 @@ func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsHashing(t *testing.T) {
 	c, err := store.GetMinerStateCountsByDeviceIDs(ctx, 1, []string{"device-001", "device-002"})
 	require.NoError(t, err)
 
-	require.Equal(t, int32(0), c.BrokenCount, "default-password without an actual error should not be broken")
-	require.Equal(t, int32(2), c.HashingCount, "active paired/default-password should be hashing")
+	require.Equal(t, int32(1), c.BrokenCount, "default-password device should be broken, not dropped from buckets")
+	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
@@ -1219,14 +1210,13 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 }
 
 // nullStatusDashboardFixture returns the canonical fixture used to verify NULL
-// device_status bucketing: auth-needed (→ broken), paired/default-password
+// device_status bucketing: auth-needed (→ broken), paired
 // (→ offline), and an active paired control (→ hashing).
 func nullStatusDashboardFixture() []testDevice {
 	return []testDevice{
 		{id: 1, identifier: "device-001", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},
 		{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},
 		{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},
-		{id: 4, identifier: "device-004", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 	}
 }
 

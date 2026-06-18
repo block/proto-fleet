@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
@@ -897,18 +898,22 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	// Device identifiers scoped to the site via the existing MinerFilter.
 	// SiteIDs alone is enough — site-direct devices have device.site_id
 	// set; racked devices inherit site_id through the rack cascade.
-	// Pass the fleet-visible paired-like statuses explicitly so the stats
-	// roll-up counts credential-related rows the same way the miner list does;
-	// without this, the default PAIRED-only filter would silently undercount.
+	// Pass PAIRED + AUTHENTICATION_NEEDED explicitly so the stats roll-up
+	// counts AUTH_NEEDED devices the same way the miner list does — without
+	// this, the default PAIRED-only filter would silently undercount.
 	// Limit = cap + 1 lets us detect over-cap with a single bounded query
 	// rather than materializing the full identifier list before bailing.
 	// The cap-exceeded guard below trips when the SQL returns cap+1 rows;
 	// we never hold a slice larger than that even for an unboundedly-sized
 	// site.
 	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
-		SiteIDs:         []int64{siteID},
-		PairingStatuses: interfaces.FleetVisiblePairingStatuses(),
-		Limit:           MaxDevicesPerSiteStatsRequest + 1,
+		SiteIDs: []int64{siteID},
+		PairingStatuses: []fm.PairingStatus{
+			fm.PairingStatus_PAIRING_STATUS_PAIRED,
+			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+		},
+		Limit: MaxDevicesPerSiteStatsRequest + 1,
 	})
 	if err != nil {
 		return nil, err

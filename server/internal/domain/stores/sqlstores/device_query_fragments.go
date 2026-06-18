@@ -91,7 +91,6 @@ const (
 	actionableErrorSeverityList      = "(1, 2, 3, 4)"
 	actionableErrorComponentTypeList = "(1, 2, 3, 4)"
 	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')"
-	authNeededPairingStatusList      = "('AUTHENTICATION_NEEDED')"
 	actionableErrorSeverities        = "errors.severity IN " + actionableErrorSeverityList
 )
 
@@ -105,10 +104,6 @@ func actionableErrorComponentTypesExpr(alias string) string {
 
 func actionablePairingStatusesExpr(alias string) string {
 	return fmt.Sprintf("%s.pairing_status IN %s", alias, actionablePairingStatusList)
-}
-
-func authNeededPairingStatusesExpr(alias string) string {
-	return fmt.Sprintf("%s.pairing_status IN %s", alias, authNeededPairingStatusList)
 }
 
 // nonActionableStatuses defines device statuses where errors should not trigger

@@ -16,7 +16,6 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const (
@@ -54,7 +53,11 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 		return err
 	}
 
-	filter.PairingStatuses = interfaces.FleetVisiblePairingStatuses()
+	filter.PairingStatuses = []pb.PairingStatus{
+		pb.PairingStatus_PAIRING_STATUS_PAIRED,
+		pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+	}
 	// Export uses default name-ASC order for cross-page consistency.
 	temperatureUnit := normalizeCSVTemperatureUnit(req.TemperatureUnit)
 
@@ -204,18 +207,21 @@ func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
 	return headers
 }
 
-func authenticationNeeded(status pb.PairingStatus) bool {
-	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
+// needsCredentialRemediation reports whether the device needs operator action and
+// should surface as "needs attention".
+func needsCredentialRemediation(status pb.PairingStatus) bool {
+	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED ||
+		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
 }
 
 // telemetryGatedByAuth reports whether telemetry is unavailable pending auth.
 // DEFAULT_PASSWORD devices still report telemetry, so their values are exported.
 func telemetryGatedByAuth(status pb.PairingStatus) bool {
-	return authenticationNeeded(status)
+	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
 }
 
 func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
-	if authenticationNeeded(snapshot.PairingStatus) {
+	if needsCredentialRemediation(snapshot.PairingStatus) {
 		return csvStatusNeedsAttention
 	}
 
@@ -244,6 +250,10 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 func minerIssuesCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return "Authentication required"
+	}
+
+	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+		return "Password change required"
 	}
 
 	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL {

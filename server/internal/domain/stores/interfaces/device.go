@@ -79,14 +79,6 @@ type MinerFilter struct {
 	Limit int
 }
 
-func FleetVisiblePairingStatuses() []fm.PairingStatus {
-	return []fm.PairingStatus{
-		fm.PairingStatus_PAIRING_STATUS_PAIRED,
-		fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-		fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-	}
-}
-
 // MinerStateCounts holds fleet health state counts for a collection.
 type MinerStateCounts struct {
 	HashingCount  int32

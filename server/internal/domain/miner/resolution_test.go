@@ -162,9 +162,7 @@ func TestGetDeviceWithCredentialsAndIP_ResolvesDeviceWithSoftDeletedDiscoveryRow
 	require.NoError(t, err)
 
 	// Act: the direct-dial coordinate lookup the command path uses.
-	row, err := sqlc.New(db).GetDeviceWithCredentialsAndIPByDeviceIdentifier(t.Context(), sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierParams{
-		DeviceIdentifier: deviceIdentifier,
-	})
+	row, err := sqlc.New(db).GetDeviceWithCredentialsAndIPByDeviceIdentifier(t.Context(), deviceIdentifier)
 
 	// Assert: still resolves; the soft-deleted linked discovery row does not drop it.
 	require.NoError(t, err)
