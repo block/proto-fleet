@@ -1411,7 +1411,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             )}
           </div>
           {renderActionBar ? (
-            <div className={stickyChromeClassName ? clsx("sticky left-0", stickyChromeClassName) : "w-full"}>
+            // No sticky/width treatment here: action bars position themselves
+            // (e.g. MinerListActionBar is `fixed`). Wrapping a fixed bar in a
+            // sticky div creates a stacking context that traps its popovers
+            // below the page chrome.
+            <div className="w-full">
               {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
             </div>
           ) : null}
