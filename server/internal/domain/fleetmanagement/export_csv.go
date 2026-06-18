@@ -218,6 +218,11 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 		return csvStatusNeedsAttention
 	}
 
+	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED &&
+		isPairedLikePairingStatus(snapshot.PairingStatus) {
+		return "Offline"
+	}
+
 	switch snapshot.DeviceStatus {
 	case pb.DeviceStatus_DEVICE_STATUS_OFFLINE:
 		return "Offline"

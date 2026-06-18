@@ -186,6 +186,22 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Hashing",
 		},
 		{
+			name: "default password with unspecified status is offline",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "Offline",
+		},
+		{
+			name: "paired with unspecified status is offline",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_PAIRED,
+			},
+			expected: "Offline",
+		},
+		{
 			name:     "needs mining pool",
 			snapshot: &pb.MinerStateSnapshot{DeviceStatus: pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL},
 			expected: "Needs attention",
