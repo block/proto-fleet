@@ -37,7 +37,11 @@ groups:
               type: math
               expression: $A
         noDataState: OK
-        execErrState: Error
+        # Don't fire on query error: Grafana emits DatasourceError instances with
+        # rule/datasource labels and no organization_id, so an org-scoped pause/maintenance
+        # silence can't mute them. Datasource/ingest outages are covered globally by the
+        # operator-only protofleet-ingest-stalled rule instead.
+        execErrState: OK
         for: 5m
         labels:
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
@@ -91,7 +95,11 @@ groups:
               type: math
               expression: $A
         noDataState: OK
-        execErrState: Error
+        # Don't fire on query error: Grafana emits DatasourceError instances with
+        # rule/datasource labels and no organization_id, so an org-scoped pause/maintenance
+        # silence can't mute them. Datasource/ingest outages are covered globally by the
+        # operator-only protofleet-ingest-stalled rule instead.
+        execErrState: OK
         for: 10m
         labels:
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
@@ -142,7 +150,11 @@ groups:
               type: math
               expression: $A > 0
         noDataState: OK
-        execErrState: Error
+        # Don't fire on query error: Grafana emits DatasourceError instances with
+        # rule/datasource labels and no organization_id, so an org-scoped pause/maintenance
+        # silence can't mute them. Datasource/ingest outages are covered globally by the
+        # operator-only protofleet-ingest-stalled rule instead.
+        execErrState: OK
         for: 10m
         labels:
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
