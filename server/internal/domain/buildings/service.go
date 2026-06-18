@@ -876,8 +876,10 @@ func (s *Service) AssignDevicesToBuilding(ctx context.Context, params models.Ass
 //     Catches the rack-without-building corner: a rack at Site A with
 //     no building wouldn't trip the building-only check above, but
 //     moving the device to a building at Site B would still leave
-//     rack/site out of sync. Skipped when the target building has no
-//     site (no site invariant to defend yet).
+//     rack/site out of sync. Runs for site-less target buildings too
+//     (target site nil): a device whose rack is at a real site can't
+//     be cascaded site-less while staying in that rack, so it's
+//     flagged for force-clear.
 func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID int64, targetBuildingID *int64, targetSiteID *int64, identifiers []string) ([]models.PerDeviceBuildingConflict, error) {
 	existingList, err := s.siteStore.ListExistingDeviceIdentifiers(ctx, orgID, identifiers)
 	if err != nil {
@@ -926,16 +928,26 @@ func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID in
 
 	// Cross-site rack guard. Reuses the existing site-conflict probe
 	// from SiteStore so we don't carry a parallel query family.
-	// Skipped when the target building has no site — moving devices
-	// into an unassigned building can't violate a site invariant
-	// (the target has none to defend).
-	if targetSiteID != nil && *targetSiteID > 0 {
+	// FindDeviceSiteConflicts only returns devices whose rack has a
+	// non-NULL site, so:
+	//   - target building has a site S → flag devices whose rack site
+	//     differs from S.
+	//   - target building is site-less (targetSiteID nil) → every
+	//     returned device is a mismatch (its rack is at a real site,
+	//     the target has none). Without flagging these, the building
+	//     write would cascade device.site_id to NULL while the device
+	//     is still a member of a rack at a real site.
+	// Runs whenever we're assigning to a building (targetBuildingID
+	// != nil) — the case where the building write cascades site.
+	// Skipped on building-unassign (targetBuildingID nil): no site
+	// cascade fires there, so there's nothing to keep consistent.
+	if targetBuildingID != nil {
 		siteByDevice, err := s.siteStore.FindDeviceSiteConflicts(ctx, orgID, identifiers)
 		if err != nil {
 			return nil, err
 		}
 		for ident, siteID := range siteByDevice {
-			if siteID == *targetSiteID {
+			if targetSiteID != nil && siteID == *targetSiteID {
 				continue
 			}
 			if _, ok := flagged[ident]; ok {
