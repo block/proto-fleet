@@ -1608,6 +1608,82 @@ func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.
 	assert.Contains(t, *final.LastError, "candidate row missing")
 }
 
+func TestReconciler_PendingFullFleetCurtailConfirmTimeoutRequeuesTarget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	lastDispatchedAt := time.Date(2026, 5, 7, 11, 54, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, Mode: models.ModeFullFleet},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "still-awake",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatchedAt,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "still-awake", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State, "unconfirmed full-fleet target must be requeued for curtail")
+	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "curtail telemetry timeout")
+	assert.Equal(t, 0, disp.curtailCalls, "requeue happens after this tick's dispatch pass")
+
+	r.runTick(context.Background())
+
+	final = store.targetsByEventID[eventID][0]
+	assert.Equal(t, 1, disp.curtailCalls, "requeued target is curtailed on the next tick")
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+}
+
+func TestReconciler_ActiveFullFleetCurtailConfirmTimeoutMarksDrifted(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	startedAt := time.Date(2026, 5, 7, 11, 0, 0, 0, time.UTC)
+	lastDispatchedAt := time.Date(2026, 5, 7, 11, 54, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive, Mode: models.ModeFullFleet, StartedAt: &startedAt},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "still-awake",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatchedAt,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "still-awake", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State, "active full-fleet target returns to drift redrive path")
+	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "curtail telemetry timeout")
+}
+
 // Mirror of MissingCandidateDuringConfirm for the drift path: a
 // vanished candidate burns retry budget toward RestoreFailed.
 func TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget(t *testing.T) {

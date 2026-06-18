@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,6 +82,37 @@ func TestService_Start_FullFleet_CurtailsBelowFloorHashlessMiner(t *testing.T) {
 	assert.Equal(t, 1, store.insertEventCalls)
 	require.Len(t, store.lastInsertTargets, 1)
 	assert.Equal(t, "hashless-low-power", store.lastInsertTargets[0].DeviceIdentifier)
+}
+
+func TestService_Start_FullFleet_IncompleteTelemetrySkipsAsStale(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	driver := "antminer"
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		{
+			DeviceIdentifier: "missing-power-hash",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+		},
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan.InsufficientLoadDetail)
+	assert.Empty(t, plan.Selected)
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[0].Reason)
+	assert.Zero(t, store.insertEventCalls, "all-stale full_fleet must not persist")
 }
 
 // The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED

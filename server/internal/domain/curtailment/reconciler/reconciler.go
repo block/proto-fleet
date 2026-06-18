@@ -37,6 +37,10 @@ const (
 	// 0.5: power_w > baseline*factor is drifted; catches partial restore.
 	defaultDriftThresholdFactor = 0.5
 
+	// 10× tick interval; ages out full-fleet curtail confirmations that never
+	// show telemetry evidence so the target can be re-curtailed or terminalized.
+	defaultCurtailConfirmTimeoutSec = 300
+
 	// 10× tick interval; ages out restore-phase targets via retry budget.
 	defaultRestoreDispatchTimeoutSec = 300
 )
@@ -54,6 +58,9 @@ type Config struct {
 	ShutdownDeadline     time.Duration
 	MaxRetries           int32
 	DriftThresholdFactor float64
+	// CurtailConfirmTimeoutSec ages out FULL_FLEET dispatched targets that do
+	// not confirm as curtailed, returning them to the curtail dispatch path.
+	CurtailConfirmTimeoutSec int
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (burns retry budget).
 	RestoreDispatchTimeoutSec int
@@ -71,6 +78,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DriftThresholdFactor <= 0 {
 		c.DriftThresholdFactor = defaultDriftThresholdFactor
+	}
+	if c.CurtailConfirmTimeoutSec <= 0 {
+		c.CurtailConfirmTimeoutSec = defaultCurtailConfirmTimeoutSec
 	}
 	if c.RestoreDispatchTimeoutSec <= 0 {
 		c.RestoreDispatchTimeoutSec = defaultRestoreDispatchTimeoutSec
@@ -689,6 +699,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
+		r.maybeAgeOutCurtailConfirmation(ctx, ev, t)
 		return
 	}
 	now := r.now()
@@ -717,6 +728,24 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 	if params.ObservedPowerW != nil {
 		t.ObservedPowerW = params.ObservedPowerW
 	}
+}
+
+func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *models.Event, t *models.Target) {
+	if ev.Mode != models.ModeFullFleet || t.LastDispatchedAt == nil || r.cfg.CurtailConfirmTimeoutSec <= 0 {
+		return
+	}
+	timeout := time.Duration(r.cfg.CurtailConfirmTimeoutSec) * time.Second
+	if r.now().Sub(*t.LastDispatchedAt) <= timeout {
+		return
+	}
+	retryState := models.TargetStatePending
+	if ev.State == models.EventStateActive {
+		retryState = models.TargetStateDrifted
+	}
+	slog.Info("curtailment reconciler: curtail telemetry timeout aging initiated",
+		"event_id", ev.ID, "device", t.DeviceIdentifier,
+		"timeout_sec", r.cfg.CurtailConfirmTimeoutSec)
+	r.recordDispatchFailure(ctx, ev, t, "curtail telemetry timeout", retryState)
 }
 
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed
