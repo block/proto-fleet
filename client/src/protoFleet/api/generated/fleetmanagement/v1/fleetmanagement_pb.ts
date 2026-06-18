@@ -1566,8 +1566,9 @@ export enum PairingStatus {
   FAILED = 5,
 
   /**
-   * Devices that are paired but still using the factory default password;
-   * the password must be changed before they can be operated.
+   * Devices that are paired but still using the factory default password.
+   * Fleet keeps these devices command-eligible; firmware or drivers may reject
+   * specific operations until the password is changed.
    *
    * @generated from enum value: PAIRING_STATUS_DEFAULT_PASSWORD = 6;
    */

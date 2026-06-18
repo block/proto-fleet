@@ -159,9 +159,9 @@ secret := sdk.SecretBundle{
 ```
 
 Proto devices without stored credentials are treated as needing authentication
-and are repaired by the normal failed-poll remediation flow. Proto firmware gates
-operational endpoints behind a default-password lockout — change the password via
-`UpdateMinerPassword` to clear it.
+and are repaired by the normal failed-poll remediation flow. Fleet keeps
+factory-password rigs command-eligible; Proto firmware or the driver may reject
+specific operations until `UpdateMinerPassword` clears the default password.
 
 ## Testing
 

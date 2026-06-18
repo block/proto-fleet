@@ -239,10 +239,11 @@ message DeviceMetrics {
   reserved "stratum_v2_support";
 
   // Set only when the plugin successfully determined the default-password state.
-  // True means the device still uses its factory default password and must be
-  // changed before mutating operations are allowed (telemetry is unaffected);
-  // absent means the plugin could not determine it (e.g. status probe failed or
-  // an older plugin), and consumers must not change remediation state.
+  // True means the device still uses its factory default password. Fleet keeps
+  // these devices command-eligible; firmware or drivers may reject specific
+  // operations until the password is changed. Absent means the plugin could not
+  // determine it (e.g. status probe failed or an older plugin), and consumers
+  // must not change remediation state.
   optional bool default_password_active = 17;
 }
 

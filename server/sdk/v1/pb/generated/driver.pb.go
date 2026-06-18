@@ -1771,10 +1771,11 @@ type DeviceMetrics struct {
 	// Firmware version reported by device during telemetry polling
 	FirmwareVersion string `protobuf:"bytes,15,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"`
 	// Set only when the plugin successfully determined the default-password state.
-	// True means the device still uses its factory default password and must be
-	// changed before mutating operations are allowed (telemetry is unaffected);
-	// absent means the plugin could not determine it (e.g. status probe failed or
-	// an older plugin), and consumers must not change remediation state.
+	// True means the device still uses its factory default password. Fleet keeps
+	// these devices command-eligible; firmware or drivers may reject specific
+	// operations until the password is changed. Absent means the plugin could not
+	// determine it (e.g. status probe failed or an older plugin), and consumers
+	// must not change remediation state.
 	DefaultPasswordActive *bool `protobuf:"varint,17,opt,name=default_password_active,json=defaultPasswordActive,proto3,oneof" json:"default_password_active,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
