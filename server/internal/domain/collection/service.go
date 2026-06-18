@@ -434,8 +434,15 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 				if _, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers); err != nil {
 					return nil, err
 				}
-				// Skip when site-less: cascading NULL would wipe direct assignments.
-				if isRack && rackSiteID != nil {
+				// Site cascade fires when the rack has a site OR a
+				// building. A rack in a building inherits that building's
+				// site (NULL for an unassigned building), so members must
+				// follow even when rackSiteID is nil — otherwise
+				// device.site_id would disagree with the building cascade
+				// below. Fully-unassigned racks (no site, no building)
+				// skip the cascade so cascading NULL doesn't wipe direct
+				// device.site_id assignments.
+				if isRack && (rackSiteID != nil || rackBuildingID != nil) {
 					if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, req.CollectionId, info.OrganizationID, rackSiteID); err != nil {
 						return nil, err
 					}
@@ -923,8 +930,9 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
-			targetSiteID *int64
-			targetLabel  string
+			targetSiteID     *int64
+			targetBuildingID *int64
+			targetLabel      string
 		)
 		// Canonical lock order: lock every rack involved in the
 		// reparent -- sources + target -- together in ascending
@@ -971,6 +979,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 				return nil, fleeterror.NewInvalidArgumentErrorf("target_rack_id %d is not a rack", *params.TargetRackID)
 			}
 			targetSiteID = placement.SiteID
+			targetBuildingID = placement.BuildingID
 			targetLabel = coll.Label
 		}
 
@@ -1016,7 +1025,17 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			}
 			newlyAssigned = added
 			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
-			if targetSiteID != nil {
+			// Site cascade fires when the rack has a site OR a building.
+			// A rack in a building inherits that building's site (NULL
+			// for an unassigned building), so added devices must follow
+			// even when targetSiteID is nil — otherwise device.site_id
+			// would disagree with the building_id stamped below.
+			// CascadeAddedDeviceSites sets device.site_id to the rack's
+			// site (NULL included) and self-guards against
+			// fully-unassigned racks. Fully-unassigned racks (no site,
+			// no building) skip the cascade to preserve direct
+			// device.site_id assignments.
+			if targetSiteID != nil || targetBuildingID != nil {
 				// Capture per-device priors BEFORE the cascade rewrites
 				// device.site_id, so the activity audit reflects the
 				// implicit site reassignment. Mirrors the CreateCollection
@@ -1873,10 +1892,15 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 		return out, err
 	}
 
-	// Cascade fires when the rack has a stamped site OR its site just
-	// transitioned. Both false means the rack stayed site-less; cascading
-	// NULL there would clobber direct device.site_id assignments.
-	cascadeFires := finalSiteID != nil || siteChanged
+	// Cascade fires when the rack has a stamped site, its site just
+	// transitioned, OR it has a building. The building case covers
+	// adding a device to a rack that already sits in an unassigned
+	// building (site-less, no site transition): the member must be
+	// cascaded to the rack's site (NULL) so device.site_id can't
+	// disagree with the building_id stamped below. A fully-unassigned
+	// rack (no site, no building, no transition) skips the cascade so
+	// cascading NULL doesn't clobber direct device.site_id assignments.
+	cascadeFires := finalSiteID != nil || siteChanged || finalBuildingID != nil
 	// Building cascade fires under the same rule: rack has a stamped
 	// building OR its building just transitioned (including a transition
 	// to NULL — clearing the rack's building on SaveRack must also clear

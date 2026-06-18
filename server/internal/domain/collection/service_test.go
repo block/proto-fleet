@@ -2194,6 +2194,51 @@ func TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata(t *testing.T) 
 	assert.Nil(t, event.Metadata, "no cascade should mean no cascade metadata")
 }
 
+// TestService_AssignDevicesToRack_siteLessBuildingClearsDeviceSite pins
+// the cross-scope-consistency fix: when the target rack sits in an
+// unassigned building (building_id set, site_id NULL), the site cascade
+// must still fire — cascading device.site_id to NULL — so a device
+// moved in from another site doesn't end up with a building_id that
+// disagrees with a stale site_id. Without the fix the site cascade was
+// gated on targetSiteID != nil and skipped, leaving device.site_id
+// pointing at the old site while building_id pointed at a site-less
+// building.
+func TestService_AssignDevicesToRack_siteLessBuildingClearsDeviceSite(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	rackBuilding := int64(70)
+	priorSite := int64(8)
+	deviceIDs := []string{"d1"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{targetRackID}, nil),
+		// Rack is in a building but has no site (unassigned building).
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: nil, BuildingID: &rackBuilding}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(1), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		// Site cascade now fires even though targetSiteID is nil, because
+		// the rack has a building. CascadeAddedDeviceSites nulls
+		// device.site_id for the site-less-building rack.
+		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+			Return(map[string]*int64{"d1": &priorSite}, nil),
+		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+}
+
 // TestService_AssignDevicesToRack_lockReparentZeroTargetReturnsOnlySources
 // pins the UNION semantics of LockRacksForReparent on the clear-rack
 // path: with target_rack_id=0 the SQL UNION's target arm evaluates to

@@ -340,8 +340,14 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.site_id IS DISTINCT FROM dsr.site_id;
 
 -- name: CascadeAddedDeviceSites :execrows
--- Rewrites device.site_id to rack.site_id for added rack members
--- whose current site differs. No-op for groups or site-less racks.
+-- Rewrites device.site_id to rack.site_id for added rack members whose
+-- current site differs. Fires when the rack has a site OR a building:
+-- a rack in a building inherits that building's site, which is NULL for
+-- an unassigned building — in that case device.site_id is set to NULL
+-- so it can't disagree with the building_id stamped by
+-- CascadeAddedDeviceBuildings. No-op for groups and for fully-unassigned
+-- racks (no site, no building), where setting NULL would clobber direct
+-- device.site_id assignments.
 UPDATE device d
 SET site_id = dsr.site_id,
     updated_at = CURRENT_TIMESTAMP
@@ -354,7 +360,7 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND ds.org_id = $1
   AND ds.deleted_at IS NULL
   AND ds.type = 'rack'
-  AND dsr.site_id IS NOT NULL
+  AND (dsr.site_id IS NOT NULL OR dsr.building_id IS NOT NULL)
   AND d.site_id IS DISTINCT FROM dsr.site_id;
 
 -- name: CascadeAddedDeviceBuildings :execrows
