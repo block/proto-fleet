@@ -751,7 +751,7 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 	existing := []GrafanaSilence{{
 		ID:        "sil-1",
 		CreatedBy: "alice@example.com",
-		Comment:   "old",
+		Comment:   maintenanceWindowCommentMarker + " old",
 		Matchers: []GrafanaSilenceMatcher{
 			{Name: "organization_id", Value: "7", IsEqual: true},
 			{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
@@ -774,6 +774,50 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(postBody, &sent))
 	assert.Equal(t, "alice@example.com", sent.CreatedBy, "update must carry the original creator")
+}
+
+// Ownership is proven by the Proto Fleet provenance marker, not the org matcher alone, so an
+// operator-created Grafana silence that merely shares the org matcher is invisible and
+// un-mutable through these RPCs.
+func TestListMaintenanceWindowsIgnoresUnmarkedSilences(t *testing.T) {
+	listed := []GrafanaSilence{
+		{
+			ID:       "ours",
+			Comment:  maintenanceWindowCommentMarker + " planned",
+			StartsAt: time.Unix(1000, 0),
+			EndsAt:   time.Unix(2000, 0),
+			Matchers: []GrafanaSilenceMatcher{
+				{Name: "organization_id", Value: "7", IsEqual: true},
+				{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
+			},
+		},
+		{
+			ID:      "external",
+			Comment: "operator silence, same org",
+			Matchers: []GrafanaSilenceMatcher{
+				{Name: "organization_id", Value: "7", IsEqual: true},
+				{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
+			},
+		},
+	}
+	var postBody []byte
+	svc := NewService(fakeGrafanaSilences(t, listed, &postBody), DestinationPolicy{})
+
+	out, err := svc.ListMaintenanceWindows(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, out, 1, "only the Proto Fleet-marked silence is a maintenance window")
+	assert.Equal(t, "ours", out[0].ID)
+	assert.Equal(t, "planned", out[0].Comment, "the provenance marker is stripped for display")
+
+	// The external silence isn't owned, so update/delete can't reach it.
+	_, err = svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID:       "external",
+		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "external"), ErrNotFound)
 }
 
 // The pause marker must never be an alert matcher: Alertmanager ANDs every matcher

@@ -594,8 +594,10 @@ func (s *Service) ListMaintenanceWindows(ctx context.Context, orgID int64) ([]Ma
 		if !silenceMatchesOrg(gs, want) {
 			continue
 		}
-		// Hide pause silences; they're an implementation detail of PauseRule.
-		if isPauseSilence(gs) {
+		// Only surface silences Proto Fleet created (carry the marker): this both hides
+		// pause silences and keeps externally-created Grafana silences read-only/invisible,
+		// so they can't be listed, updated, or deleted through these RPCs.
+		if !isMaintenanceWindowSilence(gs) {
 			continue
 		}
 		dom := grafanaSilenceToDomain(orgID, gs, now)
@@ -752,7 +754,7 @@ func (s *Service) requireScopeTargetVisible(ctx context.Context, orgID int64, sc
 // marker, so reject a window comment that carries it: otherwise a same-org caller could
 // hide a window from the list and have it overlaid as a paused rule.
 func validateMaintenanceWindowComment(comment string) error {
-	if strings.Contains(comment, pauseSilenceCommentMarker) {
+	if strings.Contains(comment, pauseSilenceCommentMarker) || strings.Contains(comment, maintenanceWindowCommentMarker) {
 		return fleeterror.NewInvalidArgumentError("comment may not contain a reserved marker")
 	}
 	return nil
@@ -824,6 +826,29 @@ func buildPauseSilence(orgID int64, ruleID, actor string, now time.Time) Grafana
 
 func isPauseSilence(sil GrafanaSilence) bool {
 	return strings.HasPrefix(sil.Comment, pauseSilenceCommentMarker)
+}
+
+// Stamps Proto Fleet-created maintenance windows so List/Update/Delete don't treat an
+// arbitrary operator-created Grafana silence (which may share the org matcher) as one
+// we own. Like the pause marker it lives in the comment, not a matcher, so it can't
+// affect which alerts the silence matches.
+const maintenanceWindowCommentMarker = "[proto-fleet-mw]"
+
+func isMaintenanceWindowSilence(sil GrafanaSilence) bool {
+	return strings.HasPrefix(sil.Comment, maintenanceWindowCommentMarker)
+}
+
+// Prepends the provenance marker to the operator's reason for storage in Grafana.
+func encodeMaintenanceWindowComment(comment string) string {
+	if comment == "" {
+		return maintenanceWindowCommentMarker
+	}
+	return maintenanceWindowCommentMarker + " " + comment
+}
+
+// Recovers the operator's reason from a stored comment for display.
+func decodeMaintenanceWindowComment(comment string) string {
+	return strings.TrimSpace(strings.TrimPrefix(comment, maintenanceWindowCommentMarker))
 }
 
 func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
@@ -1058,7 +1083,7 @@ func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) Maint
 		OrganizationID: orgID,
 		StartsAt:       gs.StartsAt,
 		EndsAt:         gs.EndsAt,
-		Comment:        gs.Comment,
+		Comment:        decodeMaintenanceWindowComment(gs.Comment),
 		CreatedBy:      gs.CreatedBy,
 	}
 	// The Alertmanager API exposes no created_at, so approximate it with StartsAt.
@@ -1162,7 +1187,7 @@ func maintenanceWindowToGrafanaSilence(orgID int64, sil MaintenanceWindow) Grafa
 		StartsAt:  sil.StartsAt,
 		EndsAt:    endsAt,
 		CreatedBy: sil.CreatedBy,
-		Comment:   sil.Comment,
+		Comment:   encodeMaintenanceWindowComment(sil.Comment),
 		Matchers:  matchers,
 	}
 }

@@ -43,13 +43,14 @@ const MaintenanceWindowsSection = () => {
   // Recompute active against a ticking clock so the badge/sort flip at the window's
   // start/end boundary instead of freezing at the value computed when it was loaded.
   const now = useNow();
-  const sortedMaintenanceWindows = useMemo<MaintenanceWindowWithActive[]>(
-    () =>
-      maintenanceWindows
-        .map((w) => ({ ...w, active: isMaintenanceWindowActive(w, now) }))
-        .sort((a, b) => Number(b.active) - Number(a.active) || a.starts_at.localeCompare(b.starts_at)),
-    [maintenanceWindows, now],
-  );
+  const sortedMaintenanceWindows = useMemo<MaintenanceWindowWithActive[]>(() => {
+    // Order active first, then upcoming/scheduled, then expired, so a future window
+    // isn't buried among old history and mistaken for one that was never created.
+    const rank = (w: MaintenanceWindowWithActive) => (w.active ? 0 : new Date(w.starts_at).getTime() > now ? 1 : 2);
+    return maintenanceWindows
+      .map((w) => ({ ...w, active: isMaintenanceWindowActive(w, now) }))
+      .sort((a, b) => rank(a) - rank(b) || a.starts_at.localeCompare(b.starts_at));
+  }, [maintenanceWindows, now]);
 
   const ruleNameById = useCallback((id: string) => rules.find((r) => r.id === id)?.name ?? id, [rules]);
 
@@ -118,6 +119,10 @@ const MaintenanceWindowsSection = () => {
               <span className="bg-state-success-fill/10 text-state-success-fill rounded px-2 py-0.5 text-200">
                 Active
               </span>
+            ) : new Date(maintenanceWindow.starts_at).getTime() > now ? (
+              <span className="rounded border border-border-5 bg-surface-5 px-2 py-0.5 text-200 text-text-primary">
+                Scheduled
+              </span>
             ) : (
               <span className="rounded bg-surface-5 px-2 py-0.5 text-200 text-text-primary-50">Expired</span>
             )}
@@ -140,7 +145,7 @@ const MaintenanceWindowsSection = () => {
         allowWrap: true,
       },
     }),
-    [formatTarget],
+    [formatTarget, now],
   );
 
   return (
