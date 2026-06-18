@@ -124,7 +124,10 @@ const groupRackSiteConflicts = (
     const sourceLabel = snapshot.rackLabel;
     if (!sourceLabel) continue;
     const rackSiteId = rackLabelToSiteId.get(sourceLabel);
-    if (rackSiteId === undefined) continue;
+    // A miner in a site-less rack (rackSiteId undefined) moving to a real
+    // site is also a conflict: it can't keep a direct site while in a
+    // rack that has none, so force-clear unassigns it from the rack.
+    // undefined !== targetSiteId, so it falls through to the flag below.
     if (rackSiteId === targetSiteId) continue;
     const bucket = conflicts.get(sourceLabel) ?? [];
     bucket.push(id);
@@ -196,6 +199,16 @@ type BuildingMoveConfirmation = {
   conflictCount: number;
 };
 
+// RackSiteStripConfirmation drives the "this rack has no site" confirm
+// dialog. Adding a miner that has a site to a site-less rack strips its
+// site (the rack dictates no placement); the server returns the
+// conflicting count and writes nothing until the operator confirms.
+type RackSiteStripConfirmation = {
+  targetRackId: bigint;
+  ids: string[];
+  conflictCount: number;
+};
+
 const MinerReparentPicker = ({
   kind,
   deviceIdentifiers,
@@ -215,6 +228,8 @@ const MinerReparentPicker = ({
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
   const [buildingMoveConfirmation, setBuildingMoveConfirmation] = useState<BuildingMoveConfirmation | null>(null);
   const [buildingMoveInFlight, setBuildingMoveInFlight] = useState(false);
+  const [rackSiteStripConfirmation, setRackSiteStripConfirmation] = useState<RackSiteStripConfirmation | null>(null);
+  const [rackStripInFlight, setRackStripInFlight] = useState(false);
   // Resolver for the onConfirm promise during the cross-site confirm
   // dialog flow. We hand it off to the Dialog button handlers so
   // ParentPickerModal's handleSave only resolves (and calls onDismiss
@@ -369,28 +384,84 @@ const MinerReparentPicker = ({
       return;
     }
 
-    // AssignDevicesToRack clears prior rack membership and inserts the
-    // new membership inside one server-side transaction. Previously
-    // this was a client-side remove-then-add loop that resolved source
-    // racks via listRacks and could (a) orphan miners on a transport
-    // failure between the two calls, and (b) skip a rack whose label
-    // got renamed mid-confirm. The atomic RPC closes both holes.
+    const result = await dispatchRackReassign(targetRackId, ids, false);
+    if (result.ok) return;
+    // Server flagged miners that would lose their site by joining this
+    // site-less rack. Park the confirm dialog; Continue re-dispatches
+    // with force to strip their site.
+    setRackSiteStripConfirmation({ targetRackId, ids, conflictCount: result.conflictCount });
     await new Promise<void>((resolve) => {
+      dialogResolveRef.current = resolve;
+    });
+  };
+
+  // dispatchRackReassign performs the AssignDevicesToRack RPC. When
+  // force=false and the target is a site-less rack holding miners that
+  // have a site, the server returns site-strip conflicts; the caller
+  // raises a confirm dialog and re-dispatches with force=true.
+  const dispatchRackReassign = (
+    targetRackId: bigint,
+    ids: string[],
+    force: boolean,
+  ): Promise<{ ok: true } | { ok: false; conflictCount: number }> =>
+    // AssignDevicesToRack clears prior rack membership and inserts the
+    // new membership inside one server-side transaction, closing the
+    // orphan window the old client-side remove-then-add loop had.
+    new Promise((resolve) => {
       void assignDevicesToRack({
         targetRackId,
         deviceIdentifiers: ids,
+        forceClearConflictingSite: force,
         signal: abortRef.current?.signal,
         onSuccess: (count) => {
+          if (abortRef.current?.signal.aborted) {
+            resolve({ ok: true });
+            return;
+          }
           pushToast({ message: successMessage(count, "rack"), status: STATUSES.success });
           onRefetchMiners?.();
-          resolve();
+          resolve({ ok: true });
+        },
+        onConflicts: (conflicts) => {
+          if (abortRef.current?.signal.aborted) {
+            resolve({ ok: true });
+            return;
+          }
+          resolve({ ok: false, conflictCount: conflicts.length });
         },
         onError: (msg) => {
+          if (abortRef.current?.signal.aborted) {
+            resolve({ ok: true });
+            return;
+          }
           pushToast({ message: `Couldn't move miners to rack: ${msg}`, status: STATUSES.error });
-          resolve();
+          resolve({ ok: true });
         },
       });
     });
+
+  const dispatchRackMoveWithStrip = async (confirmation: RackSiteStripConfirmation) => {
+    setRackStripInFlight(true);
+    const movingToast = pushToast({
+      message: "Moving miners to the rack…",
+      status: STATUSES.loading,
+      longRunning: true,
+    });
+    await dispatchRackReassign(confirmation.targetRackId, confirmation.ids, true);
+    removeToast(movingToast);
+    setRackStripInFlight(false);
+    setRackSiteStripConfirmation(null);
+  };
+
+  const handleRackStripDialogCancel = () => {
+    setRackSiteStripConfirmation(null);
+    settleDialog();
+  };
+
+  const handleRackStripDialogConfirm = async () => {
+    if (!rackSiteStripConfirmation) return;
+    await dispatchRackMoveWithStrip(rackSiteStripConfirmation);
+    settleDialog();
   };
 
   // dispatchBuildingReassign performs the AssignDevicesToBuilding RPC.
@@ -653,6 +724,34 @@ const MinerReparentPicker = ({
               },
               loading: buildingMoveInFlight,
               disabled: buildingMoveInFlight,
+            },
+          ]}
+        />
+      ) : null}
+      {rackSiteStripConfirmation ? (
+        <Dialog
+          open
+          title="Move miners to a rack with no site?"
+          subtitle={`This rack isn't assigned to a site, so ${rackSiteStripConfirmation.conflictCount} of the selected miner${rackSiteStripConfirmation.conflictCount === 1 ? " is" : "s are"} currently assigned to one. Continuing will remove ${rackSiteStripConfirmation.conflictCount === 1 ? "its" : "their"} site assignment to match the rack.`}
+          onDismiss={() => {
+            if (rackStripInFlight) return;
+            handleRackStripDialogCancel();
+          }}
+          buttons={[
+            {
+              text: "Cancel",
+              variant: variants.secondary,
+              onClick: handleRackStripDialogCancel,
+              disabled: rackStripInFlight,
+            },
+            {
+              text: "Continue",
+              variant: variants.primary,
+              onClick: () => {
+                void handleRackStripDialogConfirm();
+              },
+              loading: rackStripInFlight,
+              disabled: rackStripInFlight,
             },
           ]}
         />

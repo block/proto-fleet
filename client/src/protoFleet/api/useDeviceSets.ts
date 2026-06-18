@@ -12,6 +12,7 @@ import {
   type DeviceSet,
   type DeviceSetStats,
   DeviceSetType,
+  type PerDeviceRackConflict,
   type RackCoolingType,
   RackInfoSchema,
   type RackOrderIndex,
@@ -172,8 +173,16 @@ interface AssignDevicesToRackProps {
   // stay intact).
   targetRackId?: bigint;
   deviceIdentifiers: string[];
+  // When adding to a site-less rack, proceed and strip the conflicting
+  // miners' site. Default false: the server returns conflicts (surfaced
+  // via onConflicts) and writes nothing.
+  forceClearConflictingSite?: boolean;
   signal?: AbortSignal;
   onSuccess?: (assignedCount: bigint, siteReassignedCount: bigint, removedCount: bigint) => void;
+  // Fires when the server returns site-strip conflicts (no write
+  // happened). The caller confirms and retries with
+  // forceClearConflictingSite=true.
+  onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -634,7 +643,16 @@ const useDeviceSets = () => {
   // miners from rack assignment (issue #420). Pass targetRackId
   // unset to clear rack membership without re-assigning.
   const assignDevicesToRack = useCallback(
-    async ({ targetRackId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
+    async ({
+      targetRackId,
+      deviceIdentifiers,
+      forceClearConflictingSite,
+      signal,
+      onSuccess,
+      onConflicts,
+      onError,
+      onFinally,
+    }: AssignDevicesToRackProps) => {
       try {
         // Always construct the device_list variant of DeviceSelector — the
         // server rejects all_devices for AssignDevicesToRack (moving every
@@ -655,10 +673,17 @@ const useDeviceSets = () => {
           {
             targetRackId,
             deviceSelector,
+            forceClearConflictingSite,
           },
           { signal },
         );
         if (signal?.aborted) return;
+        // Site-strip conflicts: the server wrote nothing and returned the
+        // per-device list so the caller can confirm + retry with force.
+        if (response.conflicts.length > 0) {
+          onConflicts?.(response.conflicts);
+          return;
+        }
         onSuccess?.(response.assignedCount, response.siteReassignedCount, response.removedCount);
       } catch (err) {
         if (isAbortError(err, signal)) {

@@ -12,8 +12,17 @@ import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buil
 // non-clearable DEVICE_NOT_FOUND) must surface an error toast and never
 // open the dialog or retry.
 
-const { mockAssignDevicesToBuilding, mockPushToast } = vi.hoisted(() => ({
+const {
+  mockAssignDevicesToBuilding,
+  mockAssignDevicesToRack,
+  mockGetDeviceSet,
+  mockListMinerStateSnapshots,
+  mockPushToast,
+} = vi.hoisted(() => ({
   mockAssignDevicesToBuilding: vi.fn(),
+  mockAssignDevicesToRack: vi.fn(),
+  mockGetDeviceSet: vi.fn(),
+  mockListMinerStateSnapshots: vi.fn(),
   mockPushToast: vi.fn(() => 1),
 }));
 
@@ -24,10 +33,14 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => ({ assignDevicesToSite: vi.fn() }),
 }));
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
-  useDeviceSets: () => ({ assignDevicesToRack: vi.fn(), getDeviceSet: vi.fn(), listRacks: vi.fn() }),
+  useDeviceSets: () => ({
+    assignDevicesToRack: mockAssignDevicesToRack,
+    getDeviceSet: mockGetDeviceSet,
+    listRacks: vi.fn(),
+  }),
 }));
 vi.mock("@/protoFleet/api/clients", () => ({
-  fleetManagementClient: {},
+  fleetManagementClient: { listMinerStateSnapshots: mockListMinerStateSnapshots },
   buildingsClient: {},
 }));
 vi.mock("@/shared/features/toaster", () => ({
@@ -127,5 +140,74 @@ describe("MinerReparentPicker — building force-clear flow", () => {
     );
     expect(screen.queryByText(DIALOG_TITLE)).not.toBeInTheDocument();
     expect(mockAssignDevicesToBuilding).toHaveBeenCalledTimes(1);
+  });
+});
+
+const RACK_STRIP_TITLE = "Move miners to a rack with no site?";
+
+const renderRackPicker = () =>
+  render(
+    <MinerReparentPicker
+      kind="rack"
+      deviceIdentifiers={["d1"]}
+      selectionMode="subset"
+      miners={{ d1: { deviceIdentifier: "d1" } as never }}
+      sourceLabel="1 miner"
+      successMessage={(count) => `Moved ${count} miner(s).`}
+      onClose={vi.fn()}
+    />,
+  );
+
+describe("MinerReparentPicker — add-to-rack site-strip flow", () => {
+  beforeEach(() => {
+    mockAssignDevicesToRack.mockReset();
+    mockGetDeviceSet.mockReset();
+    mockListMinerStateSnapshots.mockReset();
+    mockPushToast.mockReset();
+    mockPushToast.mockReturnValue(1);
+    // Target rack: site-less, no grid capacity limit (rows*cols = 0 →
+    // overflow check is a no-op).
+    mockGetDeviceSet.mockImplementation(({ onSuccess }) =>
+      onSuccess({
+        id: 42n,
+        label: "R42",
+        deviceCount: 0,
+        typeDetails: { case: "rackInfo", value: { rows: 0, columns: 0 } },
+      }),
+    );
+    mockListMinerStateSnapshots.mockResolvedValue({ miners: [], cursor: "" });
+  });
+
+  it("site-strip conflict opens the confirm dialog; Continue re-dispatches with force=true", async () => {
+    mockAssignDevicesToRack.mockImplementationOnce(({ onConflicts }) => {
+      onConflicts([{ deviceIdentifier: "d1", reason: 1 }]);
+    });
+    mockAssignDevicesToRack.mockImplementationOnce(({ onSuccess }) => {
+      onSuccess(1n, 1n, 0n);
+    });
+
+    renderRackPicker();
+    fireEvent.click(screen.getByText("pick-target"));
+
+    expect(await screen.findByText(RACK_STRIP_TITLE)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() => expect(mockAssignDevicesToRack).toHaveBeenCalledTimes(2));
+    const secondCall = mockAssignDevicesToRack.mock.calls[1][0];
+    expect(secondCall.forceClearConflictingSite).toBe(true);
+    expect(secondCall.targetRackId).toBe(42n);
+  });
+
+  it("no conflict adds directly with no dialog", async () => {
+    mockAssignDevicesToRack.mockImplementationOnce(({ onSuccess }) => {
+      onSuccess(1n, 0n, 0n);
+    });
+
+    renderRackPicker();
+    fireEvent.click(screen.getByText("pick-target"));
+
+    await waitFor(() => expect(mockAssignDevicesToRack).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(RACK_STRIP_TITLE)).not.toBeInTheDocument();
+    expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ status: "success" }));
   });
 });
