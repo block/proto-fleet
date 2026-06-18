@@ -1864,6 +1864,7 @@ updated AS (
   SET pairing_status = $2::pairing_status_enum
   FROM candidate
   WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND device_pairing.pairing_status IS DISTINCT FROM $2::pairing_status_enum
   RETURNING 1
 )
