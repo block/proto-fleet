@@ -347,20 +347,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
-      - name: Build TimescaleDB image
+      - name: Build TimescaleDB images
         run: |
-          docker buildx build \
-            -t proto-fleet-timescaledb:latest \
-            --output type=docker,dest=timescaledb-${{ matrix.arch }}.tar \
-            server/timescaledb
+          docker build -t proto-fleet-timescaledb:latest server/timescaledb
+          docker save proto-fleet-timescaledb:latest > timescaledb-${{ matrix.arch }}.tar
           gzip -9 timescaledb-${{ matrix.arch }}.tar
           echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
+
+          docker build -f server/timescaledb/Dockerfile.ha -t proto-fleet-timescaledb-ha:latest server/timescaledb
+          docker save proto-fleet-timescaledb-ha:latest > timescaledb-ha-${{ matrix.arch }}.tar
+          gzip -9 timescaledb-ha-${{ matrix.arch }}.tar
+          echo "${{ matrix.arch }} HA image size: $(du -h timescaledb-ha-${{ matrix.arch }}.tar.gz | cut -f1)"
 
       - name: Upload TimescaleDB image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: proto-fleet-timescaledb-${{ matrix.arch }}
-          path: timescaledb-${{ matrix.arch }}.tar.gz
+          path: |
+            timescaledb-${{ matrix.arch }}.tar.gz
+            timescaledb-ha-${{ matrix.arch }}.tar.gz
           retention-days: ${{ inputs.retention_days }}
 
   build-proto-fleet:
@@ -442,15 +447,20 @@ jobs:
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
           cp deployment-files/docker-compose.notifications.yaml deployment/
+          cp deployment-files/docker-compose.ha.yaml deployment/
+          cp deployment-files/docker-compose.ha-monitor.yaml deployment/
+          cp deployment-files/docker-compose.ha-data.yaml deployment/
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
           cp deployment-files/uninstall.sh deployment/
+          cp -r deployment-files/ha deployment/
           cp -r deployment-files/scripts deployment/
-          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
+          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/ha/*.sh deployment/scripts/*.sh
 
           mkdir -p deployment/images
           cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
+          cp /tmp/timescaledb-images/timescaledb-ha-${{ matrix.arch }}.tar.gz deployment/images/timescaledb-ha.tar.gz
 
       - name: Create version file
         run: |

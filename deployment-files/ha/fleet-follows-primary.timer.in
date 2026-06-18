@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Proto Fleet HA primary follower
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Unit=fleet-follows-primary.service
+
+[Install]
+WantedBy=timers.target

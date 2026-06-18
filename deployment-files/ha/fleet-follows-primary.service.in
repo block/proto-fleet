@@ -1,0 +1,9 @@
+[Unit]
+Description=Start Proto Fleet only on the local HA database primary
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__PROJECT_ROOT__
+ExecStart=__PROJECT_ROOT__/ha/fleet-follows-primary.sh

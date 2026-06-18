@@ -1,0 +1,46 @@
+x-extends:
+  file: ./server/docker-compose.base.yaml
+
+services:
+  fleet-api:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: fleet-api
+    build:
+      context: ./server
+    environment:
+      LOG_LEVEL: "INFO"
+      AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
+      DB_NAME: "${DB_NAME:-fleet}"
+      DB_ADDRESS: "127.0.0.1:5432"
+      DB_USERNAME: "${DB_USERNAME:-fleet}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      DB_SSL_MODE: "disable"
+      ENCRYPT_SERVICE_MASTER_KEY: "${ENCRYPT_SERVICE_MASTER_KEY}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      PLUGINS_DIR: "/app/plugins"
+      PLUGINS_ENABLED: "true"
+    restart: always
+    network_mode: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"
+
+  fleet-client:
+    build:
+      context: ./client
+    depends_on:
+      - fleet-api
+    restart: always
+    network_mode: host
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"

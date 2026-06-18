@@ -22,13 +22,24 @@ The `install.sh` script sets up the Proto Fleet server components.
 ### Proto Fleet Installation Options
 
 ```bash
-Usage: install.sh [VERSION]
+Usage: install.sh [VERSION] [options]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
+
+HA options:
+  --ha-role monitor|data
+  --ha-cluster NAME
+  --ha-node-host HOST
+  --ha-node-name NAME
+  --ha-monitor-host HOST
+  --ha-monitor-url URL
+  --ha-initial-primary
+  --ha-join-primary-host HOST
+  --expected-config-fingerprint HASH
 ```
 
 Examples:
@@ -52,6 +63,43 @@ The script will:
 - Download and extract the specified version
 - Preserve existing configuration files if present
 - Run the deployment script automatically
+
+### Raspberry Pi HA lab installs
+
+HA mode is a Linux-only lab path for 3 Raspberry Pis where PostgreSQL remains
+Dockerized. It runs a Dockerized `pg_auto_failover` monitor on one Pi and one
+Dockerized TimescaleDB data node on each Fleet Pi. Fleet starts only on the
+data node whose local DB container is primary.
+
+Start with the full runbook in `ha/README.md`. Minimal command shapes:
+
+```bash
+./install.sh latest \
+  --ha-role monitor \
+  --ha-cluster fleet-ha \
+  --ha-node-host pi-3.local
+```
+
+```bash
+./install.sh latest \
+  --ha-role data \
+  --ha-cluster fleet-ha \
+  --ha-node-host pi-1.local \
+  --ha-monitor-host pi-3.local \
+  --ha-initial-primary
+```
+
+```bash
+./install.sh latest \
+  --ha-role data \
+  --ha-cluster fleet-ha \
+  --ha-node-host pi-2.local \
+  --ha-monitor-host pi-3.local \
+  --ha-join-primary-host pi-1.local \
+  --expected-config-fingerprint <fingerprint-from-pi-1>
+```
+
+HA mode validates existing config and secrets; it does not copy or create them.
 
 ## Uninstalling Proto Fleet
 

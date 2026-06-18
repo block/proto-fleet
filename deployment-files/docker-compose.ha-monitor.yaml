@@ -1,0 +1,24 @@
+services:
+  fleet-ha-monitor:
+    image: proto-fleet-timescaledb-ha:latest
+    pull_policy: never
+    container_name: fleet-ha-monitor
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      HA_ROLE: "monitor"
+      HA_NODE_HOST: "${HA_NODE_HOST:?HA_NODE_HOST is required}"
+      HA_AUTH_METHOD: "${HA_AUTH_METHOD:-trust}"
+      HA_SSL_SELF_SIGNED: "${HA_SSL_SELF_SIGNED:-false}"
+      PGPORT: "${PGPORT:-5432}"
+    volumes:
+      - fleet-ha-monitor-data:/home/postgres/pgdata/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+volumes:
+  fleet-ha-monitor-data:

@@ -15,6 +15,7 @@ global: &global
   - scripts/**
   - deployment-files/docker-compose*.{yml,yaml}
   - deployment-files/*.sh
+  - deployment-files/ha/**
   - deployment-files/scripts/**
 
 proto:

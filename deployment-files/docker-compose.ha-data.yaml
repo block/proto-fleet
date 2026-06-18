@@ -1,0 +1,37 @@
+services:
+  fleet-ha-db:
+    image: proto-fleet-timescaledb-ha:latest
+    pull_policy: never
+    container_name: fleet-ha-db
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      HA_ROLE: "data"
+      HA_NODE_NAME: "${HA_NODE_NAME:?HA_NODE_NAME is required}"
+      HA_NODE_HOST: "${HA_NODE_HOST:?HA_NODE_HOST is required}"
+      HA_MONITOR_URL: "${HA_MONITOR_URL:?HA_MONITOR_URL is required}"
+      HA_AUTH_METHOD: "${HA_AUTH_METHOD:-trust}"
+      HA_SSL_SELF_SIGNED: "${HA_SSL_SELF_SIGNED:-false}"
+      POSTGRES_DB: "${DB_NAME:-fleet}"
+      POSTGRES_USER: "${DB_USERNAME:-fleet}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD is required}"
+      PGPORT: "${PGPORT:-5432}"
+      TS_TUNE_MAX_CONNS: "${TS_TUNE_MAX_CONNS:-300}"
+      TS_TUNE_MAX_BG_WORKERS: "${TS_TUNE_MAX_BG_WORKERS:-8}"
+    volumes:
+      - fleet-ha-db-data:/home/postgres/pgdata/data
+    healthcheck:
+      test: [ "CMD-SHELL", "psql -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet} -c 'SELECT 1' > /dev/null 2>&1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+volumes:
+  fleet-ha-db-data:

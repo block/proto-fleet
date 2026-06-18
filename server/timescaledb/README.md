@@ -95,6 +95,22 @@ you need reproducible builds.
 docker build -t proto-fleet/timescaledb:latest server/timescaledb/
 ```
 
+### HA lab variant
+
+Dockerized HA installs build a second image on top of the normal image:
+
+```bash
+docker build -t proto-fleet-timescaledb:latest server/timescaledb/
+docker build -f server/timescaledb/Dockerfile.ha \
+  -t proto-fleet-timescaledb-ha:latest \
+  server/timescaledb/
+```
+
+The HA image keeps the same PostgreSQL, TimescaleDB, Toolkit, pgvector, and
+`timescaledb-tune` stack, but adds `pg_auto_failover` and uses
+`docker-entrypoint-ha.sh` so `pg_autoctl` owns the PostgreSQL process. The
+single-node image and entrypoint remain unchanged.
+
 ## Usage
 
 This image is referenced as a build target in `docker-compose.base.yaml`:

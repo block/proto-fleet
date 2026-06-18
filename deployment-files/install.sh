@@ -177,7 +177,7 @@ extract_and_cd() {
 
 usage() {
   cat <<EOF
-Usage: install.sh [VERSION]
+Usage: install.sh [VERSION] [options]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
@@ -185,6 +185,17 @@ You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
   install.sh nightly-20260424-68712dfabc12
+
+HA options:
+  --ha-role monitor|data
+  --ha-cluster NAME
+  --ha-node-host HOST
+  --ha-node-name NAME
+  --ha-monitor-host HOST
+  --ha-monitor-url URL
+  --ha-initial-primary
+  --ha-join-primary-host HOST
+  --expected-config-fingerprint HASH
 EOF
   exit 1
 }
@@ -266,9 +277,82 @@ check_page_size() {
   fi
 }
 
-# show help for -h/--help
-if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
-  usage
+VERSION_ARG="latest"
+VERSION_ARG_SET=0
+HA_ROLE=""
+HA_CLUSTER=""
+HA_NODE_HOST=""
+HA_NODE_NAME=""
+HA_MONITOR_HOST=""
+HA_MONITOR_URL=""
+HA_INITIAL_PRIMARY=0
+HA_JOIN_PRIMARY_HOST=""
+EXPECTED_CONFIG_FINGERPRINT=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      ;;
+    --ha-role)
+      HA_ROLE="${2:-}"
+      shift 2
+      ;;
+    --ha-cluster)
+      HA_CLUSTER="${2:-}"
+      shift 2
+      ;;
+    --ha-node-host)
+      HA_NODE_HOST="${2:-}"
+      shift 2
+      ;;
+    --ha-node-name)
+      HA_NODE_NAME="${2:-}"
+      shift 2
+      ;;
+    --ha-monitor-host)
+      HA_MONITOR_HOST="${2:-}"
+      shift 2
+      ;;
+    --ha-monitor-url)
+      HA_MONITOR_URL="${2:-}"
+      shift 2
+      ;;
+    --ha-initial-primary)
+      HA_INITIAL_PRIMARY=1
+      shift
+      ;;
+    --ha-join-primary-host)
+      HA_JOIN_PRIMARY_HOST="${2:-}"
+      shift 2
+      ;;
+    --expected-config-fingerprint)
+      EXPECTED_CONFIG_FINGERPRINT="${2:-}"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    --*)
+      echo "❌ Unknown option: $1" >&2
+      usage
+      ;;
+    *)
+      if [ "$VERSION_ARG_SET" = "1" ]; then
+        echo "❌ Unexpected extra version argument: $1" >&2
+        usage
+      fi
+      VERSION_ARG="$1"
+      VERSION_ARG_SET=1
+      shift
+      ;;
+  esac
+done
+
+if [ -n "$HA_ROLE" ] && [ "$HA_ROLE" != "monitor" ] && [ "$HA_ROLE" != "data" ]; then
+  echo "❌ --ha-role must be monitor or data" >&2
+  exit 1
 fi
 
 check_page_size
@@ -276,7 +360,7 @@ check_page_size
 GITHUB_RELEASES_URL="https://github.com/block/proto-fleet/releases"
 
 # determine version and tarball name
-case "${1:-latest}" in
+case "${VERSION_ARG:-latest}" in
   latest)
     VERSION=$(resolve_latest_version)
     echo "🔖 Latest version is ${VERSION}"
@@ -286,7 +370,7 @@ case "${1:-latest}" in
     echo "🔖 Latest nightly version is ${VERSION}"
     ;;
   *)
-    VERSION="$1"
+    VERSION="$VERSION_ARG"
     ;;
 esac
 
@@ -448,4 +532,17 @@ done
 echo "✅ Plugin binaries validated"
 
 echo "🔧 Running deployment script..."
-./run-fleet.sh
+if [ -n "$HA_ROLE" ]; then
+  HA_ARGS=(--role "$HA_ROLE")
+  [ -n "$HA_CLUSTER" ] && HA_ARGS+=(--cluster "$HA_CLUSTER")
+  [ -n "$HA_NODE_HOST" ] && HA_ARGS+=(--node-host "$HA_NODE_HOST")
+  [ -n "$HA_NODE_NAME" ] && HA_ARGS+=(--node-name "$HA_NODE_NAME")
+  [ -n "$HA_MONITOR_HOST" ] && HA_ARGS+=(--monitor-host "$HA_MONITOR_HOST")
+  [ -n "$HA_MONITOR_URL" ] && HA_ARGS+=(--monitor-url "$HA_MONITOR_URL")
+  [ "$HA_INITIAL_PRIMARY" = "1" ] && HA_ARGS+=(--initial-primary)
+  [ -n "$HA_JOIN_PRIMARY_HOST" ] && HA_ARGS+=(--join-primary-host "$HA_JOIN_PRIMARY_HOST")
+  [ -n "$EXPECTED_CONFIG_FINGERPRINT" ] && HA_ARGS+=(--expected-config-fingerprint "$EXPECTED_CONFIG_FINGERPRINT")
+  ./ha/install-ha-node.sh "${HA_ARGS[@]}"
+else
+  ./run-fleet.sh
+fi
