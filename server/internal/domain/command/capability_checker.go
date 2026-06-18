@@ -71,6 +71,8 @@ func (c *CapabilityChecker) CheckCapabilities(
 		return nil, fleeterror.NewInvalidArgumentErrorf("unknown or unsupported command type: %v", cmdType)
 	}
 
+	// DEFAULT_PASSWORD miners are command-eligible in Fleet; the miner firmware
+	// or driver decides whether a specific operation is currently allowed.
 	devices, err := c.getDeviceInfo(ctx, selector, orgID)
 	if err != nil {
 		return nil, err
@@ -95,7 +97,7 @@ func (c *CapabilityChecker) getDeviceInfo(
 	}
 }
 
-// getAllDeviceInfo retrieves info for all paired devices in the organization.
+// getAllDeviceInfo retrieves info for command-eligible devices in the organization.
 func (c *CapabilityChecker) getAllDeviceInfo(ctx context.Context, orgID int64) ([]deviceInfo, error) {
 	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) ([]deviceInfo, error) {
 		rows, err := q.GetAllDeviceInfoForCapabilityCheck(ctx, orgID)

@@ -71,10 +71,11 @@ ON CONFLICT (device_id) DO UPDATE SET
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL;
 
--- Mark a device AUTHENTICATION_NEEDED without ever downgrading a PAIRED row: the
--- WHERE guard no-ops the write when the row is already PAIRED, closing the race
--- where a concurrent pair commits PAIRED between the caller's read and this write
--- (the DO UPDATE branch re-reads the latest committed row). Zero rows means PAIRED won.
+-- Mark a device AUTHENTICATION_NEEDED without ever downgrading a paired-like row:
+-- the WHERE guard no-ops the write when the row is already PAIRED or DEFAULT_PASSWORD,
+-- closing the race where a concurrent pair commits a paired-like status between the
+-- caller's read and this write (the DO UPDATE branch re-reads the latest committed row).
+-- Zero rows means paired-like won.
 -- name: SetDevicePairingAuthNeededIfNotPaired :execrows
 INSERT INTO device_pairing (
     device_id,
@@ -89,7 +90,7 @@ ON CONFLICT (device_id) DO UPDATE SET
     pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum,
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL
-WHERE device_pairing.pairing_status IS DISTINCT FROM 'PAIRED'::pairing_status_enum;
+WHERE device_pairing.pairing_status NOT IN ('PAIRED'::pairing_status_enum, 'DEFAULT_PASSWORD'::pairing_status_enum);
 
 -- PostgreSQL equivalent of UPDATE with INNER JOIN.
 -- At most one row matches:
@@ -106,6 +107,56 @@ WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
   AND d.deleted_at IS NULL
   AND device_pairing.pairing_status IS DISTINCT FROM $1;
+
+-- name: ReconcileDefaultPasswordPairingStatusByIdentifier :one
+-- Telemetry reconciles only the paired-like factory-password state machine.
+-- Late samples must not resurrect devices moved to UNPAIRED,
+-- AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND sqlc.arg('pairing_status')::pairing_status_enum IN ('PAIRED', 'DEFAULT_PASSWORD')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = sqlc.arg('pairing_status')::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND device_pairing.pairing_status IS DISTINCT FROM sqlc.arg('pairing_status')::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated;
+
+-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
+-- Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
+-- but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated;
 
 -- name: GetDeviceByID :one
 SELECT *
@@ -238,7 +289,7 @@ SELECT
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::bigint as offline_count,
@@ -246,7 +297,7 @@ SELECT
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::bigint as sleeping_count,
@@ -254,10 +305,10 @@ SELECT
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -266,7 +317,7 @@ SELECT
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
@@ -310,7 +361,7 @@ WHERE d.deleted_at IS NULL
           )
       )
       OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
-          AND dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+          AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
           AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
       OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
           AND EXISTS (
@@ -320,11 +371,13 @@ WHERE d.deleted_at IS NULL
                 AND errors.closed_at IS NULL
                 AND errors.severity IN (1, 2, 3, 4)
           )
-          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+          AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
           AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+      -- NULL-status paired-like miners (counted as offline in dashboard).
+      -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
       OR (sqlc.narg('include_null_status_filter')::boolean = TRUE
           AND ds.status IS NULL
-          AND dp.pairing_status = 'PAIRED')
+          AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
   )
   AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(sqlc.arg('model_values')::text[]))
   AND (sqlc.narg('device_identifiers_filter')::text IS NULL OR d.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
@@ -630,11 +683,11 @@ WHERE dd.org_id = sqlc.arg('org_id')
                 OR (sqlc.narg('needs_attention_filter')::boolean = TRUE)
             )
         )
-        -- Auth-needed / default-password (exclude OFFLINE only)
+        -- Auth-needed (exclude OFFLINE only)
         OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
-            AND dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+            AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
             AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
-        -- Devices with actionable errors. Excludes NULL-status paired miners
+        -- Devices with actionable errors. Excludes NULL-status paired-like miners
         -- so they stay bucketed as offline (matches CountMinersByState).
         OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
             AND EXISTS (
@@ -644,13 +697,13 @@ WHERE dd.org_id = sqlc.arg('org_id')
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+            AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
             AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-        -- NULL-status paired miners (counted as offline in dashboard).
-        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+        -- NULL-status paired-like miners (counted as offline in dashboard).
+        -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
         OR (sqlc.narg('include_null_status_filter')::boolean = TRUE
             AND ds.status IS NULL
-            AND dp.pairing_status = 'PAIRED')
+            AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
     )
     -- Component error filter
     AND (
@@ -703,7 +756,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE d.org_id = sqlc.arg('org_id')
-    AND dp.pairing_status::text = COALESCE(sqlc.narg('pairing_status')::text, 'PAIRED')
+    AND dp.pairing_status::text = ANY(sqlc.arg('pairing_status_values')::text[])
     AND d.deleted_at IS NULL
     AND (sqlc.narg('device_status')::text IS NULL OR ds.status::text = sqlc.narg('device_status')::text)
     AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
@@ -721,7 +774,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE d.org_id = sqlc.arg('org_id')
-    AND dp.pairing_status::text = COALESCE(sqlc.narg('pairing_status')::text, 'PAIRED')
+    AND dp.pairing_status::text = ANY(sqlc.arg('pairing_status_values')::text[])
     AND d.deleted_at IS NULL
     AND (sqlc.narg('device_status')::text IS NULL OR ds.status::text = sqlc.narg('device_status')::text)
     AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
@@ -729,7 +782,7 @@ WHERE d.org_id = sqlc.arg('org_id')
 ORDER BY d.device_identifier;
 
 -- name: GetDeviceInfoForCapabilityCheck :many
--- Returns device information needed for capability checking.
+-- Returns command-eligible device information needed for capability checking.
 -- Used when checking if specific devices support a command.
 SELECT
     d.id,
@@ -744,10 +797,10 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.deleted_at IS NULL
   AND d.org_id = sqlc.arg('org_id')
-  AND dp.pairing_status = 'PAIRED';
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD');
 
 -- name: GetAllDeviceInfoForCapabilityCheck :many
--- Returns device information for all paired devices in an organization.
+-- Returns command-eligible device information for an organization.
 -- Used when checking capabilities for "select all" operations.
 SELECT
     d.id,
@@ -759,9 +812,9 @@ SELECT
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-WHERE d.org_id = $1
+WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
-  AND dp.pairing_status = 'PAIRED';
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD');
 
 -- name: SoftDeleteDevices :execrows
 -- Soft-deletes devices by setting deleted_at timestamp.
@@ -860,7 +913,7 @@ SELECT
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::int AS offline_count,
@@ -868,7 +921,7 @@ SELECT
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::int AS sleeping_count,
@@ -876,10 +929,10 @@ SELECT
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -888,7 +941,7 @@ SELECT
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0

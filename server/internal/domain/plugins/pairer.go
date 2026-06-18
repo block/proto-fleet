@@ -107,8 +107,8 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 				return p.pairWithDefaultCredentials(ctx, plugin, discoveredDevice, defaultCreds)
 			}
 		}
-		// Devices that advertise CapabilityAsymmetricAuth (e.g. Proto devices) use public key
-		// based authentication managed by the plugin/SDK instead of username/password.
+		// Legacy asymmetric-auth drivers use public key based authentication
+		// managed by the plugin/SDK instead of username/password.
 		if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
 			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
 		}
@@ -263,13 +263,12 @@ func (p *Pairer) handlePairViaStore(
 			return err
 		}
 
-		// Record a factory-password device as DEFAULT_PASSWORD immediately (not
-		// PAIRED/ACTIVE) so the UI surfaces remediation without waiting for the poll.
+		// Record a factory-password device as DEFAULT_PASSWORD immediately so
+		// security settings can surface remediation without waiting for the poll.
 		pairingStatus := pairing.StatusPaired
 		initialStatus := models.MinerStatusActive
 		if discoveredDevice.DefaultPasswordActive != nil && *discoveredDevice.DefaultPasswordActive {
 			pairingStatus = pairing.StatusDefaultPassword
-			initialStatus = models.MinerStatusUnknown
 		}
 
 		if err := p.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, pairingStatus); err != nil {
@@ -627,11 +626,11 @@ func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *disco
 		return sdk.SecretBundle{}, err
 	}
 
-	if !plugin.Caps[sdk.CapabilityAsymmetricAuth] {
-		return p.createSecretBundle(ctx, device.OrgID, plugin.Caps, credentials)
+	if plugin.Caps[sdk.CapabilityAsymmetricAuth] {
+		return p.createProtoBearerSecretBundle(ctx, device)
 	}
 
-	return p.createProtoBearerSecretBundle(ctx, device)
+	return p.createSecretBundle(ctx, device.OrgID, plugin.Caps, credentials)
 }
 
 // createProtoBearerSecretBundle issues a JWT bearer token for proto devices so that runtime

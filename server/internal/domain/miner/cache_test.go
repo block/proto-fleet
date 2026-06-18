@@ -1,9 +1,12 @@
 package miner_test
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -76,6 +79,87 @@ func TestMinerService_GetMinerFromDeviceIdentifier_CachesAfterFirstLookup(t *tes
 
 	// Assert — same instance returned; gomock Times(1) enforces no second NewDevice call
 	assert.True(t, miner1 == miner2, "expected cache to return the same miner instance")
+}
+
+func TestMinerService_GetMinerFromDeviceIdentifier_ResolvesDefaultPasswordDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := models.DeviceIdentifier("default-password-resolution-test")
+	discoveredDeviceID := createDiscoveredDevice(t, db, "Proto Miner", "Proto", "proto")
+
+	q := sqlc.New(db)
+	dbDeviceID, err := q.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+		OrgID:              1,
+		DiscoveredDeviceID: discoveredDeviceID,
+		DeviceIdentifier:   string(deviceIdentifier),
+		MacAddress:         "00:11:22:33:44:21",
+		SerialNumber:       sql.NullString{String: "SN-DEFAULT-PASSWORD", Valid: true},
+	})
+	require.NoError(t, err)
+	_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      dbDeviceID,
+		PairingStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD,
+	})
+	require.NoError(t, err)
+	err = q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
+		IpAddress: "192.168.2.21",
+		Port:      "8080",
+		UrlScheme: "https",
+		ID:        dbDeviceID,
+	})
+	require.NoError(t, err)
+	createTestMinerCredentials(t, db, encryptService, dbDeviceID)
+
+	mockSDKDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), string(deviceIdentifier), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: mockSDKDevice}, nil).
+		Times(1)
+
+	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "proto"}
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+
+	resolvedMiner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
+
+	require.NoError(t, err)
+	require.NotNil(t, resolvedMiner)
+	assert.Equal(t, deviceIdentifier, resolvedMiner.GetID())
+
+	resolvedByDefaultPath, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
+	require.NoError(t, err)
+	assert.Equal(t, deviceIdentifier, resolvedByDefaultPath.GetID())
+}
+
+func TestMinerService_GetMinerFromDeviceIdentifier_ProtoWithoutCredentialsReturnsAuthenticationError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := models.DeviceIdentifier("proto-without-credentials")
+	createTestProtoMinerWithToken(t, db, string(deviceIdentifier))
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: models.DriverNameProto}
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+
+	resolvedMiner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
+
+	require.Error(t, err)
+	assert.Nil(t, resolvedMiner)
+	assert.True(t, fleeterror.IsAuthenticationError(err), "expected authentication error, got: %v", err)
 }
 
 // TestMinerService_GetMiner_CachesAfterFirstLookup verifies that GetMiner (by numeric

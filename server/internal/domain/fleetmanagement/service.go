@@ -26,6 +26,7 @@ import (
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
+	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -754,7 +755,7 @@ const (
 // isPairedLikeStatus reports whether a pairing_status is paired and reporting
 // telemetry. DEFAULT_PASSWORD is treated like PAIRED (its telemetry is trusted).
 func isPairedLikeStatus(status string) bool {
-	return status == "PAIRED" || status == "DEFAULT_PASSWORD"
+	return status == pairing.StatusPaired || status == pairing.StatusDefaultPassword
 }
 
 func isPairedLikePairingStatus(status pb.PairingStatus) bool {
@@ -884,7 +885,8 @@ func convertToMeasurementWithMultiplier(metric *modelsV2.MetricValue, timestamp 
 }
 
 // shouldIncludeStateCounts determines if state counts should be fetched based on pairing status filter.
-// State counts are only meaningful for devices that have telemetry data (PAIRED and AUTHENTICATION_NEEDED).
+// State counts are meaningful for fleet-visible paired-like devices: PAIRED,
+// AUTHENTICATION_NEEDED, and DEFAULT_PASSWORD.
 // Per proto definition: empty slice means "no filter" (include all), UNSPECIFIED means "all statuses".
 func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 	if len(pairingStatuses) == 0 {

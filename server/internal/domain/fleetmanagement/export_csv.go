@@ -207,13 +207,6 @@ func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
 	return headers
 }
 
-// needsCredentialRemediation reports whether the device needs operator action and
-// should surface as "needs attention".
-func needsCredentialRemediation(status pb.PairingStatus) bool {
-	return status == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED ||
-		status == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
-}
-
 // telemetryGatedByAuth reports whether telemetry is unavailable pending auth.
 // DEFAULT_PASSWORD devices still report telemetry, so their values are exported.
 func telemetryGatedByAuth(status pb.PairingStatus) bool {
@@ -221,8 +214,13 @@ func telemetryGatedByAuth(status pb.PairingStatus) bool {
 }
 
 func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
-	if needsCredentialRemediation(snapshot.PairingStatus) {
+	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return csvStatusNeedsAttention
+	}
+
+	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED &&
+		isPairedLikePairingStatus(snapshot.PairingStatus) {
+		return "Offline"
 	}
 
 	switch snapshot.DeviceStatus {
@@ -250,10 +248,6 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 func minerIssuesCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return "Authentication required"
-	}
-
-	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
-		return "Password change required"
 	}
 
 	if snapshot.DeviceStatus == pb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL {

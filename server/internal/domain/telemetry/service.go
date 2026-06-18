@@ -316,7 +316,7 @@ type TelemetryService struct {
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
-	// the poll only writes a pairing-status change on transitions, not every poll.
+	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
 	// inFlight tracks devices currently being processed by a worker via the tasks channel.
 	// statusPollingRoutine skips devices in this map to avoid double-processing the same
@@ -355,6 +355,7 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	for _, id := range deviceID {
 		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
 		s.devicesForStatusPolling.Store(id, struct{}{})
+		s.lastDefaultPwActive.Delete(id)
 	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
@@ -1074,12 +1075,31 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 // handleCredentialRemediation sets the pairing state matching the failure:
 // DEFAULT_PASSWORD for a default-password rig, otherwise AUTHENTICATION_NEEDED.
 func (s *TelemetryService) handleCredentialRemediation(ctx context.Context, deviceID models.DeviceIdentifier, cause error) error {
-	status := pairing.StatusAuthenticationNeeded
 	if isDefaultPasswordRemediationError(cause) {
-		status = pairing.StatusDefaultPassword
+		eligible, updated, err := s.deviceStore.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusDefaultPassword)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile default-password pairing status for device %s: %w", deviceID, err)
+		}
+		if updated {
+			s.minerManager.InvalidateMiner(deviceID)
+		}
+		if !eligible {
+			slog.Debug("skipping default-password credential remediation for non paired-like device",
+				"device_id", deviceID)
+		}
+		return nil
 	}
-	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), status); err != nil {
-		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
+
+	eligible, updated, err := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, string(deviceID))
+	if err != nil {
+		return fmt.Errorf("failed to reconcile auth-needed pairing status for device %s: %w", deviceID, err)
+	}
+	if updated {
+		s.minerManager.InvalidateMiner(deviceID)
+	}
+	if !eligible {
+		slog.Debug("skipping auth-needed credential remediation for non eligible device",
+			"device_id", deviceID)
 	}
 
 	return nil
@@ -1166,10 +1186,20 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 	if active {
 		status = pairing.StatusDefaultPassword
 	}
-	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), status); err != nil {
+	eligible, updated, err := s.deviceStore.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, string(deviceID), status)
+	if err != nil {
 		slog.Error("failed to reconcile default-password pairing status",
 			"device_id", deviceID, "default_password_active", active, "error", err)
 		return
+	}
+	if !eligible {
+		s.lastDefaultPwActive.Store(deviceID, active)
+		slog.Debug("skipping default-password pairing reconciliation for non paired-like device",
+			"device_id", deviceID, "default_password_active", active, "target_status", status)
+		return
+	}
+	if updated {
+		s.minerManager.InvalidateMiner(deviceID)
 	}
 	s.lastDefaultPwActive.Store(deviceID, active)
 }

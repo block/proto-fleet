@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
@@ -38,6 +40,7 @@ const (
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -265,6 +268,9 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 	if err == nil {
 		return messages, nil
 	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("dequeue context canceled: %w", ctx.Err())
+	}
 
 	delay := es.config.MasterPollingInterval
 
@@ -273,7 +279,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 
 		select {
 		case <-ctx.Done():
-			return nil, fleeterror.NewInternalErrorf("context cancelled: %v", ctx.Err())
+			return nil, fmt.Errorf("dequeue retry context canceled: %w", ctx.Err())
 		case <-time.After(delay):
 			// Continue with retry
 		}
@@ -285,6 +291,9 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		if err == nil {
 			return messages, nil
 		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("dequeue context canceled after retry: %w", ctx.Err())
+		}
 	}
 
 	slog.Error("dequeue failed after retries", "error", err)
@@ -295,11 +304,14 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 	for {
 		select {
 		case <-ctx.Done():
-			return fleeterror.NewInternalErrorf("error queue processor thread ctx DONE: %v", ctx.Err())
+			return fmt.Errorf("queue processor context canceled: %w", ctx.Err())
 		default:
 			messages, err := es.dequeueWithRetry(ctx)
 
 			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
 				return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
 			}
 
@@ -443,8 +455,23 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 // id along with the execution error (if any). It does NOT mark queue message
 // status — the caller is responsible for that.
 func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, int64, error) {
-	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
+	var passwordPayload *dto.UpdateMinerPasswordPayload
+	if commandType == commandtype.UpdateMinerPassword {
+		var p dto.UpdateMinerPasswordPayload
+		if err := json.Unmarshal(message.Payload, &p); err != nil {
+			return message.OrgID, 0, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", err)
+		}
+		passwordPayload = &p
+	}
+
+	minerInfo, err := es.resolveMinerForCommand(ctx, commandType, message.DeviceID, passwordPayload)
 	if err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return message.OrgID, 0, err
+		}
+		if commandType == commandtype.UpdateMinerPassword && fleeterror.IsAuthenticationError(err) {
+			return message.OrgID, 0, fleeterror.NewFailedPreconditionErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
+		}
 		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
@@ -566,11 +593,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case commandtype.UpdateMinerPassword:
-		var p dto.UpdateMinerPasswordPayload
-		credExtractErr := json.Unmarshal(message.Payload, &p)
-		if credExtractErr != nil {
-			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
-		}
+		p := *passwordPayload
 
 		// Update device via plugin
 		err = minerInfo.UpdateMinerPassword(ctx, p)
@@ -586,6 +609,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf(
 				"device %d password changed on-device but credential persistence failed: %v",
 				message.DeviceID, dbErr)
+			es.minerService.InvalidateMiner(minerInfo.GetID())
 			break
 		}
 
@@ -609,6 +633,30 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64, passwordPayload *dto.UpdateMinerPasswordPayload) (interfaces.Miner, error) {
+	var (
+		miner interfaces.Miner
+		err   error
+	)
+	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil {
+		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
+	} else {
+		miner, err = es.minerService.GetMiner(ctx, deviceID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if commandType == commandtype.UpdateMinerPassword {
+		if _, ok := miner.(*remotenode.Miner); ok {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"device %d is paired through a fleet node; password update remediation is not supported through fleet nodes yet",
+				deviceID,
+			)
+		}
+	}
+	return miner, nil
 }
 
 func (es *ExecutionService) applyMinerNameToPoolUsernames(
@@ -1156,13 +1204,13 @@ func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, mine
 
 // protoDefaultUsername is the nominal username stored for Proto credentials; Proto
 // authenticates by password only, so it's cosmetic and used only when inserting a
-// row for a Proto device that has none (legacy key-based pairings stored none).
+// defensive row for a Proto device that reached password persistence without one.
 const protoDefaultUsername = "admin"
 
 var errMinerCredentialsMissing = errors.New("no miner credentials row for device")
 
-// persistMinerPassword updates the device's stored password, inserting a row for
-// legacy Proto devices that have none.
+// persistMinerPassword updates the device's stored password, inserting a defensive
+// row for Proto if the command reached persistence before credentials existed.
 func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID int64, driverName, password string) error {
 	err := es.updateMinerPasswordInDB(ctx, deviceID, password)
 	if errors.Is(err, errMinerCredentialsMissing) && driverName == models.DriverNameProto {

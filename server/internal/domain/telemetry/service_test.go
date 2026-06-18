@@ -3705,14 +3705,16 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, authErr)
 
-	// fetchStatusFromMiner calls InvalidateMiner on auth error
+	// fetchStatusFromMiner invalidates on auth error; guarded remediation
+	// invalidates again when it changes pairing state.
 	mockMinerGetter.EXPECT().
-		InvalidateMiner(deviceID)
+		InvalidateMiner(deviceID).
+		Times(2)
 
-	// processStatusOnly calls handleAuthenticationFailure on auth error
+	// processStatusOnly routes auth remediation through a guarded transition.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(nil)
+		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID)).
+		Return(true, true, nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -3757,14 +3759,17 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusUnknown, authErr)
 
-	// fetchStatusFromMiner calls InvalidateMiner on auth error from GetDeviceStatus
+	// fetchStatusFromMiner invalidates on auth error; guarded remediation
+	// invalidates again when it changes pairing state.
 	mockMinerGetter.EXPECT().
-		InvalidateMiner(deviceID)
+		InvalidateMiner(deviceID).
+		Times(2)
 
-	// An auth error moves the device into the AUTHENTICATION_NEEDED state.
+	// An auth error moves the device into AUTHENTICATION_NEEDED only through
+	// the guarded remediation transition.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusAuthenticationNeeded).
-		Return(nil)
+		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID)).
+		Return(true, true, nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -3809,8 +3814,10 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 	// A default-password forbidden error moves the device into the distinct
 	// DEFAULT_PASSWORD remediation state (not AUTHENTICATION_NEEDED).
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
-		Return(nil)
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
+		Return(true, true, nil)
+	mockMinerGetter.EXPECT().
+		InvalidateMiner(deviceID)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -3830,12 +3837,14 @@ func TestReconcileDefaultPasswordState(t *testing.T) {
 
 	// Arrange
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	deviceID := models.DeviceIdentifier("device-dp")
 	service := NewTelemetryService(Config{},
-		mock.NewMockTelemetryDataStore(ctrl), mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockTelemetryDataStore(ctrl), mockMinerGetter,
 		mock.NewMockUpdateScheduler(ctrl), mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 	ctx := t.Context()
 	ptr := func(b bool) *bool { return &b }
+	mockMinerGetter.EXPECT().InvalidateMiner(deviceID).Times(3)
 
 	// An undetermined reading (nil) never writes — keeps the current status.
 	service.reconcileDefaultPasswordState(ctx, deviceID, nil)
@@ -3843,8 +3852,8 @@ func TestReconcileDefaultPasswordState(t *testing.T) {
 	// First determined reading writes the matching status (so a device whose
 	// password changed while the server was down is corrected on the next poll)...
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
-		Return(nil)
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
+		Return(true, true, nil)
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
 	// ...and is not rewritten while unchanged.
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
@@ -3852,19 +3861,62 @@ func TestReconcileDefaultPasswordState(t *testing.T) {
 	// Becoming default-password writes DEFAULT_PASSWORD once, and an undetermined
 	// read afterward must not demote it.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
-		Return(nil)
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
+		Return(true, true, nil)
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(true))
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(true))
 	service.reconcileDefaultPasswordState(ctx, deviceID, nil)
 
 	// Clearing the default password demotes back to PAIRED.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
-		Return(nil)
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
+		Return(true, true, nil)
 	service.reconcileDefaultPasswordState(ctx, deviceID, ptr(false))
 
-	// Assert — gomock verifies each UpdateDevicePairingStatusByIdentifier ran exactly once.
+	// Assert — gomock verifies each ReconcileDefaultPasswordPairingStatusByIdentifier ran exactly once.
+}
+
+func TestReconcileDefaultPasswordState_EligibleNoopDoesNotInvalidateMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	deviceID := models.DeviceIdentifier("device-dp-noop")
+	service := NewTelemetryService(Config{},
+		mock.NewMockTelemetryDataStore(ctrl), mockMinerGetter,
+		mock.NewMockUpdateScheduler(ctrl), mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	ctx := t.Context()
+	active := false
+
+	mockDeviceStore.EXPECT().
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
+		Return(true, false, nil)
+
+	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
+	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
+}
+
+func TestReconcileDefaultPasswordState_IneligibleRowsAreCached(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	deviceID := models.DeviceIdentifier("device-dp-unpaired")
+	service := NewTelemetryService(Config{},
+		mock.NewMockTelemetryDataStore(ctrl), mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl), mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	ctx := t.Context()
+	active := false
+	service.lastDefaultPwActive.Store(deviceID, true)
+
+	mockDeviceStore.EXPECT().
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
+		Return(false, false, nil).
+		Times(1)
+
+	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
+	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
 }
 
 func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing.T) {

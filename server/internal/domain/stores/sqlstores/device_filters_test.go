@@ -158,8 +158,8 @@ func TestAppendFilterSQL_StatusFilterWithNeedsAttention(t *testing.T) {
 	assert.Contains(t, sql, "errors")
 	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status != 'OFFLINE'")
 	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status NOT IN")
-	// Errors branch excludes NULL+paired miners (they remain bucketed as offline).
-	assert.Contains(t, sql, "NOT (device_status.status IS NULL AND device_pairing.pairing_status = 'PAIRED')")
+	// Errors branch excludes NULL paired-like miners (they remain bucketed as offline).
+	assert.Contains(t, sql, "NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 	assert.Len(t, resultArgs, 4) // initial + statusValues + orgID + orgID
 	assert.Equal(t, 5, resultArgNum)
 }
@@ -179,8 +179,8 @@ func TestAppendFilterSQL_StatusFilterWithOfflineIncludesNull(t *testing.T) {
 
 	sql := sb.String()
 	assert.Contains(t, sql, "device_status.status IS NULL")
-	// Narrowed to PAIRED only (matches CountMinersByState scope); excludes PENDING/FAILED/UNPAIRED.
-	assert.Contains(t, sql, "device_pairing.pairing_status = 'PAIRED'")
+	// Narrowed to paired-like statuses (matches CountMinersByState scope); excludes PENDING/FAILED/UNPAIRED.
+	assert.Contains(t, sql, "device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')")
 	assert.NotContains(t, sql, "pairing_status != 'AUTHENTICATION_NEEDED'")
 }
 

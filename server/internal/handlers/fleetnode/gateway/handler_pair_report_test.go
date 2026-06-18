@@ -124,7 +124,10 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 	// Act: a stale AUTH_NEEDED for the already-paired device.
 	_, err = h.handler.ReportPairedDevices(ctx, connect.NewRequest(&pb.ReportPairedDevicesRequest{
 		CommandId: "race-cmd",
-		Results:   []*pb.FleetNodePairResult{{DeviceIdentifier: "mac:race", Outcome: pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED}},
+		Results: []*pb.FleetNodePairResult{{
+			DeviceIdentifier: "mac:race",
+			Outcome:          pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED,
+		}},
 	}))
 	require.NoError(t, err)
 

@@ -823,7 +823,7 @@ slot_devices AS (
     JOIN device_set_membership dcm ON rs.device_set_id = dcm.device_set_id AND rs.device_id = dcm.device_id
     JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
     JOIN device_pairing dp ON d.id = dp.device_id
-        AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+        AND ` + actionablePairingStatusesExpr("dp") + `
     LEFT JOIN device_status ds ON d.id = ds.device_id
     LEFT JOIN (
         SELECT DISTINCT device_id
@@ -843,7 +843,7 @@ SELECT ap.device_set_id, ap.row_num AS row, ap.col_num AS col,
         WHEN sd.device_status = 'OFFLINE' OR sd.device_status IS NULL THEN 4
         WHEN sd.device_status IN ('MAINTENANCE', 'INACTIVE') THEN 5
         WHEN sd.device_status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-             OR sd.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             OR sd.pairing_status IN ('AUTHENTICATION_NEEDED')
              OR sd.has_errors THEN 3
         ELSE 2
     END AS status

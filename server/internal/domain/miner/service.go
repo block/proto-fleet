@@ -11,11 +11,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-
-	"github.com/block/proto-fleet/server/internal/domain/token"
-
-	"github.com/block/proto-fleet/server/internal/infrastructure/files"
-
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
@@ -23,7 +18,9 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
+	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -39,6 +36,8 @@ const (
 	// minerCacheSize is the maximum number of miner handles to cache.
 	// Sized to cover very large fleets without meaningful memory overhead.
 	minerCacheSize = 10_000
+
+	protoPasswordUpdateUsername = "admin"
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}
@@ -120,18 +119,46 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 }
 
 func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+	return s.getMinerFromDeviceIdentifier(ctx, deviceID, nil, true)
+}
+
+func (s *Service) GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error) {
+	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("device not found: %d", deviceID)
+		}
+		return nil, fmt.Errorf("failed to get device identifier: %w", err)
+	}
+
+	return s.getMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier), &sdk.UsernamePassword{
+		Username: protoPasswordUpdateUsername,
+		Password: currentPassword,
+	}, false)
+}
+
+func (s *Service) getMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier, protoMissingCredentials *sdk.UsernamePassword, useCache bool) (interfaces.Miner, error) {
 	if deviceID == "" {
 		return nil, fmt.Errorf("device ID cannot be empty")
 	}
 
-	if m, ok := s.cache.Get(string(deviceID)); ok {
-		return m, nil
+	if useCache {
+		if m, ok := s.cache.Get(string(deviceID)); ok {
+			return m, nil
+		}
 	}
 
-	// Fleet-node-paired devices route over the ControlStream; check first, cloud-dialed
-	// fall through. Deliberately NOT cached: tryFleetNodeMiner re-resolves per command so
-	// an unpair/revoke takes effect immediately (the remote miner holds no live connection,
-	// so re-resolving is cheap).
+	m, err := s.resolveMiner(ctx, deviceID, protoMissingCredentials)
+	if err != nil {
+		return nil, err
+	}
+	if useCache {
+		s.cache.Add(string(deviceID), m)
+	}
+	return m, nil
+}
+
+func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdentifier, protoMissingCredentials *sdk.UsernamePassword) (interfaces.Miner, error) {
 	if m, ok, err := s.tryFleetNodeMiner(ctx, deviceID); err != nil {
 		return nil, err
 	} else if ok {
@@ -160,6 +187,18 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		siteID = deviceData.SiteID.Int64
 	}
 
+	deviceUsername := deviceData.UsernameEnc.String
+	devicePassword := deviceData.PasswordEnc.String
+	if protoMissingCredentials != nil &&
+		deviceData.DriverName == models.DriverNameProto &&
+		!deviceData.UsernameEnc.Valid &&
+		!deviceData.PasswordEnc.Valid {
+		deviceUsername, devicePassword, err = s.encryptTransientCredentials(*protoMissingCredentials)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	m, err := s.createMiner(
 		ctx,
 		deviceData.DeviceIdentifier,
@@ -169,8 +208,8 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceData.DriverName,
 		deviceManufacturer,
 		deviceModel,
-		deviceData.UsernameEnc.String,
-		deviceData.PasswordEnc.String,
+		deviceUsername,
+		devicePassword,
 		deviceData.IpAddress,
 		deviceData.UrlScheme,
 		deviceData.SerialNumber.String,
@@ -180,8 +219,19 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		return nil, err
 	}
 
-	s.cache.Add(string(deviceID), m)
 	return m, nil
+}
+
+func (s *Service) encryptTransientCredentials(credentials sdk.UsernamePassword) (string, string, error) {
+	usernameEnc, err := s.encryptService.Encrypt([]byte(credentials.Username))
+	if err != nil {
+		return "", "", fleeterror.NewInternalErrorf("failed to encrypt username: %v", err)
+	}
+	passwordEnc, err := s.encryptService.Encrypt([]byte(credentials.Password))
+	if err != nil {
+		return "", "", fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
+	}
+	return usernameEnc, passwordEnc, nil
 }
 
 // tryFleetNodeMiner returns a remote-node Miner if the device is paired to an active
@@ -244,7 +294,7 @@ func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
 			"device_id", deviceID, "err", err)
 		return
 	}
-	s.cache.Remove(identifier)
+	s.InvalidateMiner(models.DeviceIdentifier(identifier))
 }
 
 func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {

@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -15,6 +16,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+func pairingStatusValues(statuses ...sqlc.PairingStatusEnum) []string {
+	values := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		values = append(values, string(status))
+	}
+	return values
+}
 
 // TestGetOfflineDevices_DatabaseIntegration tests the GetOfflineDevices query
 // against a real PostgreSQL database to validate SQL syntax and JOIN conditions
@@ -741,7 +750,7 @@ func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int32(1), counts.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(1), counts.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(2), counts.OfflineCount, "paired-like with NULL status should be offline")
 	require.Equal(t, int32(1), counts.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), counts.SleepingCount, "no sleeping devices")
 }
@@ -792,7 +801,7 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), counts.BrokenCount)
-	require.Equal(t, int32(1), counts.OfflineCount)
+	require.Equal(t, int32(2), counts.OfflineCount)
 	require.Equal(t, int32(1), counts.HashingCount)
 
 	// Filter by needs attention — should include auth-needed NULL-status miner
@@ -805,15 +814,20 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	require.Len(t, miners, 1)
 	require.Equal(t, "device-001", miners[0].DeviceIdentifier, "should include auth-needed NULL-status miner")
 
-	// Filter by offline — should include paired NULL-status miner
+	// Filter by offline should include paired-like NULL-status miners.
 	offlineFilter := &interfaces.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
 	}
 	miners, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), total, "offline filter should match 1 miner")
-	require.Len(t, miners, 1)
-	require.Equal(t, "device-002", miners[0].DeviceIdentifier, "should include paired NULL-status miner")
+	require.Equal(t, int64(2), total, "offline filter should match paired-like NULL-status miners")
+	require.Len(t, miners, 2)
+	identifiers := make(map[string]bool, len(miners))
+	for _, miner := range miners {
+		identifiers[miner.DeviceIdentifier] = true
+	}
+	require.True(t, identifiers["device-002"], "should include paired NULL-status miner")
+	require.True(t, identifiers["device-004"], "should include default-password NULL-status miner")
 }
 
 // TestCountMinersByState_FilteredCountsMatchList verifies that GetMinerStateCounts
@@ -831,15 +845,18 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
 		devices: []testDevice{
 			{id: 1, identifier: "device-001", status: "OFFLINE", pairingStatus: "PAIRED"},               // offline
-			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired → offline
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired -> offline
 			{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},                // hashing
-			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL → broken
+			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL -> broken
 			{id: 5, identifier: "device-005", status: "ERROR", pairingStatus: "PAIRED"},                 // broken
-			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE → broken
-			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error → broken (excluded from Hashing)
+			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE -> broken
+			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error -> broken (excluded from Hashing)
+			{id: 8, identifier: "device-008", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // NULL+default-password -> offline
+			{id: 9, identifier: "device-009", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // NULL+default-password+error -> offline
 		},
 		errors: []testError{
 			{deviceID: 7, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-007
+			{deviceID: 9, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-009
 		},
 	})
 
@@ -851,7 +868,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	}
 	_, _, listTotal, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), listTotal, "offline list should match OFFLINE + NULL+paired")
+	require.Equal(t, int64(4), listTotal, "offline list should match OFFLINE + NULL paired-like")
 
 	stateCounts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
@@ -868,7 +885,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	_, _, listTotal, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(4), listTotal,
-		"needs-attention includes ERROR + auth-needed + paired-ACTIVE-with-error")
+		"needs-attention excludes NULL default-password with errors")
 
 	stateCounts, err = store.GetMinerStateCounts(ctx, 1, needsAttentionFilter)
 	require.NoError(t, err)
@@ -897,10 +914,10 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 		"hashing+broken buckets must sum to filtered list total")
 }
 
-// TestCountMinersByState_NullPairedWithErrorStaysOffline verifies that a PAIRED
-// miner with NULL device_status and an open error is bucketed as offline
-// (not Needs Attention) by both the list filter and the state counts.
-func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
+// TestCountMinersByState_NullPairedLikeWithErrorStaysOffline verifies that
+// paired-like miners with NULL device_status and open errors are bucketed as
+// offline (not Needs Attention) by both the list filter and state counts.
+func TestCountMinersByState_NullPairedLikeWithErrorStaysOffline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -910,10 +927,12 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
 		devices: []testDevice{
-			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"}, // NULL+paired with open error
+			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"},
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 		},
 		errors: []testError{
 			{deviceID: 1, orgID: 1, severity: 1, closed: false},
+			{deviceID: 2, orgID: 1, severity: 1, closed: false},
 		},
 	})
 
@@ -925,12 +944,12 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 	}
 	_, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), total, "NULL+paired (with error) should be in offline filter")
+	require.Equal(t, int64(2), total, "NULL paired-like devices with errors should be in offline filter")
 
 	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
-	require.Equal(t, int32(1), counts.OfflineCount, "NULL+paired (with error) should count as offline")
-	require.Equal(t, int32(0), counts.BrokenCount, "NULL+paired should NOT count as broken")
+	require.Equal(t, int32(2), counts.OfflineCount, "NULL paired-like devices with errors should count as offline")
+	require.Equal(t, int32(0), counts.BrokenCount, "NULL paired-like devices should NOT count as broken")
 
 	// Needs Attention filter excludes the miner (offline trumps errors).
 	needsAttentionFilter := &interfaces.MinerFilter{
@@ -938,7 +957,7 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 	}
 	_, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), total, "NULL+paired (with error) should NOT be in needs-attention filter")
+	require.Equal(t, int64(0), total, "NULL paired-like devices with errors should NOT be in needs-attention filter")
 }
 
 // TestGetMinerStateCountsByCollections_AuthNeededNullStatus verifies per-collection
@@ -964,7 +983,7 @@ func TestGetMinerStateCountsByCollections_AuthNeededNullStatus(t *testing.T) {
 
 	c := counts[collectionID]
 	require.Equal(t, int32(1), c.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(1), c.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(2), c.OfflineCount, "paired-like with NULL status should be offline")
 	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
@@ -1000,10 +1019,10 @@ func TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus(t *testing.T)
 	require.Equal(t, int32(0), c.HashingCount, "no hashing devices")
 }
 
-// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken verifies the
-// site/building stats query (by device IDs) buckets a DEFAULT_PASSWORD device as
-// broken/needs-attention rather than dropping it from every state bucket.
-func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
+// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordUsesDeviceStatus verifies
+// the site/building stats query (by device IDs) treats DEFAULT_PASSWORD like a
+// paired device for rollups.
+func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordUsesDeviceStatus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1012,7 +1031,7 @@ func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
 	ctx := t.Context()
 
 	devices := []testDevice{
-		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active → broken
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active -> hashing
 		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},           // active paired → hashing
 	}
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
@@ -1021,8 +1040,8 @@ func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
 	c, err := store.GetMinerStateCountsByDeviceIDs(ctx, 1, []string{"device-001", "device-002"})
 	require.NoError(t, err)
 
-	require.Equal(t, int32(1), c.BrokenCount, "default-password device should be broken, not dropped from buckets")
-	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
+	require.Equal(t, int32(0), c.BrokenCount, "default-password should not be a needs-attention status")
+	require.Equal(t, int32(2), c.HashingCount, "active paired-like devices should be hashing")
 	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
@@ -1201,14 +1220,15 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 	require.NoError(t, err)
 }
 
-// nullStatusDashboardFixture returns the canonical three-device fixture used to
-// verify NULL device_status bucketing: auth-needed (→ broken), paired (→ offline),
-// and an active paired control (→ hashing).
+// nullStatusDashboardFixture returns the canonical fixture used to verify NULL
+// device_status bucketing: auth-needed (broken), paired-like (offline), and an
+// active paired control (hashing).
 func nullStatusDashboardFixture() []testDevice {
 	return []testDevice{
 		{id: 1, identifier: "device-001", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},
 		{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},
 		{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},
+		{id: 4, identifier: "device-004", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 	}
 }
 
@@ -1539,7 +1559,7 @@ func TestGetFilteredDeviceIds_WithDeviceStatusFilter(t *testing.T) {
 					String: string(tt.deviceStatus),
 					Valid:  true,
 				},
-				PairingStatus: sql.NullString{Valid: false},
+				PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1585,12 +1605,9 @@ func TestGetFilteredDeviceIds_WithPairingStatusFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
-				OrgID:        1,
-				DeviceStatus: sql.NullString{Valid: false},
-				PairingStatus: sql.NullString{
-					String: string(tt.pairingStatus),
-					Valid:  true,
-				},
+				OrgID:               1,
+				DeviceStatus:        sql.NullString{Valid: false},
+				PairingStatusValues: pairingStatusValues(tt.pairingStatus),
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1651,10 +1668,7 @@ func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
 					String: string(tt.deviceStatus),
 					Valid:  true,
 				},
-				PairingStatus: sql.NullString{
-					String: string(tt.pairingStatus),
-					Valid:  true,
-				},
+				PairingStatusValues: pairingStatusValues(tt.pairingStatus),
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1665,8 +1679,8 @@ func TestGetFilteredDeviceIds_WithBothFilters(t *testing.T) {
 	}
 }
 
-// TestGetFilteredDeviceIds_NoFilters verifies returning all paired devices when no filters provided
-func TestGetFilteredDeviceIds_NoFilters(t *testing.T) {
+// TestGetFilteredDeviceIds_WithPairedStatusValues verifies returning paired devices when requested.
+func TestGetFilteredDeviceIds_WithPairedStatusValues(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1678,14 +1692,14 @@ func TestGetFilteredDeviceIds_NoFilters(t *testing.T) {
 	setupFilteredDeviceIdsTestData(t, conn)
 
 	params := sqlc.GetFilteredDeviceIdsParams{
-		OrgID:         1,
-		DeviceStatus:  sql.NullString{Valid: false},
-		PairingStatus: sql.NullString{Valid: false},
+		OrgID:               1,
+		DeviceStatus:        sql.NullString{Valid: false},
+		PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
 	require.NoError(t, err)
-	// Should return all 4 devices with PAIRED status (device 4 is AUTHENTICATION_NEEDED, excluded)
+	// Should return the 3 PAIRED devices (device 4 is AUTHENTICATION_NEEDED, excluded).
 	require.Len(t, deviceIDs, 3)
 	require.ElementsMatch(t, []int64{1, 2, 3}, deviceIDs)
 }
@@ -1709,7 +1723,7 @@ func TestGetFilteredDeviceIds_NoResults(t *testing.T) {
 			String: string(sqlc.DeviceStatusEnumERROR),
 			Valid:  true,
 		},
-		PairingStatus: sql.NullString{Valid: false},
+		PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1717,8 +1731,8 @@ func TestGetFilteredDeviceIds_NoResults(t *testing.T) {
 	require.Empty(t, deviceIDs)
 }
 
-// TestGetFilteredDeviceIds_OnlyPairedByDefault verifies default PAIRED filter in query
-func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
+// TestGetFilteredDeviceIds_OnlyPairedWhenRequested verifies the explicit PAIRED filter.
+func TestGetFilteredDeviceIds_OnlyPairedWhenRequested(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1729,11 +1743,10 @@ func TestGetFilteredDeviceIds_OnlyPairedByDefault(t *testing.T) {
 
 	setupFilteredDeviceIdsTestData(t, conn)
 
-	// No filters provided - should only return PAIRED devices
 	params := sqlc.GetFilteredDeviceIdsParams{
-		OrgID:         1,
-		DeviceStatus:  sql.NullString{Valid: false},
-		PairingStatus: sql.NullString{Valid: false},
+		OrgID:               1,
+		DeviceStatus:        sql.NullString{Valid: false},
+		PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
 	}
 
 	deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -1804,11 +1817,11 @@ func TestGetFilteredDeviceIds_WithManufacturerFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sqlc.GetFilteredDeviceIdsParams{
-				OrgID:              1,
-				DeviceStatus:       sql.NullString{Valid: false},
-				PairingStatus:      sql.NullString{Valid: false},
-				ModelFilter:        tt.modelFilter,
-				ManufacturerFilter: tt.manufacturerFilter,
+				OrgID:               1,
+				DeviceStatus:        sql.NullString{Valid: false},
+				PairingStatusValues: pairingStatusValues(sqlc.PairingStatusEnumPAIRED),
+				ModelFilter:         tt.modelFilter,
+				ManufacturerFilter:  tt.manufacturerFilter,
 			}
 
 			deviceIDs, err := queries.GetFilteredDeviceIds(ctx, params)
@@ -2208,6 +2221,309 @@ func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
 	pairedDevice, err := store.GetPairedDeviceByMACAddress(ctx, "AA:BB:CC:DD:EE:02", 1)
 	require.NoError(t, err)
 	require.Equal(t, "default-pw-device", pairedDevice.DeviceIdentifier)
+}
+
+func seedReconcileTestOrg(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+}
+
+func seedReconcileTestDevice(
+	t *testing.T,
+	ctx context.Context,
+	conn *sql.DB,
+	discoveredID int64,
+	deviceID int64,
+	deviceIdentifier string,
+	macAddress string,
+	status sqlc.PairingStatusEnum,
+) {
+	t.Helper()
+
+	_, err := conn.ExecContext(ctx, `
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.30', '443', 'https', TRUE)
+	`, discoveredID, deviceIdentifier)
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES ($1, 1, $2, $3, $4)
+	`, deviceID, discoveredID, deviceIdentifier, macAddress)
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES ($1, $2, NOW())
+	`, deviceID, status)
+	require.NoError(t, err)
+}
+
+type reconcileResult struct {
+	eligible bool
+	updated  bool
+	err      error
+}
+
+func assertConcurrentUnpairWinsReconcile(
+	t *testing.T,
+	ctx context.Context,
+	conn *sql.DB,
+	deviceID int64,
+	reconcile func(context.Context) (bool, bool, error),
+	updatedMessage string,
+) {
+	t.Helper()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE device_pairing
+		SET pairing_status = 'UNPAIRED'
+		WHERE device_id = $1
+	`, deviceID)
+	require.NoError(t, err)
+
+	resultCh := make(chan reconcileResult, 1)
+	go func() {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eligible, updated, reconcileErr := reconcile(reconcileCtx)
+		resultCh <- reconcileResult{eligible: eligible, updated: updated, err: reconcileErr}
+	}()
+
+	select {
+	case result := <-resultCh:
+		require.NoError(t, result.err)
+		require.Fail(t, "expected reconcile to wait behind the concurrent pairing-status transition")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, tx.Commit())
+
+	var result reconcileResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for reconcile result")
+	}
+	require.NoError(t, result.err)
+	require.False(t, result.updated, updatedMessage)
+
+	finalStatus, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.PairingStatusEnumUNPAIRED, finalStatus)
+}
+
+func TestReconcileDefaultPasswordPairingStatusByIdentifier_OnlyPairedLikeStates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	q := sqlc.New(conn)
+	tests := []struct {
+		name          string
+		initialStatus sqlc.PairingStatusEnum
+		targetStatus  sqlc.PairingStatusEnum
+		wantEligible  bool
+		wantUpdated   bool
+		wantFinal     sqlc.PairingStatusEnum
+	}{
+		{
+			name:          "paired promotes to default password",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumDEFAULTPASSWORD,
+		},
+		{
+			name:          "default password clears to paired",
+			initialStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumPAIRED,
+		},
+		{
+			name:          "paired no-op remains eligible",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumPAIRED,
+		},
+		{
+			name:          "unpaired not promoted by stale clear sample",
+			initialStatus: sqlc.PairingStatusEnumUNPAIRED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumUNPAIRED,
+		},
+		{
+			name:          "auth needed not promoted",
+			initialStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+			targetStatus:  sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discoveredID := int64(5200 + i)
+			deviceID := int64(6200 + i)
+			deviceIdentifier := fmt.Sprintf("default-password-reconcile-%d", i)
+			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02X", i+10), tt.initialStatus)
+
+			eligible, updated, err := store.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, deviceIdentifier, string(tt.targetStatus))
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEligible, eligible)
+			require.Equal(t, tt.wantUpdated, updated)
+
+			finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantFinal, finalStatus)
+		})
+	}
+}
+
+func TestReconcileDefaultPasswordPairingStatusByIdentifier_ConcurrentTransitionDoesNotRePair(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7200
+	const deviceIdentifier = "default-password-reconcile-concurrent"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EE:77", sqlc.PairingStatusEnumPAIRED)
+
+	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
+		return store.ReconcileDefaultPasswordPairingStatusByIdentifier(
+			reconcileCtx,
+			deviceIdentifier,
+			string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
+		)
+	}, "stale reconcile must not rewrite a row that moved out of paired-like state")
+}
+
+func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	q := sqlc.New(conn)
+	tests := []struct {
+		name          string
+		initialStatus sqlc.PairingStatusEnum
+		wantEligible  bool
+		wantUpdated   bool
+		wantFinal     sqlc.PairingStatusEnum
+	}{
+		{
+			name:          "paired moves to auth needed",
+			initialStatus: sqlc.PairingStatusEnumPAIRED,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+		{
+			name:          "default password moves to auth needed",
+			initialStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD,
+			wantEligible:  true,
+			wantUpdated:   true,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+		{
+			name:          "auth needed no-op remains eligible",
+			initialStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+			wantEligible:  true,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumAUTHENTICATIONNEEDED,
+		},
+		{
+			name:          "unpaired not resurrected",
+			initialStatus: sqlc.PairingStatusEnumUNPAIRED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumUNPAIRED,
+		},
+		{
+			name:          "pending not resurrected",
+			initialStatus: sqlc.PairingStatusEnumPENDING,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumPENDING,
+		},
+		{
+			name:          "failed not resurrected",
+			initialStatus: sqlc.PairingStatusEnumFAILED,
+			wantEligible:  false,
+			wantUpdated:   false,
+			wantFinal:     sqlc.PairingStatusEnumFAILED,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discoveredID := int64(7300 + i)
+			deviceID := int64(8300 + i)
+			deviceIdentifier := fmt.Sprintf("auth-needed-reconcile-%d", i)
+			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EF:%02X", i+10), tt.initialStatus)
+
+			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEligible, eligible)
+			require.Equal(t, tt.wantUpdated, updated)
+
+			finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantFinal, finalStatus)
+		})
+	}
+}
+
+func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransitionDoesNotRePair(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+	seedReconcileTestOrg(t, conn)
+
+	const deviceID int64 = 7400
+	const deviceIdentifier = "auth-needed-reconcile-concurrent"
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:77", sqlc.PairingStatusEnumPAIRED)
+
+	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
+		return store.ReconcileAuthenticationNeededPairingStatusByIdentifier(reconcileCtx, deviceIdentifier)
+	}, "stale auth remediation must not rewrite a row that moved out of eligible state")
 }
 
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {

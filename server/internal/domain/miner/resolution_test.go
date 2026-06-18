@@ -105,6 +105,43 @@ func TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := "fleetnode-default-password-device"
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, $3, 'CONFIRMED') RETURNING id`,
+		"default-password-fleet-node", []byte("identity-pubkey"), []byte("signing-pubkey"),
+	).Scan(&fleetNodeID))
+	_, err := db.Exec(
+		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
+		fleetNodeID, deviceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE device_pairing SET pairing_status = 'DEFAULT_PASSWORD' WHERE device_id = $1`, deviceID)
+	require.NoError(t, err)
+
+	sender := &fakeCommandSender{}
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService,
+		&fakePluginManager{driverName: "antminer"}).
+		WithCommandSender(sender)
+
+	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
+	require.NoError(t, err)
+	_, ok := m.(*remotenode.Miner)
+	require.True(t, ok, "default-password command resolution should keep fleet-node routing")
+
+	require.NoError(t, m.Reboot(t.Context()))
+	assert.True(t, sender.called, "remediation miner should dispatch over the ControlStream sender")
+}
+
 // TestGetDeviceWithCredentialsAndIP_ResolvesDeviceWithSoftDeletedDiscoveryRow guards against
 // dropping a still-PAIRED device whose linked discovered_device row was soft-deleted (e.g.
 // the miner was re-discovered, which soft-deletes the old row and inserts a fresh one since

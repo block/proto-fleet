@@ -168,8 +168,9 @@ const (
 	PairingStatus_PAIRING_STATUS_PENDING PairingStatus = 4
 	// Devices that failed to pair
 	PairingStatus_PAIRING_STATUS_FAILED PairingStatus = 5
-	// Devices that are paired but still using the factory default password;
-	// the password must be changed before they can be operated.
+	// Devices that are paired but still using the factory default password.
+	// Fleet keeps these devices command-eligible; firmware or drivers may reject
+	// specific operations until the password is changed.
 	PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD PairingStatus = 6
 )
 

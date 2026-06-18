@@ -223,7 +223,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 // (PAIRED / AUTHENTICATION_NEEDED / FAILED) rather than the raw node report.
 func pairOutcomeForStatus(status string) pb.PairOutcome {
 	switch status {
-	case pairing.StatusPaired:
+	case pairing.StatusPaired, pairing.StatusDefaultPassword:
 		return pb.PairOutcome_PAIR_OUTCOME_PAIRED
 	case pairing.StatusAuthenticationNeeded:
 		return pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED

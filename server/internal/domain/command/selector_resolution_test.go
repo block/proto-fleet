@@ -1,7 +1,6 @@
 package command
 
 import (
-	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,27 +8,19 @@ import (
 	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 )
 
-func TestPairingStatusFiltersForSelector(t *testing.T) {
+func TestPairingStatusValuesForSelector(t *testing.T) {
 	tests := []struct {
-		name        string
-		filter      *pb.DeviceFilter
-		commandType commandtype.Type
-		want        []sql.NullString
+		name   string
+		filter *pb.DeviceFilter
+		want   []string
 	}{
 		{
-			name:        "normal commands keep query default",
-			commandType: commandtype.Reboot,
-			want:        []sql.NullString{{}},
-		},
-		{
-			name:        "password update includes default password remediation targets",
-			commandType: commandtype.UpdateMinerPassword,
-			want: []sql.NullString{
-				{String: string(sqlc.PairingStatusEnumPAIRED), Valid: true},
-				{String: string(sqlc.PairingStatusEnumDEFAULTPASSWORD), Valid: true},
+			name: "default includes default password targets",
+			want: []string{
+				string(sqlc.PairingStatusEnumPAIRED),
+				string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
 			},
 		},
 		{
@@ -37,17 +28,27 @@ func TestPairingStatusFiltersForSelector(t *testing.T) {
 			filter: &pb.DeviceFilter{
 				PairingStatus: []fleetpb.PairingStatus{fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
 			},
-			commandType: commandtype.UpdateMinerPassword,
-			want: []sql.NullString{{
-				String: string(sqlc.PairingStatusEnumAUTHENTICATIONNEEDED),
-				Valid:  true,
-			}},
+			want: []string{string(sqlc.PairingStatusEnumAUTHENTICATIONNEEDED)},
+		},
+		{
+			name: "explicit multiple pairing filters are honored",
+			filter: &pb.DeviceFilter{
+				PairingStatus: []fleetpb.PairingStatus{
+					fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+					fleetpb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+					fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+				},
+			},
+			want: []string{
+				string(sqlc.PairingStatusEnumPAIRED),
+				string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, pairingStatusFiltersForSelector(tt.filter, tt.commandType))
+			assert.Equal(t, tt.want, pairingStatusValuesForSelector(tt.filter))
 		})
 	}
 }

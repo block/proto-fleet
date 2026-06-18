@@ -38,6 +38,7 @@ const (
 	maxLogLines               = 10000
 	deviceVerificationTimeout = 10 * time.Second
 	firmwareRefreshInterval   = 5 * time.Minute
+	defaultPasswordInterval   = 5 * time.Minute
 
 	teraHashToHashConversion                   = 1e12
 	joulesPerTeraHashToJoulesPerHashConversion = 1e-12
@@ -68,7 +69,9 @@ type Device struct {
 	lastStatusAt time.Time
 	statusTTL    time.Duration
 
-	lastFirmwareCheckAt time.Time
+	lastFirmwareCheckAt        time.Time
+	lastDefaultPasswordCheckAt time.Time
+	lastDefaultPasswordActive  *bool
 
 	mutex            sync.Mutex
 	curtailmentMutex sync.Mutex
@@ -130,13 +133,19 @@ func SetStatusTTL(ttl time.Duration) func(*Device) {
 //   - Authentication setup
 //   - Status caching configuration
 func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, opts ...DeviceOption) (*Device, error) {
+	return newWithClientAuth(deviceID, deviceInfo, func(client *proto.Client) error {
+		return client.SetCredentials(credentials)
+	}, opts...)
+}
+
+func newWithClientAuth(deviceID string, deviceInfo sdk.DeviceInfo, configureClient func(*proto.Client) error, opts ...DeviceOption) (*Device, error) {
 	client, err := proto.NewClient(deviceInfo.Host, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
-	if err := client.SetCredentials(credentials); err != nil {
-		return nil, fmt.Errorf("failed to set credentials: %w", err)
+	if err := configureClient(client); err != nil {
+		return nil, fmt.Errorf("failed to configure client authentication: %w", err)
 	}
 
 	device := &Device{
@@ -282,14 +291,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	metrics := d.convertStatus(minerStatus, telemetryResp)
 
 	d.refreshFirmwareVersion(ctx, &metrics)
-
-	// Leave unset (nil) on a read failure so the server treats it as undetermined
-	// and doesn't demote a still-default-password device.
-	if defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx); err != nil {
-		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
-	} else {
-		metrics.DefaultPasswordActive = &defaultPasswordActive
-	}
+	d.refreshDefaultPasswordStatus(ctx, &metrics)
 
 	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()
@@ -313,6 +315,29 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 		d.deviceInfo.FirmwareVersion = fwVersion
 		metrics.FirmwareVersion = fwVersion
 	}
+}
+
+// refreshDefaultPasswordStatus periodically re-fetches the factory-password flag.
+// The value changes only when a password update lands, so reuse the last known
+// value between probes instead of adding a system/status request to every poll.
+func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.DeviceMetrics) {
+	if d.lastDefaultPasswordActive != nil {
+		active := *d.lastDefaultPasswordActive
+		metrics.DefaultPasswordActive = &active
+	}
+	if time.Since(d.lastDefaultPasswordCheckAt) < defaultPasswordInterval {
+		return
+	}
+	defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx)
+	d.lastDefaultPasswordCheckAt = time.Now()
+	if err != nil {
+		// Leave unset (nil) on an initial read failure so the server treats it as
+		// undetermined and doesn't demote a still-default-password device.
+		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
+		return
+	}
+	d.lastDefaultPasswordActive = &defaultPasswordActive
+	metrics.DefaultPasswordActive = &defaultPasswordActive
 }
 
 // GetErrors returns all active and historical errors for the device.
@@ -937,8 +962,16 @@ func (d *Device) Unpair(ctx context.Context) error {
 		"device_id", d.id,
 		"host", d.deviceInfo.Host)
 
+	// Credentials-paired rigs have no auth key to clear, and the firmware gates
+	// DELETE /pairing/auth-key while the default password is active. Tolerate that
+	// 403 so a factory-password rig can still be unpaired.
 	if err := d.client.ClearAuthKey(ctx); err != nil {
-		return fmt.Errorf("failed to clear auth key: %w", err)
+		if isDefaultPasswordError(err) {
+			slog.Info("Skipping auth-key clear during unpair: rig is on the default password",
+				"device_id", d.id, "host", d.deviceInfo.Host)
+		} else {
+			return fmt.Errorf("failed to clear auth key: %w", err)
+		}
 	}
 
 	// Clear cached status to force fresh data on next query.
@@ -969,6 +1002,9 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 	if err := d.client.ChangePassword(ctx, currentPassword, newPassword); err != nil {
 		return fmt.Errorf("failed to update miner password: %w", err)
 	}
+	defaultPasswordActive := false
+	d.lastDefaultPasswordActive = &defaultPasswordActive
+	d.lastDefaultPasswordCheckAt = time.Now()
 
 	slog.Info("Plugin device password updated successfully",
 		"device_id", d.id)

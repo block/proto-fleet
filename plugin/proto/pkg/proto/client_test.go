@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -256,6 +257,54 @@ func TestDoRequest_LazyLogin(t *testing.T) {
 	assert.Equal(t, "Bearer tok-1", lastAuth, "requests should carry the access token")
 }
 
+func TestDoRequest_ConcurrentLazyLoginCoalesces(t *testing.T) {
+	var loginCount int32
+	loginStarted := make(chan struct{})
+	releaseLogin := make(chan struct{})
+	var once sync.Once
+	var badAuthCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			atomic.AddInt32(&loginCount, 1)
+			once.Do(func() { close(loginStarted) })
+			<-releaseLogin
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"tok-1","refresh_token":"r"}`))
+		default:
+			if r.Header.Get("Authorization") != "Bearer tok-1" {
+				atomic.AddInt32(&badAuthCount, 1)
+			}
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
+
+	const requestCount = 5
+	errs := make(chan error, requestCount)
+	for range requestCount {
+		go func() {
+			resp, err := client.doRequest(context.Background(), http.MethodGet, "/api/v1/system", nil)
+			if resp != nil {
+				resp.Body.Close()
+			}
+			errs <- err
+		}()
+	}
+
+	<-loginStarted
+	close(releaseLogin)
+	for range requestCount {
+		require.NoError(t, <-errs)
+	}
+	assert.Equal(t, int32(1), atomic.LoadInt32(&loginCount))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&badAuthCount))
+}
+
 // TestDoRequest_ReloginOn401 verifies that a rejected token triggers exactly one
 // re-login and retry.
 func TestDoRequest_ReloginOn401(t *testing.T) {
@@ -291,6 +340,78 @@ func TestDoRequest_ReloginOn401(t *testing.T) {
 	// Assert
 	assert.Equal(t, 2, loginCount, "should re-login once after the 401")
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "retry should succeed")
+}
+
+func TestDoRequest_ReloginInvalidCredentialsReturnsUnauthenticated(t *testing.T) {
+	var protectedCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			protectedCount++
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "rotated"}))
+	client.accessToken = "stale-token"
+
+	resp, err := client.doRequest(context.Background(), http.MethodGet, "/api/v1/system", nil)
+	if resp != nil {
+		resp.Body.Close()
+	}
+
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, grpcstatus.Code(err))
+	assert.Equal(t, 1, protectedCount, "refresh failure should not retry the protected endpoint")
+}
+
+func TestDoRequest_LoginDoesNotHoldAuthLock(t *testing.T) {
+	loginStarted := make(chan struct{})
+	releaseLogin := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			close(loginStarted)
+			<-releaseLogin
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"tok-1","refresh_token":"r"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
+
+	requestDone := make(chan error, 1)
+	go func() {
+		resp, err := client.doRequest(context.Background(), http.MethodGet, "/api/v1/system", nil)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		requestDone <- err
+	}()
+
+	<-loginStarted
+	setDone := make(chan error, 1)
+	go func() {
+		setDone <- client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "rotated"})
+	}()
+
+	select {
+	case err := <-setDone:
+		require.NoError(t, err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("SetCredentials blocked while login request was in flight")
+	}
+
+	close(releaseLogin)
+	require.ErrorContains(t, <-requestDone, "credentials changed during login")
 }
 
 // TestClientSingletonBehavior tests that HTTP clients are properly shared
@@ -1049,7 +1170,7 @@ func TestGetStatusNoMiningStatistics(t *testing.T) {
 
 // TestUploadFirmware tests the multipart firmware upload to the MDK REST API.
 func TestUploadFirmware(t *testing.T) {
-	const testToken = "fleet-bearer-token"
+	const uploadAuthFixture = "fixture-upload-authz"
 	firmwareContent := []byte("fake-swu-firmware-content-for-test")
 
 	tests := []struct {
@@ -1065,7 +1186,7 @@ func TestUploadFirmware(t *testing.T) {
 				return func(w http.ResponseWriter, r *http.Request) {
 					assert.Equal(t, http.MethodPut, r.Method)
 					assert.Equal(t, "/api/v1/system/update", r.URL.Path)
-					assert.Equal(t, "Bearer "+testToken, r.Header.Get("Authorization"))
+					assert.Equal(t, "Bearer "+uploadAuthFixture, r.Header.Get("Authorization"))
 					assert.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data"))
 					assert.Empty(t, r.TransferEncoding, "firmware upload must not use chunked transfer encoding")
 					assert.Greater(t, r.ContentLength, int64(len(firmwareContent)), "multipart content length should include file plus form boundaries")
@@ -1083,7 +1204,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"message":"Firmware uploaded successfully"}`))
 				}
 			},
-			token:     testToken,
+			token:     uploadAuthFixture,
 			expectErr: false,
 		},
 		{
@@ -1094,7 +1215,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"invalid token"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "invalid token",
 		},
@@ -1105,9 +1226,9 @@ func TestUploadFirmware(t *testing.T) {
 					w.WriteHeader(http.StatusUnauthorized)
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
-			errContains: "check bearer token",
+			errContains: "check credentials",
 		},
 		{
 			name: "update already in progress (409)",
@@ -1117,7 +1238,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"update in progress"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "update in progress",
 		},
@@ -1129,7 +1250,7 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"unsupported firmware"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "unsupported firmware",
 		},
@@ -1141,12 +1262,12 @@ func TestUploadFirmware(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":"internal failure"}`))
 				}
 			},
-			token:       testToken,
+			token:       uploadAuthFixture,
 			expectErr:   true,
 			errContains: "internal failure",
 		},
 		{
-			name: "no bearer token omits auth header",
+			name: "no credentials omits auth header",
 			handler: func(t *testing.T) http.HandlerFunc {
 				return func(w http.ResponseWriter, r *http.Request) {
 					assert.Empty(t, r.Header.Get("Authorization"), "no auth header when token is empty")
@@ -1160,15 +1281,22 @@ func TestUploadFirmware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(tt.handler(t))
+			uploadHandler := tt.handler(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/auth/login" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"access_token":%q,"refresh_token":"refresh"}`, tt.token)
+					return
+				}
+				uploadHandler(w, r)
+			}))
 			defer server.Close()
 
 			client := newTestClient(t, server)
 			defer func() { _ = client.Close() }()
 
 			if tt.token != "" {
-				// Seed the cached access token directly so the upload path skips login.
-				client.accessToken = tt.token
+				require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
 			}
 
 			firmware := sdk.FirmwareFile{
@@ -1187,6 +1315,50 @@ func TestUploadFirmware(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUploadFirmware_RefreshesCachedCredentialTokenBeforeStreaming(t *testing.T) {
+	const staleToken = "stale-token"
+	const freshToken = "fresh-token"
+	firmwareContent := []byte("firmware-content")
+	var loginCalls int
+	var uploadAuth string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			loginCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"` + freshToken + `","refresh_token":"r"}`))
+		case "/api/v1/system/update":
+			uploadAuth = r.Header.Get("Authorization")
+			assert.NotEqual(t, "Bearer "+staleToken, uploadAuth)
+			file, _, err := r.FormFile("file")
+			require.NoError(t, err)
+			defer file.Close()
+			body, err := io.ReadAll(file)
+			require.NoError(t, err)
+			assert.Equal(t, firmwareContent, body)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
+	client.accessToken = staleToken
+
+	err := client.UploadFirmware(context.Background(), sdk.FirmwareFile{
+		Reader:   bytes.NewReader(firmwareContent),
+		Filename: "firmware.swu",
+		Size:     int64(len(firmwareContent)),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, loginCalls)
+	assert.Equal(t, "Bearer "+freshToken, uploadAuth)
 }
 
 func TestMultipartFirmwareBody_ContentLengthMatchesWrittenBytes(t *testing.T) {

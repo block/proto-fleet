@@ -40,7 +40,7 @@ SELECT
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::bigint as offline_count,
@@ -48,7 +48,7 @@ SELECT
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::bigint as sleeping_count,
@@ -56,10 +56,10 @@ SELECT
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -68,7 +68,7 @@ SELECT
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
@@ -111,7 +111,7 @@ WHERE d.deleted_at IS NULL
           )
       )
       OR ($4::boolean = TRUE
-          AND dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+          AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
           AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
       OR ($4::boolean = TRUE
           AND EXISTS (
@@ -121,11 +121,13 @@ WHERE d.deleted_at IS NULL
                 AND errors.closed_at IS NULL
                 AND errors.severity IN (1, 2, 3, 4)
           )
-          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+          AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
           AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+      -- NULL-status paired-like miners (counted as offline in dashboard).
+      -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
       OR ($5::boolean = TRUE
           AND ds.status IS NULL
-          AND dp.pairing_status = 'PAIRED')
+          AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
   )
   AND ($6::text IS NULL OR dd.model = ANY($7::text[]))
   AND ($8::text IS NULL OR d.device_identifier = ANY($9::text[]))
@@ -238,7 +240,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.org_id = $1
   AND d.deleted_at IS NULL
-  AND dp.pairing_status = 'PAIRED'
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 `
 
 type GetAllDeviceInfoForCapabilityCheckRow struct {
@@ -250,7 +252,7 @@ type GetAllDeviceInfoForCapabilityCheckRow struct {
 	DriverName       string
 }
 
-// Returns device information for all paired devices in an organization.
+// Returns command-eligible device information for an organization.
 // Used when checking capabilities for "select all" operations.
 func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID int64) ([]GetAllDeviceInfoForCapabilityCheckRow, error) {
 	rows, err := q.query(ctx, q.getAllDeviceInfoForCapabilityCheckStmt, getAllDeviceInfoForCapabilityCheck, orgID)
@@ -576,7 +578,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.device_identifier = ANY($1::text[])
   AND d.deleted_at IS NULL
   AND d.org_id = $2
-  AND dp.pairing_status = 'PAIRED'
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 `
 
 type GetDeviceInfoForCapabilityCheckParams struct {
@@ -593,7 +595,7 @@ type GetDeviceInfoForCapabilityCheckRow struct {
 	DriverName       string
 }
 
-// Returns device information needed for capability checking.
+// Returns command-eligible device information needed for capability checking.
 // Used when checking if specific devices support a command.
 func (q *Queries) GetDeviceInfoForCapabilityCheck(ctx context.Context, arg GetDeviceInfoForCapabilityCheckParams) ([]GetDeviceInfoForCapabilityCheckRow, error) {
 	rows, err := q.query(ctx, q.getDeviceInfoForCapabilityCheckStmt, getDeviceInfoForCapabilityCheck, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
@@ -896,7 +898,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE d.org_id = $1
-    AND dp.pairing_status::text = COALESCE($2::text, 'PAIRED')
+    AND dp.pairing_status::text = ANY($2::text[])
     AND d.deleted_at IS NULL
     AND ($3::text IS NULL OR ds.status::text = $3::text)
     AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
@@ -905,11 +907,11 @@ ORDER BY d.device_identifier
 `
 
 type GetFilteredDeviceIdentifiersParams struct {
-	OrgID              int64
-	PairingStatus      sql.NullString
-	DeviceStatus       sql.NullString
-	ModelFilter        sql.NullString
-	ManufacturerFilter sql.NullString
+	OrgID               int64
+	PairingStatusValues []string
+	DeviceStatus        sql.NullString
+	ModelFilter         sql.NullString
+	ManufacturerFilter  sql.NullString
 }
 
 // Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
@@ -918,7 +920,7 @@ type GetFilteredDeviceIdentifiersParams struct {
 func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilteredDeviceIdentifiersParams) ([]string, error) {
 	rows, err := q.query(ctx, q.getFilteredDeviceIdentifiersStmt, getFilteredDeviceIdentifiers,
 		arg.OrgID,
-		arg.PairingStatus,
+		pq.Array(arg.PairingStatusValues),
 		arg.DeviceStatus,
 		arg.ModelFilter,
 		arg.ManufacturerFilter,
@@ -953,7 +955,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE d.org_id = $1
-    AND dp.pairing_status::text = COALESCE($2::text, 'PAIRED')
+    AND dp.pairing_status::text = ANY($2::text[])
     AND d.deleted_at IS NULL
     AND ($3::text IS NULL OR ds.status::text = $3::text)
     AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
@@ -962,11 +964,11 @@ ORDER BY d.id
 `
 
 type GetFilteredDeviceIdsParams struct {
-	OrgID              int64
-	PairingStatus      sql.NullString
-	DeviceStatus       sql.NullString
-	ModelFilter        sql.NullString
-	ManufacturerFilter sql.NullString
+	OrgID               int64
+	PairingStatusValues []string
+	DeviceStatus        sql.NullString
+	ModelFilter         sql.NullString
+	ManufacturerFilter  sql.NullString
 }
 
 // Zone / building filters are not handled by this static query;
@@ -977,7 +979,7 @@ type GetFilteredDeviceIdsParams struct {
 func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds,
 		arg.OrgID,
-		arg.PairingStatus,
+		pq.Array(arg.PairingStatusValues),
 		arg.DeviceStatus,
 		arg.ModelFilter,
 		arg.ManufacturerFilter,
@@ -1130,7 +1132,7 @@ SELECT
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::int AS offline_count,
@@ -1138,7 +1140,7 @@ SELECT
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::int AS sleeping_count,
@@ -1146,10 +1148,10 @@ SELECT
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
         ELSE 0
@@ -1158,7 +1160,7 @@ SELECT
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
         ELSE 0
@@ -1548,11 +1550,11 @@ WHERE dd.org_id = $1
                 OR ($8::boolean = TRUE)
             )
         )
-        -- Auth-needed / default-password (exclude OFFLINE only)
+        -- Auth-needed (exclude OFFLINE only)
         OR ($8::boolean = TRUE
-            AND dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+            AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
             AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
-        -- Devices with actionable errors. Excludes NULL-status paired miners
+        -- Devices with actionable errors. Excludes NULL-status paired-like miners
         -- so they stay bucketed as offline (matches CountMinersByState).
         OR ($8::boolean = TRUE
             AND EXISTS (
@@ -1562,13 +1564,13 @@ WHERE dd.org_id = $1
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+            AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
             AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-        -- NULL-status paired miners (counted as offline in dashboard).
-        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+        -- NULL-status paired-like miners (counted as offline in dashboard).
+        -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
         OR ($9::boolean = TRUE
             AND ds.status IS NULL
-            AND dp.pairing_status = 'PAIRED')
+            AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
     )
     -- Component error filter
     AND (
@@ -1847,6 +1849,87 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 	return items, nil
 }
 
+const reconcileAuthenticationNeededPairingStatusByIdentifier = `-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = $1
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated
+`
+
+type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
+	Eligible bool
+	Updated  bool
+}
+
+// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
+// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
+func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier, deviceIdentifier)
+	var i ReconcileAuthenticationNeededPairingStatusByIdentifierRow
+	err := row.Scan(&i.Eligible, &i.Updated)
+	return i, err
+}
+
+const reconcileDefaultPasswordPairingStatusByIdentifier = `-- name: ReconcileDefaultPasswordPairingStatusByIdentifier :one
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = $1
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND $2::pairing_status_enum IN ('PAIRED', 'DEFAULT_PASSWORD')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = $2::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND device_pairing.pairing_status IS DISTINCT FROM $2::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated
+`
+
+type ReconcileDefaultPasswordPairingStatusByIdentifierParams struct {
+	DeviceIdentifier string
+	PairingStatus    PairingStatusEnum
+}
+
+type ReconcileDefaultPasswordPairingStatusByIdentifierRow struct {
+	Eligible bool
+	Updated  bool
+}
+
+// Telemetry reconciles only the paired-like factory-password state machine.
+// Late samples must not resurrect devices moved to UNPAIRED,
+// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
+func (q *Queries) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, reconcileDefaultPasswordPairingStatusByIdentifier, arg.DeviceIdentifier, arg.PairingStatus)
+	var i ReconcileDefaultPasswordPairingStatusByIdentifierRow
+	err := row.Scan(&i.Eligible, &i.Updated)
+	return i, err
+}
+
 const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
 INSERT INTO device_pairing (
     device_id,
@@ -1861,13 +1944,14 @@ ON CONFLICT (device_id) DO UPDATE SET
     pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum,
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL
-WHERE device_pairing.pairing_status IS DISTINCT FROM 'PAIRED'::pairing_status_enum
+WHERE device_pairing.pairing_status NOT IN ('PAIRED'::pairing_status_enum, 'DEFAULT_PASSWORD'::pairing_status_enum)
 `
 
-// Mark a device AUTHENTICATION_NEEDED without ever downgrading a PAIRED row: the
-// WHERE guard no-ops the write when the row is already PAIRED, closing the race
-// where a concurrent pair commits PAIRED between the caller's read and this write
-// (the DO UPDATE branch re-reads the latest committed row). Zero rows means PAIRED won.
+// Mark a device AUTHENTICATION_NEEDED without ever downgrading a paired-like row:
+// the WHERE guard no-ops the write when the row is already PAIRED or DEFAULT_PASSWORD,
+// closing the race where a concurrent pair commits a paired-like status between the
+// caller's read and this write (the DO UPDATE branch re-reads the latest committed row).
+// Zero rows means paired-like won.
 func (q *Queries) SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error) {
 	result, err := q.exec(ctx, q.setDevicePairingAuthNeededIfNotPairedStmt, setDevicePairingAuthNeededIfNotPaired, deviceID)
 	if err != nil {

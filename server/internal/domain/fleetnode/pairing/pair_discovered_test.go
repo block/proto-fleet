@@ -230,6 +230,35 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeCloudPaired(t *tes
 	assert.Equal(t, "aa:bb:cc:00:cc:01", mac, "node report must not overwrite a cloud-paired device's MAC")
 }
 
+func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeCloudDefaultPassword(t *testing.T) {
+	// Arrange: DEFAULT_PASSWORD is paired-like and cloud-dialed when not bound to
+	// a fleet node, so a stale node AUTH_NEEDED report must not demote it.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-guard-default-authneeded")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:cloud-default-authneeded")
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:cloud-default-authneeded").Scan(&ddID))
+	var dev int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		"mac:cloud-default-authneeded", "aa:bb:cc:00:cd:01", "sn-cloud-default-authneeded", orgID, ddID).Scan(&dev))
+	setPairingStatus(t, db, dev, "DEFAULT_PASSWORD")
+	assignedBy := int64(1)
+
+	// Act: the node reports AUTH_NEEDED after the cloud already marked the rig
+	// DEFAULT_PASSWORD.
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:cloud-default-authneeded", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	require.NoError(t, err)
+
+	// Assert: the cloud-dialed device keeps DEFAULT_PASSWORD (no downgrade).
+	assert.Equal(t, fleetnodepairing.StatusDefaultPassword, status)
+	assert.Equal(t, "DEFAULT_PASSWORD", devicePairingStatus(t, db, orgID, "mac:cloud-default-authneeded"))
+}
+
 func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeNodeBound(t *testing.T) {
 	// Arrange: a device that became PAIRED and bound to a fleet node (node-dialed)
 	// since target resolution -- e.g. a re-issued command paired it while a stale
@@ -264,32 +293,38 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeNodeBound(t *testi
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:node-bound"))
 }
 
-func TestSetDevicePairingAuthNeededIfNotPaired_DoesNotDowngradePaired(t *testing.T) {
-	// Arrange: a PAIRED device -- the state a concurrent pair could commit during the
-	// PersistFleetNodePairResult guard window, after the read guard saw it unpaired.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-cond-paired")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:cond-paired")
-	var ddID int64
-	require.NoError(t, db.QueryRow(
-		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
-		orgID, "mac:cond-paired").Scan(&ddID))
-	var dev int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		"mac:cond-paired", "aa:bb:cc:00:cp:01", "sn-cp", orgID, ddID).Scan(&dev))
-	setPairingStatus(t, db, dev, "PAIRED")
-	store := sqlstores.NewSQLDeviceStore(db)
+func TestSetDevicePairingAuthNeededIfNotPaired_DoesNotDowngradePairedLike(t *testing.T) {
+	for _, pairingStatus := range []string{"PAIRED", "DEFAULT_PASSWORD"} {
+		t.Run(pairingStatus, func(t *testing.T) {
+			// Arrange: a paired-like device -- the state a concurrent pair could commit
+			// during the PersistFleetNodePairResult guard window, after the read guard
+			// saw it unpaired.
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			node := createFleetNode(t, enrollment, orgID, "node-cond-"+pairingStatus)
+			identifier := "mac:cond-" + pairingStatus
+			upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+			var ddID int64
+			require.NoError(t, db.QueryRow(
+				`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+				orgID, identifier).Scan(&ddID))
+			var dev int64
+			require.NoError(t, db.QueryRow(
+				`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+				 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+				identifier, "aa:bb:cc:00:cp:01", "sn-cp", orgID, ddID).Scan(&dev))
+			setPairingStatus(t, db, dev, pairingStatus)
+			store := sqlstores.NewSQLDeviceStore(db)
 
-	// Act
-	applied, err := store.SetDevicePairingAuthNeededIfNotPaired(ctx, &pairingpb.Device{DeviceIdentifier: "mac:cond-paired"}, orgID)
-	require.NoError(t, err)
+			// Act
+			applied, err := store.SetDevicePairingAuthNeededIfNotPaired(ctx, &pairingpb.Device{DeviceIdentifier: identifier}, orgID)
+			require.NoError(t, err)
 
-	// Assert: the conditional write is a no-op and the row stays PAIRED.
-	assert.False(t, applied)
-	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:cond-paired"))
+			// Assert: the conditional write is a no-op and the row stays paired-like.
+			assert.False(t, applied)
+			assert.Equal(t, pairingStatus, devicePairingStatus(t, db, orgID, identifier))
+		})
+	}
 }
 
 func TestSetDevicePairingAuthNeededIfNotPaired_WritesWhenNotPaired(t *testing.T) {

@@ -90,18 +90,24 @@ func NewPluginMinerWithCredentials(
 		MacAddress:   config.MacAddress,
 	}
 
-	// Build SDK SecretBundle from stored credentials.
-	// Asymmetric auth devices (e.g., Proto) use Ed25519-signed JWT bearer tokens,
-	// where the org's private key signs a JWT that the miner validates using the
-	// public key it received during pairing.
+	// Build SDK SecretBundle from stored credentials. Regular Proto resolution
+	// requires persisted credentials; password remediation may pass a transient
+	// current-password secret through the command-specific resolver.
 	var secretBundle sdk.SecretBundle
+
+	if config.DriverName == models.DriverNameProto && config.DeviceUsername == "" && config.DevicePassword == "" {
+		return nil, fleeterror.NewUnauthenticatedErrorf(
+			"proto device %s requires stored credentials",
+			config.DeviceIdentifier,
+		)
+	}
 
 	if config.Caps[sdk.CapabilityAsymmetricAuth] {
 		if config.TokenService == nil {
-			return nil, fmt.Errorf("TokenService is required for asymmetric auth but was nil")
+			return nil, fmt.Errorf("TokenService is required for bearer auth but was nil")
 		}
 		if config.DeviceSerialNumber == "" {
-			return nil, fmt.Errorf("DeviceSerialNumber is required for JWT generation")
+			return nil, fmt.Errorf("DeviceSerialNumber is required for bearer auth")
 		}
 
 		privateKey, err := config.GetOrgPrivateKey(ctx, config.OrgID)
