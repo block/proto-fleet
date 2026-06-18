@@ -243,6 +243,61 @@ func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSit
 	return items, nil
 }
 
+const findDevicesInSiteLessRacks = `-- name: FindDevicesInSiteLessRacks :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.site_id IS NULL
+`
+
+type FindDevicesInSiteLessRacksParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns device identifiers sitting in a live rack that has NO site (a
+// fully-unassigned rack — building implies a site, so a NULL site means
+// no building either). The site peer of FindDeviceSiteConflicts, which
+// only returns racks WITH a site. Used by AssignDevicesToSite (and the
+// building flow, which cascades site): a device can't take a direct site
+// while remaining in a site-less rack without breaking device/rack site
+// lockstep, so the service flags these as a clearable conflict and the
+// force-clear path drops the rack membership before the move.
+func (q *Queries) FindDevicesInSiteLessRacks(ctx context.Context, arg FindDevicesInSiteLessRacksParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesInSiteLessRacksStmt, findDevicesInSiteLessRacks, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSite = `-- name: GetSite :one
 SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone
 FROM site

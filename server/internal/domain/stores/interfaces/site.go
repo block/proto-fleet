@@ -106,6 +106,13 @@ type SiteStore interface {
 	// target.
 	FindDeviceSiteConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error)
 
+	// FindDevicesInSiteLessRacks returns the requested device
+	// identifiers that sit in a live rack with NO site (a
+	// fully-unassigned rack). The site peer of FindDeviceSiteConflicts:
+	// such a device can't take a direct site while remaining in the
+	// rack, so the caller flags it as a clearable conflict.
+	FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
 	// ListExistingDeviceIdentifiers returns the subset of the
 	// requested identifiers that map to a live device in the org.
 	ListExistingDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)

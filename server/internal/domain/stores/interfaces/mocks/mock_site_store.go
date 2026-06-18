@@ -161,6 +161,21 @@ func (mr *MockSiteStoreMockRecorder) FindDeviceSiteConflicts(ctx, orgID, deviceI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDeviceSiteConflicts", reflect.TypeOf((*MockSiteStore)(nil).FindDeviceSiteConflicts), ctx, orgID, deviceIdentifiers)
 }
 
+// FindDevicesInSiteLessRacks mocks base method.
+func (m *MockSiteStore) FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindDevicesInSiteLessRacks", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindDevicesInSiteLessRacks indicates an expected call of FindDevicesInSiteLessRacks.
+func (mr *MockSiteStoreMockRecorder) FindDevicesInSiteLessRacks(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesInSiteLessRacks", reflect.TypeOf((*MockSiteStore)(nil).FindDevicesInSiteLessRacks), ctx, orgID, deviceIdentifiers)
+}
+
 // GetSite mocks base method.
 func (m *MockSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Site, error) {
 	m.ctrl.T.Helper()

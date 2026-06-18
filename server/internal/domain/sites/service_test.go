@@ -191,6 +191,7 @@ func TestAssignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
 			store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 			store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 			store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+			store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 			store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 				"d1": conflictingSite,
 			}, nil)
@@ -236,6 +237,7 @@ func TestAssignDevicesToSite_reportsMissingDevices(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 
 	_, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
@@ -268,6 +270,7 @@ func TestAssignDevicesToSite_writesOnSuccess(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
 	// Building-mismatch clear runs after the site write to keep
@@ -336,6 +339,7 @@ func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testi
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": target,
 	}, nil)
@@ -352,6 +356,87 @@ func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testi
 	}
 	if len(conflicts) != 0 {
 		t.Fatalf("expected zero conflicts when device rack matches target, got %v", conflicts)
+	}
+}
+
+// TestAssignDevicesToSite_siteLessRackFlagsConflict pins the
+// device→site site-consistency guard: a device in a fully-unassigned
+// (site-less) rack can't take a direct site while remaining in that
+// rack. FindDeviceSiteConflicts misses it (rack site is NULL), so the
+// site-less probe flags it as a clearable DEVICE_IN_RACK_AT_OTHER_SITE
+// conflict (ConflictingSiteID 0). Without force, the batch rejects.
+func TestAssignDevicesToSite_siteLessRackFlagsConflict(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	target := int64(42)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// Rack has no site → not a FindDeviceSiteConflicts row; the site-less
+	// probe catches it instead.
+	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	// No write — batch rejects without force.
+
+	_, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
+		OrgID:             testOrgID,
+		TargetSiteID:      &target,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %v", conflicts)
+	}
+	if conflicts[0].Reason != models.ReasonDeviceInRackAtOtherSite || conflicts[0].ConflictingSiteID != 0 {
+		t.Fatalf("expected DeviceInRackAtOtherSite with ConflictingSiteID 0, got %+v", conflicts[0])
+	}
+}
+
+// TestAssignDevicesToSite_siteLessRackForceClears pins the force path:
+// a device in a site-less rack is unassigned from the rack and then
+// takes the target site, keeping device→site consistency.
+func TestAssignDevicesToSite_siteLessRackForceClears(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, buildingStore, collStore, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	target := int64(42)
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d1"}, int64(0)).Return(int64(1), nil)
+	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
+
+	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
+		OrgID:                               testOrgID,
+		TargetSiteID:                        &target,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected zero conflicts after force-clear, got %v", conflicts)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 row updated, got %d", count)
 	}
 }
 
@@ -375,6 +460,7 @@ func TestAssignDevicesToSite_forceClearCascadesRackMembership(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": conflictingSite,
 	}, nil)
@@ -425,6 +511,7 @@ func TestAssignDevicesToSite_forceClearWithoutConflicts(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	// No RemoveDevicesFromAnyRack expectation: gomock fails the test
 	// if it's called.
@@ -471,6 +558,7 @@ func TestAssignDevicesToSite_forceClearMissingDeviceStillRejects(t *testing.T) {
 			store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 			// Only d1 exists; d-missing is reported as not found.
 			store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+			store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 			store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 				"d1": conflictingSite,
 			}, nil)
@@ -526,6 +614,7 @@ func TestAssignDevicesToSite_forceClearRollsBackOnSiteWriteFailure(t *testing.T)
 			store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 			store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 			store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+			store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 			store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 				"d1": conflictingSite,
 			}, nil)
@@ -588,6 +677,7 @@ func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
 	// Only d-conflict is at a different site; d-already-here returns
 	// no rack-site row (already at target, would be filtered by the
 	// target==site equality check anyway).
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d-conflict": conflictingSite,
 	}, nil)
@@ -695,6 +785,7 @@ func TestAssignDevicesToSite_forceClearAuditLogsCascade(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d-clear": conflictingSite,
 	}, nil)
@@ -765,6 +856,7 @@ func TestAssignDevicesToSite_noForceClearOmitsCascadeMetadata(t *testing.T) {
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
 	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)

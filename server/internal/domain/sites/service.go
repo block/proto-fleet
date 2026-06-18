@@ -834,6 +834,28 @@ func (s *Service) computeReassignConflicts(ctx context.Context, orgID int64, tar
 			ConflictingSiteID: siteID,
 		})
 	}
+
+	// Site-less rack guard. A device in a fully-unassigned rack (no
+	// site) isn't returned by FindDeviceSiteConflicts (it filters
+	// dsr.site_id IS NOT NULL), yet it can't take a direct site while
+	// remaining in that rack without diverging from its rack's site.
+	// Flag those (clearable — force-clear drops the rack membership)
+	// whenever assigning to a real site. Skipped on unassign (target
+	// nil): a site-less rack member moving to Unassigned ends at site
+	// nil == rack site nil, already consistent. ConflictingSiteID stays
+	// 0 — the rack has no site, only the divergence is the conflict.
+	if targetSiteID != nil {
+		siteLess, err := s.store.FindDevicesInSiteLessRacks(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for _, ident := range siteLess {
+			conflicts = append(conflicts, models.PerDeviceConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonDeviceInRackAtOtherSite,
+			})
+		}
+	}
 	// Deterministic order — siteByDevice is a map, so the
 	// rack-conflict branch above would otherwise emit conflicts
 	// in random order, which makes API responses non-reproducible.

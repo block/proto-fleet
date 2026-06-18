@@ -991,6 +991,28 @@ func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID in
 				// the reason enum to render the dialog, not the id.
 			}
 		}
+
+		// Fully-unassigned rack guard. FindDeviceSiteConflicts (rack
+		// site set) and FindDevicesInBuildingLessPlacedRacks (rack site
+		// set, building null) both require a non-NULL rack site, so a
+		// device in a rack with NEITHER site nor building slips past
+		// both. Assigning it to a building cascades device.site_id to
+		// the building's site, leaving the device with a site while
+		// still in a site-less rack. Flag those (clearable) so the
+		// force-clear path drops the rack membership first.
+		siteLess, err := s.siteStore.FindDevicesInSiteLessRacks(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for _, ident := range siteLess {
+			if _, ok := flagged[ident]; ok {
+				continue
+			}
+			flagged[ident] = models.PerDeviceBuildingConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonBuildingDeviceInRackAtOtherSite,
+			}
+		}
 	}
 
 	conflicts := make([]models.PerDeviceBuildingConflict, 0, len(flagged))

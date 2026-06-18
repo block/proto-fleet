@@ -277,6 +277,17 @@ func (s *SQLSiteStore) FindDeviceSiteConflicts(ctx context.Context, orgID int64,
 	return out, nil
 }
 
+func (s *SQLSiteStore) FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	rows, err := s.GetQueries(ctx).FindDevicesInSiteLessRacks(ctx, sqlc.FindDevicesInSiteLessRacksParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices in site-less racks: %v", err)
+	}
+	return rows, nil
+}
+
 func (s *SQLSiteStore) ListExistingDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
 	rows, err := s.GetQueries(ctx).ListExistingDeviceIdentifiers(ctx, sqlc.ListExistingDeviceIdentifiersParams{
 		OrgID:             orgID,

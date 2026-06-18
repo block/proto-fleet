@@ -274,6 +274,32 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
   AND dsr.site_id IS NOT NULL;
 
+-- name: FindDevicesInSiteLessRacks :many
+-- Returns device identifiers sitting in a live rack that has NO site (a
+-- fully-unassigned rack — building implies a site, so a NULL site means
+-- no building either). The site peer of FindDeviceSiteConflicts, which
+-- only returns racks WITH a site. Used by AssignDevicesToSite (and the
+-- building flow, which cascades site): a device can't take a direct site
+-- while remaining in a site-less rack without breaking device/rack site
+-- lockstep, so the service flags these as a clearable conflict and the
+-- force-clear path drops the rack membership before the move.
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.site_id IS NULL;
+
 -- name: ListExistingDeviceIdentifiers :many
 -- Filters the requested identifier list down to those that actually
 -- exist as live devices in the org. Used to surface "device_not_found"
