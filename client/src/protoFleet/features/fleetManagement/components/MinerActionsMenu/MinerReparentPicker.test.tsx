@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-
 import MinerReparentPicker from "./MinerReparentPicker";
+import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 
 // Building-reparent flow only. The two-step force-clear confirm is the
 // part with branching logic: the server enumerates per-device conflicts,
