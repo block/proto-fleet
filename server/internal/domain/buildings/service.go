@@ -35,6 +35,11 @@ const (
 // total separately; the truncated list is just a debugging affordance.
 const maxDeviceIdentifiersInMetadata = 50
 
+// maxListFilterValues caps the ListBuildings site_ids filter array.
+// Mirrors the miner-list and rack-list repeated-filter caps so an
+// oversized request can't inflate query planning cost.
+const maxListFilterValues = 1024
+
 // ListStatsAuthorizer reports whether list-row telemetry stats may be
 // populated for a building at the supplied site. Nil site_id means the
 // building is unassigned and must be authorized at org scope.
@@ -144,9 +149,15 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 // SiteIDs and IncludeUnassigned compose additively; the store query
 // treats "both empty" as "no filter".
 func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
-	for _, id := range filter.SiteIDs {
+	// Cap the repeated filter to bound request size / query planning
+	// cost, matching the miner-list (maxFreeFormFilterValues) and
+	// rack-list (maxDeviceSetFilterValues) paths.
+	if len(filter.SiteIDs) > maxListFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxListFilterValues)
+	}
+	for i, id := range filter.SiteIDs {
 		if id <= 0 {
-			return nil, fleeterror.NewInvalidArgumentError("site_ids entries must be > 0")
+			return nil, fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
 		}
 	}
 	rows, err := s.store.ListBuildings(ctx, filter)

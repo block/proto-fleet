@@ -36,6 +36,17 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: SitesByIDs :many
+-- Returns the subset of requested IDs that correspond to live sites
+-- in the org. Caller diffs against the requested set to detect
+-- cross-org or missing IDs. Mirrors BuildingsByIDs; used to
+-- bulk-validate rack-list site_ids filter references in one round trip.
+SELECT id
+FROM site
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id = ANY(@ids::bigint[]);
+
 -- name: ListSites :many
 -- Returns each site with attachment counts so the delete-confirm dialog
 -- can show "N miners, M buildings, K racks" without an extra round trip.

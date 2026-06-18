@@ -69,6 +69,13 @@ type SiteStore interface {
 	// id exists in the org.
 	SiteBelongsToOrg(ctx context.Context, orgID, id int64) (bool, error)
 
+	// SitesByIDs returns the subset of the requested IDs that
+	// correspond to live sites in the org. Caller diffs against the
+	// requested set to detect cross-org or missing IDs. Mirrors
+	// BuildingsByIDs; used to bulk-validate the rack-list site_ids
+	// filter in one round trip.
+	SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
+
 	// LockSiteForWrite takes a row-lock on the site row for the
 	// duration of the surrounding transaction, returning NotFound when
 	// the site is missing or already soft-deleted. Callers that depend

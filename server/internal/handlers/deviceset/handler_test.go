@@ -38,6 +38,7 @@ type testHarness struct {
 	handler         *Handler
 	collectionStore *mocks.MockCollectionStore
 	buildingStore   *mocks.MockBuildingStore
+	siteStore       *mocks.MockSiteStore
 	ctrl            *gomock.Controller
 }
 
@@ -47,6 +48,7 @@ func newTestHandler(t *testing.T) *testHarness {
 
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) error) error {
@@ -70,7 +72,7 @@ func newTestHandler(t *testing.T) *testHarness {
 	svc := collection.NewService(
 		collectionStore,
 		nil, // deviceQueryer: unused in these tests
-		nil, // siteStore: unused
+		siteStore,
 		buildingStore,
 		tx,
 		noopResolver,
@@ -82,6 +84,7 @@ func newTestHandler(t *testing.T) *testHarness {
 		handler:         NewHandler(svc),
 		collectionStore: collectionStore,
 		buildingStore:   buildingStore,
+		siteStore:       siteStore,
 		ctrl:            ctrl,
 	}
 }
@@ -274,6 +277,11 @@ func TestListDeviceSets_CrossOrgRejected(t *testing.T) {
 func TestListDeviceSets_SiteIDs(t *testing.T) {
 	h := newTestHandler(t)
 
+	// Cross-org validation: both requested sites belong to the org.
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, gomock.Any()).
+		Return([]int64{3, 5}, nil)
+
 	h.collectionStore.EXPECT().
 		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK,
 			int32(50), "", gomock.Any(), gomock.Any()).
@@ -295,6 +303,28 @@ func TestListDeviceSets_SiteIDs(t *testing.T) {
 
 	_, err := h.handler.ListDeviceSets(testCtx(t), req)
 	require.NoError(t, err)
+}
+
+// TestListDeviceSets_SiteIDsCrossOrgRejected covers the per-org
+// enforcement from #265: a site_id outside the caller's org is rejected
+// without echoing the rejected ID, mirroring the building_ids path.
+func TestListDeviceSets_SiteIDsCrossOrgRejected(t *testing.T) {
+	h := newTestHandler(t)
+
+	// 99 is cross-org; ownership lookup returns only 3.
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, gomock.Any()).
+		Return([]int64{3}, nil)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: []int64{3, 99},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.NotContains(t, err.Error(), "99")
 }
 
 // TestListDeviceSets_SiteIDsRejectedForGroupType guards the RACK-only

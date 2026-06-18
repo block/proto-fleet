@@ -208,6 +208,20 @@ func (s *SQLSiteStore) SiteBelongsToOrg(ctx context.Context, orgID, id int64) (b
 	return belongs, nil
 }
 
+func (s *SQLSiteStore) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).SitesByIDs(ctx, sqlc.SitesByIDsParams{
+		OrgID: orgID,
+		Ids:   ids,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to look up sites by ID: %v", err)
+	}
+	return rows, nil
+}
+
 func (s *SQLSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64) error {
 	if _, err := s.GetQueries(ctx).LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: siteID, OrgID: orgID}); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -76,3 +76,54 @@ func ValidateFilterBuildings(
 	}
 	return nil
 }
+
+// ValidateFilterSites is the cross-org check for the rack-list site_ids
+// filter, mirroring ValidateFilterBuildings. The SQL list query is
+// already org-scoped (org_id predicate), so cross-org IDs match nothing
+// and never leak data — this validator turns that silent empty result
+// into an explicit InvalidArgument so client bugs surface, matching the
+// per-org enforcement the building filter already has and the #265
+// acceptance criteria. Emits a structured audit log on rejection.
+//
+// Error message is generic so the rejected site IDs cannot be
+// enumerated by probing.
+func ValidateFilterSites(
+	ctx context.Context,
+	orgID int64,
+	siteIDs []int64,
+	store SiteStore,
+) error {
+	requested := make(map[int64]struct{})
+	for _, id := range siteIDs {
+		if id <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf("site_ids must contain only positive IDs")
+		}
+		requested[id] = struct{}{}
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+	if store == nil {
+		// Defensive: a nil store at runtime would let cross-org IDs
+		// through silently. Treat as a server misconfiguration.
+		return fleeterror.NewInternalErrorf("ValidateFilterSites: siteStore is required for site_ids validation")
+	}
+
+	ids := make([]int64, 0, len(requested))
+	for id := range requested {
+		ids = append(ids, id)
+	}
+	found, err := store.SitesByIDs(ctx, orgID, ids)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to validate site ownership: %v", err)
+	}
+	if len(found) < len(requested) {
+		slog.WarnContext(ctx, "cross_org_filter_probe",
+			"org_id", orgID,
+			"rejected_count", len(requested)-len(found),
+		)
+		return fleeterror.NewInvalidArgumentError(
+			"one or more site_ids reference sites outside the caller's org")
+	}
+	return nil
+}

@@ -129,8 +129,14 @@ message BuildingWithCounts {
 // OR across sites; include_unassigned is independently combinable.
 // Leaving both unset returns every building in the org.
 message ListBuildingsRequest {
-    // Filter by site (OR across IDs). Each entry must be > 0.
-    repeated int64 site_ids = 1 [(buf.validate.field).repeated.items.int64.gt = 0];
+    // Filter by site (OR across IDs). Each entry must be > 0; capped at
+    // 1024 to bound request size (matches the rack/miner list filters).
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
 
     // When true, buildings with site_id IS NULL are also included.
     // Independent of site_ids — set only this for the unassigned

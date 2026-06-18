@@ -1026,6 +1026,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.siteBelongsToOrgStmt, err = db.PrepareContext(ctx, siteBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query SiteBelongsToOrg: %w", err)
 	}
+	if q.sitesByIDsStmt, err = db.PrepareContext(ctx, sitesByIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query SitesByIDs: %w", err)
+	}
 	if q.softDeleteBuildingStmt, err = db.PrepareContext(ctx, softDeleteBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteBuilding: %w", err)
 	}
@@ -2959,6 +2962,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing siteBelongsToOrgStmt: %w", cerr)
 		}
 	}
+	if q.sitesByIDsStmt != nil {
+		if cerr := q.sitesByIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sitesByIDsStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteBuildingStmt != nil {
 		if cerr := q.softDeleteBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteBuildingStmt: %w", cerr)
@@ -3762,6 +3770,7 @@ type Queries struct {
 	setSchedulePrioritiesStmt                                  *sql.Stmt
 	setScheduleRunningStmt                                     *sql.Stmt
 	siteBelongsToOrgStmt                                       *sql.Stmt
+	sitesByIDsStmt                                             *sql.Stmt
 	softDeleteBuildingStmt                                     *sql.Stmt
 	softDeleteBuildingsBySiteStmt                              *sql.Stmt
 	softDeleteCustomRoleStmt                                   *sql.Stmt
@@ -4188,6 +4197,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setSchedulePrioritiesStmt:                                  q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                                     q.setScheduleRunningStmt,
 		siteBelongsToOrgStmt:                                       q.siteBelongsToOrgStmt,
+		sitesByIDsStmt:                                             q.sitesByIDsStmt,
 		softDeleteBuildingStmt:                                     q.softDeleteBuildingStmt,
 		softDeleteBuildingsBySiteStmt:                              q.softDeleteBuildingsBySiteStmt,
 		softDeleteCustomRoleStmt:                                   q.softDeleteCustomRoleStmt,

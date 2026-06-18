@@ -805,6 +805,46 @@ func (q *Queries) SiteBelongsToOrg(ctx context.Context, arg SiteBelongsToOrgPara
 	return belongs, err
 }
 
+const sitesByIDs = `-- name: SitesByIDs :many
+SELECT id
+FROM site
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id = ANY($2::bigint[])
+`
+
+type SitesByIDsParams struct {
+	OrgID int64
+	Ids   []int64
+}
+
+// Returns the subset of requested IDs that correspond to live sites
+// in the org. Caller diffs against the requested set to detect
+// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
+// bulk-validate rack-list site_ids filter references in one round trip.
+func (q *Queries) SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.sitesByIDsStmt, sitesByIDs, arg.OrgID, pq.Array(arg.Ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const softDeleteBuildingsBySite = `-- name: SoftDeleteBuildingsBySite :execrows
 UPDATE building
 SET deleted_at = CURRENT_TIMESTAMP

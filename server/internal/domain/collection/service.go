@@ -663,6 +663,9 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
 		return nil, err
 	}
+	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
+		return nil, err
+	}
 
 	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, params.Type, pageSize, params.PageToken, params.Sort, params.Filter)
 	if err != nil {
@@ -682,6 +685,17 @@ func (s *Service) validateFilterBuildings(ctx context.Context, orgID int64, filt
 		return nil
 	}
 	return interfaces.ValidateFilterBuildings(ctx, orgID, filter.BuildingIDs, filter.ZoneKeys, s.buildingStore)
+}
+
+// validateFilterSites wraps the shared interfaces.ValidateFilterSites
+// helper for the rack-list site_ids filter. Same rationale as
+// validateFilterBuildings: enforce per-org ownership so cross-org IDs
+// error instead of silently returning empty.
+func (s *Service) validateFilterSites(ctx context.Context, orgID int64, filter *interfaces.DeviceSetFilter) error {
+	if filter == nil {
+		return nil
+	}
+	return interfaces.ValidateFilterSites(ctx, orgID, filter.SiteIDs, s.siteStore)
 }
 
 // ListCollections returns a paginated list of collections for the organization.

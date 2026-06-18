@@ -352,8 +352,14 @@ message ListDeviceSetsRequest {
     // any of the given site_ids. When combined with include_unassigned,
     // racks with site_id IS NULL are also included. When combined with
     // other filters, uses AND logic. Only valid when type is RACK;
-    // otherwise returns INVALID_ARGUMENT. Each entry must be > 0.
-    repeated int64 site_ids = 10 [(buf.validate.field).repeated.items.int64.gt = 0];
+    // otherwise returns INVALID_ARGUMENT. Each entry must be > 0; capped
+    // at 1024 to bound request size (matches building_ids / zone_keys).
+    repeated int64 site_ids = 10 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
 
     // When true, racks with site_id IS NULL are included. Independent
     // of site_ids — set only this for the unassigned bucket alone, set
