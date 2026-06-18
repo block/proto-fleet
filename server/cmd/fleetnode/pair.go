@@ -174,6 +174,7 @@ func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
 	res.Model = truncateUTF8(info.Model, maxPairIdentityBytes)
 	res.Manufacturer = truncateUTF8(info.Manufacturer, maxPairIdentityBytes)
 	res.FirmwareVersion = truncateUTF8(info.FirmwareVersion, maxPairIdentityBytes)
+	res.DefaultPasswordActive = info.DefaultPasswordActive
 }
 
 // classifyNodePairError maps a plugin pairing error to a per-device outcome.

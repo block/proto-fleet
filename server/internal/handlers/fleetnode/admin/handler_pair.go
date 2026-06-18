@@ -110,7 +110,7 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 				for _, r := range results {
 					res := &pb.DevicePairingResult{
 						DeviceIdentifier: r.GetDeviceIdentifier(),
-						PairingStatus:    pairOutcomeStatus(r.GetOutcome()),
+						PairingStatus:    pairResultStatus(r),
 					}
 					if res.PairingStatus != fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED {
 						res.Error = r.GetErrorMessage()
@@ -126,8 +126,15 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 		})
 }
 
-// pairOutcomeStatus maps a node pair outcome to the operator-facing enum, matching
+// pairResultStatus maps a node pair result to the operator-facing enum, matching
 // what PersistFleetNodePairResult records.
+func pairResultStatus(result *gatewaypb.FleetNodePairResult) fleetmanagementv1.PairingStatus {
+	if result.GetOutcome() == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED && result.GetDefaultPasswordActive() {
+		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
+	}
+	return pairOutcomeStatus(result.GetOutcome())
+}
+
 func pairOutcomeStatus(outcome gatewaypb.PairOutcome) fleetmanagementv1.PairingStatus {
 	switch outcome {
 	case gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED:

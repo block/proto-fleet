@@ -83,6 +83,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	persisted := StatusAuthenticationNeeded
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 		persisted = StatusPaired
+		if result.GetDefaultPasswordActive() {
+			persisted = StatusDefaultPassword
+		}
 	}
 	conflict := false
 	var boundDeviceID int64

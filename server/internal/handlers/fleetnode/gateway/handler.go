@@ -199,6 +199,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 		// Forward the persisted status, not the raw report: a stale AUTH_NEEDED for
 		// an already-PAIRED device persists as PAIRED, so the operator must see PAIRED.
 		r.Outcome = pairOutcomeForStatus(status)
+		r.DefaultPasswordActive = defaultPasswordActiveForStatus(status)
 		persisted = append(persisted, r)
 	}
 	// Admission consumed these targets; return them so a retried report for the
@@ -230,6 +231,14 @@ func pairOutcomeForStatus(status string) pb.PairOutcome {
 	default:
 		return pb.PairOutcome_PAIR_OUTCOME_ERROR
 	}
+}
+
+func defaultPasswordActiveForStatus(status string) *bool {
+	if status == pairing.StatusDefaultPassword {
+		active := true
+		return &active
+	}
+	return nil
 }
 
 func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {

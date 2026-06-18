@@ -556,8 +556,9 @@ func TestPluginPairer_AsymmetricWithoutSigningKeyErrors(t *testing.T) {
 
 func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
 	// Arrange: no operator creds; the driver provides a working default.
+	active := true
 	drv := &fakePairDriver{
-		pairResult: sdk.DeviceInfo{SerialNumber: "SN1"},
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active},
 		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
 	}
 	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
@@ -570,6 +571,8 @@ func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
 	require.NotNil(t, res.GetUsedCredentials())
 	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
 	assert.Equal(t, "admin", res.GetUsedCredentials().GetPassword())
+	require.NotNil(t, res.DefaultPasswordActive)
+	assert.True(t, res.GetDefaultPasswordActive())
 }
 
 func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {

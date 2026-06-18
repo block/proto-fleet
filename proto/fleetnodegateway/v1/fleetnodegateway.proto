@@ -167,6 +167,10 @@ message FleetNodePairResult {
     // password -- means the cloud must persist it as the device's auth material;
     // absent means store nothing.
     UsedCredentials used_credentials = 11;
+    // Set by nodes when the plugin paired while the miner's factory-default
+    // password is still active. Cloud stores the pairing as DEFAULT_PASSWORD so
+    // operators can remediate it from the security flow.
+    optional bool default_password_active = 12;
 }
 
 // UsedCredentials carries the basic-auth credentials a node authenticated with,
