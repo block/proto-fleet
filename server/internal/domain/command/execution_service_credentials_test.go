@@ -172,6 +172,7 @@ func TestExecuteCommand_UpdateMinerPassword_MissingNonProtoCredentialsFails(t *t
 		CurrentPassword: "old-password",
 		NewPassword:     "new-password",
 	}).Return(nil)
+	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier(deviceIdentifier))
 
 	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
 
