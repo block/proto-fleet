@@ -14,9 +14,11 @@ import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
-type FleetTabId = "sites" | "buildings" | "racks" | "miners";
+type FleetTabId = "sites" | "buildings" | "racks" | "miners" | "infrastructure";
 
-const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED ? ["sites", "buildings", "racks", "miners"] : ["racks", "miners"];
+const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED
+  ? ["sites", "buildings", "racks", "miners", "infrastructure"]
+  : ["racks", "miners", "infrastructure"];
 // Absolute last-resort fallback when TAB_ORDER somehow contains no visible
 // tabs. The real waterfall comes from `visibleTabs[0]` below.
 const DEFAULT_TAB: FleetTabId = MULTI_SITE_ENABLED ? "sites" : "racks";
@@ -31,11 +33,12 @@ const tabLabel: Record<FleetTabId, string> = {
   racks: "Racks",
   buildings: "Buildings",
   sites: "Sites",
+  infrastructure: "Infrastructure",
 };
 
 // Recognize all four ids regardless of flag so a persisted `lastTab` from a
 // flag-on session isn't discarded as garbage when the flag flips.
-const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners"]);
+const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners", "infrastructure"]);
 const isFleetTabId = (s: string): s is FleetTabId => ALL_TAB_IDS.has(s as FleetTabId);
 
 const tabFromPath = (pathname: string): FleetTabId | undefined => {

@@ -13,6 +13,7 @@ import {
   importEnergyPage,
   importFleetBuildingsPage,
   importFleetDown,
+  importFleetInfraPage,
   importFleetLayout,
   importFleetSitesPage,
   importGroupOverviewPage,
@@ -89,6 +90,7 @@ const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetDown = lazy(importFleetDown);
+const FleetInfraPage = lazy(importFleetInfraPage);
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -170,6 +172,7 @@ const router = createBrowserRouter([
       { path: "racks", element: <RacksPage /> },
       { path: "buildings", element: <FleetBuildingsPage /> },
       { path: "sites", element: <FleetSitesPage /> },
+      { path: "infrastructure", element: <FleetInfraPage /> },
     ],
   },
 
