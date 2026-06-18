@@ -761,9 +761,11 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), DestinationPolicy{})
 
 	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		ID:      "sil-1",
-		Comment: "updated",
-		Scope:   MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+		ID:       "sil-1",
+		Comment:  "updated",
+		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
 	})
 	require.NoError(t, err)
 
@@ -806,10 +808,34 @@ func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
 	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
 
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		Scope: MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-does-not-exist"},
+		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-does-not-exist"},
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
 	})
 	require.ErrorIs(t, err, ErrNotFound)
 	assert.Nil(t, postBody, "window for an unknown rule must not reach Grafana")
+}
+
+// Maintenance windows are finite: the server must reject a missing or non-increasing time
+// range even though the UI enforces it, so a direct RPC can't open a decades-long silence.
+func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
+	cases := map[string]MaintenanceWindow{
+		"missing ends_at":    {StartsAt: time.Unix(1000, 0)},
+		"missing starts_at":  {EndsAt: time.Unix(2000, 0)},
+		"ends before starts": {StartsAt: time.Unix(2000, 0), EndsAt: time.Unix(1000, 0)},
+		"ends equals starts": {StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(1000, 0)},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var postBody []byte
+			svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
+			tc.Scope = MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"}
+			_, err := svc.CreateMaintenanceWindow(context.Background(), 7, tc)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
+			assert.Nil(t, postBody, "invalid window must not reach Grafana")
+		})
+	}
 }
 
 // A rule-scoped maintenance window is structurally identical to a pause silence, so a

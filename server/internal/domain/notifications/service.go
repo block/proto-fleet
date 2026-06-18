@@ -615,6 +615,9 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
 		return nil, err
 	}
+	if err := validateMaintenanceWindowTimes(sil.StartsAt, sil.EndsAt); err != nil {
+		return nil, err
+	}
 	if err := s.requireScopeTargetVisible(ctx, orgID, sil.Scope); err != nil {
 		return nil, err
 	}
@@ -642,6 +645,9 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 		return nil, err
 	}
 	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
+		return nil, err
+	}
+	if err := validateMaintenanceWindowTimes(sil.StartsAt, sil.EndsAt); err != nil {
 		return nil, err
 	}
 	if err := s.requireScopeTargetVisible(ctx, orgID, sil.Scope); err != nil {
@@ -748,6 +754,22 @@ func (s *Service) requireScopeTargetVisible(ctx context.Context, orgID int64, sc
 func validateMaintenanceWindowComment(comment string) error {
 	if strings.Contains(comment, pauseSilenceCommentMarker) {
 		return fleeterror.NewInvalidArgumentError("comment may not contain a reserved marker")
+	}
+	return nil
+}
+
+// Maintenance windows are finite: the UI enforces this, but a direct RPC could omit ends_at
+// (which would compile to the far-future sentinel and silence alerts for decades) or pass an
+// end at/before the start. Indefinite suppression is only available via PauseRule.
+func validateMaintenanceWindowTimes(startsAt, endsAt time.Time) error {
+	if startsAt.IsZero() {
+		return fleeterror.NewInvalidArgumentError("starts_at is required for a maintenance window")
+	}
+	if endsAt.IsZero() {
+		return fleeterror.NewInvalidArgumentError("ends_at is required for a maintenance window")
+	}
+	if !endsAt.After(startsAt) {
+		return fleeterror.NewInvalidArgumentError("ends_at must be after starts_at")
 	}
 	return nil
 }
