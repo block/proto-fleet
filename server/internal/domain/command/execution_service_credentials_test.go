@@ -276,6 +276,9 @@ func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, _ *
 
 func newCommandTestDB(t *testing.T) *sql.DB {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping database-backed credential command test in short mode")
+	}
 
 	cli := struct {
 		DB infraDB.Config `envprefix:"DB_" embed:""`
@@ -286,10 +289,7 @@ func newCommandTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 
 	config := cli.DB
-	dbName := config.Name
-	if dbName == "" || dbName == "fleet" {
-		dbName = commandTestDBName(t.Name())
-	}
+	dbName := commandTestDBName(t.Name())
 
 	adminConfig := config
 	adminConfig.Name = "postgres"

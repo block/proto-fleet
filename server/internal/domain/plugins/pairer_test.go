@@ -250,7 +250,7 @@ func TestPairer_CreateSecretBundle_RequiresPasswordPresence(t *testing.T) {
 
 // TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState verifies a
 // device that pairs while still on its factory password is recorded immediately in
-// the DEFAULT_PASSWORD state with a non-ACTIVE initial status, rather than PAIRED/ACTIVE.
+// the DEFAULT_PASSWORD pairing state without changing its successful initial status.
 func TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -322,9 +322,9 @@ func TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState(t *tes
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpdateWorkerName(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), "00:11:22:33:44:55").Return(nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
-	// Key assertions: DEFAULT_PASSWORD pairing state and a non-ACTIVE initial status.
+	// Key assertions: DEFAULT_PASSWORD pairing state and normal successful initial status.
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "DEFAULT_PASSWORD").Return(nil)
-	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusUnknown, "").Return(nil)
+	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusActive, "").Return(nil)
 
 	err = pairer.PairDevice(ctx, device, credentials)
 

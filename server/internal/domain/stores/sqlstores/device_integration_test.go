@@ -749,7 +749,7 @@ func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int32(1), counts.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(1), counts.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(2), counts.OfflineCount, "paired-like with NULL status should be offline")
 	require.Equal(t, int32(1), counts.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), counts.SleepingCount, "no sleeping devices")
 }
@@ -800,7 +800,7 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), counts.BrokenCount)
-	require.Equal(t, int32(1), counts.OfflineCount)
+	require.Equal(t, int32(2), counts.OfflineCount)
 	require.Equal(t, int32(1), counts.HashingCount)
 
 	// Filter by needs attention — should include auth-needed NULL-status miner
@@ -813,15 +813,20 @@ func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
 	require.Len(t, miners, 1)
 	require.Equal(t, "device-001", miners[0].DeviceIdentifier, "should include auth-needed NULL-status miner")
 
-	// Filter by offline — should include paired NULL-status miner
+	// Filter by offline should include paired-like NULL-status miners.
 	offlineFilter := &interfaces.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
 	}
 	miners, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), total, "offline filter should match 1 miner")
-	require.Len(t, miners, 1)
-	require.Equal(t, "device-002", miners[0].DeviceIdentifier, "should include paired NULL-status miner")
+	require.Equal(t, int64(2), total, "offline filter should match paired-like NULL-status miners")
+	require.Len(t, miners, 2)
+	identifiers := make(map[string]bool, len(miners))
+	for _, miner := range miners {
+		identifiers[miner.DeviceIdentifier] = true
+	}
+	require.True(t, identifiers["device-002"], "should include paired NULL-status miner")
+	require.True(t, identifiers["device-004"], "should include default-password NULL-status miner")
 }
 
 // TestCountMinersByState_FilteredCountsMatchList verifies that GetMinerStateCounts
@@ -839,15 +844,18 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
 		devices: []testDevice{
 			{id: 1, identifier: "device-001", status: "OFFLINE", pairingStatus: "PAIRED"},               // offline
-			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired → offline
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired -> offline
 			{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},                // hashing
-			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL → broken
+			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL -> broken
 			{id: 5, identifier: "device-005", status: "ERROR", pairingStatus: "PAIRED"},                 // broken
-			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE → broken
-			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error → broken (excluded from Hashing)
+			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE -> broken
+			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error -> broken (excluded from Hashing)
+			{id: 8, identifier: "device-008", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // NULL+default-password -> offline
+			{id: 9, identifier: "device-009", status: "", pairingStatus: "DEFAULT_PASSWORD"},            // NULL+default-password+error -> offline
 		},
 		errors: []testError{
 			{deviceID: 7, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-007
+			{deviceID: 9, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-009
 		},
 	})
 
@@ -859,7 +867,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	}
 	_, _, listTotal, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), listTotal, "offline list should match OFFLINE + NULL+paired")
+	require.Equal(t, int64(4), listTotal, "offline list should match OFFLINE + NULL paired-like")
 
 	stateCounts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
@@ -876,7 +884,7 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 	_, _, listTotal, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(4), listTotal,
-		"needs-attention includes ERROR + auth-needed + paired-ACTIVE-with-error")
+		"needs-attention excludes NULL default-password with errors")
 
 	stateCounts, err = store.GetMinerStateCounts(ctx, 1, needsAttentionFilter)
 	require.NoError(t, err)
@@ -905,10 +913,10 @@ func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
 		"hashing+broken buckets must sum to filtered list total")
 }
 
-// TestCountMinersByState_NullPairedWithErrorStaysOffline verifies that a PAIRED
-// miner with NULL device_status and an open error is bucketed as offline
-// (not Needs Attention) by both the list filter and the state counts.
-func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
+// TestCountMinersByState_NullPairedLikeWithErrorStaysOffline verifies that
+// paired-like miners with NULL device_status and open errors are bucketed as
+// offline (not Needs Attention) by both the list filter and state counts.
+func TestCountMinersByState_NullPairedLikeWithErrorStaysOffline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -918,10 +926,12 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
 		devices: []testDevice{
-			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"}, // NULL+paired with open error
+			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"},
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 		},
 		errors: []testError{
 			{deviceID: 1, orgID: 1, severity: 1, closed: false},
+			{deviceID: 2, orgID: 1, severity: 1, closed: false},
 		},
 	})
 
@@ -933,12 +943,12 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 	}
 	_, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), total, "NULL+paired (with error) should be in offline filter")
+	require.Equal(t, int64(2), total, "NULL paired-like devices with errors should be in offline filter")
 
 	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
 	require.NoError(t, err)
-	require.Equal(t, int32(1), counts.OfflineCount, "NULL+paired (with error) should count as offline")
-	require.Equal(t, int32(0), counts.BrokenCount, "NULL+paired should NOT count as broken")
+	require.Equal(t, int32(2), counts.OfflineCount, "NULL paired-like devices with errors should count as offline")
+	require.Equal(t, int32(0), counts.BrokenCount, "NULL paired-like devices should NOT count as broken")
 
 	// Needs Attention filter excludes the miner (offline trumps errors).
 	needsAttentionFilter := &interfaces.MinerFilter{
@@ -946,7 +956,7 @@ func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
 	}
 	_, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), total, "NULL+paired (with error) should NOT be in needs-attention filter")
+	require.Equal(t, int64(0), total, "NULL paired-like devices with errors should NOT be in needs-attention filter")
 }
 
 // TestGetMinerStateCountsByCollections_AuthNeededNullStatus verifies per-collection
@@ -972,7 +982,7 @@ func TestGetMinerStateCountsByCollections_AuthNeededNullStatus(t *testing.T) {
 
 	c := counts[collectionID]
 	require.Equal(t, int32(1), c.BrokenCount, "auth-needed with NULL status should be broken")
-	require.Equal(t, int32(1), c.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(2), c.OfflineCount, "paired-like with NULL status should be offline")
 	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
@@ -1210,13 +1220,14 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 }
 
 // nullStatusDashboardFixture returns the canonical fixture used to verify NULL
-// device_status bucketing: auth-needed (→ broken), paired
-// (→ offline), and an active paired control (→ hashing).
+// device_status bucketing: auth-needed (broken), paired-like (offline), and an
+// active paired control (hashing).
 func nullStatusDashboardFixture() []testDevice {
 	return []testDevice{
 		{id: 1, identifier: "device-001", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},
 		{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},
 		{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},
+		{id: 4, identifier: "device-004", status: "", pairingStatus: "DEFAULT_PASSWORD"},
 	}
 }
 

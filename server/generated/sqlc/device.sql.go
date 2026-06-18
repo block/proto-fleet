@@ -121,13 +121,13 @@ WHERE d.deleted_at IS NULL
                 AND errors.closed_at IS NULL
                 AND errors.severity IN (1, 2, 3, 4)
           )
-          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+          AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
           AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-      -- NULL-status paired miners (counted as offline in dashboard).
-      -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+      -- NULL-status paired-like miners (counted as offline in dashboard).
+      -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
       OR ($5::boolean = TRUE
           AND ds.status IS NULL
-          AND dp.pairing_status = 'PAIRED')
+          AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
   )
   AND ($6::text IS NULL OR dd.model = ANY($7::text[]))
   AND ($8::text IS NULL OR d.device_identifier = ANY($9::text[]))
@@ -1554,7 +1554,7 @@ WHERE dd.org_id = $1
         OR ($8::boolean = TRUE
             AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
             AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
-        -- Devices with actionable errors. Excludes NULL-status paired miners
+        -- Devices with actionable errors. Excludes NULL-status paired-like miners
         -- so they stay bucketed as offline (matches CountMinersByState).
         OR ($8::boolean = TRUE
             AND EXISTS (
@@ -1564,13 +1564,13 @@ WHERE dd.org_id = $1
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+            AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
             AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-        -- NULL-status paired miners (counted as offline in dashboard).
-        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+        -- NULL-status paired-like miners (counted as offline in dashboard).
+        -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
         OR ($9::boolean = TRUE
             AND ds.status IS NULL
-            AND dp.pairing_status = 'PAIRED')
+            AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
     )
     -- Component error filter
     AND (

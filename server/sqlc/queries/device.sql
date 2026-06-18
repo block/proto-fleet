@@ -346,13 +346,13 @@ WHERE d.deleted_at IS NULL
                 AND errors.closed_at IS NULL
                 AND errors.severity IN (1, 2, 3, 4)
           )
-          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+          AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
           AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-      -- NULL-status paired miners (counted as offline in dashboard).
-      -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+      -- NULL-status paired-like miners (counted as offline in dashboard).
+      -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
       OR (sqlc.narg('include_null_status_filter')::boolean = TRUE
           AND ds.status IS NULL
-          AND dp.pairing_status = 'PAIRED')
+          AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
   )
   AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(sqlc.arg('model_values')::text[]))
   AND (sqlc.narg('device_identifiers_filter')::text IS NULL OR d.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
@@ -662,7 +662,7 @@ WHERE dd.org_id = sqlc.arg('org_id')
         OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
             AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
             AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
-        -- Devices with actionable errors. Excludes NULL-status paired miners
+        -- Devices with actionable errors. Excludes NULL-status paired-like miners
         -- so they stay bucketed as offline (matches CountMinersByState).
         OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
             AND EXISTS (
@@ -672,13 +672,13 @@ WHERE dd.org_id = sqlc.arg('org_id')
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+            AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
             AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
-        -- NULL-status paired miners (counted as offline in dashboard).
-        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+        -- NULL-status paired-like miners (counted as offline in dashboard).
+        -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
         OR (sqlc.narg('include_null_status_filter')::boolean = TRUE
             AND ds.status IS NULL
-            AND dp.pairing_status = 'PAIRED')
+            AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
     )
     -- Component error filter
     AND (

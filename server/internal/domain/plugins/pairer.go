@@ -263,13 +263,12 @@ func (p *Pairer) handlePairViaStore(
 			return err
 		}
 
-		// Record a factory-password device as DEFAULT_PASSWORD immediately (not
-		// PAIRED/ACTIVE) so the UI surfaces remediation without waiting for the poll.
+		// Record a factory-password device as DEFAULT_PASSWORD immediately so
+		// security settings can surface remediation without waiting for the poll.
 		pairingStatus := pairing.StatusPaired
 		initialStatus := models.MinerStatusActive
 		if discoveredDevice.DefaultPasswordActive != nil && *discoveredDevice.DefaultPasswordActive {
 			pairingStatus = pairing.StatusDefaultPassword
-			initialStatus = models.MinerStatusUnknown
 		}
 
 		if err := p.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, pairingStatus); err != nil {
