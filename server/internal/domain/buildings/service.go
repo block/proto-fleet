@@ -748,18 +748,7 @@ func (s *Service) AssignDevicesToBuilding(ctx context.Context, params models.Ass
 		// (the fix is the same — drop the rack membership row).
 		// DEVICE_NOT_FOUND still aborts.
 		if params.ForceClearConflictingRackMembership && len(conflicts) > 0 {
-			var (
-				clearableIDs []string
-				residual     []models.PerDeviceBuildingConflict
-			)
-			for _, c := range conflicts {
-				if c.Reason == models.ReasonBuildingDeviceInRackAtOtherBuilding ||
-					c.Reason == models.ReasonBuildingDeviceInRackAtOtherSite {
-					clearableIDs = append(clearableIDs, c.DeviceIdentifier)
-					continue
-				}
-				residual = append(residual, c)
-			}
+			clearableIDs, residual := partitionClearableBuildingConflicts(conflicts)
 			// Abort before any deletion when residual non-clearable
 			// conflicts remain — otherwise the tx would commit the
 			// rack-membership delete without the building move,
@@ -998,6 +987,23 @@ func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID in
 		return conflicts[i].DeviceIdentifier < conflicts[j].DeviceIdentifier
 	})
 	return conflicts, nil
+}
+
+// partitionClearableBuildingConflicts splits force-clear conflicts into
+// the device identifiers whose rack membership can be dropped to resolve
+// the conflict (IN_RACK_AT_OTHER_BUILDING / IN_RACK_AT_OTHER_SITE — the
+// fix is the same, drop the rack row) and the residual non-clearable
+// conflicts (e.g. DEVICE_NOT_FOUND) that must still abort the batch.
+func partitionClearableBuildingConflicts(conflicts []models.PerDeviceBuildingConflict) (clearableIDs []string, residual []models.PerDeviceBuildingConflict) {
+	for _, c := range conflicts {
+		if c.Reason == models.ReasonBuildingDeviceInRackAtOtherBuilding ||
+			c.Reason == models.ReasonBuildingDeviceInRackAtOtherSite {
+			clearableIDs = append(clearableIDs, c.DeviceIdentifier)
+			continue
+		}
+		residual = append(residual, c)
+	}
+	return clearableIDs, residual
 }
 
 // dedupeStrings collapses duplicates from the operator's input list.

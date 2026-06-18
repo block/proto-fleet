@@ -76,13 +76,28 @@ const RACK_COLUMNS_STANDALONE: DeviceSetColumn[] = [
   "health",
 ];
 
+// Subtitle copy for the "Move racks between sites?" building-clear
+// confirm. Falls back to a generic message when no building resolved or
+// the set is partial (unresolved) — naming a partial set would mislead.
+const siteClearSubtitle = (labels: string[], rackCount: number, unresolved: boolean): string => {
+  const rackNoun = rackCount === 1 ? "rack" : "racks";
+  const isAre = rackCount === 1 ? "is" : "are";
+  if (labels.length === 0 || unresolved) {
+    return `${rackCount} of the selected ${rackNoun} ${isAre} in a building that may belong to a different site. Continuing will remove ${rackCount === 1 ? "it" : "them"} from ${rackCount === 1 ? "that building" : "their buildings"} before moving to the selected site.`;
+  }
+  const labelSummary = labels.slice(0, 3).join(", ");
+  const more = labels.length > 3 ? ` and ${labels.length - 3} other building(s)` : "";
+  return `${rackCount} of the selected ${rackNoun} ${isAre} currently in ${labelSummary}${more}, which belong${labels.length === 1 ? "s" : ""} to a different site. Continuing will clear the rack ${labels.length === 1 ? "from that building" : "from those buildings"} before moving to the selected site.`;
+};
+
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
   const canEditRack = useHasPermission("rack:manage");
-  const canAssignRacksToBuilding = useHasPermission("site:manage");
-  const canAssignRacksToSite = useHasPermission("site:manage");
+  // Both "Add to building" and "Add to site" reparent actions are gated
+  // by site:manage (server enforces the same). One flag, two actions.
+  const canManageSitePlacement = useHasPermission("site:manage");
   const [reparentTarget, setReparentTarget] = useState<{ rack: DeviceSet; kind: "building" | "site" } | null>(null);
   const { listSites, assignRacksToSite } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -453,6 +468,31 @@ const RacksPage = () => {
     [assignRacksToSite, resetAndFetch, summarizeBuildingClearance],
   );
 
+  // Building peer of dispatchRackSiteAssign, shared by the single-row and
+  // bulk rack→building paths. No building-clearance gate: a building move
+  // doesn't silently clear rack.building_id the way a cross-site move
+  // does. Resolves true on success, rejects on RPC failure so each
+  // caller's onConfirm chain stays identical to the site shape.
+  const dispatchRackBuildingAssign = useCallback(
+    (rackIds: bigint[], targetBuildingId: bigint, subjectLabel: string): Promise<boolean> =>
+      new Promise<boolean>((resolve, reject) => {
+        void assignRacksToBuilding({
+          racks: rackIds.map((rackId) => ({ rackId })),
+          targetBuildingId,
+          onSuccess: () => {
+            pushToast({ message: `Moved ${subjectLabel} to selected building.`, status: STATUSES.success });
+            resetAndFetch();
+            resolve(true);
+          },
+          onError: (msg) => {
+            pushToast({ message: `Couldn't move ${subjectLabel}: ${msg}`, status: STATUSES.error });
+            reject(new Error(msg));
+          },
+        });
+      }),
+    [assignRacksToBuilding, resetAndFetch],
+  );
+
   // Wired to the Cancel button on the building-clear dialog. Resolves
   // the outer picker promise as a no-op so ParentPickerModal closes
   // without dispatching the RPC.
@@ -724,16 +764,16 @@ const RacksPage = () => {
         label: "Add to building",
         icon: <Plus />,
         onClick: () => setReparentTarget({ rack, kind: "building" }),
-        hidden: !canAssignRacksToBuilding,
+        hidden: !canManageSitePlacement,
       },
       {
         label: "Add to site",
         icon: <Plus />,
         onClick: () => setReparentTarget({ rack, kind: "site" }),
-        hidden: !canAssignRacksToSite,
+        hidden: !canManageSitePlacement,
       },
     ],
-    [navigate, handleEditRack, canEditRack, canAssignRacksToBuilding, canAssignRacksToSite],
+    [navigate, handleEditRack, canEditRack, canManageSitePlacement],
   );
 
   const renderName = useCallback(
@@ -1097,14 +1137,14 @@ const RacksPage = () => {
               icon: <Plus />,
               testId: "fleet-bulk-rack-actions-add-to-building",
               onClick: () => setBulkReparentKind("building"),
-              hidden: !canAssignRacksToBuilding,
+              hidden: !canManageSitePlacement,
             },
             {
               label: "Add to site",
               icon: <Plus />,
               testId: "fleet-bulk-rack-actions-add-to-site",
               onClick: () => setBulkReparentKind("site"),
-              hidden: !canAssignRacksToSite,
+              hidden: !canManageSitePlacement,
             },
           ]}
           onClearSelection={handleClearRackSelection}
@@ -1130,33 +1170,19 @@ const RacksPage = () => {
               }
               const rackIds = selectedRackScopes.map((scope) => scope.id);
               const subjectLabel = `${rackIds.length} ${rackIds.length === 1 ? "rack" : "racks"}`;
-              if (bulkReparentKind === "building") {
-                void assignRacksToBuilding({
-                  racks: rackIds.map((rackId) => ({ rackId })),
-                  targetBuildingId: parentId,
-                  onSuccess: () => {
-                    pushToast({ message: `Moved ${subjectLabel} to selected building.`, status: STATUSES.success });
-                    resetAndFetch();
+              const dispatch =
+                bulkReparentKind === "building"
+                  ? dispatchRackBuildingAssign(rackIds, parentId, subjectLabel)
+                  : dispatchRackSiteAssign(rackIds, parentId, subjectLabel);
+              dispatch
+                .then((ok) => {
+                  if (ok) {
                     setBulkReparentKind(null);
                     setSelectedRackIds([]);
-                    resolve();
-                  },
-                  onError: (msg) => {
-                    pushToast({ message: `Couldn't move racks: ${msg}`, status: STATUSES.error });
-                    reject(new Error(msg));
-                  },
-                });
-              } else {
-                dispatchRackSiteAssign(rackIds, parentId, subjectLabel)
-                  .then((ok) => {
-                    if (ok) {
-                      setBulkReparentKind(null);
-                      setSelectedRackIds([]);
-                    }
-                    resolve();
-                  })
-                  .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
-              }
+                  }
+                  resolve();
+                })
+                .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
             })
           }
         />
@@ -1206,80 +1232,52 @@ const RacksPage = () => {
                 return;
               }
               const rackName = reparentTarget.rack.label || "rack";
-              if (reparentTarget.kind === "building") {
-                void assignRacksToBuilding({
-                  racks: [{ rackId: reparentTarget.rack.id }],
-                  targetBuildingId: parentId,
-                  onSuccess: () => {
-                    pushToast({ message: `Moved "${rackName}" to selected building.`, status: STATUSES.success });
-                    resetAndFetch();
-                    setReparentTarget(null);
-                    resolve();
-                  },
-                  onError: (msg) => {
-                    pushToast({ message: `Couldn't move rack: ${msg}`, status: STATUSES.error });
-                    reject(new Error(msg));
-                  },
-                });
-              } else {
-                dispatchRackSiteAssign([reparentTarget.rack.id], parentId, `"${rackName}"`)
-                  .then((ok) => {
-                    if (ok) setReparentTarget(null);
-                    resolve();
-                  })
-                  .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
-              }
+              const dispatch =
+                reparentTarget.kind === "building"
+                  ? dispatchRackBuildingAssign([reparentTarget.rack.id], parentId, `"${rackName}"`)
+                  : dispatchRackSiteAssign([reparentTarget.rack.id], parentId, `"${rackName}"`);
+              dispatch
+                .then((ok) => {
+                  if (ok) setReparentTarget(null);
+                  resolve();
+                })
+                .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
             })
           }
         />
       ) : null}
-      {siteClearConfirmation
-        ? (() => {
-            const labels = siteClearConfirmation.affectedBuildingLabels;
-            const rackCount = siteClearConfirmation.affectedRackCount;
-            const rackNoun = rackCount === 1 ? "rack" : "racks";
-            const isAre = rackCount === 1 ? "is" : "are";
-            // Fall back to a generic message when we couldn't resolve
-            // every affected rack to a named building (metadata
-            // unavailable) — naming a partial set would be misleading.
-            const subtitle =
-              labels.length === 0 || siteClearConfirmation.unresolved
-                ? `${rackCount} of the selected ${rackNoun} ${isAre} in a building that may belong to a different site. Continuing will remove ${rackCount === 1 ? "it" : "them"} from ${rackCount === 1 ? "that building" : "their buildings"} before moving to the selected site.`
-                : (() => {
-                    const labelSummary = labels.slice(0, 3).join(", ");
-                    const more = labels.length > 3 ? ` and ${labels.length - 3} other building(s)` : "";
-                    return `${rackCount} of the selected ${rackNoun} ${isAre} currently in ${labelSummary}${more}, which belong${labels.length === 1 ? "s" : ""} to a different site. Continuing will clear the rack ${labels.length === 1 ? "from that building" : "from those buildings"} before moving to the selected site.`;
-                  })();
-            return (
-              <Dialog
-                open
-                title="Move racks between sites?"
-                subtitle={subtitle}
-                onDismiss={() => {
-                  if (siteClearInFlight) return;
-                  cancelSiteClearConfirmation();
-                }}
-                buttons={[
-                  {
-                    text: "Cancel",
-                    variant: variants.secondary,
-                    onClick: cancelSiteClearConfirmation,
-                    disabled: siteClearInFlight,
-                  },
-                  {
-                    text: "Continue",
-                    variant: variants.primary,
-                    onClick: () => {
-                      void siteClearConfirmation.onConfirm();
-                    },
-                    loading: siteClearInFlight,
-                    disabled: siteClearInFlight,
-                  },
-                ]}
-              />
-            );
-          })()
-        : null}
+      {siteClearConfirmation ? (
+        <Dialog
+          open
+          title="Move racks between sites?"
+          subtitle={siteClearSubtitle(
+            siteClearConfirmation.affectedBuildingLabels,
+            siteClearConfirmation.affectedRackCount,
+            siteClearConfirmation.unresolved,
+          )}
+          onDismiss={() => {
+            if (siteClearInFlight) return;
+            cancelSiteClearConfirmation();
+          }}
+          buttons={[
+            {
+              text: "Cancel",
+              variant: variants.secondary,
+              onClick: cancelSiteClearConfirmation,
+              disabled: siteClearInFlight,
+            },
+            {
+              text: "Continue",
+              variant: variants.primary,
+              onClick: () => {
+                void siteClearConfirmation.onConfirm();
+              },
+              loading: siteClearInFlight,
+              disabled: siteClearInFlight,
+            },
+          ]}
+        />
+      ) : null}
     </div>
   );
 };

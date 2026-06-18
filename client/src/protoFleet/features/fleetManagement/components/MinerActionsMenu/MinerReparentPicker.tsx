@@ -44,9 +44,6 @@ const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 // and AssignDevicesToBuildingRequest.device_identifiers — both flows have the
 // same server-side cap, so one constant covers both.
 const MAX_REASSIGN_BATCH = 10000;
-// Back-compat alias for the existing site-flow callsite. Folded into
-// MAX_REASSIGN_BATCH so the cap stays in one place.
-const MAX_SITE_REASSIGN_BATCH = MAX_REASSIGN_BATCH;
 
 // Capacity check for the bulk Add-to-rack path. Server-side
 // AddDevicesToDeviceSet doesn't enforce slot count, so an over-fill
@@ -310,9 +307,9 @@ const MinerReparentPicker = ({
     ids: string[],
     minerSnapshots: Record<string, MinerStateSnapshot> | undefined,
   ) => {
-    if (ids.length > MAX_SITE_REASSIGN_BATCH) {
+    if (ids.length > MAX_REASSIGN_BATCH) {
       pushToast({
-        message: `Can't move more than ${MAX_SITE_REASSIGN_BATCH} miners to a site at once. Filter the list and try again.`,
+        message: `Can't move more than ${MAX_REASSIGN_BATCH} miners to a site at once. Filter the list and try again.`,
         status: STATUSES.error,
       });
       return;

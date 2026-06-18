@@ -1004,6 +1004,56 @@ func TestAssignDevicesToBuilding_forceClearCascadesRackMembership(t *testing.T) 
 	}
 }
 
+// TestAssignDevicesToBuilding_forceClearAbortsOnResidualNonClearable
+// pins the data-integrity-critical abort: when a force-clear request
+// carries a non-clearable conflict (DEVICE_NOT_FOUND) alongside a
+// clearable one, the batch must return the residual conflict and write
+// NOTHING — no rack-membership delete, no building write. Otherwise the
+// tx would commit RemoveDevicesFromAnyRack without the building move,
+// stranding rack-stripped devices on their old building.
+func TestAssignDevicesToBuilding_forceClearAbortsOnResidualNonClearable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, collStore, nil, nil, tx, nil)
+
+	identifiers := []string{"d1", "d2"}
+	targetBuilding := int64(42)
+	conflictingBuilding := int64(99)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	// d2 is absent from the existing set → DEVICE_NOT_FOUND (residual,
+	// non-clearable). d1 is a clearable cross-building conflict.
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": conflictingBuilding,
+	}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// CRITICAL: neither the rack-clear nor the building write may run.
+	// gomock fails the test if either is called (no EXPECT registered).
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:                               testOrgID,
+		TargetBuildingID:                    &targetBuilding,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected only the residual conflict, got %v", conflicts)
+	}
+	if conflicts[0].DeviceIdentifier != "d2" || conflicts[0].Reason != models.ReasonBuildingDeviceNotFound {
+		t.Fatalf("expected residual DEVICE_NOT_FOUND for d2, got %v", conflicts[0])
+	}
+}
+
 // TestAssignDevicesToBuilding_siteLessBuildingFlagsRackAtRealSite pins
 // the cross-site guard for a site-less target building: a device whose
 // rack is at a real site can't be moved into an unassigned building
