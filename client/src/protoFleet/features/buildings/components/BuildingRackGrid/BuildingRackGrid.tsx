@@ -91,6 +91,14 @@ const BuildingRackGrid = ({
     return grid;
   }, [rackHealth, hasLayout, aisles, racksPerAisle]);
 
+  // Racks with no floor-plan position — shown as an extra section in Name view
+  const unplacedRacks = useMemo(() => {
+    if (!hasLayout) return [];
+    return rackHealth
+      .filter((r) => r.aisleIndex == null || r.positionInAisle == null)
+      .sort((a, b) => a.rackLabel.localeCompare(b.rackLabel, undefined, { numeric: true }));
+  }, [rackHealth, hasLayout]);
+
   // Label-sorted flat list (Name tab fallback when no floor plan)
   const nameSorted = useMemo(() => {
     const arr = [...rackHealth];
@@ -217,12 +225,38 @@ const BuildingRackGrid = ({
                   </div>
                 </div>
               ) : (
-                <div key={`empty-${ci}`} />
+                <div key={`empty-${ci}`} style={{ minHeight: `${TILE_MIN_PX}px` }} />
               ),
             )}
           </div>
         ))}
       </div>
+
+      {/* Unplaced racks — shown when in Name view with floor plan */}
+      {useFloorPlan && unplacedRacks.length > 0 ? (
+        <div className="mt-4">
+          <div className="mb-2 text-200 text-text-primary-70">Unplaced ({unplacedRacks.length})</div>
+          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(${TILE_MIN_PX}px, 1fr))` }}>
+            {unplacedRacks.map((rack) => (
+              <div
+                key={rack.rackId}
+                className="cursor-pointer rounded-lg border border-border-5 p-3 transition-colors hover:bg-surface-5"
+                onClick={() => navigate(`/racks/${rack.rackId}`)}
+                data-testid={`${testId}-unplaced-${rack.rackLabel}`}
+              >
+                <div className="mb-2 truncate text-[14px] font-medium text-text-primary">{rack.rackLabel}</div>
+                <HealthBar
+                  healthy={rack.hashingCount}
+                  needsAttention={rack.brokenCount}
+                  offline={rack.offlineCount}
+                  sleeping={rack.sleepingCount}
+                  testId={`${testId}-bar-${rack.rackLabel}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Footer: minimap + pagination */}
       {showPagination ? (
@@ -327,7 +361,7 @@ const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: Mi
             key={p}
             className={clsx("grid gap-0.5 rounded-sm p-0.5", isCurrent && "border-2 border-text-primary")}
             style={{
-              gridTemplateColumns: `repeat(${pEnd - pStart}, 4px)`,
+              gridTemplateColumns: `repeat(${colsPerPage}, 4px)`,
               gridTemplateRows: `repeat(${floorPlan.length}, 1fr)`,
             }}
           >
