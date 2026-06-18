@@ -723,12 +723,12 @@ func TestUpdateChannelRejectsForeignOrg(t *testing.T) {
 func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte) *Grafana {
 	t.Helper()
 	mux := http.NewServeMux()
-	// rule-9 is an unlabeled shared default (visible to every org) so the rule-scoped
-	// maintenance-window/pause paths, which resolve the target through requireRule, find it.
+	// rule-9 is a shared default (visible to every org) so the rule-scoped maintenance-window/
+	// pause paths, which resolve the target through requireRule, find it.
 	mux.HandleFunc("GET /api/v1/provisioning/alert-rules", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode([]GrafanaAlertRule{
-			{UID: "rule-9", Title: "Rule 9"},
+			{UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared}},
 		}))
 	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
@@ -905,8 +905,9 @@ func TestRuleVisibleToOrg(t *testing.T) {
 		labels  map[string]string
 		visible bool
 	}{
-		{"no labels is a shared default visible to all", nil, true},
-		{"unlabeled shared default visible to all", map[string]string{"severity": "warning"}, true},
+		{"no labels fails closed", nil, false},
+		{"unmarked unlabeled rule hidden", map[string]string{"severity": "warning"}, false},
+		{"shared marker visible to all", map[string]string{ruleLabelScope: ruleScopeShared}, true},
 		{"internal marker hidden from every org", map[string]string{ruleLabelScope: ruleScopeInternal}, false},
 		{"matching org label visible", map[string]string{ruleLabelOrganizationID: "7"}, true},
 		{"other org label hidden", map[string]string{ruleLabelOrganizationID: "9"}, false},

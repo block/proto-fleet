@@ -868,11 +868,13 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 
 const ruleLabelOrganizationID = "organization_id"
 
-// Operator-only rules (e.g. self-monitoring) set proto_fleet_scope=internal to stay hidden
-// from every org. A rule with no org label and no internal marker is a shared default that
-// monitors all orgs' devices and is visible to each of them.
+// Rule visibility is fail-closed and driven by proto_fleet_scope: shared rules are visible to
+// every org (shared platform defaults), internal rules are hidden from all orgs (operator-only
+// self-monitoring), and a rule with neither marker is visible only if it carries this org's
+// organization_id label. An unmarked, unlabeled rule is hidden so it can't leak across orgs.
 const (
 	ruleLabelScope    = "proto_fleet_scope"
+	ruleScopeShared   = "shared"
 	ruleScopeInternal = "internal"
 )
 
@@ -1000,16 +1002,19 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 }
 
 func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
-	// Operator-only rules (self-monitoring) are hidden from every org.
-	if r.Labels[ruleLabelScope] == ruleScopeInternal {
+	switch r.Labels[ruleLabelScope] {
+	case ruleScopeShared:
+		// Shared platform default: visible to every org.
+		return true
+	case ruleScopeInternal:
+		// Operator-only self-monitoring: hidden from every org.
 		return false
 	}
-	// A tenant-specific rule carries an org label and is visible only to that org.
-	if got, ok := r.Labels[ruleLabelOrganizationID]; ok {
-		return got == wantOrgID
-	}
-	// Otherwise it's a shared default rule that monitors every org's devices.
-	return true
+	// No scope marker: visible only to the org named on the rule. Unmarked, unlabeled
+	// rules are hidden (fail closed) so a tenant-specific rule provisioned without its
+	// org label can't leak across orgs.
+	got, ok := r.Labels[ruleLabelOrganizationID]
+	return ok && got == wantOrgID
 }
 
 func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
