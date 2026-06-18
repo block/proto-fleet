@@ -724,7 +724,11 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 			// Phase B3: building cascade. UpdateRackPlacementBulkForSite
 			// cleared rack.building_id for every cross-site move; the
 			// devices' building_id has to follow so they don't reference
-			// a building the device is no longer in.
+			// a building the device is no longer in. NOT routed through
+			// collection.cascadeRackMembersToPlacement: a cross-site move
+			// always pins building to nil regardless of its prior value, so
+			// this bulk path's gate genuinely differs from the single-rack
+			// paired helper — don't try to unify them.
 			if _, err := s.collectionStore.CascadeRackDeviceBuildingsBulk(
 				txCtx, params.OrgID, changedRackIDs, nil,
 			); err != nil {

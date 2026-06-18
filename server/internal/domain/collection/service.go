@@ -194,6 +194,32 @@ type createCollectionResult struct {
 	cascadeTotalAffected int
 }
 
+// cascadeRackMembersToPlacement re-stamps device.site_id AND
+// device.building_id for every current member of the rack so both stay
+// in lockstep with the rack's placement. Callers decide *whether* to
+// cascade (a fully-unassigned rack dictates nothing); once they do, this
+// fires BOTH columns together so a caller can't update one and forget
+// the other — the site-cascaded/building-forgotten defect class that
+// recurred across the reparent write paths (see #495 and
+// device_placement_invariant_integration_test.go).
+//
+// nil arguments are meaningful: a site-level rack (site set, building
+// NULL) passes building=nil to clear members' stale building_id; an
+// unassign transition passes the cleared column as nil. Each underlying
+// query is IS DISTINCT FROM guarded, so a column that doesn't actually
+// change is a no-op. Returns the number of members whose site row was
+// rewritten, for the activity audit.
+func (s *Service) cascadeRackMembersToPlacement(ctx context.Context, orgID, collectionID int64, siteID, buildingID *int64) (int64, error) {
+	siteCount, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, siteID)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collectionID, orgID, buildingID); err != nil {
+		return 0, err
+	}
+	return siteCount, nil
+}
+
 // CreateCollection creates a new collection, optionally adding devices atomically.
 func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollectionRequest) (*pb.CreateCollectionResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -288,38 +314,23 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			collection.DeviceCount = int32(addedCount)
 
 			if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-				// Site cascade fires when the new rack has a site OR a
-				// building. A rack in a building inherits that building's
-				// site (NULL for an unassigned building), so initial
-				// members must follow even when siteID is nil — otherwise
-				// device.site_id would disagree with the building cascade
-				// below. Fully-unassigned racks (no site, no building)
-				// skip it so cascading NULL doesn't clobber direct
-				// device.site_id assignments.
+				// Gate: only a placed rack (a site OR a building) dictates
+				// its members' placement; a fully-unassigned rack dictates
+				// nothing, so skip rather than clobber direct assignments.
+				// The helper cascades both columns in lockstep — see
+				// cascadeRackMembersToPlacement for the nil / site-level
+				// semantics.
 				if siteID != nil || buildingID != nil {
 					priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collection.Id, info.OrganizationID)
 					if err != nil {
 						return nil, err
 					}
 					deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, siteID)
-					n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collection.Id, info.OrganizationID, siteID)
+					n, err := s.cascadeRackMembersToPlacement(ctx, info.OrganizationID, collection.Id, siteID, buildingID)
 					if err != nil {
 						return nil, err
 					}
 					cascadeCount = n
-				}
-				// Building peer of the site cascade above — placement-gated
-				// the same way. Initial members of a rack created inside a
-				// building inherit that building_id; for a site-level rack
-				// (site set, building NULL) buildingID is nil and this
-				// clears any stale direct device.building_id so members stop
-				// pointing at a building their rack is not in. Fully-
-				// unassigned racks (no site, no building) skip it so
-				// cascading NULL doesn't clobber direct assignments.
-				if siteID != nil || buildingID != nil {
-					if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collection.Id, info.OrganizationID, buildingID); err != nil {
-						return nil, err
-					}
 				}
 			}
 		}
@@ -457,28 +468,13 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 				if _, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers); err != nil {
 					return nil, err
 				}
-				// Site cascade fires when the rack has a site OR a
-				// building. A rack in a building inherits that building's
-				// site (NULL for an unassigned building), so members must
-				// follow even when rackSiteID is nil — otherwise
-				// device.site_id would disagree with the building cascade
-				// below. Fully-unassigned racks (no site, no building)
-				// skip the cascade so cascading NULL doesn't wipe direct
-				// device.site_id assignments.
+				// Gate: only a placed rack (a site OR a building) dictates
+				// its members' placement; fully-unassigned racks skip the
+				// cascade so we don't wipe direct device assignments. The
+				// helper cascades both columns in lockstep — see
+				// cascadeRackMembersToPlacement.
 				if isRack && (rackSiteID != nil || rackBuildingID != nil) {
-					if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, req.CollectionId, info.OrganizationID, rackSiteID); err != nil {
-						return nil, err
-					}
-				}
-				// Building peer of the site cascade above — placement-gated
-				// the same way. For a site-level rack (site set, building
-				// NULL) rackBuildingID is nil and this clears any stale
-				// direct device.building_id so new members stop pointing at
-				// a building their rack is not in. Fully-unassigned racks
-				// (no site, no building) skip it so cascading NULL doesn't
-				// wipe direct AssignDevicesToBuilding assignments.
-				if isRack && (rackSiteID != nil || rackBuildingID != nil) {
-					if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, req.CollectionId, info.OrganizationID, rackBuildingID); err != nil {
+					if _, err := s.cascadeRackMembersToPlacement(ctx, info.OrganizationID, req.CollectionId, rackSiteID, rackBuildingID); err != nil {
 						return nil, err
 					}
 				}
@@ -1919,48 +1915,32 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 		return out, err
 	}
 
-	// Cascade fires when the rack has a stamped site, its site just
-	// transitioned, OR it has a building. The building case covers
-	// adding a device to a rack that already sits in an unassigned
-	// building (site-less, no site transition): the member must be
-	// cascaded to the rack's site (NULL) so device.site_id can't
-	// disagree with the building_id stamped below. A fully-unassigned
-	// rack (no site, no building, no transition) skips the cascade so
-	// cascading NULL doesn't clobber direct device.site_id assignments.
-	cascadeFires := finalSiteID != nil || siteChanged || finalBuildingID != nil
-	// Building cascade fires whenever the rack has a placement (a site
-	// OR a building) or its building just transitioned. The site case
-	// is load-bearing: a site-level rack (site set, building NULL, no
-	// building transition) still dictates building = NULL for its
-	// members, so a newly added device with a stale direct
-	// device.building_id must be cleared to match — otherwise the
-	// placed-rack lockstep invariant breaks. buildingChanged covers the
-	// building→NULL transition on a site-less rack. A fully-unassigned
-	// rack (no site, no building, no transition) skips the cascade so
-	// cascading NULL doesn't clobber direct device.building_id
-	// assignments. Mirrors CascadeAddedDeviceBuildings' placement gate.
-	buildingCascadeFires := finalSiteID != nil || finalBuildingID != nil || buildingChanged
+	// Gate: a placed rack (a site OR a building) — or one whose placement
+	// just transitioned — dictates its members' placement. The *Changed
+	// flags are load-bearing here (unlike the create/update gates): a rack
+	// moving site→none or building→none must clear that column on its
+	// members even though the final value alone wouldn't trip the gate. A
+	// fully-unassigned, unchanged rack dictates nothing → skip. The helper
+	// cascades both columns in lockstep (its IS-DISTINCT-FROM-guarded
+	// queries no-op the column that didn't change, so cascadeCount stays
+	// accurate) — see cascadeRackMembersToPlacement.
+	placementDictates := finalSiteID != nil || finalBuildingID != nil || siteChanged || buildingChanged
 
 	if len(deviceIdentifiers) > 0 {
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
 			return out, err
 		}
-		if cascadeFires {
+		if placementDictates {
 			priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
 			if err != nil {
 				return out, err
 			}
 			out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
-			n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, finalSiteID)
+			n, err := s.cascadeRackMembersToPlacement(ctx, orgID, collectionID, finalSiteID, finalBuildingID)
 			if err != nil {
 				return out, err
 			}
 			out.cascadeCount = n
-		}
-		if buildingCascadeFires {
-			if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collectionID, orgID, finalBuildingID); err != nil {
-				return out, err
-			}
 		}
 	}
 

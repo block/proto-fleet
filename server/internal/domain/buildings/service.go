@@ -531,7 +531,10 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		// lockstep with the rack the same way the site cascade above
 		// keeps device.site_id in lockstep. Independent of the site
 		// cascade because a same-site building move would fire here but
-		// not there.
+		// not there — which is exactly why this bulk path is NOT routed
+		// through collection.cascadeRackMembersToPlacement: the two
+		// columns cascade over different rack-id subsets here, so a single
+		// paired helper can't express it. Don't try to unify.
 		if len(cascadeBuildingRackIDs) > 0 {
 			if _, err := s.collectionStore.CascadeRackDeviceBuildingsBulk(
 				txCtx, params.OrgID, cascadeBuildingRackIDs, params.TargetBuildingID,
