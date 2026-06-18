@@ -134,6 +134,10 @@ const RacksPage = () => {
   const [siteClearConfirmation, setSiteClearConfirmation] = useState<{
     affectedBuildingLabels: string[];
     affectedRackCount: number;
+    // True when one or more affected racks couldn't be resolved to a
+    // building (metadata unavailable); the dialog falls back to a
+    // generic message instead of naming buildings.
+    unresolved: boolean;
     onConfirm: () => Promise<void>;
   } | null>(null);
   const [siteClearInFlight, setSiteClearInFlight] = useState(false);
@@ -343,26 +347,44 @@ const RacksPage = () => {
   // number of distinct racks affected, so the confirm dialog can render
   // an actionable summary. Returns null when nothing would be cleared,
   // letting the caller skip the prompt and dispatch directly.
+  //
+  // `unresolved` flags racks that carry a building_id we can't classify
+  // because the org-scoped building metadata isn't available (the
+  // one-shot listAllBuildings is still loading, failed, or is stale).
+  // We can't tell whether the move crosses sites, but the server WILL
+  // clear building_id if it does — so these count toward the prompt
+  // rather than being silently skipped, which would let the move bypass
+  // the confirmation guard entirely.
   const summarizeBuildingClearance = useCallback(
-    (rackIds: bigint[], targetSiteId: bigint): { buildingLabels: string[]; rackCount: number } | null => {
+    (
+      rackIds: bigint[],
+      targetSiteId: bigint,
+    ): { buildingLabels: string[]; rackCount: number; unresolved: boolean } | null => {
       const wantedIds = new Set(rackIds.map((id) => id.toString()));
       const targetSiteIdStr = targetSiteId.toString();
       const labels = new Set<string>();
       let count = 0;
+      let unresolved = false;
       for (const rack of racks) {
         if (!wantedIds.has(rack.id.toString())) continue;
         if (rack.typeDetails.case !== "rackInfo") continue;
         const buildingId = rack.typeDetails.value.buildingId;
         if (buildingId === undefined) continue;
         const building = buildingById.get(buildingId.toString());
-        if (!building) continue;
+        if (!building) {
+          // Building metadata unavailable — can't classify this rack's
+          // move as cross-site or not. Prompt conservatively.
+          unresolved = true;
+          count += 1;
+          continue;
+        }
         // Same site → server keeps building_id intact; nothing to warn about.
         if (building.siteId === targetSiteIdStr) continue;
         labels.add(building.label || "(unnamed)");
         count += 1;
       }
       if (count === 0) return null;
-      return { buildingLabels: Array.from(labels), rackCount: count };
+      return { buildingLabels: Array.from(labels), rackCount: count, unresolved };
     },
     [racks, buildingById],
   );
@@ -406,6 +428,7 @@ const RacksPage = () => {
         setSiteClearConfirmation({
           affectedBuildingLabels: clearance.buildingLabels,
           affectedRackCount: clearance.rackCount,
+          unresolved: clearance.unresolved,
           // The Dialog's Continue button awaits this; on success it
           // resolves(true), on RPC failure rejects the outer picker
           // promise so the modal surfaces an error toast and stays open.
@@ -1213,14 +1236,25 @@ const RacksPage = () => {
       {siteClearConfirmation
         ? (() => {
             const labels = siteClearConfirmation.affectedBuildingLabels;
-            const labelSummary = labels.slice(0, 3).join(", ");
-            const more = labels.length > 3 ? ` and ${labels.length - 3} other building(s)` : "";
-            const rackNoun = siteClearConfirmation.affectedRackCount === 1 ? "rack" : "racks";
+            const rackCount = siteClearConfirmation.affectedRackCount;
+            const rackNoun = rackCount === 1 ? "rack" : "racks";
+            const isAre = rackCount === 1 ? "is" : "are";
+            // Fall back to a generic message when we couldn't resolve
+            // every affected rack to a named building (metadata
+            // unavailable) — naming a partial set would be misleading.
+            const subtitle =
+              labels.length === 0 || siteClearConfirmation.unresolved
+                ? `${rackCount} of the selected ${rackNoun} ${isAre} in a building that may belong to a different site. Continuing will remove ${rackCount === 1 ? "it" : "them"} from ${rackCount === 1 ? "that building" : "their buildings"} before moving to the selected site.`
+                : (() => {
+                    const labelSummary = labels.slice(0, 3).join(", ");
+                    const more = labels.length > 3 ? ` and ${labels.length - 3} other building(s)` : "";
+                    return `${rackCount} of the selected ${rackNoun} ${isAre} currently in ${labelSummary}${more}, which belong${labels.length === 1 ? "s" : ""} to a different site. Continuing will clear the rack ${labels.length === 1 ? "from that building" : "from those buildings"} before moving to the selected site.`;
+                  })();
             return (
               <Dialog
                 open
                 title="Move racks between sites?"
-                subtitle={`${siteClearConfirmation.affectedRackCount} of the selected ${rackNoun} ${siteClearConfirmation.affectedRackCount === 1 ? "is" : "are"} currently in ${labelSummary}${more}, which belong${labels.length === 1 ? "s" : ""} to a different site. Continuing will clear the rack ${labels.length === 1 ? "from that building" : "from those buildings"} before moving to the selected site.`}
+                subtitle={subtitle}
                 onDismiss={() => {
                   if (siteClearInFlight) return;
                   cancelSiteClearConfirmation();
