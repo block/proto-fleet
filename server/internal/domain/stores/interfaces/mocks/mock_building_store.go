@@ -146,6 +146,21 @@ func (mr *MockBuildingStoreMockRecorder) ClearDeviceBuildingsBySite(ctx, orgID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeviceBuildingsBySite", reflect.TypeOf((*MockBuildingStore)(nil).ClearDeviceBuildingsBySite), ctx, orgID, siteID)
 }
 
+// ClearDeviceBuildingsOnSiteMismatch mocks base method.
+func (m *MockBuildingStore) ClearDeviceBuildingsOnSiteMismatch(ctx context.Context, orgID int64, deviceIdentifiers []string, targetSiteID *int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearDeviceBuildingsOnSiteMismatch", ctx, orgID, deviceIdentifiers, targetSiteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearDeviceBuildingsOnSiteMismatch indicates an expected call of ClearDeviceBuildingsOnSiteMismatch.
+func (mr *MockBuildingStoreMockRecorder) ClearDeviceBuildingsOnSiteMismatch(ctx, orgID, deviceIdentifiers, targetSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeviceBuildingsOnSiteMismatch", reflect.TypeOf((*MockBuildingStore)(nil).ClearDeviceBuildingsOnSiteMismatch), ctx, orgID, deviceIdentifiers, targetSiteID)
+}
+
 // CreateBuilding mocks base method.
 func (m *MockBuildingStore) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {
 	m.ctrl.T.Helper()

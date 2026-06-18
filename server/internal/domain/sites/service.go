@@ -422,6 +422,15 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 			return attempt, txErr
 		}
 		attempt.rowsAffected = n
+		// A direct site move only writes device.site_id; a device with a
+		// direct-FK device.building_id pointing at a building in the old
+		// site would otherwise be left referencing a building in the
+		// wrong site. Clear building_id for any moved device whose
+		// building isn't in the new target site (devices already in a
+		// target-site building, or with no building, are untouched).
+		if _, err := s.buildingStore.ClearDeviceBuildingsOnSiteMismatch(txCtx, params.OrgID, identifiers, targetSiteID); err != nil {
+			return attempt, err
+		}
 		return attempt, nil
 	})
 	if err != nil {

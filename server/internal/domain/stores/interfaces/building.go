@@ -125,4 +125,12 @@ type BuildingStore interface {
 	// via device.building_id. Mirror of ReassignDevicesUnderBuildingsBulk
 	// but for direct-FK devices (no rack involved).
 	CascadeDirectDeviceSitesByBuildings(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) (int64, error)
+
+	// ClearDeviceBuildingsOnSiteMismatch nulls device.building_id for
+	// the listed devices whose direct-FK building belongs to a site
+	// other than targetSiteID. Used by AssignDevicesToSite so a direct
+	// site move can't leave a device pointing at a building in the old
+	// site. Devices whose building is already in the target site (or
+	// with no building) are untouched.
+	ClearDeviceBuildingsOnSiteMismatch(ctx context.Context, orgID int64, deviceIdentifiers []string, targetSiteID *int64) (int64, error)
 }

@@ -117,6 +117,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearDeviceBuildingsBySiteStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsBySite: %w", err)
 	}
+	if q.clearDeviceBuildingsOnSiteMismatchStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsOnSiteMismatch); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsOnSiteMismatch: %w", err)
+	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
 	}
@@ -1424,6 +1427,11 @@ func (q *Queries) Close() error {
 	if q.clearDeviceBuildingsBySiteStmt != nil {
 		if cerr := q.clearDeviceBuildingsBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearDeviceBuildingsBySiteStmt: %w", cerr)
+		}
+	}
+	if q.clearDeviceBuildingsOnSiteMismatchStmt != nil {
+		if cerr := q.clearDeviceBuildingsOnSiteMismatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceBuildingsOnSiteMismatchStmt: %w", cerr)
 		}
 	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
@@ -3411,6 +3419,7 @@ type Queries struct {
 	clearCurtailmentAutomationActiveEventStmt             *sql.Stmt
 	clearDeviceBuildingsByBuildingStmt                    *sql.Stmt
 	clearDeviceBuildingsBySiteStmt                        *sql.Stmt
+	clearDeviceBuildingsOnSiteMismatchStmt                *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                   *sql.Stmt
 	clearRackSlotPositionStmt                             *sql.Stmt
 	clearRolePermissionsStmt                              *sql.Stmt
@@ -3831,6 +3840,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearCurtailmentAutomationActiveEventStmt:             q.clearCurtailmentAutomationActiveEventStmt,
 		clearDeviceBuildingsByBuildingStmt:                    q.clearDeviceBuildingsByBuildingStmt,
 		clearDeviceBuildingsBySiteStmt:                        q.clearDeviceBuildingsBySiteStmt,
+		clearDeviceBuildingsOnSiteMismatchStmt:                q.clearDeviceBuildingsOnSiteMismatchStmt,
 		clearRackPlacementForSoftDeleteStmt:                   q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                             q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                              q.clearRolePermissionsStmt,

@@ -273,6 +273,7 @@ func TestHandler_AssignDevicesToSite_success(t *testing.T) {
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 	h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignDevicesToSiteRequest{
 		TargetSiteId:      &target,
@@ -332,6 +333,7 @@ func TestHandler_AssignDevicesToSite_forceClearRequiresRackManage(t *testing.T) 
 		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
 		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+		h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage)
 		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
@@ -367,6 +369,7 @@ func TestHandler_AssignDevicesToSite_forceClearRequiresRackManage(t *testing.T) 
 		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
 		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+		h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage, authz.PermRackManage)
 		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{

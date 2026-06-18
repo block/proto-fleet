@@ -362,6 +362,21 @@ func (s *SQLBuildingStore) CascadeDirectDeviceSitesByBuildings(ctx context.Conte
 	return n, nil
 }
 
+func (s *SQLBuildingStore) ClearDeviceBuildingsOnSiteMismatch(ctx context.Context, orgID int64, deviceIdentifiers []string, targetSiteID *int64) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).ClearDeviceBuildingsOnSiteMismatch(ctx, sqlc.ClearDeviceBuildingsOnSiteMismatchParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+		TargetSiteID:      ptrToNullInt64(targetSiteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device buildings on site mismatch: %w", err)
+	}
+	return n, nil
+}
+
 func buildingFromRow(row sqlc.Building) models.Building {
 	return models.Building{
 		ID:                    row.ID,

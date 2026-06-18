@@ -257,8 +257,9 @@ func TestAssignDevicesToSite_reportsMissingDevices(t *testing.T) {
 func TestAssignDevicesToSite_writesOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1", "d2"}
 	target := int64(20)
@@ -269,6 +270,9 @@ func TestAssignDevicesToSite_writesOnSuccess(t *testing.T) {
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+	// Building-mismatch clear runs after the site write to keep
+	// device.building_id from pointing at a building in the old site.
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
@@ -292,8 +296,9 @@ func TestAssignDevicesToSite_writesOnSuccess(t *testing.T) {
 func TestAssignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1"}
 
@@ -303,6 +308,9 @@ func TestAssignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(1), nil)
+	// Unassign also clears any building whose site is non-null (a
+	// site-less device can't keep a building that belongs to a site).
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.Nil()).Return(int64(0), nil)
 
 	_, _, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
@@ -317,8 +325,9 @@ func TestAssignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
 
 	identifiers := []string{"d1"}
 	target := int64(42)
@@ -331,6 +340,7 @@ func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testi
 		"d1": target,
 	}, nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	_, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,
@@ -353,9 +363,10 @@ func TestAssignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *testi
 func TestAssignDevicesToSite_forceClearCascadesRackMembership(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collStore := mocks.NewMockCollectionStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, collStore, nil, nil, tx, nil)
 
 	identifiers := []string{"d1", "d2"}
 	target := int64(20)
@@ -374,6 +385,7 @@ func TestAssignDevicesToSite_forceClearCascadesRackMembership(t *testing.T) {
 	// for the listed devices.
 	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d1"}, int64(0)).Return(int64(1), nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:                               testOrgID,
@@ -402,9 +414,10 @@ func TestAssignDevicesToSite_forceClearCascadesRackMembership(t *testing.T) {
 func TestAssignDevicesToSite_forceClearWithoutConflicts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collStore := mocks.NewMockCollectionStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, collStore, nil, nil, tx, nil)
 
 	identifiers := []string{"d1"}
 	target := int64(20)
@@ -416,6 +429,7 @@ func TestAssignDevicesToSite_forceClearWithoutConflicts(t *testing.T) {
 	// No RemoveDevicesFromAnyRack expectation: gomock fails the test
 	// if it's called.
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:                               testOrgID,
@@ -559,9 +573,10 @@ func TestAssignDevicesToSite_forceClearRollsBackOnSiteWriteFailure(t *testing.T)
 func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collStore := mocks.NewMockCollectionStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, collStore, nil, nil, tx, nil)
 
 	identifiers := []string{"d-conflict", "d-already-here"}
 	target := int64(20)
@@ -581,6 +596,7 @@ func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
 	// rack membership and cascade its rack_slot row.
 	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d-conflict"}, int64(0)).Return(int64(1), nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:                               testOrgID,
@@ -608,9 +624,10 @@ func TestAssignDevicesToSite_forceClearOnlyConflictingDevices(t *testing.T) {
 func TestAssignDevicesToSite_forceClearWithUnassignedTarget(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collStore := mocks.NewMockCollectionStore(ctrl)
 	tx := &fakeTransactor{}
-	svc := NewService(store, nil, collStore, nil, nil, tx, nil)
+	svc := NewService(store, buildingStore, collStore, nil, nil, tx, nil)
 
 	identifiers := []string{"d1", "d2"}
 	conflictingSite := int64(30)
@@ -627,6 +644,7 @@ func TestAssignDevicesToSite_forceClearWithUnassignedTarget(t *testing.T) {
 	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, identifiers, int64(0)).Return(int64(2), nil)
 	// Site write with nil target (unassign).
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(2), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.Nil()).Return(int64(0), nil)
 
 	count, conflicts, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:                               testOrgID,
@@ -656,6 +674,7 @@ func TestAssignDevicesToSite_forceClearWithUnassignedTarget(t *testing.T) {
 func TestAssignDevicesToSite_forceClearAuditLogsCascade(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collStore := mocks.NewMockCollectionStore(ctrl)
 	mockActivityStore := mocks.NewMockActivityStore(ctrl)
 	tx := &fakeTransactor{}
@@ -667,7 +686,7 @@ func TestAssignDevicesToSite_forceClearAuditLogsCascade(t *testing.T) {
 			return nil
 		}).AnyTimes()
 
-	svc := NewService(store, nil, collStore, nil, nil, tx, activity.NewService(mockActivityStore))
+	svc := NewService(store, buildingStore, collStore, nil, nil, tx, activity.NewService(mockActivityStore))
 
 	identifiers := []string{"d-clear", "d-already"}
 	target := int64(20)
@@ -681,6 +700,7 @@ func TestAssignDevicesToSite_forceClearAuditLogsCascade(t *testing.T) {
 	}, nil)
 	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d-clear"}, int64(0)).Return(int64(1), nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	_, _, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:                               testOrgID,
@@ -726,6 +746,7 @@ func TestAssignDevicesToSite_forceClearAuditLogsCascade(t *testing.T) {
 func TestAssignDevicesToSite_noForceClearOmitsCascadeMetadata(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	mockActivityStore := mocks.NewMockActivityStore(ctrl)
 	tx := &fakeTransactor{}
 
@@ -736,7 +757,7 @@ func TestAssignDevicesToSite_noForceClearOmitsCascadeMetadata(t *testing.T) {
 			return nil
 		}).AnyTimes()
 
-	svc := NewService(store, nil, nil, nil, nil, tx, activity.NewService(mockActivityStore))
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, activity.NewService(mockActivityStore))
 
 	identifiers := []string{"d1"}
 	target := int64(20)
@@ -746,6 +767,7 @@ func TestAssignDevicesToSite_noForceClearOmitsCascadeMetadata(t *testing.T) {
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(1), nil)
+	buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(inTxCtx, testOrgID, identifiers, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	_, _, err := svc.AssignDevicesToSite(context.Background(), models.AssignDevicesToSiteParams{
 		OrgID:             testOrgID,

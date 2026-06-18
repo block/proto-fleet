@@ -287,17 +287,36 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 			collection.DeviceCount = int32(addedCount)
 
-			if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && siteID != nil {
-				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collection.Id, info.OrganizationID)
-				if err != nil {
-					return nil, err
+			if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
+				// Site cascade fires when the new rack has a site OR a
+				// building. A rack in a building inherits that building's
+				// site (NULL for an unassigned building), so initial
+				// members must follow even when siteID is nil — otherwise
+				// device.site_id would disagree with the building cascade
+				// below. Fully-unassigned racks (no site, no building)
+				// skip it so cascading NULL doesn't clobber direct
+				// device.site_id assignments.
+				if siteID != nil || buildingID != nil {
+					priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collection.Id, info.OrganizationID)
+					if err != nil {
+						return nil, err
+					}
+					deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, siteID)
+					n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collection.Id, info.OrganizationID, siteID)
+					if err != nil {
+						return nil, err
+					}
+					cascadeCount = n
 				}
-				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, siteID)
-				n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collection.Id, info.OrganizationID, siteID)
-				if err != nil {
-					return nil, err
+				// Building cascade — initial members of a rack created
+				// inside a building inherit that building_id, matching the
+				// add-to-existing-rack path. No-op when the rack has no
+				// building.
+				if buildingID != nil {
+					if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collection.Id, info.OrganizationID, buildingID); err != nil {
+						return nil, err
+					}
 				}
-				cascadeCount = n
 			}
 		}
 

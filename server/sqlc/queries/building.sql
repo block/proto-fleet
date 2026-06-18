@@ -290,6 +290,26 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND b.site_id = sqlc.arg('site_id')::bigint
   AND d.deleted_at IS NULL;
 
+-- name: ClearDeviceBuildingsOnSiteMismatch :execrows
+-- Nulls device.building_id for the listed devices whose direct-FK
+-- building belongs to a site other than target_site_id. Used by
+-- AssignDevicesToSite so a direct site move can't leave a device
+-- pointing at a building in the old site. A device whose building is
+-- already in the target site keeps it; a device with no building joins
+-- no row and is untouched. target_site_id NULL (move to Unassigned)
+-- clears any building whose site is non-null, and keeps a site-less
+-- building (NULL IS DISTINCT FROM NULL = false).
+UPDATE device d
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+FROM building b
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND d.building_id = b.id
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.site_id IS DISTINCT FROM sqlc.narg('target_site_id');
+
 -- name: CascadeDirectDeviceSitesByBuildings :execrows
 -- For devices with direct device.building_id pointing at any building
 -- in @building_ids, rewrite device.site_id to target_site_id. Mirrors

@@ -273,6 +273,41 @@ func (q *Queries) ClearDeviceBuildingsBySite(ctx context.Context, arg ClearDevic
 	return result.RowsAffected()
 }
 
+const clearDeviceBuildingsOnSiteMismatch = `-- name: ClearDeviceBuildingsOnSiteMismatch :execrows
+UPDATE device d
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+FROM building b
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND d.building_id = b.id
+  AND b.org_id = $1
+  AND b.site_id IS DISTINCT FROM $3
+`
+
+type ClearDeviceBuildingsOnSiteMismatchParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+	TargetSiteID      sql.NullInt64
+}
+
+// Nulls device.building_id for the listed devices whose direct-FK
+// building belongs to a site other than target_site_id. Used by
+// AssignDevicesToSite so a direct site move can't leave a device
+// pointing at a building in the old site. A device whose building is
+// already in the target site keeps it; a device with no building joins
+// no row and is untouched. target_site_id NULL (move to Unassigned)
+// clears any building whose site is non-null, and keeps a site-less
+// building (NULL IS DISTINCT FROM NULL = false).
+func (q *Queries) ClearDeviceBuildingsOnSiteMismatch(ctx context.Context, arg ClearDeviceBuildingsOnSiteMismatchParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearDeviceBuildingsOnSiteMismatchStmt, clearDeviceBuildingsOnSiteMismatch, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.TargetSiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createBuilding = `-- name: CreateBuilding :one
 INSERT INTO building (
     org_id,
