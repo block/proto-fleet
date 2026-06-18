@@ -4,9 +4,9 @@ import clsx from "clsx";
 import { createPortal } from "react-dom";
 
 import { type BuildingRackHealth } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import { HealthBar } from "@/shared/components/HealthBar";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 
 export interface BuildingRackGridProps {
@@ -91,6 +91,13 @@ const BuildingRackGrid = ({
     return grid;
   }, [rackHealth, hasLayout, aisles, racksPerAisle]);
 
+  // Label-sorted flat list (Name tab fallback when no floor plan)
+  const nameSorted = useMemo(() => {
+    const arr = [...rackHealth];
+    arr.sort((a, b) => a.rackLabel.localeCompare(b.rackLabel, undefined, { numeric: true }));
+    return arr;
+  }, [rackHealth]);
+
   // Issue-sorted flat list
   const issueSorted = useMemo(() => {
     const arr = [...rackHealth];
@@ -117,12 +124,13 @@ const BuildingRackGrid = ({
     if (useFloorPlan) {
       return floorPlan!.map((aisle) => aisle.slice(posStart, posEnd));
     }
+    const source = isNameSort ? nameSorted : issueSorted;
     const rows: BuildingRackHealth[][] = [];
-    for (let i = 0; i < issueSorted.length; i += responsiveCols) {
-      rows.push(issueSorted.slice(i, i + responsiveCols));
+    for (let i = 0; i < source.length; i += responsiveCols) {
+      rows.push(source.slice(i, i + responsiveCols));
     }
     return rows;
-  }, [useFloorPlan, floorPlan, posStart, posEnd, responsiveCols, issueSorted]);
+  }, [useFloorPlan, floorPlan, posStart, posEnd, responsiveCols, isNameSort, nameSorted, issueSorted]);
 
   const showPagination = useFloorPlan && totalPages > 1;
 
@@ -222,8 +230,8 @@ const BuildingRackGrid = ({
           <Minimap
             floorPlan={floorPlan!}
             racksPerAisle={racksPerAisle}
+            colsPerPage={cols}
             posStart={posStart}
-            posEnd={posEnd}
             testId={`${testId}-minimap`}
           />
           <div className="flex shrink-0 items-center gap-3 text-300 text-text-primary-70">
@@ -300,13 +308,12 @@ const BuildingRackGrid = ({
 interface MinimapProps {
   floorPlan: (BuildingRackHealth | null)[][];
   racksPerAisle: number;
+  colsPerPage: number;
   posStart: number;
-  posEnd: number;
   testId: string;
 }
 
-const Minimap = ({ floorPlan, racksPerAisle, posStart, posEnd, testId }: MinimapProps) => {
-  const colsPerPage = posEnd - posStart;
+const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: MinimapProps) => {
   const totalPages = Math.ceil(racksPerAisle / colsPerPage);
 
   return (
@@ -318,25 +325,24 @@ const Minimap = ({ floorPlan, racksPerAisle, posStart, posEnd, testId }: Minimap
         return (
           <div
             key={p}
-            className={clsx(
-              "grid gap-0.5 rounded-sm p-0.5",
-              isCurrent && "border-2 border-text-primary",
-            )}
+            className={clsx("grid gap-0.5 rounded-sm p-0.5", isCurrent && "border-2 border-text-primary")}
             style={{
               gridTemplateColumns: `repeat(${pEnd - pStart}, 4px)`,
               gridTemplateRows: `repeat(${floorPlan.length}, 1fr)`,
             }}
           >
             {floorPlan.flatMap((aisle, ai) =>
-              aisle.slice(pStart, pEnd).map((rack, ci) => (
-                <div
-                  key={`${ai}-${ci}`}
-                  className={clsx(
-                    "min-h-1 rounded-sm",
-                    rack ? MINIMAP_COLORS[worstStatus(rack)] : "bg-core-primary-5",
-                  )}
-                />
-              )),
+              aisle
+                .slice(pStart, pEnd)
+                .map((rack, ci) => (
+                  <div
+                    key={`${ai}-${ci}`}
+                    className={clsx(
+                      "min-h-1 rounded-sm",
+                      rack ? MINIMAP_COLORS[worstStatus(rack)] : "bg-core-primary-5",
+                    )}
+                  />
+                )),
             )}
           </div>
         );

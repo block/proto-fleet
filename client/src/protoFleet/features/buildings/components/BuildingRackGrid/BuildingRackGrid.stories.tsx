@@ -1,9 +1,9 @@
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 
-import { BuildingRackHealthSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import BuildingRackGrid from "./BuildingRackGrid";
 import type { BuildingRackGridProps } from "./BuildingRackGrid";
+import { BuildingRackHealthSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 
 const rack = (
   id: number,
@@ -44,7 +44,7 @@ const buildRacks = (aisleCount: number, perAisle: number) => {
 };
 
 const meta: Meta<BuildingRackGridProps> = {
-  title: "ProtoFleet/BuildingRackGrid",
+  title: "Proto Fleet/BuildingRackGrid",
   component: BuildingRackGrid,
   parameters: {
     layout: "padded",

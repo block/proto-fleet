@@ -2,23 +2,18 @@ import { useEffect } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 
+import BuildingCard from "./BuildingCard";
 import { buildingsClient } from "@/protoFleet/api/clients";
 import {
   BuildingRackHealthSchema,
   BuildingSchema,
-  BuildingWithCountsSchema,
-  GetBuildingStatsResponseSchema,
   type BuildingWithCounts,
+  BuildingWithCountsSchema,
   type GetBuildingStatsResponse,
+  GetBuildingStatsResponseSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import BuildingCard from "./BuildingCard";
 
-const makeBuilding = (
-  id: number,
-  name: string,
-  rackCount: number,
-  deviceCount: number,
-): BuildingWithCounts =>
+const makeBuilding = (id: number, name: string, rackCount: number, deviceCount: number): BuildingWithCounts =>
   create(BuildingWithCountsSchema, {
     building: create(BuildingSchema, {
       id: BigInt(id),
@@ -107,7 +102,7 @@ const StoryWrapper = ({
 };
 
 const meta: Meta = {
-  title: "ProtoFleet/BuildingCard",
+  title: "Proto Fleet/BuildingCard",
   component: BuildingCard,
   parameters: {
     layout: "centered",
@@ -126,28 +121,19 @@ type Story = StoryObj;
 
 export const Healthy: Story = {
   render: () => (
-    <StoryWrapper
-      building={makeBuilding(1, "Building Alpha", 20, 240)}
-      stats={makeStats(1, 240, 0, 0, 0)}
-    />
+    <StoryWrapper building={makeBuilding(1, "Building Alpha", 20, 240)} stats={makeStats(1, 240, 0, 0, 0)} />
   ),
 };
 
 export const Mixed: Story = {
   render: () => (
-    <StoryWrapper
-      building={makeBuilding(2, "Building Beta", 20, 200)}
-      stats={makeStats(2, 150, 25, 15, 10)}
-    />
+    <StoryWrapper building={makeBuilding(2, "Building Beta", 20, 200)} stats={makeStats(2, 150, 25, 15, 10)} />
   ),
 };
 
 export const MostlyIssues: Story = {
   render: () => (
-    <StoryWrapper
-      building={makeBuilding(3, "Building Gamma", 20, 200)}
-      stats={makeStats(3, 40, 80, 50, 30)}
-    />
+    <StoryWrapper building={makeBuilding(3, "Building Gamma", 20, 200)} stats={makeStats(3, 40, 80, 50, 30)} />
   ),
 };
 

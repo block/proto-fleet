@@ -3,7 +3,7 @@ import HealthBar from "./HealthBar";
 import type { HealthBarProps } from "./HealthBar";
 
 const meta: Meta<HealthBarProps> = {
-  title: "Shared/HealthBar",
+  title: "Proto Fleet/HealthBar",
   component: HealthBar,
   parameters: {
     layout: "centered",

@@ -4,8 +4,8 @@ import { createPortal } from "react-dom";
 
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
+import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import { HealthBar } from "@/shared/components/HealthBar";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useInViewport } from "@/shared/hooks/useInViewport";
 
