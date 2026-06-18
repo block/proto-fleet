@@ -1920,14 +1920,18 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 	// rack (no site, no building, no transition) skips the cascade so
 	// cascading NULL doesn't clobber direct device.site_id assignments.
 	cascadeFires := finalSiteID != nil || siteChanged || finalBuildingID != nil
-	// Building cascade fires under the same rule: rack has a stamped
-	// building OR its building just transitioned (including a transition
-	// to NULL — clearing the rack's building on SaveRack must also clear
-	// member device.building_id). buildingChanged is the load-bearing
-	// signal that lets the cascade run with finalBuildingID = nil
-	// without nuking direct AssignDevicesToBuilding assignments on
-	// untouched racks.
-	buildingCascadeFires := finalBuildingID != nil || buildingChanged
+	// Building cascade fires whenever the rack has a placement (a site
+	// OR a building) or its building just transitioned. The site case
+	// is load-bearing: a site-level rack (site set, building NULL, no
+	// building transition) still dictates building = NULL for its
+	// members, so a newly added device with a stale direct
+	// device.building_id must be cleared to match — otherwise the
+	// placed-rack lockstep invariant breaks. buildingChanged covers the
+	// building→NULL transition on a site-less rack. A fully-unassigned
+	// rack (no site, no building, no transition) skips the cascade so
+	// cascading NULL doesn't clobber direct device.building_id
+	// assignments. Mirrors CascadeAddedDeviceBuildings' placement gate.
+	buildingCascadeFires := finalSiteID != nil || finalBuildingID != nil || buildingChanged
 
 	if len(deviceIdentifiers) > 0 {
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
