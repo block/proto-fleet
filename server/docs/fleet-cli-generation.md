@@ -40,7 +40,6 @@ These files stay handwritten:
 - `server/cmd/fleetcli/main.go`
 - `server/cmd/fleetcli/client.go`
 - `server/cmd/fleetcli/manual.go`
-- `server/cmd/fleetcli/pairing.go`
 - `server/cmd/fleetcli/firmware.go`
 - `server/cmd/fleetcli/firmware_client.go`
 - `server/cmd/fleetcli/generated_runtime.go`
@@ -50,10 +49,10 @@ The handwritten layer owns:
 - global CLI flags
 - HTTP JSON RPC transport and auth dispatch
 - session login and API key management commands
-- the streaming-backed `pairing` command group
 - the telemetry-backed `performance` command
-- the firmware file lifecycle (`firmware` command group) over the server's
-  plain HTTP endpoints
+- the `firmware` command group: the file lifecycle over plain HTTP endpoints,
+  plus `firmware deploy`, which applies an uploaded file to explicitly named
+  devices, groups, or racks via the `FirmwareUpdate` RPC
 - shared helpers used by generated commands
 
 ### Generated Fleet command layer
@@ -93,7 +92,7 @@ descriptors do not encode cleanly, including:
 
 - generated service selection via `all_methods`
 - custom group names such as `miners`
-- custom subcommand names such as `set-power-target`
+- custom subcommand names such as `create-admin`
 - auth mode overrides: `anonymous`, `bearer`, `session`
 - command aliases that split one service across multiple CLI groups, such as
   `groups` and `racks`
@@ -156,14 +155,14 @@ Most generated commands are thin wrappers, but the runtime includes a few
 shared helpers for request shapes that need more than plain top-level flag
 assignment.
 
-### Miner command device selectors
+### Bounded miner device selectors
 
-`minercommand.v1.DeviceSelector` is handled specially in
-`server/cmd/fleetcli/generated_runtime.go`.
+`server/cmd/fleetcli/generated_runtime.go` provides a shared resolver for
+`minercommand.v1.DeviceSelector`. The bounded resolver is used today by
+`firmware deploy` and is available to future generated `minercommand` commands.
 
-Generated `minercommand` commands support:
+The bounded selector accepts:
 
-- `--all-devices`
 - `--device`
 - `--group-id`
 - `--group`
@@ -172,49 +171,53 @@ Generated `minercommand` commands support:
 
 `--group` and `--rack` resolve exact collection labels through
 `collection.v1.DeviceCollectionService/ListCollections`, then expand those
-collections to device identifiers through `ListCollectionMembers`.
+collections to device identifiers through `ListCollectionMembers` (paginated).
+The result is always an explicit `include_devices` list, so it names a concrete,
+bounded set of devices and never targets all devices.
 
 If a label does not exist, the CLI returns an error. If multiple collections
 share the same label, the CLI returns an error and instructs the user to use
 `--group-id` or `--rack-id`.
+
+The full miner selector adds `--all-devices` on top of the bounded set for
+commands that may legitimately target the whole fleet. `firmware deploy`
+deliberately omits `--all-devices` so a script cannot trigger a fleet-wide
+firmware update.
 
 ## Current Command Split
 
 The generated command registry currently contributes:
 
 - `groups`
-- `minercommand`
 - `miners`
-- `networkinfo`
 - `onboarding`
 - `pools`
 - `racks`
-- `schedule`
 
 The handwritten command registry currently contributes:
 
 - `auth`
 - `apikey`
-- `pairing`
 - `performance`
 - `firmware`
 
 `performance` remains handwritten because it is a telemetry-backed UX command
 rather than a direct one-to-one generated wrapper over a single Fleet RPC.
 
-`pairing` remains handwritten because `pairing.v1.PairingService/Discover` is a
-server-streaming RPC the generator does not cover (`deferred_streaming`); the
-CLI aggregates the streamed responses into one printed `DiscoverResponse`. Its
-`pair` subcommand stays alongside it as a workflow-friendly wrapper that reuses
-the shared miner selector flags and adds device credential flags
-(`--device-username`, `--device-password`) distinct from Fleet auth.
-
 `firmware` remains handwritten because the firmware file lifecycle is served by
 plain JSON/multipart HTTP endpoints under `/api/v1/firmware/` rather than
 protobuf RPCs: config, checksum check, direct multipart upload, chunked
 initiate/chunk/complete upload, list, and delete. These endpoints accept
-session-cookie auth only. Applying an uploaded file to miners stays the
-generated `minercommand firmware-update` command.
+session-cookie auth only. `firmware deploy` is the one RPC-backed subcommand: it
+applies an uploaded file to explicitly named devices, groups, or racks (never
+all devices) through `minercommand.v1.MinerCommandService/FirmwareUpdate`,
+reusing the bounded miner selector resolver.
+
+This V0 surface deliberately omits several services the generator can otherwise
+emit, including `minercommand`, `networkinfo`, and `schedule`, plus the
+streaming `pairing`/discovery flow. They are left out of `overrides.json` while
+the fleet-node command model settles, and appear in the coverage report as
+`deferred_*` or `deferred_unselected` rather than as commands.
 
 ## Coverage Report
 
@@ -261,6 +264,8 @@ For live validation, prefer read-only RPCs first. In practice, safe checks have
 included commands such as:
 
 - `fleetcli miners list`
-- `fleetcli networkinfo get`
+- `fleetcli groups list`
+- `fleetcli racks list`
+- `fleetcli pools list`
 - `fleetcli performance get`
-- `fleetcli minercommand check-capabilities`
+- `fleetcli firmware list`

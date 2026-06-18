@@ -10,15 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/urfave/cli/v3"
 )
 
 // firmwareCommand stays handwritten: the firmware file lifecycle is plain
 // multipart/chunked HTTP rather than protobuf RPC, so the CLI generator does
-// not cover it. Deploying an uploaded file is kept as a narrow explicit-device
-// RPC wrapper for rig deployment automation.
+// not cover it. Deploying an uploaded file is a narrow RPC wrapper that targets
+// explicitly named devices, groups, or racks (never all devices) for rig
+// deployment automation.
 func firmwareCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "firmware",
@@ -194,11 +194,10 @@ func firmwareDeleteAllCommand() *cli.Command {
 func firmwareDeployCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "deploy",
-		Usage: "Deploy an uploaded firmware file to explicitly selected devices",
-		Flags: []cli.Flag{
+		Usage: "Deploy an uploaded firmware file to explicitly named devices, groups, or racks",
+		Flags: append([]cli.Flag{
 			&cli.StringFlag{Name: "firmware-file-id", Usage: "Uploaded firmware file id", Required: true},
-			&cli.StringSliceFlag{Name: "device", Usage: "Device identifier to update; repeat for multiple devices", Required: true},
-		},
+		}, generatedBoundedMinerSelectorFlags()...),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			client, err := openClient(ctx, cmd)
 			if err != nil {
@@ -206,7 +205,7 @@ func firmwareDeployCommand() *cli.Command {
 			}
 			defer func() { _ = client.Close() }()
 
-			req, err := buildFirmwareDeployRequest(cmd)
+			req, err := buildFirmwareDeployRequest(ctx, cmd, client)
 			if err != nil {
 				return err
 			}
@@ -223,38 +222,25 @@ func firmwareDeployCommand() *cli.Command {
 	}
 }
 
-func buildFirmwareDeployRequest(cmd *cli.Command) (*minercommandv1.FirmwareUpdateRequest, error) {
+// buildFirmwareDeployRequest builds a FirmwareUpdate request from the firmware
+// file id and the bounded device/group/rack selector. Group and rack selectors
+// are expanded client-side to explicit device identifiers by the shared
+// resolver, so deploy never targets all devices.
+func buildFirmwareDeployRequest(ctx context.Context, cmd *cli.Command, client *Client) (*minercommandv1.FirmwareUpdateRequest, error) {
 	firmwareFileID := strings.TrimSpace(cmd.String("firmware-file-id"))
 	if firmwareFileID == "" {
 		return nil, fmt.Errorf("--firmware-file-id is required")
 	}
 
-	deviceIDs := normalizeDeviceIDs(cmd.StringSlice("device"))
-	if len(deviceIDs) == 0 {
-		return nil, fmt.Errorf("at least one --device is required")
+	selector, err := generatedBuildBoundedMinerSelector(ctx, cmd, client)
+	if err != nil {
+		return nil, err
 	}
 
 	return &minercommandv1.FirmwareUpdateRequest{
 		FirmwareFileId: firmwareFileID,
-		DeviceSelector: &minercommandv1.DeviceSelector{
-			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonv1.DeviceIdentifierList{
-					DeviceIdentifiers: deviceIDs,
-				},
-			},
-		},
+		DeviceSelector: selector,
 	}, nil
-}
-
-func normalizeDeviceIDs(values []string) []string {
-	normalized := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			normalized = append(normalized, value)
-		}
-	}
-	return dedupeStrings(normalized)
 }
 
 type firmwareUploadResult struct {
