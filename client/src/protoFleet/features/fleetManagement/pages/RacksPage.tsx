@@ -631,7 +631,11 @@ const RacksPage = () => {
     () =>
       racks.flatMap((rack) => {
         if (rack.id === 0n) return [];
-        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)" }];
+        // Carry the rack's current building so the bulk Add-to-building
+        // dispatch can drop no-op moves (a same-building request without a
+        // grid position is treated server-side as an explicit unplace).
+        const buildingId = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value.buildingId : 0n;
+        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)", buildingId }];
       }),
     [racks],
   );
@@ -1168,12 +1172,25 @@ const RacksPage = () => {
                 resolve();
                 return;
               }
-              const rackIds = selectedRackScopes.map((scope) => scope.id);
+              const buildingMode = bulkReparentKind === "building";
+              // Drop no-op building moves: a same-building request without a
+              // grid position is an explicit unplace server-side, so leaving
+              // already-in-building racks in the batch would silently clear
+              // their placement.
+              const rackIds = buildingMode
+                ? selectedRackScopes.filter((scope) => scope.buildingId !== parentId).map((scope) => scope.id)
+                : selectedRackScopes.map((scope) => scope.id);
+              if (buildingMode && rackIds.length === 0) {
+                pushToast({ message: "Selected racks are already in that building.", status: STATUSES.queued });
+                setBulkReparentKind(null);
+                setSelectedRackIds([]);
+                resolve();
+                return;
+              }
               const subjectLabel = `${rackIds.length} ${rackIds.length === 1 ? "rack" : "racks"}`;
-              const dispatch =
-                bulkReparentKind === "building"
-                  ? dispatchRackBuildingAssign(rackIds, parentId, subjectLabel)
-                  : dispatchRackSiteAssign(rackIds, parentId, subjectLabel);
+              const dispatch = buildingMode
+                ? dispatchRackBuildingAssign(rackIds, parentId, subjectLabel)
+                : dispatchRackSiteAssign(rackIds, parentId, subjectLabel);
               dispatch
                 .then((ok) => {
                   if (ok) {
@@ -1232,6 +1249,19 @@ const RacksPage = () => {
                 return;
               }
               const rackName = reparentTarget.rack.label || "rack";
+              const currentBuildingId =
+                reparentTarget.rack.typeDetails.case === "rackInfo"
+                  ? reparentTarget.rack.typeDetails.value.buildingId
+                  : 0n;
+              // No-op building move: a same-building request without a grid
+              // position is an explicit unplace server-side, so don't dispatch
+              // it (it would silently clear this rack's placement).
+              if (reparentTarget.kind === "building" && currentBuildingId === parentId) {
+                pushToast({ message: `"${rackName}" is already in that building.`, status: STATUSES.queued });
+                setReparentTarget(null);
+                resolve();
+                return;
+              }
               const dispatch =
                 reparentTarget.kind === "building"
                   ? dispatchRackBuildingAssign([reparentTarget.rack.id], parentId, `"${rackName}"`)

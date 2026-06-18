@@ -1188,6 +1188,47 @@ func TestAssignRacksToBuilding_sameSiteCascadesBuilding(t *testing.T) {
 	}
 }
 
+// TestAssignRacksToBuilding_unassignedRackToSiteLessBuildingCascadesSiteNull
+// pins the lockstep fix for a fully-unassigned rack (no site, no building)
+// placed into a site-less building. The rack's own site stays nil->nil, so
+// the site gate alone wouldn't fire — but the building cascade stamps the
+// site-less building and members may carry a direct device.site_id that
+// must be cleared to NULL to stay consistent. The site cascade must run
+// with a nil target for the building-changed rack.
+func TestAssignRacksToBuilding_unassignedRackToSiteLessBuildingCascadesSiteNull(t *testing.T) {
+	h := newAssignHarness(t)
+	targetBuildingID := int64(22)
+	rackID := int64(99)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuildingID).Return(nil)
+	// Target building is site-less.
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, targetBuildingID).
+		Return(&models.Building{ID: targetBuildingID, SiteID: nil}, nil)
+	// Rack is fully unassigned: no site, no building.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: nil, BuildingID: nil}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, (*int64)(nil), &targetBuildingID).Return(int64(1), nil)
+	// Site cascade MUST fire with a nil target even though rack.site_id
+	// didn't change (nil->nil) — members' direct device.site_id gets
+	// cleared to match the site-less building.
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, gomock.Nil()).Return(int64(3), nil)
+	// Building cascade stamps device.building_id = target.
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &targetBuildingID).Return(int64(3), nil)
+	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
+
+	out, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &targetBuildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.SiteReassignedDeviceCount != 3 {
+		t.Fatalf("expected 3 site-cascaded devices, got %d", out.SiteReassignedDeviceCount)
+	}
+}
+
 func TestAssignDevicesToBuilding_rejectsEmptyIdentifiers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)

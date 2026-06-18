@@ -475,7 +475,8 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			if params.TargetBuildingID == nil {
 				newSiteID = current.SiteID
 			}
-			if !int64PtrEqual(current.SiteID, newSiteID) {
+			siteChanged := !int64PtrEqual(current.SiteID, newSiteID)
+			if siteChanged {
 				cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 			}
 			// Track racks whose building_id changes — distinct from the
@@ -484,6 +485,19 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// (nil on building-only unassign).
 			if !int64PtrEqual(current.BuildingID, params.TargetBuildingID) {
 				cascadeBuildingRackIDs = append(cascadeBuildingRackIDs, rp.RackID)
+				// Placing a previously site-less rack into a site-less
+				// building. The site gate above misses this (nil->nil,
+				// siteChanged false), but the building cascade below stamps
+				// the site-less building, and an unassigned rack's members
+				// may carry a direct device.site_id — which must clear to
+				// NULL to stay in lockstep with the site-less building.
+				// Only this corner slips past the site gate: any target
+				// building WITH a site, or a rack that already had a site,
+				// is already covered by siteChanged. Skipped on building
+				// unassign (target nil), which deliberately preserves site.
+				if params.TargetBuildingID != nil && current.SiteID == nil && targetSiteID == nil {
+					cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
+				}
 			}
 		}
 
