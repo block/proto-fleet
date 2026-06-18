@@ -25,12 +25,13 @@ import (
 //
 //  1. Direct building↔site: if device.building_id is set, the building's
 //     site_id must equal device.site_id (NULL == NULL counts as equal).
-//  2. Rack lockstep: if the device is a member of a *placed* rack (one
-//     that has a site or a building), device.site_id and
-//     device.building_id must equal that rack's site_id / building_id.
-//     A fully-unassigned rack (no site, no building) is organizational
-//     only and dictates no placement, so its members may keep direct
-//     assignments.
+//  2. Rack lockstep: if the device is a member of ANY live rack,
+//     device.site_id and device.building_id must equal that rack's
+//     site_id / building_id. This includes a fully-unassigned rack (no
+//     site, no building): a rack always dictates its members' placement,
+//     so a member of a site-less rack must itself be site-less. (A miner
+//     with a site sitting in a site-less rack is exactly the membership-
+//     tree divergence this guards against.)
 //
 // The query is operation-agnostic: it doesn't know which RPC ran, only
 // whether the result is consistent — so it catches any reparent path that
@@ -54,12 +55,10 @@ func devicePlacementInvariantViolations(ctx context.Context, t *testing.T, tc *t
 		  AND (
 		    -- (1) building set but its site disagrees with the device's site
 		    (d.building_id IS NOT NULL AND b.site_id IS DISTINCT FROM d.site_id)
-		    -- (2) device in a *placed* rack (one with a site or building)
-		    --     whose site/building diverge from the rack's. A
-		    --     placement-less rack (no site, no building) dictates
-		    --     nothing, so its members may keep direct assignments.
+		    -- (2) device in ANY live rack whose site/building diverges from
+		    --     the rack's. A rack always dictates member placement, so a
+		    --     site-less rack requires site-less members too.
 		    OR (ds.id IS NOT NULL
-		        AND (dsr.site_id IS NOT NULL OR dsr.building_id IS NOT NULL)
 		        AND (d.site_id IS DISTINCT FROM dsr.site_id
 		             OR d.building_id IS DISTINCT FROM dsr.building_id))
 		  )`, orgID)
@@ -141,6 +140,14 @@ func TestDevicePlacementInvariant_HoldsAcrossReparentPaths(t *testing.T) {
 		OrgID: orgID, CollectionID: rackA.Id, Rows: 4, Columns: 8, SiteID: &siteA.ID, BuildingID: &bldgA.ID,
 	}))
 
+	// A fully-unassigned rack (no site, no building) — the staging case
+	// the strict invariant covers: its members must be site-less too.
+	sitelessRack, err := collectionStore.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack C", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: sitelessRack.Id, Rows: 4, Columns: 8,
+	}))
+
 	devices := tc.DatabaseService.CreateTestMiners(orgID, 4, "https://172.17.0.1:80")
 	require.Len(t, devices, 4)
 
@@ -154,6 +161,17 @@ func TestDevicePlacementInvariant_HoldsAcrossReparentPaths(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assertHolds("AssignDevicesToRack")
+
+	// 1b. AssignDevicesToRack into a site-less rack: device[3] currently has
+	//     rackA's site/building, so joining the unassigned rack must strip
+	//     it (force_clear_conflicting_site) to keep the membership tree
+	//     consistent — a sited miner can't live in a site-less rack.
+	_, err = collectionSvc.AssignDevicesToRack(ctx, collection.AssignDevicesToRackParams{
+		OrgID: orgID, TargetRackID: &sitelessRack.Id, DeviceIdentifiers: devices[3:4],
+		ForceClearConflictingSite: true,
+	})
+	require.NoError(t, err)
+	assertHolds("AssignDevicesToRack (site-less rack, force-strip)")
 
 	// 2. AssignDevicesToBuilding: move two devices directly into bldgB
 	//    (force-clear their rackA membership, which is at a different site).

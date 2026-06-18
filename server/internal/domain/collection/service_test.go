@@ -1033,9 +1033,13 @@ func TestService_SaveRack_CreateNewRack(t *testing.T) {
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
-	// Site-less rack creation skips the cascade entirely — the rack
-	// makes no implicit claim on member sites, so a nil-target cascade
-	// would silently wipe direct device.site_id assignments.
+	// A rack ALWAYS dictates member placement now — a site-less rack
+	// cascades nil/nil, stripping any member's direct site/building to
+	// keep the membership tree consistent (IS DISTINCT FROM no-ops
+	// already-matching members).
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), int64(10), testOrgID).Return(nil, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(10), testOrgID, gomock.Nil()).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), int64(10), testOrgID, gomock.Nil()).Return(int64(0), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), int64(10), testOrgID).Return(nil, nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-1", int32(0), int32(0), testOrgID).Return(nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-2", int32(0), int32(1), testOrgID).Return(nil)
@@ -1085,9 +1089,11 @@ func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Nil(), gomock.Nil(), "Building A").Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(2), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
-	// Rack already site-less + placement unchanged → cascade skipped
-	// per the no-implicit-claim contract (avoids wiping direct
-	// device.site_id assignments).
+	// Site-less rack now cascades nil/nil unconditionally — members can't
+	// keep a direct site/building the rack lacks.
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Nil()).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Nil()).Return(int64(0), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return([]*pb.RackSlot{
 		{DeviceIdentifier: "old-device", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
 	}, nil)

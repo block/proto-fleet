@@ -315,13 +315,14 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			collection.DeviceCount = int32(addedCount)
 
 			if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-				// Gate: only a placed rack (a site OR a building) dictates
-				// its members' placement; a fully-unassigned rack dictates
-				// nothing, so skip rather than clobber direct assignments.
-				// The helper cascades both columns in lockstep — see
-				// cascadeRackMembersToPlacement for the nil / site-level
-				// semantics.
-				if siteID != nil || buildingID != nil {
+				// A rack ALWAYS dictates its members' placement — including a
+				// fully-unassigned rack (site + building NULL). Members can't
+				// keep a direct site/building the rack doesn't have, or the
+				// membership tree diverges (a sited miner in a site-less
+				// rack). The helper cascades both columns in lockstep; nil
+				// placement strips them to match. IS DISTINCT FROM makes it a
+				// no-op when a member already matches.
+				{
 					priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collection.Id, info.OrganizationID)
 					if err != nil {
 						return nil, err
@@ -469,12 +470,12 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 				if _, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers); err != nil {
 					return nil, err
 				}
-				// Gate: only a placed rack (a site OR a building) dictates
-				// its members' placement; fully-unassigned racks skip the
-				// cascade so we don't wipe direct device assignments. The
-				// helper cascades both columns in lockstep — see
-				// cascadeRackMembersToPlacement.
-				if isRack && (rackSiteID != nil || rackBuildingID != nil) {
+				// A rack ALWAYS dictates its members' placement, including a
+				// fully-unassigned rack (site + building NULL) — members
+				// can't keep a direct site/building the rack lacks, or the
+				// membership tree diverges. nil placement strips members;
+				// IS DISTINCT FROM no-ops members that already match.
+				if isRack {
 					if _, err := s.cascadeRackMembersToPlacement(ctx, info.OrganizationID, req.CollectionId, rackSiteID, rackBuildingID); err != nil {
 						return nil, err
 					}
@@ -1693,11 +1694,13 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 
 		// Cascade runs after membership replace so it touches only the
 		// final member set; removed devices keep their prior site_id.
-		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, finalBuildingID, siteChanged, buildingChanged)
+		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, finalBuildingID)
 		if err != nil {
 			return nil, err
 		}
-		cascadeApplied := siteChanged || cascade.cascadeCount > 0
+		// A placement transition (site OR building) or a non-zero cascade
+		// count means the move touched member placement → record it.
+		cascadeApplied := siteChanged || buildingChanged || cascade.cascadeCount > 0
 		cascadeCount := cascade.cascadeCount
 		deviceSiteChanges := cascade.deviceSiteChanges
 		totalAffected := cascade.totalAffected
@@ -1985,39 +1988,32 @@ type rackCascadeOutcome struct {
 // writes the new set. Cascade runs AFTER membership replace so removed
 // devices keep their prior site_id and the per-device priors captured
 // here reflect the final member set.
-func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID, finalBuildingID *int64, siteChanged, buildingChanged bool) (rackCascadeOutcome, error) {
+func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID, finalBuildingID *int64) (rackCascadeOutcome, error) {
 	var out rackCascadeOutcome
 	if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, collectionID); err != nil {
 		return out, err
 	}
 
-	// Gate: a placed rack (a site OR a building) — or one whose placement
-	// just transitioned — dictates its members' placement. The *Changed
-	// flags are load-bearing here (unlike the create/update gates): a rack
-	// moving site→none or building→none must clear that column on its
-	// members even though the final value alone wouldn't trip the gate. A
-	// fully-unassigned, unchanged rack dictates nothing → skip. The helper
-	// cascades both columns in lockstep (its IS-DISTINCT-FROM-guarded
-	// queries no-op the column that didn't change, so cascadeCount stays
-	// accurate) — see cascadeRackMembersToPlacement.
-	placementDictates := finalSiteID != nil || finalBuildingID != nil || siteChanged || buildingChanged
-
+	// A rack ALWAYS dictates its members' placement — a placed rack stamps
+	// its site/building, a fully-unassigned rack strips members to NULL.
+	// Members can't keep a direct site/building the rack lacks, or the
+	// membership tree diverges. The helper cascades both columns in
+	// lockstep; its IS-DISTINCT-FROM-guarded queries no-op the column that
+	// didn't change, so cascadeCount stays accurate.
 	if len(deviceIdentifiers) > 0 {
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
 			return out, err
 		}
-		if placementDictates {
-			priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
-			if err != nil {
-				return out, err
-			}
-			out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
-			n, err := s.cascadeRackMembersToPlacement(ctx, orgID, collectionID, finalSiteID, finalBuildingID)
-			if err != nil {
-				return out, err
-			}
-			out.cascadeCount = n
+		priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
+		if err != nil {
+			return out, err
 		}
+		out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
+		n, err := s.cascadeRackMembersToPlacement(ctx, orgID, collectionID, finalSiteID, finalBuildingID)
+		if err != nil {
+			return out, err
+		}
+		out.cascadeCount = n
 	}
 
 	existingSlots, err := s.collectionStore.GetRackSlots(ctx, collectionID, orgID)
