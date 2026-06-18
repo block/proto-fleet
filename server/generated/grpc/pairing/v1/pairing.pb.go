@@ -7,6 +7,10 @@
 package pairingv1
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v1 "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	v12 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -14,9 +18,6 @@ import (
 	v13 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
