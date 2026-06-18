@@ -40,6 +40,8 @@ groups:
         execErrState: Error
         for: 5m
         labels:
+          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
+          proto_fleet_scope: global
           severity: warning
           rule_group: proto-fleet-defaults
           template: offline
@@ -90,6 +92,8 @@ groups:
         execErrState: Error
         for: 10m
         labels:
+          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
+          proto_fleet_scope: global
           severity: warning
           rule_group: proto-fleet-defaults
           template: temperature
@@ -137,6 +141,8 @@ groups:
         execErrState: Error
         for: 10m
         labels:
+          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
+          proto_fleet_scope: global
           severity: warning
           rule_group: proto-fleet-defaults
           template: telemetry-poll
@@ -196,6 +202,8 @@ groups:
         execErrState: Error
         for: 5m
         labels:
+          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
+          proto_fleet_scope: global
           severity: critical
           rule_group: proto-fleet-self
           component: metric-ingest

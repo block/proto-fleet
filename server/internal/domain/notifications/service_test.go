@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -763,4 +764,53 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(postBody, &sent))
 	assert.Equal(t, "alice@example.com", sent.CreatedBy, "update must carry the original creator")
+}
+
+// The pause marker must never be an alert matcher: Alertmanager ANDs every matcher
+// against an alert's labels, and no rule emits a marker label, so a marker matcher
+// would mute nothing while the rule still showed as paused.
+func TestPauseSilenceMarkerIsNotAMatcher(t *testing.T) {
+	sil := buildPauseSilence(7, "rule-9", time.Unix(0, 0).UTC())
+	for _, m := range sil.Matchers {
+		assert.Contains(t, []string{silenceLabelOrganizationID, alertRuleUIDMatcher}, m.Name,
+			"pause silence may only carry org and alert-rule-UID matchers")
+	}
+	assert.True(t, isPauseSilence(sil), "comment marker must identify a pause silence")
+	assert.True(t, isPauseSilenceFor(sil, "7", "rule-9"))
+}
+
+// A rule-scoped maintenance window is structurally identical to a pause silence, so a
+// caller must not be able to smuggle the pause marker into the comment and have the
+// window hidden from the list / overlaid as a paused rule.
+func TestMaintenanceWindowRejectsPauseMarkerComment(t *testing.T) {
+	var postBody []byte
+	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
+
+	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		Comment: pauseSilenceCommentMarker + " sneaky",
+		Scope:   MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
+	assert.Nil(t, postBody, "rejected window must not reach Grafana")
+}
+
+func TestRuleVisibleToOrg(t *testing.T) {
+	const want = "7"
+	cases := []struct {
+		name    string
+		labels  map[string]string
+		visible bool
+	}{
+		{"no labels fails closed", nil, false},
+		{"unlabeled tenant rule is hidden", map[string]string{"severity": "warning"}, false},
+		{"explicit global marker visible to all", map[string]string{ruleLabelScope: ruleScopeGlobal}, true},
+		{"matching org label visible", map[string]string{ruleLabelOrganizationID: "7"}, true},
+		{"other org label hidden", map[string]string{ruleLabelOrganizationID: "9"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.visible, ruleVisibleToOrg(GrafanaAlertRule{Labels: tc.labels}, want))
+		})
+	}
 }

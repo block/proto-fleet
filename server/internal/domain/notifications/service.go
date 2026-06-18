@@ -612,6 +612,9 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	if err := validateMaintenanceWindowScope(sil.Scope); err != nil {
 		return nil, err
 	}
+	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
+		return nil, err
+	}
 	sil.OrganizationID = orgID
 	sil.CreatedAt = s.now()
 	gs := maintenanceWindowToGrafanaSilence(orgID, sil)
@@ -633,6 +636,9 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 		return nil, errors.New("maintenance window id is required for update")
 	}
 	if err := validateMaintenanceWindowScope(sil.Scope); err != nil {
+		return nil, err
+	}
+	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
 		return nil, err
 	}
 	existing, err := s.ListMaintenanceWindows(ctx, orgID)
@@ -721,12 +727,27 @@ func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
 	return nil
 }
 
+// A maintenance window and a pause silence are distinguished only by the pause comment
+// marker, so reject a window comment that carries it: otherwise a same-org caller could
+// hide a window from the list and have it overlaid as a paused rule.
+func validateMaintenanceWindowComment(comment string) error {
+	if strings.Contains(comment, pauseSilenceCommentMarker) {
+		return fleeterror.NewInvalidArgumentError("comment may not contain a reserved marker")
+	}
+	return nil
+}
+
 const maxMaintenanceWindowDeviceIDs = 500
 
 // Excludes every regex metacharacter except "." (which maintenanceWindowToGrafanaSilence escapes).
 var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
-const pauseSilenceMatcher = "proto_fleet_pause"
+// A pause silence is structurally identical to a rule-scoped maintenance window
+// (org + alert-rule-UID matchers), so it carries a marker to tell the two apart.
+// The marker lives in the comment, NOT in a matcher: Alertmanager ANDs every matcher
+// against an alert's labels, and no provisioned rule emits a marker label, so a marker
+// matcher would mute nothing while pauseSilencedRules still reported the rule as paused.
+const pauseSilenceCommentMarker = "[proto-fleet:rule-paused]"
 
 // Grafana's reserved matcher label scoping a silence to a single alert rule.
 const alertRuleUIDMatcher = "__alert_rule_uid__"
@@ -739,7 +760,7 @@ func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence
 		StartsAt:  now,
 		EndsAt:    pauseSilenceEndsAt,
 		CreatedBy: "Proto Fleet",
-		Comment:   "Paused via Proto Fleet UI",
+		Comment:   pauseSilenceCommentMarker + " Paused via Proto Fleet UI",
 		Matchers: []GrafanaSilenceMatcher{
 			{
 				Name:    silenceLabelOrganizationID,
@@ -751,22 +772,12 @@ func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence
 				Value:   ruleID,
 				IsEqual: true,
 			},
-			{
-				Name:    pauseSilenceMatcher,
-				Value:   "true",
-				IsEqual: true,
-			},
 		},
 	}
 }
 
 func isPauseSilence(sil GrafanaSilence) bool {
-	for _, m := range sil.Matchers {
-		if m.Name == pauseSilenceMatcher && m.Value == "true" && m.IsEqual && !m.IsRegex {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(sil.Comment, pauseSilenceCommentMarker)
 }
 
 func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
@@ -784,8 +795,15 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 	return false
 }
 
-// Absent on YAML defaults, which every org can see.
 const ruleLabelOrganizationID = "organization_id"
+
+// Shared YAML-provisioned rules opt into cross-org visibility with this label. A rule
+// that is neither org-labeled nor marked global is invisible (fail closed), so a
+// tenant-specific rule provisioned without its org label can't leak across orgs.
+const (
+	ruleLabelScope  = "proto_fleet_scope"
+	ruleScopeGlobal = "global"
+)
 
 const silenceLabelOrganizationID = "organization_id"
 
@@ -912,13 +930,12 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 
 func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
 	if r.Labels == nil {
+		return false
+	}
+	if r.Labels[ruleLabelScope] == ruleScopeGlobal {
 		return true
 	}
-	got, ok := r.Labels[ruleLabelOrganizationID]
-	if !ok {
-		return true
-	}
-	return got == wantOrgID
+	return r.Labels[ruleLabelOrganizationID] == wantOrgID
 }
 
 func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
