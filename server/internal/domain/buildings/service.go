@@ -162,11 +162,18 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, s
 		}
 	}
 	rows, err := s.store.ListBuildings(ctx, filter)
-	if err != nil || !filter.IncludeStats {
+	if err != nil {
 		return rows, err
 	}
+	hasStatsFilter := fleetlistfilter.HasFilters(statsFilter)
+	if !filter.IncludeStats {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
+		return rows, nil
+	}
 	if includeStatsForSite == nil {
-		if fleetlistfilter.HasFilters(statsFilter) {
+		if hasStatsFilter {
 			return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings filters require stats authorization")
 		}
 		return rows, nil
@@ -179,15 +186,18 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, s
 		}
 	}
 	if !hasStatsRow {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
 		return rows, nil
 	}
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings stats requires deviceQueryer and telemetry")
 	}
-	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite); err != nil {
+	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite, len(statsFilter.TelemetryRanges) > 0); err != nil {
 		return nil, err
 	}
-	if fleetlistfilter.HasFilters(statsFilter) {
+	if hasStatsFilter {
 		rows = filterBuildingRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
@@ -1393,7 +1403,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	return stats, nil
 }
 
-func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer) error {
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -1457,6 +1467,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		}
 		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
 		if err != nil {
+			if requireTelemetry {
+				return fleeterror.NewInternalErrorf("failed to fetch building list telemetry: %v", err)
+			}
 			slog.WarnContext(ctx, "failed to fetch building list telemetry", "error", err)
 			metrics = nil
 		}

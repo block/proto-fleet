@@ -82,6 +82,34 @@ func TestParseRejectsInvalidTelemetryRanges(t *testing.T) {
 	}
 }
 
+func TestParseRejectsUnsupportedIssueComponentTypes(t *testing.T) {
+	tests := []struct {
+		name          string
+		componentType errorspb.ComponentType
+	}{
+		{
+			name:          "unspecified",
+			componentType: errorspb.ComponentType_COMPONENT_TYPE_UNSPECIFIED,
+		},
+		{
+			name:          "unsupported concrete component",
+			componentType: errorspb.ComponentType_COMPONENT_TYPE_EEPROM,
+		},
+		{
+			name:          "unknown enum value",
+			componentType: errorspb.ComponentType(99),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]errorspb.ComponentType{tt.componentType}, nil)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err), "got %T: %v", err, err)
+		})
+	}
+}
+
 func TestMatchesUsesIssueOrTelemetryAnd(t *testing.T) {
 	minPower := 10.0
 	filter := Filter{

@@ -554,6 +554,8 @@ FROM device_set_membership dsm
 JOIN device_set ds ON dsm.device_set_id = ds.id
 LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
 LEFT JOIN building b ON b.id = dsr.building_id
+  AND b.org_id = dsm.org_id
+  AND b.deleted_at IS NULL
 LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1

@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"go.uber.org/mock/gomock"
 
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
@@ -286,5 +287,60 @@ func TestListSites_degradesWhenListTelemetryFails(t *testing.T) {
 	}
 	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
 		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
+	}
+}
+
+func TestListSites_returnsEmptyWhenStatsFilterHasNoAuthorizedRows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, OrgID: testOrgID, Name: "Site 1"},
+			BuildingCount: 2,
+			RackCount:     3,
+		},
+	}, nil)
+
+	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, nil)
+	rows, err := svc.ListSites(context.Background(), testOrgID, fleetlistfilter.Filter{
+		ErrorComponentTypes: []int32{int32(errorspb.ComponentType_COMPONENT_TYPE_FAN)},
+	}, func(int64) bool { return false })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected stats-filtered request without authorized stats to return no rows, got %+v", rows)
+	}
+}
+
+func TestListSites_returnsErrorWhenTelemetryFilterCannotFetchTelemetry(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	store.EXPECT().ListSites(gomock.Any(), testOrgID).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, OrgID: testOrgID, Name: "Site 1"},
+			BuildingCount: 2,
+			RackCount:     3,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{deviceIDs: []string{"d1"}}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, &fakeTransactor{}, nil)
+
+	minHashrate := 1.0
+	_, err := svc.ListSites(context.Background(), testOrgID, fleetlistfilter.Filter{
+		TelemetryRanges: []interfaces.NumericRange{{
+			Field:        interfaces.NumericFilterFieldHashrateTHs,
+			Min:          &minHashrate,
+			MinInclusive: true,
+		}},
+	}, func(int64) bool { return true })
+	if err == nil {
+		t.Fatal("expected telemetry fetch error for telemetry-filtered list")
+	}
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
+		t.Fatalf("expected Internal error, got %v", err)
 	}
 }

@@ -194,8 +194,9 @@ func (s *Service) ListSites(ctx context.Context, orgID int64, statsFilter fleetl
 	if err != nil {
 		return rows, err
 	}
+	hasStatsFilter := fleetlistfilter.HasFilters(statsFilter)
 	if includeStatsForSite == nil {
-		if fleetlistfilter.HasFilters(statsFilter) {
+		if hasStatsFilter {
 			return nil, fleeterror.NewInternalErrorf("sites.ListSites filters require stats authorization")
 		}
 		return rows, nil
@@ -208,15 +209,18 @@ func (s *Service) ListSites(ctx context.Context, orgID int64, statsFilter fleetl
 		}
 	}
 	if !hasStatsRow {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
 		return rows, nil
 	}
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("sites.ListSites stats requires deviceQueryer and telemetry")
 	}
-	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite); err != nil {
+	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite, len(statsFilter.TelemetryRanges) > 0); err != nil {
 		return nil, err
 	}
-	if fleetlistfilter.HasFilters(statsFilter) {
+	if hasStatsFilter {
 		rows = filterSiteRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
@@ -1051,7 +1055,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	return stats, nil
 }
 
-func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer) error {
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -1108,6 +1112,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		}
 		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
 		if err != nil {
+			if requireTelemetry {
+				return fleeterror.NewInternalErrorf("failed to fetch site list telemetry: %v", err)
+			}
 			slog.WarnContext(ctx, "failed to fetch site list telemetry", "error", err)
 			metrics = nil
 		}

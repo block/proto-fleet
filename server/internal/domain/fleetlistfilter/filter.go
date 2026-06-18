@@ -45,7 +45,11 @@ func Parse(errorComponentTypes []errorspb.ComponentType, ranges []*commonpb.Flee
 		ErrorComponentTypes: make([]int32, 0, len(errorComponentTypes)),
 		TelemetryRanges:     make([]interfaces.NumericRange, 0, len(ranges)),
 	}
-	for _, ct := range errorComponentTypes {
+	for i, ct := range errorComponentTypes {
+		if err := validateIssueComponentType(ct); err != nil {
+			return Filter{}, fleeterror.NewInvalidArgumentErrorf(
+				"error_component_types[%d]: %v", i, err)
+		}
 		out.ErrorComponentTypes = append(out.ErrorComponentTypes, int32(ct))
 	}
 	for i, r := range ranges {
@@ -56,6 +60,22 @@ func Parse(errorComponentTypes []errorspb.ComponentType, ranges []*commonpb.Flee
 		out.TelemetryRanges = append(out.TelemetryRanges, parsed)
 	}
 	return out, nil
+}
+
+func validateIssueComponentType(ct errorspb.ComponentType) error {
+	switch ct {
+	case errorspb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD,
+		errorspb.ComponentType_COMPONENT_TYPE_FAN,
+		errorspb.ComponentType_COMPONENT_TYPE_HASH_BOARD,
+		errorspb.ComponentType_COMPONENT_TYPE_PSU:
+		return nil
+	case errorspb.ComponentType_COMPONENT_TYPE_UNSPECIFIED,
+		errorspb.ComponentType_COMPONENT_TYPE_EEPROM,
+		errorspb.ComponentType_COMPONENT_TYPE_IO_MODULE:
+		return fleeterror.NewInvalidArgumentErrorf("unsupported component type %v", ct)
+	default:
+		return fleeterror.NewInvalidArgumentErrorf("unsupported component type %v", ct)
+	}
 }
 
 func HasFilters(filter Filter) bool {

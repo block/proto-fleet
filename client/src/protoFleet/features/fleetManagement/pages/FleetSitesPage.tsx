@@ -72,6 +72,25 @@ const FleetSitesPage = () => {
   const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites });
+  const fetchFilteredSites = useCallback(
+    (signal?: AbortSignal) => {
+      void listSites({
+        signal,
+        errorComponentTypes,
+        telemetryRanges,
+        onSuccess: (rows) => {
+          setFilteredSites(rows);
+          setFilteredSitesError(null);
+          setFilteredSitesLoaded(true);
+        },
+        onError: (msg) => {
+          setFilteredSitesError(msg);
+          setFilteredSites((prev) => prev ?? []);
+        },
+      });
+    },
+    [listSites, errorComponentTypes, telemetryRanges],
+  );
   useEffect(() => {
     if (!hasListFilters) {
       /* eslint-disable react-hooks/set-state-in-effect -- clear the filtered-only cache when URL list filters are removed */
@@ -82,26 +101,14 @@ const FleetSitesPage = () => {
       return;
     }
     const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      errorComponentTypes,
-      telemetryRanges,
-      onSuccess: (rows) => {
-        setFilteredSites(rows);
-        setFilteredSitesError(null);
-        setFilteredSitesLoaded(true);
-      },
-      onError: (msg) => {
-        setFilteredSitesError(msg);
-        setFilteredSites((prev) => prev ?? []);
-      },
-    });
+    fetchFilteredSites(controller.signal);
     return () => controller.abort();
-  }, [hasListFilters, listSites, errorComponentTypes, telemetryRanges]);
+  }, [hasListFilters, fetchFilteredSites]);
 
   const displaySites = hasListFilters ? filteredSites : sites;
   const displaySitesError = hasListFilters ? filteredSitesError : sitesError;
   const displaySitesLoaded = hasListFilters ? filteredSitesLoaded : sitesLoaded;
+  const handleRetrySites = hasListFilters ? () => fetchFilteredSites() : refetchSites;
   const visibleSiteScopes = useMemo(
     () =>
       displaySites?.flatMap((site) => {
@@ -215,7 +222,7 @@ const FleetSitesPage = () => {
           variant={variants.secondary}
           size={sizes.compact}
           text="Retry"
-          onClick={refetchSites}
+          onClick={handleRetrySites}
           testId="fleet-sites-retry"
         />
       </FilterRow>
@@ -230,7 +237,7 @@ const FleetSitesPage = () => {
         title="Couldn't refresh sites"
         subtitle={displaySitesError}
         buttonText="Retry"
-        buttonOnClick={refetchSites}
+        buttonOnClick={handleRetrySites}
         testId="fleet-sites-inline-error"
       />
     ) : null;
