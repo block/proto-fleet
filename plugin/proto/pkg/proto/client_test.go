@@ -365,28 +365,6 @@ func TestDoRequest_LoginDoesNotHoldAuthLock(t *testing.T) {
 	require.ErrorContains(t, <-requestDone, "credentials changed during login")
 }
 
-func TestSetBearerTokenSeedsAuthorization(t *testing.T) {
-	var loginCalls int
-	var gotAuth string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/auth/login" {
-			loginCalls++
-		}
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client := newTestClient(t, server)
-	require.NoError(t, client.SetBearerToken(sdk.BearerToken{Token: "legacy-token"}))
-
-	resp, err := client.doRequest(context.Background(), http.MethodGet, "/api/v1/system", nil)
-	require.NoError(t, err)
-	resp.Body.Close()
-	assert.Equal(t, 0, loginCalls)
-	assert.Equal(t, "Bearer legacy-token", gotAuth)
-}
-
 // TestClientSingletonBehavior tests that HTTP clients are properly shared
 func TestClientSingletonBehavior(t *testing.T) {
 	// Reset clients
@@ -1143,7 +1121,7 @@ func TestGetStatusNoMiningStatistics(t *testing.T) {
 
 // TestUploadFirmware tests the multipart firmware upload to the MDK REST API.
 func TestUploadFirmware(t *testing.T) {
-	const testToken = "fleet-bearer-token"
+	const testToken = "credential-access-token"
 	firmwareContent := []byte("fake-swu-firmware-content-for-test")
 
 	tests := []struct {
@@ -1201,7 +1179,7 @@ func TestUploadFirmware(t *testing.T) {
 			},
 			token:       testToken,
 			expectErr:   true,
-			errContains: "check bearer token",
+			errContains: "check credentials",
 		},
 		{
 			name: "update already in progress (409)",
@@ -1240,7 +1218,7 @@ func TestUploadFirmware(t *testing.T) {
 			errContains: "internal failure",
 		},
 		{
-			name: "no bearer token omits auth header",
+			name: "no credentials omits auth header",
 			handler: func(t *testing.T) http.HandlerFunc {
 				return func(w http.ResponseWriter, r *http.Request) {
 					assert.Empty(t, r.Header.Get("Authorization"), "no auth header when token is empty")
@@ -1254,15 +1232,22 @@ func TestUploadFirmware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(tt.handler(t))
+			uploadHandler := tt.handler(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/auth/login" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"access_token":%q,"refresh_token":"refresh"}`, tt.token)
+					return
+				}
+				uploadHandler(w, r)
+			}))
 			defer server.Close()
 
 			client := newTestClient(t, server)
 			defer func() { _ = client.Close() }()
 
 			if tt.token != "" {
-				// Seed the cached access token directly so the upload path skips login.
-				client.accessToken = tt.token
+				require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
 			}
 
 			firmware := sdk.FirmwareFile{

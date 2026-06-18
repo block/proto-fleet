@@ -453,16 +453,6 @@ func (c *Client) SetCredentials(credentials sdk.UsernamePassword) error {
 	return nil
 }
 
-// SetBearerToken seeds a fleet-issued bearer token for asymmetric-auth callers.
-// The server no longer uses this as a fallback for Proto rows without stored credentials.
-func (c *Client) SetBearerToken(token sdk.BearerToken) error {
-	c.authMu.Lock()
-	defer c.authMu.Unlock()
-	c.credentials = sdk.UsernamePassword{}
-	c.accessToken = token.Token
-	return nil
-}
-
 // Authenticate verifies the configured credentials by logging in. An empty
 // password is rejected so pairing can't "succeed" without a real login.
 func (c *Client) Authenticate(ctx context.Context) error {
@@ -480,19 +470,19 @@ func (c *Client) hasCredentials() bool {
 }
 
 // ensureToken returns a cached token, logging in if needed. Returns ("", nil) when
-// no credentials are set, so public endpoints (e.g. discovery) work unauthenticated.
+// no credentials are set, so protected endpoints fail unauthenticated and public
+// endpoints (e.g. discovery) can still work without credentials.
 func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	c.authMu.Lock()
-	if c.accessToken != "" {
-		token := c.accessToken
-		c.authMu.Unlock()
-		return token, nil
-	}
 	credentials := c.credentials
+	token := c.accessToken
 	c.authMu.Unlock()
 
 	if credentials.Password == "" {
 		return "", nil
+	}
+	if token != "" {
+		return token, nil
 	}
 	return c.loginAndCache(ctx, credentials, "")
 }
@@ -516,8 +506,7 @@ func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, err
 }
 
 // freshToken logs in immediately before non-replayable operations such as
-// streamed firmware uploads. Bearer-only legacy clients cannot refresh, so they
-// reuse the seeded token.
+// streamed firmware uploads.
 func (c *Client) freshToken(ctx context.Context) (string, error) {
 	c.authMu.Lock()
 	credentials := c.credentials
@@ -525,7 +514,7 @@ func (c *Client) freshToken(ctx context.Context) (string, error) {
 	c.authMu.Unlock()
 
 	if credentials.Password == "" {
-		return oldToken, nil
+		return "", nil
 	}
 	return c.loginAndCache(ctx, credentials, oldToken)
 }
@@ -1387,7 +1376,7 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		return nil
 	case http.StatusUnauthorized:
 		c.clearTokenIfCurrent(token)
-		return grpcstatus.Errorf(codes.Unauthenticated, "firmware upload unauthorized: %s", withDetail("check bearer token", detail))
+		return grpcstatus.Errorf(codes.Unauthenticated, "firmware upload unauthorized: %s", withDetail("check credentials", detail))
 	case http.StatusConflict:
 		return fmt.Errorf("firmware update already in progress: %s", withDetail("try again later", detail))
 	case http.StatusBadRequest:

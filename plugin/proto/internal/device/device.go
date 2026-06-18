@@ -138,12 +138,6 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 	}, opts...)
 }
 
-func NewWithBearerToken(deviceID string, deviceInfo sdk.DeviceInfo, token sdk.BearerToken, opts ...DeviceOption) (*Device, error) {
-	return newWithClientAuth(deviceID, deviceInfo, func(client *proto.Client) error {
-		return client.SetBearerToken(token)
-	}, opts...)
-}
-
 func newWithClientAuth(deviceID string, deviceInfo sdk.DeviceInfo, configureClient func(*proto.Client) error, opts ...DeviceOption) (*Device, error) {
 	client, err := proto.NewClient(deviceInfo.Host, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {

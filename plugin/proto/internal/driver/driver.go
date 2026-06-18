@@ -389,19 +389,11 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 }
 
 func newDeviceFromSecret(deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
-	switch kind := secret.Kind.(type) {
-	case sdk.BearerToken:
-		if kind.Token == "" {
-			return nil, fmt.Errorf("bearer token is required in secret bundle")
-		}
-		return device.NewWithBearerToken(deviceID, deviceInfo, kind)
-	default:
-		credentials, err := credentialsFromSecret(secret)
-		if err != nil {
-			return nil, err
-		}
-		return device.New(deviceID, deviceInfo, credentials)
+	credentials, err := credentialsFromSecret(secret)
+	if err != nil {
+		return nil, err
 	}
+	return device.New(deviceID, deviceInfo, credentials)
 }
 
 // GetDefaultCredentials implements sdk.DefaultCredentialsProvider, enabling the
