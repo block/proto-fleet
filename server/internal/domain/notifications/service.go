@@ -706,14 +706,12 @@ func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
 		if scope.RuleID == "" {
 			return fleeterror.NewInvalidArgumentError("rule_id is required for a rule-scoped maintenance window")
 		}
-	case MaintenanceWindowScopeGroup:
-		if scope.GroupID == "" {
-			return fleeterror.NewInvalidArgumentError("group_id is required for a group-scoped maintenance window")
-		}
-	case MaintenanceWindowScopeSite:
-		if scope.SiteID == "" {
-			return fleeterror.NewInvalidArgumentError("site_id is required for a site-scoped maintenance window")
-		}
+	case MaintenanceWindowScopeGroup, MaintenanceWindowScopeSite:
+		// Not yet supported: a group/site silence would emit a group_id/site_id matcher,
+		// but the provisioned alert rules only label instances with organization_id and
+		// device_id, so the silence would be saved and shown active while muting nothing.
+		// Reject until the alert queries emit the matching label (see proto-fleet-rules.yaml).
+		return fleeterror.NewInvalidArgumentErrorf("maintenance window scope %q is not yet supported", scope.Kind)
 	case MaintenanceWindowScopeDevice:
 		if len(scope.DeviceIDs) == 0 {
 			return fleeterror.NewInvalidArgumentError("device_ids is required for a device-scoped maintenance window")

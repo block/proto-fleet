@@ -25,10 +25,10 @@ func TestValidateMaintenanceWindowScope(t *testing.T) {
 	}{
 		{"rule with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "r1"}, false},
 		{"rule without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule}, true},
-		{"group with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup, GroupID: "g1"}, false},
-		{"group without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup}, true},
-		{"site with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeSite, SiteID: "s1"}, false},
-		{"site without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeSite}, true},
+		// Group and site scopes emit a matcher no provisioned alert carries, so they're
+		// rejected until the alert queries label instances with group_id/site_id.
+		{"group not yet supported", MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup, GroupID: "g1"}, true},
+		{"site not yet supported", MaintenanceWindowScope{Kind: MaintenanceWindowScopeSite, SiteID: "s1"}, true},
 		{"device with targets", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"d1"}}, false},
 		{"device without targets", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice}, true},
 		{"device uuid and mac ids", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{
