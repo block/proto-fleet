@@ -12,8 +12,65 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_common_v1_common: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEibwoRRmxlZXRFcnJvckRldGFpbHMSKwoGY29tbW9uGAEgASgOMhkuY29tbW9uLnYxLkZsZWV0RXJyb3JDb2RlSAASEQoHc2VydmljZRgCIAEoBUgAEhIKCGVuZHBvaW50GAMgASgFSABCBgoEY29kZSoyCg5GbGVldEVycm9yQ29kZRIgChxGTEVFVF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEABCqAEKDWNvbS5jb21tb24udjFCC0NvbW1vblByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
+    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEiKAoLUmVzb3VyY2VSZWYSCgoCaWQYASABKAMSDQoFbGFiZWwYAiABKAkirQEKDVBsYWNlbWVudFJlZnMSJAoEc2l0ZRgBIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIoCghidWlsZGluZxgCIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIkCgRyYWNrGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEiYKBmdyb3VwcxgEIAMoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZiJvChFGbGVldEVycm9yRGV0YWlscxIrCgZjb21tb24YASABKA4yGS5jb21tb24udjEuRmxlZXRFcnJvckNvZGVIABIRCgdzZXJ2aWNlGAIgASgFSAASEgoIZW5kcG9pbnQYAyABKAVIAEIGCgRjb2RlKjIKDkZsZWV0RXJyb3JDb2RlEiAKHEZMRUVUX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQAEKoAQoNY29tLmNvbW1vbi52MUILQ29tbW9uUHJvdG9QAVpFZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29tbW9uL3YxO2NvbW1vbnYxogIDQ1hYqgIJQ29tbW9uLlYxygIJQ29tbW9uXFYx4gIVQ29tbW9uXFYxXEdQQk1ldGFkYXRh6gIKQ29tbW9uOjpWMWIGcHJvdG8z",
   );
+
+/**
+ * Lightweight identity + display label for related resources embedded in
+ * list rows. Full resource RPCs remain the source of editable metadata.
+ *
+ * @generated from message common.v1.ResourceRef
+ */
+export type ResourceRef = Message<"common.v1.ResourceRef"> & {
+  /**
+   * @generated from field: int64 id = 1;
+   */
+  id: bigint;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+};
+
+/**
+ * Describes the message common.v1.ResourceRef.
+ * Use `create(ResourceRefSchema)` to create a new message.
+ */
+export const ResourceRefSchema: GenMessage<ResourceRef> = /*@__PURE__*/ messageDesc(file_common_v1_common, 0);
+
+/**
+ * Shared placement references for fleet list rows.
+ *
+ * @generated from message common.v1.PlacementRefs
+ */
+export type PlacementRefs = Message<"common.v1.PlacementRefs"> & {
+  /**
+   * @generated from field: common.v1.ResourceRef site = 1;
+   */
+  site?: ResourceRef | undefined;
+
+  /**
+   * @generated from field: common.v1.ResourceRef building = 2;
+   */
+  building?: ResourceRef | undefined;
+
+  /**
+   * @generated from field: common.v1.ResourceRef rack = 3;
+   */
+  rack?: ResourceRef | undefined;
+
+  /**
+   * @generated from field: repeated common.v1.ResourceRef groups = 4;
+   */
+  groups: ResourceRef[];
+};
+
+/**
+ * Describes the message common.v1.PlacementRefs.
+ * Use `create(PlacementRefsSchema)` to create a new message.
+ */
+export const PlacementRefsSchema: GenMessage<PlacementRefs> = /*@__PURE__*/ messageDesc(file_common_v1_common, 1);
 
 /**
  * @generated from message common.v1.FleetErrorDetails
@@ -53,7 +110,7 @@ export type FleetErrorDetails = Message<"common.v1.FleetErrorDetails"> & {
  */
 export const FleetErrorDetailsSchema: GenMessage<FleetErrorDetails> =
   /*@__PURE__*/
-  messageDesc(file_common_v1_common, 0);
+  messageDesc(file_common_v1_common, 2);
 
 /**
  * @generated from enum common.v1.FleetErrorCode

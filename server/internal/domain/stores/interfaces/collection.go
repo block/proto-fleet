@@ -9,9 +9,16 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore
 
 type DeviceRackDetails struct {
+	ID            int64
 	Label         string
 	Position      string
+	BuildingID    *int64
 	BuildingLabel string
+}
+
+type DeviceGroupRef struct {
+	ID    int64
+	Label string
 }
 
 // RackPlacement captures the rack's current site/building/zone assignment.
@@ -280,11 +287,11 @@ type CollectionStore interface {
 	// If collectionType is UNSPECIFIED, returns all types.
 	GetDeviceCollections(ctx context.Context, orgID int64, deviceIdentifier string, collectionType pb.CollectionType) ([]*pb.DeviceCollection, error)
 
-	// GetGroupLabelsForDevices returns a map of device_identifier -> slice of group labels.
+	// GetGroupRefsForDevices returns a map of device_identifier -> slice of group refs.
 	// Used for batch lookup when building MinerStateSnapshot list.
-	GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error)
+	GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]DeviceGroupRef, error)
 
-	// GetRackDetailsForDevices returns a map of device_identifier -> rack label and formatted position.
+	// GetRackDetailsForDevices returns a map of device_identifier -> rack ref, building ref, and formatted position.
 	// Each device can only be in one rack due to the partial unique index.
 	GetRackDetailsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]DeviceRackDetails, error)
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import {
   bulkRenameModes,
   type BulkRenamePreviewMiner,
@@ -17,6 +18,7 @@ import {
   takePreviewMiners,
 } from "./bulkRenamePreview";
 import { customPropertyTypes, fixedStringSections } from "./RenameOptionsModals/types";
+import { PlacementRefsSchema } from "@/protoFleet/api/generated/common/v1/common_pb";
 
 const basePreviewMiner: BulkRenamePreviewMiner = {
   counterIndex: 0,
@@ -237,7 +239,6 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:02",
         serialNumber: "SER-2",
         workerName: "worker-02",
-        rackLabel: "",
         rackPosition: "",
       },
       {
@@ -248,7 +249,6 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:03",
         serialNumber: "SER-3",
         workerName: "worker-03",
-        rackLabel: "",
         rackPosition: "",
       },
       {
@@ -259,7 +259,6 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:01",
         serialNumber: "SER-1",
         workerName: "worker-01",
-        rackLabel: "",
         rackPosition: "",
       },
     ]);
@@ -281,7 +280,6 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:01",
         serialNumber: "SER-1",
         workerName: "worker-01",
-        rackLabel: "",
         rackPosition: "",
       },
       {
@@ -292,7 +290,6 @@ describe("bulkRenamePreview", () => {
         macAddress: "AA:AA:AA:AA:AA:02",
         serialNumber: "SER-2",
         workerName: "worker-02",
-        rackLabel: "",
         rackPosition: "",
       },
     ]);
@@ -447,7 +444,7 @@ describe("bulkRenamePreview", () => {
           macAddress: "AA:BB:CC:DD:EE:FF",
           serialNumber: "SER123456",
           workerName: "worker-99",
-          rackLabel: "Rack-A1",
+          placement: create(PlacementRefsSchema, { rack: { id: 101n, label: "Rack-A1" } }),
           rackPosition: "12",
         },
       ],

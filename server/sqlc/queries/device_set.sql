@@ -502,9 +502,9 @@ WHERE dsm.device_identifier = $1
   AND ds.deleted_at IS NULL
 ORDER BY ds.label ASC;
 
--- name: GetGroupLabelsForDevices :many
--- Batch query to get group labels for multiple devices at once (for miner list)
-SELECT dsm.device_identifier, ds.label
+-- name: GetGroupRefsForDevices :many
+-- Batch query to get group refs for multiple devices at once (for miner list)
+SELECT dsm.device_identifier, ds.id, ds.label
 FROM device_set_membership dsm
 JOIN device_set ds ON dsm.device_set_id = ds.id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
@@ -518,7 +518,9 @@ ORDER BY dsm.device_identifier, ds.label;
 -- Returns at most one rack per device due to partial unique index.
 SELECT
   dsm.device_identifier,
+  ds.id AS rack_id,
   ds.label,
+  b.id AS building_id,
   COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''

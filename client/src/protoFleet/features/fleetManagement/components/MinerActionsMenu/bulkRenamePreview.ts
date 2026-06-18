@@ -297,8 +297,8 @@ type BulkRenamePreviewSnapshot = Pick<
   | "macAddress"
   | "serialNumber"
   | "workerName"
-  | "rackLabel"
   | "rackPosition"
+  | "placement"
 >;
 
 export const mapSnapshotToBulkRenamePreviewMiner = (
@@ -316,7 +316,7 @@ export const mapSnapshotToBulkRenamePreviewMiner = (
   model: snapshot.model,
   manufacturer: snapshot.manufacturer,
   workerName: snapshot.workerName,
-  rackLabel: snapshot.rackLabel,
+  rackLabel: snapshot.placement?.rack?.label ?? "",
   rackPosition: snapshot.rackPosition,
 });
 

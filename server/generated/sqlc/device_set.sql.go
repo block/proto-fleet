@@ -819,8 +819,8 @@ func (q *Queries) GetDeviceSiteIDsByMembership(ctx context.Context, arg GetDevic
 	return items, nil
 }
 
-const getGroupLabelsForDevices = `-- name: GetGroupLabelsForDevices :many
-SELECT dsm.device_identifier, ds.label
+const getGroupRefsForDevices = `-- name: GetGroupRefsForDevices :many
+SELECT dsm.device_identifier, ds.id, ds.label
 FROM device_set_membership dsm
 JOIN device_set ds ON dsm.device_set_id = ds.id
 WHERE dsm.device_identifier = ANY($2::text[])
@@ -830,27 +830,28 @@ WHERE dsm.device_identifier = ANY($2::text[])
 ORDER BY dsm.device_identifier, ds.label
 `
 
-type GetGroupLabelsForDevicesParams struct {
+type GetGroupRefsForDevicesParams struct {
 	OrgID             int64
 	DeviceIdentifiers []string
 }
 
-type GetGroupLabelsForDevicesRow struct {
+type GetGroupRefsForDevicesRow struct {
 	DeviceIdentifier string
+	ID               int64
 	Label            string
 }
 
-// Batch query to get group labels for multiple devices at once (for miner list)
-func (q *Queries) GetGroupLabelsForDevices(ctx context.Context, arg GetGroupLabelsForDevicesParams) ([]GetGroupLabelsForDevicesRow, error) {
-	rows, err := q.query(ctx, q.getGroupLabelsForDevicesStmt, getGroupLabelsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+// Batch query to get group refs for multiple devices at once (for miner list)
+func (q *Queries) GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error) {
+	rows, err := q.query(ctx, q.getGroupRefsForDevicesStmt, getGroupRefsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetGroupLabelsForDevicesRow
+	var items []GetGroupRefsForDevicesRow
 	for rows.Next() {
-		var i GetGroupLabelsForDevicesRow
-		if err := rows.Scan(&i.DeviceIdentifier, &i.Label); err != nil {
+		var i GetGroupRefsForDevicesRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.ID, &i.Label); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -867,7 +868,9 @@ func (q *Queries) GetGroupLabelsForDevices(ctx context.Context, arg GetGroupLabe
 const getRackDetailsForDevices = `-- name: GetRackDetailsForDevices :many
 SELECT
   dsm.device_identifier,
+  ds.id AS rack_id,
   ds.label,
+  b.id AS building_id,
   COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
@@ -920,7 +923,9 @@ type GetRackDetailsForDevicesParams struct {
 
 type GetRackDetailsForDevicesRow struct {
 	DeviceIdentifier string
+	RackID           int64
 	Label            string
+	BuildingID       sql.NullInt64
 	BuildingLabel    string
 	Position         string
 }
@@ -938,7 +943,9 @@ func (q *Queries) GetRackDetailsForDevices(ctx context.Context, arg GetRackDetai
 		var i GetRackDetailsForDevicesRow
 		if err := rows.Scan(
 			&i.DeviceIdentifier,
+			&i.RackID,
 			&i.Label,
+			&i.BuildingID,
 			&i.BuildingLabel,
 			&i.Position,
 		); err != nil {

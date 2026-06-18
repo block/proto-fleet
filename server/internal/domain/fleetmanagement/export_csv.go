@@ -73,7 +73,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 		pairedIDs := collectPairedDeviceIdentifiers(snapshots)
 		allIDs := collectAllDeviceIdentifiers(snapshots)
 		s.populateTelemetryData(ctx, snapshots, pairedIDs)
-		s.populateGroupLabels(ctx, info.OrganizationID, snapshots, allIDs)
+		s.populateGroupRefs(ctx, info.OrganizationID, snapshots, allIDs)
 		s.populateRackDetails(ctx, info.OrganizationID, snapshots, allIDs)
 
 		errorsByDevice, err := s.listOpenErrorsByDevice(ctx, info.OrganizationID, allIDs)
@@ -180,8 +180,8 @@ func buildMinerCSVRow(
 	return []string{
 		sanitizeOrFallback(snapshot.Name, sanitizeCSVField(snapshot.DeviceIdentifier)),
 		sanitizeOrFallback(snapshot.WorkerName, ""),
-		sanitizeCSVField(strings.Join(snapshot.GroupLabels, ", ")),
-		sanitizeOrFallback(snapshot.RackLabel, ""),
+		sanitizeCSVField(strings.Join(snapshotGroupLabels(snapshot), ", ")),
+		sanitizeOrFallback(snapshotRackLabel(snapshot), ""),
 		sanitizeOrFallback(snapshot.Model, "-"),
 		sanitizeOrFallback(snapshot.MacAddress, "-"),
 		sanitizeOrFallback(snapshot.IpAddress, "-"),
@@ -193,6 +193,24 @@ func buildMinerCSVRow(
 		temperatureCSVValue(snapshot, temperatureUnit),
 		sanitizeOrFallback(snapshot.FirmwareVersion, "-"),
 	}
+}
+
+func snapshotGroupLabels(snapshot *pb.MinerStateSnapshot) []string {
+	if snapshot.GetPlacement() == nil {
+		return nil
+	}
+	labels := make([]string, 0, len(snapshot.GetPlacement().Groups))
+	for _, group := range snapshot.GetPlacement().Groups {
+		labels = append(labels, group.Label)
+	}
+	return labels
+}
+
+func snapshotRackLabel(snapshot *pb.MinerStateSnapshot) string {
+	if snapshot.GetPlacement() == nil || snapshot.GetPlacement().Rack == nil {
+		return ""
+	}
+	return snapshot.GetPlacement().Rack.Label
 }
 
 func buildExportHeaders(temperatureUnit pb.CsvTemperatureUnit) []string {
