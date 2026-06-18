@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -268,7 +269,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		return messages, nil
 	}
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, fmt.Errorf("dequeue context canceled: %w", ctx.Err())
 	}
 
 	delay := es.config.MasterPollingInterval
@@ -278,7 +279,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("dequeue retry context canceled: %w", ctx.Err())
 		case <-time.After(delay):
 			// Continue with retry
 		}
@@ -291,7 +292,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 			return messages, nil
 		}
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("dequeue context canceled after retry: %w", ctx.Err())
 		}
 	}
 
@@ -303,7 +304,7 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("queue processor context canceled: %w", ctx.Err())
 		default:
 			messages, err := es.dequeueWithRetry(ctx)
 
