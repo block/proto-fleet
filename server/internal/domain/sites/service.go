@@ -17,6 +17,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -188,10 +189,16 @@ type ListStatsAuthorizer func(siteID int64) bool
 
 // ListSites returns sites with attachment counts for the delete-confirm
 // dialog impact numbers.
-func (s *Service) ListSites(ctx context.Context, orgID int64, includeStatsForSite ListStatsAuthorizer) ([]models.SiteWithCounts, error) {
+func (s *Service) ListSites(ctx context.Context, orgID int64, statsFilter fleetlistfilter.Filter, includeStatsForSite ListStatsAuthorizer) ([]models.SiteWithCounts, error) {
 	rows, err := s.store.ListSites(ctx, orgID)
-	if err != nil || includeStatsForSite == nil {
+	if err != nil {
 		return rows, err
+	}
+	if includeStatsForSite == nil {
+		if fleetlistfilter.HasFilters(statsFilter) {
+			return nil, fleeterror.NewInternalErrorf("sites.ListSites filters require stats authorization")
+		}
+		return rows, nil
 	}
 	hasStatsRow := false
 	for _, row := range rows {
@@ -208,6 +215,9 @@ func (s *Service) ListSites(ctx context.Context, orgID int64, includeStatsForSit
 	}
 	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite); err != nil {
 		return nil, err
+	}
+	if fleetlistfilter.HasFilters(statsFilter) {
+		rows = filterSiteRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
 }
@@ -1141,4 +1151,32 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		stats.PsuIssueCount = issues.PsuIssueCount
 	}
 	return nil
+}
+
+func filterSiteRowsByListStats(rows []models.SiteWithCounts, filter fleetlistfilter.Filter) []models.SiteWithCounts {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.ListStats == nil {
+			continue
+		}
+		stats := row.ListStats
+		if fleetlistfilter.Matches(fleetlistfilter.Stats{
+			HashrateReportingCount:    stats.HashrateReportingCount,
+			EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+			PowerReportingCount:       stats.PowerReportingCount,
+			TemperatureReportingCount: stats.TemperatureReportingCount,
+			TotalHashrateThs:          stats.TotalHashrateThs,
+			AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+			TotalPowerKw:              stats.TotalPowerKw,
+			MinTemperatureC:           stats.MinTemperatureC,
+			MaxTemperatureC:           stats.MaxTemperatureC,
+			ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+			FanIssueCount:             stats.FanIssueCount,
+			HashBoardIssueCount:       stats.HashBoardIssueCount,
+			PsuIssueCount:             stats.PsuIssueCount,
+		}, filter) {
+			out = append(out, row)
+		}
+	}
+	return out
 }

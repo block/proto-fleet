@@ -162,6 +162,10 @@ message MinerStateSnapshot {
   // Human-readable label of the site this device is assigned to.
   // Empty if site_id is unset.
   string site_label = 26;
+
+  // Human-readable label of the building this device's rack is assigned to.
+  // Empty if the device is not racked or the rack has no building.
+  string building_label = 27;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering

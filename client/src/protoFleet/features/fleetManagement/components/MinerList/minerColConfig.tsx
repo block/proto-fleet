@@ -40,6 +40,12 @@ type CreateMinerColConfigParams = {
   >;
 };
 
+const renderPlacementLabel = (label: string) => (
+  <span className="block truncate" title={label || undefined}>
+    {label}
+  </span>
+);
+
 const createMinerColConfig = ({
   onOpenStatusFlow,
   availableGroups,
@@ -132,6 +138,18 @@ const createMinerColConfig = ({
   },
   [minerCols.groups]: {
     component: (device: DeviceListItem) => <MinerGroups miner={device.miner} availableGroups={availableGroups} />,
+    width: "w-[160px]",
+  },
+  [minerCols.site]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(device.miner.siteLabel),
+    width: "w-[160px]",
+  },
+  [minerCols.building]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(device.miner.buildingLabel),
+    width: "w-[160px]",
+  },
+  [minerCols.rack]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(device.miner.rackLabel),
     width: "w-[160px]",
   },
 });

@@ -54,7 +54,7 @@ describe("minerTableColumnPreferences", () => {
       minerCols.name,
       minerCols.workerName,
       minerCols.groups,
-      minerCols.model,
+      minerCols.site,
     ]);
   });
 });

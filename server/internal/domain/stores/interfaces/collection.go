@@ -9,8 +9,9 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -source=collection.go -destination=mocks/mock_collection_store.go -package=mocks CollectionStore
 
 type DeviceRackDetails struct {
-	Label    string
-	Position string
+	Label         string
+	Position      string
+	BuildingLabel string
 }
 
 // RackPlacement captures the rack's current site/building/zone assignment.
@@ -65,6 +66,7 @@ type DeviceSetFilter struct {
 	BuildingIDs         []int64   // OR across buildings. Only valid for RACK collections; ignored for GROUP.
 	IncludeNoBuilding   bool      // Include racks where dsr.building_id IS NULL. OR'd with BuildingIDs.
 	ZoneKeys            []ZoneKey // (building_id, zone) pairs. BuildingID == 0 is the wildcard sentinel.
+	TelemetryRanges     []NumericRange
 }
 
 // CollectionStore provides database operations for device collections (groups and racks).

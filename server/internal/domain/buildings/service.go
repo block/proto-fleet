@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -148,7 +149,7 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 // ListBuildings returns the filtered building list with rack counts.
 // SiteIDs and IncludeUnassigned compose additively; the store query
 // treats "both empty" as "no filter".
-func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
+func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, statsFilter fleetlistfilter.Filter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
 	// Cap the repeated filter to bound request size / query planning
 	// cost, matching the miner-list (maxFreeFormFilterValues) and
 	// rack-list (maxDeviceSetFilterValues) paths.
@@ -161,8 +162,14 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, i
 		}
 	}
 	rows, err := s.store.ListBuildings(ctx, filter)
-	if err != nil || !filter.IncludeStats || includeStatsForSite == nil {
+	if err != nil || !filter.IncludeStats {
 		return rows, err
+	}
+	if includeStatsForSite == nil {
+		if fleetlistfilter.HasFilters(statsFilter) {
+			return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings filters require stats authorization")
+		}
+		return rows, nil
 	}
 	hasStatsRow := false
 	for _, row := range rows {
@@ -179,6 +186,9 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, i
 	}
 	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite); err != nil {
 		return nil, err
+	}
+	if fleetlistfilter.HasFilters(statsFilter) {
+		rows = filterBuildingRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
 }
@@ -1490,4 +1500,32 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		stats.PsuIssueCount = issues.PsuIssueCount
 	}
 	return nil
+}
+
+func filterBuildingRowsByListStats(rows []models.BuildingWithCounts, filter fleetlistfilter.Filter) []models.BuildingWithCounts {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.ListStats == nil {
+			continue
+		}
+		stats := row.ListStats
+		if fleetlistfilter.Matches(fleetlistfilter.Stats{
+			HashrateReportingCount:    stats.HashrateReportingCount,
+			EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+			PowerReportingCount:       stats.PowerReportingCount,
+			TemperatureReportingCount: stats.TemperatureReportingCount,
+			TotalHashrateThs:          stats.TotalHashrateThs,
+			AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+			TotalPowerKw:              stats.TotalPowerKw,
+			MinTemperatureC:           stats.MinTemperatureC,
+			MaxTemperatureC:           stats.MaxTemperatureC,
+			ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+			FanIssueCount:             stats.FanIssueCount,
+			HashBoardIssueCount:       stats.HashBoardIssueCount,
+			PsuIssueCount:             stats.PsuIssueCount,
+		}, filter) {
+			out = append(out, row)
+		}
+	}
+	return out
 }

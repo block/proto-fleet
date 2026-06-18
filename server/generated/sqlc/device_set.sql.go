@@ -868,6 +868,7 @@ const getRackDetailsForDevices = `-- name: GetRackDetailsForDevices :many
 SELECT
   dsm.device_identifier,
   ds.label,
+  COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
     ELSE (
@@ -901,6 +902,7 @@ SELECT
 FROM device_set_membership dsm
 JOIN device_set ds ON dsm.device_set_id = ds.id
 LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+LEFT JOIN building b ON b.id = dsr.building_id
 LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY($2::text[])
   AND dsm.org_id = $1
@@ -917,6 +919,7 @@ type GetRackDetailsForDevicesParams struct {
 type GetRackDetailsForDevicesRow struct {
 	DeviceIdentifier string
 	Label            string
+	BuildingLabel    string
 	Position         string
 }
 
@@ -931,7 +934,12 @@ func (q *Queries) GetRackDetailsForDevices(ctx context.Context, arg GetRackDetai
 	var items []GetRackDetailsForDevicesRow
 	for rows.Next() {
 		var i GetRackDetailsForDevicesRow
-		if err := rows.Scan(&i.DeviceIdentifier, &i.Label, &i.Position); err != nil {
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.Label,
+			&i.BuildingLabel,
+			&i.Position,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

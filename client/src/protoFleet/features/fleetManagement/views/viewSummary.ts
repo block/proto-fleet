@@ -1,4 +1,5 @@
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { UNASSIGNED_URL_VALUE } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import {
   TELEMETRY_FILTER_BOUNDS,
   type TelemetryFilterKey,
@@ -79,12 +80,12 @@ const lookupDeviceSetLabels = (ids: string[], deviceSets: DeviceSet[]): string[]
   deviceSets.forEach((set) => {
     labelById.set(String(set.id), set.label);
   });
-  return ids.map((id) => labelById.get(id) ?? `#${id}`);
+  return ids.map((id) => (id === UNASSIGNED_URL_VALUE ? "Unassigned" : (labelById.get(id) ?? `#${id}`)));
 };
 
 const lookupNamedLabels = (ids: string[], items: FilterLabelSource[]): string[] => {
   const labelById = new Map<string, string>(items.map((item) => [item.id, item.label]));
-  return ids.map((id) => labelById.get(id) ?? `#${id}`);
+  return ids.map((id) => (id === UNASSIGNED_URL_VALUE ? "Unassigned" : (labelById.get(id) ?? `#${id}`)));
 };
 
 const dedupedSorted = (params: URLSearchParams, key: string): string[] =>

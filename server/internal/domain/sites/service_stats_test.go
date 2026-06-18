@@ -10,6 +10,7 @@ import (
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -269,7 +270,7 @@ func TestListSites_degradesWhenListTelemetryFails(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
 	svc := NewService(store, nil, nil, devices, telemetry, &fakeTransactor{}, nil)
 
-	rows, err := svc.ListSites(context.Background(), testOrgID, func(int64) bool { return true })
+	rows, err := svc.ListSites(context.Background(), testOrgID, fleetlistfilter.Filter{}, func(int64) bool { return true })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

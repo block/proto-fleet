@@ -1,11 +1,26 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import FilterRow from "../components/FilterRow";
 import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { useFleetOutletContext } from "../components/FleetLayout";
 import SiteList from "../components/SiteList";
-import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { issueOptions } from "@/protoFleet/components/DeviceSetList";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import {
+  FILTER_URL_PARAM_KEYS,
+  fleetListTelemetryRangesFromURL,
+  issueComponentTypesFromURL,
+  parseUrlToActiveFilters,
+  setTelemetryNumericFilterURLParams,
+} from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import {
+  TELEMETRY_FILTER_BOUNDS,
+  TELEMETRY_FILTER_KEYS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
@@ -14,11 +29,40 @@ import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
+import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
+import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 const LIST_WRAPPER = "pt-6";
 
+const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_KEYS.map((key) => ({
+  key,
+  title: TELEMETRY_FILTER_BOUNDS[key].label,
+  bounds: TELEMETRY_FILTER_BOUNDS[key],
+}));
+
 const FleetSitesPage = () => {
   const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const { listSites } = useSites();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const errorComponentTypes = useMemo(() => issueComponentTypesFromURL(searchParams), [searchParams]);
+  const telemetryRanges = useMemo(() => fleetListTelemetryRangesFromURL(searchParams), [searchParams]);
+  const selectedNumericValues = useMemo(() => parseUrlToActiveFilters(searchParams).numericFilters, [searchParams]);
+  const selectedIssues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          searchParams
+            .getAll("issues")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [searchParams],
+  );
+  const hasListFilters = errorComponentTypes.length > 0 || telemetryRanges.length > 0;
+  const [filteredSites, setFilteredSites] = useState<typeof sites>(undefined);
+  const [filteredSitesError, setFilteredSitesError] = useState<string | null>(null);
+  const [filteredSitesLoaded, setFilteredSitesLoaded] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
@@ -28,13 +72,43 @@ const FleetSitesPage = () => {
   const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites });
+  useEffect(() => {
+    if (!hasListFilters) {
+      /* eslint-disable react-hooks/set-state-in-effect -- clear the filtered-only cache when URL list filters are removed */
+      setFilteredSites(undefined);
+      setFilteredSitesError(null);
+      setFilteredSitesLoaded(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
+      return;
+    }
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess: (rows) => {
+        setFilteredSites(rows);
+        setFilteredSitesError(null);
+        setFilteredSitesLoaded(true);
+      },
+      onError: (msg) => {
+        setFilteredSitesError(msg);
+        setFilteredSites((prev) => prev ?? []);
+      },
+    });
+    return () => controller.abort();
+  }, [hasListFilters, listSites, errorComponentTypes, telemetryRanges]);
+
+  const displaySites = hasListFilters ? filteredSites : sites;
+  const displaySitesError = hasListFilters ? filteredSitesError : sitesError;
+  const displaySitesLoaded = hasListFilters ? filteredSitesLoaded : sitesLoaded;
   const visibleSiteScopes = useMemo(
     () =>
-      sites?.flatMap((site) => {
+      displaySites?.flatMap((site) => {
         if (!site.site || site.site.id === 0n) return [];
         return [{ kind: "site" as const, id: site.site.id, name: site.site.name }];
       }) ?? [],
-    [sites],
+    [displaySites],
   );
   const selectedSiteScopes = useMemo(() => {
     const selected = new Set(selectedSiteIds);
@@ -64,7 +138,65 @@ const FleetSitesPage = () => {
     [isBulkActionBusy],
   );
 
-  if (sites === undefined) {
+  const handleClearFilters = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        FILTER_URL_PARAM_KEYS.forEach((key) => next.delete(key));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
+  const filterChipsBarFilters = useMemo(
+    () => [
+      {
+        key: "issues",
+        title: "Issues",
+        pluralTitle: "issues",
+        options: issueOptions,
+        selectedValues: selectedIssues,
+        showGroupDivider: true,
+      },
+    ],
+    [selectedIssues],
+  );
+
+  const handleFilterChange = useCallback(
+    (key: string, values: string[]) => {
+      if (key !== "issues") return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("issues");
+          values.forEach((value) => {
+            const trimmed = value.trim();
+            if (trimmed) next.append("issues", trimmed);
+          });
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleNumericFilterChange = useCallback(
+    (key: string, value: NumericRangeValue) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          setTelemetryNumericFilterURLParams(next, key as TelemetryFilterKey, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  if (displaySites === undefined) {
     return (
       <FilterRow>
         <div className="text-300 text-text-primary-70">Loading…</div>
@@ -74,11 +206,11 @@ const FleetSitesPage = () => {
 
   // Full-page error only when the initial call never succeeded; later
   // failures surface inline so last-good content stays visible.
-  if (sitesError && !sitesLoaded) {
+  if (displaySitesError && !displaySitesLoaded) {
     return (
       <FilterRow testId="fleet-sites-error">
         <Header title="Couldn't load sites" titleSize="text-heading-200" />
-        <p className="text-300 text-text-primary-70">{sitesError}</p>
+        <p className="text-300 text-text-primary-70">{displaySitesError}</p>
         <Button
           variant={variants.secondary}
           size={sizes.compact}
@@ -91,12 +223,12 @@ const FleetSitesPage = () => {
   }
 
   const inlineError =
-    sitesError && sitesLoaded ? (
+    displaySitesError && displaySitesLoaded ? (
       <Callout
         intent="danger"
         prefixIcon={<Alert />}
         title="Couldn't refresh sites"
-        subtitle={sitesError}
+        subtitle={displaySitesError}
         buttonText="Retry"
         buttonOnClick={refetchSites}
         testId="fleet-sites-inline-error"
@@ -104,16 +236,28 @@ const FleetSitesPage = () => {
     ) : null;
 
   const addSiteButton: ReactNode = canManageSites ? (
-    <div className="flex items-center justify-end">
-      <Button
-        variant={variants.secondary}
-        size={sizes.compact}
-        text="Add site"
-        onClick={modals.openCreate}
-        testId="fleet-sites-add"
-      />
-    </div>
+    <Button
+      variant={variants.secondary}
+      size={sizes.compact}
+      text="Add site"
+      onClick={modals.openCreate}
+      testId="fleet-sites-add"
+    />
   ) : null;
+
+  const filterControls = (
+    <div className="flex flex-row flex-wrap items-center gap-2">
+      <FilterChipsBar
+        filters={filterChipsBarFilters}
+        onChange={handleFilterChange}
+        numericFilters={TELEMETRY_FILTER_CHIPS}
+        selectedNumericValues={selectedNumericValues}
+        onNumericChange={handleNumericFilterChange}
+        onClearAll={handleClearFilters}
+      />
+      <div className="ml-auto">{addSiteButton}</div>
+    </div>
+  );
 
   const bulkActionBar =
     selectedSiteScopes.length > 0 || isBulkActionBusy ? (
@@ -131,11 +275,19 @@ const FleetSitesPage = () => {
   // last site is deleted the stale "site"-kind picker can't reset
   // (useActiveSite skips its validator when knownSiteIds is empty), and
   // the operator still needs the create CTA.
-  if (sites.length === 0) {
+  if (!hasListFilters && displaySites.length === 0) {
     pageContent = (
       <FilterRow testId="fleet-sites-page">
         {inlineError}
         <SitesEmptyState onAddSite={canManageSites ? modals.openCreate : undefined} />
+      </FilterRow>
+    );
+  } else if (hasListFilters && displaySites.length === 0) {
+    pageContent = (
+      <FilterRow testId="fleet-sites-page">
+        {inlineError}
+        {filterControls}
+        <NoFilterResultsEmptyState hasActiveFilters onClearFilters={handleClearFilters} />
       </FilterRow>
     );
   } else if (activeSite.kind === "site") {
@@ -166,11 +318,11 @@ const FleetSitesPage = () => {
       <>
         <FilterRow testId="fleet-sites-page">
           {inlineError}
-          {addSiteButton}
+          {filterControls}
         </FilterRow>
         <div className={LIST_WRAPPER}>
           <SiteList
-            sites={sites}
+            sites={displaySites}
             onEditSite={canManageSites ? modals.openManageEdit : undefined}
             selectedIds={selectedSiteIds}
             onSelectedIdsChange={handleSelectedSiteIdsChange}
@@ -184,7 +336,7 @@ const FleetSitesPage = () => {
     <>
       {pageContent}
       {bulkActionBar}
-      <SiteModals modals={modals} sites={sites} />
+      <SiteModals modals={modals} sites={sites ?? []} />
     </>
   );
 };

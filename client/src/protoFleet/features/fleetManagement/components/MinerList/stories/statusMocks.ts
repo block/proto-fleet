@@ -79,6 +79,7 @@ const baseMeasurements = {
   rackLabel: "",
   rackPosition: "",
   siteLabel: "",
+  buildingLabel: "",
 };
 
 // ============================================================================
@@ -129,6 +130,7 @@ export const offlineMiner: MinerStateSnapshot = {
   rackLabel: "",
   rackPosition: "",
   siteLabel: "",
+  buildingLabel: "",
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -161,6 +163,7 @@ export const sleepingMiner: MinerStateSnapshot = {
   rackLabel: "",
   rackPosition: "",
   siteLabel: "",
+  buildingLabel: "",
 };
 
 // ============================================================================
@@ -192,6 +195,7 @@ export const authRequiredMiner: MinerStateSnapshot = {
   rackLabel: "",
   rackPosition: "",
   siteLabel: "",
+  buildingLabel: "",
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {

@@ -23,9 +23,10 @@ const MINER_FILTER_KEYS: readonly string[] = [
   "status",
   "issues",
   "model",
+  "site",
+  "building",
   "group",
   "rack",
-  "building",
   "firmware",
   "zone",
   "subnet",
@@ -37,7 +38,14 @@ const MINER_FILTER_KEYS: readonly string[] = [
 // deep-link shortcut; the rest are page filters / view-mode toggles operators
 // can capture into a saved view. Sort is shared by the grid dropdown and the
 // list column headers — both write to the same `?sort=&dir=` URL state.
-const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display"];
+const TELEMETRY_FILTER_KEYS: readonly string[] = Object.keys(TELEMETRY_FILTER_BOUNDS).flatMap((key) => [
+  `${key}_min`,
+  `${key}_max`,
+]);
+
+const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display", ...TELEMETRY_FILTER_KEYS];
+const BUILDING_FILTER_KEYS: readonly string[] = ["site", "issues", ...TELEMETRY_FILTER_KEYS];
+const SITE_FILTER_KEYS: readonly string[] = ["issues", ...TELEMETRY_FILTER_KEYS];
 
 const SORT_KEYS: readonly string[] = ["sort", "dir"];
 
@@ -50,8 +58,8 @@ const SORT_KEYS: readonly string[] = ["sort", "dir"];
 const FILTER_AND_SORT_KEYS_BY_TAB: Record<FleetTabId, ReadonlySet<string>> = {
   miners: new Set([...MINER_FILTER_KEYS, ...SORT_KEYS]),
   racks: new Set([...RACK_FILTER_KEYS, ...SORT_KEYS]),
-  buildings: new Set<string>(),
-  sites: new Set<string>(),
+  buildings: new Set([...BUILDING_FILTER_KEYS, ...SORT_KEYS]),
+  sites: new Set([...SITE_FILTER_KEYS, ...SORT_KEYS]),
 };
 
 /** Tabs that expose a save-worthy filter/sort surface. Used to gate "+ New view". */

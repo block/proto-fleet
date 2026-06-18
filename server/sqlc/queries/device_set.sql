@@ -519,6 +519,7 @@ ORDER BY dsm.device_identifier, ds.label;
 SELECT
   dsm.device_identifier,
   ds.label,
+  COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
     ELSE (
@@ -552,6 +553,7 @@ SELECT
 FROM device_set_membership dsm
 JOIN device_set ds ON dsm.device_set_id = ds.id
 LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+LEFT JOIN building b ON b.id = dsr.building_id
 LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1

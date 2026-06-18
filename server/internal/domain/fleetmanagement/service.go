@@ -862,6 +862,7 @@ func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshot
 		if details, ok := rackDetails[snapshot.DeviceIdentifier]; ok {
 			snapshot.RackLabel = details.Label
 			snapshot.RackPosition = details.Position
+			snapshot.BuildingLabel = details.BuildingLabel
 		}
 	}
 }

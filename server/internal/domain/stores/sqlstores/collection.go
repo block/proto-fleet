@@ -810,8 +810,9 @@ func (s *SQLCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID
 	result := make(map[string]interfaces.DeviceRackDetails)
 	for _, row := range rows {
 		result[row.DeviceIdentifier] = interfaces.DeviceRackDetails{
-			Label:    row.Label,
-			Position: row.Position,
+			Label:         row.Label,
+			Position:      row.Position,
+			BuildingLabel: row.BuildingLabel,
 		}
 	}
 	return result, nil

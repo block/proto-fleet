@@ -11,6 +11,7 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -304,7 +305,7 @@ func TestListBuildings_degradesWhenListTelemetryFails(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
 	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
 
-	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, func(*int64) bool { return true })
+	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, fleetlistfilter.Filter{}, func(*int64) bool { return true })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

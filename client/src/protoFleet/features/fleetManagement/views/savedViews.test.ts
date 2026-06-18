@@ -46,9 +46,19 @@ describe("savedViews helpers", () => {
       expect(canonicalizeSearchParams("status=offline&zone=DC1&sort=name", "racks")).toBe("sort=name&zone=DC1");
     });
 
-    it("returns empty on tabs without a saveable surface", () => {
-      expect(canonicalizeSearchParams("zone=DC1&sort=name", "buildings")).toBe("");
-      expect(canonicalizeSearchParams("anything=goes", "sites")).toBe("");
+    it("scopes filter keys to the active tab — buildings retain site, issue, telemetry, and sort state", () => {
+      expect(
+        canonicalizeSearchParams(
+          "zone=DC1&sort=name&site=7&site=null&issues=fan&hashrate_min=10&temperature_max=90",
+          "buildings",
+        ),
+      ).toBe("hashrate_min=10&issues=fan&site=7&site=null&sort=name&temperature_max=90");
+    });
+
+    it("scopes filter keys to the active tab — sites retain issue, telemetry, and sort state", () => {
+      expect(canonicalizeSearchParams("site=7&issues=psu&power_max=4.2&sort=name", "sites")).toBe(
+        "issues=psu&power_max=4.2&sort=name",
+      );
     });
   });
 
@@ -163,11 +173,11 @@ describe("savedViews helpers", () => {
   });
 
   describe("misc", () => {
-    it("TABS_WITH_SAVEABLE_STATE covers miners + racks", () => {
+    it("TABS_WITH_SAVEABLE_STATE covers every fleet tab with URL-backed filters", () => {
       expect(TABS_WITH_SAVEABLE_STATE.has("miners")).toBe(true);
       expect(TABS_WITH_SAVEABLE_STATE.has("racks")).toBe(true);
-      expect(TABS_WITH_SAVEABLE_STATE.has("buildings")).toBe(false);
-      expect(TABS_WITH_SAVEABLE_STATE.has("sites")).toBe(false);
+      expect(TABS_WITH_SAVEABLE_STATE.has("buildings")).toBe(true);
+      expect(TABS_WITH_SAVEABLE_STATE.has("sites")).toBe(true);
     });
 
     it("isSavedViewsRecordDefault detects empty record", () => {
