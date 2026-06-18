@@ -432,10 +432,17 @@ const ScopedMinerListBody = ({
 
       {shouldRenderPagination ? (
         <div
-          className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6", {
-            "pb-24": selectionMode !== "none",
-            "pb-6": selectionMode === "none",
-          })}
+          className={clsx(
+            "sticky left-0 flex flex-col items-center gap-4 pt-6",
+            // Under the page's w-max subtree this auto-width sticky bar would
+            // stretch to the table and center Prev/Next off-screen; pin it to
+            // the viewport like the rest of the page-scroll chrome.
+            overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+            {
+              "pb-24": selectionMode !== "none",
+              "pb-6": selectionMode === "none",
+            },
+          )}
           data-testid="miners-pagination"
         >
           <span className="text-300 text-text-primary">

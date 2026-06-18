@@ -1,9 +1,11 @@
 import { type ReactNode, useCallback, useMemo, useRef } from "react";
+import clsx from "clsx";
 
 import { DEFAULT_PAGE_SIZE, deviceSetColTitles, type DeviceSetColumn } from "./constants";
 import { createDeviceSetColConfig } from "./deviceSetColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -137,7 +139,14 @@ const DeviceSetList = ({
     overflowContainer,
   };
   const pagination = shouldRenderPagination ? (
-    <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
+    // In page-scroll mode pin to the viewport so the centered Prev/Next don't
+    // stretch across the full table (and off-screen) under the w-max subtree.
+    <div
+      className={clsx(
+        "sticky left-0 flex flex-col items-center gap-4 py-6",
+        overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+      )}
+    >
       <span className="text-300 text-text-primary">
         Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
       </span>
